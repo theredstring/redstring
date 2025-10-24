@@ -284,7 +284,7 @@ const AlphaOnboardingModal = ({
                 <button
                   onClick={() => {
                     if (onCreateLocal) onCreateLocal();
-                    handleClose();
+                    // Don't close modal - let it auto-close when universe loads
                   }}
                   style={{
                     padding: '6px 12px',
@@ -302,7 +302,7 @@ const AlphaOnboardingModal = ({
                 <button
                   onClick={() => {
                     if (onOpenLocal) onOpenLocal();
-                    handleClose();
+                    // Don't close modal - let it auto-close when universe loads
                   }}
                   style={{
                     padding: '6px 12px',
@@ -559,7 +559,7 @@ const AlphaOnboardingModal = ({
                     console.log('[AlphaOnboardingModal] Starting with existing GitHub connections');
                     onConnectGitHub('use-existing');
                   }
-                  handleClose();
+                  // Don't close modal - let it auto-close when universe loads
                 }}
                 style={{
                   padding: '12px 24px',
@@ -680,7 +680,7 @@ const AlphaOnboardingModal = ({
       height={700}
       position="center"
       margin={20}
-      disableBackdrop={currentStep !== 'selection'} // Disable backdrop close during onboarding
+      disableBackdrop={false} // Allow backdrop close so users can explore even without setting up
       fullScreenOverlay={currentStep !== 'selection'} // Use full screen overlay for GitHub onboarding
       {...canvasModalProps}
     >

@@ -1215,8 +1215,12 @@ function NodeCanvas() {
       }
     } catch {}
 
+    // Check if user has dismissed the onboarding modal before
+    const hasSeenOnboarding = localStorage.getItem('redstring-alpha-welcome-seen') === 'true';
+    
     const shouldShowOnboarding =
       !suppressForGitFlow &&
+      !hasSeenOnboarding &&
       !isUniverseLoading && (
         !hasUniverseFile ||
         !isUniverseLoaded ||
@@ -1225,6 +1229,16 @@ function NodeCanvas() {
 
     if (shouldShowOnboarding && !showOnboardingModal) {
       setShowOnboardingModal(true);
+    }
+    
+    // Auto-close modal when universe successfully loads
+    if (showOnboardingModal && isUniverseLoaded && hasUniverseFile && !universeLoadingError) {
+      console.log('[NodeCanvas] Universe loaded successfully, closing onboarding modal');
+      setShowOnboardingModal(false);
+      // Mark as seen when successfully completing onboarding
+      try {
+        localStorage.setItem('redstring-alpha-welcome-seen', 'true');
+      } catch {}
     }
   }, [isUniverseLoading, hasUniverseFile, isUniverseLoaded, universeLoadingError, showOnboardingModal]);
 
@@ -5582,7 +5596,7 @@ function NodeCanvas() {
         insertRelativeToNodeId: currentlySelectedNode.prototypeId
       });
       
-      addToAbstractionChain(
+      storeActions.addToAbstractionChain(
         chainOwnerPrototypeId,                   // the node whose chain we're modifying (actual chain owner)
         currentAbstractionDimension,            // dimension (Physical, Conceptual, etc.)
         abstractionPrompt.direction,            // 'above' or 'below'
@@ -10601,7 +10615,12 @@ function NodeCanvas() {
       />
 
       {/* SaveStatusDisplay Component */}
-      <SaveStatusDisplay />
+      <SaveStatusDisplay 
+        onOpenFederation={() => {
+          setLeftPanelExpanded(true);
+          setLeftPanelInitialView('federation');
+        }}
+      />
 
       {/* NodeControlPanel Component - with animation */}
       {(nodeControlPanelShouldShow || nodeControlPanelVisible) && (
@@ -10755,7 +10774,13 @@ function NodeCanvas() {
       {/* Onboarding Modal */}
       <AlphaOnboardingModal
         isVisible={showOnboardingModal}
-        onClose={() => setShowOnboardingModal(false)}
+        onClose={() => {
+          setShowOnboardingModal(false);
+          // Mark as seen when manually closing
+          try {
+            localStorage.setItem('redstring-alpha-welcome-seen', 'true');
+          } catch {}
+        }}
         onCreateLocal={async () => {
           try {
             // Set storage mode to local
@@ -10763,7 +10788,7 @@ function NodeCanvas() {
             storeActions.setStorageMode('local');
             
             // Import file storage functions
-            const { createUniverseFile, enableAutoSave } = fileStorage;
+            const { createUniverseFile, enableAutoSave, getCurrentFileHandle } = fileStorage;
             
             // Create universe file with file picker
             const initialData = await createUniverseFile();
@@ -10774,6 +10799,34 @@ function NodeCanvas() {
               
               // Enable auto-save
               enableAutoSave(() => useGraphStore.getState());
+              
+              // Bridge file handle to universeBackend so saves work without reconnection
+              // Add small delay to ensure universe backend has processed the loaded data
+              setTimeout(async () => {
+                try {
+                  const { default: universeBackend } = await import('./services/universeBackend.js');
+                  const currentFileHandle = getCurrentFileHandle();
+                  
+                  if (!currentFileHandle) {
+                    console.warn('[NodeCanvas] No file handle available to bridge');
+                    return;
+                  }
+                  
+                  // Wait briefly for universe backend to initialize
+                  await new Promise(resolve => setTimeout(resolve, 100));
+                  
+                  const activeUniverse = universeBackend.getActiveUniverse();
+                  if (activeUniverse) {
+                    await universeBackend.setFileHandle(activeUniverse.slug, currentFileHandle);
+                    console.log('[NodeCanvas] ✅ File handle bridged to universeBackend for', activeUniverse.slug);
+                  } else {
+                    console.warn('[NodeCanvas] No active universe found to bridge file handle');
+                  }
+                } catch (bridgeError) {
+                  console.warn('[NodeCanvas] Failed to bridge file handle to universeBackend:', bridgeError);
+                  // Non-fatal - fileStorage's own autosave might still work
+                }
+              }, 100);
               
               // Ensure universe connection is marked as established
               storeActions.setUniverseConnected(true);
@@ -10792,7 +10845,7 @@ function NodeCanvas() {
             storeActions.setStorageMode('local');
             
             // Import file storage functions
-            const { openUniverseFile, enableAutoSave } = fileStorage;
+            const { openUniverseFile, enableAutoSave, getCurrentFileHandle } = fileStorage;
             
             // Open universe file with file picker
             const loadedData = await openUniverseFile();
@@ -10803,6 +10856,34 @@ function NodeCanvas() {
               
               // Enable auto-save
               enableAutoSave(() => useGraphStore.getState());
+              
+              // Bridge file handle to universeBackend so saves work without reconnection
+              // Add small delay to ensure universe backend has processed the loaded data
+              setTimeout(async () => {
+                try {
+                  const { default: universeBackend } = await import('./services/universeBackend.js');
+                  const currentFileHandle = getCurrentFileHandle();
+                  
+                  if (!currentFileHandle) {
+                    console.warn('[NodeCanvas] No file handle available to bridge');
+                    return;
+                  }
+                  
+                  // Wait briefly for universe backend to initialize
+                  await new Promise(resolve => setTimeout(resolve, 100));
+                  
+                  const activeUniverse = universeBackend.getActiveUniverse();
+                  if (activeUniverse) {
+                    await universeBackend.setFileHandle(activeUniverse.slug, currentFileHandle);
+                    console.log('[NodeCanvas] ✅ File handle bridged to universeBackend for', activeUniverse.slug);
+                  } else {
+                    console.warn('[NodeCanvas] No active universe found to bridge file handle');
+                  }
+                } catch (bridgeError) {
+                  console.warn('[NodeCanvas] Failed to bridge file handle to universeBackend:', bridgeError);
+                  // Non-fatal - fileStorage's own autosave might still work
+                }
+              }, 100);
               
               // Ensure universe connection is marked as established
               storeActions.setUniverseConnected(true);

@@ -500,7 +500,7 @@ const AbstractionCarousel = ({
     if (!abstractionChainWithDims.length) return -6;
     // Find the most abstract reachable level (exclude Thing if marked as non-reachable)
     const reachableLevels = abstractionChainWithDims
-      .filter(n => !n.isNonReachable && (n.type === 'current' || n.type === 'generic'))
+      .filter(n => !n.isNonReachable && (n.type === 'current' || n.type === 'generic' || n.type === 'related'))
       .map(n => n.level);
     
     if (reachableLevels.length === 0) return -6;
@@ -522,7 +522,7 @@ const AbstractionCarousel = ({
     if (!abstractionChainWithDims.length) return 6;
     // Find the most specific reachable level
     const reachableLevels = abstractionChainWithDims
-      .filter(n => !n.isNonReachable && (n.type === 'current' || n.type === 'generic'))
+      .filter(n => !n.isNonReachable && (n.type === 'current' || n.type === 'generic' || n.type === 'related'))
       .map(n => n.level);
     
     if (reachableLevels.length === 0) return 6;
@@ -920,7 +920,7 @@ const AbstractionCarousel = ({
     const currentPos = physicsStateRef.current.realPosition;
     const rounded = Math.round(currentPos);
     const levels = abstractionChainWithDims
-      .filter(n => !n.isNonReachable && (n.type === 'current' || n.type === 'generic'))
+      .filter(n => !n.isNonReachable && (n.type === 'current' || n.type === 'generic' || n.type === 'related'))
       .map(n => n.level);
     const min = Math.min(...levels);
     const max = Math.max(...levels);
@@ -995,7 +995,7 @@ const AbstractionCarousel = ({
   // Compute hint placement levels and positions
   const reachableChainLevels = useMemo(() => {
     return abstractionChainWithDims
-      .filter(n => !n.isNonReachable && (n.type === 'current' || n.type === 'generic'))
+      .filter(n => !n.isNonReachable && (n.type === 'current' || n.type === 'generic' || n.type === 'related'))
       .map(n => n.level);
   }, [abstractionChainWithDims]);
 
