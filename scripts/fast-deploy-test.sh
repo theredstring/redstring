@@ -21,7 +21,7 @@ BLUE='\033[0;34m'
 BOLD='\033[1m'
 NC='\033[0m' # No Color
 
-PROJECT_ID="your-project-id"
+PROJECT_ID="redstring-470201"
 SERVICE_NAME="redstring-test"
 REGION="us-central1"
 PORT="4000"

@@ -100,6 +100,49 @@ const discoverUniversesWithStats = async (provider) => {
   const stats = { scannedDirs: 0, candidates: 0, valid: 0, invalid: 0 };
   const universes = [];
 
+  const normalizePathValue = (value) => {
+    if (provider && typeof provider.normalizePathInput === 'function') {
+      const normalized = provider.normalizePathInput(value);
+      if (typeof normalized === 'string') {
+        return normalized.replace(/^\/+/, '').replace(/\/+$/, '');
+      }
+    }
+
+    if (value == null) {
+      return '';
+    }
+
+    if (typeof value === 'string') {
+      if (value === '[object Object]') {
+        return '';
+      }
+      return value.replace(/^\/+/, '').replace(/\/+$/, '');
+    }
+
+    if (Array.isArray(value)) {
+      return value.filter(Boolean).join('/');
+    }
+
+    if (typeof value === 'object') {
+      if (typeof value.path === 'string') return normalizePathValue(value.path);
+      if (typeof value.fullPath === 'string') return normalizePathValue(value.fullPath);
+      if (typeof value.relativePath === 'string') return normalizePathValue(value.relativePath);
+      if (Array.isArray(value.segments)) return normalizePathValue(value.segments);
+      if (typeof value.toString === 'function' && value.toString !== Object.prototype.toString) {
+        return normalizePathValue(value.toString());
+      }
+      return '';
+    }
+
+    const fallback = String(value);
+    return fallback === '[object Object]' ? '' : fallback;
+  };
+
+  const joinPaths = (...parts) => parts
+    .map(part => normalizePathValue(part))
+    .filter(segment => segment.length > 0)
+    .join('/');
+
   const tryParseRedstring = (text) => {
     try {
       const data = JSON.parse(text);
@@ -121,25 +164,31 @@ const discoverUniversesWithStats = async (provider) => {
 
   const collectFromDir = async (dirPath) => {
     stats.scannedDirs += 1;
-    const items = await provider.listDirectoryContents(dirPath);
+    const safeDirPath = normalizePathValue(dirPath);
+    const items = await provider.listDirectoryContents(safeDirPath);
     for (const item of items) {
       if (item.type === 'dir') {
-        await collectFromDir(item.path);
+        const nextDirPath = normalizePathValue(item.path) || joinPaths(safeDirPath, item.name);
+        if (!nextDirPath) {
+          continue;
+        }
+        await collectFromDir(nextDirPath);
         continue;
       }
       if (item.type === 'file' && /\.redstring$/i.test(item.name)) {
         stats.candidates += 1;
         const base = item.name.replace(/\.redstring$/i, '');
+        const itemPath = normalizePathValue(item.path) || joinPaths(safeDirPath, item.name);
         const discovered = {
           name: base,
           slug: base,
-          path: item.path,
+          path: itemPath,
           fileName: item.name,
           metadata: {}
         };
         try {
           // Best-effort: extract simple metrics for nicer UI
-          const content = await provider.readFileRaw(item.path);
+          const content = await provider.readFileRaw(itemPath);
           const metrics = tryParseRedstring(content);
           if (metrics.nodeCount != null) discovered.metadata.nodeCount = metrics.nodeCount;
           if (metrics.graphCount != null) discovered.metadata.graphCount = metrics.graphCount;
@@ -167,7 +216,7 @@ const discoverUniversesWithStats = async (provider) => {
           universes.push({
             name: base,
             slug: base,
-            path: item.path,
+            path: normalizePathValue(item.path) || item.name,
             fileName: item.name,
             metadata: {}
           });

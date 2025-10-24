@@ -13,7 +13,7 @@ cd "${REPO_ROOT}"
 # Start timing
 START_TIME=$(date +%s)
 
-PROJECT_ID="your-project-id"
+PROJECT_ID="redstring-470201"
 SERVICE_NAME="redstring-test"
 REGION="us-central1"
 PORT="8080"

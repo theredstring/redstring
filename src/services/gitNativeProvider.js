@@ -20,6 +20,82 @@ export class SemanticProvider {
   }
 
   /**
+   * Normalize arbitrary path-like inputs into a predictable string.
+   * Accept plain strings, arrays of segments, or objects with common fields.
+   */
+  normalizePathInput(input) {
+    if (input == null) {
+      return '';
+    }
+
+    if (typeof input === 'string') {
+      return input;
+    }
+
+    if (Array.isArray(input)) {
+      return input.filter(Boolean).join('/');
+    }
+
+    if (typeof input === 'object') {
+      if (typeof input.path === 'string') {
+        return input.path;
+      }
+      if (typeof input.fullPath === 'string') {
+        return input.fullPath;
+      }
+      if (typeof input.relativePath === 'string') {
+        return input.relativePath;
+      }
+      if (typeof input.dir === 'string') {
+        return input.dir;
+      }
+      if (Array.isArray(input.segments)) {
+        return input.segments.filter(Boolean).join('/');
+      }
+      if (typeof input.pathname === 'string') {
+        return input.pathname.replace(/^\//, '');
+      }
+      if (typeof input.toString === 'function' && input.toString !== Object.prototype.toString) {
+        const stringValue = input.toString();
+        if (stringValue && stringValue !== '[object Object]') {
+          return stringValue;
+        }
+      }
+      return '';
+    }
+
+    return String(input);
+  }
+
+  /**
+   * Produce display and API-safe variants of a path.
+   */
+  resolvePathInput(input, { trimTrailing = true } = {}) {
+    let normalized = this.normalizePathInput(input);
+
+    if (!normalized) {
+      return { displayPath: '', apiPath: '' };
+    }
+
+    normalized = normalized.replace(/^\/+/, '');
+    if (trimTrailing) {
+      normalized = normalized.replace(/\/+$/, '');
+    }
+
+    if (!normalized) {
+      return { displayPath: '', apiPath: '' };
+    }
+
+    const segments = normalized.split('/').filter(segment => segment.length > 0);
+    const apiPath = segments.map(segment => encodeURIComponent(segment)).join('/');
+
+    return {
+      displayPath: normalized,
+      apiPath
+    };
+  }
+
+  /**
    * Authenticate with the provider
    * @returns {Promise<AuthToken>} Authentication token
    */
@@ -386,22 +462,24 @@ This repository was automatically initialized by Redstring UI React. You can now
   }
 
   async listDirectoryContents(dirPath = '') {
+    const { displayPath, apiPath } = this.resolvePathInput(dirPath);
+    const resolvedLabel = displayPath || 'root';
+
     try {
-      const path = dirPath || '';
-      const url = `${this.rootUrl}/${path}`;
+      const url = apiPath ? `${this.rootUrl}/${apiPath}` : `${this.rootUrl}/`;
 
       const headers = {
         'Authorization': this.getAuthHeader(),
         'Accept': 'application/vnd.github.v3+json'
       };
 
-      console.log(`[GitHubSemanticProvider] Checking for universes in: ${path || 'root'}`);
+      console.log(`[GitHubSemanticProvider] Checking for universes in: ${resolvedLabel}`);
 
       // Use direct fetch instead of githubRateLimiter to avoid import issues
       const response = await fetch(url, { headers });
 
       if (response.status === 404) {
-        console.log(`[GitHubSemanticProvider] Directory '${path || 'root'}' not found (expected during discovery)`);
+        console.log(`[GitHubSemanticProvider] Directory '${resolvedLabel}' not found (expected during discovery)`);
         return []; // Directory doesn't exist
       }
 
@@ -416,16 +494,19 @@ This repository was automatically initialized by Redstring UI React. You can now
         return []; // Not a directory
       }
 
-      return data.map(item => ({
-        name: item.name,
-        type: item.type, // 'file' or 'dir'
-        path: item.path,
-        size: item.size,
-        sha: item.sha
-      }));
+      return data.map(item => {
+        const safePath = this.normalizePathInput(item.path).replace(/^\/+/, '').replace(/\/+$/, '');
+        return {
+          name: item.name,
+          type: item.type, // 'file' or 'dir'
+          path: safePath,
+          size: item.size,
+          sha: item.sha
+        };
+      });
 
     } catch (error) {
-      console.error(`[GitHubSemanticProvider] Failed to list directory ${dirPath}:`, error);
+      console.error(`[GitHubSemanticProvider] Failed to list directory ${resolvedLabel}:`, error);
       return [];
     }
   }
@@ -530,7 +611,11 @@ This repository was automatically initialized by Redstring UI React. You can now
   // Helper methods
   async getFileInfo(path) {
     try {
-      const response = await githubAPI.request(`${this.rootUrl}/${path}`);
+      const { apiPath } = this.resolvePathInput(path, { trimTrailing: false });
+      if (!apiPath) {
+        return null;
+      }
+      const response = await githubAPI.request(`${this.rootUrl}/${apiPath}`);
       
       if (response.status === 404) {
         return null;
@@ -547,18 +632,23 @@ This repository was automatically initialized by Redstring UI React. You can now
   }
 
   async writeFileRaw(path, content) {
+    const { displayPath: safePath, apiPath } = this.resolvePathInput(path, { trimTrailing: false });
+    if (!apiPath) {
+      throw new Error('Invalid path provided to writeFileRaw');
+    }
+
     try {
       // AGGRESSIVE RATE LIMITING: Check and enforce stricter limits
       await githubRateLimiter.waitForAvailability(this.authMethod);
       
       // Additional rate limiting: Prevent identical content writes
       const contentHash = this.generateContentHash(content);
-      const cacheKey = `${path}_${contentHash}`;
+      const cacheKey = `${safePath}_${contentHash}`;
       const lastWrite = this.lastWrites?.get?.(cacheKey);
       const now = Date.now();
       
       if (lastWrite && (now - lastWrite) < 1500) {
-        console.log(`[GitHubSemanticProvider] Redundant write prevented for ${path} (identical content within 1.5s)`);
+        console.log(`[GitHubSemanticProvider] Redundant write prevented for ${safePath} (identical content within 1.5s)`);
         return { message: 'Redundant write prevented' };
       }
       
@@ -571,29 +661,29 @@ This repository was automatically initialized by Redstring UI React. You can now
       let existingFile = null;
       try {
         githubRateLimiter.recordRequest(this.authMethod);
-        existingFile = await this.getFileInfo(path);
+        existingFile = await this.getFileInfo(safePath);
       } catch (error) {
         // File doesn't exist, that's fine for new files
-        console.log(`[GitHubSemanticProvider] File ${path} doesn't exist, will create new`);
+        console.log(`[GitHubSemanticProvider] File ${safePath} doesn't exist, will create new`);
       }
 
       const body = {
-        message: `Update ${path}`,
+        message: `Update ${safePath}`,
         content: this.utf8ToBase64(content)
       };
 
       // Only include SHA if we have a valid existing file
       if (existingFile?.sha) {
         body.sha = existingFile.sha;
-        console.log(`[GitHubSemanticProvider] OVERWRITER: Updating ${path} with SHA: ${existingFile.sha.substring(0, 8)}`);
+        console.log(`[GitHubSemanticProvider] OVERWRITER: Updating ${safePath} with SHA: ${existingFile.sha.substring(0, 8)}`);
       } else {
-        console.log(`[GitHubSemanticProvider] OVERWRITER: Creating new file ${path}`);
+        console.log(`[GitHubSemanticProvider] OVERWRITER: Creating new file ${safePath}`);
       }
 
       // Record the main request
       githubRateLimiter.recordRequest(this.authMethod);
       
-      const response = await fetch(`${this.rootUrl}/${path}`, {
+      const response = await fetch(`${this.rootUrl}/${apiPath}`, {
         method: 'PUT',
         headers: {
           'Authorization': this.getAuthHeader(),
@@ -642,14 +732,14 @@ This repository was automatically initialized by Redstring UI React. You can now
         
         // Handle 409 conflict with MUCH more aggressive backoff
         if (response.status === 409) {
-          console.log(`[GitHubSemanticProvider] 409 conflict for ${path}, using AGGRESSIVE backoff...`);
+          console.log(`[GitHubSemanticProvider] 409 conflict for ${safePath}, using AGGRESSIVE backoff...`);
           
           // Retry up to 3 times with reasonable exponential backoff
           for (let attempt = 1; attempt <= 3; attempt++) {
             try {
               // Reasonable backoff: 1s, 3s, 9s - responsive but prevents conflicts
               const backoffDelay = Math.min(1000 * Math.pow(3, attempt - 1), 9000);
-              console.log(`[GitHubSemanticProvider] Retry ${attempt} for ${path}, waiting ${backoffDelay}ms...`);
+              console.log(`[GitHubSemanticProvider] Retry ${attempt} for ${safePath}, waiting ${backoffDelay}ms...`);
               await new Promise(resolve => setTimeout(resolve, backoffDelay));
               
               // Check rate limit before retry
@@ -657,13 +747,13 @@ This repository was automatically initialized by Redstring UI React. You can now
               
               // Get fresh file info
               githubRateLimiter.recordRequest(this.authMethod);
-              const freshFile = await this.getFileInfo(path);
+              const freshFile = await this.getFileInfo(safePath);
               if (freshFile?.sha) {
                 body.sha = freshFile.sha;
                 console.log(`[GitHubSemanticProvider] Retry ${attempt} with fresh SHA: ${freshFile.sha.substring(0, 8)}`);
                 
                 githubRateLimiter.recordRequest(this.authMethod);
-                const retryResponse = await fetch(`${this.rootUrl}/${path}`, {
+                const retryResponse = await fetch(`${this.rootUrl}/${apiPath}`, {
                   method: 'PUT',
                   headers: {
                     'Authorization': this.getAuthHeader(),
@@ -704,10 +794,10 @@ This repository was automatically initialized by Redstring UI React. You can now
         
         throw new Error(`GitHub OVERWRITER failed: ${response.status} ${text}`);
       }
-
+      
       // Cache successful write
       this.lastWrites.set(cacheKey, now);
-      console.log(`[GitHubSemanticProvider] OVERWRITER write successful for ${path}`);
+      console.log(`[GitHubSemanticProvider] OVERWRITER write successful for ${safePath}`);
       return await response.json();
     } catch (e) {
       console.error('[GitHubSemanticProvider] OVERWRITER writeFileRaw failed:', e);
@@ -727,12 +817,13 @@ This repository was automatically initialized by Redstring UI React. You can now
   }
 
   async readFileRaw(path) {
+    const { displayPath: safePath } = this.resolvePathInput(path, { trimTrailing: false });
     try {
-      const info = await this.getFileInfo(path);
+      const info = await this.getFileInfo(safePath);
       if (!info) {
         // File not found - this is expected for new files, so don't log as error
-        console.log(`[GitHubSemanticProvider] File not found: ${path}`);
-        throw new Error(`File not found: ${path}`);
+        console.log(`[GitHubSemanticProvider] File not found: ${safePath}`);
+        throw new Error(`File not found: ${safePath}`);
       }
       return this.base64ToUtf8(info.content);
     } catch (e) {
@@ -1035,7 +1126,11 @@ export class GiteaSemanticProvider extends SemanticProvider {
 
   async getFileInfo(path) {
     try {
-      const response = await fetch(`${this.rootUrl}/${path}?ref=main`, {
+      const { apiPath } = this.resolvePathInput(path, { trimTrailing: false });
+      if (!apiPath) {
+        return null;
+      }
+      const response = await fetch(`${this.rootUrl}/${apiPath}?ref=main`, {
         headers: {
           'Authorization': `token ${this.token}`
         }
@@ -1049,15 +1144,20 @@ export class GiteaSemanticProvider extends SemanticProvider {
   }
 
   async writeFileRaw(path, content) {
+    const { displayPath: safePath, apiPath } = this.resolvePathInput(path, { trimTrailing: false });
+    if (!apiPath) {
+      throw new Error('Invalid path provided to writeFileRaw');
+    }
+
     try {
       // Rate limiting: Prevent identical content writes
       const contentHash = this.generateContentHash(content);
-      const cacheKey = `${path}_${contentHash}`;
+      const cacheKey = `${safePath}_${contentHash}`;
       const lastWrite = this.lastWrites?.get?.(cacheKey);
       const now = Date.now();
       
       if (lastWrite && (now - lastWrite) < 1500) {
-        console.log(`[GiteaSemanticProvider] Redundant write prevented for ${path} (identical content within 1.5s)`);
+        console.log(`[GiteaSemanticProvider] Redundant write prevented for ${safePath} (identical content within 1.5s)`);
         return { message: 'Redundant write prevented' };
       }
       
@@ -1069,15 +1169,15 @@ export class GiteaSemanticProvider extends SemanticProvider {
       // First try to get the current file info to get the latest SHA
       let fileInfo = null;
       try {
-        fileInfo = await this.getFileInfo(path);
+        fileInfo = await this.getFileInfo(safePath);
       } catch (error) {
         // File doesn't exist, that's fine for new files
-        console.log(`[GiteaSemanticProvider] File ${path} doesn't exist, will create new`);
+        console.log(`[GiteaSemanticProvider] File ${safePath} doesn't exist, will create new`);
       }
 
       const method = fileInfo?.sha ? 'PUT' : 'POST';
       const body = {
-        message: `Update ${path}`,
+        message: `Update ${safePath}`,
         content: this.utf8ToBase64(content),
         branch: 'main'
       };
@@ -1085,12 +1185,12 @@ export class GiteaSemanticProvider extends SemanticProvider {
       // Only include SHA if we have a valid existing file
       if (fileInfo?.sha) {
         body.sha = fileInfo.sha;
-        console.log(`[GiteaSemanticProvider] OVERWRITER: Updating ${path} with SHA: ${fileInfo.sha.substring(0, 8)}`);
+        console.log(`[GiteaSemanticProvider] OVERWRITER: Updating ${safePath} with SHA: ${fileInfo.sha.substring(0, 8)}`);
       } else {
-        console.log(`[GiteaSemanticProvider] OVERWRITER: Creating new file ${path}`);
+        console.log(`[GiteaSemanticProvider] OVERWRITER: Creating new file ${safePath}`);
       }
 
-      const response = await fetch(`${this.rootUrl}/${path}`, {
+      const response = await fetch(`${this.rootUrl}/${apiPath}`, {
         method,
         headers: {
           'Authorization': `token ${this.token}`,
@@ -1104,23 +1204,23 @@ export class GiteaSemanticProvider extends SemanticProvider {
         
         // Handle 409 conflict with aggressive backoff
         if (response.status === 409) {
-          console.log(`[GiteaSemanticProvider] 409 conflict for ${path}, using AGGRESSIVE backoff...`);
+          console.log(`[GiteaSemanticProvider] 409 conflict for ${safePath}, using AGGRESSIVE backoff...`);
           
           // Retry up to 3 times with reasonable backoff
           for (let attempt = 1; attempt <= 3; attempt++) {
             try {
               // Reasonable backoff: 1s, 3s, 9s - responsive but prevents conflicts
               const backoffDelay = Math.min(1000 * Math.pow(3, attempt - 1), 9000);
-              console.log(`[GiteaSemanticProvider] Retry ${attempt} for ${path}, waiting ${backoffDelay}ms...`);
+              console.log(`[GiteaSemanticProvider] Retry ${attempt} for ${safePath}, waiting ${backoffDelay}ms...`);
               await new Promise(resolve => setTimeout(resolve, backoffDelay));
               
               // Get the latest SHA and retry
-              const freshFile = await this.getFileInfo(path);
+              const freshFile = await this.getFileInfo(safePath);
               if (freshFile?.sha) {
                 body.sha = freshFile.sha;
                 console.log(`[GiteaSemanticProvider] Retry ${attempt} with fresh SHA: ${freshFile.sha.substring(0, 8)}`);
                 
-                const retryResponse = await fetch(`${this.rootUrl}/${path}`, {
+                const retryResponse = await fetch(`${this.rootUrl}/${apiPath}`, {
                   method: 'PUT',
                   headers: {
                     'Authorization': `token ${this.token}`,
@@ -1160,10 +1260,10 @@ export class GiteaSemanticProvider extends SemanticProvider {
         
         throw new Error(`Gitea OVERWRITER failed: ${response.status} ${text}`);
       }
-
+      
       // Cache successful write
       this.lastWrites.set(cacheKey, now);
-      console.log(`[GiteaSemanticProvider] OVERWRITER write successful for ${path}`);
+      console.log(`[GiteaSemanticProvider] OVERWRITER write successful for ${safePath}`);
       return await response.json();
     } catch (e) {
       console.error('[GiteaSemanticProvider] OVERWRITER writeFileRaw failed:', e);
@@ -1183,12 +1283,13 @@ export class GiteaSemanticProvider extends SemanticProvider {
   }
 
   async readFileRaw(path) {
+    const { displayPath: safePath } = this.resolvePathInput(path, { trimTrailing: false });
     try {
-      const info = await this.getFileInfo(path);
+      const info = await this.getFileInfo(safePath);
       if (!info) {
         // File not found - this is expected for new files, so don't log as error
-        console.log(`[GiteaSemanticProvider] File not found: ${path}`);
-        throw new Error(`File not found: ${path}`);
+        console.log(`[GiteaSemanticProvider] File not found: ${safePath}`);
+        throw new Error(`File not found: ${safePath}`);
       }
       return this.base64ToUtf8(info.content);
     } catch (e) {
