@@ -1,0 +1,4 @@
+/* NodeType component styles are now handled inline for better dynamic control */
+.node-type-item {
+  /* Base styles moved to inline styling in NodeType.jsx */
+}

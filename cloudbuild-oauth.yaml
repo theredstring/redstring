@@ -1,0 +1,10 @@
+steps:
+  - name: 'gcr.io/cloud-builders/docker'
+    args: [
+      'build', 
+      '-f', 'oauth-app.Dockerfile',
+      '-t', 'gcr.io/$PROJECT_ID/redstring-oauth-app:latest',
+      '.'
+    ]
+  - name: 'gcr.io/cloud-builders/docker'
+    args: ['push', 'gcr.io/$PROJECT_ID/redstring-oauth-app:latest']

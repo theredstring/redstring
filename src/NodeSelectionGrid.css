@@ -1,0 +1,81 @@
+/* NodeSelectionGrid.css */
+
+/* Fade-in animation for the grid */
+.node-selection-grid-container {
+  animation: nodeGridFadeIn 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+@keyframes nodeGridFadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(-20px) scale(0.9);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+/* Hover animation for grid items */
+.node-grid-item {
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  will-change: transform, box-shadow;
+}
+
+.node-grid-item:hover {
+  transform: scale(1.05) translateY(-2px);
+  box-shadow: 0 8px 16px rgba(0, 0, 0, 0.3);
+  z-index: 10;
+  position: relative;
+}
+
+.node-grid-item:active {
+  transform: scale(0.98) translateY(1px);
+  transition: transform 0.1s ease;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+}
+
+/* Smooth scrolling feedback */
+.node-selection-grid-container::before {
+  content: '';
+  position: absolute;
+  top: -5px;
+  left: 0;
+  right: 0;
+  height: 5px;
+  background: linear-gradient(to bottom, rgba(189, 181, 181, 0.3), transparent);
+  pointer-events: none;
+  z-index: 1;
+}
+
+.node-selection-grid-container::after {
+  content: '';
+  position: absolute;
+  bottom: -5px;
+  left: 0;
+  right: 0;
+  height: 5px;
+  background: linear-gradient(to top, rgba(189, 181, 181, 0.3), transparent);
+  pointer-events: none;
+  z-index: 1;
+}
+
+/* Selection feedback animation */
+.node-grid-item.selecting {
+  animation: selectPulse 0.3s ease-out;
+}
+
+@keyframes selectPulse {
+  0% {
+    transform: scale(1);
+    box-shadow: 0 0 0 0 rgba(128, 0, 0, 0.7);
+  }
+  50% {
+    transform: scale(1.1);
+    box-shadow: 0 0 0 10px rgba(128, 0, 0, 0);
+  }
+  100% {
+    transform: scale(1);
+    box-shadow: 0 0 0 0 rgba(128, 0, 0, 0);
+  }
+} 

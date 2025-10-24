@@ -1,0 +1,100 @@
+/* Modal Components Styles */
+
+/* Canvas Modal Styles */
+.canvas-modal {
+  /* Additional canvas modal specific styles can go here */
+}
+
+.canvas-modal:focus {
+  outline: 2px solid #8B0000;
+  outline-offset: 2px;
+}
+
+/* Panel Modal Styles */
+.panel-modal {
+  /* Additional panel modal specific styles can go here */
+}
+
+.panel-modal:focus {
+  outline: 2px solid #8B0000;
+  outline-offset: 2px;
+}
+
+/* Modal Animations */
+@keyframes modalFadeIn {
+  from {
+    opacity: 0;
+    transform: scale(0.95);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+.canvas-modal,
+.panel-modal {
+  animation: modalFadeIn 0.2s ease-out;
+}
+
+/* Responsive adjustments */
+@media (max-width: 768px) {
+  .canvas-modal,
+  .panel-modal {
+    width: 90vw !important;
+    max-width: none !important;
+  }
+}
+
+/* High contrast mode support */
+@media (prefers-contrast: high) {
+  .canvas-modal,
+  .panel-modal {
+    border-width: 3px;
+    box-shadow: 0 12px 48px rgba(0, 0, 0, 0.5);
+  }
+}
+
+/* Reduced motion support */
+@media (prefers-reduced-motion: reduce) {
+  .canvas-modal,
+  .panel-modal {
+    animation: none;
+  }
+}
+
+/* Alpha Onboarding Modal Scrollbar */
+.alpha-modal-content::-webkit-scrollbar {
+  width: 20px;
+}
+
+.alpha-modal-content::-webkit-scrollbar-track {
+  background: rgba(38, 0, 0, 0.05);
+  border-radius: 4px;
+}
+
+.alpha-modal-content::-webkit-scrollbar-thumb {
+  background-color: rgba(38, 0, 0, 0.1);
+  border-radius: 4px;
+  border: 6px solid transparent;
+  background-clip: content-box;
+  transition: background-color 0.3s ease, border-width 0.3s ease;
+  min-height: 20px;
+}
+
+.alpha-modal-content:hover::-webkit-scrollbar-thumb,
+.alpha-modal-content.scrolling::-webkit-scrollbar-thumb {
+  background-color: #260000;
+  border-width: 4px;
+}
+
+/* Firefox scrollbar */
+.alpha-modal-content {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(38, 0, 0, 0.1) rgba(38, 0, 0, 0.05);
+  transition: scrollbar-color 0.3s ease;
+}
+
+.alpha-modal-content.scrolling {
+  scrollbar-color: #260000 rgba(38, 0, 0, 0.1);
+}

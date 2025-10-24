@@ -1,0 +1,162 @@
+# AI Instructions for Redstring UI React
+
+## Project Overview
+Redstring is a semantic knowledge graph application that allows users to create, connect, and explore concepts through visual nodes and relationships. The system integrates with semantic web technologies including Wikidata, DBpedia, and Wikipedia.
+
+## Recent Enhancements (Latest)
+
+### Local-First Storage Architecture (2025-01)
+- **Critical Architectural Change**: Rewrote `forceSave` to support multi-storage sync instead of Git-centric priority system
+- **Multi-Storage Sync**: When saving, system saves to ALL enabled storage locations to keep them in sync:
+  - Local file (if linked and has handle)
+  - Git repository (if linked and authenticated)
+  - Browser storage (always, as cache)
+- **Source of Truth**: Only matters when LOADING data (to resolve conflicts), not when SAVING
+- **Git Opt-In**: Git only activates when user explicitly links a repository - no automatic creation
+- **Independent Local Storage**: Local `.redstring` files work completely independently without Git interference
+- **User Privacy**: GitHub cannot access data unless user explicitly enables Git federation
+- **Resilience**: If one storage method fails, others still succeed
+- **Key Changes**: `src/services/universeBackend.js` (lines 932-1073) - Complete rewrite of `forceSave` method
+- **Philosophy**: Storage options are additive, not exclusive. Git federation is a feature you opt into.
+- **Documentation**: `GIT_FEDERATION.md` - Local-First Storage Architecture section
+
+### Format Versioning System (2025-01)
+- **Comprehensive Versioning**: Implemented versioning system for `.redstring` file format to protect user data during updates
+- **Automatic Migration**: Files from older versions (v1.0.0, v2.0.0-semantic) are automatically migrated to current version (v3.0.0)
+- **Version Validation**: Files are validated before import with clear error messages for incompatible versions
+- **User Feedback**: Migration progress is shown to users with clear status messages
+- **Developer Documentation**: Complete guide in `REDSTRING_FORMAT_VERSIONING.md` for maintaining and extending the system
+- **Key Files**:
+  - `src/formats/redstringFormat.js`: Version constants, validation, and migration logic
+  - `src/GitNativeFederation.jsx`: UI integration with validation messages
+  - `GIT_FEDERATION.md`: User-facing documentation
+  - `REDSTRING_FORMAT_VERSIONING.md`: Developer guide and API reference
+
+### Enhanced Semantic Search System
+- **Comprehensive DBpedia Search**: Implemented `comprehensiveDBpediaSearch()` function that explores all DBpedia relationships for an entity, including:
+  - Main entity properties and metadata
+  - Related entities through `wikiPageWikiLink` properties
+  - Entities in the same categories
+  - Property categorization (relationships, categories, attributes, external links)
+
+- **Enhanced Semantic Search**: Created `enhancedSemanticSearch()` function that integrates multiple sources:
+  - DBpedia (primary source, 70% of results)
+  - Wikidata (secondary source, 20% of results) 
+  - Wikipedia (tertiary source, 10% of results)
+  - Results in format compatible with semantic discovery interface
+
+- **SameAs Consolidation**: Implemented `consolidateSameAsResults()` to merge duplicate entities across different sources (Wikidata/DBpedia)
+
+- **Property-Based Relationships**: Enhanced `findRelatedThroughDBpediaProperties()` to find semantically related entities through shared properties
+
+### Semantic Discovery Integration
+- Updated semantic discovery interface to use enhanced search functions
+- Replaced `knowledgeFederation.importKnowledgeCluster()` with `enhancedSemanticSearch()`
+- Added comprehensive logging for debugging and monitoring
+- Increased timeout and result limits for better coverage
+
+### Error Handling & Performance
+- Fixed stale node reference warnings in semantic discovery
+- Added session-based warning tracking to prevent repeated console spam
+- Implemented timeout management for external API calls
+- Added fallback mechanisms for failed searches
+
+## Core Architecture
+
+### Semantic Web Integration
+- **Wikidata**: Direct SPARQL queries with fuzzy search support
+- **DBpedia**: Property-based relationship discovery and category matching
+- **Wikipedia**: API integration for article summaries and search
+- **Local Knowledge Graph**: Semantic similarity algorithms and relationship mapping
+
+### Search Strategies
+1. **Direct Entity Search**: Exact and fuzzy matching across sources
+2. **Property-Based Search**: Finding entities through shared properties
+3. **Category-Based Search**: Discovering concepts in related categories
+4. **Relationship Traversal**: Following semantic connections between entities
+
+### Data Flow
+1. User searches for concept (e.g., "LittleBigPlanet")
+2. Enhanced search queries multiple sources in parallel
+3. Results are consolidated and deduplicated
+4. SameAs relationships are merged
+5. Results are formatted for semantic discovery interface
+6. User sees comprehensive list of related concepts with connection information
+
+## Key Functions
+
+### `enhancedSemanticSearch(entityName, options)`
+- Main entry point for semantic discovery
+- Returns structured results with entities and relationships
+- Handles timeouts and fallbacks gracefully
+
+### `comprehensiveDBpediaSearch(entityName, options)`
+- Deep exploration of DBpedia entity relationships
+- Categorizes properties by type (relationships, categories, attributes)
+- Finds related entities through multiple strategies
+
+### `findRelatedThroughDBpediaProperties(entityName, options)`
+- Discovers entities linked through `wikiPageWikiLink` properties
+- Creates semantic relationship network
+- Provides connection context for each related entity
+
+## Usage Examples
+
+### Basic Semantic Search
+```javascript
+import { enhancedSemanticSearch } from './services/semanticWebQuery.js';
+
+const results = await enhancedSemanticSearch('LittleBigPlanet', {
+  timeout: 25000,
+  limit: 50,
+  includeWikipedia: true
+});
+
+console.log(`Found ${results.metadata.totalEntities} entities`);
+console.log(`Found ${results.metadata.totalRelationships} relationships`);
+```
+
+### Comprehensive DBpedia Exploration
+```javascript
+import { comprehensiveDBpediaSearch } from './services/semanticWebQuery.js';
+
+const results = await comprehensiveDBpediaSearch('LittleBigPlanet');
+console.log(`Properties: ${results.properties.length}`);
+console.log(`Categories: ${results.categories.length}`);
+console.log(`Related Entities: ${results.relatedEntities.length}`);
+```
+
+## Performance Characteristics
+- **DBpedia Search**: ~2-5 seconds, 30-50 related entities
+- **Wikidata Search**: ~1-3 seconds, 10-20 entities  
+- **Wikipedia Search**: ~1-2 seconds, 1-5 articles
+- **Total Enhanced Search**: ~5-10 seconds, 40-70 total entities
+
+## Troubleshooting
+
+### Common Issues
+1. **Timeout Errors**: Increase timeout in options or check network connectivity
+2. **Limited Results**: Verify entity name spelling and check if entity exists in DBpedia
+3. **Stale Node Warnings**: These are now handled gracefully with session tracking
+
+### Debug Mode
+Enable detailed logging by setting console log level:
+```javascript
+// In browser console
+localStorage.setItem('debug', 'semanticWebQuery:*');
+```
+
+## Future Enhancements
+- **Caching Layer**: Implement result caching for frequently searched entities
+- **Incremental Search**: Progressive disclosure of results as they load
+- **Semantic Clustering**: Group related entities by semantic similarity
+- **Cross-Language Support**: Extend search to multiple languages
+- **Real-time Updates**: Live updates from semantic web sources
+
+## Integration Points
+- **Semantic Discovery Panel**: Primary interface for concept exploration
+- **Node Canvas**: Visual representation of discovered concepts
+- **Knowledge Federation**: Legacy integration maintained for compatibility
+- **External APIs**: Wikidata, DBpedia, Wikipedia endpoints
+
+This enhanced semantic search system provides significantly better results for queries like "LittleBigPlanet" by leveraging the rich property-based relationships in DBpedia and consolidating results across multiple semantic web sources.

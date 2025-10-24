@@ -1,0 +1,80 @@
+# Ignore development files and folders
+.git/
+.gitignore
+node_modules/
+.env*
+.DS_Store
+
+# Test files
+test/
+*.test.js
+*.test.jsx
+*.spec.js
+*.spec.jsx
+__tests__/
+
+# Documentation
+*.md
+!README.md
+AI_*.md
+GIT_*.md
+CLAUDE*.md
+MCP_*.md
+PRODUCTION*.md
+SEMANTIC_*.md
+TODO_*.md
+TROUBLESHOOTING*.md
+TTL_*.md
+REFACTORING*.md
+STORAGE_*.md
+COMPREHENSIVE_*.md
+DYNAMIC_*.md
+RDF_*.md
+REDSTRING_*.md
+SHARED_*.md
+
+# Development tools
+eslint.config.js
+vite.config.js
+.vscode/
+.idea/
+
+# Temporary files
+*.log
+*.tmp
+*.temp
+bridge.log
+mcp-server.log
+
+# Source maps (optional - remove if you don't need them in prod)
+dist/**/*.map
+
+# Development scripts
+ai-connection-wizard*.js
+debug-*.js
+demo-*.js
+diagnose-*.js
+test-*.js
+setup-oauth.js
+setup-oauth.md
+
+# Data and logs
+data/
+events/
+universes/
+backup.redstring
+universe.redstring
+cognitive-space*.nq
+
+# Python files (if any)
+*.py
+*.pyc
+
+# Scripts folder
+scripts/
+
+# Development only deployments (but keep server.js and Dockerfile)
+deployment/k8s/
+deployment/nginx/
+deployment/gcp/
+docker-compose.yml

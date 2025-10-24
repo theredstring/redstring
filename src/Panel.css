@@ -1,0 +1,393 @@
+/* Global input styling for panels */
+.panel-container input,
+.panel-container textarea,
+.panel-container select {
+  box-sizing: border-box;
+  max-width: 100%;
+}
+
+/* Spinning animation for saving indicators */
+@keyframes spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* Style for the editable title input */
+
+/* New style for editable title inputs */
+.editable-title-input {
+  color: #260000;                /* Text color */
+  background-color: transparent !important;  /* No fill - added !important */
+  background: transparent !important; /* Explicitly set background too - added !important */
+  border: 2px solid #260000;      /* Text-colored border */
+    border-radius: 8px;             /* Rounded corners */
+  padding: 5px 10px;              /* Padding */
+  font-family: 'EmOne', sans-serif;           /* Use EmOne font */
+  font-size: 1.1rem;              /* Match previous inline style */
+  font-weight: bold;              /* Bold text */
+  outline: none;                  /* Remove default focus outline */
+  box-sizing: border-box;         /* Ensure padding and border are within element's width/height */
+  -webkit-appearance: none;       /* Remove default Safari/Chrome styling */
+  appearance: none;               /* Remove default browser styling */
+  color-scheme: light;            /* Force light scheme for this input to avoid UA dark styles */
+  caret-color: #260000;           /* Default caret color to match text */
+  min-width: 10px;                /* CSS minimum width to help caret visibility */
+  }
+  
+/* Override caret-color for the input specifically within the header */
+header .editable-title-input {
+  caret-color: #bdb5b5; /* Light caret for dark header background */
+}
+
+/* Override selection color for the input specifically within the header */
+header .editable-title-input::selection {
+  background-color: rgba(189, 181, 181, 0.2); /* Subtle light selection background */
+  color: #bdb5b5;                         /* Maintain light text color during selection */
+}
+
+.editable-title-input::selection {
+  background-color: rgba(40, 0, 0, 0.2); /* Subtle dark selection background */
+  color: #260000;                         /* Maintain text color during selection */
+}
+
+  .panel-bio-textarea {
+    padding: 8px;
+    border: 1px solid #260000;
+    border-radius: 4px;
+    font-size: 14px;
+    font-family: 'EmOne', sans-serif;
+    box-sizing: border-box;
+    width: 100%;
+    max-width: 100%;
+  }
+  
+  .panel-tab {
+    line-height: 1.1;
+  }
+
+/* Utility to hide scrollbars */
+.hide-scrollbar {
+  -ms-overflow-style: none;  /* IE and Edge */
+  scrollbar-width: none;  /* Firefox */
+}
+
+.hide-scrollbar::-webkit-scrollbar {
+  display: none; /* Chrome, Safari, Opera */
+}
+
+.panel-content-inner {
+  padding: 15px; /* Add general padding to the content area */
+  box-sizing: border-box;
+}
+
+/* AI Panel specific styling */
+.panel-content-inner.ai-panel {
+  padding: 0; /* Remove padding for AI panel */
+  font-family: 'EmOne', sans-serif;
+}
+
+.panel-content-inner.ai-panel * {
+  font-family: 'EmOne', sans-serif !important;
+}
+
+/* Loading state styles */
+.panel-loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  background-color: #bdb5b5;
+  font-family: 'EmOne', sans-serif;
+}
+
+.loading-spinner {
+  width: 40px;
+  height: 40px;
+  border: 4px solid #bdb5b5;
+  border-top: 4px solid #8B0000;
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+}
+
+/* Base styles for panels */
+.panel-container {
+  position: relative; /* Changed from absolute */
+  height: 100%; /* Full height of parent container */
+  display: flex;
+  flex-direction: column;
+  background-color: #bdb5b5; /* Match active tab color */
+  box-shadow: 0 0 5px rgba(0,0,0,0.1);
+  z-index: 100;
+  margin: 0; /* Removed margin */
+  border-radius: 0; /* Removed border-radius */
+  transition: width 0.3s ease; /* Animate width changes */
+  overflow: hidden; /* Hide content when collapsed */
+  font-family: 'EmOne', sans-serif;
+}
+
+/* Left-side panel specifics */
+.panel-container.left {
+  border-right: 1px solid #260000;
+  width: 300px; /* Example starting width */
+}
+
+/* Collapsed left panel styles */
+.panel-container.left.collapsed {
+  width: 0; /* Collapse fully */
+  border-right: none; /* Hide border when collapsed */
+  padding: 0; /* Remove padding */
+}
+/* Add a class for the container when the left panel is collapsed */
+.left-panel-collapsed .panel-container.left {
+    /* Styles when left panel specifically is collapsed */
+    width: 0;
+}
+
+
+/* Right-side panel specifics */
+.panel-container.right {
+  /* border-left: 1px solid #ccc; */ /* Remove border */
+  width: 350px; /* Default expanded width */
+  /* height: calc(100vh - 60px); */ /* Remove explicit height, rely on flexbox */
+  /* position: absolute; */ /* Remove absolute positioning */
+  /* right: 0; */
+  /* top: 60px; */
+  /* bottom: 0; */
+  flex-shrink: 0; /* Prevent shrinking */
+  /* Ensure other styles like background, transition are kept */
+}
+
+/* Collapsed right panel styles */
+.panel-container.right.collapsed {
+  width: 40px; /* Narrow width when collapsed */
+  /* border-left: none; */ /* Border already removed */
+  padding: 0; /* Remove padding */
+  overflow: hidden; /* Ensure content is hidden when collapsed */
+  /* Ensure toggle button remains visible/accessible */
+}
+
+/* Remove the specific class for right-panel-collapsed as we use .collapsed directly */
+/* .right-panel-collapsed .panel-container.right {
+    width: 0;
+} */
+
+
+/* --- Toggle Button --- */
+.panel-toggle-button {
+  position: absolute;
+  top: 10px; /* Position near the top */
+  /* transform: translateY(-50%); */ /* Remove vertical centering */
+  width: 20px; /* Smaller button */
+  height: 30px; /* Shorter button */
+  background-color: #555;
+      color: #EFE8E5;
+  border: none;
+  cursor: pointer;
+  z-index: 101; /* Above panel content */
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  transition: background-color 0.2s ease, right 0.3s ease, left 0.3s ease; /* Added transition for position */
+}
+
+.panel-toggle-button:hover {
+  background-color: #777;
+}
+
+/* Position button for left panel (when expanded) */
+.panel-container.left .panel-toggle-button {
+  right: -20px; /* Position outside the panel to the right */
+  /* border-radius: 0 5px 5px 0; */ /* Removed rounded corners */
+  left: auto; /* Ensure left is not set */
+}
+
+/* Position button for right panel (when expanded) */
+.panel-container.right:not(.collapsed) .panel-toggle-button {
+  left: -20px; /* Position outside the panel to the left */
+  /* border-radius: 5px 0 0 5px; */ /* Removed rounded corners */
+  right: auto; /* Ensure right is not set */
+}
+
+/* Adjust button position when left panel is collapsed */
+.panel-container.left.collapsed .panel-toggle-button {
+  right: -20px; /* Keep it accessible from the edge */
+  /* Or potentially position relative to the collapsed edge if needed */
+}
+
+/* Adjust button position when right panel is collapsed */
+.panel-container.right.collapsed .panel-toggle-button {
+  left: 10px; /* Position inside the collapsed panel */
+  top: 10px; /* Keep near the top */
+  /* border-radius: 3px; */ /* Removed rounded corners */
+  /* transform: none; */ /* Reset transform */
+}
+
+
+/* Adjust internal layout */
+.panel-tab-bar {
+  flex-shrink: 0; /* Prevent tab bar from shrinking */
+  height: 40px; /* Explicit height */
+  overflow: hidden; /* Hide tabs that don't fit */
+  background-color: #a0a0a0; /* Slightly different background for tab bar */
+  padding: 0 10px; /* Padding for tab bar */
+  box-sizing: border-box; /* Include padding in height */
+  display: flex; /* Use flex for tabs */
+  align-items: center; /* Vertically align items */
+}
+
+.panel-content {
+  flex-grow: 1; /* Allow content area to fill remaining space */
+  overflow-y: auto; /* Allow content to scroll */
+}
+
+/* Custom scrollbar styling */
+.panel-content::-webkit-scrollbar {
+  width: 20px; /* Wider hitbox for better hover detection */
+}
+
+.panel-content::-webkit-scrollbar-track {
+  background: rgba(38, 0, 0, 0.05); /* Very subtle track background for hover target */
+  border-radius: 4px;
+}
+
+.panel-content::-webkit-scrollbar-thumb {
+  background-color: rgba(38, 0, 0, 0.1); /* Start at 10% opacity as requested */
+  border-radius: 4px;
+  border: 6px solid transparent; /* Create visual 8px thumb with larger hitbox */
+  background-clip: content-box;
+  transition: background-color 0.3s ease, border-width 0.3s ease;
+  min-height: 20px; /* Ensure minimum thumb size for better interaction */
+}
+
+/* Scrollbar fade effect for Firefox */
+.panel-content {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(38, 0, 0, 0.1) rgba(38, 0, 0, 0.05);
+  transition: scrollbar-color 0.3s ease;
+}
+
+/* JavaScript-based hover detection using class */
+.panel-content.hovering-scrollbar::-webkit-scrollbar-thumb,
+.panel-content.scrolling::-webkit-scrollbar-thumb {
+  background-color: #260000; /* Full opacity on hover or scroll */
+  border-width: 4px; /* Expand to 12px visual width */
+}
+
+/* Firefox hover states */
+.panel-content.hovering-scrollbar,
+.panel-content.scrolling {
+  scrollbar-color: #260000 rgba(38, 0, 0, 0.1);
+}
+
+/* Hide content elements when panel is collapsed */
+.panel-container.collapsed .panel-tab-bar,
+.panel-container.collapsed .panel-content {
+  visibility: hidden; /* Use visibility instead of display:none to keep layout space */
+  opacity: 0;
+  transition: visibility 0s linear 0.3s, opacity 0.3s ease; /* Delay hiding until transition ends */
+}
+
+.panel-container:not(.collapsed) .panel-tab-bar,
+.panel-container:not(.collapsed) .panel-content {
+  visibility: visible;
+  opacity: 1;
+  transition: opacity 0.3s ease;
+}
+
+/* Style for the Add Graph button in the left panel */
+.panel-content-inner button[title="Create New Graph"] {
+  background: none;
+  border: none;
+  padding: 4px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  outline: none; /* Remove default focus outline */
+}
+
+.panel-content-inner button[title="Create New Graph"]:focus,
+.panel-content-inner button[title="Create New Graph"]:active {
+  outline: none; /* Ensure no outline on focus/active */
+  border: none; /* Ensure no border appears on focus/active */
+  box-shadow: none; /* Ensure no shadow appears */
+  /* You might add a subtle visual cue like opacity change if desired */
+  /* opacity: 0.8; */
+}
+
+.tab-close-button {
+  margin-left: 8px;
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  color: var(--text-muted); /* Dimmed color */
+  opacity: 0; /* Initially hidden */
+  transition: opacity 0.3s ease; /* Add transition for opacity */
+  line-height: 1; /* Align better with text */
+  font-size: 1.1em; /* Slightly larger */
+  font-weight: bold;
+}
+
+.tab:hover .tab-close-button,
+.tab.active .tab-close-button {
+  opacity: 0.6; /* Slightly visible on hover/active */
+}
+
+.tab-close-button:hover {
+  color: var(--text-standard); /* Brighter color on hover */
+  opacity: 1; /* Fully visible on its own hover */
+}
+
+.tab-content {
+  padding: 8px;
+}
+
+/* --- Typography scale for panel headers --- */
+.panel-title-lg {
+  font-size: 16px;
+  font-weight: bold;
+  color: #260000;
+  line-height: 1.2;
+}
+
+.panel-title-md {
+  font-size: 14px;
+  font-weight: bold;
+  color: #260000;
+  line-height: 1.2;
+}
+
+.panel-title-sm {
+  font-size: 12px;
+  font-weight: bold;
+  color: #260000;
+  line-height: 1.2;
+}
+
+.panel-subtitle {
+  font-size: 12px;
+  color: #666;
+  font-weight: 600;
+  line-height: 1.2;
+}
+
+.panel-label {
+  font-size: 12px;
+  color: #8B0000;
+  font-weight: bold;
+}
+
+/* Semantic Discovery header - now uses ToggleSlider component */
+@media (max-width: 400px) {
+  .semantic-discovery-header .toggle-slider-control {
+    margin-top: 8px;
+    padding-top: 6px;
+    border-top: 1px solid #333;
+  }
+}

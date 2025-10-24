@@ -1,0 +1,53 @@
+/* Toggle Slider Component Styles */
+.toggle-slider-control {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 16px;
+  padding: 0 4px;
+}
+
+.toggle-slider {
+  display: flex;
+  background-color: #2a2a2a;
+  border-radius: 8px;
+  padding: 2px;
+  border: 1px solid #444;
+}
+
+.toggle-button {
+  padding: 6px 12px;
+  border: none;
+  background: transparent;
+  color: #bbb;
+  font-family: 'EmOne', sans-serif;
+  font-size: 12px;
+  cursor: pointer;
+  border-radius: 6px;
+  transition: all 0.15s ease;
+  white-space: nowrap;
+}
+
+.toggle-button:hover {
+  color: #ddd;
+  background-color: rgba(255, 255, 255, 0.1);
+}
+
+.toggle-button.active {
+  background-color: #8B0000;
+  color: #fff;
+}
+
+.toggle-right-content {
+  font-family: 'EmOne', sans-serif;
+  font-size: 11px;
+  color: #888;
+}
+
+/* Responsive adjustments */
+@media (max-width: 300px) {
+  .toggle-button {
+    padding: 5px 8px;
+    font-size: 11px;
+  }
+}

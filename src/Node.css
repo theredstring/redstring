@@ -1,0 +1,110 @@
+.node {
+    cursor: pointer;
+    /* Remove transitions handled by inline styles in Node.jsx */
+    /* transition: transform 0.05s ease, filter 0.1s ease; */
+}
+
+.node.selected .node-background {
+    /* Use node-background directly for stroke */
+    stroke: black;
+    stroke-width: 8px;
+}
+
+.node.dragging .node-background {
+    /* Use node-background directly for filter */
+    filter: drop-shadow(0px 8px 10px rgba(0, 0, 0, 0.4));
+}
+
+/* Add style for previewing state */
+.node.previewing .node-background {
+  /* stroke: #a0a0a0; */ /* Removed light grey stroke */
+  filter: drop-shadow(0px 10px 15px rgba(0, 0, 0, 0.2));
+}
+
+/* Remove class for background rect transition - handled inline */
+/* .node-background { ... } */
+
+/* Remove transition for image opacity - handled inline */
+/* .node-image { ... } */
+
+/* Style for the inner text span - ensure it works with foreignObject */
+.node-name-text {
+  display: inline-block;
+  width: 100%; /* Needed for ellipsis/centering */
+  text-align: center; /* Ensure centered text */
+  font-family: 'EmOne', sans-serif;
+  /* Remove transition - handled inline */
+}
+
+/* Style for the inline editing input */
+.node-name-input {
+  font-size: 20px;
+  font-weight: bold;
+  color: #bdb5b5;
+  background-color: transparent;
+  border: none;
+  border-radius: 0;
+  padding: 0;
+  text-align: center;
+  width: 100%;
+  max-width: 100%;
+  box-sizing: border-box;
+  outline: none;
+  font-family: 'EmOne', sans-serif;
+}
+
+.node-name-input:focus {
+  border: none;
+  box-shadow: none;
+}
+
+/* Touch-optimized styles for mobile devices */
+@media (hover: none) and (pointer: coarse) {
+  /* Increase minimum touch target size */
+  .node {
+    min-width: 44px;
+    min-height: 44px;
+  }
+
+  /* Add visual feedback for touch interactions */
+  .node:active {
+    transform: scale(0.95);
+    transition: transform 0.1s ease;
+  }
+
+  /* Enhanced touch feedback for selected nodes */
+  .node.selected:active {
+    transform: scale(0.98);
+  }
+
+  /* Touch-specific drag feedback */
+  .node.dragging {
+    transform: scale(1.05);
+    filter: drop-shadow(0px 12px 20px rgba(0, 0, 0, 0.5));
+  }
+
+  /* Improve text readability on touch devices */
+  .node-name-text {
+    font-size: 16px;
+    line-height: 1.2;
+  }
+}
+
+/* Enhanced touch feedback for all devices */
+.node.touch-active {
+  transform: scale(0.95);
+  transition: transform 0.1s ease;
+  filter: brightness(1.1);
+}
+
+/* Long press feedback */
+.node.long-press-active {
+  transform: scale(1.02);
+  filter: drop-shadow(0px 6px 12px rgba(255, 255, 255, 0.2));
+  animation: pulse 1s infinite;
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.8; }
+}

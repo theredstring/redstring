@@ -1,0 +1,203 @@
+/* AbstractionCarousel.css */
+
+.abstraction-carousel-backdrop {
+  pointer-events: auto;
+  cursor: pointer;
+}
+
+.abstraction-carousel {
+  overflow: hidden;
+  cursor: grab;
+  border-radius: 15px;
+  background: rgba(255, 255, 255, 0.1);
+  backdrop-filter: blur(10px);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+}
+
+.abstraction-carousel:active {
+  cursor: grabbing;
+}
+
+.abstraction-node {
+  will-change: transform, opacity;
+  transition: all 0.2s ease-out;
+  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
+}
+
+.abstraction-node:not(.placeholder):hover {
+  box-shadow: 0 6px 12px rgba(0, 0, 0, 0.3);
+}
+
+.abstraction-node.current {
+  box-shadow: 0 0 10px rgba(0, 0, 0, 0.3);
+  border-width: 3px !important;
+}
+
+.abstraction-node.selected {
+  box-shadow: 0 0 20px rgba(0, 0, 0, 0.5);
+  border-width: 3px !important;
+  z-index: 10 !important;
+}
+
+.abstraction-node.placeholder {
+  transition: all 0.2s ease;
+}
+
+.abstraction-node.placeholder:hover {
+  border-color: #666 !important;
+  background-color: rgba(153, 153, 153, 0.1) !important;
+}
+
+/* Smooth level transition */
+.abstraction-node {
+  transition: all 200ms ease-out, transform 150ms ease-out;
+}
+
+/* Smooth text scaling for different zoom levels */
+.abstraction-node span {
+  transition: font-size 0.1s ease-out;
+}
+
+/* Responsive sizing for different zoom levels */
+@media (max-width: 768px) {
+  .abstraction-node {
+    min-width: 120px;
+    min-height: 60px;
+  }
+}
+
+/* High contrast mode support */
+@media (prefers-contrast: high) {
+  .abstraction-node {
+    border-width: 3px !important;
+  }
+  
+  .abstraction-node.current {
+    border-width: 4px !important;
+  }
+  
+  .abstraction-node.selected {
+    border-width: 4px !important;
+  }
+}
+
+/* Reduced motion support */
+@media (prefers-reduced-motion: reduce) {
+  .abstraction-node {
+    transition: none;
+  }
+  
+  .abstraction-node:hover {
+    transform: none !important;
+  }
+}
+
+/* Animation keyframes for carousel node entrance and exit */
+@keyframes carousel-node-enter {
+  0% {
+    opacity: 0;
+    transform: scale(0.3) translateY(0);
+  }
+  60% {
+    opacity: 0.8;
+    transform: scale(1.05) translateY(0);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
+
+@keyframes carousel-node-exit {
+  0% {
+    opacity: var(--start-opacity, 1); /* Start from passed opacity or fallback to 1 */
+    transform: scale(1) translateY(0);
+  }
+  40% {
+    opacity: calc(var(--start-opacity, 1) * 0.5); /* Fade to half of starting opacity */
+    transform: scale(0.8) translateY(0);
+  }
+  100% {
+    opacity: 0; /* End at transparent */
+    transform: scale(0.3) translateY(0);
+  }
+}
+
+/* Animation for opacity transition after entrance */
+@keyframes carousel-opacity-transition {
+  0% {
+    opacity: 1; /* Start at full opacity after entrance */
+  }
+  100% {
+    opacity: var(--target-opacity, 1); /* End at calculated opacity */
+  }
+}
+
+/* Hint chevron quick enter animations */
+@keyframes hint-arrow-up-enter {
+  0% {
+    opacity: 0;
+    transform: translateY(24px) scale(0.74);
+  }
+  60% {
+    opacity: 1;
+    transform: translateY(-6px) scale(1.05);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes hint-arrow-down-enter {
+  0% {
+    opacity: 0;
+    transform: translateY(-24px) scale(0.74);
+  }
+  60% {
+    opacity: 1;
+    transform: translateY(6px) scale(1.05);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.hint-arrow-up {
+  animation: hint-arrow-up-enter 160ms ease-out both;
+  animation-delay: 80ms;
+}
+
+.hint-arrow-down {
+  animation: hint-arrow-down-enter 160ms ease-out both;
+  animation-delay: 80ms;
+}
+
+/* Add button styling */
+.carousel-add-button {
+  border: 2px dashed #666;
+  background-color: rgba(255, 255, 255, 0.1);
+  color: #999;
+  font-style: italic;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 8px;
+  text-align: center;
+  font-size: 14px;
+  font-family: 'EmOne', sans-serif;
+  line-height: 1.2;
+  border-radius: 8px;
+  min-height: 60px;
+}
+
+
+
+.carousel-add-button:hover {
+  opacity: 0.8;
+  transform: scale(1.02);
+}
