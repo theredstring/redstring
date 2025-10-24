@@ -3039,9 +3039,10 @@ function NodeCanvas() {
               return;
             }
             
-            // 
+            // Close the preview by clearing previewingNodeId
+            console.log('[PieMenu] Compose action: closing preview');
+            setPreviewingNodeId(null); // Clear preview to compose/close
             setIsTransitioningPieMenu(true); // Start transition, current menu will hide
-            // setPreviewingNodeId(null); // This will be set after animation
           }
         }
       ];

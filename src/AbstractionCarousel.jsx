@@ -950,13 +950,14 @@ const AbstractionCarousel = ({
 
     const handleClickAway = (e) => {
       if (carouselRef.current && !carouselRef.current.contains(e.target)) {
-        // Also check if the click was on the abstraction control panel
+        // Also check if the click was on control panels, pie menu, or canvas
         const isOnControlPanel = e.target.closest('.abstraction-control-panel');
+        const isOnUnifiedBottomPanel = e.target.closest('.unified-bottom-panel');
         const isOnPieMenu = e.target.closest('.pie-menu');
         const isOnCanvas = e.target.closest('.canvas');
         
         // Only close if the click is not on any of these elements
-        if (!isOnControlPanel && !isOnPieMenu && !isOnCanvas) {
+        if (!isOnControlPanel && !isOnUnifiedBottomPanel && !isOnPieMenu && !isOnCanvas) {
           onClose();
         }
       }
