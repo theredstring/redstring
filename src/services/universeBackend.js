@@ -1914,6 +1914,55 @@ class UniverseBackend {
     }
 
     try {
+      // If this is a brand new universe (from creating a new repo), create it locally first
+      if (discoveredUniverse.isNew) {
+        gfLog(`[UniverseBackend] Creating new universe from new repository: ${discoveredUniverse.name}`);
+        
+        // Create the universe locally
+        const result = await this.createUniverse(discoveredUniverse.name, {
+          enableGit: true,
+          enableLocal: false
+        });
+        
+        const slug = result.createdUniverse?.slug || discoveredUniverse.slug;
+        
+        // Now link it to the repository
+        const universeConfig = createUniverseConfigFromDiscovered({
+          ...discoveredUniverse,
+          slug: slug
+        }, repoConfig);
+        
+        // Update the universe with git config
+        const existing = this.universes.get(slug);
+        if (existing) {
+          const updated = {
+            ...existing,
+            ...universeConfig,
+            sourceOfTruth: 'git',
+            metadata: {
+              ...existing.metadata,
+              ...universeConfig.metadata,
+              createdWithRepo: new Date().toISOString()
+            }
+          };
+          this.universes.set(slug, this.safeNormalizeUniverse(updated));
+          this.saveToStorage();
+          
+          // Setup Git sync engine
+          try {
+            await this.ensureGitSyncEngine(slug);
+          } catch (error) {
+            gfWarn(`[UniverseBackend] Failed to setup engine for new universe ${slug}:`, error);
+          }
+          
+          // Switch to the new universe
+          await this.switchActiveUniverse(slug);
+          
+          this.notifyStatus('success', `Created universe "${discoveredUniverse.name}" linked to repository`);
+          return slug;
+        }
+      }
+
       gfLog(`[UniverseBackend] Linking to discovered universe: ${discoveredUniverse.name}`);
       const universeConfig = createUniverseConfigFromDiscovered(discoveredUniverse, repoConfig);
 

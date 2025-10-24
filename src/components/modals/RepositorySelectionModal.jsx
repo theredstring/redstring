@@ -235,9 +235,34 @@ const RepositorySelectionModal = ({
         private: createdRepo.private
       });
 
-      setShowCreateRepo(false);
-      setNewRepoName('');
-      setNewRepoPrivate(true);
+      // If this is an import flow, auto-create a universe and link it to the new repo
+      if (intent === 'import' && onImportDiscovered) {
+        // Auto-create universe from repo name
+        const universeName = trimmedName.replace(/-/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+        
+        // Create a discovered universe object for the new repo
+        const discoveredUniverse = {
+          name: universeName,
+          slug: trimmedName,
+          repo: {
+            user: createdRepo.owner?.login || createdRepo.owner?.name,
+            repo: createdRepo.name
+          },
+          isNew: true // Flag to indicate this should create a universe
+        };
+
+        // Trigger the import flow with the discovered universe
+        await onImportDiscovered(discoveredUniverse, {
+          user: createdRepo.owner?.login || createdRepo.owner?.name,
+          repo: createdRepo.name
+        });
+
+        onClose();
+      } else {
+        setShowCreateRepo(false);
+        setNewRepoName('');
+        setNewRepoPrivate(true);
+      }
     } catch (err) {
       console.error('Failed to create repository:', err);
       setCreateRepoError(err.message || 'Repository creation failed.');
@@ -468,20 +493,21 @@ const RepositorySelectionModal = ({
                 setCreateRepoError(null);
               }}
               style={{
-                background: 'none',
-                border: '1px solid #260000',
-                color: '#260000',
-                padding: '2px 6px',
-                borderRadius: '3px',
+                background: '#7A0000',
+                border: '1px solid #7A0000',
+                color: '#bdb5b5',
+                padding: '4px 8px',
+                borderRadius: '4px',
                 cursor: 'pointer',
                 fontSize: '0.7rem',
+                fontWeight: 600,
                 display: 'flex',
                 alignItems: 'center',
                 gap: '4px'
               }}
             >
               <Plus size={10} />
-              New Repo
+              {intent === 'import' ? 'New Repo & Universe' : 'New Repo'}
             </button>
           </div>
         </div>
@@ -547,19 +573,20 @@ const RepositorySelectionModal = ({
             <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px' }}>
               <button
                 onClick={handleCreateRepository}
-                disabled={creatingRepo}
+                disabled={creatingRepo || !newRepoName.trim()}
                 style={{
-                  background: '#260000',
+                  background: '#7A0000',
                   color: '#bdb5b5',
-                  border: '1px solid #260000',
-                  padding: '4px 10px',
+                  border: '1px solid #7A0000',
+                  padding: '6px 12px',
                   borderRadius: '4px',
-                  fontSize: '0.7rem',
-                  cursor: creatingRepo ? 'not-allowed' : 'pointer',
-                  opacity: creatingRepo ? 0.6 : 1
+                  fontSize: '0.75rem',
+                  fontWeight: 600,
+                  cursor: (creatingRepo || !newRepoName.trim()) ? 'not-allowed' : 'pointer',
+                  opacity: (creatingRepo || !newRepoName.trim()) ? 0.6 : 1
                 }}
               >
-                {creatingRepo ? 'Creating…' : 'Create Repository'}
+                {creatingRepo ? 'Creating…' : intent === 'import' ? 'Create Repo & Universe' : 'Create Repository'}
               </button>
             </div>
           </div>
