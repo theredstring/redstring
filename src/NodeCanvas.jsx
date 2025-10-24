@@ -5582,7 +5582,7 @@ function NodeCanvas() {
         insertRelativeToNodeId: currentlySelectedNode.prototypeId
       });
       
-      addToAbstractionChain(
+      storeActions.addToAbstractionChain(
         chainOwnerPrototypeId,                   // the node whose chain we're modifying (actual chain owner)
         currentAbstractionDimension,            // dimension (Physical, Conceptual, etc.)
         abstractionPrompt.direction,            // 'above' or 'below'
