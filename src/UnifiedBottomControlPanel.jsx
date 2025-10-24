@@ -111,8 +111,6 @@ const UnifiedBottomControlPanel = ({
   hasLeftNav = false,
   hasRightNav = false,
 }) => {
-  // Get savedNodeIds from store to show save state
-  const savedNodeIds = useGraphStore((state) => state.savedNodeIds);
   const [animationState, setAnimationState] = useState('entering');
   const [shouldRender, setShouldRender] = useState(true);
   const nodeGroupPreviewRef = useRef(null);
@@ -637,37 +635,11 @@ const UnifiedBottomControlPanel = ({
                 <div
                   className="piemenu-button"
                   onClick={onSave || onAdd}
-                  title={(() => {
-                    // Check if the first selected node is saved
-                    if (selectedNodes && selectedNodes.length > 0 && savedNodeIds) {
-                      const firstNode = selectedNodes[0];
-                      return savedNodeIds.has(firstNode.id) ? 'Unsave' : 'Save';
-                    }
-                    return 'Save';
-                  })()}
-                  onMouseEnter={() => {
-                    const label = (() => {
-                      if (selectedNodes && selectedNodes.length > 0 && savedNodeIds) {
-                        const firstNode = selectedNodes[0];
-                        return savedNodeIds.has(firstNode.id) ? 'Unsave' : 'Save';
-                      }
-                      return 'Save';
-                    })();
-                    triggerActionHover('control-save', label);
-                  }}
+                  title="Save"
+                  onMouseEnter={() => triggerActionHover('control-save', 'Save')}
                   onMouseLeave={clearActionHover}
                 >
-                  <Bookmark 
-                    size={18} 
-                    fill={(() => {
-                      // Show filled icon if the first selected node is saved
-                      if (selectedNodes && selectedNodes.length > 0 && savedNodeIds) {
-                        const firstNode = selectedNodes[0];
-                        return savedNodeIds.has(firstNode.id) ? 'maroon' : 'none';
-                      }
-                      return 'none';
-                    })()} 
-                  />
+                  <Bookmark size={18} />
                 </div>
                 <div
                   className="piemenu-button"

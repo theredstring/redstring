@@ -215,7 +215,7 @@ Redstring supports experimental integration with Solid Pods for decentralized st
 
 **Note**: Solid integration is experimental. Git federation is recommended for production use.
 
-## AI Integration [IN PROGRESS]
+## AI Integration (Experimental)
 
 Redstring treats AI as a **first-class user** with comprehensive tool access via Model Context Protocol (MCP).
 
