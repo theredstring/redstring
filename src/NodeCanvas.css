@@ -1,0 +1,73 @@
+html, body {
+  overflow: hidden;
+  overscroll-behavior: none;
+  -webkit-overflow-scrolling: auto;
+}
+
+/* Apply Flexbox layout to the main container */
+.node-canvas-container {
+  display: flex;
+  flex-direction: column;
+  height: 100vh; /* Ensure container takes full viewport height */
+  width: 100vw;
+  overflow: hidden; /* Prevent content overflow */
+  background-color: #f0f0f0; /* Match SVG background for now */
+}
+
+.canvas-container {
+  width: 100vw;
+  height: 100vh;
+  background-color: #2e2e2e; /* Dark grey background behind the canvas */
+  overflow: hidden;
+  position: relative;
+}
+
+.canvas {
+  background-color: #2e2e2e;
+}
+
+.node {
+  cursor: pointer;
+  transition: transform 0.05s ease, filter 0.1s ease;
+}
+
+/* Add temporary style to ensure SVG takes space */
+.node-canvas-svg {
+  display: block; /* Ensure it's treated as a block */
+  min-height: 300px; /* Temporary minimum height for testing */
+  flex: 1; /* If container is flex, allow SVG to grow */
+  border: 2px dashed red; /* Make it visible */
+}
+
+.node.selected rect {
+  stroke: black;
+}
+
+.node.dragging rect {
+  filter: drop-shadow(0px 5px 10px rgba(0, 0, 0, 0.3));
+}
+
+/* Context Menu hover effects */
+.context-menu-item:hover:not([data-disabled="true"]) {
+  background-color: rgba(128, 0, 0, 0.1) !important;
+}
+
+.context-menu-item[data-disabled="true"]:hover {
+  background-color: transparent !important;
+}
+
+/* Arrow animation for edge hover */
+@keyframes arrowFadeIn {
+  from {
+    opacity: 0;
+    transform: scale(0.5);
+    filter: drop-shadow(0px 0px 0px rgba(0, 0, 0, 0));
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+    filter: drop-shadow(0px 2px 4px rgba(0, 0, 0, 0.3));
+  }
+}
+
+

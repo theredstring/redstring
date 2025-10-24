@@ -1,0 +1,61 @@
+# Logs
+logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+node_modules
+dist
+dist-ssr
+*.local
+
+# Editor directories and files
+.vscode/*
+!.vscode/extensions.json
+.idea
+.DS_Store
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+# Environment files
+.env
+.env.local
+.env.github-app
+github.env
+github.env.local
+*.env.local
+
+# Private keys and secrets (NEVER commit these!)
+*.pem
+*.key
+*private-key*
+*secret*key*
+prodredkey.pem
+
+# Personal knowledge graphs and data
+cognitive-space*.nq
+backup.redstring
+universes/eieio/
+data/queues/
+events/
+
+# Runtime logs
+bridge.log
+mcp-server.log
+
+# Backup files
+*.backup
+*.backup2
+*.bak
+*.bak2
+
+# Nested git repositories
+docs/
+docs
+docs

@@ -1,0 +1,75 @@
+/* PieMenu.css */
+
+/* Inner wrapper of each bubble that performs the pop-up animation. */
+.pie-menu-bubble-inner {
+  /* Default state: hidden, before pop or after shrink */
+  opacity: 0; 
+  transform: translate(var(--start-x), var(--start-y)) scale(0);
+  will-change: transform, opacity;
+  /* Removed direct animation props here, will be applied by stateful classes */
+}
+
+/* Class to apply the pop-in animation */
+.pie-menu-bubble-inner.is-popping {
+  /* Starts from base styles (opacity 0, scaled down) */
+  animation-name: pie-bubble-pop;
+  animation-duration: 400ms;
+  animation-timing-function: cubic-bezier(0.34, 1.56, 0.64, 1);
+  animation-fill-mode: forwards; /* Ends at opacity 1, correct scale/pos */
+}
+
+/* Class for the steady, visible state after popping, no animation */
+.pie-menu-bubble-inner.is-visible-steady {
+  opacity: 1;
+  transform: translate(0,0) scale(1);
+}
+
+/* Class to apply the shrink-out animation */
+.pie-menu-bubble-inner.is-shrinking {
+  /* Should start from the steady visible state */
+  opacity: 1; 
+  transform: translate(0,0) scale(1);
+  animation-name: pie-bubble-shrink-out;
+  animation-duration: 120ms; /* Slightly faster shrink */
+  animation-timing-function: cubic-bezier(0.6, -0.28, 0.735, 0.045);
+  animation-fill-mode: forwards; /* Ends at opacity 0, scaled down */
+}
+
+@keyframes pie-bubble-pop {
+  0% {
+    transform: translate(var(--start-x), var(--start-y)) scale(0);
+    opacity: 0;
+  }
+  70% {
+    transform: translate(0, 0) scale(1.02);
+    opacity: 1;
+  }
+  100% {
+    transform: translate(0, 0) scale(1);
+    opacity: 1;
+  }
+}
+
+/* New animation for shrinking out */
+@keyframes pie-bubble-shrink-out {
+  0% {
+    transform: translate(0, 0) scale(1);
+    opacity: 1;
+  }
+  100% {
+    transform: translate(var(--start-x), var(--start-y)) scale(0);
+    opacity: 0;
+  }
+}
+
+/* Class for when the bubble is animating out */
+.pie-menu-bubble-inner.animating-out {
+  /* Explicitly start from visible state if transitioning from popped-and-visible */
+  opacity: 1; 
+  transform: translate(0,0) scale(1);
+  animation-name: pie-bubble-shrink-out;
+  animation-duration: 150ms; /* Faster shrink */
+  animation-timing-function: cubic-bezier(0.6, -0.28, 0.735, 0.045); /* EaseInBack for a nice effect */
+  animation-fill-mode: forwards;
+  /* animation-delay for shrinking out (reversed stagger) is set via inline style in PieMenu.jsx */
+} 

@@ -1,0 +1,84 @@
+/* BackToCivilization.css */
+
+.back-to-civilization {
+  /* Default state: hidden, before pop or after shrink */
+  opacity: 0;
+  transform: translate(-50%, -50%) scale(0);
+  will-change: transform, opacity;
+  cursor: pointer;
+}
+
+/* Class to apply the pop-in animation */
+.back-to-civilization.is-popping {
+  animation-name: back-to-civilization-pop;
+  animation-duration: 400ms;
+  animation-timing-function: cubic-bezier(0.34, 1.56, 0.64, 1);
+  animation-fill-mode: forwards;
+}
+
+/* Class for the steady, visible state after popping */
+.back-to-civilization.is-visible-steady {
+  opacity: 1;
+  transform: translate(-50%, -50%) scale(1);
+}
+
+/* Class to apply the shrink-out animation */
+.back-to-civilization.is-shrinking {
+  opacity: 1;
+  transform: translate(-50%, -50%) scale(1);
+  animation-name: back-to-civilization-shrink;
+  animation-duration: 150ms;
+  animation-timing-function: cubic-bezier(0.6, -0.28, 0.735, 0.045);
+  animation-fill-mode: forwards;
+}
+
+@keyframes back-to-civilization-pop {
+  0% {
+    transform: translate(-50%, -50%) scale(0);
+    opacity: 0;
+  }
+  70% {
+    transform: translate(-50%, -50%) scale(1.05);
+    opacity: 1;
+  }
+  100% {
+    transform: translate(-50%, -50%) scale(1);
+    opacity: 1;
+  }
+}
+
+@keyframes back-to-civilization-shrink {
+  0% {
+    transform: translate(-50%, -50%) scale(1);
+    opacity: 1;
+  }
+  100% {
+    transform: translate(-50%, -50%) scale(0);
+    opacity: 0;
+  }
+}
+
+.back-to-civilization-pill {
+  background-color: #DEDADA;
+  border: 2px solid maroon;
+  border-radius: 20px;
+  padding: 8px 16px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.12);
+  transition: all 0.2s ease;
+}
+
+.back-to-civilization-pill:hover {
+  background-color: #D0CACA;
+  transform: scale(1.05);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.18);
+}
+
+.back-to-civilization-text {
+  color: maroon;
+  font-family: 'EmOne', sans-serif;
+  font-size: 14px;
+  font-weight: bold;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
+  user-select: none;
+  white-space: nowrap;
+}

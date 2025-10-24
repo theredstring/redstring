@@ -1,0 +1,244 @@
+.menu-container {
+    position: absolute;
+    top: 100%; /* Remove the negative offset, align exactly with bottom of header */
+    left: 0;
+    width: 175px;
+    background-color: #260000;
+    border-bottom-right-radius: 25px;
+    box-shadow: 2px 2px 10px rgba(0,0,0,0.2);
+    z-index: 11001;
+    padding: 10px 0;
+    transform-origin: top;
+}
+.menu-items {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.menu-item {
+    width: calc(100% - 20px);
+    margin: 0 auto;
+    box-sizing: border-box;
+    background: none;
+    border: none;
+    color: #BDB6B5;
+    padding: 8px 12px;
+    text-align: left;
+    font-size: 14px;
+    font-family: 'EmOne', sans-serif;
+    cursor: pointer;
+    transition: background-color 0.2s;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    outline: none;
+    border-radius: 13px;
+}
+  
+.menu-item:focus {
+    outline: none; /* Prevent focus outline */
+}
+
+.menu-item:hover {
+    background-color: #F00000;
+}
+
+.menu-item-chevron {
+    opacity: 0;
+    transition: opacity 0.2s;
+}
+
+.menu-item:hover .menu-item-chevron {
+    opacity: 1;
+}
+
+.menu-container.entering {
+    animation: slideDown 150ms ease-out forwards;
+}
+
+.menu-container.exiting {
+    animation: slideUp 150ms ease-out forwards;
+}
+
+@keyframes slideDown {
+from {
+    transform: translateY(-10px);
+    opacity: 0;
+}
+to {
+    transform: translateY(0);
+    opacity: 1;
+}
+}
+
+@keyframes slideUp {
+from {
+    transform: translateY(0);
+    opacity: 1;
+}
+to {
+    transform: translateY(-10px);
+    opacity: 0;
+}
+}
+
+.submenu-container {
+    position: absolute;
+    top: 0;
+    left: 100%;
+    background-color: #260000;
+    border-radius: 15px;
+    border-top-left-radius: 0;
+    box-shadow: 2px 2px 10px rgba(0,0,0,0.2);
+    padding: 10px;
+    z-index: 11002;
+    width: 190px; /* slightly wider to accommodate full-width slider with margins */
+}
+
+.submenu-item {
+    display: flex;
+    align-items: center;
+    padding: 10px 12px;
+    margin: 0 auto;
+    width: calc(100% - 20px);
+    border-radius: 15px;
+    border: none;
+    background: none;
+    color: #BDB6B5;
+    font-size: 14px;
+    font-family: 'EmOne', sans-serif;
+    cursor: pointer;
+    transition: background-color 0.2s;
+    text-align: left;
+    outline: none;
+}
+
+.submenu-item:hover {
+    background-color: #F00000;
+}
+
+/* Compact slider inside submenu */
+.submenu-slider {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 100%;
+    height: 6px;
+    background: #BDB6B5; /* track matches font color */
+    border-radius: 999px;
+    outline: none;
+    touch-action: none; /* ensure touch drag works without scroll */
+    pointer-events: auto; /* explicitly allow input events */
+}
+
+.submenu-slider::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    background: #BDB6B5; /* dot matches font color */
+    border: none;
+    box-shadow: none;
+    cursor: pointer;
+}
+
+.submenu-slider::-moz-range-thumb {
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    background: #BDB6B5;
+    border: none;
+    box-shadow: none;
+    cursor: pointer;
+}
+
+/* Ensure div elements with submenu-item class get the same styling as buttons */
+div.submenu-item {
+    border: none;
+    background: none;
+    outline: none;
+}
+
+/* Recent files submenu */
+.submenu-item.has-submenu {
+    position: relative;
+}
+
+.submenu-item.has-submenu:hover,
+.submenu-item.has-submenu.active-submenu-parent {
+    background-color: #F00000;
+    color: #EFE8E5;
+}
+
+.recent-files-submenu {
+    position: absolute;
+    left: 100%;
+    top: -5px;
+    background-color: #260000;
+    border-radius: 15px;
+    border-top-left-radius: 0;
+    box-shadow: 2px 2px 10px rgba(0,0,0,0.2);
+    padding: 10px;
+    min-width: 250px;
+    max-width: 500px;
+    z-index: 11003;
+    margin-left: 5px; /* Increased from 2px to 5px for more spacing */
+}
+
+.recent-file-item {
+    background: none;
+    border: none;
+    color: #BDB6B5;
+    padding: 8px 12px;
+    text-align: left;
+    font-size: 14px;
+    font-family: 'EmOne', sans-serif;
+    cursor: pointer;
+    transition: background-color 0.2s;
+    margin: 4px 0;
+    display: flex;
+    justify-content: flex-start;
+    align-items: center;
+    outline: none;
+    border-radius: 15px;
+    width: calc(100% - 20px);
+    margin: 4px auto;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.recent-file-item:hover {
+    background-color: #F00000;
+    color: #EFE8E5;
+}
+
+.recent-file-item:hover .recent-file-time {
+    color: #EFE8E5;
+}
+
+.recent-file-name {
+    font-weight: 500;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    flex-grow: 1;
+    margin-right: 8px; /* Space between name and time */
+    pointer-events: none; /* Make child element transparent to hover events */
+}
+
+.recent-file-time {
+    font-size: 12px;
+    color: #888;
+    flex-shrink: 0; /* Prevent time from shrinking */
+    pointer-events: none; /* Make child element transparent to hover events */
+}
+
+.no-recent-files {
+    padding: 8px 12px;
+    color: #999;
+    font-style: italic;
+    font-size: 14px;
+    font-family: 'EmOne', sans-serif;
+    text-align: center;
+}

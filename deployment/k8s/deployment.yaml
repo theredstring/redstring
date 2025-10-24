@@ -1,0 +1,68 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: redstring-app
+  labels:
+    app: redstring
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: redstring
+  template:
+    metadata:
+      labels:
+        app: redstring
+    spec:
+      containers:
+      - name: redstring
+        image: redstring:latest
+        ports:
+        - containerPort: 4000
+          name: app
+        - containerPort: 3002
+          name: oauth
+        env:
+        - name: NODE_ENV
+          value: "production"
+        - name: PORT
+          value: "4000"
+        - name: OAUTH_PORT
+          value: "3002"
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 4000
+          initialDelaySeconds: 30
+          periodSeconds: 10
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 4000
+          initialDelaySeconds: 5
+          periodSeconds: 5
+        resources:
+          requests:
+            memory: "512Mi"
+            cpu: "1000m"
+          limits:
+            memory: "1Gi"
+            cpu: "2000m"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: redstring-service
+spec:
+  selector:
+    app: redstring
+  ports:
+    - name: app
+      protocol: TCP
+      port: 4000
+      targetPort: 4000
+    - name: oauth
+      protocol: TCP
+      port: 3002
+      targetPort: 3002
+  type: ClusterIP

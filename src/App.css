@@ -1,0 +1,93 @@
+/* Reset basic styles */
+html, body, #root {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+  width: 100%;
+  font-family: sans-serif; /* Example font */
+}
+
+/* Keyframe animations */
+@keyframes spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* Main application container using Flexbox */
+.app-container {
+  display: flex;
+  height: 100vh; /* Full viewport height */
+  width: 100vw; /* Full viewport width */
+  font-family: 'EmOne', sans-serif; /* Example font */
+}
+
+/* Sidebar panel */
+.graph-browser-panel {
+  width: 250px; /* Example fixed width */
+  min-width: 200px; /* Minimum width */
+  border-right: 1px solid #260000; /* Separator */
+  padding: 1rem;
+  overflow-y: auto; /* Scroll if content overflows */
+  background-color: #f8f8f8; /* Slight background color */
+}
+
+/* Main content area */
+.tabbed-canvas-view {
+  flex-grow: 1; /* Takes up remaining space */
+  display: flex; /* Use flex for inner content if needed */
+  flex-direction: column; /* Stack elements vertically */
+  overflow: hidden; /* Prevent overflow from canvas */
+}
+
+/* Remove old Vite template styles if they exist */
+/* You might want to delete lines related to .logo, .card, .read-the-docs etc. if they are no longer used */
+/* For simplicity, I'm leaving the old styles below, but commented out or ready for removal */
+
+/*
+#root {
+  max-width: 1280px;
+  margin: 0 auto;
+  padding: 2rem;
+  text-align: center;
+}
+
+.logo {
+  height: 6em;
+  padding: 1.5em;
+  will-change: filter;
+  transition: filter 300ms;
+}
+.logo:hover {
+  filter: drop-shadow(0 0 2em #646cffaa);
+}
+.logo.react:hover {
+  filter: drop-shadow(0 0 2em #61dafbaa);
+}
+
+@keyframes logo-spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  a:nth-of-type(2) .logo {
+    animation: logo-spin infinite 20s linear;
+  }
+}
+
+.card {
+  padding: 2em;
+}
+
+.read-the-docs {
+  color: #888;
+}
+*/

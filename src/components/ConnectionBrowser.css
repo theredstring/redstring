@@ -1,0 +1,155 @@
+/* Connection Browser Styles */
+.connection-browser {
+  width: 100%;
+}
+
+/* Connection List */
+.connection-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.no-connections {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 20px 8px;
+  color: #666;
+  font-family: 'EmOne', sans-serif;
+  font-size: 12px;
+  justify-content: center;
+  text-align: center;
+}
+
+/* Loading States */
+.loading-indicator {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-family: 'EmOne', sans-serif;
+  font-size: 11px;
+  color: #888;
+}
+
+.connection-loading {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 20px 8px;
+  color: #888;
+  font-family: 'EmOne', sans-serif;
+  font-size: 12px;
+  justify-content: center;
+  text-align: center;
+}
+
+.spin {
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+/* Error States */
+.connection-error {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 20px 8px;
+  color: #d66;
+  font-family: 'EmOne', sans-serif;
+  font-size: 12px;
+  text-align: center;
+}
+
+.retry-button {
+  padding: 4px 8px;
+  border: 1px solid #666;
+  background: transparent;
+  color: #888;
+  font-family: 'EmOne', sans-serif;
+  font-size: 10px;
+  cursor: pointer;
+  border-radius: 4px;
+  transition: all 0.15s ease;
+}
+
+.retry-button:hover {
+  background-color: rgba(255, 255, 255, 0.1);
+  border-color: #999;
+  color: #aaa;
+}
+
+/* RDF Triplet Component */
+.rdf-triplet {
+  transition: all 0.2s ease;
+  border-radius: 8px;
+  padding: 12px 16px;
+  border: 1px solid transparent;
+}
+
+/* Only semantic web connections get hover effects */
+.rdf-triplet[style*="pointer"]:hover {
+  background-color: rgba(255, 255, 255, 0.05);
+  border-color: rgba(139, 0, 0, 0.3);
+}
+
+.triplet-flow {
+  display: flex;
+  align-items: center;
+  gap: 0px;
+  position: relative;
+}
+
+/* Triplet Nodes */
+.triplet-node {
+  border-radius: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  flex-shrink: 0;
+  border: 2px solid rgba(255, 255, 255, 0.2);
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+
+.node-label {
+  font-family: 'EmOne', sans-serif;
+  color: #EFE8E5;
+  font-weight: bold;
+  line-height: 1.2;
+  word-break: break-word;
+  hyphens: auto;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.3);
+}
+
+/* Connection Arrow and Predicate */
+.triplet-connection {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: 1;
+  position: relative;
+  padding: 0;
+  margin: 0 -1px; /* Slight overlap to ensure visual connection */
+  min-width: 160px; /* Ensure minimum width for text rendering */
+}
+
+.connection-svg {
+  flex-shrink: 0;
+  width: 100%;
+  max-width: none;
+}
+
+/* Empty State */
+.connection-browser-empty {
+  padding: 20px 8px;
+  text-align: center;
+  color: #666;
+  font-family: 'EmOne', sans-serif;
+  font-size: 12px;
+}

@@ -1,0 +1,35 @@
+.debug-overlay {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  width: 100%;
+  background: rgba(0, 0, 0, 0.7);
+      color: #EFE8E5;
+  padding: 10px;
+  font-family: 'EmOne', sans-serif;
+  z-index: 1000;
+  overflow: auto; /* Add this if you expect the content to be scrollable */
+}
+
+.debug-overlay::-webkit-scrollbar {
+  width: 10px;
+}
+
+.debug-overlay::-webkit-scrollbar-track {
+  background: rgba(0, 0, 0, 0.2);
+}
+
+.debug-overlay::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.3);
+  border-radius: 5px;
+}
+
+.debug-overlay::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.4);
+}
+
+/* Firefox scrollbar styles */
+.debug-overlay {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.3) rgba(0, 0, 0, 0.2);
+}

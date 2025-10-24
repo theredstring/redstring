@@ -1,0 +1,55 @@
+.type-list-bar {
+    transition: height 0.3s ease-in-out; /* Add transition for potential height changes */
+    box-shadow: 0 -4px 8px rgba(0, 0, 0, 0.2); /* Enhanced top shadow to match header */
+}
+
+.type-list-content {
+    transition: opacity 0.3s ease-in-out, transform 0.3s ease-in-out; /* For slide animation */
+    /* Add specific styles for how NodeType items are displayed if needed */
+    display: flex; /* Use flexbox for layout */
+    gap: 10px; /* Spacing between NodeType items */
+    flex-wrap: nowrap; /* Prevent wrapping to ensure horizontal scrolling */
+    
+    /* Hide scrollbars for WebKit browsers */
+    scrollbar-width: none; /* Firefox */
+    -ms-overflow-style: none; /* Internet Explorer 10+ */
+}
+
+.type-list-content::-webkit-scrollbar {
+    display: none; /* WebKit browsers */
+}
+
+/* Add styles for the mode button if not fully handled inline */
+.type-list-bar button {
+    /* Example: Add hover effect */
+    transition: background-color 0.2s ease;
+    font-family: 'EmOne', sans-serif;
+}
+
+.type-list-bar button:hover {
+    background-color: rgba(255, 255, 255, 0.1);
+}
+
+/* NodeType component styles are now handled inline in NodeType.jsx */
+
+/* Remove focus outline from TypeList button */
+.type-list-toggle-button:focus {
+    outline: none;
+}
+
+/* Optional: Provide a subtle alternative focus indicator for accessibility */
+.type-list-toggle-button:focus-visible {
+    /* Example: slightly darker background or subtle box-shadow */
+    /* background-color: rgba(255, 255, 255, 0.15); */ 
+    /* box-shadow: 0 0 0 2px rgba(189, 181, 181, 0.5); */ 
+    outline: none; /* Ensure outline is also removed if focus-visible is used */
+}
+
+/* Prevent text selection on the TypeList toggle button */
+.type-list-toggle-button {
+    user-select: none !important;
+    -webkit-user-select: none !important; /* Safari */
+    -moz-user-select: none !important;    /* Firefox */
+    -ms-user-select: none !important;     /* IE/Edge */
+    font-family: 'EmOne', sans-serif;
+}

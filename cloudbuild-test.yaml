@@ -1,0 +1,88 @@
+# Google Cloud Build Configuration for Redstring UI React - TEST Environment
+# Builds and deploys to Cloud Run test environment
+
+steps:
+  # Step 1: Install dependencies
+  - name: 'node:18'
+    entrypoint: npm
+    args: ['ci']
+    id: 'install-deps'
+
+  # Step 2: Build the frontend for test
+  - name: 'node:18'
+    entrypoint: npm
+    args: ['run', 'build']
+    env:
+      - 'NODE_ENV=test'
+      # Test environment gets test client ID
+      - 'VITE_GITHUB_CLIENT_ID=${_TEST_GITHUB_CLIENT_ID}'
+      # OAuth server URL for test environment
+      - 'VITE_OAUTH_URL=${_TEST_OAUTH_URL}'
+    id: 'build-frontend'
+    waitFor: ['install-deps']
+
+  # Step 3: Build Docker image for test
+  - name: 'gcr.io/cloud-builders/docker'
+    args:
+      - 'build'
+      - '-f'
+      - 'deployment/docker/Dockerfile'
+      - '-t'
+      - 'gcr.io/$PROJECT_ID/redstring-app:test-$COMMIT_SHA'
+      - '-t'
+      - 'gcr.io/$PROJECT_ID/redstring-app:test-latest'
+      - '.'
+    id: 'build-image'
+    waitFor: ['build-frontend']
+
+  # Step 4: Push to Container Registry
+  - name: 'gcr.io/cloud-builders/docker'
+    args: ['push', 'gcr.io/$PROJECT_ID/redstring-app:test-$COMMIT_SHA']
+    id: 'push-image'
+    waitFor: ['build-image']
+
+  # Step 5: Deploy to Cloud Run (Test Environment)
+  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+    entrypoint: 'gcloud'
+    args:
+      - 'run'
+      - 'deploy'
+      - 'redstring-test'
+      - '--image'
+      - 'gcr.io/$PROJECT_ID/redstring-app:test-$COMMIT_SHA'
+      - '--region'
+      - '${_REGION}'
+      - '--platform'
+      - 'managed'
+      - '--allow-unauthenticated'
+      - '--port'
+      - '4000'
+      - '--memory'
+      - '1Gi'    # Same as production for better performance
+      - '--cpu'
+      - '1'      # Cloud Run only accepts specific values: 0.08-1, 1, 2, 4, 6, 8
+      - '--concurrency'
+      - '50'     # Half of production for good performance
+      - '--max-instances'
+      - '5'      # Half of production for good performance
+      - '--set-env-vars'
+      - 'NODE_ENV=test,OAUTH_PORT=3002'
+      - '--set-secrets'
+      - 'GITHUB_CLIENT_ID=${_TEST_GITHUB_CLIENT_ID_SECRET}:latest,GITHUB_CLIENT_SECRET=${_TEST_GITHUB_CLIENT_SECRET_SECRET}:latest,GITHUB_APP_ID=github-app-id:latest,GITHUB_APP_PRIVATE_KEY=github-app-private-key:latest'
+    id: 'deploy-test'
+    waitFor: ['push-image']
+
+# Test environment substitutions
+substitutions:
+  _REGION: 'us-central1'
+  _TEST_GITHUB_CLIENT_ID: 'your-test-client-id'  # For build-time (frontend)
+  _TEST_GITHUB_CLIENT_ID_SECRET: 'github-client-id-test'  # Test Secret Manager secret
+  _TEST_GITHUB_CLIENT_SECRET_SECRET: 'github-client-secret-test'  # Test Secret Manager secret
+  _TEST_OAUTH_URL: 'https://redstring-test-umk552kp4q-uc.a.run.app'  # Test OAuth server URL
+
+# Build timeout
+timeout: '900s'
+
+images:
+  - 'gcr.io/$PROJECT_ID/redstring-app:test-$COMMIT_SHA'
+  - 'gcr.io/$PROJECT_ID/redstring-app:test-latest'

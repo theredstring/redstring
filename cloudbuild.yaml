@@ -1,0 +1,67 @@
+# Google Cloud Build Configuration for Redstring UI React
+# Builds and deploys to Cloud Run
+
+steps:
+  # Step 1: Build Docker image
+  - name: 'gcr.io/cloud-builders/docker'
+    args:
+      - 'build'
+      - '-f'
+      - 'deployment/docker/Dockerfile'
+      - '-t'
+      - 'gcr.io/$PROJECT_ID/redstring-app:$BUILD_ID'
+      - '-t'
+      - 'gcr.io/$PROJECT_ID/redstring-app:latest'
+      - '.'
+    id: 'build-image'
+
+  # Step 2: Push to Container Registry
+  - name: 'gcr.io/cloud-builders/docker'
+    args: ['push', 'gcr.io/$PROJECT_ID/redstring-app:$BUILD_ID']
+    id: 'push-image'
+    waitFor: ['build-image']
+
+  # Step 3: Deploy to Cloud Run (Production)
+  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+    entrypoint: 'gcloud'
+    args:
+      - 'run'
+      - 'deploy'
+      - 'your-service-name'
+      - '--image'
+      - 'gcr.io/$PROJECT_ID/redstring-app:$BUILD_ID'
+      - '--region'
+      - '${_REGION}'
+      - '--platform'
+      - 'managed'
+      - '--allow-unauthenticated'
+      - '--port'
+      - '4000'
+      - '--memory'
+      - '1Gi'
+      - '--cpu'
+      - '2'
+      - '--concurrency'
+      - '100'
+      - '--max-instances'
+      - '10'
+      - '--set-env-vars'
+      - 'NODE_ENV=production,OAUTH_PORT=3002,LOG_LEVEL=warn'
+      - '--set-secrets'
+      - 'GITHUB_CLIENT_ID=github-client-id:latest,GITHUB_CLIENT_SECRET=github-client-secret:latest,VITE_GITHUB_CLIENT_ID=github-client-id:latest'
+    id: 'deploy-prod'
+    waitFor: ['push-image']
+
+# Substitution variables (set these in Cloud Build trigger)
+substitutions:
+  _REGION: 'us-central1'
+
+# Build timeout
+timeout: '1200s'
+
+# Log to Cloud Logging
+logsBucket: 'gs://${PROJECT_ID}-build-logs'
+
+images:
+  - 'gcr.io/$PROJECT_ID/redstring-app:$BUILD_ID'
+  - 'gcr.io/$PROJECT_ID/redstring-app:latest'
