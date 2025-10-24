@@ -7,6 +7,15 @@ yarn-error.log*
 pnpm-debug.log*
 lerna-debug.log*
 
+# Security - never commit these
+*.pem
+*.key
+*private-key*
+*secret*key*
+prodredkey.pem
+github.env.local
+*.env.local
+
 node_modules
 dist
 dist-ssr

@@ -1,0 +1,8 @@
+# Global code owners
+* @theredstring
+
+# Critical files that require review
+/cloudbuild*.yaml @theredstring
+/deployment/ @theredstring
+/package.json @theredstring
+/LICENSE @theredstring
