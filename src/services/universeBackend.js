@@ -167,6 +167,11 @@ const discoverUniversesWithStats = async (provider) => {
     const safeDirPath = normalizePathValue(dirPath);
     const items = await provider.listDirectoryContents(safeDirPath);
     for (const item of items) {
+      const itemName = typeof item.name === 'string' ? item.name.trim() : '';
+      if (itemName === '[object Object]' || itemName === 'object Object') {
+        continue;
+      }
+
       if (item.type === 'dir') {
         const nextDirPath = normalizePathValue(item.path) || joinPaths(safeDirPath, item.name);
         if (!nextDirPath) {
@@ -210,6 +215,11 @@ const discoverUniversesWithStats = async (provider) => {
     try {
       const rootItems = await provider.listDirectoryContents('');
       for (const item of rootItems) {
+        const itemName = typeof item.name === 'string' ? item.name.trim() : '';
+        if (itemName === '[object Object]' || itemName === 'object Object') {
+          continue;
+        }
+
         if (item.type === 'file' && /\.redstring$/i.test(item.name)) {
           stats.candidates += 1;
           const base = item.name.replace(/\.redstring$/i, '');

@@ -372,6 +372,7 @@ const RepositorySelectionModal = ({
 
   return (
     <Modal isOpen={isOpen} onClose={onClose} title={modalTitle} size="slim">
+      <div style={{ display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0 }}>
       {/* Compact search */}
       <div style={{
         padding: '12px',
@@ -594,7 +595,7 @@ const RepositorySelectionModal = ({
       )}
 
       {/* Repository list */}
-      <div style={{ flex: 1, overflow: 'auto', paddingTop: '8px', paddingBottom: '8px' }}>
+      <div style={{ flex: 1, overflow: 'auto', paddingTop: '8px', paddingBottom: '8px', minHeight: 0 }}>
         {loading ? (
           <div style={{
             display: 'flex',
@@ -878,13 +879,14 @@ const RepositorySelectionModal = ({
                           <div
                             key={`${repo.id}-${universe.path || universe.slug || index}`}
                             style={{
-                              border: '1px solid #808080',
-                              borderRadius: 6,
-                              padding: '8px 10px',
-                              backgroundColor: '#cfc6c6',
+                              border: '1px solid #260000',
+                              borderRadius: 12,
+                              padding: '10px 12px',
+                              backgroundColor: '#bdb5b5',
                               display: 'flex',
                               flexDirection: 'column',
-                              gap: 6
+                              gap: 6,
+                              boxShadow: '0 2px 6px rgba(38, 0, 0, 0.08)'
                             }}
                           >
                             <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
@@ -966,6 +968,7 @@ const RepositorySelectionModal = ({
             );
           })
         )}
+      </div>
       </div>
 
       <style>

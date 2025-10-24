@@ -494,16 +494,29 @@ This repository was automatically initialized by Redstring UI React. You can now
         return []; // Not a directory
       }
 
-      return data.map(item => {
+      const suspiciousNames = new Set(['[object Object]', 'object Object']);
+
+      const normalizedItems = data.map(item => {
         const safePath = this.normalizePathInput(item.path).replace(/^\/+/, '').replace(/\/+$/, '');
+        const name = typeof item.name === 'string' ? item.name : '';
+        if (
+          !name ||
+          suspiciousNames.has(name.trim()) ||
+          (safePath && (safePath.includes('[object Object]') || safePath.includes('object Object')))
+        ) {
+          return null;
+        }
+
         return {
-          name: item.name,
+          name,
           type: item.type, // 'file' or 'dir'
           path: safePath,
           size: item.size,
           sha: item.sha
         };
-      });
+      }).filter(Boolean);
+
+      return normalizedItems;
 
     } catch (error) {
       console.error(`[GitHubSemanticProvider] Failed to list directory ${resolvedLabel}:`, error);

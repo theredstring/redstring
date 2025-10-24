@@ -3694,17 +3694,18 @@ return (
                 width: '100%',
                 padding: 20,
                 justifyContent: 'flex-start',
-                border: '2px solid #979090',
-                backgroundColor: '#f9f9f9',
+                border: '2px solid #260000',
+                backgroundColor: '#bdb5b5',
+                borderRadius: 14,
                 transition: 'all 0.2s ease'
               }}
               onMouseEnter={(e) => {
-                e.currentTarget.style.backgroundColor = '#eef4ff';
-                e.currentTarget.style.borderColor = '#1565c0';
+                e.currentTarget.style.backgroundColor = '#d7d0d0';
+                e.currentTarget.style.borderColor = '#260000';
               }}
               onMouseLeave={(e) => {
-                e.currentTarget.style.backgroundColor = '#f9f9f9';
-                e.currentTarget.style.borderColor = '#979090';
+                e.currentTarget.style.backgroundColor = '#bdb5b5';
+                e.currentTarget.style.borderColor = '#260000';
               }}
             >
               <Save size={22} style={{ flexShrink: 0 }} />
@@ -3725,17 +3726,18 @@ return (
                 width: '100%',
                 padding: 20,
                 justifyContent: 'flex-start',
-                border: '2px solid #979090',
-                backgroundColor: '#f9f9f9',
+                border: '2px solid #260000',
+                backgroundColor: '#bdb5b5',
+                borderRadius: 14,
                 transition: 'all 0.2s ease'
               }}
               onMouseEnter={(e) => {
-                e.currentTarget.style.backgroundColor = '#eef4ff';
-                e.currentTarget.style.borderColor = '#1565c0';
+                e.currentTarget.style.backgroundColor = '#d7d0d0';
+                e.currentTarget.style.borderColor = '#260000';
               }}
               onMouseLeave={(e) => {
-                e.currentTarget.style.backgroundColor = '#f9f9f9';
-                e.currentTarget.style.borderColor = '#979090';
+                e.currentTarget.style.backgroundColor = '#bdb5b5';
+                e.currentTarget.style.borderColor = '#260000';
               }}
             >
               <Github size={22} style={{ flexShrink: 0 }} />
@@ -3795,17 +3797,19 @@ return (
                     width: '100%',
                     padding: 16,
                     justifyContent: 'flex-start',
-                    border: '2px solid #979090',
-                    backgroundColor: '#f9f9f9',
-                    transition: 'all 0.2s ease'
+                    border: '2px solid #260000',
+                    backgroundColor: '#bdb5b5',
+                    borderRadius: 14,
+                    transition: 'all 0.2s ease',
+                    boxShadow: '0 2px 6px rgba(38, 0, 0, 0.08)'
                   }}
                   onMouseEnter={(e) => {
-                    e.currentTarget.style.backgroundColor = '#eef4ff';
-                    e.currentTarget.style.borderColor = '#1565c0';
+                    e.currentTarget.style.backgroundColor = '#d7d0d0';
+                    e.currentTarget.style.borderColor = '#260000';
                   }}
                   onMouseLeave={(e) => {
-                    e.currentTarget.style.backgroundColor = '#f9f9f9';
-                    e.currentTarget.style.borderColor = '#979090';
+                    e.currentTarget.style.backgroundColor = '#bdb5b5';
+                    e.currentTarget.style.borderColor = '#260000';
                   }}
                 >
                   <GitBranch size={18} style={{ flexShrink: 0 }} />
@@ -3897,17 +3901,19 @@ return (
                           width: '100%',
                           padding: 14,
                           justifyContent: 'flex-start',
-                          border: '2px solid #979090',
-                          backgroundColor: '#f9f9f9',
-                          transition: 'all 0.2s ease'
+                          border: '2px solid #260000',
+                          backgroundColor: '#bdb5b5',
+                          borderRadius: 14,
+                          transition: 'all 0.2s ease',
+                          boxShadow: '0 2px 6px rgba(38, 0, 0, 0.08)'
                         }}
                         onMouseEnter={(e) => {
-                          e.currentTarget.style.backgroundColor = '#f0f0f0';
-                          e.currentTarget.style.borderColor = '#7A0000';
+                          e.currentTarget.style.backgroundColor = '#d7d0d0';
+                          e.currentTarget.style.borderColor = '#260000';
                         }}
                         onMouseLeave={(e) => {
-                          e.currentTarget.style.backgroundColor = '#f9f9f9';
-                          e.currentTarget.style.borderColor = '#979090';
+                          e.currentTarget.style.backgroundColor = '#bdb5b5';
+                          e.currentTarget.style.borderColor = '#260000';
                         }}
                       >
                         <GitBranch size={18} style={{ flexShrink: 0 }} />
