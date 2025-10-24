@@ -2446,11 +2446,11 @@ const GitNativeFederation = ({ variant = 'panel', onRequestClose }) => {
 
       if (universeNameMismatch) {
         setConfirmDialog({
-          title: 'File Name Mismatch',
-          message: `The file name "${file.name}" doesn't match universe "${universe?.name}".`,
-          details: `Choose "Link Anyway" to link this file to universe "${universe?.name}".\n\nData from the file will replace current universe data.`,
+          title: 'Confirm Link',
+          message: `Link "${file.name}" to universe "${universe?.name}"?`,
+          details: `This will replace the current data in "${universe?.name}".`,
           variant: 'warning',
-          confirmLabel: 'Link Anyway',
+          confirmLabel: 'Link & Replace Data',
           cancelLabel: 'Cancel',
           onConfirm: async () => {
             await processParsedLocalFile(payload);

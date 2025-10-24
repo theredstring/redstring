@@ -40,9 +40,9 @@ const ConfirmDialog = ({
   };
 
   const buttonStyle = (isPrimary) => ({
-    padding: '10px 20px',
+    padding: '8px 16px',
     borderRadius: 6,
-    fontSize: '0.9rem',
+    fontSize: '0.85rem',
     fontWeight: 600,
     cursor: 'pointer',
     fontFamily: "'EmOne', sans-serif",
@@ -50,15 +50,13 @@ const ConfirmDialog = ({
     display: 'flex',
     alignItems: 'center',
     gap: 6,
-    border: isPrimary && variant === 'danger' 
-      ? '2px solid #7A0000' 
-      : '2px solid #260000',
+    border: '2px solid #7A0000',
     backgroundColor: isPrimary 
-      ? (variant === 'danger' ? '#7A0000' : '#260000')
+      ? '#7A0000'
       : 'transparent',
     color: isPrimary 
       ? '#bdb5b5'
-      : '#260000'
+      : '#7A0000'
   });
 
   return (
@@ -78,13 +76,15 @@ const ConfirmDialog = ({
       <div
         style={{
           width: 'min(95vw, 480px)',
+          maxHeight: '85vh',
           backgroundColor: '#bdb5b5',
           border: '3px solid #260000',
           borderRadius: 12,
           display: 'flex',
           flexDirection: 'column',
           boxShadow: '0 20px 60px rgba(0, 0, 0, 0.5)',
-          fontFamily: "'EmOne', sans-serif"
+          fontFamily: "'EmOne', sans-serif",
+          overflow: 'hidden'
         }}
         onClick={(e) => e.stopPropagation()}
       >
@@ -117,12 +117,12 @@ const ConfirmDialog = ({
         </div>
 
               {/* Content */}
-              <div style={{ padding: '24px' }}>
+              <div style={{ padding: '16px 20px', overflowY: 'auto', flex: 1 }}>
                 <p
                   style={{
-                    margin: '0 0 16px 0',
-                    fontSize: '0.95rem',
-                    lineHeight: 1.6,
+                    margin: '0 0 12px 0',
+                    fontSize: '0.9rem',
+                    lineHeight: 1.5,
                     color: '#260000',
                     whiteSpace: 'pre-wrap'
                   }}
@@ -131,13 +131,13 @@ const ConfirmDialog = ({
                 </p>
 
                 {inputField && (
-                  <div style={{ marginTop: 16, marginBottom: 16 }}>
+                  <div style={{ marginTop: 12, marginBottom: 12 }}>
                     {inputField.label && (
                       <label
                         style={{
                           display: 'block',
-                          marginBottom: 8,
-                          fontSize: '0.85rem',
+                          marginBottom: 6,
+                          fontSize: '0.8rem',
                           fontWeight: 600,
                           color: '#260000'
                         }}
@@ -159,8 +159,8 @@ const ConfirmDialog = ({
                       }}
                       style={{
                         width: '100%',
-                        padding: '10px 12px',
-                        fontSize: '0.9rem',
+                        padding: '8px 10px',
+                        fontSize: '0.85rem',
                         fontFamily: "'EmOne', sans-serif",
                         border: '2px solid #260000',
                         borderRadius: 6,
@@ -176,12 +176,13 @@ const ConfirmDialog = ({
                 {details && (
                   <div
                     style={{
-                      marginTop: 16,
-                      padding: 12,
+                      marginTop: 12,
+                      padding: 10,
                       backgroundColor: '#979090',
                       border: '1px solid #260000',
                       borderRadius: 6,
-                      fontSize: '0.85rem',
+                      fontSize: '0.8rem',
+                      lineHeight: 1.4,
                       color: '#260000',
                       whiteSpace: 'pre-wrap'
                     }}
@@ -195,8 +196,8 @@ const ConfirmDialog = ({
         <div
           style={{
             display: 'flex',
-            gap: 12,
-            padding: '16px 24px',
+            gap: 10,
+            padding: '12px 20px',
             borderTop: '2px solid #260000',
             backgroundColor: '#979090',
             justifyContent: 'flex-end'
@@ -211,7 +212,7 @@ const ConfirmDialog = ({
                   }}
                   style={buttonStyle(false)}
                   onMouseEnter={(e) => {
-                    e.currentTarget.style.backgroundColor = 'rgba(38, 0, 0, 0.1)';
+                    e.currentTarget.style.backgroundColor = 'rgba(122, 0, 0, 0.1)';
                   }}
                   onMouseLeave={(e) => {
                     e.currentTarget.style.backgroundColor = 'transparent';
@@ -234,15 +235,11 @@ const ConfirmDialog = ({
                   }}
                   onMouseEnter={(e) => {
                     if (inputField && !inputValue.trim()) return;
-                    if (variant === 'danger') {
-                      e.currentTarget.style.backgroundColor = '#5A0000';
-                    } else {
-                      e.currentTarget.style.backgroundColor = '#1a0000';
-                    }
+                    e.currentTarget.style.backgroundColor = '#5A0000';
                   }}
                   onMouseLeave={(e) => {
                     if (inputField && !inputValue.trim()) return;
-                    e.currentTarget.style.backgroundColor = variant === 'danger' ? '#7A0000' : '#260000';
+                    e.currentTarget.style.backgroundColor = '#7A0000';
                   }}
                 >
                   {confirmLabel}
