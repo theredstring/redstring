@@ -416,6 +416,8 @@ const GitNativeFederation = ({ variant = 'panel', onRequestClose }) => {
     };
   }, [refreshState, refreshAuth]);
 
+  
+
   // Audit: If both Git and Local slots are enabled and primary is unset or ambiguous, prompt user to choose
   useEffect(() => {
     const slug = serviceState.activeUniverseSlug;
@@ -1541,6 +1543,11 @@ const GitNativeFederation = ({ variant = 'panel', onRequestClose }) => {
 
       // Helper function to complete the sync after confirmation
       const completeSyncAfterOverwrite = async () => {
+        gfLog('[GitNativeFederation] Replace Local Data confirmed. Proceeding to sync from repository...', {
+          targetSlug,
+          repo: `${owner}/${repoName}`,
+          repoFile: selectedFile?.slug || selectedFile?.name || selectedFile?.path
+        });
         const repoFileSlug = selectedFile.slug || selectedFile.name;
         
         // Check if name mismatch and show rename dialog
@@ -4130,6 +4137,8 @@ return (
         </div>
       </Modal>
 
+      {/* Welcome modal removed in favor of existing AlphaOnboardingModal */}
+
       {/* Universe File Selection Modal */}
       <Modal
         isOpen={showUniverseFileSelector}
@@ -4150,7 +4159,7 @@ return (
           </p>
 
           {isUniverseImportMode ? (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 10, flex: 1, minHeight: 0, overflowY: 'auto', overflowX: 'hidden' }}>
               {discoveredUniverseFiles.length === 0 && (
                 <div style={{
                   padding: 14,
@@ -4173,14 +4182,16 @@ return (
                     borderRadius: 14,
                     padding: 12,
                     display: 'flex',
-                    alignItems: 'center',
+                    alignItems: 'flex-start',
                     justifyContent: 'space-between',
-                    gap: 10
+                    gap: 10,
+                    flexWrap: 'wrap',
+                    maxWidth: '100%'
                   }}
                 >
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 10, flex: 1 }}>
+                  <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10, flex: '1 1 300px', minWidth: 0 }}>
                     <GitBranch size={18} style={{ flexShrink: 0 }} />
-                    <div style={{ textAlign: 'left', flex: 1 }}>
+                    <div style={{ textAlign: 'left', flex: 1, minWidth: 0, wordBreak: 'break-word', overflowWrap: 'anywhere' }}>
                       <div style={{ fontWeight: 700, marginBottom: 6, color: '#260000', fontSize: '0.9rem' }}>
                         {file.name || file.slug || 'Universe File'}
                       </div>
@@ -4192,9 +4203,7 @@ return (
                         gap: 12,
                         fontSize: '0.7rem',
                         color: '#1565c0',
-                        marginTop: 6,
-                        paddingTop: 6,
-                        borderTop: '1px solid #e0e0e0'
+                        marginTop: 6
                       }}>
                         {file.nodeCount !== undefined && (
                           <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
@@ -4219,11 +4228,10 @@ return (
                       )}
                     </div>
                   </div>
-                  <div style={{ display: 'flex', gap: 8 }}>
+                  <div style={{ display: 'flex', gap: 8, flex: '0 0 auto', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
                     <PanelIconButton
                       icon={CloudDownload}
                       size={24}
-                      color="#7A0000"
                       title="Import Copy"
                       onClick={() => handleUniverseFileSelection(file)}
                     />
@@ -4261,13 +4269,12 @@ return (
                     fontWeight: 600,
                     color: '#260000',
                     marginTop: 8,
-                    paddingBottom: 8,
-                    borderBottom: '1px solid #e0e0e0'
+                    paddingBottom: 8
                   }}>
                     Or sync with an existing file:
                   </div>
 
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 10, flex: 1, minHeight: 0, overflowY: 'auto', overflowX: 'hidden' }}>
                     {discoveredUniverseFiles.map((file, idx) => (
                       <div
                         key={idx}
@@ -4277,14 +4284,16 @@ return (
                           borderRadius: 14,
                           padding: 12,
                           display: 'flex',
-                          alignItems: 'center',
+                          alignItems: 'flex-start',
                           justifyContent: 'space-between',
-                          gap: 10
+                          gap: 10,
+                          flexWrap: 'wrap',
+                          maxWidth: '100%'
                         }}
                       >
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 10, flex: 1 }}>
+                        <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10, flex: '1 1 300px', minWidth: 0 }}>
                           <GitBranch size={18} style={{ flexShrink: 0 }} />
-                          <div style={{ textAlign: 'left', flex: 1 }}>
+                          <div style={{ textAlign: 'left', flex: 1, minWidth: 0, wordBreak: 'break-word', overflowWrap: 'anywhere' }}>
                             <div style={{ fontWeight: 700, marginBottom: 6, color: '#260000', fontSize: '0.9rem' }}>
                               {file.name || file.slug || 'Unnamed Universe'}
                             </div>
@@ -4296,9 +4305,7 @@ return (
                               gap: 12,
                               fontSize: '0.7rem',
                               color: '#7A0000',
-                              marginTop: 6,
-                              paddingTop: 6,
-                              borderTop: '1px solid #e0e0e0'
+                              marginTop: 6
                             }}>
                               {file.nodeCount !== undefined && (
                                 <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
@@ -4323,18 +4330,16 @@ return (
                             )}
                           </div>
                         </div>
-                        <div style={{ display: 'flex', gap: 8 }}>
+                        <div style={{ display: 'flex', gap: 8, flex: '0 0 auto', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
                           <PanelIconButton
                             icon={CloudDownload}
                             size={24}
-                            color="#7A0000"
                             title="Load from Repo"
                             onClick={() => handleUniverseFileSelection(file)}
                           />
                           <PanelIconButton
                             icon={CloudUpload}
                             size={24}
-                            color="#7A0000"
                             title="Save to Repo"
                             onClick={() => handleSaveToSelectedRepositoryFile(file)}
                           />
@@ -4481,3 +4486,6 @@ return (
 };
 
 export default GitNativeFederation;
+
+// Optional displayName used by some tab managers
+GitNativeFederation.displayName = 'Federation';

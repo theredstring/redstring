@@ -781,7 +781,7 @@ const RepositorySelectionModal = ({
                         onSelectRepository(repo);
                       }}
                       style={{
-                        background: '#2e7d32',
+                        background: '#260000',
                         border: 'none',
                         color: '#bdb5b5',
                         cursor: 'pointer',

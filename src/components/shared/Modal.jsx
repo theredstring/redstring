@@ -96,7 +96,8 @@ const Modal = ({
         <div
           style={{
             flex: 1,
-            overflow: 'hidden',
+            overflowY: 'auto',
+            overflowX: 'hidden',
             display: 'flex',
             flexDirection: 'column',
             padding: size === 'slim' ? 0 : 16,

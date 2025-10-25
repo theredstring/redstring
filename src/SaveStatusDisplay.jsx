@@ -5,6 +5,7 @@ import saveCoordinator from './services/SaveCoordinator';
 
 const SaveStatusDisplay = () => {
   const [statusText, setStatusText] = useState('Loading...');
+  const [isCTA, setIsCTA] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -20,6 +21,19 @@ const SaveStatusDisplay = () => {
         const activeUniverse = state.universes.find(u => u.slug === state.activeUniverseSlug);
         if (!activeUniverse) {
           setStatusText('No universe');
+          setIsCTA(false);
+          return;
+        }
+
+        // Determine connectivity (any linked storage?)
+        const raw = activeUniverse.raw || {};
+        const hasGit = !!(raw.gitRepo?.enabled && raw.gitRepo?.linkedRepo);
+        const hasLocal = !!(raw.localFile?.enabled && (raw.localFile?.hadFileHandle || raw.localFile?.path));
+        const hasStorage = hasGit || hasLocal;
+
+        if (!hasStorage) {
+          setStatusText('Connect');
+          setIsCTA(true);
           return;
         }
 
@@ -36,21 +50,27 @@ const SaveStatusDisplay = () => {
         // Priority order: Error > Paused > Actively Saving > Not Saved > Saved
         if (engine?.isInErrorBackoff || engine?.isHealthy === false) {
           setStatusText('Error');
+          setIsCTA(false);
         } else if (engine?.isPaused) {
           setStatusText('Paused');
+          setIsCTA(false);
         } else if (isCommitting) {
           // Actively committing to Git
           setStatusText('Saving...');
+          setIsCTA(false);
         } else if (coordinatorHasUnsaved || pendingCommits > 0 || hasUnsavedChanges) {
           // Has pending changes (including during drag operations)
           setStatusText('Not Saved');
+          setIsCTA(false);
         } else {
           setStatusText('Saved');
+          setIsCTA(false);
         }
       } catch (error) {
         if (!cancelled) {
           console.warn('[SaveStatusDisplay] Failed to get sync status:', error);
           setStatusText('Unknown');
+          setIsCTA(false);
         }
       }
     }, 1000);
@@ -87,7 +107,16 @@ const SaveStatusDisplay = () => {
         fontSize: '16px',
         fontFamily: "'EmOne', sans-serif",
         fontWeight: 'normal',
-        userSelect: 'none'
+        userSelect: 'none',
+        cursor: isCTA ? 'pointer' : 'default',
+        textDecoration: 'none'
+      }}
+      onClick={() => {
+        if (isCTA) {
+          try {
+            window.dispatchEvent(new CustomEvent('redstring:open-federation'));
+          } catch {}
+        }
       }}
     >
       {statusText}
