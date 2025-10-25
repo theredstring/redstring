@@ -1632,15 +1632,10 @@ const GitNativeFederation = ({ variant = 'panel', onRequestClose }) => {
     setShowRepositoryManager(false);
   };
 
-  const handleUniverseLinkingSelectExisting = async (targetSlug) => {
-    if (!pendingUniverseLink) return;
-
-    const { discovered, repo } = pendingUniverseLink;
-    const repoKey = `${repo.user}/${repo.repo}`;
-
+  // Helper function to complete the ATTACH flow (save to repo)
+  const continueAttachFlow = async (targetSlug, discovered, repo, repoKey) => {
     try {
       setLoading(true);
-      setShowUniverseLinking(false);
 
       // Add repo to managed list if not already there
       const alreadyManaged = managedRepositories.some(r =>
@@ -1660,34 +1655,25 @@ const GitNativeFederation = ({ variant = 'panel', onRequestClose }) => {
         const newList = [...managedRepositories, repoObject];
         setManagedRepositories(newList);
         localStorage.setItem('redstring-managed-repositories', JSON.stringify(newList));
-        gfLog(`[GitNativeFederation] Auto-added ${repoKey} to managed repositories (from discovery)`);
+        gfLog(`[GitNativeFederation] Auto-added ${repoKey} to managed repositories`);
       }
 
-      // Attach the Git repository to the selected universe
+      // Attach the Git repository
       const resolvePathParts = (universePath, fileName) => {
         const parts = (universePath || '').split('/').filter(Boolean);
         if (parts.length >= 3) {
-          return {
-            folder: parts[parts.length - 2],
-            file: parts[parts.length - 1]
-          };
+          return { folder: parts[parts.length - 2], file: parts[parts.length - 1] };
         }
         if (fileName) {
           return {
-            folder: (parts[parts.length - 1] || '')
-              .replace(/\.redstring$/i, '') || targetSlug,
+            folder: (parts[parts.length - 1] || '').replace(/\.redstring$/i, '') || targetSlug,
             file: fileName
           };
         }
-        return {
-          folder: targetSlug,
-          file: `${targetSlug}.redstring`
-        };
+        return { folder: targetSlug, file: `${targetSlug}.redstring` };
       };
 
-      const inferredPath = discovered.path || (discovered.location && discovered.fileName
-        ? `${discovered.location}/${discovered.fileName}`
-        : null);
+      const inferredPath = discovered.path || (discovered.location && discovered.fileName ? `${discovered.location}/${discovered.fileName}` : null);
       const inferredFile = discovered.fileName || (inferredPath ? inferredPath.split('/').pop() : null);
       const { folder: resolvedFolder, file: resolvedFile } = resolvePathParts(inferredPath, inferredFile);
 
@@ -1699,40 +1685,251 @@ const GitNativeFederation = ({ variant = 'panel', onRequestClose }) => {
         universeFile: resolvedFile || `${targetSlug}.redstring`
       });
 
-      gfLog(`[GitNativeFederation] Linked repository to existing universe: ${targetSlug}`);
+      gfLog(`[GitNativeFederation] Linked repository, now saving universe data to repo...`);
       await gitFederationService.forceSave(targetSlug);
 
-      // After linking, ensure Source of Truth is chosen
-      try {
-        const state = await gitFederationService.refreshUniverses();
-        const u = state.universes.find((x) => x.slug === targetSlug);
-        const raw = u?.raw || {};
-        const hasLocal = !!raw.localFile?.enabled;
-        const hasRepo = !!(raw.gitRepo?.enabled && raw.gitRepo?.linkedRepo);
-        if (hasRepo && (deviceInfo.gitOnlyMode || (() => { try { return sessionStorage.getItem('redstring_onboarding_resume') === 'true'; } catch { return false; } })())) {
-          await gitFederationService.setPrimaryStorage(targetSlug, STORAGE_TYPES.GIT);
-          try { sessionStorage.removeItem('redstring_onboarding_resume'); sessionStorage.removeItem('redstring_onboarding_step'); } catch {}
-        } else if (hasLocal && hasRepo) {
-          setConfirmDialog({
-            title: 'Choose Source of Truth',
-            message: 'Select the primary storage for this universe. You can change this later.',
-            confirmLabel: 'Use Git as Primary',
-            cancelLabel: 'Use Local File as Primary',
-            variant: 'default',
-            onConfirm: async () => { try { await gitFederationService.setPrimaryStorage(targetSlug, STORAGE_TYPES.GIT); await refreshState(); } catch (e) { gfWarn('Failed to set git as primary', e); } },
-            onCancel: async () => { try { await gitFederationService.setPrimaryStorage(targetSlug, STORAGE_TYPES.LOCAL); await refreshState(); } catch (e) { gfWarn('Failed to set local as primary', e); } }
-          });
-        }
-      } catch (e) {
-        gfWarn('[GitNativeFederation] Failed to set or prompt Source of Truth after linking existing:', e);
+      // Set source of truth
+      const state = await gitFederationService.refreshUniverses();
+      const u = state.universes.find((x) => x.slug === targetSlug);
+      const raw = u?.raw || {};
+      const hasLocal = !!raw.localFile?.enabled;
+      const hasRepo = !!(raw.gitRepo?.enabled && raw.gitRepo?.linkedRepo);
+      
+      if (hasRepo && !hasLocal) {
+        await gitFederationService.setPrimaryStorage(targetSlug, STORAGE_TYPES.GIT);
+        gfLog(`[GitNativeFederation] Set Git as source of truth: ${targetSlug}`);
+      } else if (hasLocal && hasRepo) {
+        setConfirmDialog({
+          title: 'Choose Source of Truth',
+          message: 'Select the primary storage for this universe.',
+          confirmLabel: 'Use Git as Primary',
+          cancelLabel: 'Use Local File as Primary',
+          variant: 'default',
+          onConfirm: async () => { try { await gitFederationService.setPrimaryStorage(targetSlug, STORAGE_TYPES.GIT); await refreshState(); } catch (e) { gfWarn('Failed to set git as primary', e); } },
+          onCancel: async () => { try { await gitFederationService.setPrimaryStorage(targetSlug, STORAGE_TYPES.LOCAL); await refreshState(); } catch (e) { gfWarn('Failed to set local as primary', e); } }
+        });
       }
 
-      setSyncStatus({ type: 'success', message: `Linked repository to ${targetSlug}` });
+      setSyncStatus({ type: 'success', message: `Saved to repository` });
       await refreshState();
+    } catch (err) {
+      gfError('[GitNativeFederation] Attach flow failed:', err);
+      setError(`Failed to save to repository: ${err.message}`);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Helper function to switch to IMPORT flow (load from repo)
+  const switchToImportFlow = async (targetSlug, discovered, repo, repoKey) => {
+    try {
+      setLoading(true);
+
+      // Add repo to managed list
+      const alreadyManaged = managedRepositories.some(r =>
+        `${r.owner?.login || r.owner}/${r.name}` === repoKey
+      );
+
+      if (!alreadyManaged) {
+        const repoObject = {
+          name: repo.repo,
+          owner: { login: repo.user },
+          full_name: `${repo.user}/${repo.repo}`,
+          html_url: `https://github.com/${repo.user}/${repo.repo}`,
+          id: `discovered-${repo.user}-${repo.repo}`
+        };
+
+        const newList = [...managedRepositories, repoObject];
+        setManagedRepositories(newList);
+        localStorage.setItem('redstring-managed-repositories', JSON.stringify(newList));
+        gfLog(`[GitNativeFederation] Auto-added ${repoKey} to managed repositories for import`);
+      }
+
+      // Link repo config
+      const resolvePathParts = (universePath, fileName) => {
+        const parts = (universePath || '').split('/').filter(Boolean);
+        if (parts.length >= 3) {
+          return { folder: parts[parts.length - 2], file: parts[parts.length - 1] };
+        }
+        if (fileName) {
+          return {
+            folder: (parts[parts.length - 1] || '').replace(/\.redstring$/i, '') || targetSlug,
+            file: fileName
+          };
+        }
+        return { folder: targetSlug, file: `${targetSlug}.redstring` };
+      };
+
+      const inferredPath = discovered.path || (discovered.location && discovered.fileName ? `${discovered.location}/${discovered.fileName}` : null);
+      const inferredFile = discovered.fileName || (inferredPath ? inferredPath.split('/').pop() : null);
+      const { folder: resolvedFolder, file: resolvedFile } = resolvePathParts(inferredPath, inferredFile);
+
+      await gitFederationService.attachGitRepository(targetSlug, {
+        user: repo.user,
+        repo: repo.repo,
+        authMethod: dataAuthMethod || 'oauth',
+        universeFolder: resolvedFolder || targetSlug,
+        universeFile: resolvedFile || `${targetSlug}.redstring`
+      });
+
+      gfLog(`[GitNativeFederation] Linked repo config, now loading data from repository...`);
+
+      // Load data from repository
+      await universeBackendBridge.reloadUniverse(targetSlug);
+      gfLog(`[GitNativeFederation] Successfully loaded data from repository`);
+
+      // Set Git as source of truth
+      await gitFederationService.setPrimaryStorage(targetSlug, STORAGE_TYPES.GIT);
+      gfLog(`[GitNativeFederation] Set Git as source of truth: ${targetSlug}`);
+
+      setSyncStatus({ type: 'success', message: `Loaded universe from repository` });
+      await refreshState();
+    } catch (err) {
+      gfError('[GitNativeFederation] Import flow failed:', err);
+      setError(`Failed to load from repository: ${err.message}`);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleUniverseLinkingSelectExisting = async (targetSlug) => {
+    if (!pendingUniverseLink) return;
+
+    const { discovered, repo } = pendingUniverseLink;
+    const repoKey = `${repo.user}/${repo.repo}`;
+
+    try {
+      setLoading(true);
+      setShowUniverseLinking(false);
+
+      // Check if the universe is empty - if so, IMPORT (load data from repo)
+      const universe = serviceState.universes.find(u => u.slug === targetSlug);
+      const nodeCount = universe?.nodeCount || universe?.raw?.nodeCount || 0;
+      const isEmpty = nodeCount === 0;
+
+      if (isEmpty) {
+        // Universe is empty - use IMPORT flow (load data from repo)
+        gfLog(`[GitNativeFederation] Universe is empty (${nodeCount} nodes), using IMPORT flow to load data from repo`);
+        
+        // Add repo to managed list
+        const alreadyManaged = managedRepositories.some(r =>
+          `${r.owner?.login || r.owner}/${r.name}` === repoKey
+        );
+
+        if (!alreadyManaged) {
+          const repoObject = {
+            name: repo.repo,
+            owner: { login: repo.user },
+            full_name: `${repo.user}/${repo.repo}`,
+            html_url: `https://github.com/${repo.user}/${repo.repo}`,
+            id: `discovered-${repo.user}-${repo.repo}`
+          };
+
+          const newList = [...managedRepositories, repoObject];
+          setManagedRepositories(newList);
+          localStorage.setItem('redstring-managed-repositories', JSON.stringify(newList));
+          gfLog(`[GitNativeFederation] Auto-added ${repoKey} to managed repositories for import`);
+        }
+
+        // Step 1: Link the repo config WITHOUT saving (to avoid overwriting repo data)
+        const resolvePathParts = (universePath, fileName) => {
+          const parts = (universePath || '').split('/').filter(Boolean);
+          if (parts.length >= 3) {
+            return {
+              folder: parts[parts.length - 2],
+              file: parts[parts.length - 1]
+            };
+          }
+          if (fileName) {
+            return {
+              folder: (parts[parts.length - 1] || '')
+                .replace(/\.redstring$/i, '') || targetSlug,
+              file: fileName
+            };
+          }
+          return {
+            folder: targetSlug,
+            file: `${targetSlug}.redstring`
+          };
+        };
+
+        const inferredPath = discovered.path || (discovered.location && discovered.fileName
+          ? `${discovered.location}/${discovered.fileName}`
+          : null);
+        const inferredFile = discovered.fileName || (inferredPath ? inferredPath.split('/').pop() : null);
+        const { folder: resolvedFolder, file: resolvedFile } = resolvePathParts(inferredPath, inferredFile);
+
+        // Attach Git repo config (but don't force save yet - we'll load first)
+        await gitFederationService.attachGitRepository(targetSlug, {
+          user: repo.user,
+          repo: repo.repo,
+          authMethod: dataAuthMethod || 'oauth',
+          universeFolder: resolvedFolder || targetSlug,
+          universeFile: resolvedFile || `${targetSlug}.redstring`
+        });
+
+        gfLog(`[GitNativeFederation] Linked repo config, now loading data from repository...`);
+
+        // Step 2: Load the data from repository (don't overwrite it!)
+        try {
+          await universeBackendBridge.reloadUniverse(targetSlug);
+          gfLog(`[GitNativeFederation] Successfully loaded data from repository`);
+        } catch (err) {
+          gfWarn('[GitNativeFederation] Failed to load data from repository:', err);
+          throw new Error(`Failed to load data from repository: ${err.message}`);
+        }
+
+        // Step 3: Set Git as source of truth
+        try {
+          await gitFederationService.setPrimaryStorage(targetSlug, STORAGE_TYPES.GIT);
+          gfLog(`[GitNativeFederation] Set Git as source of truth for imported universe: ${targetSlug}`);
+        } catch (err) {
+          gfWarn('[GitNativeFederation] Failed to set Git as source of truth:', err);
+        }
+
+        setSyncStatus({ type: 'success', message: `Loaded universe from repository` });
+        await refreshState();
+        setPendingUniverseLink(null);
+        return;
+      }
+
+      // Universe has data - use ATTACH flow (save current data to repo)
+      gfLog(`[GitNativeFederation] Universe has ${nodeCount} nodes, using ATTACH flow to save to repo`);
+
+      // Check if the discovered repo file also has data
+      const repoNodeCount = discovered.nodeCount || discovered.stats?.nodeCount || discovered.metadata?.nodeCount || 0;
+      const repoHasData = repoNodeCount > 0;
+
+      if (repoHasData) {
+        // Both have data - ask user what to do
+        gfLog(`[GitNativeFederation] Repository also has ${repoNodeCount} nodes - asking user for direction`);
+        
+        setConfirmDialog({
+          title: 'Both Have Data',
+          message: `Your universe has ${nodeCount} nodes and the repository has ${repoNodeCount} nodes.`,
+          details: `• Save to Repository: Your current ${nodeCount} nodes will overwrite the repository's ${repoNodeCount} nodes.\n\n• Load from Repository: The repository's ${repoNodeCount} nodes will replace your current ${nodeCount} nodes.`,
+          confirmLabel: 'Save to Repository',
+          cancelLabel: 'Load from Repository',
+          variant: 'warning',
+          onConfirm: async () => {
+            // User wants to save their data to repo (overwrite repo)
+            await continueAttachFlow(targetSlug, discovered, repo, repoKey);
+          },
+          onCancel: async () => {
+            // User wants to load from repo (import flow)
+            await switchToImportFlow(targetSlug, discovered, repo, repoKey);
+          }
+        });
+        setPendingUniverseLink(null);
+        return;
+      }
+
+      // Repo is empty or new - safe to attach and save
+      await continueAttachFlow(targetSlug, discovered, repo, repoKey);
+      setPendingUniverseLink(null);
     } catch (err) {
       gfError('[GitNativeFederation] Link to existing universe failed:', err);
       setError(`Failed to link repository: ${err.message}`);
-    } finally {
       setLoading(false);
       setPendingUniverseLink(null);
     }
@@ -1835,6 +2032,14 @@ const GitNativeFederation = ({ variant = 'panel', onRequestClose }) => {
           await universeBackendBridge.reloadUniverse(importedSlug);
         } catch (err) {
           gfWarn('[GitNativeFederation] Initial reload after import failed:', err);
+        }
+
+        // Set Git as the source of truth for the imported universe
+        try {
+          await gitFederationService.setPrimaryStorage(importedSlug, STORAGE_TYPES.GIT);
+          gfLog(`[GitNativeFederation] Set Git as source of truth for imported universe: ${importedSlug}`);
+        } catch (err) {
+          gfWarn('[GitNativeFederation] Failed to set Git as source of truth:', err);
         }
       }
 
@@ -2240,6 +2445,18 @@ const GitNativeFederation = ({ variant = 'panel', onRequestClose }) => {
       }
 
       await refreshState();
+
+      // If this is the only storage option (no Git), set local as source of truth
+      const universe = serviceState.universes.find(u => u.slug === slug);
+      const hasGit = universe?.raw?.gitRepo?.enabled;
+      if (!hasGit) {
+        try {
+          await gitFederationService.setPrimaryStorage(slug, STORAGE_TYPES.LOCAL);
+          gfLog(`[GitNativeFederation] Set Local as source of truth (no other storage options): ${slug}`);
+        } catch (err) {
+          gfWarn('[GitNativeFederation] Failed to set Local as source of truth:', err);
+        }
+      }
 
       const nodeCountLabel = typeof metrics.nodeCount === 'number'
         ? ` • ${metrics.nodeCount} node${metrics.nodeCount === 1 ? '' : 's'}`

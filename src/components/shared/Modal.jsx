@@ -99,7 +99,7 @@ const Modal = ({
             overflow: 'hidden',
             display: 'flex',
             flexDirection: 'column',
-            padding: 16,
+            padding: size === 'slim' ? 0 : 16,
             minHeight: 0
           }}
         >

@@ -79,8 +79,10 @@ const UniversesList = ({
 }) => {
   // No collapsing - active universe is always expanded, others show compact view
   const [showLoadMenu, setShowLoadMenu] = useState(false);
+  const [showNewMenu, setShowNewMenu] = useState(false);
   const [showLocalFileMenu, setShowLocalFileMenu] = useState(null); // Track which universe's menu is open
   const loadMenuRef = useRef(null);
+  const newMenuRef = useRef(null);
   const localFileMenuRef = useRef(null);
 
   // Close dropdown when clicking outside
@@ -89,16 +91,19 @@ const UniversesList = ({
       if (loadMenuRef.current && !loadMenuRef.current.contains(event.target)) {
         setShowLoadMenu(false);
       }
+      if (newMenuRef.current && !newMenuRef.current.contains(event.target)) {
+        setShowNewMenu(false);
+      }
       if (localFileMenuRef.current && !localFileMenuRef.current.contains(event.target)) {
         setShowLocalFileMenu(null);
       }
     };
 
-    if (showLoadMenu || showLocalFileMenu) {
+    if (showLoadMenu || showNewMenu || showLocalFileMenu) {
       document.addEventListener('mousedown', handleClickOutside);
       return () => document.removeEventListener('mousedown', handleClickOutside);
     }
-  }, [showLoadMenu, showLocalFileMenu]);
+  }, [showLoadMenu, showNewMenu, showLocalFileMenu]);
 
   const handleLoadFromLocalClick = () => {
     setShowLoadMenu(false);
@@ -122,9 +127,15 @@ const UniversesList = ({
     }
   };
 
-  const handleCreateFromFileClick = () => {
-    setShowLoadMenu(false);
-    // Trigger file picker to load a .redstring file and create new universe
+  const handleNewEmptyClick = () => {
+    setShowNewMenu(false);
+    if (onCreateUniverse) {
+      onCreateUniverse();
+    }
+  };
+
+  const handleNewFromFileClick = () => {
+    setShowNewMenu(false);
     const input = document.createElement('input');
     input.type = 'file';
     input.accept = '.redstring';
@@ -135,6 +146,13 @@ const UniversesList = ({
       }
     };
     input.click();
+  };
+
+  const handleNewFromRepoClick = () => {
+    setShowNewMenu(false);
+    if (onLoadFromRepo) {
+      onLoadFromRepo();
+    }
   };
 
   return (
@@ -148,7 +166,7 @@ const UniversesList = ({
               onClick={() => setShowLoadMenu(!showLoadMenu)}
               style={buttonStyle('outline')}
             >
-              <Upload size={14} /> Load <ChevronDown size={12} />
+              <Download size={14} /> Load <ChevronDown size={12} />
             </button>
             {showLoadMenu && (
               <div style={{
@@ -164,7 +182,7 @@ const UniversesList = ({
                 minWidth: 180
               }}>
                 <button
-                  onClick={handleCreateFromFileClick}
+                  onClick={handleLoadFromLocalClick}
                   style={{
                     width: '100%',
                     padding: '6px 10px',
@@ -182,7 +200,7 @@ const UniversesList = ({
                   onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#f5f5f5'}
                   onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
                 >
-                  <Plus size={12} /> New from File
+                  <FileText size={12} /> From Local File
                 </button>
                 <button
                   onClick={handleLoadFromRepoClick}
@@ -208,9 +226,92 @@ const UniversesList = ({
               </div>
             )}
           </div>
-          <button onClick={onCreateUniverse} style={buttonStyle('solid')}>
-            <Plus size={14} /> New
-          </button>
+          <div ref={newMenuRef} style={{ position: 'relative' }}>
+            <button 
+              onClick={() => setShowNewMenu(!showNewMenu)}
+              style={buttonStyle('solid')}
+            >
+              <Plus size={14} /> New <ChevronDown size={12} />
+            </button>
+            {showNewMenu && (
+              <div style={{
+                position: 'absolute',
+                top: '100%',
+                right: 0,
+                marginTop: 4,
+                backgroundColor: '#ffffff',
+                border: '1px solid #260000',
+                borderRadius: 6,
+                boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
+                zIndex: 1000,
+                minWidth: 180
+              }}>
+                <button
+                  onClick={handleNewEmptyClick}
+                  style={{
+                    width: '100%',
+                    padding: '6px 10px',
+                    border: 'none',
+                    background: 'none',
+                    textAlign: 'left',
+                    cursor: 'pointer',
+                    fontSize: '0.75rem',
+                    fontWeight: 600,
+                    color: '#260000',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 6
+                  }}
+                  onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#f5f5f5'}
+                  onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
+                >
+                  <Plus size={12} /> Empty Universe
+                </button>
+                <button
+                  onClick={handleNewFromFileClick}
+                  style={{
+                    width: '100%',
+                    padding: '6px 10px',
+                    border: 'none',
+                    background: 'none',
+                    textAlign: 'left',
+                    cursor: 'pointer',
+                    fontSize: '0.75rem',
+                    fontWeight: 600,
+                    color: '#260000',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 6
+                  }}
+                  onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#f5f5f5'}
+                  onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
+                >
+                  <FileText size={12} /> From File
+                </button>
+                <button
+                  onClick={handleNewFromRepoClick}
+                  style={{
+                    width: '100%',
+                    padding: '6px 10px',
+                    border: 'none',
+                    background: 'none',
+                    textAlign: 'left',
+                    cursor: 'pointer',
+                    fontSize: '0.75rem',
+                    fontWeight: 600,
+                    color: '#260000',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 6
+                  }}
+                  onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#f5f5f5'}
+                  onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
+                >
+                  <Github size={12} /> From Repository
+                </button>
+              </div>
+            )}
+          </div>
         </div>
       }
     >
@@ -369,6 +470,7 @@ const UniversesList = ({
                       {/* Git Status Information */}
                       {(() => {
                         const syncStatus = syncStatusMap[universe.slug];
+                            const fileName = `universes/${universe.slug}/${universe.slug}.redstring`;
                             const statusText = syncStatus?.status || 'unknown';
                             const lastSync = syncStatus?.lastSync ? formatWhen(syncStatus.lastSync) : 'Never';
                             const hasError = syncStatus?.error;
@@ -378,22 +480,29 @@ const UniversesList = ({
                               <div style={{
                                 fontSize: '0.65rem',
                                 color: '#444',
-                                marginTop: '2px'
+                                marginTop: '4px',
+                                display: 'flex',
+                                flexDirection: 'column',
+                                gap: 2
                               }}>
-                                <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
-                                  <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-                                    <span style={{ fontWeight: 600, color: '#260000' }}>Status:</span>
-                                    <span style={{
-                                      color: hasError ? '#d32f2f' : isLoading ? '#ef6c00' : statusText === 'synced' ? '#7A0000' : '#666',
-                                      fontWeight: 500
-                                    }}>
-                                      {isLoading ? '⟳ Loading...' : hasError ? '⚠ Error' : statusText}
-                                    </span>
-                                  </div>
-                                  <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-                                    <span style={{ fontWeight: 600, color: '#260000' }}>Last saved:</span>
-                                    <span style={{ color: '#666' }}>{lastSync}</span>
-                                  </div>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                                  <span style={{ fontWeight: 600, color: '#260000' }}>File:</span>
+                                  <span style={{ wordBreak: 'break-word' }}>
+                                    {fileName}
+                                  </span>
+                                </div>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                                  <span style={{ fontWeight: 600, color: '#260000' }}>Status:</span>
+                                  <span style={{
+                                    color: hasError ? '#d32f2f' : isLoading ? '#ef6c00' : statusText === 'synced' ? '#7A0000' : '#666',
+                                    fontWeight: 500
+                                  }}>
+                                    {isLoading ? '⟳ Loading...' : hasError ? '⚠ Error' : statusText}
+                                  </span>
+                                </div>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                                  <span style={{ fontWeight: 600, color: '#260000' }}>Last saved:</span>
+                                  <span style={{ color: '#666' }}>{lastSync}</span>
                                 </div>
                                 {hasError && (
                                   <div style={{
@@ -559,11 +668,17 @@ const UniversesList = ({
                                 <div style={{
                                   fontSize: '0.65rem',
                                   color: '#444',
+                                  marginTop: '4px',
                                   display: 'flex',
-                                  justifyContent: 'space-between',
-                                  alignItems: 'center',
-                                  marginTop: '2px'
+                                  flexDirection: 'column',
+                                  gap: 2
                                 }}>
+                                  <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                                    <span style={{ fontWeight: 600, color: '#260000' }}>File:</span>
+                                    <span style={{ wordBreak: 'break-word' }}>
+                                      {localFile.displayPath || localFile.path || localFile.lastFilePath || localFile.suggestedPath || `${universe.slug}.redstring`}
+                                    </span>
+                                  </div>
                                   <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
                                     <span style={{ fontWeight: 600, color: '#260000' }}>Last saved:</span>
                                     <span style={{ color: lastSavedColor }}>
