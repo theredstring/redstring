@@ -9,6 +9,8 @@ import {
   Settings,
   Shield,
   Cloud,
+  CloudDownload,
+  CloudUpload,
   GitBranch,
   ExternalLink,
   CheckCircle,
@@ -33,6 +35,7 @@ import { persistentAuth } from './services/persistentAuth.js';
 import { oauthFetch } from './services/bridgeConfig.js';
 import universeBackend from './services/universeBackend.js';
 import universeBackendBridge from './services/universeBackendBridge.js';
+import PanelIconButton from './components/shared/PanelIconButton.jsx';
 import RepositorySelectionModal from './components/modals/RepositorySelectionModal.jsx';
 import UniverseLinkingModal from './components/modals/UniverseLinkingModal.jsx';
 import ConflictResolutionModal from './components/modals/ConflictResolutionModal.jsx';
@@ -412,6 +415,34 @@ const GitNativeFederation = ({ variant = 'panel', onRequestClose }) => {
       clearInterval(pollInterval);
     };
   }, [refreshState, refreshAuth]);
+
+  // Audit: If both Git and Local slots are enabled and primary is unset or ambiguous, prompt user to choose
+  useEffect(() => {
+    const slug = serviceState.activeUniverseSlug;
+    if (!slug) return;
+    const u = (serviceState.universes || []).find((x) => x.slug === slug);
+    if (!u) return;
+    const raw = u.raw || {};
+    const hasLocal = !!raw.localFile?.enabled;
+    const hasRepo = !!(raw.gitRepo?.enabled && raw.gitRepo?.linkedRepo);
+    const currentPrimary = u.sourceOfTruth || u.storage?.primary?.type || null;
+
+    if (hasLocal && hasRepo && (currentPrimary !== 'git' && currentPrimary !== 'local')) {
+      setConfirmDialog({
+        title: 'Choose Source of Truth',
+        message: 'Both Git and Local are linked. Choose the primary source for saves and loads.',
+        confirmLabel: 'Use Git as Primary',
+        cancelLabel: 'Use Local as Primary',
+        variant: 'warning',
+        onConfirm: async () => {
+          try { await gitFederationService.setPrimaryStorage(slug, STORAGE_TYPES.GIT); await refreshState(); } catch (e) { gfWarn('Failed to set git as primary (audit)', e); }
+        },
+        onCancel: async () => {
+          try { await gitFederationService.setPrimaryStorage(slug, STORAGE_TYPES.LOCAL); await refreshState(); } catch (e) { gfWarn('Failed to set local as primary (audit)', e); }
+        }
+      });
+    }
+  }, [serviceState.activeUniverseSlug, serviceState.universes, refreshState]);
 
   // First-time link guidance: when returning from auth or entering federation with no file linked,
   // prompt the user to either create a local file or link a repo file (if none discovered yet).
@@ -1468,6 +1499,18 @@ const GitNativeFederation = ({ variant = 'panel', onRequestClose }) => {
         if (importedSlug) {
           try {
             await universeBackendBridge.reloadUniverse(importedSlug);
+            // Ensure UI switches to the imported universe
+            try {
+              await gitFederationService.switchUniverse(importedSlug);
+            } catch (switchErr) {
+              gfWarn('[GitNativeFederation] Failed to switch to imported universe:', switchErr);
+            }
+            // Ensure Git is the source of truth for imported universes
+            try {
+              await gitFederationService.setPrimaryStorage(importedSlug, STORAGE_TYPES.GIT);
+            } catch (err) {
+              gfWarn('[GitNativeFederation] Failed to set Git as primary after import (modal):', err);
+            }
           } catch (err) {
             gfWarn('[GitNativeFederation] Initial universe reload failed after import:', err);
           }
@@ -1544,6 +1587,13 @@ const GitNativeFederation = ({ variant = 'panel', onRequestClose }) => {
             }
           } catch (reloadErr) {
             gfWarn('[GitNativeFederation] Universe reload after linking failed:', reloadErr);
+          }
+
+          // Ensure Git is the source of truth so sync engine runs and status reflects connected
+          try {
+            await gitFederationService.setPrimaryStorage(targetSlug, STORAGE_TYPES.GIT);
+          } catch (err) {
+            gfWarn('[GitNativeFederation] Failed to set Git as primary after linking:', err);
           }
 
           setSyncStatus({ type: 'success', message: `Synced repository data from "${remoteName}"` });
@@ -2087,6 +2137,13 @@ const GitNativeFederation = ({ variant = 'panel', onRequestClose }) => {
         } catch (err) {
           gfWarn('[GitNativeFederation] Failed to set Git as source of truth:', err);
         }
+
+        // Ensure UI switches to the imported universe
+        try {
+          await gitFederationService.switchUniverse(importedSlug);
+        } catch (switchErr) {
+          gfWarn('[GitNativeFederation] Failed to switch to imported universe:', switchErr);
+        }
       }
 
       setSyncStatus({ type: 'success', message: `Imported universe "${importedName}" from repository` });
@@ -2171,6 +2228,34 @@ const GitNativeFederation = ({ variant = 'panel', onRequestClose }) => {
 
   const handleSaveRepoSource = async (universeSlug, source) => {
     try {
+      const universe = serviceState.universes.find(u => u.slug === universeSlug);
+      const isGitPrimary = (universe?.sourceOfTruth || universe?.storage?.primary?.type) === 'git';
+
+      if (!isGitPrimary) {
+        setConfirmDialog({
+          title: 'Save to Git (Non-Primary)',
+          message: 'Your source of truth is Local. Saving to Git may overwrite repository data.',
+          details: 'Proceed only if you intend to push your current local state to the repository.',
+          variant: 'warning',
+          confirmLabel: 'Save to Git',
+          cancelLabel: 'Cancel',
+          onConfirm: async () => {
+            try {
+              setLoading(true);
+              await gitFederationService.forceSave(universeSlug);
+              setSyncStatus({ type: 'success', message: `Saved to Git for ${universeSlug}` });
+              await refreshState();
+            } catch (err) {
+              gfError('[GitNativeFederation] Manual save to Git failed:', err);
+              setError(`Failed to save: ${err.message}`);
+            } finally {
+              setLoading(false);
+            }
+          }
+        });
+        return;
+      }
+
       setLoading(true);
       await gitFederationService.forceSave(universeSlug);
       setSyncStatus({ type: 'success', message: `Manual save triggered for ${universeSlug}` });
@@ -2852,8 +2937,10 @@ const GitNativeFederation = ({ variant = 'panel', onRequestClose }) => {
   const handleForceSave = async (slug) => {
     try {
       setLoading(true);
-      await gitFederationService.forceSave(slug);
-      setSyncStatus({ type: 'success', message: 'Universe saved to Git' });
+      const universe = serviceState.universes.find(u => u.slug === slug);
+      const isGitPrimary = (universe?.sourceOfTruth || universe?.storage?.primary?.type) === 'git';
+      await gitFederationService.forceSave(slug, isGitPrimary ? undefined : { skipGit: true });
+      setSyncStatus({ type: 'success', message: isGitPrimary ? 'Universe saved to Git' : 'Universe saved locally (Git is not primary)' });
       await refreshState();
     } catch (err) {
       gfError('[GitNativeFederation] Save failed:', err);
@@ -2867,11 +2954,37 @@ const GitNativeFederation = ({ variant = 'panel', onRequestClose }) => {
     try {
       setLoading(true);
       if (serviceState.activeUniverseSlug) {
+        const universe = serviceState.universes.find(u => u.slug === serviceState.activeUniverseSlug);
+        const isGitPrimary = (universe?.sourceOfTruth || universe?.storage?.primary?.type) === 'git';
+        if (!isGitPrimary) {
+          setConfirmDialog({
+            title: 'Reload from Non-Primary Source?',
+            message: 'Your source of truth is Local. Reloading will pull from the configured source and may replace in-memory data.',
+            details: 'Proceed only if you intend to discard unsaved in-memory changes.',
+            variant: 'warning',
+            confirmLabel: 'Reload',
+            cancelLabel: 'Cancel',
+            onConfirm: async () => {
+              try {
+                setLoading(true);
+                await universeBackendBridge.reloadUniverse(serviceState.activeUniverseSlug);
+                setSyncStatus({ type: 'info', message: 'Universe reloaded' });
+                await refreshState();
+              } catch (err) {
+                gfError('[GitNativeFederation] Reload failed:', err);
+                setError(`Reload failed: ${err.message}`);
+              } finally {
+                setLoading(false);
+              }
+            }
+          });
+          return;
+        }
         await universeBackendBridge.reloadUniverse(serviceState.activeUniverseSlug);
       } else {
         await gitFederationService.reloadActiveUniverse();
       }
-      setSyncStatus({ type: 'info', message: 'Universe reloaded from Git' });
+      setSyncStatus({ type: 'info', message: 'Universe reloaded' });
       await refreshState();
     } catch (err) {
       gfError('[GitNativeFederation] Reload failed:', err);
@@ -4052,70 +4165,70 @@ return (
               )}
 
               {discoveredUniverseFiles.map((file, idx) => (
-                <button
+                <div
                   key={idx}
-                  onClick={() => handleUniverseFileSelection(file)}
                   style={{
-                    ...buttonStyle('outline'),
-                    width: '100%',
-                    padding: 16,
-                    justifyContent: 'flex-start',
                     border: '2px solid #260000',
                     backgroundColor: '#bdb5b5',
                     borderRadius: 14,
-                    transition: 'all 0.2s ease',
-                    boxShadow: '0 2px 6px rgba(38, 0, 0, 0.08)'
-                  }}
-                  onMouseEnter={(e) => {
-                    e.currentTarget.style.backgroundColor = '#d7d0d0';
-                    e.currentTarget.style.borderColor = '#260000';
-                  }}
-                  onMouseLeave={(e) => {
-                    e.currentTarget.style.backgroundColor = '#bdb5b5';
-                    e.currentTarget.style.borderColor = '#260000';
+                    padding: 12,
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    gap: 10
                   }}
                 >
-                  <GitBranch size={18} style={{ flexShrink: 0 }} />
-                  <div style={{ textAlign: 'left', flex: 1 }}>
-                    <div style={{ fontWeight: 700, marginBottom: 6, color: '#260000', fontSize: '0.9rem' }}>
-                      {file.name || file.slug || 'Universe File'}
-                    </div>
-                    <div style={{ fontSize: '0.7rem', color: '#666', marginBottom: 4 }}>
-                      📁 {file.path || file.location || 'Unknown path'}
-                    </div>
-                    <div style={{
-                      display: 'flex',
-                      gap: 12,
-                      fontSize: '0.7rem',
-                      color: '#1565c0',
-                      marginTop: 6,
-                      paddingTop: 6,
-                      borderTop: '1px solid #e0e0e0'
-                    }}>
-                      {file.nodeCount !== undefined && (
-                        <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-                          <span style={{ fontWeight: 600 }}>{file.nodeCount}</span> nodes
-                        </span>
-                      )}
-                      {file.connectionCount !== undefined && (
-                        <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-                          <span style={{ fontWeight: 600 }}>{file.connectionCount}</span> connections
-                        </span>
-                      )}
-                      {file.graphCount !== undefined && (
-                        <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-                          <span style={{ fontWeight: 600 }}>{file.graphCount}</span> webs
-                        </span>
-                      )}
-                    </div>
-                    {file.lastModified && (
-                      <div style={{ fontSize: '0.65rem', color: '#999', marginTop: 4 }}>
-                        Last updated: {file.lastModified}
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 10, flex: 1 }}>
+                    <GitBranch size={18} style={{ flexShrink: 0 }} />
+                    <div style={{ textAlign: 'left', flex: 1 }}>
+                      <div style={{ fontWeight: 700, marginBottom: 6, color: '#260000', fontSize: '0.9rem' }}>
+                        {file.name || file.slug || 'Universe File'}
                       </div>
-                    )}
+                    <div style={{ fontSize: '0.7rem', color: '#666', marginBottom: 4, textDecoration: 'none' }}>
+                      {file.path || file.location || 'Unknown path'}
+                    </div>
+                      <div style={{
+                        display: 'flex',
+                        gap: 12,
+                        fontSize: '0.7rem',
+                        color: '#1565c0',
+                        marginTop: 6,
+                        paddingTop: 6,
+                        borderTop: '1px solid #e0e0e0'
+                      }}>
+                        {file.nodeCount !== undefined && (
+                          <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                            <span style={{ fontWeight: 600 }}>{file.nodeCount}</span> nodes
+                          </span>
+                        )}
+                        {file.connectionCount !== undefined && (
+                          <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                            <span style={{ fontWeight: 600 }}>{file.connectionCount}</span> connections
+                          </span>
+                        )}
+                        {file.graphCount !== undefined && (
+                          <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                            <span style={{ fontWeight: 600 }}>{file.graphCount}</span> webs
+                          </span>
+                        )}
+                      </div>
+                      {file.lastModified && (
+                        <div style={{ fontSize: '0.65rem', color: '#999', marginTop: 4 }}>
+                          Last updated: {file.lastModified}
+                        </div>
+                      )}
+                    </div>
                   </div>
-                  <span style={{ fontSize: '0.7rem', fontWeight: 600, color: '#1565c0' }}>Import</span>
-                </button>
+                  <div style={{ display: 'flex', gap: 8 }}>
+                    <PanelIconButton
+                      icon={CloudDownload}
+                      size={24}
+                      color="#7A0000"
+                      title="Import Copy"
+                      onClick={() => handleUniverseFileSelection(file)}
+                    />
+                  </div>
+                </div>
               ))}
             </div>
           ) : (
@@ -4175,9 +4288,9 @@ return (
                             <div style={{ fontWeight: 700, marginBottom: 6, color: '#260000', fontSize: '0.9rem' }}>
                               {file.name || file.slug || 'Unnamed Universe'}
                             </div>
-                            <div style={{ fontSize: '0.7rem', color: '#666', marginBottom: 4 }}>
-                              📁 {file.path || file.location || 'Unknown path'}
-                            </div>
+                          <div style={{ fontSize: '0.7rem', color: '#666', marginBottom: 4, textDecoration: 'none' }}>
+                            {file.path || file.location || 'Unknown path'}
+                          </div>
                             <div style={{
                               display: 'flex',
                               gap: 12,
@@ -4211,18 +4324,20 @@ return (
                           </div>
                         </div>
                         <div style={{ display: 'flex', gap: 8 }}>
-                          <button
+                          <PanelIconButton
+                            icon={CloudDownload}
+                            size={24}
+                            color="#7A0000"
+                            title="Load from Repo"
                             onClick={() => handleUniverseFileSelection(file)}
-                            style={buttonStyle('outline')}
-                          >
-                            Load from Repo
-                          </button>
-                          <button
+                          />
+                          <PanelIconButton
+                            icon={CloudUpload}
+                            size={24}
+                            color="#7A0000"
+                            title="Save to Repo"
                             onClick={() => handleSaveToSelectedRepositoryFile(file)}
-                            style={buttonStyle('solid')}
-                          >
-                            Save to Repo
-                          </button>
+                          />
                         </div>
                       </div>
                     ))}
