@@ -1232,7 +1232,9 @@ const GitNativeFederation = ({ variant = 'panel', onRequestClose }) => {
               await gitFederationService.attachGitRepository(slug, {
                 user: owner,
                 repo: repoName,
-                authMethod: dataAuthMethod || 'oauth'
+                authMethod: dataAuthMethod || 'oauth',
+                universeFolder: slug,
+                universeFile: `${slug}.redstring`
               });
 
               try {
@@ -1351,7 +1353,9 @@ const GitNativeFederation = ({ variant = 'panel', onRequestClose }) => {
       await gitFederationService.attachGitRepository(targetSlug, {
         user: owner,
         repo: repoName,
-        authMethod: dataAuthMethod || 'oauth'
+        authMethod: dataAuthMethod || 'oauth',
+        universeFolder: targetSlug,
+        universeFile: `${targetSlug}.redstring`
       });
 
       // Initialize the repository with current universe data
@@ -1574,6 +1578,48 @@ const GitNativeFederation = ({ variant = 'panel', onRequestClose }) => {
         setDiscoveredUniverseFiles([]);
       }
     }
+  };
+
+  const handleSaveToSelectedRepositoryFile = async (selectedFile) => {
+    if (!pendingRepoAttachment) return;
+
+    const { owner, repoName, universeSlug } = pendingRepoAttachment;
+    const targetSlug = universeSlug || repositoryTargetSlug;
+
+    if (!targetSlug) {
+      setError('No universe selected for attachment. Choose a universe before saving to repository.');
+      return;
+    }
+
+    const localUniverse = serviceState.universes.find(u => u.slug === targetSlug);
+    const localName = localUniverse?.name || localUniverse?.slug || targetSlug;
+    const repoNameLabel = selectedFile?.name || selectedFile?.slug || 'Repository universe';
+
+    setConfirmDialog({
+      title: 'Overwrite Repository Data',
+      message: `Save your current "${localName}" to "${repoNameLabel}" in ${owner}/${repoName}?`,
+      details: 'This will overwrite the data in the selected repository file.',
+      variant: 'danger',
+      confirmLabel: 'Overwrite in Repo',
+      cancelLabel: 'Cancel',
+      onConfirm: async () => {
+        try {
+          setLoading(true);
+          setShowUniverseFileSelector(false);
+          const repo = { user: owner, repo: repoName };
+          const repoKey = `${owner}/${repoName}`;
+          await continueAttachFlow(targetSlug, selectedFile, repo, repoKey);
+        } catch (err) {
+          gfError('[GitNativeFederation] Save to selected repo file failed:', err);
+          setError(`Failed to save to repository: ${err.message}`);
+        } finally {
+          setLoading(false);
+          setPendingRepoAttachment(null);
+          setDiscoveredUniverseFiles([]);
+          setRepositoryIntent(null);
+        }
+      }
+    });
   };
 
   const handleDetachRepo = async (universe, source) => {
@@ -4095,7 +4141,7 @@ return (
                 </div>
               </button>
 
-              {discoveredUniverseFiles.length > 0 && (
+          {discoveredUniverseFiles.length > 0 && (
                 <>
                   <div style={{
                     fontSize: '0.85rem',
@@ -4110,70 +4156,75 @@ return (
 
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
                     {discoveredUniverseFiles.map((file, idx) => (
-                      <button
+                      <div
                         key={idx}
-                        onClick={() => handleUniverseFileSelection(file)}
                         style={{
-                          ...buttonStyle('outline'),
-                          width: '100%',
-                          padding: 14,
-                          justifyContent: 'flex-start',
                           border: '2px solid #260000',
                           backgroundColor: '#bdb5b5',
                           borderRadius: 14,
-                          transition: 'all 0.2s ease',
-                          boxShadow: '0 2px 6px rgba(38, 0, 0, 0.08)'
-                        }}
-                        onMouseEnter={(e) => {
-                          e.currentTarget.style.backgroundColor = '#d7d0d0';
-                          e.currentTarget.style.borderColor = '#260000';
-                        }}
-                        onMouseLeave={(e) => {
-                          e.currentTarget.style.backgroundColor = '#bdb5b5';
-                          e.currentTarget.style.borderColor = '#260000';
+                          padding: 12,
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'space-between',
+                          gap: 10
                         }}
                       >
-                        <GitBranch size={18} style={{ flexShrink: 0 }} />
-                        <div style={{ textAlign: 'left', flex: 1 }}>
-                          <div style={{ fontWeight: 700, marginBottom: 6, color: '#260000', fontSize: '0.9rem' }}>
-                            {file.name || file.slug || 'Unnamed Universe'}
-                          </div>
-                          <div style={{ fontSize: '0.7rem', color: '#666', marginBottom: 4 }}>
-                            📁 {file.path || file.location || 'Unknown path'}
-                          </div>
-                          <div style={{
-                            display: 'flex',
-                            gap: 12,
-                            fontSize: '0.7rem',
-                            color: '#7A0000',
-                            marginTop: 6,
-                            paddingTop: 6,
-                            borderTop: '1px solid #e0e0e0'
-                          }}>
-                            {file.nodeCount !== undefined && (
-                              <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-                                <span style={{ fontWeight: 600 }}>{file.nodeCount}</span> nodes
-                              </span>
-                            )}
-                            {file.connectionCount !== undefined && (
-                              <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-                                <span style={{ fontWeight: 600 }}>{file.connectionCount}</span> connections
-                              </span>
-                            )}
-                            {file.graphCount !== undefined && (
-                              <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-                                <span style={{ fontWeight: 600 }}>{file.graphCount}</span> webs
-                              </span>
-                            )}
-                          </div>
-                          {file.lastModified && (
-                            <div style={{ fontSize: '0.65rem', color: '#999', marginTop: 4 }}>
-                              Last updated: {file.lastModified}
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 10, flex: 1 }}>
+                          <GitBranch size={18} style={{ flexShrink: 0 }} />
+                          <div style={{ textAlign: 'left', flex: 1 }}>
+                            <div style={{ fontWeight: 700, marginBottom: 6, color: '#260000', fontSize: '0.9rem' }}>
+                              {file.name || file.slug || 'Unnamed Universe'}
                             </div>
-                          )}
+                            <div style={{ fontSize: '0.7rem', color: '#666', marginBottom: 4 }}>
+                              📁 {file.path || file.location || 'Unknown path'}
+                            </div>
+                            <div style={{
+                              display: 'flex',
+                              gap: 12,
+                              fontSize: '0.7rem',
+                              color: '#7A0000',
+                              marginTop: 6,
+                              paddingTop: 6,
+                              borderTop: '1px solid #e0e0e0'
+                            }}>
+                              {file.nodeCount !== undefined && (
+                                <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                                  <span style={{ fontWeight: 600 }}>{file.nodeCount}</span> nodes
+                                </span>
+                              )}
+                              {file.connectionCount !== undefined && (
+                                <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                                  <span style={{ fontWeight: 600 }}>{file.connectionCount}</span> connections
+                                </span>
+                              )}
+                              {file.graphCount !== undefined && (
+                                <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                                  <span style={{ fontWeight: 600 }}>{file.graphCount}</span> webs
+                                </span>
+                              )}
+                            </div>
+                            {file.lastModified && (
+                              <div style={{ fontSize: '0.65rem', color: '#999', marginTop: 4 }}>
+                                Last updated: {file.lastModified}
+                              </div>
+                            )}
+                          </div>
                         </div>
-                        <span style={{ fontSize: '0.7rem', fontWeight: 600, color: '#7A0000' }}>Sync</span>
-                      </button>
+                        <div style={{ display: 'flex', gap: 8 }}>
+                          <button
+                            onClick={() => handleUniverseFileSelection(file)}
+                            style={buttonStyle('outline')}
+                          >
+                            Load from Repo
+                          </button>
+                          <button
+                            onClick={() => handleSaveToSelectedRepositoryFile(file)}
+                            style={buttonStyle('solid')}
+                          >
+                            Save to Repo
+                          </button>
+                        </div>
+                      </div>
                     ))}
                   </div>
                 </>
