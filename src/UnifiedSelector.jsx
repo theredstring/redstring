@@ -21,7 +21,9 @@ const UnifiedSelector = ({
   selectedNodes = new Set(),
   abstractionDirection = 'above',
   leftPanelExpanded = true,
-  rightPanelExpanded = true
+  rightPanelExpanded = true,
+  gridTitle = 'Browse All Things',
+  searchOnly = false
 }) => {
   const [name, setName] = useState(initialName);
   const lastInitialNameRef = useRef(initialName);
@@ -183,14 +185,16 @@ const UnifiedSelector = ({
               />
             )}
             <div style={{ display: 'flex', alignItems: 'center' }}>
-              <Palette
-                size={20}
-                color="#260000"
-                style={{ cursor: 'pointer', flexShrink: 0, marginRight: '8px' }}
-                onMouseDown={(e) => e.stopPropagation()}
-                onClick={(e) => handleColorPickerToggle(e.currentTarget, e)}
-                title="Change color"
-              />
+              {!searchOnly && (
+                <Palette
+                  size={20}
+                  color="#260000"
+                  style={{ cursor: 'pointer', flexShrink: 0, marginRight: '8px' }}
+                  onMouseDown={(e) => e.stopPropagation()}
+                  onClick={(e) => handleColorPickerToggle(e.currentTarget, e)}
+                  title="Change color"
+                />
+              )}
               <input
                 type="text"
                 value={name}
@@ -199,16 +203,18 @@ const UnifiedSelector = ({
                   if (e.key === 'Enter') handleSubmit(); 
                   if (e.key === 'Escape') { setName(''); setColorPickerVisible(false); onClose?.(); }
                 }}
-                style={{ flex: 1, padding: '10px', borderRadius: '6px', border: '1px solid #260000', marginRight: '10px' }}
+                style={{ flex: 1, padding: '10px', borderRadius: '6px', border: '1px solid #260000', marginRight: searchOnly ? 0 : '10px' }}
                 autoFocus
               />
-              <button
-                onClick={handleSubmit}
-                style={{ padding: '10px', backgroundColor: color, color: '#bdb5b5', border: 'none', borderRadius: '8px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', minWidth: '56px', minHeight: '44px' }}
-                title={mode === 'connection-creation' ? 'Create connection type' : mode === 'abstraction-node-creation' ? `Create ${abstractionDirection} abstraction` : mode === 'node-group-creation' ? 'Create new Thing defined by this Group' : 'Create node type'}
-              >
-                <Plus size={18} color="#bdb5b5" strokeWidth={2.5} />
-              </button>
+              {!searchOnly && (
+                <button
+                  onClick={handleSubmit}
+                  style={{ padding: '10px', backgroundColor: color, color: '#bdb5b5', border: 'none', borderRadius: '8px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', minWidth: '56px', minHeight: '44px' }}
+                  title={mode === 'connection-creation' ? 'Create connection type' : mode === 'abstraction-node-creation' ? `Create ${abstractionDirection} abstraction` : mode === 'node-group-creation' ? 'Create new Thing defined by this Group' : 'Create node type'}
+                >
+                  <Plus size={18} color="#bdb5b5" strokeWidth={2.5} />
+                </button>
+              )}
             </div>
           </div>
         )}
@@ -242,7 +248,7 @@ const UnifiedSelector = ({
                   flexShrink: 0
                 }}
               >
-                Browse All Things
+                {gridTitle}
               </div>
               {/* Inner rectangle with 5px border spacing on all sides */}
               <div

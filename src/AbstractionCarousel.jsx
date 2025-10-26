@@ -943,6 +943,12 @@ const AbstractionCarousel = ({
   // Handle escape key and click-away to close
   useEffect(() => {
     const handleKeyDown = (e) => {
+      // Prevent Backspace/Delete from propagating to global handlers while carousel is active
+      if (e.key === 'Backspace' || e.key === 'Delete') {
+        e.preventDefault();
+        e.stopPropagation();
+        return;
+      }
       if (e.key === 'Escape') {
         onClose();
       }

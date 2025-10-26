@@ -6118,6 +6118,16 @@ function NodeCanvas() {
       const isInputActive = isHeaderEditing || isRightPanelInputFocused || isLeftPanelInputFocused || nodeNamePrompt.visible;
       if (isInputActive || !activeGraphId) { return; }
 
+      // Block destructive keys when AbstractionCarousel is visible
+      if (abstractionCarouselVisible) {
+        const isDeleteOrBackspace = e.key === 'Delete' || e.key === 'Backspace';
+        if (isDeleteOrBackspace) {
+          e.preventDefault();
+          e.stopPropagation();
+          return;
+        }
+      }
+
       const isDeleteKey = e.key === 'Delete' || e.key === 'Backspace';
       const nodesSelected = selectedInstanceIds.size > 0;
       const edgeSelected = selectedEdgeId !== null || selectedEdgeIds.size > 0;
@@ -10095,21 +10105,29 @@ function NodeCanvas() {
                   // DON'T set isTransitioningPieMenu(false) yet - wait for carousel to finish
                   // The carousel's onExitAnimationComplete will show the regular pie menu
                 }
-             } else if (wasTransitioning) {
-               setIsTransitioningPieMenu(false); 
-               const currentlySelectedNodeId = [...selectedInstanceIds][0]; 
-               if (currentlySelectedNodeId) {
-                   const selectedNodeIsPreviewing = previewingNodeId === currentlySelectedNodeId;
-                   if (selectedNodeIsPreviewing) { 
-                       setPreviewingNodeId(null);
-                   } else { 
-                       setPreviewingNodeId(currentlySelectedNodeId);
-                   }
-                   setSelectedNodeIdForPieMenu(currentlySelectedNodeId); 
-               } else {
-                    setPreviewingNodeId(null); 
-               }
-             } else {
+            } else if (wasTransitioning) {
+              // Generic pie menu transition completion (non-carousel). If the carousel
+              // was closed via click-away, do not toggle decompose preview.
+              setIsTransitioningPieMenu(false);
+              if (carouselClosedByClickAwayRef.current) {
+                // Consume and reset the flag here too, since defensive closures may skip
+                // the carousel's own exit completion callback.
+                carouselClosedByClickAwayRef.current = false;
+              } else {
+                const currentlySelectedNodeId = [...selectedInstanceIds][0];
+                if (currentlySelectedNodeId) {
+                  const selectedNodeIsPreviewing = previewingNodeId === currentlySelectedNodeId;
+                  if (selectedNodeIsPreviewing) {
+                    setPreviewingNodeId(null);
+                  } else {
+                    setPreviewingNodeId(currentlySelectedNodeId);
+                  }
+                  setSelectedNodeIdForPieMenu(currentlySelectedNodeId);
+                } else {
+                  setPreviewingNodeId(null);
+                }
+              }
+            } else {
                // Not transitioning, just clean exit
                setIsTransitioningPieMenu(false);
              }

@@ -3005,10 +3005,10 @@ const GitNativeFederation = ({ variant = 'panel', onRequestClose }) => {
     if (!slot || !universe) return { lastSaved: null, status: 'Unknown', statusColor: '#555', statusHint: null };
 
     // Start with the slot's existing data (already populated by gitFederationService)
-    let lastSaved = slot.lastSync || slot.lastCommitTime || null;
-    let status = slot.status || 'Unknown';
-    let statusColor = slot.statusTone || '#555';
-    let statusHint = slot.statusHint || null;
+    let lastSaved = slot.lastCommitTime || slot.lastSync || null;
+    let status = slot.status || universe.sync?.label || 'Unknown';
+    let statusColor = slot.statusTone || universe.sync?.tone || '#555';
+    let statusHint = slot.statusHint || universe.sync?.description || null;
 
     // DEBUG: Log initial slot data
     console.log(`[GitNativeFederation] getStorageSlotStatus for ${universe.slug}:`, {
@@ -3036,6 +3036,10 @@ const GitNativeFederation = ({ variant = 'panel', onRequestClose }) => {
       if (engine?.lastCommitTime && (!lastSaved || new Date(engine.lastCommitTime) > new Date(lastSaved))) {
         lastSaved = engine.lastCommitTime;
       }
+      // Fallback to sync summary timestamps if engine is missing last commit
+      if (!lastSaved && (universe.sync?.lastCommitTime || universe.sync?.lastSync)) {
+        lastSaved = universe.sync?.lastCommitTime || universe.sync?.lastSync;
+      }
 
       // Override status with real-time engine state (more accurate than cached slot data)
       if (engine?.isInErrorBackoff || engine?.isHealthy === false) {
@@ -3061,8 +3065,25 @@ const GitNativeFederation = ({ variant = 'panel', onRequestClose }) => {
         statusColor = '#2e7d32';
         console.log(`[GitNativeFederation] Status set to Synced for ${universe.slug}`);
       } else {
-        // No real-time engine data available, keep the slot's cached status
-        // This includes states like 'Awaiting sync engine', 'Connect GitHub to sync', etc.
+        // No real-time engine data available. Fall back to sync summary from universe.sync
+        if (universe.sync) {
+          if (universe.sync.state === 'disconnected') {
+            status = 'Git disconnected';
+            statusColor = '#c62828';
+            statusHint = universe.sync.description || statusHint;
+          } else if (universe.sync.state === 'standby') {
+            status = universe.sync.label || 'Awaiting sync engine';
+            statusColor = universe.sync.tone || '#ef6c00';
+            statusHint = universe.sync.description || statusHint;
+          } else if (universe.sync.label) {
+            status = universe.sync.label;
+            statusColor = universe.sync.tone || statusColor;
+            statusHint = universe.sync.description || statusHint;
+          }
+          if (!lastSaved && (universe.sync.lastCommitTime || universe.sync.lastSync)) {
+            lastSaved = universe.sync.lastCommitTime || universe.sync.lastSync;
+          }
+        }
         console.log(`[GitNativeFederation] No engine data, using slot status for ${universe.slug}:`, status);
       }
     } else if (slot.type === STORAGE_TYPES.LOCAL) {

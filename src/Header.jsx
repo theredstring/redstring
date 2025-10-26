@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { HEADER_HEIGHT } from './constants';
 import RedstringMenu from './RedstringMenu';
-import { Bookmark } from 'lucide-react';
+import { Bookmark, Plus, ScanSearch } from 'lucide-react';
 import HeaderGraphTab from './HeaderGraphTab';
 
 // Import all logo states
@@ -18,6 +18,9 @@ const Header = ({
   onEditingStateChange, 
   headerGraphs,
   onSetActiveGraph,
+  // New action props
+  onCreateNewThing,
+  onOpenComponentSearch,
   // Receive debug props
   debugMode, 
   setDebugMode,
@@ -498,11 +501,65 @@ const Header = ({
 
 
       {/* Bookmark Icon Button */}
+      {/* Right-side action buttons row */}
+      <div
+        style={{
+          position: 'absolute',
+          right: 0,
+          top: 0,
+          height: `${HEADER_HEIGHT}px`,
+          display: 'flex',
+          alignItems: 'center',
+          gap: 0,
+        }}
+      >
+        {/* Search Button */}
+        <div
+          title={activeGraph ? `Search ${activeGraph.name}` : 'Search Components'}
+          style={{
+            height: `${HEADER_HEIGHT}px`,
+            width: `${HEADER_HEIGHT}px`,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            cursor: 'pointer',
+          }}
+          onClick={() => {
+            onOpenComponentSearch?.();
+          }}
+        >
+          <ScanSearch
+            size={28}
+            color="#7A0000"
+            strokeWidth={3}
+          />
+        </div>
+
+        {/* Plus Button */}
+        <div
+          title="Create New Thing"
+          style={{
+            height: `${HEADER_HEIGHT}px`,
+            width: `${HEADER_HEIGHT}px`,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            cursor: 'pointer',
+          }}
+          onClick={() => {
+            onCreateNewThing?.();
+          }}
+        >
+          <Plus
+            size={28}
+            color="#7A0000"
+            strokeWidth={3}
+          />
+        </div>
+
       <div
         title={bookmarkActive ? 'Remove Bookmark' : 'Add Bookmark'}
         style={{
-          position: 'absolute',
-          right: '0',
           height: `${HEADER_HEIGHT}px`,
           width: `${HEADER_HEIGHT}px`,
           display: 'flex',
@@ -522,6 +579,7 @@ const Header = ({
           fill={bookmarkActive ? '#7A0000' : 'none'}
           strokeWidth={3}
         />
+      </div>
       </div>
     </header>
   );
