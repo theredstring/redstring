@@ -118,6 +118,19 @@ const SaveStatusDisplay = () => {
           } catch {}
         }
       }}
+      onMouseEnter={(e) => {
+        if (!isCTA) return;
+        try {
+          e.currentTarget.style.transform = 'scale(1.06)';
+          e.currentTarget.style.transition = 'transform 120ms ease';
+        } catch {}
+      }}
+      onMouseLeave={(e) => {
+        if (!isCTA) return;
+        try {
+          e.currentTarget.style.transform = 'scale(1)';
+        } catch {}
+      }}
     >
       {statusText}
     </div>

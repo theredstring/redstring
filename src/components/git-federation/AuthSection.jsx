@@ -21,7 +21,7 @@ function buttonStyle(variant = 'outline') {
     display: 'flex',
     alignItems: 'center',
     gap: 6,
-    transition: 'all 0.15s'
+    transition: 'transform 120ms ease, background-color 0.15s, color 0.15s'
   };
 
   switch (variant) {
@@ -109,7 +109,13 @@ const AuthSection = ({
           </div>
           <div style={{ fontSize: '0.75rem', color: '#555' }}>Browse and manage repositories</div>
           <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
-            <button onClick={onGitHubAuth} style={buttonStyle(isConnecting ? 'disabled' : 'solid')} disabled={isConnecting}>
+            <button
+              onClick={onGitHubAuth}
+              style={buttonStyle(isConnecting ? 'disabled' : 'solid')}
+              disabled={isConnecting}
+              onMouseEnter={(e) => { if (!isConnecting) e.currentTarget.style.transform = 'scale(1.04)'; }}
+              onMouseLeave={(e) => { e.currentTarget.style.transform = 'scale(1)'; }}
+            >
               <Github size={14} /> {hasOAuth ? 'Reconnect' : 'Connect'}
             </button>
             <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: '0.72rem', color: '#260000' }}>
@@ -143,7 +149,13 @@ const AuthSection = ({
             )}
           </div>
           <div style={{ fontSize: '0.75rem', color: '#555' }}>Enables secure auto-sync with Git</div>
-          <button onClick={onGitHubApp} style={buttonStyle(isConnecting ? 'disabled' : 'solid')} disabled={isConnecting}>
+          <button
+            onClick={onGitHubApp}
+            style={buttonStyle(isConnecting ? 'disabled' : 'solid')}
+            disabled={isConnecting}
+            onMouseEnter={(e) => { if (!isConnecting) e.currentTarget.style.transform = 'scale(1.04)'; }}
+            onMouseLeave={(e) => { e.currentTarget.style.transform = 'scale(1)'; }}
+          >
             <Settings size={14} /> {hasApp ? 'Manage' : 'Install App'}
           </button>
         </div>

@@ -1228,6 +1228,21 @@ function NodeCanvas() {
     }
   }, [isUniverseLoading, hasUniverseFile, isUniverseLoaded, universeLoadingError, showOnboardingModal]);
 
+  // Open Federation panel when global event is dispatched (from SaveStatusDisplay CTA)
+  useEffect(() => {
+    if (typeof window === 'undefined') return undefined;
+
+    const handler = () => {
+      try {
+        setLeftPanelExpanded(true);
+        setLeftPanelInitialView('federation');
+      } catch {}
+    };
+
+    window.addEventListener('redstring:open-federation', handler);
+    return () => window.removeEventListener('redstring:open-federation', handler);
+  }, []);
+
   // Resume Git onboarding after OAuth/App redirects by opening Federation panel and hiding modal
   useEffect(() => {
     if (typeof window === 'undefined') return;
@@ -1304,6 +1319,48 @@ function NodeCanvas() {
   }, []); // Fixed - never changes
 
   const [zoomLevel, setZoomLevel] = useState(1);
+
+  // Center view on instances of a prototype within the active graph
+  const navigateToPrototypeInstances = useCallback((prototypeId) => {
+    try {
+      if (!activeGraphId || !nodes || nodes.length === 0 || !containerRef.current) return;
+      const matching = nodes.filter(n => n.prototypeId === prototypeId);
+      if (matching.length === 0) return;
+
+      let minX = Infinity, minY = Infinity;
+      let maxX = -Infinity, maxY = -Infinity;
+      matching.forEach(node => {
+        const dims = baseDimsById.get(node.id) || getNodeDimensions(node, false, null);
+        minX = Math.min(minX, node.x);
+        minY = Math.min(minY, node.y);
+        maxX = Math.max(maxX, node.x + dims.currentWidth);
+        maxY = Math.max(maxY, node.y + dims.currentHeight);
+      });
+
+      const nodesCenterX = (minX + maxX) / 2;
+      const nodesCenterY = (minY + maxY) / 2;
+      const nodesWidth = Math.max(1, maxX - minX);
+      const nodesHeight = Math.max(1, maxY - minY);
+
+      const padding = 150;
+      const targetZoomX = viewportSize.width / (nodesWidth + padding * 2);
+      const targetZoomY = viewportSize.height / (nodesHeight + padding * 2);
+      const targetZoom = Math.min(MAX_ZOOM, Math.max(0.05, Math.min(targetZoomX, targetZoomY)));
+
+      const targetPanX = viewportSize.width / 2 - nodesCenterX * targetZoom + canvasSize.offsetX * targetZoom;
+      const targetPanY = viewportSize.height / 2 - nodesCenterY * targetZoom + canvasSize.offsetY * targetZoom;
+
+      const maxPanX = 0;
+      const maxPanY = 0;
+      const minPanX = viewportSize.width - canvasSize.width * targetZoom;
+      const minPanY = viewportSize.height - canvasSize.height * targetZoom;
+      const finalPanX = Math.min(Math.max(targetPanX, minPanX), maxPanX);
+      const finalPanY = Math.min(Math.max(targetPanY, minPanY), maxPanY);
+
+      setZoomLevel(targetZoom);
+      setPanOffset({ x: finalPanX, y: finalPanY });
+    } catch {}
+  }, [activeGraphId, nodes, baseDimsById, viewportSize, canvasSize, MAX_ZOOM]);
 
   // Function to move out-of-bounds nodes back into canvas while preserving relative positions
   const moveOutOfBoundsNodesInBounds = useCallback(() => {
@@ -1708,6 +1765,9 @@ function NodeCanvas() {
 
   // Pending swap operation state
   const [pendingSwapOperation, setPendingSwapOperation] = useState(null);
+  
+  // Header search state
+  const [headerSearchVisible, setHeaderSearchVisible] = useState(false);
   
 
 
@@ -7132,6 +7192,8 @@ function NodeCanvas() {
          onEditingStateChange={setIsHeaderEditing}
          headerGraphs={headerGraphs}
          onSetActiveGraph={storeActions.setActiveGraph}
+         onCreateNewThing={() => storeActions.createNewGraph({ name: 'New Thing' })}
+         onOpenComponentSearch={() => setHeaderSearchVisible(true)}
          // Receive debug props
          debugMode={debugMode}
          setDebugMode={setDebugMode}
@@ -10408,6 +10470,35 @@ function NodeCanvas() {
 
           {/* Overlay panel resizers (outside panels) */}
           {renderPanelResizers()}
+
+        {/* Header-triggered component search */}
+        {headerSearchVisible && (
+          <UnifiedSelector
+            mode="node-typing"
+            isVisible={true}
+            leftPanelExpanded={leftPanelExpanded}
+            rightPanelExpanded={rightPanelExpanded}
+            onClose={() => setHeaderSearchVisible(false)}
+            onNodeSelect={(prototype) => {
+              try {
+                if (prototype?.id) {
+                  // Open panel tab
+                  if (typeof storeActions.openRightPanelNodeTab === 'function') {
+                    storeActions.openRightPanelNodeTab(prototype.id, prototype.name);
+                  }
+                  // Navigate to instances in active graph if present
+                  navigateToPrototypeInstances(prototype.id);
+                }
+              } finally {
+                setHeaderSearchVisible(false);
+              }
+            }}
+            title={`Search ${activeGraphName || 'Components'}`}
+            subtitle={null}
+            gridTitle="Browse All Components"
+            searchOnly={true}
+          />
+        )}
 
           {/* Single UnifiedSelector instance with dynamic props */}
           {(() => {
