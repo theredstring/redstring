@@ -53,55 +53,66 @@ const CanvasModal = ({
 
   // Calculate position within viewport, accounting for header and TypeList
   const getModalPosition = () => {
-    const viewportX = viewportBounds.x;
-    const viewportY = viewportBounds.y;
-    const viewportWidth = viewportBounds.width;
-    const viewportHeight = viewportBounds.height;
+    const baseWindowWidth = viewportBounds.windowWidth || window.innerWidth || viewportBounds.width;
+    const baseWindowHeight = viewportBounds.windowHeight || window.innerHeight || viewportBounds.height;
+    const viewportX = fullScreenOverlay ? 0 : viewportBounds.x;
+    const viewportY = fullScreenOverlay ? 0 : viewportBounds.y;
+    const viewportWidth = fullScreenOverlay ? baseWindowWidth : viewportBounds.width;
+    const viewportHeight = fullScreenOverlay ? baseWindowHeight : viewportBounds.height;
+
+    const maxWidth = Math.max(240, viewportWidth - margin * 2);
+    const maxHeight = Math.max(200, viewportHeight - margin * 2);
+    const numericWidth = typeof width === 'number' ? width : null;
+    const numericHeight = typeof height === 'number' ? height : null;
+    const modalWidth = Math.min(numericWidth ?? maxWidth, maxWidth);
+    const modalHeightForLayout = Math.min(
+      numericHeight ?? Math.min(maxHeight, 720),
+      maxHeight
+    );
 
     let left, top;
 
     switch (position) {
       case 'top-left':
-        left = viewportX + 20;
-        top = viewportY + 20;
+        left = viewportX + margin;
+        top = viewportY + margin;
         break;
       case 'top-right':
-        left = viewportX + viewportWidth - width - 20;
-        top = viewportY + 20;
+        left = viewportX + viewportWidth - modalWidth - margin;
+        top = viewportY + margin;
         break;
       case 'bottom-left':
-        const modalHeightBottomLeft = typeof height === 'number' ? height : 400;
-        left = viewportX + 20;
-        top = viewportY + viewportHeight - modalHeightBottomLeft - 20;
+        left = viewportX + margin;
+        top = viewportY + viewportHeight - modalHeightForLayout - margin;
         break;
       case 'bottom-right':
-        const modalHeightBottomRight = typeof height === 'number' ? height : 400;
-        left = viewportX + viewportWidth - width - 20;
-        top = viewportY + viewportHeight - modalHeightBottomRight - 20;
+        left = viewportX + viewportWidth - modalWidth - margin;
+        top = viewportY + viewportHeight - modalHeightForLayout - margin;
         break;
       case 'center':
       default:
-        const modalHeight = typeof height === 'number' ? height : 400;
-        left = viewportX + (viewportWidth - width) / 2;
-        top = viewportY + (viewportHeight - modalHeight) / 2;
+        left = viewportX + (viewportWidth - modalWidth) / 2;
+        top = viewportY + (viewportHeight - modalHeightForLayout) / 2;
         break;
     }
 
     // Ensure modal stays within viewport bounds, accounting for header and TypeList
-    // Use consistent 20px margins from all edges
-    const modalHeight = typeof height === 'number' ? height : 400;
-    const minTop = viewportY + 20;
-    const maxTop = viewportY + viewportHeight - modalHeight - 20;
+    const minTop = viewportY + margin;
+    const maxTop = viewportY + viewportHeight - modalHeightForLayout - margin;
 
-    left = Math.max(viewportX + 20, Math.min(left, viewportX + viewportWidth - width - 20));
+    left = Math.max(viewportX + margin, Math.min(left, viewportX + viewportWidth - modalWidth - margin));
     top = Math.max(minTop, Math.min(top, maxTop));
 
-    return { left, top };
+    return { left, top, modalWidth, modalHeightForLayout, maxWidth, maxHeight };
   };
 
   if (!isVisible || !viewportBounds) return null;
 
-  const { left, top } = getModalPosition();
+  const { left, top, modalWidth, modalHeightForLayout, maxWidth, maxHeight } = getModalPosition();
+  const numericHeight = typeof height === 'number' ? height : null;
+  const numericWidth = typeof width === 'number' ? width : null;
+  const appliedWidth = numericWidth !== null ? Math.min(numericWidth, maxWidth) : modalWidth;
+  const appliedHeight = numericHeight !== null ? Math.min(numericHeight, maxHeight) : null;
 
   return (
     <>
@@ -113,8 +124,8 @@ const CanvasModal = ({
           left: 0,
           right: 0,
           bottom: 0,
-          backgroundColor: fullScreenOverlay ? 'rgba(0, 0, 0, 0.8)' : 'rgba(0, 0, 0, 0.5)',
-          zIndex: fullScreenOverlay ? 10000 : 9998, // Higher z-index for full screen
+          backgroundColor: fullScreenOverlay ? 'rgba(0, 0, 0, 0.85)' : 'rgba(0, 0, 0, 0.5)',
+          zIndex: fullScreenOverlay ? 20000 : 9998, // Higher z-index for full screen
           backdropFilter: fullScreenOverlay ? 'blur(4px)' : 'blur(2px)',
           ...(fullScreenOverlay && {
             // Ensure it covers absolutely everything
@@ -133,14 +144,14 @@ const CanvasModal = ({
           position: 'fixed',
           left: `${left}px`,
           top: `${top}px`,
-          width: `${width}px`,
-          height: height === 'auto' ? 'auto' : `${height}px`,
-          maxWidth: `${viewportBounds.width - margin * 2}px`,
-          maxHeight: `${viewportBounds.height - margin * 2}px`,
+          width: appliedWidth ? `${appliedWidth}px` : 'auto',
+          height: appliedHeight === null ? 'auto' : `${appliedHeight}px`,
+          maxWidth: `${maxWidth}px`,
+          maxHeight: `${maxHeight}px`,
           backgroundColor: '#bdb5b5', // Canvas color
           borderRadius: '12px',
           boxShadow: '0 8px 32px rgba(0, 0, 0, 0.3)',
-          zIndex: fullScreenOverlay ? 10001 : 9999, // Higher z-index for full screen
+          zIndex: fullScreenOverlay ? 20001 : 9999, // Higher z-index for full screen
           fontFamily: "'EmOne', sans-serif",
           overflow: 'hidden',
           display: 'flex',

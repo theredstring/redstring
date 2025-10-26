@@ -221,7 +221,10 @@ function NodeCanvas() {
     startPosition: { x: 0, y: 0 },
     currentPosition: { x: 0, y: 0 },
     hasMovedPastThreshold: false,
-    longPressTimer: null
+    longPressTimer: null,
+    longPressReady: false,
+    dragOffset: null,
+    nodeData: null
   });
 
   // Touch interaction constants
@@ -547,10 +550,7 @@ function NodeCanvas() {
   };
 
   const handleTouchMoveCanvas = (e) => {
-    if (e && e.cancelable) {
-      e.preventDefault();
-      e.stopPropagation();
-    }
+    // Avoid per-move preventDefault/stopPropagation; rely on CSS `touch-action: none`
     
     if (e.touches && e.touches.length >= 2 && pinchRef.current.active) {
       // Touch-only pinch zoom (higher sensitivity), no two-finger pan on touch
@@ -687,6 +687,23 @@ function NodeCanvas() {
     const instanceId = nodeData.id;
     const now = performance.now();
 
+    const rect = containerRef.current?.getBoundingClientRect();
+    let dragOffset = null;
+    if (rect) {
+      const mouseCanvasX = (touch.clientX - rect.left - panOffset.x) / zoomLevel + canvasSize.offsetX;
+      const mouseCanvasY = (touch.clientY - rect.top - panOffset.y) / zoomLevel + canvasSize.offsetY;
+      dragOffset = { x: mouseCanvasX - nodeData.x, y: mouseCanvasY - nodeData.y };
+    }
+
+    isMouseDown.current = true;
+    mouseDownPosition.current = { x: touch.clientX, y: touch.clientY };
+    mouseMoved.current = false;
+    mouseInsideNode.current = true;
+    startedOnNode.current = true;
+    panSourceRef.current = 'touch';
+    // Do not enter long-press mode; we want drag parity with mouse
+    setLongPressingInstanceId(null);
+
     // Add touch feedback class
     const nodeElement = e.currentTarget;
     nodeElement.classList.add('touch-active');
@@ -696,7 +713,7 @@ function NodeCanvas() {
       navigator.vibrate(10); // Short vibration for touch start
     }
 
-    // Initialize touch state
+    // Initialize touch state (long-press disabled for drag gating)
     touchState.current = {
       isDragging: false,
       dragNodeId: instanceId,
@@ -705,36 +722,11 @@ function NodeCanvas() {
       currentPosition: { x: touch.clientX, y: touch.clientY },
       hasMovedPastThreshold: false,
       longPressTimer: null,
-      nodeElement: nodeElement
+      nodeElement: nodeElement,
+      longPressReady: false,
+      dragOffset,
+      nodeData
     };
-
-    // Clear any existing long press timer
-    if (touchState.current.longPressTimer) {
-      clearTimeout(touchState.current.longPressTimer);
-    }
-
-    // Set up long press detection
-    touchState.current.longPressTimer = setTimeout(() => {
-      if (!touchState.current.hasMovedPastThreshold && touchState.current.dragNodeId === instanceId) {
-        console.log('Long press detected on node:', instanceId);
-
-        // Add long press visual feedback
-        if (touchState.current.nodeElement) {
-          touchState.current.nodeElement.classList.add('long-press-active');
-        }
-
-        // Stronger haptic feedback for long press
-        if (navigator.vibrate) {
-          navigator.vibrate([30, 10, 30]); // Pattern vibration
-        }
-
-        // Trigger context menu or pie menu for long press
-        setSelectedNodeIdForPieMenu(instanceId);
-      }
-    }, LONG_PRESS_DURATION);
-
-    // Start drag immediately for better responsiveness
-    setDraggingNodeInfo({ instanceId, prototypeId: nodeData.prototypeId });
     setMouseInsideNode(true);
   };
 
@@ -755,12 +747,22 @@ function NodeCanvas() {
     // Check if we've moved past threshold
     if (!touchState.current.hasMovedPastThreshold && distance > TOUCH_MOVEMENT_THRESHOLD) {
       touchState.current.hasMovedPastThreshold = true;
-      touchState.current.isDragging = true;
 
-      // Clear long press timer since user is dragging
+      // Clear any pending long-press (we prioritize drag on move)
       if (touchState.current.longPressTimer) {
         clearTimeout(touchState.current.longPressTimer);
         touchState.current.longPressTimer = null;
+      }
+
+      // Start dragging immediately on threshold crossing
+      if (!touchState.current.isDragging) {
+        const dragStarted = startDragForNode(nodeData, touch.clientX, touch.clientY);
+        if (dragStarted) {
+          touchState.current.isDragging = true;
+          touchState.current.longPressReady = false;
+          setSelectedNodeIdForPieMenu(null);
+          setLongPressingInstanceId(null);
+        }
       }
     }
 
@@ -784,6 +786,10 @@ function NodeCanvas() {
       }
     }
 
+    isMouseDown.current = false;
+    startedOnNode.current = false;
+    setLongPressingInstanceId(null);
+
     // Clean up CSS classes
     if (touchState.current.nodeElement) {
       touchState.current.nodeElement.classList.remove('touch-active', 'long-press-active');
@@ -806,6 +812,12 @@ function NodeCanvas() {
 
     const touch = e.changedTouches[0];
     if (!touch) return;
+    const synthetic = {
+      clientX: touch.clientX,
+      clientY: touch.clientY,
+      stopPropagation: () => e.stopPropagation(),
+      preventDefault: () => e.preventDefault()
+    };
 
     // Handle tap vs drag
     if (!touchState.current.hasMovedPastThreshold && touchState.current.dragNodeId === nodeData.id) {
@@ -822,9 +834,21 @@ function NodeCanvas() {
       const timeSinceStart = now - touchState.current.startTime;
 
       if (timeSinceStart < 300) { // Quick tap
-        // Check for double tap logic here if needed
-        // For now, just handle as single tap
+        // Placeholder for future double-tap behavior
       }
+
+      const wasSelected = selectedInstanceIds.has(nodeData.id);
+      setSelectedInstanceIds(prev => {
+        const newSelected = new Set(prev);
+        if (wasSelected) {
+          if (nodeData.id !== previewingNodeId) {
+            newSelected.delete(nodeData.id);
+          }
+        } else {
+          newSelected.add(nodeData.id);
+        }
+        return newSelected;
+      });
     } else if (touchState.current.isDragging) {
       // Drag completion feedback
       if (navigator.vibrate) {
@@ -833,13 +857,7 @@ function NodeCanvas() {
     }
 
     // Clean up drag state using existing mouse up logic
-    if (touchState.current.isDragging) {
-      const synthetic = {
-        clientX: touch.clientX,
-        clientY: touch.clientY,
-        stopPropagation: () => e.stopPropagation(),
-        preventDefault: () => e.preventDefault()
-      };
+    if (touchState.current.isDragging || drawingConnectionFrom) {
       handleMouseUp(synthetic);
     }
 
@@ -852,7 +870,10 @@ function NodeCanvas() {
       currentPosition: { x: 0, y: 0 },
       hasMovedPastThreshold: false,
       longPressTimer: null,
-      nodeElement: null
+      nodeElement: null,
+      longPressReady: false,
+      dragOffset: null,
+      nodeData: null
     };
 
     // Ensure drag state is cleared
@@ -1112,10 +1133,13 @@ function NodeCanvas() {
 
     const preventGestureZoom = (e) => {
       if (trackpadZoomEnabled) return;
-      // Prevent gesture-based zoom on touch devices
+      // Allow gestures within our canvas so we can handle them ourselves
+      const isOverCanvas = e.target && (e.target.closest && (e.target.closest('.canvas-area') || e.target.closest('.canvas')));
+      if (isOverCanvas) return; // let container-level handlers process
+      // Prevent page-level gesture zoom elsewhere
       if (e.scale && e.scale !== 1) {
         e.preventDefault();
-        e.stopPropagation();
+        try { e.stopPropagation(); } catch {}
         return false;
       }
     };
@@ -1342,10 +1366,12 @@ function NodeCanvas() {
       const nodesWidth = Math.max(1, maxX - minX);
       const nodesHeight = Math.max(1, maxY - minY);
 
-      const padding = 150;
+      const padding = 180; // slightly more padding for less aggressive zoom
       const targetZoomX = viewportSize.width / (nodesWidth + padding * 2);
       const targetZoomY = viewportSize.height / (nodesHeight + padding * 2);
-      const targetZoom = Math.min(MAX_ZOOM, Math.max(0.05, Math.min(targetZoomX, targetZoomY)));
+      const rawZoom = Math.min(targetZoomX, targetZoomY);
+      const maxSearchZoom = 0.6; // cap zoom-in for search navigation
+      const targetZoom = Math.min(MAX_ZOOM, Math.max(0.05, Math.min(rawZoom, maxSearchZoom)));
 
       const targetPanX = viewportSize.width / 2 - nodesCenterX * targetZoom + canvasSize.offsetX * targetZoom;
       const targetPanY = viewportSize.height / 2 - nodesCenterY * targetZoom + canvasSize.offsetY * targetZoom;
@@ -3243,6 +3269,12 @@ function NodeCanvas() {
     // });
   }, [targetPieMenuButtons, carouselPieMenuStage, selectedNodeIdForPieMenu, abstractionCarouselVisible]);
 
+  // Keep currentPieMenuData.buttons in sync with targetPieMenuButtons so UI reflects state changes (e.g., Save/Unsave) immediately
+  useEffect(() => {
+    if (!currentPieMenuData) return;
+    setCurrentPieMenuData(prev => prev ? { ...prev, buttons: targetPieMenuButtons } : prev);
+  }, [targetPieMenuButtons, currentPieMenuData]);
+
   // Effect to restore view state on graph change or center if no stored state
   useLayoutEffect(() => {
     setIsViewReady(false); // Set to not ready on graph change
@@ -3608,6 +3640,54 @@ function NodeCanvas() {
     setHoveredEdgeInfo(null);
   }, []);
 
+  const startDragForNode = useCallback((nodeData, clientX, clientY) => {
+    if (!nodeData || !activeGraphId) return false;
+    const instanceId = nodeData.id;
+
+    if (selectedInstanceIds.has(instanceId)) {
+      const primaryNodeData = nodes.find(n => n.id === instanceId);
+      if (!primaryNodeData) return false;
+
+      const initialPrimaryPos = { x: primaryNodeData.x, y: primaryNodeData.y };
+      const initialPositions = {};
+      nodes.forEach(n => {
+        if (selectedInstanceIds.has(n.id) && n.id !== instanceId) {
+          initialPositions[n.id] = { offsetX: n.x - initialPrimaryPos.x, offsetY: n.y - initialPrimaryPos.y };
+        }
+      });
+
+      setDraggingNodeInfo({
+        initialMouse: { x: clientX, y: clientY },
+        initialPrimaryPos,
+        relativeOffsets: initialPositions,
+        primaryId: instanceId
+      });
+      selectedInstanceIds.forEach(id => {
+        storeActions.updateNodeInstance(activeGraphId, id, draft => { draft.scale = 1.1; });
+      });
+      return true;
+    }
+
+    const rect = containerRef.current?.getBoundingClientRect();
+    if (!rect) return false;
+    const mouseCanvasX = (clientX - rect.left - panOffset.x) / zoomLevel + canvasSize.offsetX;
+    const mouseCanvasY = (clientY - rect.top - panOffset.y) / zoomLevel + canvasSize.offsetY;
+    const offset = { x: mouseCanvasX - nodeData.x, y: mouseCanvasY - nodeData.y };
+    setDraggingNodeInfo({ instanceId, offset });
+    storeActions.updateNodeInstance(activeGraphId, instanceId, draft => { draft.scale = 1.1; });
+    return true;
+  }, [
+    activeGraphId,
+    selectedInstanceIds,
+    nodes,
+    panOffset.x,
+    panOffset.y,
+    zoomLevel,
+    canvasSize.offsetX,
+    canvasSize.offsetY,
+    storeActions
+  ]);
+
   const handleNodeMouseDown = (nodeData, e) => { // nodeData is now a hydrated node (instance + prototype)
     e.stopPropagation();
     if (suppressNextMouseDownRef.current) {
@@ -3682,44 +3762,9 @@ function NodeCanvas() {
             potentialClickNodeRef.current = null;
 
             if (mouseInsideNode.current && (!mouseMoved.current || isTouchDeviceRef.current)) { 
-                if (selectedInstanceIds.has(instanceId)) {
-                    // Multi-node drag setup
-                    const initialPositions = {};
-                    const primaryNodeData = nodes.find(n => n.id === instanceId);
-                    if (!primaryNodeData) return;
-                    const initialPrimaryPos = { x: primaryNodeData.x, y: primaryNodeData.y };
-
-                    nodes.forEach(n => {
-                        if (selectedInstanceIds.has(n.id) && n.id !== instanceId) {
-                            initialPositions[n.id] = { offsetX: n.x - initialPrimaryPos.x, offsetY: n.y - initialPrimaryPos.y };
-                        }
-                    });
-                    setDraggingNodeInfo({
-                        initialMouse: { x: e.clientX, y: e.clientY },
-                        initialPrimaryPos,
-                        relativeOffsets: initialPositions,
-                        primaryId: instanceId
-                    });
-                    selectedInstanceIds.forEach(id => {
-                        storeActions.updateNodeInstance(activeGraphId, id, draft => { draft.scale = 1.1; });
-                    });
-                    
-
-
-                } else {
-                    // Single node drag setup - calculate offset in canvas coordinates
-                    const rect = containerRef.current.getBoundingClientRect();
-                    const mouseCanvasX = (e.clientX - rect.left - panOffset.x) / zoomLevel + canvasSize.offsetX;
-                    const mouseCanvasY = (e.clientY - rect.top - panOffset.y) / zoomLevel + canvasSize.offsetY;
-                    const offset = { x: mouseCanvasX - nodeData.x, y: mouseCanvasY - nodeData.y };
-                    console.log('Setting dragging node info:', { instanceId, offset });
-                    setDraggingNodeInfo({ instanceId: instanceId, offset });
-                    storeActions.updateNodeInstance(activeGraphId, instanceId, draft => { draft.scale = 1.1; });
-                    
-
-                }
+                startDragForNode(nodeData, e.clientX, e.clientY);
             }
-            setLongPressingInstanceId(null); // Clear after processing
+            setLongPressingInstanceId(null);
         }, LONG_PRESS_DURATION);
     }
   };
@@ -3894,6 +3939,10 @@ function NodeCanvas() {
   };
 
   const handleWheel = async (e) => {
+    // If a gesture/pinch is active, ignore wheel to prevent double-handling on Safari
+    if (pinchRef.current.active) {
+      return;
+    }
     // Allow browser-level pinch zoom when enabled (e.g., Chrome trackpad magnifier)
     if (trackpadZoomEnabled && (e.ctrlKey || e.metaKey)) {
       return;
@@ -4122,6 +4171,69 @@ function NodeCanvas() {
       return () => container.removeEventListener('wheel', preventDefaultWheel);
     }
   }, [trackpadZoomEnabled]);
+
+  // Handle Safari gesture events (macOS trackpad pinch) for canvas zoom
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container) return;
+    let gestureAnchor = { x: 0, y: 0 };
+    let gestureStartZoom = zoomLevel;
+    let gestureActive = false;
+
+    const onGestureStart = (e) => {
+      if (trackpadZoomEnabled) return; // allow browser zoom if explicitly enabled
+      if (!e || typeof e.scale !== 'number') return;
+      try { e.preventDefault(); e.stopPropagation(); } catch {}
+      const rect = container.getBoundingClientRect();
+      const fallbackX = rect.left + rect.width / 2;
+      const fallbackY = rect.top + rect.height / 2;
+      const clientX = (typeof e.clientX === 'number') ? e.clientX : (lastMousePosRef.current?.x ?? fallbackX);
+      const clientY = (typeof e.clientY === 'number') ? e.clientY : (lastMousePosRef.current?.y ?? fallbackY);
+      gestureAnchor = { x: clientX, y: clientY };
+      gestureStartZoom = zoomLevel;
+      pinchRef.current.active = true;
+      pinchRef.current.centerClient = { x: clientX, y: clientY };
+      isPanningOrZooming.current = true;
+      gestureActive = true;
+    };
+
+    const onGestureChange = (e) => {
+      if (trackpadZoomEnabled) return; // allow browser zoom if explicitly enabled
+      if (!e || typeof e.scale !== 'number') return;
+      try { e.preventDefault(); e.stopPropagation(); } catch {}
+      const rect = container.getBoundingClientRect();
+      const targetZoom = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, gestureStartZoom * e.scale));
+      const anchorX = gestureAnchor.x;
+      const anchorY = gestureAnchor.y;
+      setZoomLevel(prevZoom => {
+        const easedZoom = prevZoom + (targetZoom - prevZoom) * 0.35;
+        const newZoom = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, easedZoom));
+        const zoomRatio = newZoom / prevZoom;
+        setPanOffset(prevPan => ({
+          x: anchorX - rect.left - (anchorX - rect.left - prevPan.x) * zoomRatio,
+          y: anchorY - rect.top - (anchorY - rect.top - prevPan.y) * zoomRatio
+        }));
+        return newZoom;
+      });
+    };
+
+    const onGestureEnd = () => {
+      if (pinchRef.current.active) {
+        pinchRef.current.active = false;
+      }
+      isPanningOrZooming.current = false;
+      gestureActive = false;
+    };
+
+    container.addEventListener('gesturestart', onGestureStart, { passive: false });
+    container.addEventListener('gesturechange', onGestureChange, { passive: false });
+    container.addEventListener('gestureend', onGestureEnd, { passive: false });
+    return () => {
+      container.removeEventListener('gesturestart', onGestureStart);
+      container.removeEventListener('gesturechange', onGestureChange);
+      container.removeEventListener('gestureend', onGestureEnd);
+    };
+  }, [zoomLevel, panOffset, MIN_ZOOM, MAX_ZOOM, trackpadZoomEnabled]);
 
   // Prevent native long-press context menu on touch devices (iOS/Android)
   useEffect(() => {
@@ -4639,24 +4751,25 @@ function NodeCanvas() {
   const handleMouseMove = async (e) => {
     if (isPaused || !activeGraphId) return;
 
-    // Debug: Log when mouse move is called during dragging
-    if (draggingNodeInfo) {
-      console.log('handleMouseMove called with draggingNodeInfo:', draggingNodeInfo);
-    }
+    // Avoid per-frame logging during drag; logs removed for performance
 
-    // Schedule RAF-throttled label clearing
-    pendingLabelClear.current = e;
-    if (!labelClearScheduled.current) {
-      labelClearScheduled.current = true;
-      requestAnimationFrame(() => {
-        labelClearScheduled.current = false;
-        if (pendingLabelClear.current) {
-          clearLabelsOnMouseMove(pendingLabelClear.current);
-        }
-      });
+    // Schedule RAF-throttled label clearing only when not dragging or panning
+    if (!draggingNodeInfo && !isPanning && !pinchRef.current.active) {
+      pendingLabelClear.current = e;
+      if (!labelClearScheduled.current) {
+        labelClearScheduled.current = true;
+        requestAnimationFrame(() => {
+          labelClearScheduled.current = false;
+          if (pendingLabelClear.current) {
+            clearLabelsOnMouseMove(pendingLabelClear.current);
+          }
+        });
+      }
     }
     
     const rect = containerRef.current.getBoundingClientRect();
+    // Track last client pointer position for Safari gesture anchoring
+    lastMousePosRef.current = { x: e.clientX, y: e.clientY };
     const rawX = (e.clientX - rect.left - panOffset.x) / zoomLevel + canvasSize.offsetX;
     const rawY = (e.clientY - rect.top - panOffset.y) / zoomLevel + canvasSize.offsetY;
     const { x: currentX, y: currentY } = clampCoordinates(rawX, rawY);
@@ -4906,7 +5019,7 @@ function NodeCanvas() {
         // REMOVED: setSelectedNodeIdForPieMenu(null); 
 
         // Start drawing connection when dragging from a node (desktop quick-drag or long-press)
-        if (longPressingInstanceId && !draggingNodeInfo) {
+        if (longPressingInstanceId && !draggingNodeInfo && !pinchRef.current.active) {
              const longPressNodeData = nodes.find(n => n.id === longPressingInstanceId); // Get data
              if (longPressNodeData) {
                  const leftNodeArea = !isInsideNode(longPressNodeData, e.clientX, e.clientY);
@@ -4926,7 +5039,7 @@ function NodeCanvas() {
                      setLongPressingInstanceId(null); // Clear ID
                  }
              }
-        } else if (!draggingNodeInfo && !drawingConnectionFrom && !isPanning && !startedOnNode.current) {
+        } else if (!draggingNodeInfo && !drawingConnectionFrom && !isPanning && !startedOnNode.current && !pinchRef.current.active) {
           // Start panning after threshold exceeded
           isPanningOrZooming.current = true;
           setIsPanning(true);
@@ -4938,7 +5051,7 @@ function NodeCanvas() {
 
     // Dragging Node or Group Logic (only after long-press has set draggingNodeInfo)
     if (draggingNodeInfo) {
-        console.log('Mouse move with draggingNodeInfo:', draggingNodeInfo);
+        // Per-frame console removed for performance
 
         // Store latest drag event for RAF processing
         pendingDragUpdate.current = { e, draggingNodeInfo };
@@ -5084,7 +5197,7 @@ function NodeCanvas() {
                 }
             });
         }
-    } else if (isPanning) {
+    } else if (isPanning && !pinchRef.current.active) {
         if (abstractionCarouselVisible) {
             setIsPanning(false);
             return;
@@ -5134,6 +5247,7 @@ function NodeCanvas() {
     }
 
     isMouseDown.current = true;
+    lastMousePosRef.current = { x: e.clientX, y: e.clientY };
     mouseDownPosition.current = { x: e.clientX, y: e.clientY };
     startedOnNode.current = false;
     mouseMoved.current = false;
@@ -5340,7 +5454,7 @@ function NodeCanvas() {
     // Finalize panning state
     if (isPanning && panStart) {
       // Only apply momentum/inertia for touch and trackpad gestures, not regular mouse drags
-      const shouldApplyMomentum = panSourceRef.current === 'touch' || panSourceRef.current === 'trackpad';
+      const shouldApplyMomentum = panSourceRef.current === 'trackpad';
 
       if (shouldApplyMomentum) {
         // Inertia on release: continue motion based on last tracked velocity
@@ -6113,14 +6227,33 @@ function NodeCanvas() {
     );
   };
 
+  const shouldPanelsBeExclusive = windowSize?.width ? windowSize.width <= 1100 : window.innerWidth <= 1100;
+
   const handleToggleRightPanel = useCallback(() => {
-    setRightPanelExpanded(prev => !prev);
-  }, []);
+    setRightPanelExpanded(prev => {
+      const next = !prev;
+      if (next && shouldPanelsBeExclusive) {
+        setLeftPanelExpanded(false);
+      }
+      return next;
+    });
+  }, [shouldPanelsBeExclusive]);
 
   const handleToggleLeftPanel = useCallback(() => {
-    setLeftPanelExpanded(prev => !prev);
-    // 
-  }, [leftPanelExpanded]);
+    setLeftPanelExpanded(prev => {
+      const next = !prev;
+      if (next && shouldPanelsBeExclusive) {
+        setRightPanelExpanded(false);
+      }
+      return next;
+    });
+  }, [shouldPanelsBeExclusive]);
+
+  useEffect(() => {
+    if (shouldPanelsBeExclusive && leftPanelExpanded && rightPanelExpanded) {
+      setRightPanelExpanded(false);
+    }
+  }, [leftPanelExpanded, rightPanelExpanded, shouldPanelsBeExclusive]);
 
   // Panel toggle and TypeList keyboard shortcuts - work even when inputs are focused
   useEffect(() => {
@@ -6178,13 +6311,21 @@ function NodeCanvas() {
       const isInputActive = isHeaderEditing || isRightPanelInputFocused || isLeftPanelInputFocused || nodeNamePrompt.visible;
       if (isInputActive || !activeGraphId) { return; }
 
-      // Block destructive keys when AbstractionCarousel is visible
+      // Block destructive keys when AbstractionCarousel is visible, except in editable fields
       if (abstractionCarouselVisible) {
         const isDeleteOrBackspace = e.key === 'Delete' || e.key === 'Backspace';
         if (isDeleteOrBackspace) {
-          e.preventDefault();
-          e.stopPropagation();
-          return;
+          const target = e.target;
+          const isEditableTarget = target && (
+            target.tagName === 'INPUT' ||
+            target.tagName === 'TEXTAREA' ||
+            target.isContentEditable === true
+          );
+          if (!isEditableTarget) {
+            e.preventDefault();
+            e.stopPropagation();
+            return;
+          }
         }
       }
 
@@ -7431,6 +7572,7 @@ function NodeCanvas() {
             position: 'relative',
             overflow: 'hidden',
             backgroundColor: '#bdb5b5',
+            touchAction: 'none',
           }}
           // Event handlers uncommented
           onWheel={handleWheel}
@@ -7442,6 +7584,7 @@ function NodeCanvas() {
           onTouchStart={handleTouchStartCanvas}
           onTouchMove={handleTouchMoveCanvas}
           onTouchEnd={handleTouchEndCanvas}
+          onTouchCancel={handleTouchEndCanvas}
           onContextMenu={(e) => {
             // Only show context menu on empty canvas areas (not on nodes or other elements)
             if (e.target === e.currentTarget || e.target.classList.contains('canvas') || e.target.tagName === 'svg') {
@@ -7580,6 +7723,7 @@ function NodeCanvas() {
                     opacity: 1,
                     pointerEvents: 'auto',
                     overflow: 'visible',
+                    touchAction: 'none',
                 }}
                 onMouseUp={handleMouseUp} // Uncommented
                 onMouseMove={handleMouseMove}
@@ -10495,8 +10639,17 @@ function NodeCanvas() {
             }}
             title={`Search ${activeGraphName || 'Components'}`}
             subtitle={null}
-            gridTitle="Browse All Components"
+            gridTitle="Browse Components in This Thing"
             searchOnly={true}
+            allowedPrototypeIds={(() => {
+              try {
+                const ids = new Set();
+                if (Array.isArray(nodes)) {
+                  for (const n of nodes) { if (n?.prototypeId) ids.add(n.prototypeId); }
+                }
+                return ids;
+              } catch { return null; }
+            })()}
           />
         )}
 

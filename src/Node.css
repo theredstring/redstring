@@ -1,7 +1,22 @@
 .node {
     cursor: pointer;
+    /* Prevent OS long-press callout and default touch actions on nodes */
+    -webkit-touch-callout: none;
+    -webkit-user-select: none;
+    user-select: none;
+    -webkit-tap-highlight-color: transparent;
+    touch-action: none;
+    will-change: transform;
     /* Remove transitions handled by inline styles in Node.jsx */
     /* transition: transform 0.05s ease, filter 0.1s ease; */
+}
+
+/* Inherit the suppression for node descendants (SVG children) */
+.node * {
+  -webkit-touch-callout: none;
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-tap-highlight-color: transparent;
 }
 
 .node.selected .node-background {
@@ -97,12 +112,8 @@
   filter: brightness(1.1);
 }
 
-/* Long press feedback */
-.node.long-press-active {
-  transform: scale(1.02);
-  filter: drop-shadow(0px 6px 12px rgba(255, 255, 255, 0.2));
-  animation: pulse 1s infinite;
-}
+/* Long press feedback disabled for mobile drag UX */
+.node.long-press-active { }
 
 @keyframes pulse {
   0%, 100% { opacity: 1; }

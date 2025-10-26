@@ -615,12 +615,81 @@ export const createUniverseFile = async () => {
  */
 export const openUniverseFile = async () => {
   if (isBrowserStorageMode()) {
-    // Try to open from browser storage
-    const data = await loadBrowserUniverse();
-    if (!data) return null;
-    const importResult = importFromRedstring(data);
-    console.log('[FileStorage] Opened browser-stored universe');
-    return importResult.storeState;
+    // Safari and non-FS-API fallback: allow user to pick a local .redstring via <input type="file">
+    const dataFromBrowser = await loadBrowserUniverse();
+    // If we already have browser-stored data, load it immediately
+    if (dataFromBrowser) {
+      const importResult = importFromRedstring(dataFromBrowser);
+      console.log('[FileStorage] Opened browser-stored universe');
+      return importResult.storeState;
+    }
+
+    // Otherwise prompt for a local file using a hidden input
+    const file = await new Promise((resolve) => {
+      try {
+        const input = document.createElement('input');
+        input.type = 'file';
+        input.accept = '.redstring,application/json';
+        input.style.position = 'fixed';
+        input.style.left = '-9999px';
+
+        let handled = false;
+        const cleanup = () => {
+          if (input && input.parentNode) input.parentNode.removeChild(input);
+          window.removeEventListener('focus', onFocus);
+        };
+        const onChange = () => {
+          handled = true;
+          const selected = input.files && input.files[0] ? input.files[0] : null;
+          cleanup();
+          resolve(selected || null);
+        };
+        const onFocus = () => {
+          // If the file dialog was cancelled, focus returns to the window with no change event
+          setTimeout(() => {
+            if (!handled) {
+              cleanup();
+              resolve(null);
+            }
+          }, 300);
+        };
+
+        input.addEventListener('change', onChange, { once: true });
+        window.addEventListener('focus', onFocus, { once: true });
+        document.body.appendChild(input);
+        input.click();
+      } catch (e) {
+        console.warn('[FileStorage] Fallback file input failed to open:', e);
+        resolve(null);
+      }
+    });
+
+    if (!file) {
+      console.log('[FileStorage] User cancelled file selection (fallback mode)');
+      return null;
+    }
+
+    try {
+      const text = await file.text();
+      if (!text || text.trim() === '') {
+        throw new Error('The selected file is empty (0 bytes).');
+      }
+      let jsonData;
+      try {
+        jsonData = JSON.parse(text);
+      } catch (parseError) {
+        console.error('[FileStorage] JSON parse error (fallback):', parseError);
+        throw new Error(`Invalid JSON in universe file: ${parseError.message}.`);
+      }
+      const importResult = importFromRedstring(jsonData);
+      // Persist to browser storage so autosave works in Safari/non-FS environments
+      await storeBrowserUniverse(importResult.redstringData || jsonData);
+      console.log('[FileStorage] Universe file loaded via file input (fallback mode)');
+      return importResult.storeState;
+    } catch (error) {
+      console.error('[FileStorage] Failed to open universe via fallback input:', error);
+      throw error;
+    }
   }
 
   try {
@@ -636,7 +705,27 @@ export const openUniverseFile = async () => {
       multiple: false
     });
     
-    await storeFileHandle(handle);
+    // Ensure we have read/write permission up front so autosave can work immediately
+    let __permissionForHandle = 'granted';
+    try {
+      if (typeof handle.queryPermission === 'function') {
+        __permissionForHandle = await handle.queryPermission({ mode: 'readwrite' });
+        if (__permissionForHandle === 'prompt' && typeof handle.requestPermission === 'function') {
+          __permissionForHandle = await handle.requestPermission({ mode: 'readwrite' });
+        }
+      }
+      if (__permissionForHandle !== 'granted') {
+        console.warn('[FileStorage] Read/write permission not granted at import time; proceeding read-only');
+      }
+    } catch (permError) {
+      console.warn('[FileStorage] Failed to verify/request permission:', permError);
+      __permissionForHandle = 'denied';
+    }
+
+    // Only persist file handle if we have permission; otherwise fall back to browser storage for autosave
+    if (__permissionForHandle === 'granted') {
+      await storeFileHandle(handle);
+    }
     
     // Read the file
     const file = await handle.getFile();

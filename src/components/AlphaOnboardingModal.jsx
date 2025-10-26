@@ -24,6 +24,24 @@ const AlphaOnboardingModal = ({
     app: false,
     checking: true
   });
+  const [viewportSize, setViewportSize] = useState(() => ({
+    width: typeof window !== 'undefined' ? window.innerWidth : 1200,
+    height: typeof window !== 'undefined' ? window.innerHeight : 900
+  }));
+  const isCompactLayout = viewportSize.width <= 768;
+  const modalWidth = isCompactLayout
+    ? Math.min(Math.max(viewportSize.width - 24, 320), 540)
+    : 600;
+  const modalHeight = isCompactLayout
+    ? Math.min(Math.max(viewportSize.height - 32, 480), 700)
+    : 700;
+  const contentPadding = isCompactLayout ? 16 : 24;
+  const sectionGap = isCompactLayout ? 12 : 20;
+  const cardPadding = isCompactLayout ? 14 : 20;
+  const headingFontSize = isCompactLayout ? '1.2rem' : '1.5rem';
+  const subheadingFontSize = isCompactLayout ? '0.85rem' : '0.9rem';
+  const buttonFontSize = isCompactLayout ? '0.95rem' : '1rem';
+  const fullWidthButtonStyle = isCompactLayout ? { width: '100%' } : {};
 
   // Check if user has already seen this modal
   useEffect(() => {
@@ -35,6 +53,17 @@ const AlphaOnboardingModal = ({
       }
     }
   }, [isVisible]);
+
+  useEffect(() => {
+    const handleResize = () => {
+      setViewportSize({
+        width: window.innerWidth,
+        height: window.innerHeight
+      });
+    };
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
   
   // Check connection status when modal becomes visible
   useEffect(() => {
@@ -112,6 +141,47 @@ const AlphaOnboardingModal = ({
     return renderSelection();
   };
 
+  const renderSelectionIndicator = (optionKey) => {
+    const isActive = selectedOption === optionKey;
+    if (isCompactLayout) {
+      return (
+        <div
+          style={{
+            padding: '4px 12px',
+            borderRadius: '999px',
+            border: `2px solid ${isActive ? '#8B0000' : '#c7c2c2'}`,
+            backgroundColor: isActive ? '#8B0000' : 'transparent',
+            color: isActive ? '#EFE8E5' : '#555',
+            fontSize: '0.7rem',
+            fontWeight: 700,
+            textTransform: 'uppercase',
+            letterSpacing: '0.04em',
+            minWidth: '88px',
+            textAlign: 'center'
+          }}
+        >
+          {isActive ? 'Selected' : 'Tap'}
+        </div>
+      );
+    }
+    return (
+      <div style={{
+        width: '20px',
+        height: '20px',
+        borderRadius: '50%',
+        border: `2px solid ${isActive ? '#8B0000' : '#ddd'}`,
+        backgroundColor: isActive ? '#8B0000' : 'transparent',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center'
+      }}>
+        {isActive && (
+          <div style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: 'white' }} />
+        )}
+      </div>
+    );
+  };
+
   const renderSelection = () => (
     <>
       {/* Close button in top right */}
@@ -119,8 +189,8 @@ const AlphaOnboardingModal = ({
         onClick={handleClose}
         style={{
           position: 'absolute',
-          top: '16px',
-          right: '16px',
+          top: isCompactLayout ? '12px' : '16px',
+          right: isCompactLayout ? '12px' : '16px',
           background: 'none',
           border: 'none',
           color: '#666',
@@ -143,7 +213,7 @@ const AlphaOnboardingModal = ({
         <h2 style={{
           margin: '0 0 6px 0',
           color: '#260000',
-          fontSize: '1.4rem',
+          fontSize: isCompactLayout ? '1.2rem' : '1.4rem',
           fontWeight: 'bold',
           fontFamily: "'EmOne', sans-serif"
         }}>
@@ -191,7 +261,7 @@ const AlphaOnboardingModal = ({
         </h4>
 
         {/* Storage Options */}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', marginBottom: '20px' }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: `${sectionGap}px`, marginBottom: isCompactLayout ? '16px' : '20px' }}>
           
           {/* GitHub Option (Recommended) */}
           <div 
@@ -199,33 +269,19 @@ const AlphaOnboardingModal = ({
             style={{
               border: `2px solid ${selectedOption === 'github' ? '#8B0000' : '#ddd'}`,
               borderRadius: '8px',
-              padding: '16px',
+              padding: `${cardPadding}px`,
               cursor: 'pointer',
               backgroundColor: selectedOption === 'github' ? 'rgba(139, 0, 0, 0.05)' : 'transparent',
               transition: 'all 0.2s ease'
             }}
           >
-            <div style={{ display: 'flex', alignItems: 'center', marginBottom: '8px' }}>
-              <div style={{
-                width: '20px',
-                height: '20px',
-                borderRadius: '50%',
-                border: `2px solid ${selectedOption === 'github' ? '#8B0000' : '#ddd'}`,
-                backgroundColor: selectedOption === 'github' ? '#8B0000' : 'transparent',
-                marginRight: '12px',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center'
-              }}>
-                {selectedOption === 'github' && (
-                  <div style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: 'white' }} />
-                )}
-              </div>
+            <div style={{ display: 'flex', alignItems: 'center', marginBottom: '8px', gap: '12px', flexWrap: isCompactLayout ? 'wrap' : 'nowrap' }}>
+              {renderSelectionIndicator('github')}
               <div style={{ fontWeight: 'bold', fontSize: '1rem', color: '#260000' }}>
                 GitHub Sync <span style={{ color: '#8B0000', fontSize: '0.8rem' }}>(Recommended)</span>
               </div>
             </div>
-            <div style={{ marginLeft: '32px', fontSize: '0.85rem', color: '#666' }}>
+            <div style={{ marginLeft: isCompactLayout ? '0' : '32px', fontSize: '0.85rem', color: '#666' }}>
               • <strong>GitHub App</strong>: Secure, persistent connections<br />
               • <strong>OAuth</strong>: Repository browsing and creation<br />
               • Automatic cloud backup and version history<br />
@@ -239,33 +295,19 @@ const AlphaOnboardingModal = ({
             style={{
               border: `2px solid ${selectedOption === 'local' ? '#8B0000' : '#ddd'}`,
               borderRadius: '8px',
-              padding: '16px',
+              padding: `${cardPadding}px`,
               cursor: 'pointer',
               backgroundColor: selectedOption === 'local' ? 'rgba(139, 0, 0, 0.05)' : 'transparent',
               transition: 'all 0.2s ease'
             }}
           >
-            <div style={{ display: 'flex', alignItems: 'center', marginBottom: '8px' }}>
-              <div style={{
-                width: '20px',
-                height: '20px',
-                borderRadius: '50%',
-                border: `2px solid ${selectedOption === 'local' ? '#8B0000' : '#ddd'}`,
-                backgroundColor: selectedOption === 'local' ? '#8B0000' : 'transparent',
-                marginRight: '12px',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center'
-              }}>
-                {selectedOption === 'local' && (
-                  <div style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: 'white' }} />
-                )}
-              </div>
+            <div style={{ display: 'flex', alignItems: 'center', marginBottom: '8px', gap: '12px', flexWrap: isCompactLayout ? 'wrap' : 'nowrap' }}>
+              {renderSelectionIndicator('local')}
               <div style={{ fontWeight: 'bold', fontSize: '1rem', color: '#260000' }}>
                 Local Files
               </div>
             </div>
-            <div style={{ marginLeft: '32px', fontSize: '0.85rem', color: '#666' }}>
+            <div style={{ marginLeft: isCompactLayout ? '0' : '32px', fontSize: '0.85rem', color: '#666' }}>
               • Store universe files on your device<br />
               • Full control over your data<br />
               • Works without internet connection<br />
@@ -275,7 +317,7 @@ const AlphaOnboardingModal = ({
             {/* Local File Buttons */}
             {selectedOption === 'local' && (
               <div style={{ 
-                marginLeft: '32px', 
+                marginLeft: isCompactLayout ? '0' : '32px', 
                 marginTop: '12px', 
                 display: 'flex', 
                 gap: '8px',
@@ -287,14 +329,15 @@ const AlphaOnboardingModal = ({
                     handleClose();
                   }}
                   style={{
-                    padding: '6px 12px',
-                    fontSize: '0.8rem',
+                    padding: isCompactLayout ? '10px 12px' : '6px 12px',
+                    fontSize: isCompactLayout ? '0.9rem' : '0.8rem',
                     backgroundColor: '#8B0000',
                     color: 'white',
                     border: 'none',
                     borderRadius: '4px',
                     cursor: 'pointer',
-                    fontFamily: "'EmOne', sans-serif"
+                    fontFamily: "'EmOne', sans-serif",
+                    flex: isCompactLayout ? '1 1 140px' : '0 0 auto'
                   }}
                 >
                   Create New
@@ -305,14 +348,15 @@ const AlphaOnboardingModal = ({
                     handleClose();
                   }}
                   style={{
-                    padding: '6px 12px',
-                    fontSize: '0.8rem',
+                    padding: isCompactLayout ? '10px 12px' : '6px 12px',
+                    fontSize: isCompactLayout ? '0.9rem' : '0.8rem',
                     backgroundColor: '#666',
                     color: 'white',
                     border: 'none',
                     borderRadius: '4px',
                     cursor: 'pointer',
-                    fontFamily: "'EmOne', sans-serif"
+                    fontFamily: "'EmOne', sans-serif",
+                    flex: isCompactLayout ? '1 1 140px' : '0 0 auto'
                   }}
                 >
                   Load Existing
@@ -331,7 +375,8 @@ const AlphaOnboardingModal = ({
           justifyContent: 'center',
           alignItems: 'center',
           marginTop: '0px',
-          marginBottom: '12px'
+          marginBottom: '12px',
+          width: '100%'
         }}>
           <button
             onClick={() => {
@@ -339,15 +384,17 @@ const AlphaOnboardingModal = ({
               setCurrentStep('github-onboarding');
             }}
             style={{
-              padding: '12px 32px',
+              padding: isCompactLayout ? '12px 16px' : '12px 32px',
               border: 'none',
               borderRadius: '8px',
               backgroundColor: '#8B0000',
               color: '#bdb5b5',
               cursor: 'pointer',
-              fontSize: '1rem',
+              fontSize: buttonFontSize,
               fontWeight: 'bold',
-              fontFamily: "'EmOne', sans-serif"
+              fontFamily: "'EmOne', sans-serif",
+              textAlign: 'center',
+              ...fullWidthButtonStyle
             }}
           >
             Set Up GitHub Sync
@@ -364,8 +411,8 @@ const AlphaOnboardingModal = ({
         onClick={() => setCurrentStep('selection')}
         style={{
           position: 'absolute',
-          top: '16px',
-          left: '16px',
+          top: isCompactLayout ? '12px' : '16px',
+          left: isCompactLayout ? '12px' : '16px',
           background: 'none',
           border: 'none',
           color: '#666',
@@ -384,11 +431,11 @@ const AlphaOnboardingModal = ({
       </button>
 
       {/* GitHub Onboarding Header */}
-      <div style={{ textAlign: 'center', marginBottom: '24px', flexShrink: 0, marginTop: '40px' }}>
+      <div style={{ textAlign: 'center', marginBottom: `${sectionGap}px`, flexShrink: 0, marginTop: isCompactLayout ? '32px' : '40px' }}>
         <h2 style={{
           margin: '0 0 8px 0',
           color: '#260000',
-          fontSize: '1.5rem',
+          fontSize: headingFontSize,
           fontWeight: 'bold',
           fontFamily: "'EmOne', sans-serif"
         }}>
@@ -396,7 +443,7 @@ const AlphaOnboardingModal = ({
         </h2>
         <div style={{
           margin: '0 0 16px 0',
-          fontSize: '0.9rem',
+          fontSize: subheadingFontSize,
           color: '#666',
           fontFamily: "'EmOne', sans-serif"
         }}>
@@ -405,13 +452,13 @@ const AlphaOnboardingModal = ({
       </div>
 
       {/* GitHub Setup Steps */}
-      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: '20px' }}>
+      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: `${sectionGap}px` }}>
         
         {/* Step 1: OAuth */}
         <div style={{
           border: '1px solid #979090',
           borderRadius: '8px',
-          padding: '20px',
+          padding: `${cardPadding}px`,
           backgroundColor: '#f3f0f0'
         }}>
           <div style={{ display: 'flex', alignItems: 'center', marginBottom: '12px' }}>
@@ -457,15 +504,16 @@ const AlphaOnboardingModal = ({
                 if (onConnectGitHub) onConnectGitHub('oauth');
               }}
               style={{
-                padding: '10px 20px',
+                padding: isCompactLayout ? '10px 16px' : '10px 20px',
                 backgroundColor: '#24292f',
                 color: 'white',
                 border: 'none',
                 borderRadius: '6px',
                 cursor: 'pointer',
-                fontSize: '0.9rem',
+                fontSize: buttonFontSize,
                 fontWeight: 'bold',
-                fontFamily: "'EmOne', sans-serif"
+                fontFamily: "'EmOne', sans-serif",
+                ...fullWidthButtonStyle
               }}
             >
               Connect OAuth
@@ -477,7 +525,7 @@ const AlphaOnboardingModal = ({
         <div style={{
           border: '1px solid #979090',
           borderRadius: '8px',
-          padding: '20px',
+          padding: `${cardPadding}px`,
           backgroundColor: '#f3f0f0'
         }}>
           <div style={{ display: 'flex', alignItems: 'center', marginBottom: '12px' }}>
@@ -523,15 +571,16 @@ const AlphaOnboardingModal = ({
                 if (onConnectGitHub) onConnectGitHub('app');
               }}
               style={{
-                padding: '10px 20px',
+                padding: isCompactLayout ? '10px 16px' : '10px 20px',
                 backgroundColor: '#8B0000',
                 color: 'white',
                 border: 'none',
                 borderRadius: '6px',
                 cursor: 'pointer',
-                fontSize: '0.9rem',
+                fontSize: buttonFontSize,
                 fontWeight: 'bold',
-                fontFamily: "'EmOne', sans-serif"
+                fontFamily: "'EmOne', sans-serif",
+                ...fullWidthButtonStyle
               }}
             >
               Install App
@@ -542,7 +591,7 @@ const AlphaOnboardingModal = ({
         {/* Complete Setup */}
         <div style={{
           textAlign: 'center',
-          padding: '20px',
+          padding: `${cardPadding}px`,
           backgroundColor: 'rgba(122,0,0,0.05)',
           borderRadius: '8px',
           border: '1px solid rgba(122,0,0,0.2)'
@@ -559,22 +608,23 @@ const AlphaOnboardingModal = ({
                     console.log('[AlphaOnboardingModal] Starting with existing GitHub connections');
                     onConnectGitHub('use-existing');
                   }
-                  handleClose();
-                }}
-                style={{
-                  padding: '12px 24px',
-                  backgroundColor: '#8B0000',
-                  color: '#bdb5b5',
-                  border: 'none',
-                  borderRadius: '6px',
-                  cursor: 'pointer',
-                  fontSize: '1rem',
-                  fontWeight: 'bold',
-                  fontFamily: "'EmOne', sans-serif"
-                }}
-              >
-                Start with GitHub Sync
-              </button>
+              handleClose();
+            }}
+            style={{
+              padding: isCompactLayout ? '12px 16px' : '12px 24px',
+              backgroundColor: '#8B0000',
+              color: '#bdb5b5',
+              border: 'none',
+              borderRadius: '6px',
+              cursor: 'pointer',
+              fontSize: buttonFontSize,
+              fontWeight: 'bold',
+              fontFamily: "'EmOne', sans-serif",
+              ...fullWidthButtonStyle
+            }}
+          >
+            Start with GitHub Sync
+          </button>
             </>
           ) : (
             <>
@@ -592,15 +642,16 @@ const AlphaOnboardingModal = ({
                   if (onConnectGitHub) onConnectGitHub('complete');
                 }}
                 style={{
-                  padding: '12px 24px',
+                  padding: isCompactLayout ? '12px 16px' : '12px 24px',
                   backgroundColor: '#8B0000',
                   color: 'white',
                   border: 'none',
                   borderRadius: '6px',
                   cursor: 'pointer',
-                  fontSize: '1rem',
+                  fontSize: buttonFontSize,
                   fontWeight: 'bold',
-                  fontFamily: "'EmOne', sans-serif"
+                  fontFamily: "'EmOne', sans-serif",
+                  ...fullWidthButtonStyle
                 }}
               >
                 Complete GitHub Setup
@@ -615,11 +666,11 @@ const AlphaOnboardingModal = ({
   const renderGitHubConnecting = () => (
     <>
       {/* Connecting Header */}
-      <div style={{ textAlign: 'center', marginBottom: '40px', flexShrink: 0, marginTop: '60px' }}>
+      <div style={{ textAlign: 'center', marginBottom: isCompactLayout ? '24px' : '40px', flexShrink: 0, marginTop: isCompactLayout ? '40px' : '60px' }}>
         <h2 style={{
           margin: '0 0 16px 0',
           color: '#260000',
-          fontSize: '1.5rem',
+          fontSize: headingFontSize,
           fontWeight: 'bold',
           fontFamily: "'EmOne', sans-serif"
         }}>
@@ -639,7 +690,7 @@ const AlphaOnboardingModal = ({
         
         <p style={{
           margin: '0',
-          fontSize: '0.9rem',
+          fontSize: subheadingFontSize,
           color: '#666',
           fontFamily: "'EmOne', sans-serif"
         }}>
@@ -660,7 +711,7 @@ const AlphaOnboardingModal = ({
 
   const modalContent = (
     <div style={{
-      padding: '24px',
+      padding: `${contentPadding}px`,
       boxSizing: 'border-box',
       height: '100%',
       display: 'flex',
@@ -676,12 +727,12 @@ const AlphaOnboardingModal = ({
       isVisible={isVisible}
       onClose={handleClose}
       title=""
-      width={600}
-      height={700}
+      width={modalWidth}
+      height={modalHeight}
       position="center"
-      margin={20}
+      margin={isCompactLayout ? 12 : 20}
       disableBackdrop={currentStep !== 'selection'} // Disable backdrop close during onboarding
-      fullScreenOverlay={currentStep !== 'selection'} // Use full screen overlay for GitHub onboarding
+      fullScreenOverlay={isCompactLayout || currentStep !== 'selection'} // Use full screen overlay for GitHub onboarding or compact screens
       {...canvasModalProps}
     >
       {modalContent}

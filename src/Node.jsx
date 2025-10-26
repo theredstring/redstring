@@ -238,6 +238,14 @@ const Node = ({
     <g
       className={`node ${isSelected ? 'selected' : ''} ${isDragging ? 'dragging' : ''} ${isPreviewing ? 'previewing' : ''}`}
       data-has-context-menu="true"
+      /* Disable default touch gestures on node group */
+      style={{
+          // Apply only scaling transform, position is handled by element attributes
+          transform: isDragging ? `scale(${nodeScale})` : 'scale(1)',
+          transformOrigin: `${nodeX + currentWidth / 2}px ${nodeY + currentHeight / 2}px`, // Use absolute coords for origin
+          cursor: 'pointer',
+          touchAction: 'none'
+      }}
       onMouseDown={(e) => {
         onMouseDown?.(e);
       }}
@@ -263,6 +271,8 @@ const Node = ({
         onContextMenu?.(e);
       }}
       onTouchStart={(e) => {
+        // Prevent default long-press behavior on mobile browsers
+        try { if (e && e.cancelable) e.preventDefault(); } catch {}
         onTouchStart?.(e);
       }}
       onTouchMove={(e) => {
@@ -273,12 +283,6 @@ const Node = ({
       }}
       role="graphics-symbol"
       aria-label={displayTitle}
-      style={{
-          // Apply only scaling transform, position is handled by element attributes
-          transform: isDragging ? `scale(${nodeScale})` : 'scale(1)',
-          transformOrigin: `${nodeX + currentWidth / 2}px ${nodeY + currentHeight / 2}px`, // Use absolute coords for origin
-          cursor: 'pointer',
-      }}
     >
       <defs>
         {/* FIX: Revert clipPath definition to use absolute coordinates */}

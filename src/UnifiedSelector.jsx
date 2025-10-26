@@ -23,7 +23,8 @@ const UnifiedSelector = ({
   leftPanelExpanded = true,
   rightPanelExpanded = true,
   gridTitle = 'Browse All Things',
-  searchOnly = false
+  searchOnly = false,
+  allowedPrototypeIds = null
 }) => {
   const [name, setName] = useState(initialName);
   const lastInitialNameRef = useRef(initialName);
@@ -54,7 +55,12 @@ const UnifiedSelector = ({
   const showGrid = mode === 'node-typing' || mode === 'abstraction-node-creation' || mode === 'node-group-creation' || showCreateNewOption || onNodeSelect;
 
   const filteredPrototypes = React.useMemo(() => {
-    const prototypes = Array.from(nodePrototypesMap.values());
+    let prototypes = Array.from(nodePrototypesMap.values());
+    // Restrict to allowed ids if provided
+    if (allowedPrototypeIds && (allowedPrototypeIds.size || allowedPrototypeIds.length)) {
+      const allowedSet = allowedPrototypeIds instanceof Set ? allowedPrototypeIds : new Set(allowedPrototypeIds);
+      prototypes = prototypes.filter(p => allowedSet.has(p.id));
+    }
     // Always use 'name' for live search when typing, fallback to searchTerm for initial filter
     const searchText = name || searchTerm;
     if (!searchText) return prototypes;
@@ -114,17 +120,37 @@ const UnifiedSelector = ({
 
   if (!isVisible) return null;
 
-  // Layout measurements with more margins
-  const outerMargin = 32; // Increased outer margin for more breathing room
-  const sideMargin = 48; // Additional left/right margins
-  const containerMaxWidth = Math.min(bounds.width - (outerMargin + sideMargin) * 2, Math.max(720, Math.floor(bounds.windowWidth * 0.8)));
-  const dialogWidth = Math.min(containerMaxWidth * 0.6, Math.max(420, Math.floor(bounds.windowWidth * 0.4))); // Even narrower dialog
-  const gridOuterWidth = Math.min(containerMaxWidth, bounds.width - (outerMargin + sideMargin) * 2);
-  const gridInnerPadding = 16;
+  const isSmallScreen = bounds.windowWidth <= 768;
+
+  // Layout measurements with responsive margins
+  const outerMargin = isSmallScreen ? 12 : 32;
+  const sideMargin = isSmallScreen ? 12 : 48;
+  const horizontalPadding = outerMargin + sideMargin;
+  const overlayMargin = isSmallScreen ? outerMargin : horizontalPadding;
+  const overlayWidth = Math.max(
+    280,
+    bounds.width - (isSmallScreen ? outerMargin * 2 : horizontalPadding * 2)
+  );
+  const overlayHeight = Math.max(260, bounds.height - outerMargin * 2);
+  const containerMaxWidth = Math.min(overlayWidth, Math.max(600, Math.floor(bounds.windowWidth * 0.9)));
+  const dialogWidth = isSmallScreen
+    ? containerMaxWidth
+    : Math.min(containerMaxWidth * 0.55, Math.max(420, Math.floor(bounds.windowWidth * 0.4)));
+  const gridOuterWidth = containerMaxWidth;
+  const gridInnerPadding = isSmallScreen ? 12 : 16;
 
   // Grid responsive columns with smaller cards
-  const cardMinWidth = 140; // Smaller minimum width for more columns
-  const columns = Math.max(2, Math.floor((gridOuterWidth - gridInnerPadding * 2) / (cardMinWidth + 12)));
+  const cardMinWidth = isSmallScreen ? 120 : 140;
+  const minimumColumns = isSmallScreen ? 1 : 2;
+  const columns = Math.max(
+    minimumColumns,
+    Math.floor((gridOuterWidth - gridInnerPadding * 2) / (cardMinWidth + 12))
+  );
+  const dialogTitleSize = isSmallScreen ? '18px' : '22px';
+  const subtitleFontSize = isSmallScreen ? '14px' : '16px';
+  const inputPadding = isSmallScreen ? '9px' : '10px';
+  const actionButtonMinWidth = isSmallScreen ? '48px' : '56px';
+  const cardHeight = isSmallScreen ? '110px' : '90px';
   const gridTemplateColumns = `repeat(${columns}, 1fr)`;
 
   return (
@@ -146,14 +172,14 @@ const UnifiedSelector = ({
       <div
         style={{
           position: 'fixed',
-          left: `${Math.round(bounds.x + outerMargin + sideMargin)}px`,
+          left: `${Math.round(bounds.x + overlayMargin)}px`,
           top: `${Math.round(bounds.y + outerMargin)}px`,
-          width: `${Math.round(bounds.width - (outerMargin + sideMargin) * 2)}px`,
-          height: `${Math.round(bounds.height - outerMargin * 2)}px`,
+          width: `${Math.round(overlayWidth)}px`,
+          height: `${Math.round(overlayHeight)}px`,
           zIndex: 1001,
           display: 'flex',
           flexDirection: 'column',
-          gap: '18px',
+          gap: isSmallScreen ? '12px' : '18px',
           pointerEvents: 'auto'
         }}
       >
@@ -163,11 +189,12 @@ const UnifiedSelector = ({
               alignSelf: 'center',
               width: `${dialogWidth}px`,
               backgroundColor: '#bdb5b5',
-              padding: '20px',
+              padding: isSmallScreen ? '16px' : '20px',
               borderRadius: '12px',
               boxShadow: '0 2px 10px rgba(0,0,0,0.2)',
               position: 'relative',
-              flexShrink: 0
+              flexShrink: 0,
+              maxWidth: '100%'
             }}
             onClick={(e) => e.stopPropagation()}
             onMouseDown={(e) => e.stopPropagation()}
@@ -176,20 +203,20 @@ const UnifiedSelector = ({
               <X size={MODAL_CLOSE_ICON_SIZE} color="#999" onClick={() => { setName(''); setColorPickerVisible(false); onClose?.(); }} />
             </div>
             <div style={{ textAlign: 'left', marginBottom: '15px', color: 'black' }}>
-              <strong style={{ fontSize: '22px', fontFamily: "'EmOne', sans-serif" }}>{title}</strong>
+              <strong style={{ fontSize: dialogTitleSize, fontFamily: "'EmOne', sans-serif" }}>{title}</strong>
             </div>
             {subtitle && (
               <div 
-                style={{ textAlign: 'left', marginBottom: '15px', color: '#666', fontSize: '16px', fontFamily: "'EmOne', sans-serif" }}
+                style={{ textAlign: 'left', marginBottom: '15px', color: '#666', fontSize: subtitleFontSize, fontFamily: "'EmOne', sans-serif" }}
                 dangerouslySetInnerHTML={{ __html: subtitle }}
               />
             )}
-            <div style={{ display: 'flex', alignItems: 'center' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: isSmallScreen ? '6px' : '8px' }}>
               {!searchOnly && (
                 <Palette
                   size={20}
                   color="#260000"
-                  style={{ cursor: 'pointer', flexShrink: 0, marginRight: '8px' }}
+                  style={{ cursor: 'pointer', flexShrink: 0 }}
                   onMouseDown={(e) => e.stopPropagation()}
                   onClick={(e) => handleColorPickerToggle(e.currentTarget, e)}
                   title="Change color"
@@ -203,13 +230,13 @@ const UnifiedSelector = ({
                   if (e.key === 'Enter') handleSubmit(); 
                   if (e.key === 'Escape') { setName(''); setColorPickerVisible(false); onClose?.(); }
                 }}
-                style={{ flex: 1, padding: '10px', borderRadius: '6px', border: '1px solid #260000', marginRight: searchOnly ? 0 : '10px' }}
+                style={{ flex: 1, padding: inputPadding, borderRadius: '6px', border: '1px solid #260000', marginRight: searchOnly ? 0 : (isSmallScreen ? '6px' : '10px') }}
                 autoFocus
               />
               {!searchOnly && (
                 <button
                   onClick={handleSubmit}
-                  style={{ padding: '10px', backgroundColor: color, color: '#bdb5b5', border: 'none', borderRadius: '8px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', minWidth: '56px', minHeight: '44px' }}
+                  style={{ padding: inputPadding, backgroundColor: color, color: '#bdb5b5', border: 'none', borderRadius: '8px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', minWidth: `${actionButtonMinWidth}px`, minHeight: isSmallScreen ? '48px' : '44px' }}
                   title={mode === 'connection-creation' ? 'Create connection type' : mode === 'abstraction-node-creation' ? `Create ${abstractionDirection} abstraction` : mode === 'node-group-creation' ? 'Create new Thing defined by this Group' : 'Create node type'}
                 >
                   <Plus size={18} color="#bdb5b5" strokeWidth={2.5} />
@@ -221,12 +248,13 @@ const UnifiedSelector = ({
 
         {showGrid && (
           <div
-            style={{ flex: 1, overflow: 'hidden', display: 'flex', justifyContent: 'center' }}
+            style={{ flex: 1, overflow: 'hidden', display: 'flex', justifyContent: 'center', width: '100%' }}
           >
             {/* Outer rounded rectangle */}
             <div
               style={{
-                width: `${gridOuterWidth}px`,
+                width: isSmallScreen ? '100%' : `${gridOuterWidth}px`,
+                maxWidth: `${gridOuterWidth}px`,
                 height: '100%',
                 backgroundColor: '#bdb5b5',
                 borderRadius: '16px',
@@ -238,13 +266,13 @@ const UnifiedSelector = ({
               {/* Header area inside outer, reserved for future buttons */}
               <div
                 style={{
-                  padding: '14px 18px',
+                  padding: isSmallScreen ? '12px 14px' : '14px 18px',
                   borderTopLeftRadius: '16px',
                   borderTopRightRadius: '16px',
                   color: '#260000',
                   fontFamily: "'EmOne', sans-serif",
                   fontWeight: 'bold',
-                  fontSize: '16px',
+                  fontSize: isSmallScreen ? '15px' : '16px',
                   flexShrink: 0
                 }}
               >
@@ -291,7 +319,7 @@ const UnifiedSelector = ({
                           padding: '12px',
                           cursor: 'pointer',
                           transition: 'all 0.2s ease',
-                          height: '90px', // Fixed smaller height
+                          height: cardHeight,
                           display: 'flex',
                           alignItems: 'center',
                           justifyContent: 'center',

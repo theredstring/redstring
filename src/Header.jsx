@@ -523,16 +523,46 @@ const Header = ({
             alignItems: 'center',
             justifyContent: 'center',
             cursor: 'pointer',
+            backgroundColor: 'transparent'
           }}
           onClick={() => {
             onOpenComponentSearch?.();
           }}
+          onMouseEnter={(e) => {
+            const circle = e.currentTarget.querySelector('.header-btn-circle');
+            if (circle) {
+              circle.style.transform = 'scale(1.06)';
+              circle.style.boxShadow = '0 2px 6px rgba(0,0,0,0.15)';
+            }
+          }}
+          onMouseLeave={(e) => {
+            const circle = e.currentTarget.querySelector('.header-btn-circle');
+            if (circle) {
+              circle.style.transform = 'scale(1)';
+              circle.style.boxShadow = 'none';
+            }
+          }}
         >
-          <ScanSearch
-            size={28}
-            color="#7A0000"
-            strokeWidth={3}
-          />
+          <div
+            className="header-btn-circle"
+            style={{
+              width: '36px',
+              height: '36px',
+              borderRadius: '50%',
+              backgroundColor: '#ffffff',
+              border: '3px solid #7A0000',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              transition: 'transform 120ms ease, box-shadow 120ms ease'
+            }}
+          >
+            <ScanSearch
+              size={22}
+              color="#7A0000"
+              strokeWidth={3}
+            />
+          </div>
         </div>
 
         {/* Plus Button */}
@@ -545,16 +575,46 @@ const Header = ({
             alignItems: 'center',
             justifyContent: 'center',
             cursor: 'pointer',
+            backgroundColor: 'transparent'
           }}
           onClick={() => {
             onCreateNewThing?.();
           }}
+          onMouseEnter={(e) => {
+            const circle = e.currentTarget.querySelector('.header-btn-circle');
+            if (circle) {
+              circle.style.transform = 'scale(1.06)';
+              circle.style.boxShadow = '0 2px 6px rgba(0,0,0,0.15)';
+            }
+          }}
+          onMouseLeave={(e) => {
+            const circle = e.currentTarget.querySelector('.header-btn-circle');
+            if (circle) {
+              circle.style.transform = 'scale(1)';
+              circle.style.boxShadow = 'none';
+            }
+          }}
         >
-          <Plus
-            size={28}
-            color="#7A0000"
-            strokeWidth={3}
-          />
+          <div
+            className="header-btn-circle"
+            style={{
+              width: '36px',
+              height: '36px',
+              borderRadius: '50%',
+              backgroundColor: '#ffffff',
+              border: '3px solid #7A0000',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              transition: 'transform 120ms ease, box-shadow 120ms ease'
+            }}
+          >
+            <Plus
+              size={22}
+              color="#7A0000"
+              strokeWidth={3}
+            />
+          </div>
         </div>
 
       <div
@@ -566,19 +626,49 @@ const Header = ({
           alignItems: 'center',
           justifyContent: 'center',
           cursor: 'pointer',
+          backgroundColor: 'transparent'
         }}
         onClick={() => {
           // Log the state received via props just before calling the callback
           console.log('[Header Bookmark Click] bookmarkActive prop:', bookmarkActive);
           onBookmarkToggle(); // Call the callback passed from NodeCanvas
         }}
+        onMouseEnter={(e) => {
+          const circle = e.currentTarget.querySelector('.header-btn-circle');
+          if (circle) {
+            circle.style.transform = 'scale(1.06)';
+            circle.style.boxShadow = '0 2px 6px rgba(0,0,0,0.15)';
+          }
+        }}
+        onMouseLeave={(e) => {
+          const circle = e.currentTarget.querySelector('.header-btn-circle');
+          if (circle) {
+            circle.style.transform = 'scale(1)';
+            circle.style.boxShadow = 'none';
+          }
+        }}
       >
-        <Bookmark
-          size={28}
-          color="#7A0000"
-          fill={bookmarkActive ? '#7A0000' : 'none'}
-          strokeWidth={3}
-        />
+        <div
+          className="header-btn-circle"
+          style={{
+            width: '36px',
+            height: '36px',
+            borderRadius: '50%',
+            backgroundColor: '#ffffff',
+            border: '3px solid #7A0000',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            transition: 'transform 120ms ease, box-shadow 120ms ease'
+          }}
+        >
+          <Bookmark
+            size={22}
+            color="#7A0000"
+            fill={bookmarkActive ? '#7A0000' : 'none'}
+            strokeWidth={3}
+          />
+        </div>
       </div>
       </div>
     </header>

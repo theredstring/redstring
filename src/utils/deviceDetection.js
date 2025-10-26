@@ -93,13 +93,9 @@ export const shouldUseGitOnlyMode = () => {
   
   const deviceInfo = getDeviceInfo();
   
-  // Force Git-Only mode if:
-  // 1. Mobile or tablet device, OR
-  // 2. File System Access API not supported, OR  
-  // 3. Touch device with small/medium screen
-  return deviceInfo.requiresGitOnly || 
-         !deviceInfo.supportsFileSystemAPI ||
-         (deviceInfo.isTouchDevice && deviceInfo.screenWidth <= 1024);
+  // Force Git-Only mode only for mobile/tablet or constrained touch devices.
+  // Desktop browsers without File System Access API (e.g., Safari) can use browser storage fallback.
+  return deviceInfo.requiresGitOnly || (deviceInfo.isTouchDevice && deviceInfo.screenWidth <= 1024);
 };
 
 /**
