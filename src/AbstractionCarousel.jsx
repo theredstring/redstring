@@ -943,7 +943,8 @@ const AbstractionCarousel = ({
   // Handle escape key and click-away to close
   useEffect(() => {
     const handleKeyDown = (e) => {
-      // Allow Backspace/Delete when typing in inputs/textareas/contenteditable inside overlays
+      // Allow Backspace/Delete when typing in inputs/textareas/contenteditable inside 
+      // overlays
       if (e.key === 'Backspace' || e.key === 'Delete') {
         const t = e.target;
         const isEditable = t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable === true);

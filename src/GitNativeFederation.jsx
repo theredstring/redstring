@@ -258,6 +258,7 @@ const GitNativeFederation = ({ variant = 'panel', onRequestClose }) => {
   const [confirmDialog, setConfirmDialog] = useState(null);
   const [conflictDialog, setConflictDialog] = useState(null);
   const [slotConflict, setSlotConflict] = useState(null);
+  const [authExpiredDialog, setAuthExpiredDialog] = useState(null);
 
   const containerRef = useRef(null);
   const [isSlim, setIsSlim] = useState(false);
@@ -387,8 +388,11 @@ const GitNativeFederation = ({ variant = 'panel', onRequestClose }) => {
         // Clear any stale state
         await refreshAuth();
         
-        // Show prominent error message
-        setError(detail.message || 'GitHub authentication expired. Please reconnect below.');
+        // Show prominent dialog prompting re-authentication
+        setAuthExpiredDialog({
+          message: detail.message || 'GitHub authentication has expired.',
+          authMethod: detail.authMethod || 'oauth'
+        });
         
         // Clear any success status
         setSyncStatus(null);
@@ -1465,6 +1469,35 @@ const GitNativeFederation = ({ variant = 'panel', onRequestClose }) => {
       setPendingRepoAttachment(null);
       setShowUniverseFileSelector(false);
       setRepositoryIntent(null);
+    }
+  };
+
+  const handleLoadFromRepositoryFile = async (file) => {
+    // Simple handler for loading from an already-discovered repository file
+    if (!file) return;
+
+    try {
+      setLoading(true);
+      
+      // If the file already has a linked universe (slug), load from it
+      if (file.slug) {
+        gfLog('[GitNativeFederation] Loading from existing universe:', file.slug);
+        await universeBackendBridge.reloadUniverse(file.slug);
+        await gitFederationService.switchUniverse(file.slug);
+        await refreshState();
+        setSyncStatus({ type: 'success', message: `Loaded universe "${file.name || file.slug}" from repository` });
+        setShowUniverseFileSelector(false);
+        return;
+      }
+
+      // Otherwise, we need to import it (this shouldn't normally happen with "Load" button)
+      gfError('[GitNativeFederation] Cannot load file without slug - use Import instead');
+      setError('This file needs to be imported first. Use "Import Copy" instead.');
+    } catch (err) {
+      gfError('[GitNativeFederation] Load from repository file failed:', err);
+      setError(`Failed to load from repository: ${err.message}`);
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -4356,7 +4389,7 @@ return (
                             icon={CloudDownload}
                             size={24}
                             title="Load from Repo"
-                            onClick={() => handleUniverseFileSelection(file)}
+                            onClick={() => handleLoadFromRepositoryFile(file)}
                           />
                           <PanelIconButton
                             icon={CloudUpload}
@@ -4500,6 +4533,34 @@ return (
         gitData={slotConflict.gitData}
         universeName={slotConflict.universeName}
         requiresPrimarySelection={slotConflict.requiresPrimarySelection}
+      />
+    )}
+    
+    {/* Auth Expired Dialog */}
+    {authExpiredDialog && (
+      <ConfirmDialog
+        isOpen={true}
+        title="GitHub Authentication Expired"
+        message={authExpiredDialog.message}
+        details="Your GitHub authentication has expired or been revoked. Please reconnect to continue syncing with GitHub."
+        variant="error"
+        confirmLabel="Reconnect Now"
+        cancelLabel="Dismiss"
+        onConfirm={() => {
+          setAuthExpiredDialog(null);
+          // Scroll to auth section to make it visible
+          if (typeof window !== 'undefined') {
+            setTimeout(() => {
+              const authSection = document.querySelector('[data-auth-section="true"]');
+              if (authSection) {
+                authSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
+              }
+            }, 100);
+          }
+        }}
+        onCancel={() => {
+          setAuthExpiredDialog(null);
+        }}
       />
     )}
     </div>

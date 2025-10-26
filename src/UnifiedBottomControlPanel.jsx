@@ -402,6 +402,7 @@ const UnifiedBottomControlPanel = ({
     <div
       className={`unified-bottom-panel ${typeListOpen ? 'with-typelist' : ''} ${animationState} ${className}`}
       onAnimationEnd={handleAnimationEnd}
+      onTouchStart={(e) => { if (e.cancelable) e.preventDefault(); e.stopPropagation(); }}
     >
       <div className="unified-bottom-content">
         {/* Row 1: Interactive info */}

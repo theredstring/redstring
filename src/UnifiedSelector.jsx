@@ -199,7 +199,9 @@ const UnifiedSelector = ({
             onClick={(e) => e.stopPropagation()}
             onMouseDown={(e) => e.stopPropagation()}
           >
-            <div style={{ position: 'absolute', top: '10px', right: '10px', cursor: 'pointer' }}>
+            <div style={{ position: 'absolute', top: '10px', right: '10px', cursor: 'pointer' }}
+                 onPointerDown={(e) => { if (e.pointerType !== 'mouse') { e.stopPropagation(); } }}
+                 onTouchStart={(e) => { e.stopPropagation(); }}>
               <X size={MODAL_CLOSE_ICON_SIZE} color="#999" onClick={() => { setName(''); setColorPickerVisible(false); onClose?.(); }} />
             </div>
             <div style={{ textAlign: 'left', marginBottom: '15px', color: 'black' }}>
@@ -231,7 +233,7 @@ const UnifiedSelector = ({
                   if (e.key === 'Escape') { setName(''); setColorPickerVisible(false); onClose?.(); }
                 }}
                 style={{ flex: 1, padding: inputPadding, borderRadius: '6px', border: '1px solid #260000', marginRight: searchOnly ? 0 : (isSmallScreen ? '6px' : '10px') }}
-                autoFocus
+                autoFocus={false}
               />
               {!searchOnly && (
                 <button
@@ -336,6 +338,8 @@ const UnifiedSelector = ({
                           e.currentTarget.style.boxShadow = 'none';
                         }}
                         onClick={() => onNodeSelect?.(prototype)}
+                        onPointerDown={(e) => { if (e.pointerType !== 'mouse') e.stopPropagation(); }}
+                        onTouchStart={(e) => { e.stopPropagation(); }}
                       >
                         {/* Thumbnail background if available */}
                         {prototype.thumbnailSrc && (

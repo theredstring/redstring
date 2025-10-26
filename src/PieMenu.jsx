@@ -287,6 +287,7 @@ const PieMenu = ({
             key={button.id || index}
             transform={`translate(${bubbleX}, ${bubbleY})`}
             style={{ cursor: 'pointer' }}
+            onTouchStart={(e) => { e.stopPropagation(); if (e.cancelable) e.preventDefault(); }}
             onMouseDown={(e) => { e.stopPropagation(); e.preventDefault(); }}
             onMouseEnter={() => onHoverChange({ id: button.id, label: button.label })}
             onMouseLeave={() => onHoverChange(null)}

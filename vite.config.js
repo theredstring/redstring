@@ -6,13 +6,10 @@ import react from '@vitejs/plugin-react'
 export default defineConfig({
   plugins: [react()],
   build: {
+    sourcemap: true,
     rollupOptions: {
       output: {
-        manualChunks: {
-          // Separate the store and services into different chunks to avoid circular dependencies
-          store: ['./src/store/graphStore.jsx', './src/store/fileStorage.js'],
-          services: ['./src/services/universeBackend.js', './src/services/orbitResolver.js']
-        }
+        // Temporarily disable custom manualChunks to avoid TDZ from circular imports
       }
     }
   },

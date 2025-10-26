@@ -52,6 +52,7 @@ const AuthSection = ({
 }) => {
   return (
     <div
+      data-auth-section="true"
       style={{
         backgroundColor: '#979090',
         borderRadius: 8,

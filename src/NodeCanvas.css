@@ -20,6 +20,8 @@ html, body {
   background-color: #2e2e2e; /* Dark grey background behind the canvas */
   overflow: hidden;
   position: relative;
+  /* On touch devices, ensure the browser doesn't hijack touch gestures */
+  touch-action: none;
 }
 
 .canvas {

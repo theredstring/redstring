@@ -2783,14 +2783,25 @@ class UniverseBackend {
               const needsConsent = conflict.areIdentical !== true;
               const extra = conflict.riskOverwriteEmptyPrimary ? ' The selected source appears empty and would overwrite existing data.' : '';
               this.notifyStatus('warning', `${needsConsent ? 'Review required: potential overwrite.' : 'Select a primary storage'} for ${universe.name || universe.slug} to continue.${extra}`);
+              
+              // Only emit event if not already prompted to prevent duplicate modals
+              if (typeof window !== 'undefined') {
+                window.dispatchEvent(new CustomEvent('redstring:slot-conflict', {
+                  detail: conflict
+                }));
+              }
             }
-          }
-
-          // Emit event for UI to show conflict resolution modal
-          if (typeof window !== 'undefined') {
-            window.dispatchEvent(new CustomEvent('redstring:slot-conflict', {
-              detail: conflict
-            }));
+          } else {
+            // Non-primary selection conflicts should always show modal
+            if (typeof window !== 'undefined') {
+              const alreadyPrompted = this.pendingPrimarySelection.has(universe.slug);
+              if (!alreadyPrompted) {
+                this.pendingPrimarySelection.add(universe.slug);
+                window.dispatchEvent(new CustomEvent('redstring:slot-conflict', {
+                  detail: conflict
+                }));
+              }
+            }
           }
 
           // Return the primary source data (conflict will be resolved by user)
@@ -3007,13 +3018,17 @@ class UniverseBackend {
       if (conflict) {
         this.pendingConflict = conflict;
         const alreadyPrompted = this.pendingPrimarySelection.has(universe.slug);
-        this.pendingPrimarySelection.add(universe.slug);
-        if (!alreadyPrompted && typeof window !== 'undefined') {
-          window.dispatchEvent(new CustomEvent('redstring:slot-conflict', {
-            detail: conflict
-          }));
-        }
+        
+        // Only dispatch event and notify if not already prompted to prevent duplicates
         if (!alreadyPrompted) {
+          this.pendingPrimarySelection.add(universe.slug);
+          
+          if (typeof window !== 'undefined') {
+            window.dispatchEvent(new CustomEvent('redstring:slot-conflict', {
+              detail: conflict
+            }));
+          }
+          
           this.notifyStatus('warning', `Select a primary storage for ${universe.name || universe.slug} to continue syncing.`);
         }
       }

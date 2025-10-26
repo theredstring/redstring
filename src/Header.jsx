@@ -345,7 +345,7 @@ const Header = ({
         display: 'flex',
         alignItems: 'center'
       }}>
-        <img 
+          <img 
           src={logos[currentLogoIndex]}
           alt=""
           style={{
@@ -356,6 +356,8 @@ const Header = ({
             display: 'block' // Prevent any inline spacing issues
           }}
           onClick={toggleMenu}
+          onPointerDown={(e) => { if (e.pointerType !== 'mouse') { e.stopPropagation(); toggleMenu(); } }}
+          onTouchStart={(e) => { e.stopPropagation(); toggleMenu(); }}
         />
         {/* Pass debug props to RedstringMenu here */}
         <RedstringMenu 

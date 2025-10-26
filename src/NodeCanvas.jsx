@@ -229,7 +229,7 @@ function NodeCanvas() {
 
   // Touch interaction constants
   const TOUCH_MOVEMENT_THRESHOLD = 10; // pixels
-  const LONG_PRESS_DURATION = 500; // ms
+  // Use imported LONG_PRESS_DURATION from './constants'
   const [isHoveringLeftResizer, setIsHoveringLeftResizer] = useState(false);
   const [isHoveringRightResizer, setIsHoveringRightResizer] = useState(false);
   const [resizersVisible, setResizersVisible] = useState(false);
@@ -525,6 +525,29 @@ function NodeCanvas() {
       mouseMoved.current = false;
       setPanStart({ x: t.clientX, y: t.clientY });
       panSourceRef.current = 'touch';
+      // Attach document-level listeners to keep pan active even if finger leaves canvas
+      try {
+        const moveListener = (ev) => handleTouchMoveCanvas(ev);
+        const endListener = (ev) => {
+          handleTouchEndCanvas(ev);
+          try {
+            document.removeEventListener('touchmove', moveListener, { passive: false });
+            document.removeEventListener('touchend', endListener, { passive: false });
+            document.removeEventListener('touchcancel', cancelListener, { passive: false });
+          } catch {}
+        };
+        const cancelListener = (ev) => {
+          handleTouchEndCanvas(ev);
+          try {
+            document.removeEventListener('touchmove', moveListener, { passive: false });
+            document.removeEventListener('touchend', endListener, { passive: false });
+            document.removeEventListener('touchcancel', cancelListener, { passive: false });
+          } catch {}
+        };
+        document.addEventListener('touchmove', moveListener, { passive: false });
+        document.addEventListener('touchend', endListener, { passive: false });
+        document.addEventListener('touchcancel', cancelListener, { passive: false });
+      } catch {}
       const synthetic = {
         clientX: t.clientX,
         clientY: t.clientY,
@@ -663,8 +686,40 @@ function NodeCanvas() {
     touchMultiPanRef.current = false;
   };
 
+  // Document-level touch listeners holder (must be declared before use)
+  const docTouchListenersRef = useRef(null);
+
   // Dedicated touch handlers for nodes (no synthetic event conversion)
   const handleNodeTouchStart = (nodeData, e) => {
+    // Attach document-level listeners only when starting from a real TouchEvent (not synthesized from pointer)
+    if (!e?.__fromPointer) {
+      try {
+        // Create dedicated listeners bound to this nodeData so we can remove them later
+        const moveListener = (ev) => handleNodeTouchMove(nodeData, ev);
+        const endListener = (ev) => {
+          handleNodeTouchEnd(nodeData, ev);
+          try {
+            document.removeEventListener('touchmove', moveListener, { passive: false });
+            document.removeEventListener('touchend', endListener, { passive: false });
+            document.removeEventListener('touchcancel', cancelListener, { passive: false });
+          } catch {}
+          docTouchListenersRef.current = null;
+        };
+        const cancelListener = (ev) => {
+          handleNodeTouchEnd(nodeData, ev);
+          try {
+            document.removeEventListener('touchmove', moveListener, { passive: false });
+            document.removeEventListener('touchend', endListener, { passive: false });
+            document.removeEventListener('touchcancel', cancelListener, { passive: false });
+          } catch {}
+          docTouchListenersRef.current = null;
+        };
+        document.addEventListener('touchmove', moveListener, { passive: false });
+        document.addEventListener('touchend', endListener, { passive: false });
+        document.addEventListener('touchcancel', cancelListener, { passive: false });
+        docTouchListenersRef.current = { moveListener, endListener, cancelListener };
+      } catch {}
+    }
     e.stopPropagation();
     if (isPaused || !activeGraphId) return;
 
@@ -701,8 +756,8 @@ function NodeCanvas() {
     mouseInsideNode.current = true;
     startedOnNode.current = true;
     panSourceRef.current = 'touch';
-    // Do not enter long-press mode; we want drag parity with mouse
-    setLongPressingInstanceId(null);
+    // Arm quick-drag connection behavior by default
+    setLongPressingInstanceId(instanceId);
 
     // Add touch feedback class
     const nodeElement = e.currentTarget;
@@ -713,7 +768,7 @@ function NodeCanvas() {
       navigator.vibrate(10); // Short vibration for touch start
     }
 
-    // Initialize touch state (long-press disabled for drag gating)
+    // Initialize touch state (drag can also start via long-press fallback)
     touchState.current = {
       isDragging: false,
       dragNodeId: instanceId,
@@ -727,11 +782,141 @@ function NodeCanvas() {
       dragOffset,
       nodeData
     };
+
+    // Long-press fallback: begin NODE DRAG while finger is still down (mouse parity)
+    if (touchState.current.longPressTimer) {
+      clearTimeout(touchState.current.longPressTimer);
+    }
+    touchState.current.longPressTimer = setTimeout(() => {
+      const ts = touchState.current;
+      if (!ts) return;
+      if (isMouseDown.current && ts.dragNodeId === instanceId && !ts.hasMovedPastThreshold && !ts.isDragging) {
+        const started = startDragForNode(nodeData, ts.currentPosition.x, ts.currentPosition.y);
+        if (started) {
+          ts.isDragging = true;
+          ts.longPressReady = false;
+          setSelectedNodeIdForPieMenu(null);
+          // Cancel quick-drag connection intent once dragging node
+          setLongPressingInstanceId(null);
+        }
+      }
+    }, LONG_PRESS_DURATION);
     setMouseInsideNode(true);
+  };
+
+  // Pointer → Touch compatibility helpers (function declarations to avoid TDZ)
+  function toSyntheticTouchEventFromPointer(e) {
+    return {
+      touches: [{ clientX: e.clientX, clientY: e.clientY }],
+      changedTouches: [{ clientX: e.clientX, clientY: e.clientY }],
+      cancelable: true,
+      stopPropagation: () => { try { e.stopPropagation(); } catch {} },
+      preventDefault: () => { try { e.preventDefault(); } catch {} },
+      currentTarget: e.currentTarget,
+      __fromPointer: true
+    };
+  }
+
+  function handleNodePointerDown(nodeData, e) {
+    if (e && e.pointerType && e.pointerType !== 'mouse') {
+      try { if (e.cancelable) e.preventDefault(); e.stopPropagation(); } catch {}
+      handleNodeTouchStart(nodeData, toSyntheticTouchEventFromPointer(e));
+    }
+  }
+
+  function handleNodePointerMove(nodeData, e) {
+    if (e && e.pointerType && e.pointerType !== 'mouse') {
+      try { if (e.cancelable) e.preventDefault(); e.stopPropagation(); } catch {}
+      handleNodeTouchMove(nodeData, toSyntheticTouchEventFromPointer(e));
+    }
+  }
+
+  function handleNodePointerUp(nodeData, e) {
+    if (e && e.pointerType && e.pointerType !== 'mouse') {
+      try { if (e.cancelable) e.preventDefault(); e.stopPropagation(); } catch {}
+      const synthetic = toSyntheticTouchEventFromPointer(e);
+      synthetic.touches = [];
+      handleNodeTouchEnd(nodeData, synthetic);
+    }
+  }
+
+  function handleNodePointerCancel(nodeData, e) {
+    if (e && e.pointerType && e.pointerType !== 'mouse') {
+      try { if (e.cancelable) e.preventDefault(); e.stopPropagation(); } catch {}
+      const synthetic = toSyntheticTouchEventFromPointer(e);
+      synthetic.touches = [];
+      handleNodeTouchEnd(nodeData, synthetic);
+    }
+  }
+
+
+  // Touch cancel mirroring: ensure cleanup if OS cancels
+  const handleNodeTouchCancel = (nodeData, e) => {
+    if (e) {
+      try { if (e.cancelable) e.preventDefault(); e.stopPropagation(); } catch {}
+    }
+    // Mirror touch end cleanup
+    isMouseDown.current = false;
+    startedOnNode.current = false;
+    setLongPressingInstanceId(null);
+
+    if (touchState.current.nodeElement) {
+      touchState.current.nodeElement.classList.remove('touch-active', 'long-press-active');
+    }
+
+    if (touchState.current.longPressTimer) {
+      clearTimeout(touchState.current.longPressTimer);
+      touchState.current.longPressTimer = null;
+    }
+
+    if (touchState.current.isDragging || drawingConnectionFrom) {
+      // Synthesize a mouse up to clear drag state
+      const synthetic = {
+        clientX: (e && e.changedTouches && e.changedTouches[0]?.clientX) || lastMousePosRef.current?.x || 0,
+        clientY: (e && e.changedTouches && e.changedTouches[0]?.clientY) || lastMousePosRef.current?.y || 0,
+        stopPropagation: () => {},
+        preventDefault: () => {}
+      };
+      handleMouseUp(synthetic);
+    }
+
+    // Reset touch state
+    touchState.current = {
+      isDragging: false,
+      dragNodeId: null,
+      startTime: 0,
+      startPosition: { x: 0, y: 0 },
+      currentPosition: { x: 0, y: 0 },
+      hasMovedPastThreshold: false,
+      longPressTimer: null,
+      nodeElement: null,
+      longPressReady: false,
+      dragOffset: null,
+      nodeData: null
+    };
+
+    setDraggingNodeInfo(null);
+    setMouseInsideNode(false);
+    // Detach any outstanding document listeners
+    if (docTouchListenersRef.current) {
+      const { moveListener, endListener, cancelListener } = docTouchListenersRef.current;
+      try {
+        document.removeEventListener('touchmove', moveListener, { passive: false });
+        document.removeEventListener('touchend', endListener, { passive: false });
+        document.removeEventListener('touchcancel', cancelListener, { passive: false });
+      } catch {}
+      docTouchListenersRef.current = null;
+    }
   };
 
   const handleNodeTouchMove = (nodeData, e) => {
     if (isPaused || !activeGraphId || !touchState.current.dragNodeId) return;
+
+    // Prevent the browser from stealing the gesture (scroll/zoom)
+    try {
+      if (e && e.cancelable) e.preventDefault();
+      e.stopPropagation();
+    } catch {}
 
     const touch = e.touches[0];
     if (!touch) return;
@@ -754,28 +939,42 @@ function NodeCanvas() {
         touchState.current.longPressTimer = null;
       }
 
-      // Start dragging immediately on threshold crossing
-      if (!touchState.current.isDragging) {
-        const dragStarted = startDragForNode(nodeData, touch.clientX, touch.clientY);
-        if (dragStarted) {
-          touchState.current.isDragging = true;
-          touchState.current.longPressReady = false;
-          setSelectedNodeIdForPieMenu(null);
-          setLongPressingInstanceId(null);
+    // If quick-drag connection is armed (and not already in node-drag via long-press), begin connection draw instead of node drag
+    if (longPressingInstanceId && !touchState.current.isDragging && !draggingNodeInfo && !drawingConnectionFrom && !pinchRef.current.active) {
+      const armedNode = nodes.find(n => n.id === longPressingInstanceId);
+      if (armedNode) {
+        const leftNodeArea = !isInsideNode(armedNode, touch.clientX, touch.clientY);
+        if (leftNodeArea || startedOnNode.current) {
+          const startNodeDims = getNodeDimensions(armedNode, previewingNodeId === armedNode.id, null);
+          const startPt = { x: armedNode.x + startNodeDims.currentWidth / 2, y: armedNode.y + startNodeDims.currentHeight / 2 };
+          const rect = containerRef.current.getBoundingClientRect();
+          const rawX = (touch.clientX - rect.left - panOffset.x) / zoomLevel + canvasSize.offsetX;
+          const rawY = (touch.clientY - rect.top - panOffset.y) / zoomLevel + canvasSize.offsetY;
+          const { x: currentX, y: currentY } = clampCoordinates(rawX, rawY);
+          setDrawingConnectionFrom({ sourceInstanceId: armedNode.id, startX: startPt.x, startY: startPt.y, currentX, currentY });
+          // keep longPressingInstanceId set until we fully enter connection mode
         }
       }
+    } else if (!touchState.current.isDragging) {
+      // Otherwise, start dragging the node
+      const dragStarted = startDragForNode(nodeData, touch.clientX, touch.clientY);
+      if (dragStarted) {
+        touchState.current.isDragging = true;
+        touchState.current.longPressReady = false;
+        setSelectedNodeIdForPieMenu(null);
+        setLongPressingInstanceId(null);
+      }
+    }
     }
 
-    // Handle drag movement using the existing mouse move logic
-    if (touchState.current.isDragging) {
-      const synthetic = {
-        clientX: touch.clientX,
-        clientY: touch.clientY,
-        stopPropagation: () => e.stopPropagation(),
-        preventDefault: () => e.preventDefault()
-      };
-      handleMouseMove(synthetic);
-    }
+    // Drive shared move logic for both node-drag and connection-draw
+    const synthetic = {
+      clientX: touch.clientX,
+      clientY: touch.clientY,
+      stopPropagation: () => e.stopPropagation(),
+      preventDefault: () => e.preventDefault()
+    };
+    handleMouseMove(synthetic);
   };
 
   const handleNodeTouchEnd = (nodeData, e) => {
@@ -879,6 +1078,17 @@ function NodeCanvas() {
     // Ensure drag state is cleared
     setDraggingNodeInfo(null);
     setMouseInsideNode(false);
+
+    // Detach document listeners set on touchstart
+    if (docTouchListenersRef.current) {
+      const { moveListener, endListener, cancelListener } = docTouchListenersRef.current;
+      try {
+        document.removeEventListener('touchmove', moveListener, { passive: false });
+        document.removeEventListener('touchend', endListener, { passive: false });
+        document.removeEventListener('touchcancel', cancelListener, { passive: false });
+      } catch {}
+      docTouchListenersRef.current = null;
+    }
   };
 
   // storeActions is now defined above with defensive initialization
@@ -3632,6 +3842,34 @@ function NodeCanvas() {
     }
   }, [activeGraphId, selectedEdgeIds, isMac, storeActions]);
 
+  // Touch double-tap detection for edges → open definition
+  const lastEdgeTapRef = useRef({ id: null, ts: 0 });
+  const EDGE_DOUBLE_TAP_MS = 300;
+  const handleEdgePointerDownTouch = useCallback((edgeId, e) => {
+    if (e && e.pointerType === 'mouse') return; // only handle touch/pencil here
+    const now = performance.now();
+    const last = lastEdgeTapRef.current;
+    if (last.id === edgeId && (now - last.ts) < EDGE_DOUBLE_TAP_MS) {
+      // Double tap → open definition in right panel
+      e.preventDefault?.();
+      e.stopPropagation?.();
+      const state = useGraphStore.getState();
+      const edge = state.edges?.get?.(edgeId);
+      let definingNodeId = null;
+      if (edge?.definitionNodeIds && edge.definitionNodeIds.length > 0) {
+        definingNodeId = edge.definitionNodeIds[0];
+      } else if (edge?.typeNodeId) {
+        definingNodeId = edge.typeNodeId;
+      }
+      if (definingNodeId) {
+        state.openRightPanelNodeTab?.(definingNodeId);
+      }
+      lastEdgeTapRef.current = { id: null, ts: 0 };
+      return;
+    }
+    lastEdgeTapRef.current = { id: edgeId, ts: now };
+  }, []);
+
   const handleEdgeMouseEnter = useCallback((edgeId) => {
     setHoveredEdgeInfo({ edgeId });
   }, []);
@@ -5066,6 +5304,8 @@ function NodeCanvas() {
 
                 const e = update.e;
                 const draggingNodeInfo = update.draggingNodeInfo;
+                // Ensure labels recalc during drag (touch or mouse) by clearing cache each frame
+                placedLabelsRef.current = new Map();
             // Group drag via label
             if (draggingNodeInfo.groupId && Array.isArray(draggingNodeInfo.memberOffsets)) {
                 const rect = containerRef.current.getBoundingClientRect();
@@ -5599,7 +5839,7 @@ function NodeCanvas() {
       }
 
       // Clear selected edge when clicking on empty canvas
-      if (selectedEdgeId || selectedEdgeIds.size > 0) {
+      if ((selectedEdgeId || selectedEdgeIds.size > 0) && !hoveredEdgeInfo) {
           storeActions.setSelectedEdgeId(null);
           storeActions.clearSelectedEdgeIds();
           return;
@@ -5608,8 +5848,8 @@ function NodeCanvas() {
       const rect = containerRef.current.getBoundingClientRect();
       const mouseX = (e.clientX - rect.left - panOffset.x) / zoomLevel + canvasSize.offsetX;
       const mouseY = (e.clientY - rect.top - panOffset.y) / zoomLevel + canvasSize.offsetY;
-      // Prevent plus sign if pie menu is active or about to become active
-      if (!plusSign && selectedInstanceIds.size === 0) {
+      // Prevent plus sign if pie menu is active or about to become active or hovering an edge
+      if (!plusSign && selectedInstanceIds.size === 0 && !hoveredEdgeInfo) {
           setPlusSign({ x: mouseX, y: mouseY, mode: 'appear', tempName: '' });
           setLastInteractionType('plus_sign_shown');
       } else {
@@ -8633,6 +8873,27 @@ function NodeCanvas() {
                                stroke="transparent"
                                strokeWidth="40"
                                style={{ cursor: 'pointer' }}
+                              onPointerDown={(e) => {
+                                 // Immediate tap support for touch/pencil
+                                 if (e.pointerType && e.pointerType !== 'mouse') {
+                                   e.preventDefault?.();
+                                   e.stopPropagation?.();
+                                   ignoreCanvasClick.current = true; // suppress canvas click -> plus sign
+                                   setLongPressingInstanceId(null); // prevent connection drawing intent
+                                   setDrawingConnectionFrom(null);
+                                   if (e.ctrlKey || e.metaKey) {
+                                     if (selectedEdgeIds.has(edge.id)) {
+                                       storeActions.removeSelectedEdgeId(edge.id);
+                                     } else {
+                                       storeActions.addSelectedEdgeId(edge.id);
+                                     }
+                                   } else {
+                                     storeActions.clearSelectedEdgeIds();
+                                     storeActions.setSelectedEdgeId(edge.id);
+                                   }
+                                 }
+                                handleEdgePointerDownTouch(edge.id, e);
+                              }}
                                onClick={(e) => {
                                  e.stopPropagation();
                                  
@@ -8679,7 +8940,27 @@ function NodeCanvas() {
                              stroke="transparent"
                              strokeWidth="40"
                              style={{ cursor: 'pointer' }}
-                             onClick={(e) => {
+                           onPointerDown={(e) => {
+                              if (e.pointerType && e.pointerType !== 'mouse') {
+                                e.preventDefault?.();
+                                e.stopPropagation?.();
+                                ignoreCanvasClick.current = true;
+                                setLongPressingInstanceId(null);
+                                setDrawingConnectionFrom(null);
+                                if (e.ctrlKey || e.metaKey) {
+                                  if (selectedEdgeIds.has(edge.id)) {
+                                    storeActions.removeSelectedEdgeId(edge.id);
+                                  } else {
+                                    storeActions.addSelectedEdgeId(edge.id);
+                                  }
+                                } else {
+                                  storeActions.clearSelectedEdgeIds();
+                                  storeActions.setSelectedEdgeId(edge.id);
+                                }
+                              }
+                              handleEdgePointerDownTouch(edge.id, e);
+                            }}
+                            onClick={(e) => {
                                e.stopPropagation();
                                
                                // Handle multiple selection with Ctrl/Cmd key
@@ -10172,6 +10453,10 @@ function NodeCanvas() {
                              isSelected={selectedInstanceIds.has(node.id)}
                              isDragging={false} // These are explicitly not the dragging node
                              onMouseDown={(e) => handleNodeMouseDown(node, e)}
+                             onPointerDown={(e) => handleNodePointerDown(node, e)}
+                             onPointerMove={(e) => handleNodePointerMove(node, e)}
+                             onPointerUp={(e) => handleNodePointerUp(node, e)}
+                             onPointerCancel={(e) => handleNodePointerCancel(node, e)}
                              onTouchStart={(e) => handleNodeTouchStart(node, e)}
                              onTouchMove={(e) => handleNodeTouchMove(node, e)}
                              onTouchEnd={(e) => handleNodeTouchEnd(node, e)}
@@ -10384,6 +10669,10 @@ function NodeCanvas() {
                                  isSelected={selectedInstanceIds.has(activeNodeToRender.id)}
                                  isDragging={false} // Explicitly not the dragging node if rendered here
                                  onMouseDown={(e) => handleNodeMouseDown(activeNodeToRender, e)}
+                              onPointerDown={(e) => handleNodePointerDown(activeNodeToRender, e)}
+                              onPointerMove={(e) => handleNodePointerMove(activeNodeToRender, e)}
+                              onPointerUp={(e) => handleNodePointerUp(activeNodeToRender, e)}
+                              onPointerCancel={(e) => handleNodePointerCancel(activeNodeToRender, e)}
                                  onTouchStart={(e) => handleNodeTouchStart(activeNodeToRender, e)}
                                  onTouchMove={(e) => handleNodeTouchMove(activeNodeToRender, e)}
                                  onTouchEnd={(e) => handleNodeTouchEnd(activeNodeToRender, e)}
@@ -10475,6 +10764,10 @@ function NodeCanvas() {
                                isSelected={selectedInstanceIds.has(draggingNodeToRender.id)}
                                isDragging={true} // This is the dragging node
                                onMouseDown={(e) => handleNodeMouseDown(draggingNodeToRender, e)}
+                               onPointerDown={(e) => handleNodePointerDown(draggingNodeToRender, e)}
+                               onPointerMove={(e) => handleNodePointerMove(draggingNodeToRender, e)}
+                               onPointerUp={(e) => handleNodePointerUp(draggingNodeToRender, e)}
+                               onPointerCancel={(e) => handleNodePointerCancel(draggingNodeToRender, e)}
                                onTouchStart={(e) => handleNodeTouchStart(draggingNodeToRender, e)}
                                onTouchMove={(e) => handleNodeTouchMove(draggingNodeToRender, e)}
                                onTouchEnd={(e) => handleNodeTouchEnd(draggingNodeToRender, e)}
