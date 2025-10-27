@@ -8894,8 +8894,18 @@ function NodeCanvas() {
                                  }
                                 handleEdgePointerDownTouch(edge.id, e);
                               }}
+                               onTouchStart={(e) => {
+                                 e.preventDefault?.();
+                                 e.stopPropagation?.();
+                                 ignoreCanvasClick.current = true;
+                                 setLongPressingInstanceId(null);
+                                 setDrawingConnectionFrom(null);
+                                 storeActions.clearSelectedEdgeIds();
+                                 storeActions.setSelectedEdgeId(edge.id);
+                               }}
                                onClick={(e) => {
                                  e.stopPropagation();
+                                 ignoreCanvasClick.current = true;
                                  
                                  // Handle multiple selection with Ctrl/Cmd key
                                  if (e.ctrlKey || e.metaKey) {
@@ -8960,8 +8970,18 @@ function NodeCanvas() {
                               }
                               handleEdgePointerDownTouch(edge.id, e);
                             }}
+                            onTouchStart={(e) => {
+                              e.preventDefault?.();
+                              e.stopPropagation?.();
+                              ignoreCanvasClick.current = true;
+                              setLongPressingInstanceId(null);
+                              setDrawingConnectionFrom(null);
+                              storeActions.clearSelectedEdgeIds();
+                              storeActions.setSelectedEdgeId(edge.id);
+                            }}
                             onClick={(e) => {
                                e.stopPropagation();
+                               ignoreCanvasClick.current = true;
                                
                                // Handle multiple selection with Ctrl/Cmd key
                                if (e.ctrlKey || e.metaKey) {

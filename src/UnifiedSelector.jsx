@@ -338,8 +338,10 @@ const UnifiedSelector = ({
                           e.currentTarget.style.boxShadow = 'none';
                         }}
                         onClick={() => onNodeSelect?.(prototype)}
-                        onPointerDown={(e) => { if (e.pointerType !== 'mouse') e.stopPropagation(); }}
+                        onPointerDown={(e) => { if (e.pointerType !== 'mouse') { e.stopPropagation(); } }}
+                        onPointerUp={(e) => { if (e.pointerType !== 'mouse') { e.stopPropagation(); onNodeSelect?.(prototype); } }}
                         onTouchStart={(e) => { e.stopPropagation(); }}
+                        onTouchEnd={(e) => { e.stopPropagation(); onNodeSelect?.(prototype); }}
                       >
                         {/* Thumbnail background if available */}
                         {prototype.thumbnailSrc && (
