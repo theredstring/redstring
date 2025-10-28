@@ -466,7 +466,46 @@ const ConnectionBrowser = ({ nodeData, onMaterializeConnection, isUltraSlim = fa
     };
   }, [nodeData?.name]);
 
+  // Create a stable structural hash of the connection topology
+  // This only changes when edges or instances are added/removed, not when positions change
+  const connectionStructureHash = useMemo(() => {
+    if (!nodeData?.id) return '';
+    
+    // Build a string representing the structure of connections
+    const parts = [];
+    
+    // Include edge IDs from all graphs
+    for (const [graphId, graph] of graphs.entries()) {
+      if (graph.edgeIds && graph.edgeIds.length > 0) {
+        parts.push(`g:${graphId}:${graph.edgeIds.join(',')}`);
+      }
+      
+      // Include instance count for this prototype in each graph
+      if (graph.instances) {
+        let instanceCount = 0;
+        for (const [instanceId, instance] of graph.instances.entries()) {
+          if (instance.prototypeId === nodeData.id) {
+            instanceCount++;
+          }
+        }
+        if (instanceCount > 0) {
+          parts.push(`i:${graphId}:${instanceCount}`);
+        }
+      }
+    }
+    
+    // Include edge structure (source->dest pairs)
+    for (const [edgeId, edge] of edges.entries()) {
+      if (edge.sourceId && edge.destinationId) {
+        parts.push(`e:${edgeId}:${edge.sourceId}->${edge.destinationId}`);
+      }
+    }
+    
+    return parts.sort().join('|');
+  }, [nodeData?.id, graphs, edges]);
+
   // Load native Redstring connections for this node
+  // Only recalculates when the connection STRUCTURE changes, not positions
   useEffect(() => {
     if (!nodeData?.id) {
       console.log('[ConnectionBrowser] No node ID, skipping native connection load');
@@ -574,7 +613,7 @@ const ConnectionBrowser = ({ nodeData, onMaterializeConnection, isUltraSlim = fa
     };
     
     loadNativeConnections();
-  }, [nodeData?.id, graphs, edges, nodePrototypes, activeGraphId]);
+  }, [nodeData?.id, connectionStructureHash, nodePrototypes, activeGraphId]);
   
   // Filter connections based on scope AND search/confidence filters
   const filteredConnections = useMemo(() => {

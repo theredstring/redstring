@@ -4,6 +4,7 @@ import UniversalNodeRenderer from './UniversalNodeRenderer';
 import { RENDERER_PRESETS } from './UniversalNodeRenderer.presets';
 import useGraphStore from "./store/graphStore.jsx";
 import { getNodeDimensions } from './utils.js';
+import useMobileDetection from './hooks/useMobileDetection';
 import './UnifiedBottomControlPanel.css';
 
 // Small helper to render a triangle cap (rounded-ish via strokeJoin/lineJoin aesthetics)
@@ -114,6 +115,7 @@ const UnifiedBottomControlPanel = ({
   const [animationState, setAnimationState] = useState('entering');
   const [shouldRender, setShouldRender] = useState(true);
   const nodeGroupPreviewRef = useRef(null);
+  const mobileState = useMobileDetection();
 
   useEffect(() => {
     if (isVisible) {
@@ -175,26 +177,30 @@ const UnifiedBottomControlPanel = ({
     });
   }, [isNodes, selectedNodes]);
 
+  // Mobile-responsive icon sizing
+  const iconSize = mobileState.isMobilePortrait ? 16 : 18;
+
   const nodeRendererMetrics = useMemo(() => {
     if (!nodeDimensionEntries.length) {
       return {
         nodesForRenderer: [],
-        containerWidth: 360,
+        containerWidth: mobileState.isMobilePortrait ? Math.min(340, mobileState.width - 20) : 360,
         containerHeight: 90,
         padding: 10
       };
     }
 
-    const PADDING = 10;
-    const BASE_CONTAINER_WIDTH = 360;
-    const MAX_CONTAINER_WIDTH = 520;
-    const BASE_CONTAINER_HEIGHT = 104;
-    const ROW_HEIGHT_INCREMENT = 64;
-    const MAX_CONTAINER_HEIGHT = 240;
-    const COLUMN_SPACING = 16;
-    const ROW_SPACING = 14;
-    const MAX_ITEMS_PER_ROW = 4;
-    const MIN_SCALE = 0.45;
+    // Mobile-responsive sizing
+    const PADDING = mobileState.isMobilePortrait ? 8 : 10;
+    const BASE_CONTAINER_WIDTH = mobileState.isMobilePortrait ? Math.min(320, mobileState.width - 20) : 360;
+    const MAX_CONTAINER_WIDTH = mobileState.isMobilePortrait ? Math.min(480, mobileState.width - 16) : 520;
+    const BASE_CONTAINER_HEIGHT = mobileState.isMobilePortrait ? 92 : 104;
+    const ROW_HEIGHT_INCREMENT = mobileState.isMobilePortrait ? 56 : 64;
+    const MAX_CONTAINER_HEIGHT = mobileState.isMobilePortrait ? 200 : 240;
+    const COLUMN_SPACING = mobileState.isMobilePortrait ? 12 : 16;
+    const ROW_SPACING = mobileState.isMobilePortrait ? 10 : 14;
+    const MAX_ITEMS_PER_ROW = mobileState.isMobilePortrait ? 3 : 4;
+    const MIN_SCALE = mobileState.isMobilePortrait ? 0.38 : 0.45;
 
     const count = nodeDimensionEntries.length;
     const rowCount = Math.max(1, Math.ceil(count / MAX_ITEMS_PER_ROW));
@@ -417,7 +423,7 @@ const UnifiedBottomControlPanel = ({
                 onMouseEnter={() => triggerActionHover('control-previous', 'Previous')}
                 onMouseLeave={clearActionHover}
               >
-                <ChevronLeft size={18} />
+                <ChevronLeft size={iconSize} />
               </div>
             </div>
           ) : null}
@@ -489,53 +495,57 @@ const UnifiedBottomControlPanel = ({
               });
               const nodes = Array.from(nodesMap.values());
               
-                              // Transform triples to the format expected by UniversalNodeRenderer
-                const connections = triples.map(t => {
-                  // Get the original edge to preserve definitionNodeIds
-                  const originalEdge = edges.get(t.id);
-                  return {
-                    id: t.id,
-                    sourceId: t.subject?.id,
-                    destinationId: t.object?.id,
-                    connectionName: t.predicate?.name || 'Connection',
-                    color: t.predicate?.color || '#000000',
-                    // Preserve original edge data for proper name resolution
-                    definitionNodeIds: originalEdge?.definitionNodeIds,
-                    typeNodeId: originalEdge?.typeNodeId,
-                    // Add directionality for arrows
-                    directionality: {
-                      arrowsToward: new Set([
-                        ...(t.hasLeftArrow ? [t.subject?.id] : []),
-                        ...(t.hasRightArrow ? [t.object?.id] : [])
-                      ])
-                    }
-                  };
-                });
+              // Transform triples to the format expected by UniversalNodeRenderer
+              const connections = triples.map(t => {
+                // Get the original edge to preserve definitionNodeIds
+                const originalEdge = edges.get(t.id);
+                // Truncate long connection names
+                const fullName = t.predicate?.name || 'Connection';
+                const maxLength = mobileState.isMobilePortrait ? 15 : 25;
+                const connectionName = fullName.length > maxLength 
+                  ? fullName.substring(0, maxLength - 3) + '...' 
+                  : fullName;
                 
-                // Calculate appropriate spacing based on connection names and node count
-                const maxConnectionNameLength = connections.reduce((max, conn) => {
-                  return Math.max(max, (conn.connectionName || 'Connection').length);
-                }, 0);
-                
-                // Proportional spacing calculation that accounts for text and gives more breathing room
-                // Base spacing: 12-15 pixels per character, with larger minimum for better proportions
-                const textSpacing = Math.max(200, maxConnectionNameLength * 12);
-                
-                // Additional spacing based on node count to prevent overcrowding
-                const nodeCountMultiplier = Math.max(1, nodes.length * 0.8);
-                const proportionalSpacing = textSpacing * nodeCountMultiplier;
-                
-                // Calculate container width with better proportions - more generous for readability
-                const dynamicWidth = Math.max(600, nodes.length * (150 + proportionalSpacing));
+                return {
+                  id: t.id,
+                  sourceId: t.subject?.id,
+                  destinationId: t.object?.id,
+                  connectionName,
+                  color: t.predicate?.color || '#000000',
+                  // Preserve original edge data for proper name resolution
+                  definitionNodeIds: originalEdge?.definitionNodeIds,
+                  typeNodeId: originalEdge?.typeNodeId,
+                  // Add directionality for arrows
+                  directionality: {
+                    arrowsToward: new Set([
+                      ...(t.hasLeftArrow ? [t.subject?.id] : []),
+                      ...(t.hasRightArrow ? [t.object?.id] : [])
+                    ])
+                  }
+                };
+              });
+              
+              // Compact spacing calculation with maximum width constraint
+              const baseSpacing = mobileState.isMobilePortrait ? 120 : 140;
+              const nodeSpacing = nodes.length * 70; // Fixed per-node spacing
+              
+              // Calculate container width with reasonable maximum - leave room to click off
+              const calculatedWidth = Math.min(
+                600, // Reduced maximum width cap for better clickability
+                Math.max(
+                  mobileState.isMobilePortrait ? 340 : 400, // Minimum width
+                  baseSpacing + nodeSpacing
+                )
+              );
                 
                 return (
                 <UniversalNodeRenderer
                   {...RENDERER_PRESETS.CONNECTION_PANEL}
                   nodes={nodes}
                   connections={connections}
-                  containerWidth={dynamicWidth}
-                  containerHeight={160}
-                  minHorizontalSpacing={proportionalSpacing}
+                  containerWidth={calculatedWidth}
+                  containerHeight={mobileState.isMobilePortrait ? 130 : 140}
+                  minHorizontalSpacing={mobileState.isMobilePortrait ? 90 : 110}
                   onNodeClick={onNodeClick}
                   onConnectionClick={onPredicateClick}
                   onToggleArrow={(connectionId, targetNodeId) => {
@@ -565,7 +575,7 @@ const UnifiedBottomControlPanel = ({
                 onMouseEnter={() => triggerActionHover('control-next', 'Next')}
                 onMouseLeave={clearActionHover}
               >
-                <ChevronRight size={18} />
+                <ChevronRight size={iconSize} />
               </div>
             </div>
           ) : null}
@@ -584,7 +594,7 @@ const UnifiedBottomControlPanel = ({
                   onMouseEnter={() => triggerActionHover('control-open-web', 'Open Web')}
                   onMouseLeave={clearActionHover}
                 >
-                  <ArrowUpFromDot size={18} />
+                  <ArrowUpFromDot size={iconSize} />
                 </div>
                 {multipleSelected && (
                   <div
@@ -594,7 +604,7 @@ const UnifiedBottomControlPanel = ({
                     onMouseEnter={() => triggerActionHover('control-group-selection', 'Group Selection')}
                     onMouseLeave={clearActionHover}
                   >
-                    <Group size={18} />
+                    <Group size={iconSize} />
                   </div>
                 )}
                 <div
@@ -604,7 +614,7 @@ const UnifiedBottomControlPanel = ({
                   onMouseEnter={() => triggerActionHover('control-decompose', 'Decompose')}
                   onMouseLeave={clearActionHover}
                 >
-                  <PackageOpen size={18} />
+                  <PackageOpen size={iconSize} />
                 </div>
                 <div
                   className="piemenu-button"
@@ -613,7 +623,7 @@ const UnifiedBottomControlPanel = ({
                   onMouseEnter={() => triggerActionHover('control-abstraction', 'Abstraction')}
                   onMouseLeave={clearActionHover}
                 >
-                  <Layers size={18} />
+                  <Layers size={iconSize} />
                 </div>
                 <div
                   className="piemenu-button"
@@ -622,7 +632,7 @@ const UnifiedBottomControlPanel = ({
                   onMouseEnter={() => triggerActionHover('control-delete', 'Delete')}
                   onMouseLeave={clearActionHover}
                 >
-                  <Trash2 size={18} />
+                  <Trash2 size={iconSize} />
                 </div>
                 <div
                   className="piemenu-button"
@@ -631,7 +641,7 @@ const UnifiedBottomControlPanel = ({
                   onMouseEnter={() => triggerActionHover('control-edit', 'Edit')}
                   onMouseLeave={clearActionHover}
                 >
-                  <Edit3 size={18} />
+                  <Edit3 size={iconSize} />
                 </div>
                 <div
                   className="piemenu-button"
@@ -640,7 +650,7 @@ const UnifiedBottomControlPanel = ({
                   onMouseEnter={() => triggerActionHover('control-save', 'Save')}
                   onMouseLeave={clearActionHover}
                 >
-                  <Bookmark size={18} />
+                  <Bookmark size={iconSize} />
                 </div>
                 <div
                   className="piemenu-button"
@@ -649,7 +659,7 @@ const UnifiedBottomControlPanel = ({
                   onMouseEnter={() => triggerActionHover('control-palette', 'Palette')}
                   onMouseLeave={clearActionHover}
                 >
-                  <Palette size={18} />
+                  <Palette size={iconSize} />
                 </div>
                 <div
                   className="piemenu-button"
@@ -658,7 +668,7 @@ const UnifiedBottomControlPanel = ({
                   onMouseEnter={() => triggerActionHover('control-more', 'More')}
                   onMouseLeave={clearActionHover}
                 >
-                  <MoreHorizontal size={18} />
+                  <MoreHorizontal size={iconSize} />
                 </div>
               </>
             ) : isNodeGroup ? (
@@ -671,7 +681,7 @@ const UnifiedBottomControlPanel = ({
                   onMouseEnter={() => triggerActionHover('control-open-definition', 'Open Definition')}
                   onMouseLeave={clearActionHover}
                 >
-                  <ArrowUpFromDot size={18} />
+                  <ArrowUpFromDot size={iconSize} />
                 </div>
                 <div
                   className="piemenu-button"
@@ -680,7 +690,7 @@ const UnifiedBottomControlPanel = ({
                   onMouseEnter={() => triggerActionHover('control-open-panel', 'Open in Panel')}
                   onMouseLeave={clearActionHover}
                 >
-                  <ArrowRight size={18} />
+                  <ArrowRight size={iconSize} />
                 </div>
                 <div
                   className="piemenu-button"
@@ -689,7 +699,7 @@ const UnifiedBottomControlPanel = ({
                   onMouseEnter={() => triggerActionHover('control-combine', 'Combine Into Thing')}
                   onMouseLeave={clearActionHover}
                 >
-                  <Combine size={18} />
+                  <Combine size={iconSize} />
                 </div>
                 <div
                   className="piemenu-button"
@@ -698,7 +708,7 @@ const UnifiedBottomControlPanel = ({
                   onMouseEnter={() => triggerActionHover('control-edit-name', 'Edit Name')}
                   onMouseLeave={clearActionHover}
                 >
-                  <Edit3 size={18} />
+                  <Edit3 size={iconSize} />
                 </div>
                 <div
                   className="piemenu-button"
@@ -707,7 +717,7 @@ const UnifiedBottomControlPanel = ({
                   onMouseEnter={() => triggerActionHover('control-change-color', 'Change Color')}
                   onMouseLeave={clearActionHover}
                 >
-                  <Palette size={18} />
+                  <Palette size={iconSize} />
                 </div>
                 <div
                   className="piemenu-button"
@@ -716,7 +726,7 @@ const UnifiedBottomControlPanel = ({
                   onMouseEnter={() => triggerActionHover('control-ungroup', 'Ungroup')}
                   onMouseLeave={clearActionHover}
                 >
-                  <Ungroup size={18} />
+                  <Ungroup size={iconSize} />
                 </div>
               </>
             ) : isGroup ? (
@@ -729,7 +739,7 @@ const UnifiedBottomControlPanel = ({
                   onMouseEnter={() => triggerActionHover('control-ungroup', 'Ungroup')}
                   onMouseLeave={clearActionHover}
                 >
-                  <Ungroup size={18} />
+                  <Ungroup size={iconSize} />
                 </div>
                 <div
                   className="piemenu-button"
@@ -738,7 +748,7 @@ const UnifiedBottomControlPanel = ({
                   onMouseEnter={() => triggerActionHover('control-edit-name', 'Edit Name')}
                   onMouseLeave={clearActionHover}
                 >
-                  <Edit3 size={18} />
+                  <Edit3 size={iconSize} />
                 </div>
                 <div
                   className="piemenu-button"
@@ -747,7 +757,7 @@ const UnifiedBottomControlPanel = ({
                   onMouseEnter={() => triggerActionHover('control-change-color', 'Change Color')}
                   onMouseLeave={clearActionHover}
                 >
-                  <Palette size={18} />
+                  <Palette size={iconSize} />
                 </div>
                 <div
                   className="piemenu-button"
@@ -756,7 +766,7 @@ const UnifiedBottomControlPanel = ({
                   onMouseEnter={() => triggerActionHover('control-convert-nodegroup', 'Convert to Thing-Group')}
                   onMouseLeave={clearActionHover}
                 >
-                  <SquarePlus size={18} />
+                  <SquarePlus size={iconSize} />
                 </div>
               </>
             ) : isAbstraction ? (
@@ -769,7 +779,7 @@ const UnifiedBottomControlPanel = ({
                   onMouseEnter={() => triggerActionHover('control-add-dimension', 'Add Dimension')}
                   onMouseLeave={clearActionHover}
                 >
-                  <Plus size={18} />
+                  <Plus size={iconSize} />
                 </div>
                 <div
                   className="piemenu-button"
@@ -778,7 +788,7 @@ const UnifiedBottomControlPanel = ({
                   onMouseEnter={() => triggerActionHover('control-expand-dimension', 'Expand Dimension')}
                   onMouseLeave={clearActionHover}
                 >
-                  <ArrowUpFromDot size={18} />
+                  <ArrowUpFromDot size={iconSize} />
                 </div>
                 <div
                   className="piemenu-button"
@@ -787,7 +797,7 @@ const UnifiedBottomControlPanel = ({
                   onMouseEnter={() => triggerActionHover('control-open-panel', 'Open in Panel')}
                   onMouseLeave={clearActionHover}
                 >
-                  <ArrowRight size={18} />
+                  <ArrowRight size={iconSize} />
                 </div>
                 <div
                   className="piemenu-button"
@@ -796,7 +806,7 @@ const UnifiedBottomControlPanel = ({
                   onMouseEnter={() => triggerActionHover('control-edit-name', 'Edit Name')}
                   onMouseLeave={clearActionHover}
                 >
-                  <Edit3 size={18} />
+                  <Edit3 size={iconSize} />
                 </div>
                 <div
                   className="piemenu-button"
@@ -805,7 +815,7 @@ const UnifiedBottomControlPanel = ({
                   onMouseEnter={() => triggerActionHover('control-delete-dimension', 'Delete Dimension')}
                   onMouseLeave={clearActionHover}
                 >
-                  <Trash2 size={18} />
+                  <Trash2 size={iconSize} />
                 </div>
               </>
             ) : (
@@ -818,7 +828,7 @@ const UnifiedBottomControlPanel = ({
                   onMouseEnter={() => triggerActionHover('control-delete', 'Delete')}
                   onMouseLeave={clearActionHover}
                 >
-                  <Trash2 size={18} />
+                  <Trash2 size={iconSize} />
                 </div>
                 <div
                   className="piemenu-button"
@@ -827,7 +837,7 @@ const UnifiedBottomControlPanel = ({
                   onMouseEnter={() => triggerActionHover('control-add', 'Add')}
                   onMouseLeave={clearActionHover}
                 >
-                  <Plus size={18} />
+                  <Plus size={iconSize} />
                 </div>
                 <div
                   className="piemenu-button"
@@ -836,7 +846,7 @@ const UnifiedBottomControlPanel = ({
                   onMouseEnter={() => triggerActionHover('control-open-definition', 'Open definition')}
                   onMouseLeave={clearActionHover}
                 >
-                  <ArrowUpFromDot size={18} />
+                  <ArrowUpFromDot size={iconSize} />
                 </div>
                 <div
                   className="piemenu-button"
@@ -845,7 +855,7 @@ const UnifiedBottomControlPanel = ({
                   onMouseEnter={() => triggerActionHover('control-open-panel', 'Open in panel')}
                   onMouseLeave={clearActionHover}
                 >
-                  <ArrowRight size={18} />
+                  <ArrowRight size={iconSize} />
                 </div>
               </>
             )}

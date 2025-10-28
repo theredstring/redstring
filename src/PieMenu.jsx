@@ -286,7 +286,11 @@ const PieMenu = ({
           <g
             key={button.id || index}
             transform={`translate(${bubbleX}, ${bubbleY})`}
-            style={{ cursor: 'pointer' }}
+            style={{ 
+              cursor: 'pointer',
+              WebkitTapHighlightColor: 'transparent',
+              touchAction: 'manipulation'
+            }}
             onTouchStart={(e) => { e.stopPropagation(); if (e.cancelable) e.preventDefault(); }}
             onMouseDown={(e) => { e.stopPropagation(); e.preventDefault(); }}
             onMouseEnter={() => onHoverChange({ id: button.id, label: button.label })}

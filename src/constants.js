@@ -3,7 +3,8 @@ export const NODE_HEIGHT = 100;
 export const LONG_PRESS_DURATION = 300;
 export const LERP_SPEED = 0.8;
 export const HEADER_HEIGHT = 50;
-export const MAX_ZOOM = 3;
+// Allow effectively unbounded zoom; keep a very high cap to avoid numeric overflow
+export const MAX_ZOOM = 1000;
 export const MOVEMENT_THRESHOLD = 3;
 export const SCROLL_SENSITIVITY = 0.5;
 export const PLUS_SIGN_SIZE = 80;

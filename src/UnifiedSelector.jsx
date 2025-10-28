@@ -4,6 +4,7 @@ import { NODE_DEFAULT_COLOR, MODAL_CLOSE_ICON_SIZE } from './constants';
 import useGraphStore from "./store/graphStore.jsx";
 import ColorPicker from './ColorPicker';
 import useViewportBounds from './hooks/useViewportBounds';
+import useMobileDetection from './hooks/useMobileDetection';
 import './UnifiedSelector.css';
 
 const UnifiedSelector = ({ 
@@ -50,6 +51,7 @@ const UnifiedSelector = ({
   const nodePrototypesMap = useGraphStore(state => state.nodePrototypes);
 
   const bounds = useViewportBounds(leftPanelExpanded, rightPanelExpanded);
+  const mobileState = useMobileDetection();
 
   const showDialog = mode === 'node-creation' || mode === 'connection-creation' || mode === 'abstraction-node-creation' || mode === 'node-typing' || mode === 'node-group-creation';
   const showGrid = mode === 'node-typing' || mode === 'abstraction-node-creation' || mode === 'node-group-creation' || showCreateNewOption || onNodeSelect;
@@ -120,11 +122,14 @@ const UnifiedSelector = ({
 
   if (!isVisible) return null;
 
-  const isSmallScreen = bounds.windowWidth <= 768;
+  // Mobile detection with enhanced portrait mode support
+  const isSmallScreen = mobileState.isMobile || mobileState.isTablet;
+  const isMobilePortrait = mobileState.isMobilePortrait;
+  const isExtraSmall = mobileState.width <= 480;
 
-  // Layout measurements with responsive margins
-  const outerMargin = isSmallScreen ? 12 : 32;
-  const sideMargin = isSmallScreen ? 12 : 48;
+  // Layout measurements with responsive margins - minimized vertical space on desktop
+  const outerMargin = isMobilePortrait ? 8 : (isSmallScreen ? 12 : 20);
+  const sideMargin = isMobilePortrait ? 8 : (isSmallScreen ? 12 : 48);
   const horizontalPadding = outerMargin + sideMargin;
   const overlayMargin = isSmallScreen ? outerMargin : horizontalPadding;
   const overlayWidth = Math.max(
@@ -132,26 +137,33 @@ const UnifiedSelector = ({
     bounds.width - (isSmallScreen ? outerMargin * 2 : horizontalPadding * 2)
   );
   const overlayHeight = Math.max(260, bounds.height - outerMargin * 2);
-  const containerMaxWidth = Math.min(overlayWidth, Math.max(600, Math.floor(bounds.windowWidth * 0.9)));
+  const containerMaxWidth = isMobilePortrait 
+    ? Math.min(mobileState.width - 16, overlayWidth)
+    : Math.min(overlayWidth, Math.max(600, Math.floor(bounds.windowWidth * 0.9)));
   const dialogWidth = isSmallScreen
     ? containerMaxWidth
     : Math.min(containerMaxWidth * 0.55, Math.max(420, Math.floor(bounds.windowWidth * 0.4)));
   const gridOuterWidth = containerMaxWidth;
-  const gridInnerPadding = isSmallScreen ? 12 : 16;
+  const gridInnerPadding = isMobilePortrait ? 10 : (isSmallScreen ? 12 : 16);
 
-  // Grid responsive columns with smaller cards
-  const cardMinWidth = isSmallScreen ? 120 : 140;
-  const minimumColumns = isSmallScreen ? 1 : 2;
+  // Grid responsive columns with smaller cards - optimized for mobile portrait, compact on desktop
+  const cardMinWidth = isMobilePortrait ? (isExtraSmall ? 110 : 130) : (isSmallScreen ? 120 : 115);
+  const minimumColumns = isMobilePortrait ? (isExtraSmall ? 2 : 2) : (isSmallScreen ? 1 : 2);
   const columns = Math.max(
     minimumColumns,
     Math.floor((gridOuterWidth - gridInnerPadding * 2) / (cardMinWidth + 12))
   );
-  const dialogTitleSize = isSmallScreen ? '18px' : '22px';
-  const subtitleFontSize = isSmallScreen ? '14px' : '16px';
-  const inputPadding = isSmallScreen ? '9px' : '10px';
-  const actionButtonMinWidth = isSmallScreen ? '48px' : '56px';
-  const cardHeight = isSmallScreen ? '110px' : '90px';
+  const dialogTitleSize = isMobilePortrait ? '16px' : (isSmallScreen ? '18px' : '18px');
+  const subtitleFontSize = isMobilePortrait ? '13px' : (isSmallScreen ? '14px' : '14px');
+  const inputPadding = isMobilePortrait ? '10px' : (isSmallScreen ? '9px' : '9px');
+  const actionButtonMinWidth = isMobilePortrait ? '52px' : (isSmallScreen ? '48px' : '48px');
+  const actionButtonMinHeight = isMobilePortrait ? '52px' : (isSmallScreen ? '48px' : '40px');
+  const cardHeight = isMobilePortrait ? (isExtraSmall ? '100px' : '105px') : (isSmallScreen ? '110px' : '75px');
   const gridTemplateColumns = `repeat(${columns}, 1fr)`;
+  
+  // Touch-friendly sizing on mobile, compact on desktop
+  const iconSize = isMobilePortrait ? 22 : 18;
+  const closeIconSize = isMobilePortrait ? 22 : 18;
 
   return (
     <>
@@ -189,7 +201,7 @@ const UnifiedSelector = ({
               alignSelf: 'center',
               width: `${dialogWidth}px`,
               backgroundColor: '#bdb5b5',
-              padding: isSmallScreen ? '16px' : '20px',
+              padding: isSmallScreen ? '16px' : '14px 16px',
               borderRadius: '12px',
               boxShadow: '0 2px 10px rgba(0,0,0,0.2)',
               position: 'relative',
@@ -199,26 +211,40 @@ const UnifiedSelector = ({
             onClick={(e) => e.stopPropagation()}
             onMouseDown={(e) => e.stopPropagation()}
           >
-            <div style={{ position: 'absolute', top: '10px', right: '10px', cursor: 'pointer' }}
-                 onPointerDown={(e) => { if (e.pointerType !== 'mouse') { e.stopPropagation(); } }}
-                 onTouchStart={(e) => { e.stopPropagation(); }}>
-              <X size={MODAL_CLOSE_ICON_SIZE} color="#999" onClick={() => { setName(''); setColorPickerVisible(false); onClose?.(); }} />
+            <div 
+              style={{ 
+                position: 'absolute', 
+                top: isMobilePortrait ? '8px' : '10px', 
+                right: isMobilePortrait ? '8px' : '10px', 
+                cursor: 'pointer',
+                padding: isMobilePortrait ? '4px' : '0',
+                touchAction: 'manipulation'
+              }}
+              onPointerDown={(e) => { if (e.pointerType !== 'mouse') { e.stopPropagation(); } }}
+              onTouchStart={(e) => { e.stopPropagation(); }}
+            >
+              <X size={closeIconSize} color="#999" onClick={() => { setName(''); setColorPickerVisible(false); onClose?.(); }} />
             </div>
-            <div style={{ textAlign: 'left', marginBottom: '15px', color: 'black' }}>
+            <div style={{ textAlign: 'left', marginBottom: isSmallScreen ? '15px' : '10px', color: 'black' }}>
               <strong style={{ fontSize: dialogTitleSize, fontFamily: "'EmOne', sans-serif" }}>{title}</strong>
             </div>
             {subtitle && (
               <div 
-                style={{ textAlign: 'left', marginBottom: '15px', color: '#666', fontSize: subtitleFontSize, fontFamily: "'EmOne', sans-serif" }}
+                style={{ textAlign: 'left', marginBottom: isSmallScreen ? '15px' : '10px', color: '#666', fontSize: subtitleFontSize, fontFamily: "'EmOne', sans-serif" }}
                 dangerouslySetInnerHTML={{ __html: subtitle }}
               />
             )}
             <div style={{ display: 'flex', alignItems: 'center', gap: isSmallScreen ? '6px' : '8px' }}>
               {!searchOnly && (
                 <Palette
-                  size={20}
+                  size={iconSize}
                   color="#260000"
-                  style={{ cursor: 'pointer', flexShrink: 0 }}
+                  style={{ 
+                    cursor: 'pointer', 
+                    flexShrink: 0,
+                    touchAction: 'manipulation',
+                    padding: isMobilePortrait ? '4px' : '0'
+                  }}
                   onMouseDown={(e) => e.stopPropagation()}
                   onClick={(e) => handleColorPickerToggle(e.currentTarget, e)}
                   title="Change color"
@@ -232,16 +258,37 @@ const UnifiedSelector = ({
                   if (e.key === 'Enter') handleSubmit(); 
                   if (e.key === 'Escape') { setName(''); setColorPickerVisible(false); onClose?.(); }
                 }}
-                style={{ flex: 1, padding: inputPadding, borderRadius: '6px', border: '1px solid #260000', marginRight: searchOnly ? 0 : (isSmallScreen ? '6px' : '10px') }}
+                style={{ 
+                  flex: 1, 
+                  padding: inputPadding, 
+                  borderRadius: '6px', 
+                  border: '1px solid #260000', 
+                  marginRight: searchOnly ? 0 : (isSmallScreen ? '6px' : '10px'),
+                  fontSize: isMobilePortrait ? '15px' : '14px',
+                  touchAction: 'manipulation'
+                }}
                 autoFocus={false}
               />
               {!searchOnly && (
                 <button
                   onClick={handleSubmit}
-                  style={{ padding: inputPadding, backgroundColor: color, color: '#bdb5b5', border: 'none', borderRadius: '8px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', minWidth: `${actionButtonMinWidth}px`, minHeight: isSmallScreen ? '48px' : '44px' }}
+                  style={{ 
+                    padding: inputPadding, 
+                    backgroundColor: color, 
+                    color: '#bdb5b5', 
+                    border: 'none', 
+                    borderRadius: '8px', 
+                    cursor: 'pointer', 
+                    display: 'flex', 
+                    alignItems: 'center', 
+                    justifyContent: 'center', 
+                    minWidth: `${actionButtonMinWidth}px`, 
+                    minHeight: `${actionButtonMinHeight}px`,
+                    touchAction: 'manipulation'
+                  }}
                   title={mode === 'connection-creation' ? 'Create connection type' : mode === 'abstraction-node-creation' ? `Create ${abstractionDirection} abstraction` : mode === 'node-group-creation' ? 'Create new Thing defined by this Group' : 'Create node type'}
                 >
-                  <Plus size={18} color="#bdb5b5" strokeWidth={2.5} />
+                  <Plus size={iconSize} color="#bdb5b5" strokeWidth={2.5} />
                 </button>
               )}
             </div>
@@ -250,7 +297,7 @@ const UnifiedSelector = ({
 
         {showGrid && (
           <div
-            style={{ flex: 1, overflow: 'hidden', display: 'flex', justifyContent: 'center', width: '100%' }}
+            style={{ flex: 1, overflow: 'hidden', display: 'flex', justifyContent: 'center', width: '100%', minHeight: 0 }}
           >
             {/* Outer rounded rectangle */}
             <div
@@ -259,22 +306,23 @@ const UnifiedSelector = ({
                 maxWidth: `${gridOuterWidth}px`,
                 height: '100%',
                 backgroundColor: '#bdb5b5',
-                borderRadius: '16px',
+                borderRadius: isSmallScreen ? '16px' : '14px',
                 boxShadow: '0 2px 10px rgba(0,0,0,0.2)',
                 display: 'flex',
                 flexDirection: 'column',
+                minHeight: 0
               }}
             >
               {/* Header area inside outer, reserved for future buttons */}
               <div
                 style={{
-                  padding: isSmallScreen ? '12px 14px' : '14px 18px',
+                  padding: isSmallScreen ? '12px 14px' : '10px 16px',
                   borderTopLeftRadius: '16px',
                   borderTopRightRadius: '16px',
                   color: '#260000',
                   fontFamily: "'EmOne', sans-serif",
                   fontWeight: 'bold',
-                  fontSize: isSmallScreen ? '15px' : '16px',
+                  fontSize: isSmallScreen ? '15px' : '14px',
                   flexShrink: 0
                 }}
               >
@@ -298,6 +346,7 @@ const UnifiedSelector = ({
                     flex: 1,
                     overflowY: 'auto',
                     padding: `${gridInnerPadding}px`,
+                    minHeight: 0,
                     // Custom scrollbar styling
                     scrollbarWidth: 'thin',
                     scrollbarColor: '#bdb5b5 transparent',
@@ -308,7 +357,7 @@ const UnifiedSelector = ({
                     style={{
                       display: 'grid',
                       gridTemplateColumns: gridTemplateColumns,
-                      gap: '10px',
+                      gap: isSmallScreen ? '10px' : '8px',
                       alignContent: 'start'
                     }}
                   >
@@ -317,31 +366,48 @@ const UnifiedSelector = ({
                         key={prototype.id} 
                         style={{ 
                           background: prototype.color || '#8B0000', 
-                          borderRadius: '16px', // More rounding
-                          padding: '12px',
+                          borderRadius: isMobilePortrait ? '14px' : (isSmallScreen ? '16px' : '14px'),
+                          padding: isMobilePortrait ? '10px' : (isSmallScreen ? '12px' : '10px'),
                           cursor: 'pointer',
                           transition: 'all 0.2s ease',
                           height: cardHeight,
                           display: 'flex',
                           alignItems: 'center',
                           justifyContent: 'center',
-                          position: 'relative'
+                          position: 'relative',
+                          touchAction: 'manipulation',
+                          WebkitTapHighlightColor: 'transparent'
                         }}
                         onMouseEnter={(e) => {
-                          e.currentTarget.style.transform = 'scale(1.03)';
-                          e.currentTarget.style.filter = 'brightness(1.1)';
-                          e.currentTarget.style.boxShadow = '0 4px 12px rgba(0, 0, 0, 0.2)';
+                          if (!mobileState.isTouchDevice) {
+                            e.currentTarget.style.transform = 'scale(1.03)';
+                            e.currentTarget.style.filter = 'brightness(1.1)';
+                            e.currentTarget.style.boxShadow = '0 4px 12px rgba(0, 0, 0, 0.2)';
+                          }
                         }}
                         onMouseLeave={(e) => {
-                          e.currentTarget.style.transform = 'scale(1)';
-                          e.currentTarget.style.filter = 'brightness(1)';
-                          e.currentTarget.style.boxShadow = 'none';
+                          if (!mobileState.isTouchDevice) {
+                            e.currentTarget.style.transform = 'scale(1)';
+                            e.currentTarget.style.filter = 'brightness(1)';
+                            e.currentTarget.style.boxShadow = 'none';
+                          }
                         }}
                         onClick={() => onNodeSelect?.(prototype)}
                         onPointerDown={(e) => { if (e.pointerType !== 'mouse') { e.stopPropagation(); } }}
                         onPointerUp={(e) => { if (e.pointerType !== 'mouse') { e.stopPropagation(); onNodeSelect?.(prototype); } }}
-                        onTouchStart={(e) => { e.stopPropagation(); }}
-                        onTouchEnd={(e) => { e.stopPropagation(); onNodeSelect?.(prototype); }}
+                        onTouchStart={(e) => { 
+                          e.stopPropagation(); 
+                          if (mobileState.isTouchDevice) {
+                            e.currentTarget.style.filter = 'brightness(1.15)';
+                          }
+                        }}
+                        onTouchEnd={(e) => { 
+                          e.stopPropagation(); 
+                          if (mobileState.isTouchDevice) {
+                            e.currentTarget.style.filter = 'brightness(1)';
+                          }
+                          onNodeSelect?.(prototype); 
+                        }}
                       >
                         {/* Thumbnail background if available */}
                         {prototype.thumbnailSrc && (
@@ -363,7 +429,7 @@ const UnifiedSelector = ({
                             fontWeight: 'bold', 
                             fontFamily: "'EmOne', sans-serif", 
                             textAlign: 'center',
-                            fontSize: '13px',
+                            fontSize: isMobilePortrait ? (isExtraSmall ? '11px' : '12px') : (isSmallScreen ? '13px' : '12px'),
                             lineHeight: '1.2',
                             wordWrap: 'break-word',
                             position: 'relative',

@@ -117,6 +117,66 @@ const PanelContentWrapper = ({
   const nodeData = getNodeData();
   const graphData = getGraphData();
   const activeGraphNodes = getActiveGraphNodes();
+  const componentOfNodes = (() => {
+    if (tabType !== 'node') return [];
+    if (!nodeData?.id || !graphs || !nodePrototypes) return [];
+
+    const targetPrototypeId = nodeData.id;
+    const containingGraphIds = new Set();
+
+    graphs.forEach((graph, graphId) => {
+      if (!graph?.instances) return;
+      for (const instance of graph.instances.values()) {
+        if (instance.prototypeId === targetPrototypeId) {
+          containingGraphIds.add(graphId);
+          break;
+        }
+      }
+    });
+
+    if (containingGraphIds.size === 0) return [];
+
+    const parentNodes = new Map();
+
+    nodePrototypes.forEach((prototype, prototypeId) => {
+      if (prototypeId === targetPrototypeId) return;
+      const definitionIds = Array.isArray(prototype.definitionGraphIds) ? prototype.definitionGraphIds : [];
+      if (definitionIds.some((id) => containingGraphIds.has(id))) {
+        parentNodes.set(prototypeId, {
+          id: prototypeId,
+          prototypeId,
+          name: prototype.name || 'Unnamed Component',
+          description: prototype.description || '',
+          color: prototype.color || '#8B0000',
+          typeNodeId: prototype.typeNodeId,
+          definitionGraphIds: definitionIds
+        });
+      }
+    });
+
+    containingGraphIds.forEach((graphId) => {
+      const graph = graphs.get(graphId);
+      if (!graph) return;
+      const definingNodeIds = Array.isArray(graph.definingNodeIds) ? graph.definingNodeIds : [];
+      definingNodeIds.forEach((definingNodeId) => {
+        if (!definingNodeId || definingNodeId === targetPrototypeId) return;
+        if (parentNodes.has(definingNodeId)) return;
+        if (!nodePrototypes.has(definingNodeId)) return;
+        const prototype = nodePrototypes.get(definingNodeId);
+        parentNodes.set(definingNodeId, {
+          id: definingNodeId,
+          prototypeId: definingNodeId,
+          name: prototype.name || 'Unnamed Component',
+          description: prototype.description || '',
+          color: prototype.color || '#8B0000',
+          typeNodeId: prototype.typeNodeId,
+          definitionGraphIds: Array.isArray(prototype.definitionGraphIds) ? prototype.definitionGraphIds : []
+        });
+      });
+    });
+
+    return Array.from(parentNodes.values());
+  })();
 
   // Check if this node is the defining node of the current active graph
   const isDefiningNodeOfCurrentGraph = activeGraphId && graphData && 
@@ -402,6 +462,7 @@ const PanelContentWrapper = ({
         nodeData={nodeData}
         graphData={graphData}
         activeGraphNodes={activeGraphNodes}
+        componentOfNodes={componentOfNodes}
         nodePrototypes={nodePrototypes}
         onNodeUpdate={handleNodeUpdate}
         onImageAdd={handleImageAdd}

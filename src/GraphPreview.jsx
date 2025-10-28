@@ -320,10 +320,11 @@ const GraphPreview = ({ nodes = [], edges = [], width, height }) => {
           const fontSize = Math.max(4, Math.min(10, scaledWidth * 0.11)); // Slightly larger font relative to node size
 
           if (imageSrc) {
-            // Calculate stroke offset and adjusted dimensions/radius for the stroke rect
-            const strokeOffset = nodeStrokeWidth / 2;
-            const strokeRectWidth = Math.max(0, scaledWidth - nodeStrokeWidth);
-            const strokeRectHeight = Math.max(0, scaledHeight - nodeStrokeWidth);
+            // Use fixed 1px stroke for image nodes as requested
+            const imageNodeStrokeWidth = 1.0;
+            const strokeOffset = imageNodeStrokeWidth / 2;
+            const strokeRectWidth = Math.max(0, scaledWidth - imageNodeStrokeWidth);
+            const strokeRectHeight = Math.max(0, scaledHeight - imageNodeStrokeWidth);
             
             // Use same logic as clipPath for consistency
             const imageCornerRadius = NODE_CORNER_RADIUS * scale;
@@ -345,7 +346,7 @@ const GraphPreview = ({ nodes = [], edges = [], width, height }) => {
                   // Apply unique clipPath directly to image
                   clipPath={`url(#clip-${node.id})`}
                 />
-                {/* Adjust stroke rect position, size, and radius */}
+                {/* Adjust stroke rect position, size, and radius - 1px stroke */}
                 <rect 
                   x={node.x + strokeOffset} // Offset position
                   y={node.y + strokeOffset}
@@ -353,7 +354,7 @@ const GraphPreview = ({ nodes = [], edges = [], width, height }) => {
                   height={strokeRectHeight} 
                   fill="none" 
                   stroke={nodeColor} 
-                  strokeWidth={nodeStrokeWidth} 
+                  strokeWidth={imageNodeStrokeWidth} 
                   rx={strokeRectRx} // Adjusted radius
                   ry={strokeRectRy} 
                 />

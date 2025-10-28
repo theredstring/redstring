@@ -240,7 +240,12 @@ const PlusSign = ({
     <g
       data-plus-sign="true"
       transform={`translate(${plusSign.x}, ${plusSign.y}) rotate(${rotation})`}
-      style={{ cursor: 'pointer', touchAction: 'manipulation', pointerEvents: 'auto' }}
+      style={{ 
+        cursor: 'pointer', 
+        touchAction: 'manipulation', 
+        pointerEvents: 'auto',
+        WebkitTapHighlightColor: 'transparent'
+      }}
       onClick={(e) => {
         e.stopPropagation();
         e.preventDefault();

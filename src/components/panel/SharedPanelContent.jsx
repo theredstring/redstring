@@ -34,6 +34,38 @@ const searchWikipedia = async (query) => {
 
     if (summaryResponse.ok) {
       const summaryData = await summaryResponse.json();
+      
+      // Check if this is a disambiguation page
+      const isDisambiguation = summaryData.type === 'disambiguation' || 
+                               summaryData.title?.includes('(disambiguation)') ||
+                               summaryData.description?.toLowerCase().includes('disambiguation');
+      
+      if (isDisambiguation) {
+        // If it's a disambiguation page, search for alternatives
+        const searchResponse = await fetch(
+          `https://en.wikipedia.org/w/api.php?action=query&list=search&srsearch=${encodeURIComponent(query)}&format=json&origin=*&srlimit=8`,
+          { 
+            headers: { 
+              'Api-User-Agent': 'Redstring/1.0 (https://redstring.ai) Claude/1.0' 
+            }
+          }
+        );
+
+        if (searchResponse.ok) {
+          const searchData = await searchResponse.json();
+          if (searchData.query?.search?.length > 0) {
+            return {
+              type: 'disambiguation',
+              options: searchData.query.search.map(result => ({
+                title: result.title,
+                snippet: result.snippet.replace(/<[^>]*>/g, ''), // Remove HTML tags
+                pageid: result.pageid
+              }))
+            };
+          }
+        }
+      }
+      
       return {
         type: 'direct',
         page: {
@@ -47,7 +79,7 @@ const searchWikipedia = async (query) => {
 
     // If direct lookup fails, search for similar pages
     const searchResponse = await fetch(
-      `https://en.wikipedia.org/w/api.php?action=query&list=search&srsearch=${encodeURIComponent(query)}&format=json&origin=*&srlimit=5`,
+      `https://en.wikipedia.org/w/api.php?action=query&list=search&srsearch=${encodeURIComponent(query)}&format=json&origin=*&srlimit=8`,
       { 
         headers: { 
           'Api-User-Agent': 'Redstring/1.0 (https://redstring.ai) Claude/1.0' 
@@ -75,6 +107,49 @@ const searchWikipedia = async (query) => {
   return { type: 'not_found' };
 };
 
+// Helper to get additional images from Wikipedia article (beyond main image)
+const getWikipediaImages = async (pageTitle) => {
+  try {
+    const mediaResponse = await fetch(
+      `https://en.wikipedia.org/api/rest_v1/page/media-list/${encodeURIComponent(pageTitle)}`,
+      { 
+        headers: { 
+          'Api-User-Agent': 'Redstring/1.0 (https://redstring.ai) Claude/1.0' 
+        }
+      }
+    );
+
+    if (mediaResponse.ok) {
+      const mediaData = await mediaResponse.json();
+      if (mediaData.items && mediaData.items.length > 0) {
+        // Filter for images (not audio, video, etc.) and exclude common non-content images
+        const images = mediaData.items.filter(item => 
+          item.type === 'image' &&
+          item.srcset && 
+          item.srcset.length > 0 &&
+          !item.title?.toLowerCase().includes('edit') &&
+          !item.title?.toLowerCase().includes('icon') &&
+          !item.title?.toLowerCase().includes('magnify') &&
+          !item.title?.toLowerCase().includes('commons-logo') &&
+          !item.title?.toLowerCase().includes('wikimedia') &&
+          !item.title?.toLowerCase().includes('flag') && // Often small flag icons
+          item.srcset[0]?.src // Has actual image source
+        );
+
+        // Return the first few quality images
+        return images.slice(0, 3).map(img => ({
+          url: img.srcset[img.srcset.length - 1]?.src, // Get highest resolution
+          thumbnail: img.srcset[0]?.src // Get smallest for thumbnail
+        }));
+      }
+    }
+  } catch (error) {
+    console.warn('[Wikipedia] Media list fetch failed:', error);
+  }
+  
+  return [];
+};
+
 const getWikipediaPage = async (title) => {
   try {
     // Check if this is a section link (contains #)
@@ -93,7 +168,21 @@ const getWikipediaPage = async (title) => {
       const summaryData = await summaryResponse.json();
       let description = summaryData.extract || summaryData.description;
       let pageUrl = summaryData.content_urls?.desktop?.page;
-      const originalImage = summaryData.originalimage?.source;
+      let originalImage = summaryData.originalimage?.source;
+      let thumbnail = summaryData.thumbnail?.source;
+      let additionalImages = [];
+      
+      // If no main image is available, fetch images from the article content
+      if (!originalImage && !thumbnail) {
+        additionalImages = await getWikipediaImages(pageTitle);
+        if (additionalImages.length > 0) {
+          originalImage = additionalImages[0].url;
+          thumbnail = additionalImages[0].thumbnail;
+        }
+      } else {
+        // Even if we have a main image, fetch additional images for potential alternatives
+        additionalImages = await getWikipediaImages(pageTitle);
+      }
       
       // If this is a section link, try to get section-specific content
       if (sectionId) {
@@ -115,8 +204,9 @@ const getWikipediaPage = async (title) => {
         title: summaryData.title,
         description: description,
         url: pageUrl,
-        thumbnail: summaryData.thumbnail?.source,
+        thumbnail,
         originalImage,
+        additionalImages: additionalImages.length > 1 ? additionalImages.slice(1) : [], // Store remaining images
         isSection: !!sectionId,
         sectionId: sectionId
       };
@@ -170,6 +260,7 @@ const WikipediaEnrichment = ({ nodeData, onUpdateNode }) => {
   const [isSearching, setIsSearching] = useState(false);
   const [searchResult, setSearchResult] = useState(null);
   const [showDisambiguation, setShowDisambiguation] = useState(false);
+  const [showImageOptions, setShowImageOptions] = useState(false);
 
   const handleWikipediaSearch = async () => {
     setIsSearching(true);
@@ -212,6 +303,10 @@ const WikipediaEnrichment = ({ nodeData, onUpdateNode }) => {
     }
     if (pageData.originalImage) {
       updates.semanticMetadata.wikipediaOriginalImage = pageData.originalImage;
+    }
+    // Store additional images if available
+    if (pageData.additionalImages && pageData.additionalImages.length > 0) {
+      updates.semanticMetadata.wikipediaAdditionalImages = pageData.additionalImages;
     }
 
     // Add Wikipedia link to external links (stored directly on nodeData.externalLinks)
@@ -345,31 +440,40 @@ const WikipediaEnrichment = ({ nodeData, onUpdateNode }) => {
             fontWeight: 'bold',
             marginBottom: '8px'
           }}>
-            Multiple Wikipedia pages found:
+            Multiple Wikipedia pages found ({searchResult.options.length}):
           </div>
-          {searchResult.options.slice(0, 3).map((option, index) => (
-            <div
-              key={index}
-              onClick={() => handleDisambiguationSelect(option)}
-              style={{
-                padding: '6px',
-                marginBottom: '4px',
-                border: '1px solid #ddd',
-                borderRadius: '4px',
-                cursor: 'pointer',
-                background: 'white',
-                fontSize: '10px',
-                fontFamily: "'EmOne', sans-serif"
-              }}
-            >
-              <div style={{ fontWeight: 'bold', color: '#8B0000', marginBottom: '2px' }}>
-                {option.title}
+          <div style={{
+            maxHeight: '300px',
+            overflowY: 'auto',
+            marginBottom: '8px'
+          }}>
+            {searchResult.options.map((option, index) => (
+              <div
+                key={index}
+                onClick={() => handleDisambiguationSelect(option)}
+                style={{
+                  padding: '6px',
+                  marginBottom: '4px',
+                  border: '1px solid #ddd',
+                  borderRadius: '4px',
+                  cursor: 'pointer',
+                  background: 'white',
+                  fontSize: '10px',
+                  fontFamily: "'EmOne', sans-serif",
+                  transition: 'background 0.15s ease'
+                }}
+                onMouseEnter={(e) => e.currentTarget.style.background = 'rgba(139,0,0,0.05)'}
+                onMouseLeave={(e) => e.currentTarget.style.background = 'white'}
+              >
+                <div style={{ fontWeight: 'bold', color: '#8B0000', marginBottom: '2px' }}>
+                  {option.title}
+                </div>
+                <div style={{ color: '#666', lineHeight: '1.3' }}>
+                  {option.snippet}
+                </div>
               </div>
-              <div style={{ color: '#666', lineHeight: '1.3' }}>
-                {option.snippet}
-              </div>
-            </div>
-          ))}
+            ))}
+          </div>
           <button
             onClick={() => setShowDisambiguation(false)}
             style={{
@@ -422,8 +526,14 @@ const WikipediaEnrichment = ({ nodeData, onUpdateNode }) => {
           </button>
           <button
             onClick={() => {
-              const imgUrl = nodeData.semanticMetadata?.wikipediaOriginalImage || nodeData.semanticMetadata?.wikipediaThumbnail;
-              setWikipediaImageFromUrl(imgUrl);
+              // If there are additional images, show options; otherwise set directly
+              const hasAdditionalImages = nodeData.semanticMetadata?.wikipediaAdditionalImages?.length > 0;
+              if (hasAdditionalImages) {
+                setShowImageOptions(!showImageOptions);
+              } else {
+                const imgUrl = nodeData.semanticMetadata?.wikipediaOriginalImage || nodeData.semanticMetadata?.wikipediaThumbnail;
+                setWikipediaImageFromUrl(imgUrl);
+              }
             }}
             disabled={!(nodeData.semanticMetadata?.wikipediaOriginalImage || nodeData.semanticMetadata?.wikipediaThumbnail)}
             style={{
@@ -440,7 +550,7 @@ const WikipediaEnrichment = ({ nodeData, onUpdateNode }) => {
               fontFamily: "'EmOne', sans-serif"
             }}
           >
-            Set as image
+            {nodeData.semanticMetadata?.wikipediaAdditionalImages?.length > 0 ? 'Choose image ▾' : 'Set as image'}
           </button>
           <button
             onClick={async () => {
@@ -453,7 +563,8 @@ const WikipediaEnrichment = ({ nodeData, onUpdateNode }) => {
                   wikipediaEnriched: undefined,
                   wikipediaEnrichedAt: undefined,
                   wikipediaThumbnail: undefined,
-                  wikipediaOriginalImage: undefined
+                  wikipediaOriginalImage: undefined,
+                  wikipediaAdditionalImages: undefined
                 }
               };
 
@@ -486,6 +597,138 @@ const WikipediaEnrichment = ({ nodeData, onUpdateNode }) => {
             }}
           >
             Unlink
+          </button>
+        </div>
+      )}
+
+      {/* Image selection dropdown */}
+      {showImageOptions && nodeData.semanticMetadata?.wikipediaAdditionalImages && (
+        <div style={{
+          marginTop: '8px',
+          padding: '8px',
+          border: '1px solid #8B0000',
+          borderRadius: '6px',
+          background: 'rgba(139,0,0,0.05)'
+        }}>
+          <div style={{
+            fontSize: '10px',
+            color: '#8B0000',
+            fontFamily: "'EmOne', sans-serif",
+            fontWeight: 'bold',
+            marginBottom: '6px'
+          }}>
+            Choose an image from Wikipedia:
+          </div>
+          <div style={{
+            maxHeight: '200px',
+            overflowY: 'auto',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: '6px'
+          }}>
+            {/* Main image first */}
+            {(nodeData.semanticMetadata?.wikipediaOriginalImage || nodeData.semanticMetadata?.wikipediaThumbnail) && (
+              <div
+                onClick={() => {
+                  const imgUrl = nodeData.semanticMetadata?.wikipediaOriginalImage || nodeData.semanticMetadata?.wikipediaThumbnail;
+                  setWikipediaImageFromUrl(imgUrl);
+                  setShowImageOptions(false);
+                }}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '8px',
+                  padding: '4px',
+                  border: '1px solid #ddd',
+                  borderRadius: '4px',
+                  cursor: 'pointer',
+                  background: 'white',
+                  transition: 'background 0.15s ease'
+                }}
+                onMouseEnter={(e) => e.currentTarget.style.background = 'rgba(139,0,0,0.05)'}
+                onMouseLeave={(e) => e.currentTarget.style.background = 'white'}
+              >
+                <img 
+                  src={nodeData.semanticMetadata?.wikipediaThumbnail || nodeData.semanticMetadata?.wikipediaOriginalImage}
+                  alt="Main"
+                  style={{
+                    width: '60px',
+                    height: '60px',
+                    objectFit: 'cover',
+                    borderRadius: '3px'
+                  }}
+                />
+                <span style={{
+                  fontSize: '9px',
+                  fontFamily: "'EmOne', sans-serif",
+                  color: '#8B0000',
+                  fontWeight: 'bold'
+                }}>
+                  Main image
+                </span>
+              </div>
+            )}
+            {/* Additional images */}
+            {nodeData.semanticMetadata.wikipediaAdditionalImages.map((img, index) => (
+              <div
+                key={index}
+                onClick={() => {
+                  setWikipediaImageFromUrl(img.url);
+                  setShowImageOptions(false);
+                }}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '8px',
+                  padding: '4px',
+                  border: '1px solid #ddd',
+                  borderRadius: '4px',
+                  cursor: 'pointer',
+                  background: 'white',
+                  transition: 'background 0.15s ease'
+                }}
+                onMouseEnter={(e) => e.currentTarget.style.background = 'rgba(139,0,0,0.05)'}
+                onMouseLeave={(e) => e.currentTarget.style.background = 'white'}
+              >
+                <img 
+                  src={img.thumbnail || img.url}
+                  alt={`Image ${index + 1}`}
+                  style={{
+                    width: '60px',
+                    height: '60px',
+                    objectFit: 'cover',
+                    borderRadius: '3px'
+                  }}
+                  onError={(e) => {
+                    // Hide image on error
+                    e.currentTarget.style.display = 'none';
+                  }}
+                />
+                <span style={{
+                  fontSize: '9px',
+                  fontFamily: "'EmOne', sans-serif",
+                  color: '#666'
+                }}>
+                  Image {index + 1}
+                </span>
+              </div>
+            ))}
+          </div>
+          <button
+            onClick={() => setShowImageOptions(false)}
+            style={{
+              marginTop: '6px',
+              padding: '4px 8px',
+              border: '1px solid #ccc',
+              borderRadius: '3px',
+              background: 'transparent',
+              color: '#666',
+              fontSize: '9px',
+              cursor: 'pointer',
+              fontFamily: "'EmOne', sans-serif"
+            }}
+          >
+            Cancel
           </button>
         </div>
       )}
@@ -674,6 +917,7 @@ const SharedPanelContent = ({
   nodeData,
   graphData,
   activeGraphNodes = [],
+  componentOfNodes = [],
   nodePrototypes, // Add this to get type names
   
   // Actions
@@ -753,7 +997,8 @@ const SharedPanelContent = ({
           wikipediaEnriched: undefined,
           wikipediaEnrichedAt: undefined,
           wikipediaThumbnail: undefined,
-          wikipediaOriginalImage: undefined
+          wikipediaOriginalImage: undefined,
+          wikipediaAdditionalImages: undefined
         };
       }
       await onNodeUpdate(updates);
@@ -1354,7 +1599,7 @@ const SharedPanelContent = ({
               }}
             />
           </div>
-        </CollapsibleSection>
+      </CollapsibleSection>
       )}
 
       {/* Dividing line above Components section */}
@@ -1396,6 +1641,50 @@ const SharedPanelContent = ({
           </div>
         )}
       </CollapsibleSection>
+
+      {!isHomeTab && (
+        <>
+          {/* Dividing line above Component Of section */}
+          <StandardDivider margin="20px 0" />
+
+          {/* Component Of Section */}
+          <CollapsibleSection
+            title="Component Of"
+            count={componentOfNodes.length}
+            defaultExpanded={true}
+          >
+            {componentOfNodes.length > 0 ? (
+              <div style={{
+                marginRight: '15px',
+                display: 'grid',
+                gridTemplateColumns: isUltraSlim ? '1fr' : '1fr 1fr',
+                gap: '8px',
+                maxHeight: '300px',
+                overflowY: 'auto'
+              }}>
+                {componentOfNodes.map((node) => (
+                  <DraggableNodeComponent
+                    key={node.prototypeId || node.id}
+                    node={node}
+                    onOpenNode={onOpenNode}
+                  />
+                ))}
+              </div>
+            ) : (
+              <div style={{ 
+                marginRight: '15px',
+                color: '#999', 
+                fontSize: '0.9rem', 
+                fontFamily: "'EmOne', sans-serif",
+                textAlign: 'left',
+                padding: '20px 0 20px 15px'
+              }}>
+                This prototype is not yet a component of other definitions.
+              </div>
+            )}
+          </CollapsibleSection>
+        </>
+      )}
 
       {/* Dividing line above Connections section */}
       <StandardDivider margin="20px 0" />
