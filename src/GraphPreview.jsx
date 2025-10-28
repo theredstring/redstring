@@ -234,47 +234,66 @@ const GraphPreview = ({ nodes = [], edges = [], width, height }) => {
           // Get edge color based on type hierarchy
           const edgeColor = getEdgeColor(edge, nodes.find(n => n.id === edge.destinationId));
 
+          // Calculate adaptive stroke width based on average node size
+          const sourceNodeWidth = edge.sourceNode.width;
+          const sourceNodeHeight = edge.sourceNode.height;
+          const destNodeWidth = edge.destNode.width;
+          const destNodeHeight = edge.destNode.height;
+          const avgNodeSize = (sourceNodeWidth + sourceNodeHeight + destNodeWidth + destNodeHeight) / 4;
+          const baseStrokeMultiplier = Math.max(0.006, Math.min(0.018, avgNodeSize / 1000)); // Scales with node size (slightly thicker)
+          const adaptiveStrokeWidth = Math.max(0.4, avgNodeSize * baseStrokeMultiplier);
+
           return (
             <g key={edge.key}>
-              {/* Main edge line - even thinner stroke */}
+              {/* Main edge line - adaptive stroke */}
               <line
                 x1={shouldShortenSource ? (sourceIntersection?.x || edge.x1) : edge.x1}
                 y1={shouldShortenSource ? (sourceIntersection?.y || edge.y1) : edge.y1}
                 x2={shouldShortenDest ? (destIntersection?.x || edge.x2) : edge.x2}
                 y2={shouldShortenDest ? (destIntersection?.y || edge.y2) : edge.y2}
                 stroke={edgeColor}
-                strokeWidth={Math.min(1.0, Math.max(0.2, 0.5 / scale)) || 0.2}
+                strokeWidth={adaptiveStrokeWidth}
               />
               
-              {/* Source Arrow - slightly bigger size */}
-              {arrowsToward.has(edge.sourceId) && (
-                <g transform={`translate(${sourceArrowX}, ${sourceArrowY}) rotate(${sourceArrowAngle + 90})`}>
-                  <polygon
-                    points={`${-10 * scale},${12 * scale} ${10 * scale},${12 * scale} 0,${-12 * scale}`}
-                    fill={edgeColor}
-                    stroke={edgeColor}
-                    strokeWidth={Math.min(2.0, Math.max(0.2, 0.6 / scale)) || 0.2}
-                    strokeLinejoin="round"
-                    strokeLinecap="round"
-                    paintOrder="stroke fill"
-                  />
-                </g>
-              )}
+              {/* Source Arrow - scales with adaptive stroke */}
+              {arrowsToward.has(edge.sourceId) && (() => {
+                // Calculate arrow scale based on adaptive stroke width (smaller arrows)
+                const arrowScale = Math.max(0.3, adaptiveStrokeWidth / 1.2); // Reduced from /0.6 to make arrows smaller
+                
+                return (
+                  <g transform={`translate(${sourceArrowX}, ${sourceArrowY}) rotate(${sourceArrowAngle + 90})`}>
+                    <polygon
+                      points={`${-10 * arrowScale},${12 * arrowScale} ${10 * arrowScale},${12 * arrowScale} 0,${-12 * arrowScale}`}
+                      fill={edgeColor}
+                      stroke={edgeColor}
+                      strokeWidth={Math.max(0.2, adaptiveStrokeWidth * 0.7)}
+                      strokeLinejoin="round"
+                      strokeLinecap="round"
+                      paintOrder="stroke fill"
+                    />
+                  </g>
+                );
+              })()}
               
-              {/* Destination Arrow - slightly bigger size */}
-              {arrowsToward.has(edge.destinationId) && (
-                <g transform={`translate(${destArrowX}, ${destArrowY}) rotate(${destArrowAngle + 90})`}>
-                  <polygon
-                    points={`${-10 * scale},${12 * scale} ${10 * scale},${12 * scale} 0,${-12 * scale}`}
-                    fill={edgeColor}
-                    stroke={edgeColor}
-                    strokeWidth={Math.min(2.0, Math.max(0.2, 0.6 / scale)) || 0.2}
-                    strokeLinejoin="round"
-                    strokeLinecap="round"
-                    paintOrder="stroke fill"
-                  />
-                </g>
-              )}
+              {/* Destination Arrow - scales with adaptive stroke */}
+              {arrowsToward.has(edge.destinationId) && (() => {
+                // Calculate arrow scale based on adaptive stroke width (smaller arrows)
+                const arrowScale = Math.max(0.3, adaptiveStrokeWidth / 1.2); // Reduced from /0.6 to make arrows smaller
+                
+                return (
+                  <g transform={`translate(${destArrowX}, ${destArrowY}) rotate(${destArrowAngle + 90})`}>
+                    <polygon
+                      points={`${-10 * arrowScale},${12 * arrowScale} ${10 * arrowScale},${12 * arrowScale} 0,${-12 * arrowScale}`}
+                      fill={edgeColor}
+                      stroke={edgeColor}
+                      strokeWidth={Math.max(0.2, adaptiveStrokeWidth * 0.7)}
+                      strokeLinejoin="round"
+                      strokeLinecap="round"
+                      paintOrder="stroke fill"
+                    />
+                  </g>
+                );
+              })()}
             </g>
           );
         })}

@@ -16,13 +16,7 @@
 }
 
 /* Apply base font and prevent page zoom */
-html {
-  /* Prevent page zoom/scale */
-  touch-action: pan-x pan-y;
-  -ms-touch-action: pan-x pan-y;
-  overflow: hidden; /* Prevent scrollbars that could interfere */
-}
-
+html,
 body {
   margin: 0;
   font-family: 'EmOne', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen',
@@ -31,10 +25,6 @@ body {
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   background-color: #2e2e2e;
-  
-  /* Prevent page zoom via touch gestures */
-  touch-action: pan-x pan-y;
-  -ms-touch-action: pan-x pan-y;
   
   /* Prevent default zoom behaviors */
   -webkit-user-select: none;
@@ -45,6 +35,18 @@ body {
   /* Disable zoom on iOS Safari */
   -webkit-touch-callout: none;
   -webkit-tap-highlight-color: transparent;
+  overscroll-behavior: contain;
+}
+
+html {
+  /* Allow passive scrolling around non-canvas regions while we manage canvas explicitly */
+  touch-action: pan-x pan-y;
+  -ms-touch-action: pan-x pan-y;
+  overflow: hidden; /* Prevent scrollbars that could interfere */
+}
+
+body {
+  touch-action: manipulation;
 }
 
 :root {

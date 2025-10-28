@@ -481,6 +481,9 @@ const Node = ({
                                       routingStyle="straight"
                                       scaleMode="fit"
                                       minNodeSize={30}
+                                      connectionStrokeScale={0.5}
+                                      nodeFontScale={1.3}
+                                      cornerRadiusMultiplier={32}
                                       onNodeHover={(nodeData) => {
                                           setHoveredInnerNodeId(nodeData?.id || null);
                                           setHoveredInnerNodeData(nodeData);

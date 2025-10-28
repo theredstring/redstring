@@ -125,6 +125,7 @@ const UniversalNodeRenderer = ({
   className = '',
   connectionFontScale = 1,
   nodeFontScale = 1,
+  connectionStrokeScale = 1, // Allow manual override of connection stroke width scaling
   
   // Styling tweaks
   cornerRadiusMultiplier = 28
@@ -411,6 +412,12 @@ const UniversalNodeRenderer = ({
           hasSourceArrow,
           hasTargetArrow
         );
+        
+        // Calculate adaptive stroke width based on average node size
+        const avgNodeSize = (sourceNode.width + sourceNode.height + targetNode.width + targetNode.height) / 4;
+        const baseStrokeMultiplier = Math.max(0.02, Math.min(0.08, avgNodeSize / 1000)); // Scales with node size
+        const adaptiveStrokeWidth = Math.max(1.5, avgNodeSize * baseStrokeMultiplier * connectionStrokeScale);
+        
         return {
           ...conn,
           path,
@@ -418,7 +425,7 @@ const UniversalNodeRenderer = ({
           targetPoint,
           hasSourceArrow,
           hasTargetArrow,
-          strokeWidth: Math.max(2, 6 * nodeScale),
+          strokeWidth: adaptiveStrokeWidth,
           connectionName: conn.connectionName || conn.edgePrototype?.name || conn.name || 'Connection'
         };
       }).filter(Boolean);
@@ -479,6 +486,11 @@ const UniversalNodeRenderer = ({
         hasTargetArrow
       );
       
+      // Calculate adaptive stroke width based on average node size
+      const avgNodeSize = (sourceNode.width + sourceNode.height + targetNode.width + targetNode.height) / 4;
+      const baseStrokeMultiplier = Math.max(0.02, Math.min(0.08, avgNodeSize / 1000)); // Scales with node size
+      const adaptiveStrokeWidth = Math.max(1.5, avgNodeSize * baseStrokeMultiplier * connectionStrokeScale);
+      
       return {
         ...conn,
         path,
@@ -486,7 +498,7 @@ const UniversalNodeRenderer = ({
         targetPoint,
         hasSourceArrow,
         hasTargetArrow,
-        strokeWidth: Math.max(2, 6 * scale),
+        strokeWidth: adaptiveStrokeWidth,
         color: getConnectionColor(conn),
         connectionName: conn.connectionName || getConnectionName(conn, nodePrototypesMap)
       };
@@ -497,7 +509,7 @@ const UniversalNodeRenderer = ({
       scaledConnections, 
       transform: { scale, offsetX, offsetY }
     };
-  }, [nodes, connections, instances, containerWidth, containerHeight, scaleMode, minNodeSize, maxNodeSize, padding, routingStyle, alignNodesHorizontally, calculateConnectionPath]);
+  }, [nodes, connections, instances, containerWidth, containerHeight, scaleMode, minNodeSize, maxNodeSize, padding, routingStyle, alignNodesHorizontally, calculateConnectionPath, connectionStrokeScale, nodePrototypesMap, getConnectionName, getConnectionColor]);
 
   // Event handlers
   const handleNodeMouseEnter = (node) => {
@@ -684,6 +696,10 @@ const UniversalNodeRenderer = ({
                 const dx = conn.targetPoint.x - conn.sourcePoint.x;
                 const dy = conn.targetPoint.y - conn.sourcePoint.y;
                 const sourceArrowAngle = Math.atan2(-dy, -dx) * 180 / Math.PI; // Point toward the source node
+                
+                // Calculate arrow scale based on stroke width (maintains proportions)
+                const arrowScale = Math.max(0.5, conn.strokeWidth / 6); // Base arrow size is for strokeWidth=6
+                
                 return (
                   <g 
                     transform={`translate(${arrowX}, ${arrowY}) rotate(${sourceArrowAngle + 90})`}
@@ -693,10 +709,10 @@ const UniversalNodeRenderer = ({
                     {/* Background glow for arrow - only on hover */}
                     {isHovered && (
                       <polygon
-                        points={`${-16 * transform.scale},${20 * transform.scale} ${16 * transform.scale},${20 * transform.scale} 0,${-20 * transform.scale}`}
+                        points={`${-16 * arrowScale},${20 * arrowScale} ${16 * arrowScale},${20 * arrowScale} 0,${-20 * arrowScale}`}
                         fill={conn.color || '#000000'}
                         stroke={conn.color || '#000000'}
-                        strokeWidth={Math.max(5, 10 * transform.scale)}
+                        strokeWidth={Math.max(2, conn.strokeWidth * 1.2)}
                         strokeLinejoin="round"
                         strokeLinecap="round"
                         opacity="0.3"
@@ -708,10 +724,10 @@ const UniversalNodeRenderer = ({
                     )}
                     {/* Main arrow */}
                     <polygon
-                      points={`${-16 * transform.scale},${20 * transform.scale} ${16 * transform.scale},${20 * transform.scale} 0,${-20 * transform.scale}`}
+                      points={`${-16 * arrowScale},${20 * arrowScale} ${16 * arrowScale},${20 * arrowScale} 0,${-20 * arrowScale}`}
                       fill={conn.color || '#000000'}
                       stroke={conn.color || '#000000'}
-                      strokeWidth={Math.max(3, 6 * transform.scale)}
+                      strokeWidth={Math.max(1.5, conn.strokeWidth * 0.8)}
                       strokeLinejoin="round"
                       strokeLinecap="round"
                       paintOrder="stroke fill"
@@ -720,7 +736,7 @@ const UniversalNodeRenderer = ({
                     
                     {/* Invisible larger hitbox for easier clicking */}
                     <polygon
-                      points={`${-22 * transform.scale},${26 * transform.scale} ${22 * transform.scale},${26 * transform.scale} 0,${-26 * transform.scale}`}
+                      points={`${-22 * arrowScale},${26 * arrowScale} ${22 * arrowScale},${26 * arrowScale} 0,${-26 * arrowScale}`}
                       fill="transparent"
                       stroke="transparent"
                       style={{ 
@@ -743,6 +759,10 @@ const UniversalNodeRenderer = ({
                 const dx = conn.targetPoint.x - conn.sourcePoint.x;
                 const dy = conn.targetPoint.y - conn.sourcePoint.y;
                 const destArrowAngle = Math.atan2(dy, dx) * 180 / Math.PI; // Point toward the target node
+                
+                // Calculate arrow scale based on stroke width (maintains proportions)
+                const arrowScale = Math.max(0.5, conn.strokeWidth / 6); // Base arrow size is for strokeWidth=6
+                
                 return (
                   <g 
                     transform={`translate(${arrowX}, ${arrowY}) rotate(${destArrowAngle + 90})`}
@@ -752,10 +772,10 @@ const UniversalNodeRenderer = ({
                     {/* Background glow for arrow - only on hover */}
                     {isHovered && (
                       <polygon
-                        points={`${-16 * transform.scale},${20 * transform.scale} ${16 * transform.scale},${20 * transform.scale} 0,${-20 * transform.scale}`}
+                        points={`${-16 * arrowScale},${20 * arrowScale} ${16 * arrowScale},${20 * arrowScale} 0,${-20 * arrowScale}`}
                         fill={conn.color || '#000000'}
                         stroke={conn.color || '#000000'}
-                        strokeWidth={Math.max(5, 10 * transform.scale)}
+                        strokeWidth={Math.max(2, conn.strokeWidth * 1.2)}
                         strokeLinejoin="round"
                         strokeLinecap="round"
                         opacity="0.3"
@@ -767,10 +787,10 @@ const UniversalNodeRenderer = ({
                     )}
                     {/* Main arrow */}
                     <polygon
-                      points={`${-16 * transform.scale},${20 * transform.scale} ${16 * transform.scale},${20 * transform.scale} 0,${-20 * transform.scale}`}
+                      points={`${-16 * arrowScale},${20 * arrowScale} ${16 * arrowScale},${20 * arrowScale} 0,${-20 * arrowScale}`}
                       fill={conn.color || '#000000'}
                       stroke={conn.color || '#000000'}
-                      strokeWidth={Math.max(3, 6 * transform.scale)}
+                      strokeWidth={Math.max(1.5, conn.strokeWidth * 0.8)}
                       strokeLinejoin="round"
                       strokeLinecap="round"
                       paintOrder="stroke fill"
@@ -779,7 +799,7 @@ const UniversalNodeRenderer = ({
                     
                     {/* Invisible larger hitbox for easier clicking */}
                     <polygon
-                      points={`${-22 * transform.scale},${26 * transform.scale} ${22 * transform.scale},${26 * transform.scale} 0,${-26 * transform.scale}`}
+                      points={`${-22 * arrowScale},${26 * arrowScale} ${22 * arrowScale},${26 * arrowScale} 0,${-26 * arrowScale}`}
                       fill="transparent"
                       stroke="transparent"
                       style={{ 
@@ -814,11 +834,14 @@ const UniversalNodeRenderer = ({
                     const dotX = adjustedSourcePoint.x;
                     const dotY = adjustedSourcePoint.y;
                     
+                    // Calculate dot scale based on stroke width (maintains proportions)
+                    const dotScale = Math.max(0.5, conn.strokeWidth / 6); // Base dot size is for strokeWidth=6
+                    
                     return (
                       <g>
                         <defs>
                           <filter id={`dot-glow-${conn.id}-source`} x="-50%" y="-50%" width="200%" height="200%">
-                            <feGaussianBlur stdDeviation={3 * transform.scale} result="coloredBlur"/>
+                            <feGaussianBlur stdDeviation={Math.max(2, 3 * dotScale)} result="coloredBlur"/>
                             <feMerge> 
                               <feMergeNode in="coloredBlur"/>
                               <feMergeNode in="SourceGraphic"/>
@@ -828,7 +851,7 @@ const UniversalNodeRenderer = ({
                         <circle
                           cx={dotX}
                           cy={dotY}
-                          r={Math.max(6, 10 * transform.scale)}
+                          r={Math.max(3, 10 * dotScale)}
                           fill={conn.color || '#000000'}
                           opacity={1}
                           filter={`url(#dot-glow-${conn.id}-source)`}
@@ -847,7 +870,7 @@ const UniversalNodeRenderer = ({
                         <circle
                           cx={dotX}
                           cy={dotY}
-                          r={Math.max(12, 18 * transform.scale)}
+                          r={Math.max(6, 18 * dotScale)}
                           fill="transparent"
                           stroke="transparent"
                           style={{ 
@@ -870,11 +893,14 @@ const UniversalNodeRenderer = ({
                     const dotX = adjustedTargetPoint.x;
                     const dotY = adjustedTargetPoint.y;
                     
+                    // Calculate dot scale based on stroke width (maintains proportions)
+                    const dotScale = Math.max(0.5, conn.strokeWidth / 6); // Base dot size is for strokeWidth=6
+                    
                     return (
                       <g>
                         <defs>
                           <filter id={`dot-glow-${conn.id}-target`} x="-50%" y="-50%" width="200%" height="200%">
-                            <feGaussianBlur stdDeviation={3 * transform.scale} result="coloredBlur"/>
+                            <feGaussianBlur stdDeviation={Math.max(2, 3 * dotScale)} result="coloredBlur"/>
                             <feMerge> 
                               <feMergeNode in="coloredBlur"/>
                               <feMergeNode in="SourceGraphic"/>
@@ -884,7 +910,7 @@ const UniversalNodeRenderer = ({
                         <circle
                           cx={dotX}
                           cy={dotY}
-                          r={Math.max(6, 10 * transform.scale)}
+                          r={Math.max(3, 10 * dotScale)}
                           fill={conn.color || '#000000'}
                           opacity={1}
                           filter={`url(#dot-glow-${conn.id}-target)`}
@@ -903,7 +929,7 @@ const UniversalNodeRenderer = ({
                         <circle
                           cx={dotX}
                           cy={dotY}
-                          r={Math.max(12, 18 * transform.scale)}
+                          r={Math.max(6, 18 * dotScale)}
                           fill="transparent"
                           stroke="transparent"
                           style={{ 
@@ -935,8 +961,8 @@ const UniversalNodeRenderer = ({
           // Use Node.jsx's exact font size, line height, and padding calculations
           // Special handling for groups - larger text and different padding
           const baseFontSize = node.isGroup ? 24 : 20; // Slightly smaller font for groups to avoid oversizing short words
-          const baseLineHeight = node.isGroup ? 32 : 32; // Align descenders cleanly
-          const baseVerticalPadding = node.isGroup ? 18 : 20; // Balanced top/bottom padding for groups
+          const baseLineHeight = node.isGroup ? 32 : 26; // Match Node.jsx line height
+          const baseVerticalPadding = node.isGroup ? 18 : 12; // Tighter vertical padding to match compact multi-line display
           const baseSingleLineSidePadding = node.isGroup ? 30 : 22; // Generous side padding for compact labels
           const baseMultiLineSidePadding = node.isGroup ? 36 : 30; // More breathing room for wrapped group names
           const baseAverageCharWidth = node.isGroup ? 14 : 12; // Adjust width estimation for larger type

@@ -83,18 +83,21 @@ import CanvasConfirmDialog from './components/shared/CanvasConfirmDialog.jsx';
 
 const SPAWNABLE_NODE = 'spawnable_node';
 
-// Check if user's on a Mac using userAgent as platform is deprecated
-const isMac = /Mac/i.test(navigator.userAgent);
-
-
+// Platform detection (guarded for SSR)
+const userAgent = typeof navigator !== 'undefined' ? navigator.userAgent : '';
+const maxTouchPoints = typeof navigator !== 'undefined' ? navigator.maxTouchPoints : 0;
+const isMac = /Mac/i.test(userAgent);
+const isIOS = /iPad|iPhone|iPod/.test(userAgent) || (isMac && maxTouchPoints > 1);
+const isAndroid = /Android/i.test(userAgent);
 
 // Sensitivity constants
 const MOUSE_WHEEL_ZOOM_SENSITIVITY = 1;        // Sensitivity for standard mouse wheel zooming
 const KEYBOARD_PAN_SPEED = 12;                  // for keyboard panning (much faster)
 const KEYBOARD_ZOOM_SPEED = 0.01;               // for keyboard zooming (extra smooth)
-const TOUCH_PINCH_SENSITIVITY = 0.065;          // lower values = less responsive zoom on touch
-const TOUCH_PINCH_MAX_RATIO_STEP = 0.045;       // clamp per-frame zoom delta relative to current zoom
-const TOUCH_PINCH_CENTER_SMOOTHING = 0.18;      // low-pass filter for pinch midpoint movement
+const TOUCH_PINCH_SENSITIVITY = isIOS ? 0.11 : 0.24;           // approach factor toward target zoom per frame
+const TOUCH_PINCH_MAX_RATIO_STEP = isIOS ? 0.28 : 0.6;         // overall clamp when deriving target zoom from initial distance
+const TOUCH_PINCH_CENTER_SMOOTHING = isIOS ? 0.05 : 0.03;      // low-pass filter for pinch midpoint movement
+const TOUCH_PAN_DRAG_SENSITIVITY = isIOS ? 0.55 : 0.95;        // per-move multiplier for single-finger touch panning
 const PAN_MOMENTUM_MIN_SPEED = 0.015;           // px/ms threshold before momentum stops
 const TOUCH_PAN_FRICTION = 0.9;                 // per-frame retention for touch glide
 const TRACKPAD_PAN_FRICTION = 0.94;             // per-frame retention for trackpad glide
@@ -516,8 +519,10 @@ function NodeCanvas() {
         startZoom: zoomLevel,
         centerClient: { x: centerX, y: centerY },
         centerWorld: { x: worldX, y: worldY },
-        lastCenterClient: { x: centerX, y: centerY }
+        lastCenterClient: { x: centerX, y: centerY },
+        lastDist: dist
       };
+      pinchSmoothingRef.current.lastFrameTime = performance.now();
       // Cancel any in-progress one-finger pan when second finger is placed
       isMouseDown.current = false;
       setIsPanning(false);
@@ -592,60 +597,43 @@ function NodeCanvas() {
       isPanningOrZooming.current = true;
       const now = performance.now();
       const smoothing = pinchSmoothingRef.current;
-      if (now - smoothing.lastFrameTime < 16) return;
+      const lastTime = smoothing.lastFrameTime || now;
+      const dt = Math.max(1, now - lastTime);
       smoothing.lastFrameTime = now;
 
       const t1 = e.touches[0];
       const t2 = e.touches[1];
       const dist = Math.hypot(t2.clientX - t1.clientX, t2.clientY - t1.clientY) || 1;
-<<<<<<< ours
       pinchRef.current.centerClient = { x: centerX, y: centerY };
-      const prevSmoothed = pinchRef.current.lastCenterClient ?? pinchRef.current.centerClient;
-      const smoothedCenterX = prevSmoothed.x + (centerX - prevSmoothed.x) * TOUCH_PINCH_CENTER_SMOOTHING;
-      const smoothedCenterY = prevSmoothed.y + (centerY - prevSmoothed.y) * TOUCH_PINCH_CENTER_SMOOTHING;
-      const lastDist = pinchRef.current.lastDist || dist;
+      const startDist = pinchRef.current.startDist || dist;
+      const startZoom = pinchRef.current.startZoom || zoomLevel;
+      const ratioFromStart = dist / (startDist || dist);
+      const clampedRatio = Math.min(1 + TOUCH_PINCH_MAX_RATIO_STEP, Math.max(1 - TOUCH_PINCH_MAX_RATIO_STEP, ratioFromStart || 1));
+      const targetZoomRaw = startZoom * clampedRatio;
+      const easing = 1 - Math.pow(1 - TOUCH_PINCH_SENSITIVITY, Math.min(6, dt / 16));
       setZoomLevel(prevZoom => {
-        const ratioStepRaw = dist / (lastDist || dist);
-        const clampedStep = Math.min(1 + TOUCH_PINCH_MAX_RATIO_STEP, Math.max(1 - TOUCH_PINCH_MAX_RATIO_STEP, ratioStepRaw || 1));
-        const targetZoom = prevZoom * clampedStep;
-        const clampedZoom = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, targetZoom));
-        const newZoom = prevZoom + (clampedZoom - prevZoom) * TOUCH_PINCH_SENSITIVITY;
+        const targetZoom = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, targetZoomRaw || prevZoom));
+        const newZoom = prevZoom + (targetZoom - prevZoom) * easing;
         if (!containerRef.current) {
           pinchRef.current.lastDist = dist;
-          pinchRef.current.lastCenterClient = { x: smoothedCenterX, y: smoothedCenterY };
+          pinchRef.current.lastCenterClient = { x: centerX, y: centerY };
           return prevZoom;
         }
         const rect = containerRef.current.getBoundingClientRect();
-        const anchorX = smoothedCenterX;
-        const anchorY = smoothedCenterY;
         setPanOffset(prevPan => {
-          const worldX = (anchorX - rect.left - prevPan.x) / prevZoom + canvasSize.offsetX;
-          const worldY = (anchorY - rect.top - prevPan.y) / prevZoom + canvasSize.offsetY;
+          const rawWorldX = (centerX - rect.left - prevPan.x) / prevZoom + canvasSize.offsetX;
+          const rawWorldY = (centerY - rect.top - prevPan.y) / prevZoom + canvasSize.offsetY;
+          const prevWorld = pinchRef.current.centerWorld;
+          const worldX = prevWorld ? prevWorld.x + (rawWorldX - prevWorld.x) * TOUCH_PINCH_CENTER_SMOOTHING : rawWorldX;
+          const worldY = prevWorld ? prevWorld.y + (rawWorldY - prevWorld.y) * TOUCH_PINCH_CENTER_SMOOTHING : rawWorldY;
           pinchRef.current.centerWorld = { x: worldX, y: worldY };
           return {
-            x: anchorX - rect.left - (worldX - canvasSize.offsetX) * newZoom,
-            y: anchorY - rect.top - (worldY - canvasSize.offsetY) * newZoom
+            x: centerX - rect.left - (worldX - canvasSize.offsetX) * newZoom,
+            y: centerY - rect.top - (worldY - canvasSize.offsetY) * newZoom
           };
         });
         pinchRef.current.lastDist = dist;
-        pinchRef.current.lastCenterClient = { x: smoothedCenterX, y: smoothedCenterY };
-=======
-      const ratio = dist / (pinchRef.current.startDist || 1);
-      const targetZoom = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, pinchRef.current.startZoom * ratio));
-
-      // Anchor zoom at initial pinch center to avoid unintended translation
-      const anchorX = pinchRef.current.centerClient.x;
-      const anchorY = pinchRef.current.centerClient.y;
-      setZoomLevel(prevZoom => {
-        const easedZoom = prevZoom + (targetZoom - prevZoom) * 0.5; // increase sensitivity on touch
-        const newZoom = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, easedZoom));
-        const rect = containerRef.current.getBoundingClientRect();
-        const zoomRatio = newZoom / prevZoom;
-        setPanOffset(prevPan => ({
-          x: anchorX - rect.left - (anchorX - rect.left - prevPan.x) * zoomRatio,
-          y: anchorY - rect.top - (anchorY - rect.top - prevPan.y) * zoomRatio
-        }));
->>>>>>> theirs
+        pinchRef.current.lastCenterClient = { x: centerX, y: centerY };
         return newZoom;
       });
       return;
@@ -5608,8 +5596,9 @@ function NodeCanvas() {
             if (!panStart?.x || !panStart?.y) return;
             const now = performance.now();
             const dt = Math.max(1, now - (lastPanSampleRef.current.time || now));
-            const dxInput = (e.clientX - panStart.x) * PAN_DRAG_SENSITIVITY;
-            const dyInput = (e.clientY - panStart.y) * PAN_DRAG_SENSITIVITY;
+            const dragSensitivity = panSourceRef.current === 'touch' ? TOUCH_PAN_DRAG_SENSITIVITY : PAN_DRAG_SENSITIVITY;
+            const dxInput = (e.clientX - panStart.x) * dragSensitivity;
+            const dyInput = (e.clientY - panStart.y) * dragSensitivity;
             const maxX = 0;
             const maxY = 0;
             const minX = viewportSize.width - canvasSize.width * zoomLevel;

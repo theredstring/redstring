@@ -6,7 +6,7 @@ const HoverVisionAid = ({
   hoveredConnection,
   activePieMenuItem,
   headerHeight = 60,
-  verticalOffset = -8
+  verticalOffset = -18
 }) => {
   const hasConnection = Boolean(hoveredConnection?.source && hoveredConnection?.target);
   const hasNode = Boolean(!hasConnection && hoveredNode);
@@ -96,9 +96,9 @@ const HoverVisionAid = ({
           scaleMode="fixed"
           minNodeSize={200}
           maxNodeSize={280}
-          cornerRadiusMultiplier={36}
+          cornerRadiusMultiplier={44}
           connectionFontScale={1.35}
-          nodeFontScale={1.1}
+          nodeFontScale={1.0}
           interactive={false}
           showHoverEffects={false}
           showConnectionDots={true}
@@ -137,8 +137,8 @@ const HoverVisionAid = ({
           scaleMode="fixed"
           minNodeSize={160}
           maxNodeSize={240}
-          cornerRadiusMultiplier={24}
-          nodeFontScale={1.08}
+          cornerRadiusMultiplier={32}
+          nodeFontScale={1.0}
           interactive={false}
           showHoverEffects={false}
         />
