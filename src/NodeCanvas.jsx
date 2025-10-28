@@ -92,6 +92,15 @@ const isMac = /Mac/i.test(navigator.userAgent);
 const MOUSE_WHEEL_ZOOM_SENSITIVITY = 1;        // Sensitivity for standard mouse wheel zooming
 const KEYBOARD_PAN_SPEED = 12;                  // for keyboard panning (much faster)
 const KEYBOARD_ZOOM_SPEED = 0.01;               // for keyboard zooming (extra smooth)
+const TOUCH_PINCH_SENSITIVITY = 0.065;          // lower values = less responsive zoom on touch
+const TOUCH_PINCH_MAX_RATIO_STEP = 0.045;       // clamp per-frame zoom delta relative to current zoom
+const TOUCH_PINCH_CENTER_SMOOTHING = 0.18;      // low-pass filter for pinch midpoint movement
+const PAN_MOMENTUM_MIN_SPEED = 0.015;           // px/ms threshold before momentum stops
+const TOUCH_PAN_FRICTION = 0.9;                 // per-frame retention for touch glide
+const TRACKPAD_PAN_FRICTION = 0.94;             // per-frame retention for trackpad glide
+const PAN_MOMENTUM_FRAME = 16.67;               // baseline frame duration (ms) for damping scaling
+const TOUCH_PAN_MOMENTUM_BOOST = 1.05;          // slight boost so touch flicks feel responsive
+const TRACKPAD_PAN_MOMENTUM_BOOST = 1.1;        // marginally higher boost for precision trackpads
 
 function NodeCanvas() {
   // CULLING DISABLE FLAG - Set to true to enable culling, false to disable
@@ -233,8 +242,10 @@ function NodeCanvas() {
   const [isHoveringLeftResizer, setIsHoveringLeftResizer] = useState(false);
   const [isHoveringRightResizer, setIsHoveringRightResizer] = useState(false);
   const [resizersVisible, setResizersVisible] = useState(false);
-  // Track last pan velocity to produce consistent glide on release
+  // Track last pan velocity (px/ms) to produce consistent glide on release
   const lastPanVelocityRef = useRef({ vx: 0, vy: 0 });
+  const lastPanSampleRef = useRef({ time: 0 });
+  const panMomentumRef = useRef({ animationId: null, vx: 0, vy: 0, lastTime: 0, source: null, active: false });
   // Track the source of current panning for momentum decisions
   const panSourceRef = useRef(null); // 'touch', 'trackpad', 'mouse', null
   // Track latest widths in refs to avoid stale closures in global listeners
@@ -484,6 +495,7 @@ function NodeCanvas() {
       e.preventDefault();
       e.stopPropagation();
     }
+    stopPanMomentum();
     isTouchDeviceRef.current = true;
     
     if (e.touches && e.touches.length >= 2) {
@@ -496,8 +508,8 @@ function NodeCanvas() {
       const centerX = (t1.clientX + t2.clientX) / 2;
       const centerY = (t1.clientY + t2.clientY) / 2;
       const rect = containerRef.current.getBoundingClientRect();
-      const worldX = (centerX - rect.left - panOffset.x) / zoomLevel;
-      const worldY = (centerY - rect.top - panOffset.y) / zoomLevel;
+      const worldX = (centerX - rect.left - panOffset.x) / zoomLevel + canvasSize.offsetX;
+      const worldY = (centerY - rect.top - panOffset.y) / zoomLevel + canvasSize.offsetY;
       pinchRef.current = {
         active: true,
         startDist: dist,
@@ -586,6 +598,38 @@ function NodeCanvas() {
       const t1 = e.touches[0];
       const t2 = e.touches[1];
       const dist = Math.hypot(t2.clientX - t1.clientX, t2.clientY - t1.clientY) || 1;
+<<<<<<< ours
+      pinchRef.current.centerClient = { x: centerX, y: centerY };
+      const prevSmoothed = pinchRef.current.lastCenterClient ?? pinchRef.current.centerClient;
+      const smoothedCenterX = prevSmoothed.x + (centerX - prevSmoothed.x) * TOUCH_PINCH_CENTER_SMOOTHING;
+      const smoothedCenterY = prevSmoothed.y + (centerY - prevSmoothed.y) * TOUCH_PINCH_CENTER_SMOOTHING;
+      const lastDist = pinchRef.current.lastDist || dist;
+      setZoomLevel(prevZoom => {
+        const ratioStepRaw = dist / (lastDist || dist);
+        const clampedStep = Math.min(1 + TOUCH_PINCH_MAX_RATIO_STEP, Math.max(1 - TOUCH_PINCH_MAX_RATIO_STEP, ratioStepRaw || 1));
+        const targetZoom = prevZoom * clampedStep;
+        const clampedZoom = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, targetZoom));
+        const newZoom = prevZoom + (clampedZoom - prevZoom) * TOUCH_PINCH_SENSITIVITY;
+        if (!containerRef.current) {
+          pinchRef.current.lastDist = dist;
+          pinchRef.current.lastCenterClient = { x: smoothedCenterX, y: smoothedCenterY };
+          return prevZoom;
+        }
+        const rect = containerRef.current.getBoundingClientRect();
+        const anchorX = smoothedCenterX;
+        const anchorY = smoothedCenterY;
+        setPanOffset(prevPan => {
+          const worldX = (anchorX - rect.left - prevPan.x) / prevZoom + canvasSize.offsetX;
+          const worldY = (anchorY - rect.top - prevPan.y) / prevZoom + canvasSize.offsetY;
+          pinchRef.current.centerWorld = { x: worldX, y: worldY };
+          return {
+            x: anchorX - rect.left - (worldX - canvasSize.offsetX) * newZoom,
+            y: anchorY - rect.top - (worldY - canvasSize.offsetY) * newZoom
+          };
+        });
+        pinchRef.current.lastDist = dist;
+        pinchRef.current.lastCenterClient = { x: smoothedCenterX, y: smoothedCenterY };
+=======
       const ratio = dist / (pinchRef.current.startDist || 1);
       const targetZoom = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, pinchRef.current.startZoom * ratio));
 
@@ -601,6 +645,7 @@ function NodeCanvas() {
           x: anchorX - rect.left - (anchorX - rect.left - prevPan.x) * zoomRatio,
           y: anchorY - rect.top - (anchorY - rect.top - prevPan.y) * zoomRatio
         }));
+>>>>>>> theirs
         return newZoom;
       });
       return;
@@ -726,6 +771,7 @@ function NodeCanvas() {
     if (e && e.cancelable) {
       e.preventDefault();
     }
+    stopPanMomentum();
 
     const touch = e.touches[0];
     if (!touch) return;
@@ -1525,6 +1571,11 @@ function NodeCanvas() {
     height: windowSize.height,
   }), [windowSize.width, windowSize.height]);
 
+  const viewportSizeRef = useRef(viewportSize);
+  useEffect(() => {
+    viewportSizeRef.current = viewportSize;
+  }, [viewportSize.width, viewportSize.height]);
+
   // Listen for window resize to update viewport size
   useEffect(() => {
     const handleResize = () => {
@@ -1552,7 +1603,115 @@ function NodeCanvas() {
     };
   }, []); // Fixed - never changes
 
+  const canvasSizeRef = useRef(canvasSize);
+  useEffect(() => {
+    canvasSizeRef.current = canvasSize;
+  }, [canvasSize]);
+
   const [zoomLevel, setZoomLevel] = useState(1);
+  const zoomLevelRef = useRef(zoomLevel);
+  useEffect(() => {
+    zoomLevelRef.current = zoomLevel;
+  }, [zoomLevel]);
+
+  const stopPanMomentum = useCallback(() => {
+    const { animationId } = panMomentumRef.current;
+    if (animationId) {
+      cancelAnimationFrame(animationId);
+    }
+    panMomentumRef.current.animationId = null;
+    panMomentumRef.current.vx = 0;
+    panMomentumRef.current.vy = 0;
+    panMomentumRef.current.lastTime = 0;
+    panMomentumRef.current.source = null;
+    panMomentumRef.current.active = false;
+    isPanningOrZooming.current = false;
+  }, []);
+
+  const startPanMomentum = useCallback((initialVx, initialVy, source = 'touch') => {
+    if (!Number.isFinite(initialVx) || !Number.isFinite(initialVy)) {
+      return false;
+    }
+    stopPanMomentum();
+    const boost = source === 'trackpad' ? TRACKPAD_PAN_MOMENTUM_BOOST : TOUCH_PAN_MOMENTUM_BOOST;
+    const frictionBase = source === 'trackpad' ? TRACKPAD_PAN_FRICTION : TOUCH_PAN_FRICTION;
+    const vx = initialVx * boost;
+    const vy = initialVy * boost;
+    if (Math.hypot(vx, vy) < PAN_MOMENTUM_MIN_SPEED) {
+      return false;
+    }
+
+    panMomentumRef.current.vx = vx;
+    panMomentumRef.current.vy = vy;
+    panMomentumRef.current.lastTime = performance.now();
+    panMomentumRef.current.source = source;
+    panMomentumRef.current.active = true;
+
+    const step = (time) => {
+      const ref = panMomentumRef.current;
+      if (!ref.active) {
+        return;
+      }
+      const lastTime = ref.lastTime || time;
+      const dt = Math.min(32, Math.max(1, time - lastTime));
+      ref.lastTime = time;
+
+      const moveX = ref.vx * dt;
+      const moveY = ref.vy * dt;
+
+      let appliedX = 0;
+      let appliedY = 0;
+      setPanOffset(prev => {
+        const viewport = viewportSizeRef.current;
+        const canvas = canvasSizeRef.current;
+        const z = zoomLevelRef.current;
+        if (!viewport || !canvas || !z) {
+          return prev;
+        }
+        const minX = viewport.width - canvas.width * z;
+        const minY = viewport.height - canvas.height * z;
+        const maxX = 0;
+        const maxY = 0;
+        const targetX = prev.x + moveX;
+        const targetY = prev.y + moveY;
+        const clampedX = Math.min(Math.max(targetX, minX), maxX);
+        const clampedY = Math.min(Math.max(targetY, minY), maxY);
+        appliedX = clampedX - prev.x;
+        appliedY = clampedY - prev.y;
+        return { x: clampedX, y: clampedY };
+      });
+
+      const damping = Math.pow(frictionBase, dt / PAN_MOMENTUM_FRAME);
+
+      // If we hit bounds, kill the relevant velocity component
+      if (Math.abs(appliedX - moveX) > 0.01) {
+        ref.vx = 0;
+      } else {
+        ref.vx *= damping;
+      }
+      if (Math.abs(appliedY - moveY) > 0.01) {
+        ref.vy = 0;
+      } else {
+        ref.vy *= damping;
+      }
+
+      if (Math.hypot(ref.vx, ref.vy) < PAN_MOMENTUM_MIN_SPEED) {
+        stopPanMomentum();
+        isPanningOrZooming.current = false;
+        return;
+      }
+
+      ref.animationId = requestAnimationFrame(step);
+    };
+
+    isPanningOrZooming.current = true;
+    panMomentumRef.current.animationId = requestAnimationFrame(step);
+    return true;
+  }, [stopPanMomentum, setPanOffset]);
+
+  useEffect(() => {
+    return () => stopPanMomentum();
+  }, [stopPanMomentum]);
 
   // Center view on instances of a prototype within the active graph
   const navigateToPrototypeInstances = useCallback((prototypeId) => {
@@ -3937,6 +4096,7 @@ function NodeCanvas() {
       try { e.preventDefault(); } catch {}
       return;
     }
+    stopPanMomentum();
     if (isPaused || !activeGraphId) return;
 
     const instanceId = nodeData.id; // This is the instance ID
@@ -5281,6 +5441,8 @@ function NodeCanvas() {
           // Start panning after threshold exceeded
           isPanningOrZooming.current = true;
           setIsPanning(true);
+          lastPanVelocityRef.current = { vx: 0, vy: 0 };
+          lastPanSampleRef.current = { time: performance.now() };
           setPanStart({ x: e.clientX, y: e.clientY });
           panSourceRef.current = isTouchDeviceRef.current ? 'touch' : 'mouse';
         }
@@ -5444,22 +5606,37 @@ function NodeCanvas() {
         }
         requestAnimationFrame(() => {
             if (!panStart?.x || !panStart?.y) return;
-            const dx = (e.clientX - panStart.x) * PAN_DRAG_SENSITIVITY;
-            const dy = (e.clientY - panStart.y) * PAN_DRAG_SENSITIVITY;
+            const now = performance.now();
+            const dt = Math.max(1, now - (lastPanSampleRef.current.time || now));
+            const dxInput = (e.clientX - panStart.x) * PAN_DRAG_SENSITIVITY;
+            const dyInput = (e.clientY - panStart.y) * PAN_DRAG_SENSITIVITY;
             const maxX = 0;
             const maxY = 0;
             const minX = viewportSize.width - canvasSize.width * zoomLevel;
             const minY = viewportSize.height - canvasSize.height * zoomLevel;
+            let appliedDx = 0;
+            let appliedDy = 0;
             setPanOffset(prev => {
-                const newX = Math.min(Math.max(prev.x + dx, minX), maxX);
-                const newY = Math.min(Math.max(prev.y + dy, minY), maxY);
-                if (newX !== prev.x || newY !== prev.y) {
+                const targetX = prev.x + dxInput;
+                const targetY = prev.y + dyInput;
+                const clampedX = Math.min(Math.max(targetX, minX), maxX);
+                const clampedY = Math.min(Math.max(targetY, minY), maxY);
+                appliedDx = clampedX - prev.x;
+                appliedDy = clampedY - prev.y;
+                if (appliedDx !== 0 || appliedDy !== 0) {
                     setPanStart({ x: e.clientX, y: e.clientY });
                 }
-                return { x: newX, y: newY };
+                return { x: clampedX, y: clampedY };
             });
-            // Track last velocity for consistent glide
-            lastPanVelocityRef.current = { vx: dx, vy: dy };
+            if (Math.abs(appliedDx) > 0.01 || Math.abs(appliedDy) > 0.01) {
+                lastPanVelocityRef.current = {
+                    vx: appliedDx / dt,
+                    vy: appliedDy / dt
+                };
+            } else {
+                lastPanVelocityRef.current = { vx: 0, vy: 0 };
+            }
+            lastPanSampleRef.current = { time: now };
         });
     }
 
@@ -5472,6 +5649,7 @@ function NodeCanvas() {
       try { e.preventDefault(); e.stopPropagation(); } catch {}
       return;
     }
+    stopPanMomentum();
     if (isPaused || !activeGraphId || abstractionCarouselVisible) return;
     // On touch/mobile: allow two-finger pan to bypass resizer/canvas checks
     if (e.touches && e.touches.length >= 2) {
@@ -5507,6 +5685,8 @@ function NodeCanvas() {
     }
     setPanStart({ x: e.clientX, y: e.clientY });
     setIsPanning(true);
+    lastPanVelocityRef.current = { vx: 0, vy: 0 };
+    lastPanSampleRef.current = { time: performance.now() };
     panSourceRef.current = isTouchDeviceRef.current ? 'touch' : 'mouse';
   };
   const handleMouseUp = (e) => {
@@ -5692,41 +5872,22 @@ function NodeCanvas() {
     }
 
     // Finalize panning state
+    let momentumStarted = false;
     if (isPanning && panStart) {
-      // Only apply momentum/inertia for touch and trackpad gestures, not regular mouse drags
-      const shouldApplyMomentum = panSourceRef.current === 'trackpad';
-
-      if (shouldApplyMomentum) {
-        // Inertia on release: continue motion based on last tracked velocity
-        let vx = (lastPanVelocityRef.current?.vx || (e.clientX - panStart.x)) * 0.14;
-        let vy = (lastPanVelocityRef.current?.vy || (e.clientY - panStart.y)) * 0.14;
-        let remaining = 260; // ms decay duration
-        const friction = 0.9; // decay factor per frame
-        const step = () => {
-          if (remaining <= 0) return;
-          setPanOffset(prevOff => {
-            const currentCanvasWidth = canvasSize.width * zoomLevel;
-            const currentCanvasHeight = canvasSize.height * zoomLevel;
-            const minX = viewportSize.width - currentCanvasWidth;
-            const minY = viewportSize.height - currentCanvasHeight;
-            const maxX = 0;
-            const maxY = 0;
-            const nx = Math.min(Math.max(prevOff.x + vx, minX), maxX);
-            const ny = Math.min(Math.max(prevOff.y + vy, minY), maxY);
-            return { x: nx, y: ny };
-          });
-          remaining -= 16;
-          // decay velocity
-          vx *= friction;
-          vy *= friction;
-          requestAnimationFrame(step);
-        };
-        requestAnimationFrame(step);
+      const source = panSourceRef.current;
+      if (source === 'trackpad' || source === 'touch') {
+        const { vx, vy } = lastPanVelocityRef.current;
+        momentumStarted = startPanMomentum(vx, vy, source);
       }
     }
+    if (!momentumStarted) {
+      stopPanMomentum();
+      isPanningOrZooming.current = false; // Clear the flag when panning ends
+    }
     setIsPanning(false);
-    isPanningOrZooming.current = false; // Clear the flag when panning ends
     panSourceRef.current = null; // Reset pan source
+    lastPanVelocityRef.current = { vx: 0, vy: 0 };
+    lastPanSampleRef.current = { time: performance.now() };
     isMouseDown.current = false;
     // Reset mouseMoved.current immediately after mouse up logic is done
     // This prevents race condition with canvas click handler
@@ -10450,8 +10611,11 @@ function NodeCanvas() {
                        {/* Render "Other" Nodes first */}                       
                        {otherNodes.map((node) => {
                          const isPreviewing = previewingNodeId === node.id; // Should be false or irrelevant for these nodes
-                         const descriptionContent = getNodeDescriptionContent(node, isPreviewing);
-                         const dimensions = getNodeDimensions(node, isPreviewing, descriptionContent);
+                         const baseDimensions = baseDimsById.get(node.id);
+                         const descriptionContent = isPreviewing ? getNodeDescriptionContent(node, true) : null;
+                         const dimensions = isPreviewing
+                           ? getNodeDimensions(node, true, descriptionContent)
+                           : baseDimensions || getNodeDimensions(node, false, null);
                          
                          // Do not render the node that the abstraction carousel is open for
                          if (abstractionCarouselVisible && abstractionCarouselNode?.id === node.id) {
@@ -10486,7 +10650,6 @@ function NodeCanvas() {
                                showContextMenu(e.clientX, e.clientY, getContextMenuOptions(node.id));
                              }}
                              isPreviewing={isPreviewing}
-                             allNodes={nodes}
                              isEditingOnCanvas={node.id === editingNodeIdOnCanvas}
                              onCommitCanvasEdit={(instanceId, newName, isRealTime = false) => { 
                                storeActions.updateNodePrototype(node.prototypeId, draft => { draft.name = newName; }); 
@@ -10528,7 +10691,6 @@ function NodeCanvas() {
                              }}
                              onConvertToNodeGroup={handleNodeConvertToNodeGroup}
                              storeActions={storeActions}
-                             connections={edges}
                              currentDefinitionIndex={nodeDefinitionIndices.get(`${node.prototypeId}-${activeGraphId}`) || 0}
                              onNavigateDefinition={(prototypeId, newIndex) => {
                                const contextKey = `${prototypeId}-${activeGraphId}`;
@@ -10650,10 +10812,13 @@ function NodeCanvas() {
 
                        {/* Render the "Active" Node (if it exists and not being dragged) */} 
                        {activeNodeToRender && visibleNodeIds.has(activeNodeToRender.id) && (
-                         (() => {
-                           const isPreviewing = previewingNodeId === activeNodeToRender.id;
-                           const descriptionContent = getNodeDescriptionContent(activeNodeToRender, isPreviewing);
-                           const dimensions = getNodeDimensions(activeNodeToRender, isPreviewing, descriptionContent);
+                        (() => {
+                          const isPreviewing = previewingNodeId === activeNodeToRender.id;
+                          const baseDimensions = baseDimsById.get(activeNodeToRender.id);
+                          const descriptionContent = isPreviewing ? getNodeDescriptionContent(activeNodeToRender, true) : null;
+                          const dimensions = isPreviewing
+                            ? getNodeDimensions(activeNodeToRender, true, descriptionContent)
+                            : baseDimensions || getNodeDimensions(activeNodeToRender, false, null);
                            
                            // Hide if its carousel is open
                            if (abstractionCarouselVisible && abstractionCarouselNode?.id === activeNodeToRender.id) {
@@ -10689,10 +10854,10 @@ function NodeCanvas() {
                                  isSelected={selectedInstanceIds.has(activeNodeToRender.id)}
                                  isDragging={false} // Explicitly not the dragging node if rendered here
                                  onMouseDown={(e) => handleNodeMouseDown(activeNodeToRender, e)}
-                              onPointerDown={(e) => handleNodePointerDown(activeNodeToRender, e)}
-                              onPointerMove={(e) => handleNodePointerMove(activeNodeToRender, e)}
-                              onPointerUp={(e) => handleNodePointerUp(activeNodeToRender, e)}
-                              onPointerCancel={(e) => handleNodePointerCancel(activeNodeToRender, e)}
+                                 onPointerDown={(e) => handleNodePointerDown(activeNodeToRender, e)}
+                                 onPointerMove={(e) => handleNodePointerMove(activeNodeToRender, e)}
+                                 onPointerUp={(e) => handleNodePointerUp(activeNodeToRender, e)}
+                                 onPointerCancel={(e) => handleNodePointerCancel(activeNodeToRender, e)}
                                  onTouchStart={(e) => handleNodeTouchStart(activeNodeToRender, e)}
                                  onTouchMove={(e) => handleNodeTouchMove(activeNodeToRender, e)}
                                  onTouchEnd={(e) => handleNodeTouchEnd(activeNodeToRender, e)}
@@ -10702,7 +10867,6 @@ function NodeCanvas() {
                                    showContextMenu(e.clientX, e.clientY, getContextMenuOptions(activeNodeToRender.id));
                                  }}
                                  isPreviewing={isPreviewing}
-                                 allNodes={nodes}
                                  isEditingOnCanvas={activeNodeToRender.id === editingNodeIdOnCanvas}
                                  onCommitCanvasEdit={(instanceId, newName, isRealTime = false) => { 
                                    storeActions.updateNodePrototype(activeNodeToRender.prototypeId, draft => { draft.name = newName; }); 
@@ -10744,7 +10908,6 @@ function NodeCanvas() {
                                  }}
                                  onConvertToNodeGroup={handleNodeConvertToNodeGroup}
                                  storeActions={storeActions}
-                                 connections={edges}
                                  currentDefinitionIndex={nodeDefinitionIndices.get(`${activeNodeToRender.prototypeId}-${activeGraphId}`) || 0}
                                  onNavigateDefinition={(prototypeId, newIndex) => {
                                    const contextKey = `${prototypeId}-${activeGraphId}`;
@@ -10759,10 +10922,13 @@ function NodeCanvas() {
 
                        {/* Render the Dragging Node last (on top) */} 
                        {draggingNodeToRender && visibleNodeIds.has(draggingNodeToRender.id) && (
-                         (() => {
-                           const isPreviewing = previewingNodeId === draggingNodeToRender.id;
-                           const descriptionContent = getNodeDescriptionContent(draggingNodeToRender, isPreviewing);
-                           const dimensions = getNodeDimensions(draggingNodeToRender, isPreviewing, descriptionContent);
+                        (() => {
+                          const isPreviewing = previewingNodeId === draggingNodeToRender.id;
+                          const baseDimensions = baseDimsById.get(draggingNodeToRender.id);
+                          const descriptionContent = isPreviewing ? getNodeDescriptionContent(draggingNodeToRender, true) : null;
+                          const dimensions = isPreviewing
+                            ? getNodeDimensions(draggingNodeToRender, true, descriptionContent)
+                            : baseDimensions || getNodeDimensions(draggingNodeToRender, false, null);
                            
                            // Hide if its carousel is open
                            if (abstractionCarouselVisible && abstractionCarouselNode?.id === draggingNodeToRender.id) {
@@ -10797,7 +10963,6 @@ function NodeCanvas() {
                                  showContextMenu(e.clientX, e.clientY, getContextMenuOptions(draggingNodeToRender.id));
                                }}
                                isPreviewing={isPreviewing}
-                               allNodes={nodes}
                                isEditingOnCanvas={draggingNodeToRender.id === editingNodeIdOnCanvas}
                                onCommitCanvasEdit={(instanceId, newName, isRealTime = false) => { 
                                  storeActions.updateNodePrototype(draggingNodeToRender.prototypeId, draft => { draft.name = newName; }); 
@@ -10839,7 +11004,6 @@ function NodeCanvas() {
                                }}
                                onConvertToNodeGroup={handleNodeConvertToNodeGroup}
                                storeActions={storeActions}
-                               connections={edges}
                                currentDefinitionIndex={nodeDefinitionIndices.get(`${draggingNodeToRender.prototypeId}-${activeGraphId}`) || 0}
                                onNavigateDefinition={(prototypeId, newIndex) => {
                                  const contextKey = `${prototypeId}-${activeGraphId}`;
@@ -10901,6 +11065,7 @@ function NodeCanvas() {
           {/* Edge glow indicators for off-screen nodes */}
           <EdgeGlowIndicator
             nodes={hydratedNodes}
+            baseDimensionsById={baseDimsById}
             panOffset={panOffset}
             zoomLevel={zoomLevel}
             leftPanelExpanded={leftPanelExpanded}

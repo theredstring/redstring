@@ -4,7 +4,6 @@ import { NODE_WIDTH, NODE_HEIGHT, NODE_CORNER_RADIUS, NODE_PADDING } from './con
 import './Node.css';
 import UniversalNodeRenderer from './UniversalNodeRenderer.jsx'; // Import UniversalNodeRenderer for faithful representations
 import { getNodeDimensions } from './utils.js'; // Import needed for node dims
-import { v4 as uuidv4 } from 'uuid';
 import { ChevronLeft, ChevronRight, Trash2, Expand, ArrowUpFromDot, PackageOpen } from 'lucide-react'; // Import navigation icons, trash, expand, and package-open
 import useGraphStore, { getHydratedNodesForGraph, getEdgesForGraph } from "./store/graphStore.jsx"; // Import store selectors
 
@@ -25,8 +24,6 @@ const Node = ({
   imageHeight,
   // --- Add preview-related props ---
   isPreviewing,
-  allNodes, // Expect plain array of node data
-  connections, // Expect plain array of edge data
   innerNetworkWidth,
   innerNetworkHeight,
   descriptionAreaHeight, // Add description area height prop
@@ -154,13 +151,13 @@ const Node = ({
 
   // Determine display title: prefer current graph title in preview, else node name
   const currentGraphName = useMemo(() => {
-    if (!definitionGraphIds.length) return null;
+    if (!isPreviewing || !definitionGraphIds.length) return null;
     const gid = definitionGraphIds[currentDefinitionIndex] || definitionGraphIds[0];
     if (!gid) return null;
     const graphData = storeState.graphs.get(gid);
     const title = graphData?.name;
     return (typeof title === 'string' && title.trim()) ? title.trim() : null;
-  }, [definitionGraphIds, currentDefinitionIndex, storeState.graphs]);
+  }, [isPreviewing, definitionGraphIds, currentDefinitionIndex, storeState.graphs]);
 
   const displayTitle = (isPreviewing && currentGraphName) ? currentGraphName : nodeName;
 
@@ -188,21 +185,21 @@ const Node = ({
 
   // Filter nodes and edges for the current graph definition
   const currentGraphNodes = useMemo(() => {
-    if (!currentGraphId) return [];
+    if (!isPreviewing || !currentGraphId) return [];
     return getHydratedNodesForGraph(currentGraphId)(storeState);
-  }, [currentGraphId, storeState.graphs, storeState.nodePrototypes]);
+  }, [isPreviewing, currentGraphId, storeState]);
 
   const currentGraphEdges = useMemo(() => {
-    if (!currentGraphId) return [];
+    if (!isPreviewing || !currentGraphId) return [];
     return getEdgesForGraph(currentGraphId)(storeState);
-  }, [currentGraphId, storeState.edges, storeState.graphs]);
+  }, [isPreviewing, currentGraphId, storeState]);
 
   // Get the current definition graph's description
   const currentGraphDescription = useMemo(() => {
-    if (!currentGraphId) return 'No description.';
+    if (!isPreviewing || !currentGraphId) return 'No description.';
     const graphData = storeState.graphs.get(currentGraphId);
     return graphData?.description || 'No description.';
-  }, [currentGraphId, storeState.graphs]);
+  }, [isPreviewing, currentGraphId, storeState.graphs]);
 
   // Use the passed descriptionAreaHeight which is now calculated dynamically in utils.js
   const actualDescriptionHeight = descriptionAreaHeight;

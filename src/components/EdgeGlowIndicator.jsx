@@ -4,11 +4,12 @@ import { getNodeDimensions } from '../utils';
 import { HEADER_HEIGHT, NODE_HEIGHT } from '../constants';
 import useGraphStore from '../store/graphStore.jsx';
 
-const EdgeGlowIndicator = ({ 
-  nodes, 
-  panOffset, 
-  zoomLevel, 
-  leftPanelExpanded, 
+const EdgeGlowIndicator = ({
+  nodes,
+  baseDimensionsById,
+  panOffset,
+  zoomLevel,
+  leftPanelExpanded,
   rightPanelExpanded,
   previewingNodeId,
   containerRef,
@@ -25,6 +26,15 @@ const EdgeGlowIndicator = ({
   
   // Use the fixed canvas viewport size for coordinate calculations
   const canvasSize = canvasViewportSize || { width: window.innerWidth, height: window.innerHeight };
+
+  const nodeLookup = useMemo(() => {
+    if (!nodes?.length) return new Map();
+    const map = new Map();
+    nodes.forEach(node => {
+      map.set(node.id, node);
+    });
+    return map;
+  }, [nodes]);
 
   const allNodeData = useMemo(() => {
     if (!nodes?.length || !viewportBounds) return [];
@@ -45,7 +55,12 @@ const EdgeGlowIndicator = ({
     nodes.forEach(node => {
       // Get node dimensions using the same pattern as working connections
       const isNodePreviewing = previewingNodeId === node.id;
-      const dims = getNodeDimensions(node, isNodePreviewing, null);
+      const precomputedDims = baseDimensionsById instanceof Map
+        ? baseDimensionsById.get(node.id)
+        : baseDimensionsById?.[node.id];
+      const dims = isNodePreviewing
+        ? getNodeDimensions(node, true, null)
+        : precomputedDims || getNodeDimensions(node, false, null);
       
       // Calculate the center of the node using the EXACT same pattern as working connections
       // From NodeCanvas.jsx line 6040-6043: const x1 = sourceNode.x + sNodeDims.currentWidth / 2;
@@ -97,7 +112,7 @@ const EdgeGlowIndicator = ({
     });
 
     return nodeData;
-  }, [nodes, panOffset, zoomLevel, viewportBounds, previewingNodeId, containerRef, leftPanelExpanded, rightPanelExpanded, canvasSize]);
+  }, [nodes, panOffset, zoomLevel, viewportBounds, previewingNodeId, containerRef, canvasSize, baseDimensionsById]);
 
   const offScreenGlows = useMemo(() => {
     const glows = [];
@@ -179,7 +194,7 @@ const EdgeGlowIndicator = ({
       const intensity = Math.max(0.4, Math.min(1, 2000 / (distance + 200)));
 
       // Get node color (fallback to default if not specified)
-      const node = nodes.find(n => n.id === nodeInfo.id);
+      const node = nodeLookup.get(nodeInfo.id);
       const nodeColor = node?.color || node?.prototype?.color || '#8B0000';
 
       // Determine which edge we're on (to orient the flare)
@@ -204,7 +219,7 @@ const EdgeGlowIndicator = ({
     });
 
     return glows;
-  }, [allNodeData, nodes, viewportBounds, leftPanelExpanded, rightPanelExpanded]);
+  }, [allNodeData, nodeLookup, viewportBounds]);
 
   if (!viewportBounds) return null;
 

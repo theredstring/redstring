@@ -1,12 +1,66 @@
-import { 
-    NODE_WIDTH, 
-    NODE_HEIGHT, 
-    NODE_PADDING, 
-    AVERAGE_CHAR_WIDTH, 
-    LINE_HEIGHT_ESTIMATE, 
-    EXPANDED_NODE_WIDTH, 
-    NAME_AREA_FACTOR 
+import {
+    NODE_WIDTH,
+    NODE_HEIGHT,
+    NODE_PADDING,
+    AVERAGE_CHAR_WIDTH,
+    LINE_HEIGHT_ESTIMATE,
+    EXPANDED_NODE_WIDTH,
+    NAME_AREA_FACTOR
 } from './constants'; // Import necessary constants
+
+// Reusable DOM nodes for text/description measurement to avoid per-call allocations.
+let measurementContainer = null;
+let measurementSpan = null;
+let descriptionMeasurementDiv = null;
+
+const ensureMeasurementElements = () => {
+    if (typeof document === 'undefined') {
+        return null;
+    }
+
+    if (!measurementContainer) {
+        measurementContainer = document.createElement('div');
+        measurementContainer.setAttribute('data-node-dimension-measurements', 'true');
+        const style = measurementContainer.style;
+        style.position = 'absolute';
+        style.left = '-9999px';
+        style.top = '-9999px';
+        style.width = 'auto';
+        style.height = 'auto';
+        style.overflow = 'hidden';
+        style.pointerEvents = 'none';
+        style.visibility = 'hidden';
+        document.body.appendChild(measurementContainer);
+    }
+
+    if (!measurementSpan) {
+        measurementSpan = document.createElement('span');
+        const style = measurementSpan.style;
+        style.fontSize = '20px';
+        style.fontWeight = 'bold';
+        style.whiteSpace = 'nowrap';
+        style.display = 'inline-block';
+        measurementContainer.appendChild(measurementSpan);
+    }
+
+    if (!descriptionMeasurementDiv) {
+        descriptionMeasurementDiv = document.createElement('div');
+        const style = descriptionMeasurementDiv.style;
+        style.fontSize = '20px';
+        style.fontWeight = 'normal';
+        style.lineHeight = '24px';
+        style.wordWrap = 'break-word';
+        style.overflowWrap = 'break-word';
+        style.whiteSpace = 'normal';
+        style.display = 'block';
+        measurementContainer.appendChild(descriptionMeasurementDiv);
+    }
+
+    return {
+        textSpan: measurementSpan,
+        descriptionDiv: descriptionMeasurementDiv
+    };
+};
 
 // --- Define constants for preview dimensions ---
 const PREVIEW_NODE_WIDTH = 600; // Wider for preview
@@ -82,16 +136,15 @@ export const getNodeDimensions = (node, isPreviewing = false, descriptionContent
     }
 
     // --- Text Measurement ---
-    const tempSpan = document.createElement('span');
-    tempSpan.style.fontSize = '20px';
-    tempSpan.style.fontWeight = 'bold';
-    tempSpan.style.visibility = 'hidden';
-    tempSpan.style.position = 'absolute';
-    tempSpan.style.whiteSpace = 'nowrap'; // Measure full width first
-    tempSpan.textContent = nodeName; // Use nodeName variable
-    document.body.appendChild(tempSpan);
-    const textWidth = tempSpan.offsetWidth;
-    document.body.removeChild(tempSpan);
+    let textWidth = nodeName.length * AVERAGE_CHAR_WIDTH;
+    const measurementElements = ensureMeasurementElements();
+    if (measurementElements?.textSpan) {
+        const { textSpan } = measurementElements;
+        textSpan.textContent = nodeName;
+        textSpan.style.width = 'auto';
+        textSpan.style.whiteSpace = 'nowrap';
+        textWidth = textSpan.offsetWidth;
+    }
 
     // --- Shared Constant ---
     const TEXT_V_PADDING_TOTAL = 45; // Total vertical padding (30px top + 15px bottom for preview mode)
@@ -110,20 +163,16 @@ export const getNodeDimensions = (node, isPreviewing = false, descriptionContent
         // Calculate description area height dynamically based on actual content
         if (descriptionContent && descriptionContent.trim() && descriptionContent !== 'No description.') {
             // Measure actual text to determine how many lines we need
-            const tempDiv = document.createElement('div');
-            tempDiv.style.fontSize = '20px';
-            tempDiv.style.fontWeight = 'normal';
-            tempDiv.style.lineHeight = '24px';
-            tempDiv.style.width = `${innerNetworkWidth}px`;
-            tempDiv.style.visibility = 'hidden';
-            tempDiv.style.position = 'absolute';
-            tempDiv.style.wordWrap = 'break-word';
-            tempDiv.style.overflowWrap = 'break-word';
-            tempDiv.textContent = descriptionContent;
-            document.body.appendChild(tempDiv);
-            
-            const actualHeight = tempDiv.offsetHeight;
-            document.body.removeChild(tempDiv);
+            let actualHeight = 0;
+            if (measurementElements?.descriptionDiv) {
+                const { descriptionDiv } = measurementElements;
+                descriptionDiv.style.width = `${innerNetworkWidth}px`;
+                descriptionDiv.textContent = descriptionContent;
+                actualHeight = descriptionDiv.offsetHeight;
+                descriptionDiv.textContent = '';
+            } else {
+                actualHeight = Math.ceil(descriptionContent.length / (innerNetworkWidth || 1)) * DESCRIPTION_LINE_HEIGHT;
+            }
             
             // Cap at maximum 3 lines but use actual height if smaller
             const maxAllowedHeight = DESCRIPTION_MAX_LINES * DESCRIPTION_LINE_HEIGHT;
