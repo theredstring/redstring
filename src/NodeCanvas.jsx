@@ -603,6 +603,8 @@ function NodeCanvas() {
 
       const t1 = e.touches[0];
       const t2 = e.touches[1];
+      const centerX = (t1.clientX + t2.clientX) / 2;
+      const centerY = (t1.clientY + t2.clientY) / 2;
       const dist = Math.hypot(t2.clientX - t1.clientX, t2.clientY - t1.clientY) || 1;
       pinchRef.current.centerClient = { x: centerX, y: centerY };
       const startDist = pinchRef.current.startDist || dist;

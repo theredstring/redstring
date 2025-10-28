@@ -461,15 +461,20 @@ const Node = ({
                                       nodes={currentGraphNodes.map(n => ({
                                           ...n,
                                           width: getNodeDimensions(n, false, null).currentWidth,
-                                          height: getNodeDimensions(n, false, null).currentHeight
+                                          height: getNodeDimensions(n, false, null).currentHeight,
+                                          imageSrc: n.thumbnailSrc // Pass image source for display
                                       }))}
                                       connections={currentGraphEdges.map(e => ({
                                           id: e.id,
                                           sourceId: e.sourceId,
                                           destinationId: e.destinationId,
+                                          targetId: e.destinationId,
                                           connectionName: null, // Hide connection names in compact view
                                           color: e.color || '#000000',
-                                          directionality: e.directionality
+                                          directionality: e.directionality,
+                                          definitionNodeIds: e.definitionNodeIds,
+                                          typeNodeId: e.typeNodeId,
+                                          edgePrototype: e.edgePrototype
                                       }))}
                                       containerWidth={innerNetworkWidth}
                                       containerHeight={innerNetworkHeight}
@@ -480,9 +485,9 @@ const Node = ({
                                       showConnectionDots={false}
                                       routingStyle="straight"
                                       scaleMode="fit"
-                                      minNodeSize={30}
-                                      connectionStrokeScale={0.5}
-                                      nodeFontScale={1.3}
+                                      minNodeSize={60}
+                                      connectionStrokeScale={0.35}
+                                      nodeFontScale={1.4}
                                       cornerRadiusMultiplier={32}
                                       onNodeHover={(nodeData) => {
                                           setHoveredInnerNodeId(nodeData?.id || null);

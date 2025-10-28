@@ -954,6 +954,7 @@ const UniversalNodeRenderer = ({
         {/* Render nodes on top */}
         {scaledNodes.map(node => {
           const isHovered = hoveredNodeId === node.id;
+          const hasImage = Boolean(node.imageSrc);
           
           // Calculate text sizing and padding to exactly match Node.jsx proportions
           const nameString = typeof node.name === 'string' ? node.name : '';
@@ -968,7 +969,7 @@ const UniversalNodeRenderer = ({
           const baseAverageCharWidth = node.isGroup ? 14 : 12; // Adjust width estimation for larger type
           
           // Apply transform scale to all measurements
-          const computedFontSize = Math.max(6, baseFontSize * transform.scale * nodeFontScale);
+          const computedFontSize = Math.max(8, baseFontSize * transform.scale * nodeFontScale);
           const computedLineHeight = Math.max(12, baseLineHeight * transform.scale * nodeFontScale);
           let verticalPadding = baseVerticalPadding * transform.scale;
           const singleLineSidePadding = baseSingleLineSidePadding * transform.scale;
@@ -992,7 +993,37 @@ const UniversalNodeRenderer = ({
               onMouseLeave={interactive ? () => handleNodeMouseLeave(node) : undefined}
               onClick={interactive ? () => onNodeClick?.(node) : undefined}
             >
-              {/* Node background - special styling for groups */}
+              <defs>
+                {/* Clip path for image nodes */}
+                {hasImage && (
+                  <clipPath id={`node-image-clip-${node.id}`}>
+                    <rect
+                      x={node.x}
+                      y={node.y}
+                      width={node.width}
+                      height={node.height}
+                      rx={cornerRadius}
+                      ry={cornerRadius}
+                    />
+                  </clipPath>
+                )}
+              </defs>
+              
+              {/* Image (if present) */}
+              {hasImage && (
+                <image
+                  x={node.x}
+                  y={node.y}
+                  width={node.width}
+                  height={node.height}
+                  href={node.imageSrc}
+                  preserveAspectRatio="xMidYMid slice"
+                  clipPath={`url(#node-image-clip-${node.id})`}
+                  style={{ pointerEvents: 'none' }}
+                />
+              )}
+              
+              {/* Node background - special styling for groups, or stroke for image nodes */}
               <rect
                 className="node-background"
                 x={node.x}
@@ -1001,65 +1032,65 @@ const UniversalNodeRenderer = ({
                 height={node.height}
                 rx={cornerRadius}
                 ry={cornerRadius}
-                fill={node.isGroup ? '#bdb5b5' : (node.color || '#800000')}
-                stroke={node.isGroup ? (node.color || '#8B0000') : 'none'}
-                strokeWidth={node.isGroup ? Math.max(3, 6 * transform.scale) : 0}
+                fill={hasImage ? 'none' : (node.isGroup ? '#bdb5b5' : (node.color || '#800000'))}
+                stroke={hasImage ? (node.color || '#800000') : (node.isGroup ? (node.color || '#8B0000') : 'none')}
+                strokeWidth={hasImage ? Math.max(2, 4 * transform.scale) : (node.isGroup ? Math.max(3, 6 * transform.scale) : 0)}
                 style={{ 
                   cursor: interactive ? 'pointer' : 'default',
-                  transition: 'width 0.3s ease, height 0.3s ease, fill 0.2s ease'
+                  transition: 'width 0.3s ease, height 0.3s ease, fill 0.2s ease',
+                  pointerEvents: 'none'
                 }}
-                onMouseEnter={interactive ? () => handleNodeMouseEnter(node) : undefined}
-                onMouseLeave={interactive ? () => handleNodeMouseLeave(node) : undefined}
-                onClick={interactive ? () => onNodeClick?.(node) : undefined}
               />
               
-              {/* Text using foreignObject like Node.jsx */}
-              <foreignObject
-                x={node.x}
-                y={node.y}
-                width={node.width}
-                height={node.height}
-                style={{ 
-                  pointerEvents: 'none',
-                  overflow: 'hidden'
-                }}
-              >
-                <div
-                  style={{
-                    display: 'flex',
-                    flexDirection: 'column',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    width: '100%',
-                    height: '100%',
-                    padding: `${verticalPadding}px ${isMultiline ? multiLineSidePadding : singleLineSidePadding}px`,
-                    boxSizing: 'border-box',
-                    userSelect: 'none',
-                    minWidth: 0,
+              {/* Text using foreignObject like Node.jsx - only show if no image */}
+              {!hasImage && (
+                <foreignObject
+                  x={node.x}
+                  y={node.y}
+                  width={node.width}
+                  height={node.height}
+                  style={{ 
+                    pointerEvents: 'none',
+                    overflow: 'hidden'
                   }}
                 >
-                  <span
+                  <div
                     style={{
-                      fontSize: `${computedFontSize}px`,
-                      fontWeight: 'bold',
-                      color: node.isGroup ? (node.color || '#8B0000') : '#bdb5b5',
-                      lineHeight: `${computedLineHeight}px`,
-                      letterSpacing: '-0.2px',
-                      whiteSpace: 'normal',
-                      overflowWrap: 'break-word',
-                      wordBreak: 'break-word',
-                      textAlign: 'center',
-                      minWidth: 0,
-                      display: 'inline-block',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      alignItems: 'center',
+                      justifyContent: 'center',
                       width: '100%',
-                      fontFamily: 'EmOne, sans-serif',
-                      hyphens: 'auto',
+                      height: '100%',
+                      padding: `${verticalPadding}px ${isMultiline ? multiLineSidePadding : singleLineSidePadding}px`,
+                      boxSizing: 'border-box',
+                      userSelect: 'none',
+                      minWidth: 0,
                     }}
                   >
-                    {nameString}
-                  </span>
-                </div>
-              </foreignObject>
+                    <span
+                      style={{
+                        fontSize: `${computedFontSize}px`,
+                        fontWeight: 'bold',
+                        color: node.isGroup ? (node.color || '#8B0000') : '#bdb5b5',
+                        lineHeight: `${computedLineHeight}px`,
+                        letterSpacing: '-0.2px',
+                        whiteSpace: 'normal',
+                        overflowWrap: 'break-word',
+                        wordBreak: 'break-word',
+                        textAlign: 'center',
+                        minWidth: 0,
+                        display: 'inline-block',
+                        width: '100%',
+                        fontFamily: 'EmOne, sans-serif',
+                        hyphens: 'auto',
+                      }}
+                    >
+                      {nameString}
+                    </span>
+                  </div>
+                </foreignObject>
+              )}
             </g>
           );
         })}

@@ -257,8 +257,8 @@ const GraphPreview = ({ nodes = [], edges = [], width, height }) => {
               
               {/* Source Arrow - scales with adaptive stroke */}
               {arrowsToward.has(edge.sourceId) && (() => {
-                // Calculate arrow scale based on adaptive stroke width (smaller arrows)
-                const arrowScale = Math.max(0.3, adaptiveStrokeWidth / 1.2); // Reduced from /0.6 to make arrows smaller
+                // Calculate arrow scale based on adaptive stroke width (much smaller arrows)
+                const arrowScale = Math.max(0.15, adaptiveStrokeWidth / 2.5); // Much smaller arrows
                 
                 return (
                   <g transform={`translate(${sourceArrowX}, ${sourceArrowY}) rotate(${sourceArrowAngle + 90})`}>
@@ -266,7 +266,7 @@ const GraphPreview = ({ nodes = [], edges = [], width, height }) => {
                       points={`${-10 * arrowScale},${12 * arrowScale} ${10 * arrowScale},${12 * arrowScale} 0,${-12 * arrowScale}`}
                       fill={edgeColor}
                       stroke={edgeColor}
-                      strokeWidth={Math.max(0.2, adaptiveStrokeWidth * 0.7)}
+                      strokeWidth={Math.max(0.15, adaptiveStrokeWidth * 0.5)}
                       strokeLinejoin="round"
                       strokeLinecap="round"
                       paintOrder="stroke fill"
@@ -277,8 +277,8 @@ const GraphPreview = ({ nodes = [], edges = [], width, height }) => {
               
               {/* Destination Arrow - scales with adaptive stroke */}
               {arrowsToward.has(edge.destinationId) && (() => {
-                // Calculate arrow scale based on adaptive stroke width (smaller arrows)
-                const arrowScale = Math.max(0.3, adaptiveStrokeWidth / 1.2); // Reduced from /0.6 to make arrows smaller
+                // Calculate arrow scale based on adaptive stroke width (much smaller arrows)
+                const arrowScale = Math.max(0.15, adaptiveStrokeWidth / 2.5); // Much smaller arrows
                 
                 return (
                   <g transform={`translate(${destArrowX}, ${destArrowY}) rotate(${destArrowAngle + 90})`}>
@@ -286,7 +286,7 @@ const GraphPreview = ({ nodes = [], edges = [], width, height }) => {
                       points={`${-10 * arrowScale},${12 * arrowScale} ${10 * arrowScale},${12 * arrowScale} 0,${-12 * arrowScale}`}
                       fill={edgeColor}
                       stroke={edgeColor}
-                      strokeWidth={Math.max(0.2, adaptiveStrokeWidth * 0.7)}
+                      strokeWidth={Math.max(0.15, adaptiveStrokeWidth * 0.5)}
                       strokeLinejoin="round"
                       strokeLinecap="round"
                       paintOrder="stroke fill"
@@ -311,8 +311,9 @@ const GraphPreview = ({ nodes = [], edges = [], width, height }) => {
           const scaledHeight = nodeDimensions.currentHeight * scale;
           const scaledTextAreaHeight = nodeDimensions.textAreaHeight * scale;
 
-          // FIX: Adjust node stroke width calculation - make thicker
-          const nodeStrokeWidth = Math.min(3.0, Math.max(0.5, 1.6 / scale)) || 0.5; // Increased base factor and max limit
+          // Calculate adaptive node stroke width based on node size (thinner, better scaling)
+          const avgNodeDimension = (scaledWidth + scaledHeight) / 2;
+          const nodeStrokeWidth = Math.max(0.2, Math.min(1.5, avgNodeDimension * 0.008)); // Adaptive stroke based on node size
 
           // Determine if text should be shown (when node is large enough)
           const showText = scaledWidth > 15; // Show text when width exceeds 15px
