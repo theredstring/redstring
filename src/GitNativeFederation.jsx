@@ -986,6 +986,76 @@ const GitNativeFederation = ({ variant = 'panel', onRequestClose }) => {
     });
   };
 
+  const handleCreateUniverseFromLocalFile = async () => {
+    setConfirmDialog({
+      title: 'Create Universe from New File',
+      message: 'Choose a name for your new universe. A fresh .redstring file will be created for it.',
+      variant: 'default',
+      confirmLabel: 'Create',
+      cancelLabel: 'Cancel',
+      inputField: {
+        placeholder: 'My Universe',
+        defaultValue: '',
+        label: 'Universe Name'
+      },
+      onConfirm: async (rawName) => {
+        const universeName = (rawName || '').trim();
+        if (!universeName) {
+          setError('Universe name is required.');
+          return;
+        }
+
+        let createdSlug = null;
+        try {
+          setLoading(true);
+          const creationResult = await gitFederationService.createUniverse(universeName, {
+            enableGit: false,
+            enableLocal: true
+          });
+
+          createdSlug =
+            creationResult?.createdUniverse?.slug ||
+            (creationResult?.universes || []).find(
+              (u) => u.name === creationResult?.createdUniverse?.name
+            )?.slug ||
+            (creationResult?.universes || []).find((u) => u.name === universeName)?.slug;
+
+          if (!createdSlug) {
+            throw new Error('Unable to determine universe slug after creation');
+          }
+
+          try {
+            await universeBackendBridge.setupLocalFileHandle(createdSlug, {
+              mode: 'saveAs',
+              suggestedName: `${universeName}.redstring`
+            });
+            await universeBackendBridge.saveActiveUniverse();
+            setSyncStatus({
+              type: 'success',
+              message: `Universe "${universeName}" created with a new local file.`
+            });
+          } catch (fileError) {
+            if (fileError?.name === 'AbortError') {
+              setSyncStatus({
+                type: 'warning',
+                message: `Universe "${universeName}" was created without linking a file. Use "Create File" later to attach one.`
+              });
+            } else {
+              gfWarn('[GitNativeFederation] Failed to create local file for new universe:', fileError);
+              setError(`Universe created but local file setup failed: ${fileError.message}`);
+            }
+          }
+        } catch (err) {
+          gfError('[GitNativeFederation] Create universe from file failed:', err);
+          setError(`Failed to create universe: ${err.message}`);
+        } finally {
+          setLoading(false);
+          await refreshState();
+        }
+      }
+    });
+  };
+
   const handleLoadFromLocal = async (file) => {
     try {
       setLoading(true);
@@ -3910,6 +3980,7 @@ return (
       onSetMainRepoSource={handleSetMainRepoSource}
       onSaveRepoSource={handleSaveRepoSource}
       onSetPrimarySource={handleSetPrimarySource}
+      onCreateUniverseFromFile={handleCreateUniverseFromLocalFile}
       onLoadFromLocal={handleLoadFromLocal}
       onLoadFromRepo={handleLoadFromRepo}
       onGrantLocalPermission={handleGrantLocalPermission}

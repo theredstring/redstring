@@ -72,6 +72,7 @@ const UniversesList = ({
   onSetMainRepoSource,
   onSaveRepoSource,
   onSetPrimarySource,
+  onCreateUniverseFromFile,
   onLoadFromLocal,
   onLoadFromRepo,
   onGrantLocalPermission,
@@ -105,9 +106,7 @@ const UniversesList = ({
     }
   }, [showLoadMenu, showNewMenu, showLocalFileMenu]);
 
-  const handleLoadFromLocalClick = () => {
-    setShowLoadMenu(false);
-    // Trigger file picker to load a .redstring file
+  const triggerLocalFilePicker = () => {
     const input = document.createElement('input');
     input.type = 'file';
     input.accept = '.redstring';
@@ -118,6 +117,11 @@ const UniversesList = ({
       }
     };
     input.click();
+  };
+
+  const handleLoadFromLocalClick = () => {
+    setShowLoadMenu(false);
+    triggerLocalFilePicker();
   };
 
   const handleLoadFromRepoClick = () => {
@@ -136,16 +140,11 @@ const UniversesList = ({
 
   const handleNewFromFileClick = () => {
     setShowNewMenu(false);
-    const input = document.createElement('input');
-    input.type = 'file';
-    input.accept = '.redstring';
-    input.onchange = async (e) => {
-      const file = e.target.files[0];
-      if (file && onLoadFromLocal) {
-        onLoadFromLocal(file);
-      }
-    };
-    input.click();
+    if (onCreateUniverseFromFile) {
+      onCreateUniverseFromFile();
+      return;
+    }
+    triggerLocalFilePicker();
   };
 
   const handleNewFromRepoClick = () => {

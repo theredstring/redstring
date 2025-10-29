@@ -78,6 +78,7 @@ import NodeSelectionGrid from './NodeSelectionGrid'; // Import the new node sele
 import UnifiedSelector from './UnifiedSelector'; // Import the new unified selector
 import OrbitOverlay from './components/OrbitOverlay.jsx';
 import AlphaOnboardingModal from './components/AlphaOnboardingModal.jsx';
+import HelpModal from './components/HelpModal.jsx';
 import CanvasConfirmDialog from './components/shared/CanvasConfirmDialog.jsx';
 
 
@@ -983,9 +984,24 @@ function NodeCanvas() {
         if (leftNodeArea || startedOnNode.current) {
           const startNodeDims = getNodeDimensions(armedNode, previewingNodeId === armedNode.id, null);
           const startPt = { x: armedNode.x + startNodeDims.currentWidth / 2, y: armedNode.y + startNodeDims.currentHeight / 2 };
+          
+          // Validate touch coordinates before calculating canvas position
+          if (!containerRef.current || typeof touch.clientX !== 'number' || typeof touch.clientY !== 'number') {
+            // If coordinates are invalid, don't start drawing connection
+            setLongPressingInstanceId(null);
+            return;
+          }
+          
           const rect = containerRef.current.getBoundingClientRect();
           const rawX = (touch.clientX - rect.left - panOffset.x) / zoomLevel + canvasSize.offsetX;
           const rawY = (touch.clientY - rect.top - panOffset.y) / zoomLevel + canvasSize.offsetY;
+          
+          // Validate calculated coordinates are not NaN
+          if (isNaN(rawX) || isNaN(rawY)) {
+            setLongPressingInstanceId(null);
+            return;
+          }
+          
           const { x: currentX, y: currentY } = clampCoordinates(rawX, rawY);
           setDrawingConnectionFrom({ sourceInstanceId: armedNode.id, startX: startPt.x, startY: startPt.y, currentX, currentY });
           // keep longPressingInstanceId set until we fully enter connection mode
@@ -1471,6 +1487,9 @@ function NodeCanvas() {
   // Onboarding modal state
   const [showOnboardingModal, setShowOnboardingModal] = useState(false);
   
+  // Help modal state
+  const [showHelpModal, setShowHelpModal] = useState(false);
+  
   // Show onboarding modal when there's no universe file and universe isn't loaded
   useEffect(() => {
     // Check if user has already completed onboarding
@@ -1520,6 +1539,49 @@ function NodeCanvas() {
 
     window.addEventListener('redstring:open-federation', handler);
     return () => window.removeEventListener('redstring:open-federation', handler);
+  }, []);
+
+  // Open Federation panel when event is dispatched from onboarding or help
+  useEffect(() => {
+    if (typeof window === 'undefined') return undefined;
+
+    const handler = () => {
+      try {
+        setLeftPanelExpanded(true);
+        setLeftPanelInitialView('federation');
+      } catch {}
+    };
+
+    window.addEventListener('openGitFederation', handler);
+    return () => window.removeEventListener('openGitFederation', handler);
+  }, []);
+
+  // Open Help modal when event is dispatched
+  useEffect(() => {
+    if (typeof window === 'undefined') return undefined;
+
+    const handler = () => {
+      try {
+        setShowHelpModal(true);
+      } catch {}
+    };
+
+    window.addEventListener('openHelpModal', handler);
+    return () => window.removeEventListener('openHelpModal', handler);
+  }, []);
+
+  // Open Onboarding modal when event is dispatched from Help menu
+  useEffect(() => {
+    if (typeof window === 'undefined') return undefined;
+
+    const handler = () => {
+      try {
+        setShowOnboardingModal(true);
+      } catch {}
+    };
+
+    window.addEventListener('openOnboardingModal', handler);
+    return () => window.removeEventListener('openOnboardingModal', handler);
   }, []);
 
   // Resume Git onboarding after OAuth/App redirects by opening Federation panel and hiding modal
@@ -2556,7 +2618,8 @@ function NodeCanvas() {
     rightPanelExpanded,
     setRightPanelExpanded,
     setEditingNodeIdOnCanvas,
-    NODE_DEFAULT_COLOR
+    NODE_DEFAULT_COLOR,
+    onStartHurtleAnimationFromPanel: startHurtleAnimationFromPanel
   });
 
   // Group control panel action handlers
@@ -5164,6 +5227,11 @@ function NodeCanvas() {
       }
     }
     
+    // Validate container and coordinates before processing
+    if (!containerRef.current || typeof e.clientX !== 'number' || typeof e.clientY !== 'number') {
+      return;
+    }
+    
     const rect = containerRef.current.getBoundingClientRect();
     // Track last client pointer position for Safari gesture anchoring
     lastMousePosRef.current = { x: e.clientX, y: e.clientY };
@@ -5428,9 +5496,24 @@ function NodeCanvas() {
                      mouseInsideNode.current = false;
                      const startNodeDims = getNodeDimensions(longPressNodeData, previewingNodeId === longPressNodeData.id, null);
                      const startPt = { x: longPressNodeData.x + startNodeDims.currentWidth / 2, y: longPressNodeData.y + startNodeDims.currentHeight / 2 };
+                     
+                     // Validate mouse coordinates before calculating canvas position
+                     if (!containerRef.current || typeof e.clientX !== 'number' || typeof e.clientY !== 'number') {
+                       // If coordinates are invalid, don't start drawing connection
+                       setLongPressingInstanceId(null);
+                       return;
+                     }
+                     
                      const rect = containerRef.current.getBoundingClientRect();
                      const rawX = (e.clientX - rect.left - panOffset.x) / zoomLevel + canvasSize.offsetX;
                      const rawY = (e.clientY - rect.top - panOffset.y) / zoomLevel + canvasSize.offsetY;
+                     
+                     // Validate calculated coordinates are not NaN
+                     if (isNaN(rawX) || isNaN(rawY)) {
+                       setLongPressingInstanceId(null);
+                       return;
+                     }
+                     
                      const { x: currentX, y: currentY } = clampCoordinates(rawX, rawY);
                      setDrawingConnectionFrom({ sourceInstanceId: longPressingInstanceId, startX: startPt.x, startY: startPt.y, currentX, currentY });
                      setLongPressingInstanceId(null); // Clear ID
@@ -5587,16 +5670,19 @@ function NodeCanvas() {
         } // Close if (!dragUpdateScheduled.current)
     } else if (drawingConnectionFrom) {
         // Update connection drawing coordinates with RAF throttling
-        pendingConnectionUpdate.current = { currentX, currentY };
-        if (!connectionUpdateScheduled.current) {
-            connectionUpdateScheduled.current = true;
-            requestAnimationFrame(() => {
-                connectionUpdateScheduled.current = false;
-                const update = pendingConnectionUpdate.current;
-                if (update) {
-                    setDrawingConnectionFrom(prev => prev && ({ ...prev, currentX: update.currentX, currentY: update.currentY }));
-                }
-            });
+        // Validate coordinates before updating
+        if (typeof currentX === 'number' && typeof currentY === 'number' && !isNaN(currentX) && !isNaN(currentY)) {
+            pendingConnectionUpdate.current = { currentX, currentY };
+            if (!connectionUpdateScheduled.current) {
+                connectionUpdateScheduled.current = true;
+                requestAnimationFrame(() => {
+                    connectionUpdateScheduled.current = false;
+                    const update = pendingConnectionUpdate.current;
+                    if (update) {
+                        setDrawingConnectionFrom(prev => prev && ({ ...prev, currentX: update.currentX, currentY: update.currentY }));
+                    }
+                });
+            }
         }
     } else if (isPanning && !pinchRef.current.active) {
         if (abstractionCarouselVisible) {
@@ -7187,6 +7273,42 @@ function NodeCanvas() {
     setHurtleAnimation(animationData);
     runHurtleAnimation(animationData);
   }, [containerRef, runHurtleAnimation]);
+
+  // Use unified control panel actions hook
+  const {
+    handleNodePanelDelete,
+    handleNodePanelAdd,
+    handleNodePanelUp,
+    handleNodePanelOpenInPanel,
+    handleNodePanelDecompose,
+    handleNodePanelAbstraction,
+    handleNodePanelEdit,
+    handleNodePanelSave,
+    handleNodePanelMore,
+    handleNodePanelGroup
+  } = useControlPanelActions({
+    activeGraphId,
+    selectedInstanceIds,
+    selectedNodePrototypes,
+    nodes,
+    storeActions,
+    setSelectedInstanceIds,
+    setSelectedGroup,
+    setGroupControlPanelShouldShow,
+    setNodeControlPanelShouldShow,
+    setNodeControlPanelVisible,
+    setNodeNamePrompt,
+    setPreviewingNodeId,
+    setAbstractionCarouselNode,
+    setCarouselAnimationState,
+    setAbstractionCarouselVisible,
+    setSelectedNodeIdForPieMenu,
+    rightPanelExpanded,
+    setRightPanelExpanded,
+    setEditingNodeIdOnCanvas,
+    NODE_DEFAULT_COLOR,
+    onStartHurtleAnimationFromPanel: startHurtleAnimationFromPanel
+  });
 
   // Node-group control panel action handlers
   const handleNodeGroupDiveIntoDefinition = useCallback((startRect = null) => {
@@ -11740,6 +11862,12 @@ function NodeCanvas() {
           zoomLevel={zoomLevel}
         />
       )}
+
+      {/* Help Modal */}
+      <HelpModal
+        isVisible={showHelpModal}
+        onClose={() => setShowHelpModal(false)}
+      />
       
       {/* <div>NodeCanvas Simplified - Testing Loop</div> */}
     </div>

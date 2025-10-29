@@ -31,7 +31,8 @@ export function useControlPanelActions({
   rightPanelExpanded,
   setRightPanelExpanded,
   setEditingNodeIdOnCanvas,
-  NODE_DEFAULT_COLOR
+  NODE_DEFAULT_COLOR,
+  onStartHurtleAnimationFromPanel
 }) {
 
   const handleNodePanelDelete = useCallback(() => {
@@ -48,8 +49,39 @@ export function useControlPanelActions({
   const handleNodePanelUp = useCallback(() => {
     const first = selectedNodePrototypes[0];
     if (!first) return;
-    storeActions.openRightPanelNodeTab(first.id, first.name);
-  }, [selectedNodePrototypes, storeActions]);
+
+    // If onStartHurtleAnimationFromPanel is available, use hurtle animation like PieMenu
+    if (onStartHurtleAnimationFromPanel && first.definitionGraphIds && first.definitionGraphIds.length > 0) {
+      const graphIdToOpen = first.definitionGraphIds[0];
+      // Use a mock rect for the animation start point (center bottom of screen)
+      const mockRect = {
+        left: window.innerWidth / 2,
+        top: window.innerHeight - 80,
+        width: 40,
+        height: 40
+      };
+      onStartHurtleAnimationFromPanel(first.id, graphIdToOpen, first.id, mockRect);
+    } else if (onStartHurtleAnimationFromPanel) {
+      // Node has no definition - create one first, then start hurtle animation
+      storeActions.createAndAssignGraphDefinitionWithoutActivation(first.id);
+      setTimeout(() => {
+        const updatedPrototype = useGraphStore.getState().nodePrototypes.get(first.id);
+        if (updatedPrototype?.definitionGraphIds?.length > 0) {
+          const newGraphId = updatedPrototype.definitionGraphIds[updatedPrototype.definitionGraphIds.length - 1];
+          const mockRect = {
+            left: window.innerWidth / 2,
+            top: window.innerHeight - 80,
+            width: 40,
+            height: 40
+          };
+          onStartHurtleAnimationFromPanel(first.id, newGraphId, first.id, mockRect);
+        }
+      }, 50);
+    } else {
+      // Fallback to opening in panel if hurtle animation not available
+      storeActions.openRightPanelNodeTab(first.id, first.name);
+    }
+  }, [selectedNodePrototypes, storeActions, onStartHurtleAnimationFromPanel]);
 
   const handleNodePanelOpenInPanel = useCallback(() => {
     const first = selectedNodePrototypes[0];

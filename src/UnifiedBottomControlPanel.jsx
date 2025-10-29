@@ -206,14 +206,14 @@ const UnifiedBottomControlPanel = ({
     const rowCount = Math.max(1, Math.ceil(count / MAX_ITEMS_PER_ROW));
 
     const desiredScale = (() => {
-      if (count === 1) return 1;
-      if (count === 2) return 0.88;
-      if (count === 3) return 0.78;
-      if (count === 4) return 0.7;
-      if (count <= 6) return 0.62;
-      if (count <= 8) return 0.54;
-      if (count <= 12) return 0.5;
-      return MIN_SCALE;
+      if (count === 1) return 0.5;
+      if (count === 2) return 0.44;
+      if (count === 3) return 0.39;
+      if (count === 4) return 0.35;
+      if (count <= 6) return 0.31;
+      if (count <= 8) return 0.27;
+      if (count <= 12) return 0.25;
+      return MIN_SCALE * 0.5;
     })();
 
     const rows = [];
@@ -526,9 +526,9 @@ const UnifiedBottomControlPanel = ({
               });
               
               // Compact spacing calculation with maximum width constraint
-              const baseSpacing = mobileState.isMobilePortrait ? 120 : 140;
-              const nodeSpacing = nodes.length * 70; // Fixed per-node spacing
-              
+              const baseSpacing = mobileState.isMobilePortrait ? 60 : 70;
+              const nodeSpacing = nodes.length * 35; // Fixed per-node spacing (halved)
+
               // Calculate container width with reasonable maximum - leave room to click off
               const calculatedWidth = Math.min(
                 600, // Reduced maximum width cap for better clickability
@@ -537,15 +537,15 @@ const UnifiedBottomControlPanel = ({
                   baseSpacing + nodeSpacing
                 )
               );
-                
+
                 return (
                 <UniversalNodeRenderer
                   {...RENDERER_PRESETS.CONNECTION_PANEL}
                   nodes={nodes}
                   connections={connections}
                   containerWidth={calculatedWidth}
-                  containerHeight={mobileState.isMobilePortrait ? 130 : 140}
-                  minHorizontalSpacing={mobileState.isMobilePortrait ? 90 : 110}
+                  containerHeight={mobileState.isMobilePortrait ? 65 : 70}
+                  minHorizontalSpacing={mobileState.isMobilePortrait ? 45 : 55}
                   onNodeClick={onNodeClick}
                   onConnectionClick={onPredicateClick}
                   onToggleArrow={(connectionId, targetNodeId) => {

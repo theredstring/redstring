@@ -33,7 +33,7 @@ const AlphaOnboardingModal = ({
     ? Math.min(Math.max(viewportSize.width - 24, 320), 540)
     : 600;
   const modalHeight = isCompactLayout
-    ? Math.min(Math.max(viewportSize.height - 32, 480), 700)
+    ? Math.min(Math.max(viewportSize.height * 0.85, 400), 550)
     : 700;
   const contentPadding = isCompactLayout ? 16 : 24;
   const sectionGap = isCompactLayout ? 12 : 20;
@@ -190,6 +190,11 @@ const AlphaOnboardingModal = ({
       {/* Close button in top right */}
       <button
         onClick={handleClose}
+        onTouchEnd={(e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          handleClose();
+        }}
         style={{
           position: 'absolute',
           top: isCompactLayout ? '12px' : '16px',
@@ -203,7 +208,8 @@ const AlphaOnboardingModal = ({
           fontSize: '16px',
           fontWeight: 'bold',
           fontFamily: "'EmOne', sans-serif",
-          zIndex: 10
+          zIndex: 10,
+          touchAction: 'manipulation'
         }}
         onMouseEnter={(e) => e.currentTarget.style.color = '#260000'}
         onMouseLeave={(e) => e.currentTarget.style.color = '#666'}
@@ -212,11 +218,11 @@ const AlphaOnboardingModal = ({
       </button>
 
       {/* Welcome Header */}
-      <div style={{ textAlign: 'center', marginBottom: '16px', flexShrink: 0 }}>
+      <div style={{ textAlign: 'center', marginBottom: isCompactLayout ? '12px' : '16px', flexShrink: 0 }}>
         <h2 style={{
           margin: '0 0 6px 0',
           color: '#260000',
-          fontSize: isCompactLayout ? '1.2rem' : '1.4rem',
+          fontSize: isCompactLayout ? '1.1rem' : '1.4rem',
           fontWeight: 'bold',
           fontFamily: "'EmOne', sans-serif"
         }}>
@@ -224,7 +230,7 @@ const AlphaOnboardingModal = ({
         </h2>
         <div style={{
           margin: '0 0 6px 0',
-          fontSize: '0.8rem',
+          fontSize: '0.75rem',
           color: '#716C6C',
           fontFamily: "'EmOne', sans-serif"
         }}>
@@ -232,178 +238,131 @@ const AlphaOnboardingModal = ({
         </div>
       </div>
 
+      {/* Mobile Warning for compact layouts */}
+      {isCompactLayout && (
+        <div style={{
+          backgroundColor: '#fff3cd',
+          border: '2px solid #ffc107',
+          borderRadius: '8px',
+          padding: '12px',
+          marginBottom: '12px',
+          fontSize: '0.8rem',
+          color: '#856404',
+          textAlign: 'center'
+        }}>
+          <strong>⚠️ Mobile Notice</strong><br />
+          Redstring is unfinished on mobile in this version and will not work correctly. For the best experience, please use a desktop browser.
+        </div>
+      )}
+
       {/* Main Content */}
       <div
         style={{
           flex: 1,
           lineHeight: '1.4',
-          marginBottom: '12px',
-          fontFamily: "'EmOne', sans-serif"
+          marginBottom: isCompactLayout ? '8px' : '12px',
+          fontFamily: "'EmOne', sans-serif",
+          overflowY: 'auto'
         }}
       >
         <p style={{
-          margin: '0 0 16px 0',
-          fontSize: '0.95rem',
+          margin: '0 0 12px 0',
+          fontSize: isCompactLayout ? '0.85rem' : '0.95rem',
           color: '#333',
           fontFamily: "'EmOne', sans-serif",
           textAlign: 'center'
         }}>
-          <strong>Redstring</strong> is an open knowledge graph platform that lets you build, connect, and explore
-          ideas through semantic relationships.
+          <strong>Redstring</strong> helps you build interconnected knowledge through <strong>Things</strong> (concepts) and <strong>Webs</strong> (networks).
         </p>
 
         <h4 style={{
-          margin: '0 0 16px 0',
+          margin: '0 0 12px 0',
           color: '#8B0000',
-          fontSize: '1rem',
+          fontSize: isCompactLayout ? '0.9rem' : '1rem',
           fontWeight: 'bold',
           fontFamily: "'EmOne', sans-serif",
           textAlign: 'center'
         }}>
-          Choose how to store your universes:
+          Quick Start:
         </h4>
 
-        {/* Storage Options */}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: `${sectionGap}px`, marginBottom: isCompactLayout ? '16px' : '20px' }}>
-          
-          {/* GitHub Option (Recommended) */}
-          <div 
-            onClick={() => setSelectedOption('github')}
-            style={{
-              border: `2px solid ${selectedOption === 'github' ? '#8B0000' : '#ddd'}`,
-              borderRadius: '8px',
-              padding: `${cardPadding}px`,
-              cursor: 'pointer',
-              backgroundColor: selectedOption === 'github' ? 'rgba(139, 0, 0, 0.05)' : 'transparent',
-              transition: 'all 0.2s ease'
-            }}
-          >
-            <div style={{ display: 'flex', alignItems: 'center', marginBottom: '8px', gap: '12px', flexWrap: isCompactLayout ? 'wrap' : 'nowrap' }}>
-              {renderSelectionIndicator('github')}
-              <div style={{ fontWeight: 'bold', fontSize: '1rem', color: '#260000' }}>
-                GitHub Sync <span style={{ color: '#8B0000', fontSize: '0.8rem' }}>(Recommended)</span>
-              </div>
-            </div>
-            <div style={{ marginLeft: isCompactLayout ? '0' : '32px', fontSize: '0.85rem', color: '#666' }}>
-              • <strong>GitHub App</strong>: Secure, persistent connections<br />
-              • <strong>OAuth</strong>: Repository browsing and creation<br />
-              • Automatic cloud backup and version history<br />
-              • Click the <strong>Globe icon</strong> in the left panel to start
-            </div>
-          </div>
-
-          {/* Local File Option */}
-          <div 
-            onClick={() => setSelectedOption('local')}
-            style={{
-              border: `2px solid ${selectedOption === 'local' ? '#8B0000' : '#ddd'}`,
-              borderRadius: '8px',
-              padding: `${cardPadding}px`,
-              cursor: 'pointer',
-              backgroundColor: selectedOption === 'local' ? 'rgba(139, 0, 0, 0.05)' : 'transparent',
-              transition: 'all 0.2s ease'
-            }}
-          >
-            <div style={{ display: 'flex', alignItems: 'center', marginBottom: '8px', gap: '12px', flexWrap: isCompactLayout ? 'wrap' : 'nowrap' }}>
-              {renderSelectionIndicator('local')}
-              <div style={{ fontWeight: 'bold', fontSize: '1rem', color: '#260000' }}>
-                Local Files
-              </div>
-            </div>
-            <div style={{ marginLeft: isCompactLayout ? '0' : '32px', fontSize: '0.85rem', color: '#666' }}>
-              • Store universe files on your device<br />
-              • Full control over your data<br />
-              • Works without internet connection<br />
-              • Manual backup and file management
-            </div>
-            
-            {/* Local File Buttons */}
-            {selectedOption === 'local' && (
-              <div style={{ 
-                marginLeft: isCompactLayout ? '0' : '32px', 
-                marginTop: '12px', 
-                display: 'flex', 
-                gap: '8px',
-                flexWrap: 'wrap'
-              }}>
-                <button
-                  onClick={() => {
-                    if (onCreateLocal) onCreateLocal();
-                    handleClose();
-                  }}
-                  style={{
-                    padding: isCompactLayout ? '10px 12px' : '6px 12px',
-                    fontSize: isCompactLayout ? '0.9rem' : '0.8rem',
-                    backgroundColor: '#8B0000',
-                    color: 'white',
-                    border: 'none',
-                    borderRadius: '4px',
-                    cursor: 'pointer',
-                    fontFamily: "'EmOne', sans-serif",
-                    flex: isCompactLayout ? '1 1 140px' : '0 0 auto'
-                  }}
-                >
-                  Create New
-                </button>
-                <button
-                  onClick={() => {
-                    if (onOpenLocal) onOpenLocal();
-                    handleClose();
-                  }}
-                  style={{
-                    padding: isCompactLayout ? '10px 12px' : '6px 12px',
-                    fontSize: isCompactLayout ? '0.9rem' : '0.8rem',
-                    backgroundColor: '#666',
-                    color: 'white',
-                    border: 'none',
-                    borderRadius: '4px',
-                    cursor: 'pointer',
-                    fontFamily: "'EmOne', sans-serif",
-                    flex: isCompactLayout ? '1 1 140px' : '0 0 auto'
-                  }}
-                >
-                  Load Existing
-                </button>
-              </div>
-            )}
-          </div>
-        </div>
-      </div>
-
-      {/* Action Button - Only show for GitHub option (Local has inline buttons) */}
-      {selectedOption === 'github' && (
-        <div style={{
-          flexShrink: 0,
-          display: 'flex',
-          justifyContent: 'center',
-          alignItems: 'center',
-          marginTop: '0px',
+        <div style={{ 
+          backgroundColor: '#f8f8f8', 
+          borderRadius: '8px', 
+          padding: isCompactLayout ? '10px' : '12px',
           marginBottom: '12px',
-          width: '100%'
+          fontSize: isCompactLayout ? '0.8rem' : '0.85rem',
+          color: '#333',
+          border: '1px solid #e0e0e0'
+        }}>
+          <strong>Basic Controls:</strong><br />
+          • Click and hold to move a Thing<br />
+          • Click and drag between Things to connect them<br />
+          • Click a connection to give it meaning with a Thing<br />
+          • Double-click a Thing to explore its Web<br />
+        </div>
+
+        <div style={{
+          display: 'flex',
+          flexDirection: 'column',
+          gap: '8px',
+          marginBottom: isCompactLayout ? '8px' : '12px'
         }}>
           <button
             onClick={() => {
-              // Start GitHub onboarding flow
-              setCurrentStep('github-onboarding');
+              handleClose();
+              // Dispatch event to open Git Federation panel
+              window.dispatchEvent(new CustomEvent('openGitFederation'));
             }}
             style={{
-              padding: isCompactLayout ? '12px 16px' : '12px 32px',
-              border: 'none',
-              borderRadius: '8px',
+              padding: isCompactLayout ? '10px 12px' : '12px 16px',
               backgroundColor: '#8B0000',
-              color: '#bdb5b5',
+              color: 'white',
+              border: 'none',
+              borderRadius: '6px',
               cursor: 'pointer',
-              fontSize: buttonFontSize,
+              fontSize: isCompactLayout ? '0.85rem' : '0.9rem',
               fontWeight: 'bold',
               fontFamily: "'EmOne', sans-serif",
-              textAlign: 'center',
-              ...fullWidthButtonStyle
+              textAlign: 'center'
             }}
           >
-            Set Up GitHub Sync
+            🌐 Connect to GitHub (Recommended)
+          </button>
+
+          <button
+            onClick={() => {
+              handleClose();
+              // Dispatch event to open help modal
+              window.dispatchEvent(new Event('openHelpModal'));
+            }}
+            style={{
+              padding: isCompactLayout ? '10px 12px' : '12px 16px',
+              backgroundColor: '#666',
+              color: 'white',
+              border: 'none',
+              borderRadius: '6px',
+              cursor: 'pointer',
+              fontSize: isCompactLayout ? '0.85rem' : '0.9rem',
+              fontWeight: 'bold',
+              fontFamily: "'EmOne', sans-serif",
+              textAlign: 'center'
+            }}
+          >
+            📖 Learn More
           </button>
         </div>
-      )}
+
+        <p style={{
+          margin: '0',
+          fontSize: isCompactLayout ? '0.75rem' : '0.8rem',
+          color: '#666',
+          textAlign: 'center',
+          fontStyle: 'italic'
+        }}>
+          Your work is stored in <strong>Universes</strong>. Connect GitHub for cloud sync or use local files.
+        </p>
+      </div>
     </>
   );
 

@@ -602,6 +602,50 @@ const RedstringMenu = ({
                           )}
                       </div>
                   );
+              } else if (item === 'Help') {
+                  return (
+                      <div
+                        key={index}
+                        onMouseEnter={() => handleTopLevelMenuHover('Help')}
+                        onMouseLeave={handleTopLevelMenuLeave}
+                        style={{ position: 'relative', width: '100%' }}
+                      >
+                          <button className="menu-item">
+                              <span>{item}</span>
+                              <ChevronRight size={16} className="menu-item-chevron" />
+                          </button>
+                          {isTopLevelMenuOpen('Help') && (
+                            <div
+                              className="submenu-container"
+                              onMouseEnter={handleTopLevelSubmenuEnter}
+                              onMouseLeave={handleTopLevelMenuLeave}
+                            >
+                                <div
+                                  className="submenu-item"
+                                  onMouseEnter={handleRegularSubmenuItemHover}
+                                  onClick={() => {
+                                    // Dispatch event to open help modal
+                                    window.dispatchEvent(new Event('openHelpModal'));
+                                  }}
+                                  style={{ cursor: 'pointer' }}
+                                >
+                                  📖 Redstring Guide
+                                </div>
+                                <div
+                                  className="submenu-item"
+                                  onMouseEnter={handleRegularSubmenuItemHover}
+                                  onClick={() => {
+                                    // Dispatch event to open onboarding modal
+                                    window.dispatchEvent(new Event('openOnboardingModal'));
+                                  }}
+                                  style={{ cursor: 'pointer' }}
+                                >
+                                  🎯 Show Welcome Screen
+                                </div>
+                            </div>
+                          )}
+                      </div>
+                  );
               } else {
                   return (
                       <button
