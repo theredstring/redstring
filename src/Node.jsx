@@ -467,7 +467,8 @@ const Node = ({
                                           ...n,
                                           width: getNodeDimensions(n, false, null).currentWidth,
                                           height: getNodeDimensions(n, false, null).currentHeight,
-                                          imageSrc: n.thumbnailSrc // Pass image source for display
+                                          imageSrc: n.thumbnailSrc, // Pass image source for display
+                                          color: n.color // Ensure color carries over
                                       }))}
                                       connections={currentGraphEdges.map(e => ({
                                           id: e.id,
@@ -483,7 +484,7 @@ const Node = ({
                                       }))}
                                       containerWidth={innerNetworkWidth}
                                       containerHeight={innerNetworkHeight}
-                                      padding={10}
+                                      padding={25}
                                       backgroundColor="transparent"
                                       interactive={true}
                                       showHoverEffects={true}
@@ -493,7 +494,7 @@ const Node = ({
                                       minNodeSize={60}
                                       renderContext="decomposition"
                                       nodeFontScale={1.4}
-                                      cornerRadiusMultiplier={32}
+                                      cornerRadiusMultiplier={64}
                                       onNodeHover={(nodeData, isHovering) => {
                                           if (isHovering) {
                                               setHoveredInnerNodeId(nodeData?.id || null);

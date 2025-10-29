@@ -34,52 +34,65 @@ const HelpModal = ({ isVisible, onClose }) => {
 
   const sections = {
     basics: {
-      title: '🎯 Basic Controls',
+      title: 'Basic Controls',
       content: (
         <div>
           <h3 style={{ color: '#8B0000', marginTop: 0 }}>Working with Things</h3>
           <ul style={{ lineHeight: '1.8' }}>
             <li><strong>Move a Thing:</strong> Click and hold, then drag to reposition</li>
             <li><strong>Create a Connection:</strong> Click and drag from one Thing to another</li>
-            <li><strong>Add meaning to a Connection:</strong> Click on the connection line</li>
+            <li><strong>Add meaning to a Connection:</strong> Click on the connection line to label it with a Thing</li>
             <li><strong>Make an arrow:</strong> Click on the dots at the ends of a connection</li>
-            <li><strong>Open Thing menu:</strong> Click on a Thing to see all options</li>
-            <li><strong>Explore a Thing:</strong> Double-click to open its Web (definition)</li>
+            <li><strong>Open Thing in panel:</strong> Click on a Thing, then click "Open in Panel" or just double-click the Thing</li>
+            <li><strong>Access Thing options:</strong> Click on a Thing to see the pie menu with all options</li>
           </ul>
 
-          <h3 style={{ color: '#8B0000' }}>Thing Menu Options</h3>
+          <h3 style={{ color: '#8B0000' }}>Pie Menu Options</h3>
           <ul style={{ lineHeight: '1.8' }}>
-            <li><strong>📦 Decompose:</strong> Break down a Thing into its components</li>
-            <li><strong>📚 Abstraction:</strong> Change the level of specificity (more general ↔ more specific)</li>
-            <li><strong>🎨 Customize:</strong> Change color, name, and description</li>
-            <li><strong>🗑️ Delete:</strong> Remove the Thing from this Web</li>
+            <li><strong>Decompose (package icon):</strong> Break down a Thing into its components. In decomposed view, click the "Open Package" button to convert the Thing into a Thing-Group</li>
+            <li><strong>Abstraction (stack icon):</strong> Change the level of specificity (more general ↔ more specific)</li>
+            <li><strong>Edit:</strong> Change color, name, and description</li>
+            <li><strong>Delete:</strong> Remove the Thing from this Web</li>
+            <li><strong>Add to Group:</strong> Organize Things into collections</li>
+          </ul>
+
+          <h3 style={{ color: '#8B0000' }}>Keyboard Shortcuts</h3>
+          <ul style={{ lineHeight: '1.8' }}>
+            <li><strong>W/A/S/D:</strong> Pan the canvas (up/left/down/right)</li>
+            <li><strong>Shift:</strong> Zoom in</li>
+            <li><strong>Space:</strong> Zoom out</li>
+            <li><strong>1:</strong> Toggle left panel</li>
+            <li><strong>2:</strong> Toggle right panel</li>
+            <li><strong>3:</strong> Toggle bottom bar</li>
           </ul>
         </div>
       )
     },
     navigation: {
-      title: '🧭 Navigation',
+      title: 'Navigation',
       content: (
         <div>
-          <h3 style={{ color: '#8B0000', marginTop: 0 }}>Moving Around</h3>
+          <h3 style={{ color: '#8B0000', marginTop: 0 }}>Moving Around the Canvas</h3>
           <ul style={{ lineHeight: '1.8' }}>
-            <li><strong>Pan:</strong> Click and drag on empty space to move around the canvas</li>
-            <li><strong>Zoom:</strong> Use mouse wheel or pinch gestures</li>
-            <li><strong>Go into a Web:</strong> Double-click a Thing to explore what it's made of</li>
-            <li><strong>Go back:</strong> Use the breadcrumb navigation at the top</li>
+            <li><strong>Pan (Mouse):</strong> Click and drag on empty space to move around</li>
+            <li><strong>Pan (Trackpad):</strong> Two-finger drag to pan smoothly</li>
+            <li><strong>Zoom (Mouse):</strong> Use mouse wheel to zoom in and out</li>
+            <li><strong>Zoom (Trackpad):</strong> Pinch with two fingers to zoom</li>
+            <li><strong>Go back:</strong> Use the breadcrumb navigation at the top to return to parent Webs</li>
           </ul>
 
-          <h3 style={{ color: '#8B0000' }}>Panels</h3>
+          <h3 style={{ color: '#8B0000' }}>Interface Panels</h3>
           <ul style={{ lineHeight: '1.8' }}>
-            <li><strong>Left Panel (🌐):</strong> Universe management and GitHub sync</li>
-            <li><strong>Right Panel:</strong> Thing details and properties</li>
-            <li><strong>Bottom Panel:</strong> Type selector and Web switcher</li>
+            <li><strong>Left Panel (Globe icon):</strong> Universe management and GitHub sync</li>
+            <li><strong>Right Panel:</strong> Thing details, properties, and editing. Opens when you double-click a Thing</li>
+            <li><strong>Bottom Panel:</strong> Type selector and Web switcher for navigating between different Webs</li>
+            <li><strong>Top Menu (three lines):</strong> File operations, view settings, and connection routing options</li>
           </ul>
         </div>
       )
     },
     universes: {
-      title: '🌌 Universes',
+      title: 'Universes',
       content: (
         <div>
           <h3 style={{ color: '#8B0000', marginTop: 0 }}>What are Universes?</h3>
@@ -97,7 +110,7 @@ const HelpModal = ({ isVisible, onClose }) => {
 
           <h3 style={{ color: '#8B0000' }}>Managing Universes</h3>
           <p>
-            Click the <strong>🌐 Globe icon</strong> in the left panel to:
+            Click the <strong>Globe icon</strong> in the left panel to:
           </p>
           <ul style={{ lineHeight: '1.8' }}>
             <li>Create new Universes</li>
@@ -110,10 +123,10 @@ const HelpModal = ({ isVisible, onClose }) => {
       )
     },
     concepts: {
-      title: '💡 Key Concepts',
+      title: 'Key Concepts',
       content: (
         <div>
-          <h3 style={{ color: '#8B0000', marginTop: 0 }}>Things (formerly "Nodes")</h3>
+          <h3 style={{ color: '#8B0000', marginTop: 0 }}>Things (aka "Nodes")</h3>
           <p>
             <strong>Things</strong> are individual concepts, entities, or ideas. Each Thing can:
           </p>
@@ -124,7 +137,7 @@ const HelpModal = ({ isVisible, onClose }) => {
             <li>Appear in multiple Webs</li>
           </ul>
 
-          <h3 style={{ color: '#8B0000' }}>Webs (formerly "Networks")</h3>
+          <h3 style={{ color: '#8B0000' }}>Webs (aka "Networks")</h3>
           <p>
             <strong>Webs</strong> are collections of Things and their connections. They represent:
           </p>
@@ -144,7 +157,7 @@ const HelpModal = ({ isVisible, onClose }) => {
       )
     },
     advanced: {
-      title: '⚡ Advanced Features',
+      title: 'Advanced Features',
       content: (
         <div>
           <h3 style={{ color: '#8B0000', marginTop: 0 }}>GitHub Integration</h3>
@@ -164,18 +177,19 @@ const HelpModal = ({ isVisible, onClose }) => {
             <li>Other SPARQL endpoints</li>
           </ul>
 
-          <h3 style={{ color: '#8B0000' }}>Keyboard Shortcuts</h3>
+          <h3 style={{ color: '#8B0000' }}>Connection Routing</h3>
+          <p>Customize how connections are displayed:</p>
           <ul style={{ lineHeight: '1.8' }}>
-            <li><strong>Ctrl/Cmd + S:</strong> Save Universe</li>
-            <li><strong>Delete/Backspace:</strong> Delete selected Thing or Connection</li>
-            <li><strong>Ctrl/Cmd + Z:</strong> Undo</li>
-            <li><strong>Ctrl/Cmd + Y:</strong> Redo</li>
+            <li><strong>Straight:</strong> Direct lines between Things</li>
+            <li><strong>Manhattan:</strong> Orthogonal routing with right-angle bends</li>
+            <li><strong>Clean:</strong> Smooth curved paths with adjustable spacing</li>
           </ul>
+          <p>Access these options in the top menu under Connections.</p>
         </div>
       )
     },
     troubleshooting: {
-      title: '🔧 Troubleshooting',
+      title: 'Troubleshooting',
       content: (
         <div>
           <h3 style={{ color: '#8B0000', marginTop: 0 }}>Common Issues</h3>
@@ -211,7 +225,7 @@ const HelpModal = ({ isVisible, onClose }) => {
             border: '1px solid #ffc107',
             color: '#856404'
           }}>
-            <strong>⚠️ Note:</strong> Redstring is currently optimized for desktop browsers. 
+            <strong>Note:</strong> Redstring is currently optimized for desktop browsers. 
             Mobile and tablet support is incomplete in this version.
           </p>
         </div>
@@ -226,6 +240,54 @@ const HelpModal = ({ isVisible, onClose }) => {
       fontFamily: "'EmOne', sans-serif",
       fontSize: isCompactLayout ? '0.85rem' : '0.9rem'
     }}>
+      <style>
+        {`
+          .help-modal-sidebar::-webkit-scrollbar {
+            width: 20px;
+          }
+          .help-modal-sidebar::-webkit-scrollbar-track {
+            background: rgba(38, 0, 0, 0.05);
+            border-radius: 4px;
+          }
+          .help-modal-sidebar::-webkit-scrollbar-thumb {
+            background-color: rgba(38, 0, 0, 0.1);
+            border-radius: 4px;
+            border: 6px solid transparent;
+            background-clip: padding-box;
+          }
+          .help-modal-sidebar:hover::-webkit-scrollbar-thumb {
+            background-color: #260000;
+            border-width: 4px;
+          }
+          .help-modal-sidebar {
+            scrollbar-width: thin;
+            scrollbar-color: rgba(38, 0, 0, 0.1) rgba(38, 0, 0, 0.05);
+          }
+
+          .help-modal-content::-webkit-scrollbar {
+            width: 20px;
+          }
+          .help-modal-content::-webkit-scrollbar-track {
+            background: rgba(38, 0, 0, 0.05);
+            border-radius: 4px;
+          }
+          .help-modal-content::-webkit-scrollbar-thumb {
+            background-color: rgba(38, 0, 0, 0.1);
+            border-radius: 4px;
+            border: 6px solid transparent;
+            background-clip: padding-box;
+          }
+          .help-modal-content:hover::-webkit-scrollbar-thumb {
+            background-color: #260000;
+            border-width: 4px;
+          }
+          .help-modal-content {
+            scrollbar-width: thin;
+            scrollbar-color: rgba(38, 0, 0, 0.1) rgba(38, 0, 0, 0.05);
+          }
+        `}
+      </style>
+
       {/* Close button */}
       <button
         onClick={onClose}
@@ -237,7 +299,7 @@ const HelpModal = ({ isVisible, onClose }) => {
         style={{
           position: 'absolute',
           top: isCompactLayout ? '12px' : '16px',
-          right: isCompactLayout ? '12px' : '16px',
+          right: isCompactLayout ? '32px' : '40px',
           background: 'none',
           border: 'none',
           color: '#666',
@@ -258,19 +320,22 @@ const HelpModal = ({ isVisible, onClose }) => {
 
       {/* Sidebar Navigation */}
       {!isCompactLayout && (
-        <div style={{
-          width: '200px',
-          borderRight: '1px solid #ddd',
-          padding: '20px 12px',
-          overflowY: 'auto',
-          flexShrink: 0
-        }}>
+        <div 
+          className="help-modal-sidebar"
+          style={{
+            width: '200px',
+            borderRight: '1px solid #ddd',
+            padding: '20px 12px',
+            overflowY: 'auto',
+            flexShrink: 0
+          }}
+        >
           <h3 style={{ 
             margin: '0 0 16px 0', 
             fontSize: '1.1rem',
             color: '#260000'
           }}>
-            📖 Help Topics
+            Help Topics
           </h3>
           {Object.keys(sections).map((key) => (
             <div
@@ -308,12 +373,16 @@ const HelpModal = ({ isVisible, onClose }) => {
       )}
 
       {/* Main Content Area */}
-      <div style={{
-        flex: 1,
-        padding: isCompactLayout ? '16px' : '24px',
-        paddingTop: isCompactLayout ? '40px' : '24px',
-        overflowY: 'auto'
-      }}>
+      <div 
+        className="help-modal-content"
+        style={{
+          flex: 1,
+          padding: isCompactLayout ? '16px' : '24px',
+          paddingTop: isCompactLayout ? '40px' : '24px',
+          paddingRight: isCompactLayout ? '24px' : '32px',
+          overflowY: 'auto'
+        }}
+      >
         {/* Mobile Section Selector */}
         {isCompactLayout && (
           <div style={{ marginBottom: '20px' }}>
@@ -353,65 +422,6 @@ const HelpModal = ({ isVisible, onClose }) => {
           color: '#333'
         }}>
           {sections[activeSection].content}
-        </div>
-
-        {/* Quick Links */}
-        <div style={{
-          marginTop: '32px',
-          padding: '16px',
-          backgroundColor: '#f8f8f8',
-          borderRadius: '8px',
-          border: '1px solid #e0e0e0'
-        }}>
-          <h4 style={{ margin: '0 0 12px 0', color: '#8B0000' }}>Quick Actions</h4>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-            <button
-              onClick={() => {
-                onClose();
-                window.dispatchEvent(new CustomEvent('openGitFederation'));
-              }}
-              style={{
-                padding: '10px 12px',
-                backgroundColor: '#8B0000',
-                color: 'white',
-                border: 'none',
-                borderRadius: '6px',
-                cursor: 'pointer',
-                fontSize: '0.85rem',
-                fontWeight: 'bold',
-                textAlign: 'left',
-                display: 'flex',
-                alignItems: 'center',
-                gap: '8px'
-              }}
-            >
-              <span>🌐</span>
-              <span>Open Universe Manager</span>
-            </button>
-            <a
-              href="https://github.com/yourusername/redstring/issues"
-              target="_blank"
-              rel="noopener noreferrer"
-              style={{
-                padding: '10px 12px',
-                backgroundColor: '#666',
-                color: 'white',
-                border: 'none',
-                borderRadius: '6px',
-                cursor: 'pointer',
-                fontSize: '0.85rem',
-                fontWeight: 'bold',
-                textAlign: 'left',
-                display: 'flex',
-                alignItems: 'center',
-                gap: '8px',
-                textDecoration: 'none'
-              }}
-            >
-              <span>🐛</span>
-              <span>Report a Bug</span>
-            </a>
-          </div>
         </div>
       </div>
     </div>

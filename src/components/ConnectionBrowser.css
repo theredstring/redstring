@@ -136,7 +136,7 @@
   position: relative;
   padding: 0;
   margin: 0 -1px; /* Slight overlap to ensure visual connection */
-  min-width: 160px; /* Ensure minimum width for text rendering */
+  min-width: 240px; /* Increased minimum width to ensure line extends beyond label */
 }
 
 .connection-svg {

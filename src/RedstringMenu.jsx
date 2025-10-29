@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import MaroonSlider from './components/MaroonSlider.jsx';
-import { ChevronRight, FileText, FolderOpen, Save, Clock, Globe, Bug } from 'lucide-react';
+import { ChevronRight, FileText, FolderOpen, Save, Clock, Globe, Bug, BookOpen, Home } from 'lucide-react';
 import './RedstringMenu.css';
 import DebugOverlay from './DebugOverlay';
 import * as fileStorage from './store/fileStorage.js';
@@ -629,7 +629,8 @@ const RedstringMenu = ({
                                   }}
                                   style={{ cursor: 'pointer' }}
                                 >
-                                  📖 Redstring Guide
+                                  <BookOpen size={16} style={{ marginRight: '8px', minWidth: '16px', flexShrink: 0 }} />
+                                  Redstring Guide
                                 </div>
                                 <div
                                   className="submenu-item"
@@ -640,7 +641,8 @@ const RedstringMenu = ({
                                   }}
                                   style={{ cursor: 'pointer' }}
                                 >
-                                  🎯 Show Welcome Screen
+                                  <Home size={16} style={{ marginRight: '8px', minWidth: '16px', flexShrink: 0 }} />
+                                  Show Welcome Screen
                                 </div>
                             </div>
                           )}

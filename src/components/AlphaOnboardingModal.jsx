@@ -220,7 +220,7 @@ const AlphaOnboardingModal = ({
       {/* Welcome Header */}
       <div style={{ textAlign: 'center', marginBottom: isCompactLayout ? '12px' : '16px', flexShrink: 0 }}>
         <h2 style={{
-          margin: '0 0 6px 0',
+          margin: '0 0 8px 0',
           color: '#260000',
           fontSize: isCompactLayout ? '1.1rem' : '1.4rem',
           fontWeight: 'bold',
@@ -230,11 +230,12 @@ const AlphaOnboardingModal = ({
         </h2>
         <div style={{
           margin: '0 0 6px 0',
-          fontSize: '0.75rem',
+          fontSize: isCompactLayout ? '0.85rem' : '0.9rem',
           color: '#716C6C',
-          fontFamily: "'EmOne', sans-serif"
+          fontFamily: "'EmOne', sans-serif",
+          fontWeight: '600'
         }}>
-          Open Alpha
+          Alpha v0.1.0
         </div>
       </div>
 
@@ -250,7 +251,6 @@ const AlphaOnboardingModal = ({
           color: '#856404',
           textAlign: 'center'
         }}>
-          <strong>⚠️ Mobile Notice</strong><br />
           Redstring is unfinished on mobile in this version and will not work correctly. For the best experience, please use a desktop browser.
         </div>
       )}
@@ -275,32 +275,32 @@ const AlphaOnboardingModal = ({
           <strong>Redstring</strong> helps you build interconnected knowledge through <strong>Things</strong> (concepts) and <strong>Webs</strong> (networks).
         </p>
 
-        <h4 style={{
-          margin: '0 0 12px 0',
-          color: '#8B0000',
-          fontSize: isCompactLayout ? '0.9rem' : '1rem',
-          fontWeight: 'bold',
-          fontFamily: "'EmOne', sans-serif",
-          textAlign: 'center'
-        }}>
-          Quick Start:
-        </h4>
-
         <div style={{ 
-          backgroundColor: '#f8f8f8', 
+          backgroundColor: '#260000', 
           borderRadius: '8px', 
           padding: isCompactLayout ? '10px' : '12px',
           marginBottom: '12px',
           fontSize: isCompactLayout ? '0.8rem' : '0.85rem',
-          color: '#333',
-          border: '1px solid #e0e0e0'
+          color: '#EFE8E5',
+          border: '1px solid #260000'
         }}>
-          <strong>Basic Controls:</strong><br />
+          <strong style={{ fontSize: isCompactLayout ? '0.9rem' : '1rem' }}>Basic Controls:</strong><br />
           • Click and hold to move a Thing<br />
           • Click and drag between Things to connect them<br />
           • Click a connection to give it meaning with a Thing<br />
-          • Double-click a Thing to explore its Web<br />
+          • Double-click a Thing to open it in the right panel<br />
         </div>
+
+        <p style={{
+          margin: '0 0 12px 0',
+          fontSize: isCompactLayout ? '0.75rem' : '0.8rem',
+          color: '#666',
+          textAlign: 'center',
+          fontStyle: 'italic'
+        }}>
+          Your work is stored in <strong>Universes</strong>.<br />
+          Connect GitHub for cloud sync or use local files.
+        </p>
 
         <div style={{
           display: 'flex',
@@ -327,7 +327,7 @@ const AlphaOnboardingModal = ({
               textAlign: 'center'
             }}
           >
-            🌐 Connect to GitHub (Recommended)
+            Connect to GitHub (Recommended)
           </button>
 
           <button
@@ -349,19 +349,9 @@ const AlphaOnboardingModal = ({
               textAlign: 'center'
             }}
           >
-            📖 Learn More
+            Learn More
           </button>
         </div>
-
-        <p style={{
-          margin: '0',
-          fontSize: isCompactLayout ? '0.75rem' : '0.8rem',
-          color: '#666',
-          textAlign: 'center',
-          fontStyle: 'italic'
-        }}>
-          Your work is stored in <strong>Universes</strong>. Connect GitHub for cloud sync or use local files.
-        </p>
       </div>
     </>
   );

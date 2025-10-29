@@ -21,7 +21,8 @@ const PieMenu = ({
   isVisible,
   onExitAnimationComplete,
   focusedNode,
-  onHoverChange = () => {}
+  onHoverChange = () => {},
+  onAutoClose = () => {}
 }) => {
   // animationState can be: null (initial/hidden), 'popping', 'visible_steady', 'shrinking'
   const [animationState, setAnimationState] = useState(null);
@@ -34,6 +35,7 @@ const PieMenu = ({
   }, [buttons.length]);
 
   const animationsEndedCountRef = useRef(0);
+  const autoCloseTimerRef = useRef(null);
 
   // Primary effect to react to visibility changes from parent
   useEffect(() => {
@@ -110,6 +112,32 @@ const PieMenu = ({
       });
     };
   }, [animationState, handleAnimationEnd]);
+
+  // Auto-close timer: Close the pie menu after 5 seconds of being visible
+  useEffect(() => {
+    // Clear any existing timer
+    if (autoCloseTimerRef.current) {
+      clearTimeout(autoCloseTimerRef.current);
+      autoCloseTimerRef.current = null;
+    }
+
+    // Start a new timer when the menu becomes visible (visible_steady state)
+    if (animationState === 'visible_steady' && isVisible) {
+      console.log('[PieMenu] Starting 5-second auto-close timer');
+      autoCloseTimerRef.current = setTimeout(() => {
+        console.log('[PieMenu] Auto-close timer expired, triggering close');
+        onAutoClose();
+      }, 5000); // 5 seconds
+    }
+
+    // Cleanup function
+    return () => {
+      if (autoCloseTimerRef.current) {
+        clearTimeout(autoCloseTimerRef.current);
+        autoCloseTimerRef.current = null;
+      }
+    };
+  }, [animationState, isVisible, onAutoClose]);
 
   // Render null if essential data is missing
   if (!node || !buttons || !buttons.length || !nodeDimensions) {

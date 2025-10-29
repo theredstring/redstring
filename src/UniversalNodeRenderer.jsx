@@ -1018,7 +1018,7 @@ const UniversalNodeRenderer = ({
           if (renderContext === 'decomposition') {
             // For decomposition view, use a minimum corner radius to maintain visual clarity at small scales
             const scaledRadius = cornerRadiusMultiplier * transform.scale;
-            cornerRadius = Math.max(2, Math.min(scaledRadius, node.width * 0.1, node.height * 0.1));
+            cornerRadius = Math.max(2, Math.min(scaledRadius, node.width * 0.3, node.height * 0.3));
           } else {
             cornerRadius = Math.max(1, cornerRadiusMultiplier * transform.scale); // NODE_CORNER_RADIUS baseline
           }

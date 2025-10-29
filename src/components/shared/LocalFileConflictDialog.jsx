@@ -55,22 +55,22 @@ const OptionCard = ({ option, actionLabel, onSelect, tone = 'neutral' }) => {
         border: `2px solid ${baseBorder}`,
         borderRadius: 12,
         backgroundColor: '#bdb5b5',
-        padding: '18px',
+        padding: '14px',
         display: 'flex',
         flexDirection: 'column',
-        gap: 16,
+        gap: 12,
         minHeight: 0
       }}
     >
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, color: accentColor, fontSize: '0.8rem', fontWeight: 700, letterSpacing: '0.04em' }}>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6, color: accentColor, fontSize: '0.75rem', fontWeight: 700, letterSpacing: '0.04em' }}>
           {headerIcon}
           <span>{option.role}</span>
         </div>
-        <div style={{ fontSize: '1.05rem', fontWeight: 700, color: '#260000' }}>
+        <div style={{ fontSize: '0.95rem', fontWeight: 700, color: '#260000' }}>
           {option.label}
         </div>
-        <div style={{ fontSize: '0.85rem', color: '#333', wordBreak: 'break-word' }}>
+        <div style={{ fontSize: '0.8rem', color: '#333', wordBreak: 'break-word' }}>
           {displayValue}
         </div>
       </div>
@@ -78,9 +78,9 @@ const OptionCard = ({ option, actionLabel, onSelect, tone = 'neutral' }) => {
       <div
         style={{
           display: 'grid',
-          gridTemplateColumns: 'minmax(140px, 160px) 1fr',
-          gap: '8px 12px',
-          fontSize: '0.85rem',
+          gridTemplateColumns: 'minmax(120px, 140px) 1fr',
+          gap: '6px 10px',
+          fontSize: '0.8rem',
           color: '#260000'
         }}
       >
@@ -96,13 +96,13 @@ const OptionCard = ({ option, actionLabel, onSelect, tone = 'neutral' }) => {
         onClick={onSelect}
         style={{
           marginTop: 'auto',
-          padding: '10px 18px',
+          padding: '8px 14px',
           borderRadius: 8,
           border: `2px solid ${accentColor}`,
           backgroundColor: tone === 'accent' ? accentColor : 'transparent',
           color: tone === 'accent' ? '#bdb5b5' : '#260000',
           fontWeight: 700,
-          fontSize: '0.9rem',
+          fontSize: '0.85rem',
           cursor: 'pointer',
           fontFamily: "'EmOne', sans-serif",
           transition: 'all 0.2s'
@@ -156,7 +156,8 @@ const LocalFileConflictDialog = ({
           fontFamily: "'EmOne', sans-serif",
           boxShadow: '0 22px 60px rgba(0,0,0,0.55)',
           margin: '40px 0',
-          maxHeight: '90vh'
+          maxHeight: 'min(650px, 85vh)',
+          overflow: 'hidden'
         }}
         onClick={(e) => e.stopPropagation()}
       >
@@ -164,20 +165,20 @@ const LocalFileConflictDialog = ({
           style={{
             display: 'flex',
             alignItems: 'center',
-            gap: 14,
-            padding: '22px 26px',
+            gap: 12,
+            padding: '16px 20px',
             borderBottom: '2px solid #260000',
             backgroundColor: '#979090'
           }}
         >
           <div style={{ color: '#7A0000', display: 'flex', alignItems: 'center', gap: 10 }}>
-            <AlertTriangle size={26} />
+            <AlertTriangle size={22} />
           </div>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-            <h2 style={{ margin: 0, fontSize: '1.25rem', fontWeight: 700, color: '#260000' }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+            <h2 style={{ margin: 0, fontSize: '1.1rem', fontWeight: 700, color: '#260000' }}>
               Resolve Local File Conflict
             </h2>
-            <p style={{ margin: 0, fontSize: '0.9rem', color: '#260000', lineHeight: 1.5 }}>
+            <p style={{ margin: 0, fontSize: '0.85rem', color: '#260000', lineHeight: 1.4 }}>
               We found multiple local files associated with "{universeName}". Choose which file should act as the source of truth going forward.
             </p>
           </div>
@@ -185,10 +186,10 @@ const LocalFileConflictDialog = ({
 
         <div
           style={{
-            padding: '24px',
+            padding: '18px',
             display: 'flex',
             flexDirection: 'column',
-            gap: 20,
+            gap: 16,
             overflowY: 'auto'
           }}
         >
@@ -218,7 +219,7 @@ const LocalFileConflictDialog = ({
           style={{
             display: 'flex',
             justifyContent: 'flex-end',
-            padding: '16px 24px',
+            padding: '12px 18px',
             borderTop: '2px solid #260000',
             backgroundColor: '#979090'
           }}
@@ -226,13 +227,13 @@ const LocalFileConflictDialog = ({
           <button
             onClick={onCancel}
             style={{
-              padding: '10px 18px',
+              padding: '8px 16px',
               borderRadius: 8,
               border: '2px solid #260000',
               backgroundColor: 'transparent',
               color: '#260000',
               fontWeight: 700,
-              fontSize: '0.9rem',
+              fontSize: '0.85rem',
               cursor: 'pointer',
               fontFamily: "'EmOne', sans-serif",
               transition: 'background-color 0.2s'

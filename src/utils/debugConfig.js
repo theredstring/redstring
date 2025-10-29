@@ -11,16 +11,36 @@ const DEBUG_STORAGE_KEYS = {
   LOG_LEVEL: 'redstring_debug_log_level'
 };
 
+const hasBrowserWindow = typeof window !== 'undefined';
+const hasLocalStorage = hasBrowserWindow && typeof window.localStorage !== 'undefined';
+const browserLocationSearch =
+  hasBrowserWindow && typeof window.location !== 'undefined'
+    ? window.location.search
+    : '';
+
 class DebugConfig {
   constructor() {
     this.listeners = new Set();
     this.isInitialized = false;
     this.config = {};
+    this.storage = hasLocalStorage ? window.localStorage : null;
     this.initialize();
   }
 
   initialize() {
     if (this.isInitialized) return;
+
+    if (!this.storage) {
+      // Default configuration for non-browser environments
+      this.config = {
+        disableLocalStorage: false,
+        debugMode: false,
+        forceGitOnly: false,
+        logLevel: 'info'
+      };
+      this.isInitialized = true;
+      return;
+    }
     
     try {
       // Load existing debug settings from localStorage
@@ -32,7 +52,7 @@ class DebugConfig {
       };
 
       // Check URL parameters for debug overrides
-      const urlParams = new URLSearchParams(window.location.search);
+      const urlParams = new URLSearchParams(browserLocationSearch);
       
       if (urlParams.has('debug')) {
         this.config.debugMode = true;
@@ -70,8 +90,10 @@ class DebugConfig {
   }
 
   getBooleanSetting(key, defaultValue) {
+    if (!this.storage) return defaultValue;
+
     try {
-      const value = localStorage.getItem(key);
+      const value = this.storage.getItem(key);
       if (value === null) return defaultValue;
       return value === 'true';
     } catch (error) {
@@ -81,8 +103,10 @@ class DebugConfig {
   }
 
   getStringSetting(key, defaultValue) {
+    if (!this.storage) return defaultValue;
+
     try {
-      const value = localStorage.getItem(key);
+      const value = this.storage.getItem(key);
       return value !== null ? value : defaultValue;
     } catch (error) {
       console.warn(`[DebugConfig] Failed to read ${key}:`, error);
@@ -91,11 +115,13 @@ class DebugConfig {
   }
 
   setSetting(key, value) {
+    if (!this.storage) return;
+
     try {
       if (typeof value === 'boolean') {
-        localStorage.setItem(key, value.toString());
+        this.storage.setItem(key, value.toString());
       } else {
-        localStorage.setItem(key, value);
+        this.storage.setItem(key, value);
       }
     } catch (error) {
       console.error(`[DebugConfig] Failed to save ${key}:`, error);
@@ -166,9 +192,20 @@ class DebugConfig {
 
   // Clear all debug settings
   reset() {
+    if (!this.storage) {
+      this.config = {
+        disableLocalStorage: false,
+        debugMode: false,
+        forceGitOnly: false,
+        logLevel: 'info'
+      };
+      this.notifyListeners();
+      return;
+    }
+
     try {
       Object.values(DEBUG_STORAGE_KEYS).forEach(key => {
-        localStorage.removeItem(key);
+        this.storage.removeItem(key);
       });
       
       this.config = {
@@ -216,7 +253,7 @@ class DebugConfig {
 
   // Get URL parameter overrides
   getURLOverrides() {
-    const urlParams = new URLSearchParams(window.location.search);
+    const urlParams = new URLSearchParams(browserLocationSearch);
     return {
       debug: urlParams.has('debug'),
       disableLocalStorage: urlParams.has('disable-local-storage'),

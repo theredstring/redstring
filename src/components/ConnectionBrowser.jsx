@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
-import { ArrowRight, Plus, CircleDot, RefreshCw, List, Network, Sparkles } from 'lucide-react';
+import { ArrowRight, Plus, CircleDot, RefreshCw, List, Network, Sparkles, Search, X } from 'lucide-react';
 import useGraphStore from '../store/graphStore.jsx';
 import { discoverConnections } from '../services/semanticDiscovery.js';
 import { fastEnrichFromSemanticWeb } from '../services/semanticWebQuery.js';
@@ -54,24 +54,25 @@ const RDFTriplet = ({
   // Responsive sizing based on panel width
   const getSizing = () => {
     // Dynamic sizing based on container width - continuously scale everything
-    const baseHeight = isUltraSlim ? 24 : 40;
-    const baseLineThickness = isUltraSlim ? 3 : 6;
-    const baseTextSize = isUltraSlim ? 8 : 14;
-    const baseNodeSize = isUltraSlim ? 9 : 13;
+    // Increased base sizes to make connection view roughly 2x larger
+    const baseHeight = isUltraSlim ? 48 : 80;
+    const baseLineThickness = isUltraSlim ? 6 : 12;
+    const baseTextSize = isUltraSlim ? 14 : 18;
+    const baseNodeSize = isUltraSlim ? 16 : 20;
 
     // Scale factor based on container width
     const scaleFactor = Math.max(0.6, Math.min(1, containerWidth / 400));
 
     return {
-      nodePadding: isUltraSlim ? '4px 6px' : '8px 12px',
+      nodePadding: isUltraSlim ? '8px 12px' : '12px 16px',
       nodeFontSize: `${baseNodeSize * scaleFactor}px`,
-      lineThickness: Math.max(2, baseLineThickness * scaleFactor),
+      lineThickness: Math.max(4, baseLineThickness * scaleFactor),
       textFontSize: baseTextSize * scaleFactor,
-      arrowSize: 12, // Keep arrows consistent
-      arrowStrokeWidth: isUltraSlim ? 2 : 3,
-      nodeMinWidth: isUltraSlim ? '50px' : '80px',
-      nodeMaxWidth: isUltraSlim ? '80px' : '130px',
-      connectionHeight: Math.max(20, baseHeight * scaleFactor)
+      arrowSize: 16, // Increased arrow size proportionally
+      arrowStrokeWidth: isUltraSlim ? 3 : 4,
+      nodeMinWidth: isUltraSlim ? '70px' : '100px',
+      nodeMaxWidth: isUltraSlim ? '120px' : '180px',
+      connectionHeight: Math.max(40, baseHeight * scaleFactor)
     };
   };
   
@@ -179,7 +180,7 @@ const RDFTriplet = ({
         {/* Connection - RESPONSIVE FLEX APPROACH */}
         <div className="triplet-connection" style={{
           flex: 1,
-          minWidth: `${Math.max(20, sizing.connectionHeight * 0.5)}px`,
+          minWidth: `${Math.max(100, sizing.connectionHeight * 1.5)}px`,
           height: sizing.connectionHeight,
           display: 'flex',
           alignItems: 'center'
@@ -200,7 +201,7 @@ const RDFTriplet = ({
           )}
 
                     {/* Fixed Line and Centered Text */}
-          <div className="line-container" style={{ flex: 1, height: '100%', position: 'relative', minWidth: `${Math.max(10, sizing.connectionHeight * 0.3)}px` }}>
+          <div className="line-container" style={{ flex: 1, height: '100%', position: 'relative', minWidth: `${Math.max(80, sizing.connectionHeight * 1.2)}px` }}>
                                 {/* Stretching Line */}
             <svg width="100%" height="100%" preserveAspectRatio="none">
                 <line

@@ -10802,6 +10802,10 @@ function NodeCanvas() {
                             )
                           )}
                           onHoverChange={handlePieMenuHoverChange}
+                          onAutoClose={() => {
+                            console.log('[NodeCanvas] PieMenu auto-close triggered after 5 seconds');
+                            setSelectedNodeIdForPieMenu(null);
+                          }}
                                       onExitAnimationComplete={() => {
              // 
              setIsPieMenuRendered(false); 

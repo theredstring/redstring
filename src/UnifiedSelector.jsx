@@ -254,18 +254,21 @@ const UnifiedSelector = ({
                 type="text"
                 value={name}
                 onChange={(e) => setName(e.target.value)}
-                onKeyDown={(e) => { 
-                  if (e.key === 'Enter') handleSubmit(); 
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') handleSubmit();
                   if (e.key === 'Escape') { setName(''); setColorPickerVisible(false); onClose?.(); }
                 }}
-                style={{ 
-                  flex: 1, 
-                  padding: inputPadding, 
-                  borderRadius: '6px', 
-                  border: '1px solid #260000', 
+                style={{
+                  flex: 1,
+                  padding: inputPadding,
+                  borderRadius: '6px',
+                  border: '1px solid #260000',
                   marginRight: searchOnly ? 0 : (isSmallScreen ? '6px' : '10px'),
                   fontSize: isMobilePortrait ? '15px' : '14px',
-                  touchAction: 'manipulation'
+                  touchAction: 'manipulation',
+                  backgroundColor: '#260000',
+                  color: '#bdb5b5',
+                  fontFamily: "'EmOne', sans-serif"
                 }}
                 autoFocus={false}
               />

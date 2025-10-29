@@ -1,5 +1,4 @@
 import React from 'react';
-import { Copy } from 'lucide-react';
 
 const ContextMenu = ({ x, y, options = [], onClose, onSelect }) => {
   // If no options provided, show default message
