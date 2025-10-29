@@ -43,9 +43,9 @@ const VideoNodeAnimation = ({ x, y, onComplete }) => {
   });
 
   const PHASES = {
-    stretch: { duration: 1590, startTime: 0 },
-    tremble: { duration: 3110, startTime: 1590 },
-    explode: { duration: 1000, startTime: 4700 }
+    stretch: { duration: 1590, startTime: 1000 },
+    tremble: { duration: 3110, startTime: 2590 },
+    explode: { duration: 1000, startTime: 5700 }
   };
 
   const lerp = (a, b, t) => a + (b - a) * t;

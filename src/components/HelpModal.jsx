@@ -324,7 +324,7 @@ const HelpModal = ({ isVisible, onClose }) => {
           className="help-modal-sidebar"
           style={{
             width: '160px',
-            borderRight: '1px solid #ddd',
+            borderRight: '1px solid #260000',
             padding: '20px 12px',
             overflowY: 'auto',
             flexShrink: 0

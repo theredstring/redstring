@@ -1209,6 +1209,60 @@ function NodeCanvas() {
   const activeGraphName = activeGraphData?.name ?? 'Loading...';
   const activeGraphDescription = activeGraphData?.description ?? '';
 
+  useEffect(() => {
+    if (!activeGraphId || !graphsMap || typeof graphsMap?.has !== 'function') return;
+    if (graphsMap.has(activeGraphId)) return;
+    if (!storeActions || typeof storeActions.createGraphWithId !== 'function') return;
+
+    let fallbackName = 'New Thing';
+    let fallbackDescription = '';
+    let fallbackColor = NODE_DEFAULT_COLOR;
+
+    if (nodePrototypesMap && typeof nodePrototypesMap.values === 'function') {
+      for (const prototype of nodePrototypesMap.values()) {
+        if (!prototype) continue;
+        const definitionGraphIds = Array.isArray(prototype.definitionGraphIds)
+          ? prototype.definitionGraphIds
+          : Array.isArray(prototype.definitionGraphs)
+            ? prototype.definitionGraphs
+            : [];
+        if (definitionGraphIds.includes(activeGraphId)) {
+          if (prototype.name) {
+            fallbackName = prototype.name;
+          }
+          if (prototype.description) {
+            fallbackDescription = prototype.description;
+          }
+          if (prototype.color) {
+            if (typeof prototype.color === 'string') {
+              fallbackColor = prototype.color;
+            } else if (typeof prototype.color === 'object') {
+              if (typeof prototype.color.hex === 'string' && prototype.color.hex.trim()) {
+                fallbackColor = prototype.color.hex;
+              } else if (typeof prototype.color.toString === 'function') {
+                const colorString = prototype.color.toString();
+                if (typeof colorString === 'string' && colorString.trim()) {
+                  fallbackColor = colorString;
+                }
+              }
+            }
+          }
+          break;
+        }
+      }
+    }
+
+    try {
+      storeActions.createGraphWithId(activeGraphId, {
+        name: fallbackName,
+        description: fallbackDescription,
+        color: fallbackColor,
+      });
+    } catch (error) {
+      console.warn('[NodeCanvas] Failed to auto-create graph canvas for', activeGraphId, error);
+    }
+  }, [activeGraphId, graphsMap, nodePrototypesMap, storeActions]);
+
   const headerGraphs = useMemo(() => {
     return openGraphIds.map(graphId => {
         const graph = graphsMap.get(graphId);
@@ -6018,7 +6072,10 @@ function NodeCanvas() {
           (e.target.tagName === 'DIV' && e.target.classList.contains('canvas-area'))
       );
       if (!isValidCanvasTarget) return;
-      if (isPaused || draggingNodeInfo || drawingConnectionFrom || mouseMoved.current || recentlyPanned || nodeNamePrompt.visible || !activeGraphId) {
+      
+      // For canvas clicks, we don't need to wait for the CLICK_DELAY since we're not dealing with double-click detection
+      // Only check if we're in a state that should block canvas interactions
+      if (isPaused || draggingNodeInfo || drawingConnectionFrom || recentlyPanned || nodeNamePrompt.visible || !activeGraphId) {
           setLastInteractionType('blocked_click');
           return;
       }

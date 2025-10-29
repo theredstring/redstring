@@ -57,6 +57,33 @@ const PredicateRail = ({ color = '#4A5568', leftActive, rightActive, onToggleLef
   );
 };
 
+const createTextMeasurer = () => {
+  let canvas = null;
+  let context = null;
+  return (text, font) => {
+    const content = text || '';
+    const fallbackUnit = font?.includes('14px') ? 7.2 : 8.4;
+
+    if (typeof document === 'undefined') {
+      return content.length * fallbackUnit;
+    }
+
+    if (!canvas) {
+      canvas = document.createElement('canvas');
+      context = canvas.getContext('2d');
+    }
+
+    if (!context) {
+      return content.length * fallbackUnit;
+    }
+
+    context.font = font || '16px "EmOne", sans-serif';
+    return context.measureText(content).width;
+  };
+};
+
+const measureTextWidth = createTextMeasurer();
+
 // Modes: 'nodes' | 'connections' | 'abstraction' | 'group' | 'nodegroup'
 const UnifiedBottomControlPanel = ({
   mode = 'nodes',
@@ -522,20 +549,35 @@ const UnifiedBottomControlPanel = ({
               });
               
               // Dynamic sizing based on actual content needs with reasonable maximum
-              const baseSpacing = 200; // Base width for padding and connection line
-              const nodeSpacing = nodes.length * 80; // Per-node spacing
-              
-              // Calculate connection label space based on longest connection name
-              const longestConnectionName = connections.reduce((max, conn) => 
-                Math.max(max, (conn.connectionName || '').length), 0
+              const baseSpacing = mobileState.isMobilePortrait ? 220 : 260; // Base width for padding and connection line
+              const nodeSpacing = nodes.length * (mobileState.isMobilePortrait ? 90 : 110); // Per-node spacing
+
+              const connectionLabelFont = mobileState.isMobilePortrait
+                ? '14px "EmOne", sans-serif'
+                : '16px "EmOne", sans-serif';
+
+              const longestConnectionLabelWidth = connections.reduce((max, conn) => {
+                const width = measureTextWidth(conn.connectionName, connectionLabelFont);
+                return Math.max(max, width);
+              }, 0);
+
+              const connectionLabelSpace = Math.max(
+                mobileState.isMobilePortrait ? 240 : 320,
+                Math.ceil(longestConnectionLabelWidth + (mobileState.isMobilePortrait ? 160 : 220))
               );
-              // Rough estimate: ~8px per character + some padding
-              const connectionLabelSpace = Math.max(150, longestConnectionName * 8 + 40);
 
               // Calculate container width - as big as needed with sensible max
               const calculatedWidth = Math.min(
-                1200, // Reasonable maximum width (won't dominate entire screen)
+                1600, // Allow longer connection labels while keeping a sensible maximum width
                 baseSpacing + nodeSpacing + connectionLabelSpace
+              );
+
+              const dynamicMinHorizontalSpacing = Math.max(
+                mobileState.isMobilePortrait ? 90 : 120,
+                Math.min(
+                  connectionLabelSpace - (mobileState.isMobilePortrait ? 60 : 80),
+                  mobileState.isMobilePortrait ? 320 : 380
+                )
               );
 
                 return (
@@ -545,7 +587,7 @@ const UnifiedBottomControlPanel = ({
                   connections={connections}
                   containerWidth={calculatedWidth}
                   containerHeight={mobileState.isMobilePortrait ? 160 : 180}
-                  minHorizontalSpacing={mobileState.isMobilePortrait ? 60 : 75}
+                  minHorizontalSpacing={dynamicMinHorizontalSpacing}
                   onNodeClick={onNodeClick}
                   onConnectionClick={onPredicateClick}
                   onToggleArrow={(connectionId, targetNodeId) => {
