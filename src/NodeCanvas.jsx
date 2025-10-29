@@ -3087,26 +3087,6 @@ function NodeCanvas() {
     }
   }, [activePieMenuColorNodeId, nodes, storeActions]);
 
-  // Node panel palette handler (moved here after refs are defined)
-  const handleNodePanelPalette = useCallback(() => {
-    const first = selectedNodePrototypes[0];
-    if (!first) return;
-    // Open color picker for the first selected node
-    const instance = nodes.find(n => n.prototypeId === first.id);
-    if (instance) {
-      // Calculate position for color picker
-      const nodeCenter = {
-        x: instance.x + 50, // Approximate center
-        y: instance.y + 25
-      };
-      const rect = containerRef.current?.getBoundingClientRect();
-      if (rect) {
-        const screenX = nodeCenter.x * zoomLevel + panOffset.x + rect.left;
-        const screenY = nodeCenter.y * zoomLevel + panOffset.y + rect.top;
-        handlePieMenuColorPickerOpen(instance.id, { x: screenX, y: screenY });
-      }
-    }
-  }, [selectedNodePrototypes, nodes, containerRef, zoomLevel, panOffset, handlePieMenuColorPickerOpen]);
   // Pie Menu Button Configuration - now targetPieMenuButtons and dynamic
   const targetPieMenuButtons = useMemo(() => {
     const selectedNode = selectedNodeIdForPieMenu ? nodes.find(n => n.id === selectedNodeIdForPieMenu) : null;
@@ -3617,32 +3597,11 @@ function NodeCanvas() {
             }
           }
         },
-        { id: 'palette', label: 'Palette', icon: Palette, action: (instanceId) => {
+        { id: 'palette', label: 'Palette', icon: Palette, action: (instanceId, buttonPosition) => {
             const node = nodes.find(n => n.id === instanceId);
-            if (node) {
-              // Get the current pie menu data at execution time to avoid circular dependency
-              const pieMenuData = selectedNodeIdForPieMenu ? {
-                node: nodes.find(n => n.id === selectedNodeIdForPieMenu),
-                nodeDimensions: getNodeDimensions(node, previewingNodeId === node.id, null)
-              } : null;
-              
-              if (pieMenuData) {
-                // Calculate position for color picker relative to the palette button
-                // We'll position it near the pie menu node
-                const nodeCenter = {
-                  x: pieMenuData.node.x + pieMenuData.nodeDimensions.currentWidth / 2,
-                  y: pieMenuData.node.y + pieMenuData.nodeDimensions.currentHeight / 2
-                };
-                
-                // Convert canvas coordinates to screen coordinates
-                const rect = containerRef.current?.getBoundingClientRect();
-                if (rect) {
-                  const screenX = nodeCenter.x * zoomLevel + panOffset.x + rect.left;
-                  const screenY = nodeCenter.y * zoomLevel + panOffset.y + rect.top;
-                  
-                  handlePieMenuColorPickerOpen(instanceId, { x: screenX, y: screenY });
-                }
-              }
+            if (node && buttonPosition) {
+              // Use the actual button position passed from PieMenu
+              handlePieMenuColorPickerOpen(instanceId, buttonPosition);
             }
         } },
         { id: 'more', label: 'More', icon: MoreHorizontal, action: (instanceId) => {
@@ -7249,6 +7208,7 @@ function NodeCanvas() {
     handleNodePanelEdit,
     handleNodePanelSave,
     handleNodePanelMore,
+    handleNodePanelPalette,
     handleNodePanelGroup
   } = useControlPanelActions({
     activeGraphId,
@@ -7271,7 +7231,8 @@ function NodeCanvas() {
     setRightPanelExpanded,
     setEditingNodeIdOnCanvas,
     NODE_DEFAULT_COLOR,
-    onStartHurtleAnimationFromPanel: startHurtleAnimationFromPanel
+    onStartHurtleAnimationFromPanel: startHurtleAnimationFromPanel,
+    onOpenColorPicker: handlePieMenuColorPickerOpen
   });
 
   // Node-group control panel action handlers
@@ -8334,6 +8295,56 @@ function NodeCanvas() {
                                 ry={12}
                                 fill="#bdb5b5"
                                 stroke="none"
+                                style={{ cursor: 'default', pointerEvents: 'auto' }}
+                                onClick={(e) => {
+                                  // Stop propagation to prevent group selection/drag
+                                  e.stopPropagation();
+                                  
+                                  // Ignore if various conditions are active
+                                  if (isPaused || draggingNodeInfo || drawingConnectionFrom || mouseMoved.current || recentlyPanned || nodeNamePrompt.visible || !activeGraphId) {
+                                    return;
+                                  }
+                                  
+                                  // Close Group panel on click-off like other panels
+                                  if (groupControlPanelShouldShow || selectedGroup) {
+                                    setGroupControlPanelShouldShow(false);
+                                    setSelectedGroup(null);
+                                    return;
+                                  }
+                                  
+                                  // Close carousel if visible
+                                  if (abstractionCarouselVisible && !selectedNodeIdForPieMenu) {
+                                    setAbstractionCarouselVisible(false);
+                                    setAbstractionCarouselNode(null);
+                                    setCarouselAnimationState('hidden');
+                                    setCarouselPieMenuStage(1);
+                                    setCarouselFocusedNode(null);
+                                    setCarouselFocusedNodeDimensions(null);
+                                    return;
+                                  }
+                                  
+                                  // If carousel is visible and exiting, don't handle clicks
+                                  if (abstractionCarouselVisible && carouselAnimationState === 'exiting') {
+                                    return;
+                                  }
+                                  
+                                  // Deselect nodes if any are selected
+                                  if (selectedInstanceIds.size > 0) {
+                                    // Don't clear selection if we just completed a carousel exit
+                                    if (justCompletedCarouselExit || carouselExitInProgressRef.current) {
+                                      return;
+                                    }
+                                    setSelectedInstanceIds(new Set());
+                                    return;
+                                  }
+                                  
+                                  // Deselect edges if any are selected
+                                  if ((selectedEdgeId || selectedEdgeIds.size > 0) && !hoveredEdgeInfo) {
+                                    storeActions.setSelectedEdgeId(null);
+                                    storeActions.clearSelectedEdgeIds();
+                                    return;
+                                  }
+                                }}
                               />
                             </>
                           ) : (

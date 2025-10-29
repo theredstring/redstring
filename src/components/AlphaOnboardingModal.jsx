@@ -266,7 +266,7 @@ const AlphaOnboardingModal = ({
         }}
       >
         <p style={{
-          margin: '0 0 12px 0',
+          margin: '0 0 24px 0',
           fontSize: isCompactLayout ? '0.85rem' : '0.95rem',
           color: '#333',
           fontFamily: "'EmOne', sans-serif",
@@ -291,22 +291,11 @@ const AlphaOnboardingModal = ({
           • Double-click a Thing to open it in the right panel<br />
         </div>
 
-        <p style={{
-          margin: '0 0 12px 0',
-          fontSize: isCompactLayout ? '0.75rem' : '0.8rem',
-          color: '#666',
-          textAlign: 'center',
-          fontStyle: 'italic'
-        }}>
-          Your work is stored in <strong>Universes</strong>.<br />
-          Connect GitHub for cloud sync or use local files.
-        </p>
-
         <div style={{
           display: 'flex',
           flexDirection: 'column',
           gap: '8px',
-          marginBottom: isCompactLayout ? '8px' : '12px'
+          marginBottom: isCompactLayout ? '12px' : '16px'
         }}>
           <button
             onClick={() => {
@@ -317,7 +306,7 @@ const AlphaOnboardingModal = ({
             style={{
               padding: isCompactLayout ? '10px 12px' : '12px 16px',
               backgroundColor: '#8B0000',
-              color: 'white',
+              color: '#EFE8E5',
               border: 'none',
               borderRadius: '6px',
               cursor: 'pointer',
@@ -327,7 +316,7 @@ const AlphaOnboardingModal = ({
               textAlign: 'center'
             }}
           >
-            Connect to GitHub (Recommended)
+            Connect Your First Universe
           </button>
 
           <button
@@ -339,7 +328,7 @@ const AlphaOnboardingModal = ({
             style={{
               padding: isCompactLayout ? '10px 12px' : '12px 16px',
               backgroundColor: '#666',
-              color: 'white',
+              color: '#EFE8E5',
               border: 'none',
               borderRadius: '6px',
               cursor: 'pointer',
@@ -352,6 +341,18 @@ const AlphaOnboardingModal = ({
             Learn More
           </button>
         </div>
+
+        <p style={{
+          margin: '0',
+          padding: isCompactLayout ? '24px 16px' : '32px 24px',
+          fontSize: isCompactLayout ? '0.75rem' : '0.8rem',
+          color: '#666',
+          textAlign: 'center',
+          fontStyle: 'italic'
+        }}>
+          Your work is stored in <strong>Universes</strong>.<br />
+          Connect GitHub for cloud sync or use local files.
+        </p>
       </div>
     </>
   );
@@ -458,7 +459,7 @@ const AlphaOnboardingModal = ({
               style={{
                 padding: isCompactLayout ? '10px 16px' : '10px 20px',
                 backgroundColor: '#24292f',
-                color: 'white',
+                color: '#EFE8E5',
                 border: 'none',
                 borderRadius: '6px',
                 cursor: 'pointer',
@@ -525,7 +526,7 @@ const AlphaOnboardingModal = ({
               style={{
                 padding: isCompactLayout ? '10px 16px' : '10px 20px',
                 backgroundColor: '#8B0000',
-                color: 'white',
+                color: '#EFE8E5',
                 border: 'none',
                 borderRadius: '6px',
                 cursor: 'pointer',
@@ -565,7 +566,7 @@ const AlphaOnboardingModal = ({
             style={{
               padding: isCompactLayout ? '12px 16px' : '12px 24px',
               backgroundColor: '#8B0000',
-              color: '#bdb5b5',
+              color: '#EFE8E5',
               border: 'none',
               borderRadius: '6px',
               cursor: 'pointer',
@@ -596,7 +597,7 @@ const AlphaOnboardingModal = ({
                 style={{
                   padding: isCompactLayout ? '12px 16px' : '12px 24px',
                   backgroundColor: '#8B0000',
-                  color: 'white',
+                  color: '#EFE8E5',
                   border: 'none',
                   borderRadius: '6px',
                   cursor: 'pointer',

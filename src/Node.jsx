@@ -6,7 +6,6 @@ import UniversalNodeRenderer from './UniversalNodeRenderer.jsx'; // Import Unive
 import { getNodeDimensions } from './utils.js'; // Import needed for node dims
 import { ChevronLeft, ChevronRight, Trash2, Expand, ArrowUpFromDot, PackageOpen } from 'lucide-react'; // Import navigation icons, trash, expand, and package-open
 import useGraphStore, { getHydratedNodesForGraph, getEdgesForGraph } from "./store/graphStore.jsx"; // Import store selectors
-import HoverVisionAid from './components/HoverVisionAid.jsx'; // Import hover visual aid component
 
 const PREVIEW_SCALE_FACTOR = 0.3; // How much to shrink the network layout
 
@@ -470,18 +469,30 @@ const Node = ({
                                           imageSrc: n.thumbnailSrc, // Pass image source for display
                                           color: n.color // Ensure color carries over
                                       }))}
-                                      connections={currentGraphEdges.map(e => ({
-                                          id: e.id,
-                                          sourceId: e.sourceId,
-                                          destinationId: e.destinationId,
-                                          targetId: e.destinationId,
-                                          connectionName: null, // Hide connection names in compact view
-                                          color: e.color || '#000000',
-                                          directionality: e.directionality,
-                                          definitionNodeIds: e.definitionNodeIds,
-                                          typeNodeId: e.typeNodeId,
-                                          edgePrototype: e.edgePrototype
-                                      }))}
+                                      connections={currentGraphEdges.map(e => {
+                                          // Get color from definition node if it exists
+                                          let connectionColor = e.color || '#000000';
+                                          if (e.definitionNodeIds && e.definitionNodeIds.length > 0) {
+                                              const defNodeId = e.definitionNodeIds[0];
+                                              const defNode = storeState.nodePrototypes.get(defNodeId);
+                                              if (defNode?.color) {
+                                                  connectionColor = defNode.color;
+                                              }
+                                          }
+
+                                          return {
+                                              id: e.id,
+                                              sourceId: e.sourceId,
+                                              destinationId: e.destinationId,
+                                              targetId: e.destinationId,
+                                              connectionName: null, // Hide connection names in compact view
+                                              color: connectionColor,
+                                              directionality: e.directionality,
+                                              definitionNodeIds: e.definitionNodeIds,
+                                              typeNodeId: e.typeNodeId,
+                                              edgePrototype: e.edgePrototype
+                                          };
+                                      })}
                                       containerWidth={innerNetworkWidth}
                                       containerHeight={innerNetworkHeight}
                                       padding={25}
@@ -616,13 +627,13 @@ const Node = ({
         </foreignObject>
       )}
 
-      {/* Hover Preview - Use actual HoverVisionAid component for consistency */}
+      {/* Hover Preview - Styled like HoverVisionAid for consistency */}
       {isPreviewing && hoveredInnerNodeData && (
         <foreignObject
-          x={nodeX + NODE_PADDING + 15}
-          y={nodeY + textAreaHeight + 15}
-          width={innerNetworkWidth - 30}
-          height={100}
+          x={nodeX + NODE_PADDING + (innerNetworkWidth / 2) - 114}
+          y={nodeY + textAreaHeight + 20}
+          width={228}
+          height={82}
           style={{
             pointerEvents: 'none',
             overflow: 'visible'
@@ -631,21 +642,35 @@ const Node = ({
           <div
             xmlns="http://www.w3.org/1999/xhtml"
             style={{
-              position: 'relative',
               width: '100%',
-              height: '100%'
+              height: '100%',
+              display: 'flex',
+              justifyContent: 'center'
             }}
           >
-            <HoverVisionAid
-              hoveredNode={{
-                id: hoveredInnerNodeData.id,
-                name: hoveredInnerNodeData.name,
-                color: hoveredInnerNodeData.color,
-                prototypeId: hoveredInnerNodeData.prototypeId,
-                width: hoveredInnerNodeData.width || 176
-              }}
-              headerHeight={0}
-              verticalOffset={0}
+            <UniversalNodeRenderer
+              nodes={[
+                {
+                  id: hoveredInnerNodeData.id,
+                  name: hoveredInnerNodeData.name,
+                  color: hoveredInnerNodeData.color,
+                  prototypeId: hoveredInnerNodeData.prototypeId,
+                  width: hoveredInnerNodeData.width || 176,
+                  imageSrc: hoveredInnerNodeData.imageSrc
+                }
+              ]}
+              connections={[]}
+              containerWidth={228}
+              containerHeight={82}
+              padding={8}
+              scaleMode="fixed"
+              minNodeSize={160}
+              maxNodeSize={240}
+              cornerRadiusMultiplier={32}
+              nodeFontScale={1.0}
+              interactive={false}
+              showHoverEffects={false}
+              backgroundColor="transparent"
             />
           </div>
         </foreignObject>

@@ -336,6 +336,13 @@ const PieMenu = ({
               // Always stop propagation to prevent canvas clicks
               e.stopPropagation();
               
+              // Calculate button's screen position for actions that need it (like color picker)
+              const svgElement = e.currentTarget.ownerSVGElement;
+              const buttonPosition = svgElement ? {
+                x: e.clientX,
+                y: e.clientY
+              } : null;
+              
               // Prevent action if menu is supposed to be hidden but animation not complete
               if (!isVisible && !isCarouselStageTransition) {
                 return; 
@@ -347,8 +354,8 @@ const PieMenu = ({
                 return;
               }
               
-              // Execute the button action
-              button.action(node.id);
+              // Execute the button action - pass buttonPosition as second parameter for actions that need it
+              button.action(node.id, buttonPosition);
             }}
           >
             {/* Inner wrapper so CSS transform does not conflict with outer absolute positioning */}

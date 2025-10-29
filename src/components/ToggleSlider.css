@@ -19,23 +19,28 @@
   padding: 6px 12px;
   border: none;
   background: transparent;
-  color: #bbb;
+  color: #EFE8E5;
   font-family: 'EmOne', sans-serif;
   font-size: 12px;
   cursor: pointer;
   border-radius: 6px;
   transition: all 0.15s ease;
   white-space: nowrap;
+  outline: none;
+}
+
+.toggle-button:focus {
+  outline: none;
 }
 
 .toggle-button:hover {
-  color: #ddd;
+  color: #EFE8E5;
   background-color: rgba(255, 255, 255, 0.1);
 }
 
 .toggle-button.active {
   background-color: #8B0000;
-  color: #fff;
+  color: #EFE8E5;
 }
 
 .toggle-right-content {

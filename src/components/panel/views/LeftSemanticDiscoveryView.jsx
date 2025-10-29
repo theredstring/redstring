@@ -1076,13 +1076,15 @@ const LeftSemanticDiscoveryView = ({ storeActions, nodePrototypesMap, openRightP
                 onClick={handleClearHistory}
                 style={{
                   background: 'transparent',
-                  border: '1px solid #666',
+                  border: 'none',
                   color: '#666',
-                  width: '18px',
-                  height: '18px',
+                  width: '24px',
+                  height: '24px',
                   lineHeight: 1,
-                  borderRadius: '4px',
-                  cursor: 'pointer'
+                  cursor: 'pointer',
+                  fontSize: '18px',
+                  outline: 'none',
+                  padding: 0
                 }}
               >
                 ×
@@ -1113,7 +1115,8 @@ const LeftSemanticDiscoveryView = ({ storeActions, nodePrototypesMap, openRightP
                       color: '#999',
                       cursor: 'pointer',
                       padding: 0,
-                      lineHeight: 1
+                      lineHeight: 1,
+                      fontSize: '20px'
                     }}
                   >
                     ×
@@ -1128,14 +1131,16 @@ const LeftSemanticDiscoveryView = ({ storeActions, nodePrototypesMap, openRightP
                     setViewMode('discover');
                   }}
                   style={{
-                    marginTop: '4px',
-                    padding: '2px 6px',
-                    border: '1px solid #8B0000',
-                    borderRadius: '3px',
-                    background: 'transparent',
-                    color: '#8B0000',
-                    fontSize: '8px',
-                    cursor: 'pointer'
+                    marginTop: '6px',
+                    padding: '6px 10px',
+                    border: 'none',
+                    borderRadius: '12px',
+                    background: '#260000',
+                    color: '#EFE8E5',
+                    fontSize: '10px',
+                    fontWeight: 'bold',
+                    cursor: 'pointer',
+                    fontFamily: "'EmOne', sans-serif"
                   }}
                 >
                   View Results

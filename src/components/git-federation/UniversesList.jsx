@@ -82,9 +82,27 @@ const UniversesList = ({
   const [showLoadMenu, setShowLoadMenu] = useState(false);
   const [showNewMenu, setShowNewMenu] = useState(false);
   const [showLocalFileMenu, setShowLocalFileMenu] = useState(null); // Track which universe's menu is open
+  const [isHeaderSlim, setIsHeaderSlim] = useState(false); // Track if header should stack at < 400px
   const loadMenuRef = useRef(null);
   const newMenuRef = useRef(null);
   const localFileMenuRef = useRef(null);
+  const containerRef = useRef(null);
+
+  // Track container width for responsive header layout
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el) return;
+
+    const observer = new ResizeObserver((entries) => {
+      for (const entry of entries) {
+        const width = entry.contentRect?.width || el.clientWidth || 0;
+        setIsHeaderSlim(width < 400);
+      }
+    });
+
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, []);
 
   // Close dropdown when clicking outside
   useEffect(() => {
@@ -155,25 +173,27 @@ const UniversesList = ({
   };
 
   return (
-    <SectionCard
-      title="Universes"
-      subtitle="Manage your knowledge spaces"
-      actions={
-        <div style={{ display: 'flex', gap: 6 }}>
-          <div ref={loadMenuRef} style={{ position: 'relative' }}>
-            <button 
-              onClick={() => setShowLoadMenu(!showLoadMenu)}
-              style={buttonStyle('outline')}
-            >
-              <Download size={14} /> Load <ChevronDown size={12} />
-            </button>
+    <div ref={containerRef}>
+      <SectionCard
+        title="Universes"
+        subtitle="Manage your knowledge spaces"
+        isSlim={isHeaderSlim}
+        actions={
+          <div style={{ display: 'flex', gap: 6 }}>
+            <div ref={loadMenuRef} style={{ position: 'relative' }}>
+              <button
+                onClick={() => setShowLoadMenu(!showLoadMenu)}
+                style={buttonStyle('outline')}
+              >
+                <Download size={14} /> Load <ChevronDown size={12} />
+              </button>
             {showLoadMenu && (
               <div style={{
                 position: 'absolute',
                 top: '100%',
-                right: 0,
+                left: 0,
                 marginTop: 4,
-                backgroundColor: '#ffffff',
+                backgroundColor: '#bdb5b5',
                 border: '1px solid #260000',
                 borderRadius: 6,
                 boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
@@ -226,9 +246,9 @@ const UniversesList = ({
             )}
           </div>
           <div ref={newMenuRef} style={{ position: 'relative' }}>
-            <button 
+            <button
               onClick={() => setShowNewMenu(!showNewMenu)}
-              style={buttonStyle('solid')}
+              style={{ ...buttonStyle('solid'), color: '#bdb5b5' }}
             >
               <Plus size={14} /> New <ChevronDown size={12} />
             </button>
@@ -236,9 +256,9 @@ const UniversesList = ({
               <div style={{
                 position: 'absolute',
                 top: '100%',
-                right: 0,
+                left: 0,
                 marginTop: 4,
-                backgroundColor: '#ffffff',
+                backgroundColor: '#bdb5b5',
                 border: '1px solid #260000',
                 borderRadius: 6,
                 boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
@@ -835,10 +855,9 @@ const UniversesList = ({
                             <div style={{
                               position: 'absolute',
                               top: '100%',
-                              left: '50%',
-                              transform: 'translateX(-50%)',
+                              left: 0,
                               marginTop: 4,
-                              backgroundColor: '#ffffff',
+                              backgroundColor: '#bdb5b5',
                               border: '1px solid #260000',
                               borderRadius: 6,
                               boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
@@ -931,6 +950,7 @@ const UniversesList = ({
         })}
       </div>
     </SectionCard>
+    </div>
   );
 };
 

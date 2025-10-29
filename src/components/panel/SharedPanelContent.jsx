@@ -21,8 +21,10 @@ const getArticleFor = (word) => {
 
 // Wikipedia enrichment functions
 const searchWikipedia = async (query) => {
+  console.log(`[Wikipedia Images] 🔎 searchWikipedia called with query: "${query}"`);
   try {
     // First try to get the exact page
+    console.log(`[Wikipedia Images] 📡 Fetching Wikipedia summary for: "${query}"`);
     const summaryResponse = await fetch(
       `https://en.wikipedia.org/api/rest_v1/page/summary/${encodeURIComponent(query)}`,
       { 
@@ -41,6 +43,7 @@ const searchWikipedia = async (query) => {
                                summaryData.description?.toLowerCase().includes('disambiguation');
       
       if (isDisambiguation) {
+        console.log(`[Wikipedia Images] 🔀 Disambiguation detected, fetching alternatives...`);
         // If it's a disambiguation page, search for alternatives
         const searchResponse = await fetch(
           `https://en.wikipedia.org/w/api.php?action=query&list=search&srsearch=${encodeURIComponent(query)}&format=json&origin=*&srlimit=8`,
@@ -54,6 +57,7 @@ const searchWikipedia = async (query) => {
         if (searchResponse.ok) {
           const searchData = await searchResponse.json();
           if (searchData.query?.search?.length > 0) {
+            console.log(`[Wikipedia Images] ✅ Found ${searchData.query.search.length} disambiguation options`);
             return {
               type: 'disambiguation',
               options: searchData.query.search.map(result => ({
@@ -66,15 +70,29 @@ const searchWikipedia = async (query) => {
         }
       }
       
-      return {
-        type: 'direct',
-        page: {
-          title: summaryData.title,
-          description: summaryData.extract || summaryData.description,
-          url: summaryData.content_urls?.desktop?.page,
-          thumbnail: summaryData.thumbnail?.source
-        }
-      };
+      // Direct match found - fetch full page data with images using getWikipediaPage
+      console.log(`[Wikipedia Images] ✅ Direct match found: "${summaryData.title}"`);
+      console.log(`[Wikipedia Images] 🔄 Calling getWikipediaPage to fetch complete data with images...`);
+      const fullPageData = await getWikipediaPage(summaryData.title);
+      
+      if (fullPageData) {
+        console.log(`[Wikipedia Images] ✅ Got full page data from getWikipediaPage`);
+        return {
+          type: 'direct',
+          page: fullPageData
+        };
+      } else {
+        console.log(`[Wikipedia Images] ⚠️ getWikipediaPage returned null, using summary data`);
+        return {
+          type: 'direct',
+          page: {
+            title: summaryData.title,
+            description: summaryData.extract || summaryData.description,
+            url: summaryData.content_urls?.desktop?.page,
+            thumbnail: summaryData.thumbnail?.source
+          }
+        };
+      }
     }
 
     // If direct lookup fails, search for similar pages
@@ -107,54 +125,191 @@ const searchWikipedia = async (query) => {
   return { type: 'not_found' };
 };
 
-// Helper to get additional images from Wikipedia article (beyond main image)
+// Helper to get additional images from Wikipedia article (using action API)
 const getWikipediaImages = async (pageTitle) => {
+  console.log(`[Wikipedia Images] 🔍 Fetching images for article: "${pageTitle}"`);
+  
   try {
-    const mediaResponse = await fetch(
-      `https://en.wikipedia.org/api/rest_v1/page/media-list/${encodeURIComponent(pageTitle)}`,
-      { 
-        headers: { 
-          'Api-User-Agent': 'Redstring/1.0 (https://redstring.ai) Claude/1.0' 
+    // Use the action API to get all images from the article
+    const imagesUrl = `https://en.wikipedia.org/w/api.php?action=query&format=json&origin=*&prop=images&titles=${encodeURIComponent(pageTitle)}&imlimit=10`;
+    console.log(`[Wikipedia Images] 📡 API call 1/2: Fetching image list from article`);
+    
+    const imagesResponse = await fetch(imagesUrl, { 
+      headers: { 
+        'Api-User-Agent': 'Redstring/1.0 (https://redstring.ai) Claude/1.0' 
+      }
+    });
+
+    if (imagesResponse.ok) {
+      const imagesData = await imagesResponse.json();
+      const pages = imagesData.query?.pages;
+      if (!pages) {
+        console.log(`[Wikipedia Images] ⚠️ No pages in response`);
+        return [];
+      }
+      
+      const page = Object.values(pages)[0];
+      if (!page.images) {
+        console.log(`[Wikipedia Images] ⚠️ No images found in article`);
+        return [];
+      }
+      
+      console.log(`[Wikipedia Images] 📸 Found ${page.images.length} total images in article`);
+      console.log(`[Wikipedia Images] 📋 Raw image titles:`, page.images.map(img => img.title));
+      
+      // Filter out common non-content images and get image info
+      const contentImages = page.images.filter(img => 
+        !img.title.toLowerCase().includes('edit') &&
+        !img.title.toLowerCase().includes('icon') &&
+        !img.title.toLowerCase().includes('magnify') &&
+        !img.title.toLowerCase().includes('commons-logo') &&
+        !img.title.toLowerCase().includes('wikimedia') &&
+        !img.title.toLowerCase().includes('flag') &&
+        !img.title.toLowerCase().includes('symbol') &&
+        (img.title.toLowerCase().endsWith('.jpg') || 
+         img.title.toLowerCase().endsWith('.jpeg') || 
+         img.title.toLowerCase().endsWith('.png') ||
+         img.title.toLowerCase().endsWith('.gif') ||
+         img.title.toLowerCase().endsWith('.webp'))
+      );
+
+      console.log(`[Wikipedia Images] ✅ Filtered to ${contentImages.length} content images`);
+      console.log(`[Wikipedia Images] 📋 Content image titles:`, contentImages.map(img => img.title));
+
+      // Now get the actual URLs for these images (batch request)
+      const imageTitles = contentImages.slice(0, 5).map(img => img.title).join('|');
+      if (!imageTitles) {
+        console.log(`[Wikipedia Images] ⚠️ No content images to fetch URLs for`);
+        return [];
+      }
+      
+      console.log(`[Wikipedia Images] 📡 API call 2/2: Fetching URLs and dimensions for ${contentImages.slice(0, 5).length} images`);
+      const imageInfoResponse = await fetch(
+        `https://en.wikipedia.org/w/api.php?action=query&format=json&origin=*&prop=imageinfo&iiprop=url|size&titles=${encodeURIComponent(imageTitles)}`,
+        {
+          headers: { 
+            'Api-User-Agent': 'Redstring/1.0 (https://redstring.ai) Claude/1.0' 
+          }
         }
+      );
+      
+      if (imageInfoResponse.ok) {
+        const imageInfoData = await imageInfoResponse.json();
+        const imagePages = imageInfoData.query?.pages;
+        if (!imagePages) {
+          console.log(`[Wikipedia Images] ⚠️ No image info pages in response`);
+          return [];
+        }
+        
+        // Extract image data with dimensions
+        const imageData = Object.values(imagePages)
+          .filter(p => p.imageinfo && p.imageinfo.length > 0)
+          .map(p => {
+            const info = p.imageinfo[0];
+            return {
+              url: info.url,
+              thumbnail: info.url,
+              width: info.width || 0,
+              height: info.height || 0,
+              title: p.title
+            };
+          })
+          .filter(img => img.url);
+        
+        console.log(`[Wikipedia Images] 📊 Image data with dimensions:`, imageData.map(img => ({
+          title: img.title,
+          url: img.url,
+          dimensions: `${img.width}x${img.height}`
+        })));
+        
+        // Apply Wikipedia's pageimages scoring algorithm
+        // See: https://www.mediawiki.org/wiki/Extension:PageImages#How_are_images_scored?
+        const scoredImages = imageData.map((img, index) => {
+          let score = 0;
+          
+          // Position scoring: Only first 4 images are favored (Wikipedia standard)
+          if (index < 4) {
+            score += 8; // Bonus for being in first 4
+          } else {
+            score -= 10; // Penalty for being after first 4
+          }
+          
+          // Width scoring (heavily favor Wikipedia's ideal 400-600px range)
+          if (img.width < 119) {
+            score -= 100; // Strongly penalize tiny images
+          } else if (img.width >= 400 && img.width <= 600) {
+            score += 20; // STRONGLY prefer ideal 400-600px range
+          } else if (img.width >= 300 && img.width < 400) {
+            score += 8; // Acceptable smaller
+          } else if (img.width > 600 && img.width <= 1000) {
+            score += 5; // Acceptable larger
+          } else if (img.width > 1000) {
+            score += 2; // Too large, probably full-res upload
+          }
+          
+          // Aspect ratio scoring (Wikipedia allows 0.4 to 3.1, prefers 0.6 to 2.1)
+          const ratio = img.width / img.height;
+          if (ratio >= 0.6 && ratio <= 2.1) {
+            score += 5; // Preferred range
+          } else if (ratio >= 0.4 && ratio <= 3.1) {
+            score += 0; // Acceptable
+          } else {
+            score -= 100; // Bad ratio
+          }
+          
+          console.log(`[Wikipedia Images] 📊 Image ${index + 1}: ${img.title} (${img.width}x${img.height}, ratio ${ratio.toFixed(2)}) = Score: ${score}`);
+          
+          return { ...img, score };
+        });
+        
+        // Sort by score (highest first) and filter out negative scores
+        const contentSizedImages = scoredImages
+          .filter(img => img.score > 0)
+          .sort((a, b) => b.score - a.score);
+        
+        console.log(`[Wikipedia Images] ✅ After scoring: ${contentSizedImages.length} valid images`);
+        if (contentSizedImages.length > 0) {
+          console.log(`[Wikipedia Images] 🏆 Top scored images:`, contentSizedImages.slice(0, 3).map(img => ({
+            title: img.title,
+            score: img.score,
+            dimensions: `${img.width}x${img.height}`
+          })));
+        }
+        
+        // Take top 3 scored images
+        const finalImages = contentSizedImages.slice(0, 3);
+        
+        if (finalImages.length > 0) {
+          console.log(`[Wikipedia Images] 🎯 FIRST IMAGE SELECTED: ${finalImages[0].title} (${finalImages[0].width}x${finalImages[0].height})`);
+          console.log(`[Wikipedia Images] 🖼️ First image URL: ${finalImages[0].url}`);
+        }
+        
+        console.log(`[Wikipedia Images] ✅ Returning ${finalImages.length} images`);
+        return finalImages;
+      } else {
+        console.log(`[Wikipedia Images] ❌ Image info request failed: ${imageInfoResponse.status}`);
       }
-    );
-
-    if (mediaResponse.ok) {
-      const mediaData = await mediaResponse.json();
-      if (mediaData.items && mediaData.items.length > 0) {
-        // Filter for images (not audio, video, etc.) and exclude common non-content images
-        const images = mediaData.items.filter(item => 
-          item.type === 'image' &&
-          item.srcset && 
-          item.srcset.length > 0 &&
-          !item.title?.toLowerCase().includes('edit') &&
-          !item.title?.toLowerCase().includes('icon') &&
-          !item.title?.toLowerCase().includes('magnify') &&
-          !item.title?.toLowerCase().includes('commons-logo') &&
-          !item.title?.toLowerCase().includes('wikimedia') &&
-          !item.title?.toLowerCase().includes('flag') && // Often small flag icons
-          item.srcset[0]?.src // Has actual image source
-        );
-
-        // Return the first few quality images
-        return images.slice(0, 3).map(img => ({
-          url: img.srcset[img.srcset.length - 1]?.src, // Get highest resolution
-          thumbnail: img.srcset[0]?.src // Get smallest for thumbnail
-        }));
-      }
+    } else {
+      console.log(`[Wikipedia Images] ❌ Image list request failed: ${imagesResponse.status}`);
     }
   } catch (error) {
-    console.warn('[Wikipedia] Media list fetch failed:', error);
+    console.warn('[Wikipedia Images] ❌ Image list fetch failed:', error);
   }
   
+  console.log(`[Wikipedia Images] ⚠️ Returning empty array`);
   return [];
 };
 
 const getWikipediaPage = async (title) => {
+  console.log(`[Wikipedia Images] 🌐 Starting Wikipedia page fetch for: "${title}"`);
+  
   try {
     // Check if this is a section link (contains #)
     const [pageTitle, sectionId] = title.includes('#') ? title.split('#') : [title, null];
+    console.log(`[Wikipedia Images] 📄 Page: "${pageTitle}"${sectionId ? `, Section: "${sectionId}"` : ''}`);
     
+    // Fetch basic summary from REST API
+    console.log(`[Wikipedia Images] 📡 Fetching REST API summary...`);
     const summaryResponse = await fetch(
       `https://en.wikipedia.org/api/rest_v1/page/summary/${encodeURIComponent(pageTitle)}`,
       { 
@@ -172,16 +327,62 @@ const getWikipediaPage = async (title) => {
       let thumbnail = summaryData.thumbnail?.source;
       let additionalImages = [];
       
-      // If no main image is available, fetch images from the article content
+      console.log(`[Wikipedia Images] ✅ REST API summary fetched`);
+      console.log(`[Wikipedia Images] 🖼️ Summary has main image: ${!!(originalImage || thumbnail)}`);
+      if (originalImage) console.log(`[Wikipedia Images] 📸 Original image from summary: ${originalImage}`);
+      if (thumbnail) console.log(`[Wikipedia Images] 🖼️ Thumbnail from summary: ${thumbnail}`);
+      
+      // If no main image from REST API, try to get it from action API
       if (!originalImage && !thumbnail) {
+        console.log(`[Wikipedia Images] 🔄 No image in summary, trying action API pageimages...`);
+        try {
+          const pageImageResponse = await fetch(
+            `https://en.wikipedia.org/w/api.php?action=query&format=json&origin=*&prop=pageimages&piprop=original&titles=${encodeURIComponent(pageTitle)}`,
+            {
+              headers: { 
+                'Api-User-Agent': 'Redstring/1.0 (https://redstring.ai) Claude/1.0' 
+              }
+            }
+          );
+          
+          if (pageImageResponse.ok) {
+            const pageImageData = await pageImageResponse.json();
+            const pages = pageImageData.query?.pages;
+            if (pages) {
+              const page = Object.values(pages)[0];
+              if (page.original?.source) {
+                originalImage = page.original.source;
+                thumbnail = page.original.source; // Use same URL, browser will cache
+                console.log(`[Wikipedia Images] ✅ Got main image from action API pageimages: ${originalImage}`);
+              } else {
+                console.log(`[Wikipedia Images] ⚠️ Action API pageimages returned no image`);
+              }
+            }
+          }
+        } catch (error) {
+          console.warn('[Wikipedia Images] ❌ Main image fetch from action API failed:', error);
+        }
+      }
+      
+      // If still no image, fetch images from the article content
+      if (!originalImage && !thumbnail) {
+        console.log(`[Wikipedia Images] 🔄 Still no main image, fetching all article images...`);
         additionalImages = await getWikipediaImages(pageTitle);
         if (additionalImages.length > 0) {
           originalImage = additionalImages[0].url;
           thumbnail = additionalImages[0].thumbnail;
+          console.log(`[Wikipedia Images] ✅ Using first article image as main: ${originalImage}`);
+          // Remove the first image from additionalImages since we're using it as main
+          additionalImages = additionalImages.slice(1);
+          console.log(`[Wikipedia Images] 📋 Remaining additional images: ${additionalImages.length}`);
+        } else {
+          console.log(`[Wikipedia Images] ⚠️ No images found in article content either`);
         }
       } else {
+        console.log(`[Wikipedia Images] ✅ Have main image, fetching additional images...`);
         // Even if we have a main image, fetch additional images for potential alternatives
         additionalImages = await getWikipediaImages(pageTitle);
+        console.log(`[Wikipedia Images] 📋 Additional images found: ${additionalImages.length}`);
       }
       
       // If this is a section link, try to get section-specific content
@@ -200,21 +401,35 @@ const getWikipediaPage = async (title) => {
         }
       }
       
-      return {
+      const result = {
         title: summaryData.title,
         description: description,
         url: pageUrl,
         thumbnail,
         originalImage,
-        additionalImages: additionalImages.length > 1 ? additionalImages.slice(1) : [], // Store remaining images
+        additionalImages: additionalImages.length > 0 ? additionalImages : [], // Store additional images
         isSection: !!sectionId,
         sectionId: sectionId
       };
+      
+      console.log(`[Wikipedia Images] ✅ FINAL RESULT for "${pageTitle}":`);
+      console.log(`[Wikipedia Images]    - Title: ${result.title}`);
+      console.log(`[Wikipedia Images]    - thumbnail: ${result.thumbnail || 'NONE'}`);
+      console.log(`[Wikipedia Images]    - originalImage: ${result.originalImage || 'NONE'}`);
+      console.log(`[Wikipedia Images]    - Has main image: ${!!(result.originalImage || result.thumbnail)}`);
+      console.log(`[Wikipedia Images]    - Main image URL: ${result.originalImage || result.thumbnail || 'none'}`);
+      console.log(`[Wikipedia Images]    - Additional images: ${result.additionalImages.length}`);
+      if (result.additionalImages.length > 0) {
+        console.log(`[Wikipedia Images]    - Additional image URLs:`, result.additionalImages.map(img => img.url));
+      }
+      
+      return result;
     }
   } catch (error) {
-    console.warn('[Wikipedia] Page fetch failed:', error);
+    console.warn('[Wikipedia Images] ❌ Page fetch failed:', error);
   }
   
+  console.log(`[Wikipedia Images] ❌ Returning null - no data found`);
   return null;
 };
 
@@ -263,30 +478,46 @@ const WikipediaEnrichment = ({ nodeData, onUpdateNode }) => {
   const [showImageOptions, setShowImageOptions] = useState(false);
 
   const handleWikipediaSearch = async () => {
+    console.log(`[Wikipedia Images] 🚀 TRIGGERED: Wikipedia search for "${nodeData.name}"`);
     setIsSearching(true);
     try {
+      console.log(`[Wikipedia Images] 📞 Calling searchWikipedia("${nodeData.name}")...`);
       const result = await searchWikipedia(nodeData.name);
+      console.log(`[Wikipedia Images] 📦 Search result type: ${result.type}`);
       setSearchResult(result);
       
       if (result.type === 'direct') {
+        console.log(`[Wikipedia Images] ✅ Direct match found, applying Wikipedia data...`);
         // Directly apply the Wikipedia data
         await applyWikipediaData(result.page);
       } else if (result.type === 'disambiguation') {
+        console.log(`[Wikipedia Images] 🔀 Disambiguation page found, showing options...`);
         setShowDisambiguation(true);
       }
     } catch (error) {
-      console.error('[Wikipedia] Enrichment failed:', error);
+      console.error('[Wikipedia Images] ❌ Enrichment failed:', error);
     } finally {
       setIsSearching(false);
+      console.log(`[Wikipedia Images] ✅ Search complete`);
     }
   };
 
   const applyWikipediaData = async (pageData) => {
+    console.log(`[Wikipedia Images] 💾 Applying Wikipedia data for: "${pageData.title}"`);
+    console.log(`[Wikipedia Images] 📦 Page data:`, {
+      title: pageData.title,
+      hasDescription: !!pageData.description,
+      hasThumbnail: !!pageData.thumbnail,
+      hasOriginalImage: !!pageData.originalImage,
+      additionalImagesCount: pageData.additionalImages?.length || 0
+    });
+    
     const updates = {};
     
     // Add description if node doesn't have one
     if (!nodeData.description && pageData.description) {
       updates.description = pageData.description;
+      console.log(`[Wikipedia Images] 📝 Adding description (${pageData.description.length} chars)`);
     }
     
     // Add Wikipedia metadata
@@ -300,13 +531,16 @@ const WikipediaEnrichment = ({ nodeData, onUpdateNode }) => {
 
     if (pageData.thumbnail) {
       updates.semanticMetadata.wikipediaThumbnail = pageData.thumbnail;
+      console.log(`[Wikipedia Images] 🖼️ Storing thumbnail: ${pageData.thumbnail}`);
     }
     if (pageData.originalImage) {
       updates.semanticMetadata.wikipediaOriginalImage = pageData.originalImage;
+      console.log(`[Wikipedia Images] 📸 Storing original image: ${pageData.originalImage}`);
     }
     // Store additional images if available
     if (pageData.additionalImages && pageData.additionalImages.length > 0) {
       updates.semanticMetadata.wikipediaAdditionalImages = pageData.additionalImages;
+      console.log(`[Wikipedia Images] 📋 Storing ${pageData.additionalImages.length} additional images`);
     }
 
     // Add Wikipedia link to external links (stored directly on nodeData.externalLinks)
@@ -322,18 +556,25 @@ const WikipediaEnrichment = ({ nodeData, onUpdateNode }) => {
     if (!hasWikipediaLink && pageData.url) {
       // Add the Wikipedia URL directly to the externalLinks array
       updates.externalLinks = [pageData.url, ...currentExternalLinks];
+      console.log(`[Wikipedia Images] 🔗 Adding Wikipedia link to external links`);
     }
 
+    console.log(`[Wikipedia Images] 💾 Saving node updates...`);
     await onUpdateNode(updates);
+    console.log(`[Wikipedia Images] ✅ Node updates saved`);
 
     // Auto-set image from Wikipedia if available
     const imgUrl = pageData.originalImage || pageData.thumbnail;
     if (imgUrl) {
+      console.log(`[Wikipedia Images] 🖼️ Auto-setting image: ${imgUrl}`);
       await setWikipediaImageFromUrl(imgUrl);
+    } else {
+      console.log(`[Wikipedia Images] ⚠️ No image to auto-set`);
     }
 
     setSearchResult(null);
     setShowDisambiguation(false);
+    console.log(`[Wikipedia Images] ✅ applyWikipediaData complete`);
   };
 
   const urlToDataUrl = (url) => {
@@ -368,14 +609,18 @@ const WikipediaEnrichment = ({ nodeData, onUpdateNode }) => {
   };
 
   const handleDisambiguationSelect = async (option) => {
+    console.log(`[Wikipedia Images] 🔀 User selected disambiguation option: "${option.title}"`);
     setIsSearching(true);
     try {
       const pageData = await getWikipediaPage(option.title);
       if (pageData) {
+        console.log(`[Wikipedia Images] ✅ Got page data, applying...`);
         await applyWikipediaData(pageData);
+      } else {
+        console.log(`[Wikipedia Images] ⚠️ getWikipediaPage returned null`);
       }
     } catch (error) {
-      console.error('[Wikipedia] Disambiguation selection failed:', error);
+      console.error('[Wikipedia Images] ❌ Disambiguation selection failed:', error);
     } finally {
       setIsSearching(false);
     }

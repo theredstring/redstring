@@ -32,7 +32,8 @@ export function useControlPanelActions({
   setRightPanelExpanded,
   setEditingNodeIdOnCanvas,
   NODE_DEFAULT_COLOR,
-  onStartHurtleAnimationFromPanel
+  onStartHurtleAnimationFromPanel,
+  onOpenColorPicker
 }) {
 
   const handleNodePanelDelete = useCallback(() => {
@@ -92,10 +93,14 @@ export function useControlPanelActions({
   const handleNodePanelDecompose = useCallback(() => {
     const first = selectedNodePrototypes[0];
     if (!first) return;
-    // Trigger decompose action similar to pie menu
-    setPreviewingNodeId(first.id);
-    setSelectedInstanceIds(new Set([first.id]));
-  }, [selectedNodePrototypes, setPreviewingNodeId, setSelectedInstanceIds]);
+    // Find the first instance of this prototype
+    const nodeData = nodes.find(n => n.prototypeId === first.id);
+    if (nodeData) {
+      // Trigger decompose action similar to pie menu
+      setPreviewingNodeId(nodeData.id);
+      setSelectedInstanceIds(new Set([nodeData.id]));
+    }
+  }, [selectedNodePrototypes, nodes, setPreviewingNodeId, setSelectedInstanceIds]);
 
   const handleNodePanelAbstraction = useCallback(() => {
     const first = selectedNodePrototypes[0];
@@ -137,6 +142,17 @@ export function useControlPanelActions({
     // For now, just log - could implement additional menu
     console.log('[useControlPanelActions] More options requested');
   }, []);
+
+  const handleNodePanelPalette = useCallback((buttonPosition) => {
+    const first = selectedNodePrototypes[0];
+    if (!first) return;
+    // Find the first instance of this prototype
+    const instance = nodes.find(n => n.prototypeId === first.id);
+    if (instance && onOpenColorPicker) {
+      // Use the button position passed from the control panel
+      onOpenColorPicker(instance.id, buttonPosition);
+    }
+  }, [selectedNodePrototypes, nodes, onOpenColorPicker]);
 
   const handleNodePanelGroup = useCallback(() => {
     if (!activeGraphId) return;
@@ -186,6 +202,7 @@ export function useControlPanelActions({
     handleNodePanelEdit,
     handleNodePanelSave,
     handleNodePanelMore,
+    handleNodePanelPalette,
     handleNodePanelGroup
   };
 }

@@ -4,14 +4,15 @@ import React from 'react';
  * Reusable section card container
  * Provides consistent styling for all git federation sections
  */
-const SectionCard = ({ 
-  title, 
-  icon, 
-  subtitle, 
-  children, 
+const SectionCard = ({
+  title,
+  icon,
+  subtitle,
+  children,
   actions,
   backgroundColor = '#979090',
-  padding = 16 
+  padding = 16,
+  isSlim = false
 }) => {
   return (
     <div
@@ -25,7 +26,13 @@ const SectionCard = ({
       }}
     >
       {(title || icon || actions) && (
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <div style={{
+          display: 'flex',
+          flexDirection: isSlim ? 'column' : 'row',
+          justifyContent: 'space-between',
+          alignItems: isSlim ? 'stretch' : 'center',
+          gap: isSlim ? 10 : 0
+        }}>
           <div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
               {icon}
@@ -33,7 +40,7 @@ const SectionCard = ({
             </div>
             {subtitle && <div style={{ fontSize: '0.75rem', color: '#444', marginTop: 4 }}>{subtitle}</div>}
           </div>
-          {actions && <div style={{ display: 'flex', gap: 6 }}>{actions}</div>}
+          {actions && <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>{actions}</div>}
         </div>
       )}
       {children}

@@ -56,7 +56,7 @@ const HelpModal = ({ isVisible, onClose }) => {
             <li><strong>Add to Group:</strong> Organize Things into collections</li>
           </ul>
 
-          <h3 style={{ color: '#8B0000' }}>Keyboard Shortcuts</h3>
+          <h3 style={{ color: '#8B0000' }}>Keyboard Controls</h3>
           <ul style={{ lineHeight: '1.8' }}>
             <li><strong>W/A/S/D:</strong> Pan the canvas (up/left/down/right)</li>
             <li><strong>Shift:</strong> Zoom in</li>
@@ -323,7 +323,7 @@ const HelpModal = ({ isVisible, onClose }) => {
         <div 
           className="help-modal-sidebar"
           style={{
-            width: '200px',
+            width: '160px',
             borderRight: '1px solid #ddd',
             padding: '20px 12px',
             overflowY: 'auto',
@@ -335,7 +335,7 @@ const HelpModal = ({ isVisible, onClose }) => {
             fontSize: '1.1rem',
             color: '#260000'
           }}>
-            Help Topics
+            Topics
           </h3>
           {Object.keys(sections).map((key) => (
             <div

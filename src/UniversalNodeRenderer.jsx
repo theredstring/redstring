@@ -1105,7 +1105,11 @@ const UniversalNodeRenderer = ({
                 ry={cornerRadius}
                 fill={hasImage ? 'none' : (node.isGroup ? '#bdb5b5' : (node.color || '#800000'))}
                 stroke={hasImage ? (node.color || '#800000') : (node.isGroup ? (node.color || '#8B0000') : 'none')}
-                strokeWidth={hasImage ? (renderContext === 'decomposition' ? Math.max(1.5, 3 * transform.scale) : Math.max(1, 2 * transform.scale)) : (node.isGroup ? Math.max(3, 6 * transform.scale) : 0)}
+                strokeWidth={
+                  hasImage
+                    ? (renderContext === 'decomposition' ? Math.max(0.8, 1.5 * transform.scale) : Math.max(1, 2 * transform.scale))
+                    : (node.isGroup ? Math.max(3, 6 * transform.scale) : 0)
+                }
                 style={{
                   cursor: interactive ? 'pointer' : 'default',
                   transition: 'width 0.3s ease, height 0.3s ease, fill 0.2s ease',

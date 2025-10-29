@@ -525,17 +525,15 @@ const UnifiedBottomControlPanel = ({
                 };
               });
               
-              // Compact spacing calculation with maximum width constraint
-              const baseSpacing = mobileState.isMobilePortrait ? 60 : 70;
-              const nodeSpacing = nodes.length * 35; // Fixed per-node spacing (halved)
+              // Dynamic sizing based on actual content needs with reasonable maximum
+              const baseSpacing = 200; // Base width for padding and connection line
+              const nodeSpacing = nodes.length * 80; // Per-node spacing
+              const connectionLabelSpace = 150; // Space for connection label/line
 
-              // Calculate container width with reasonable maximum - leave room to click off
+              // Calculate container width - as big as needed with sensible max
               const calculatedWidth = Math.min(
-                600, // Reduced maximum width cap for better clickability
-                Math.max(
-                  mobileState.isMobilePortrait ? 340 : 400, // Minimum width
-                  baseSpacing + nodeSpacing
-                )
+                1200, // Reasonable maximum width (won't dominate entire screen)
+                baseSpacing + nodeSpacing + connectionLabelSpace
               );
 
                 return (
@@ -544,8 +542,8 @@ const UnifiedBottomControlPanel = ({
                   nodes={nodes}
                   connections={connections}
                   containerWidth={calculatedWidth}
-                  containerHeight={mobileState.isMobilePortrait ? 65 : 70}
-                  minHorizontalSpacing={mobileState.isMobilePortrait ? 45 : 55}
+                  containerHeight={mobileState.isMobilePortrait ? 130 : 140}
+                  minHorizontalSpacing={mobileState.isMobilePortrait ? 60 : 75}
                   onNodeClick={onNodeClick}
                   onConnectionClick={onPredicateClick}
                   onToggleArrow={(connectionId, targetNodeId) => {
@@ -654,7 +652,18 @@ const UnifiedBottomControlPanel = ({
                 </div>
                 <div
                   className="piemenu-button"
-                  onClick={onPalette || onOpenInPanel}
+                  onClick={(e) => {
+                    if (onPalette) {
+                      const rect = e.currentTarget.getBoundingClientRect();
+                      const buttonCenter = {
+                        x: rect.left + rect.width / 2,
+                        y: rect.top
+                      };
+                      onPalette(buttonCenter);
+                    } else if (onOpenInPanel) {
+                      onOpenInPanel();
+                    }
+                  }}
                   title="Palette"
                   onMouseEnter={() => triggerActionHover('control-palette', 'Palette')}
                   onMouseLeave={clearActionHover}

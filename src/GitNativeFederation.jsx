@@ -3370,30 +3370,31 @@ const GitNativeFederation = ({ variant = 'panel', onRequestClose }) => {
           gap: 6
         }}
       >
-        <div style={{ 
-          display: 'flex', 
+        <div style={{
+          display: 'flex',
           flexDirection: isSlim ? 'column' : 'row',
-          justifyContent: 'space-between', 
+          justifyContent: 'space-between',
           alignItems: isSlim ? 'flex-start' : 'center',
           gap: isSlim ? 8 : 0
         }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0, flex: 1 }}>
             {storageIcon}
-            <div>
+            <div style={{ minWidth: 0, flex: 1 }}>
               <div style={{ fontWeight: 600 }}>{STORAGE_LABELS[slot.type] || 'Storage slot'}</div>
-              <div style={{ fontSize: '0.75rem', color: '#444' }}>{displayLabel}</div>
+              <div style={{ fontSize: '0.75rem', color: '#444', wordBreak: 'break-word' }}>{displayLabel}</div>
             </div>
           </div>
           {isPrimary && (
             <span
-              style={{ 
+              style={{
                 fontSize: '0.7rem',
                 color: '#7A0000',
                 fontWeight: 700,
                 padding: '2px 6px',
                 borderRadius: 10,
                 backgroundColor: 'rgba(122,0,0,0.1)',
-                alignSelf: isSlim ? 'flex-start' : 'center'
+                alignSelf: isSlim ? 'flex-start' : 'center',
+                flexShrink: 0
               }}
             >
               PRIMARY
@@ -3409,7 +3410,7 @@ const GitNativeFederation = ({ variant = 'panel', onRequestClose }) => {
             </div>
           )}
         </div>
-        {actions.length > 0 && <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>{actions}</div>}
+        {actions.length > 0 && <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', width: '100%' }}>{actions}</div>}
       </div>
     );
   };
@@ -3800,13 +3801,13 @@ const renderUniversesList = () => (
               gap: isSlim ? 10 : 0
             }}
           >
-            <div>
-              <div style={{ fontWeight: 600 }}>{universe.name}</div>
+            <div style={{ minWidth: 0, flex: 1 }}>
+              <div style={{ fontWeight: 600, wordBreak: 'break-word' }}>{universe.name}</div>
               <div style={{ fontSize: '0.72rem', color: '#555' }}>
                 Created {formatWhen(universe.createdAt)} · Updated {formatWhen(universe.updatedAt)}
               </div>
             </div>
-            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', width: isSlim ? '100%' : 'auto', flexShrink: 0 }}>
               {!isActive && (
                 <button onClick={() => handleSwitchUniverse(universe.slug)} style={buttonStyle('outline')}>
                   Switch
@@ -4340,14 +4341,12 @@ return (
                     borderRadius: 14,
                     padding: 12,
                     display: 'flex',
-                    alignItems: 'flex-start',
-                    justifyContent: 'space-between',
+                    flexDirection: 'column',
                     gap: 10,
-                    flexWrap: 'wrap',
                     maxWidth: '100%'
                   }}
                 >
-                  <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10, flex: '1 1 300px', minWidth: 0 }}>
+                  <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10, minWidth: 0 }}>
                     <GitBranch size={18} style={{ flexShrink: 0 }} />
                     <div style={{ textAlign: 'left', flex: 1, minWidth: 0, wordBreak: 'break-word', overflowWrap: 'anywhere' }}>
                       <div style={{ fontWeight: 700, marginBottom: 6, color: '#260000', fontSize: '0.9rem' }}>
@@ -4361,7 +4360,8 @@ return (
                         gap: 12,
                         fontSize: '0.7rem',
                         color: '#1565c0',
-                        marginTop: 6
+                        marginTop: 6,
+                        flexWrap: 'wrap'
                       }}>
                         {file.nodeCount !== undefined && (
                           <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
@@ -4386,7 +4386,7 @@ return (
                       )}
                     </div>
                   </div>
-                  <div style={{ display: 'flex', gap: 8, flex: '0 0 auto', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+                  <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
                     <PanelIconButton
                       icon={CloudDownload}
                       size={24}
@@ -4442,14 +4442,12 @@ return (
                           borderRadius: 14,
                           padding: 12,
                           display: 'flex',
-                          alignItems: 'flex-start',
-                          justifyContent: 'space-between',
+                          flexDirection: 'column',
                           gap: 10,
-                          flexWrap: 'wrap',
                           maxWidth: '100%'
                         }}
                       >
-                        <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10, flex: '1 1 300px', minWidth: 0 }}>
+                        <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10, minWidth: 0 }}>
                           <GitBranch size={18} style={{ flexShrink: 0 }} />
                           <div style={{ textAlign: 'left', flex: 1, minWidth: 0, wordBreak: 'break-word', overflowWrap: 'anywhere' }}>
                             <div style={{ fontWeight: 700, marginBottom: 6, color: '#260000', fontSize: '0.9rem' }}>
@@ -4463,7 +4461,8 @@ return (
                               gap: 12,
                               fontSize: '0.7rem',
                               color: '#7A0000',
-                              marginTop: 6
+                              marginTop: 6,
+                              flexWrap: 'wrap'
                             }}>
                               {file.nodeCount !== undefined && (
                                 <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
@@ -4488,7 +4487,7 @@ return (
                             )}
                           </div>
                         </div>
-                        <div style={{ display: 'flex', gap: 8, flex: '0 0 auto', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+                        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
                           <PanelIconButton
                             icon={CloudDownload}
                             size={24}

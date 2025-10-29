@@ -23,17 +23,21 @@ Enhanced the Wikipedia linking feature with better disambiguation handling and i
 ### 2. Improved Photo Extraction
 
 **Previous Behavior:**
-- Only extracted the main infobox image from Wikipedia
+- Only extracted the main infobox image from Wikipedia REST API summary endpoint
 - Many articles with photos in sections had no image available
-- Single API call to summary endpoint
+- REST API `media-list` endpoint was not working reliably
 
 **New Behavior:**
-- Uses Wikipedia's `media-list` API endpoint to fetch all images from the article
-- Single additional API call per page (minimal overhead)
-- Filters out non-content images (icons, logos, edit buttons, etc.)
+- Uses Wikipedia's **action API** with multiple strategies for comprehensive image retrieval:
+  1. First tries REST API summary endpoint for main image (fast, single call)
+  2. If no image, tries action API `prop=pageimages&piprop=original` for main page image
+  3. If still no image, queries `prop=images` to get all article images
+  4. Always fetches additional images from article content for alternatives
+- Properly handles action API responses with image title queries and imageinfo
+- Filters out non-content images (icons, logos, edit buttons, flags, symbols, etc.)
 - Stores up to 3 quality images as alternatives
-- Falls back to article images if main image is not available
-- Maintains same total number of API calls when main image exists
+- Falls back gracefully through multiple strategies
+- 2-4 API calls per page depending on image availability (optimized batch requests)
 
 **Image Selection UI:**
 - "Set as image" button changes to "Choose image ▾" when multiple images available
@@ -46,10 +50,15 @@ Enhanced the Wikipedia linking feature with better disambiguation handling and i
 ### 3. API Call Efficiency
 
 **Total API Calls Per Wikipedia Link:**
-- Without additional images needed: 1 call (summary API)
-- With additional images: 2 calls (summary API + media-list API)
+- Best case (main image in summary): 2-3 calls
+  - 1 call to REST API summary
+  - 1-2 calls to action API for additional images (list + batch imageinfo)
+- Fallback case (no main image): 3-4 calls
+  - 1 call to REST API summary
+  - 1 call to action API pageimages for main image
+  - 1-2 calls to action API for additional images (list + batch imageinfo)
 
-This is the same or minimal increase compared to before, keeping API usage efficient as requested.
+All additional image queries are batched to minimize API calls. This ensures reliable image retrieval while keeping API usage reasonable.
 
 ### 4. Metadata Storage
 
@@ -74,9 +83,12 @@ All unlink and cleanup functions updated to properly remove:
 ### New Functions
 
 1. **`getWikipediaImages(pageTitle)`**
-   - Fetches media list from Wikipedia
-   - Filters for quality content images
+   - Uses Wikipedia **action API** instead of REST API media-list
+   - Makes initial query with `prop=images&imlimit=10` to get image titles
+   - Filters out non-content images (icons, logos, flags, symbols)
+   - Batch queries image URLs with `prop=imageinfo&iiprop=url`
    - Returns array of image objects with URL and thumbnail
+   - Properly handles action API response structure
 
 ### Updated Functions
 
@@ -85,16 +97,23 @@ All unlink and cleanup functions updated to properly remove:
    - Increased search results to 8
    - Better disambiguation detection
 
-2. **`getWikipediaPage(title)`**
-   - Calls `getWikipediaImages()` for additional images
-   - Stores additional images in response
-   - Falls back to article images if main image missing
+2. **`getWikipediaPage(title)`** - MAJOR UPDATE
+   - Multi-strategy approach for robust image retrieval:
+     1. First tries REST API summary for fast main image lookup
+     2. Falls back to action API `prop=pageimages&piprop=original` if no summary image
+     3. Falls back to `getWikipediaImages()` to search all article images
+   - Properly handles action API response structure (query.pages)
+   - Intelligently manages additionalImages array (removes first if used as main)
+   - Always fetches additional images for alternatives
+   - Stores all images in response metadata
 
 3. **`applyWikipediaData(pageData)`**
    - Stores additional images in metadata
+   - Unchanged from previous implementation
 
 4. **`unlinkSource(domain)`**
    - Cleans up `wikipediaAdditionalImages`
+   - Unchanged from previous implementation
 
 ### UI Components
 
@@ -114,12 +133,32 @@ All unlink and cleanup functions updated to properly remove:
 
 - `src/components/panel/SharedPanelContent.jsx`
 
+## Fix Applied (Latest)
+
+### Issue
+The original implementation attempted to use Wikipedia's REST API `media-list` endpoint which was not working reliably. This caused Wikipedia image fetching to fail when no main image was present in the summary endpoint.
+
+### Solution
+Migrated from REST API to Wikipedia's **action API** for image retrieval:
+- Changed from `https://en.wikipedia.org/api/rest_v1/page/media-list/` (broken)
+- To `https://en.wikipedia.org/w/api.php?action=query&prop=images` (working)
+- Added fallback to `prop=pageimages&piprop=original` for main images
+- Properly handles action API response structure with `query.pages`
+- Batch queries image URLs with `prop=imageinfo` for efficiency
+
+This fix ensures images are reliably pulled from Wikipedia articles even when:
+- No infobox image exists
+- REST API summary doesn't provide an image
+- Images are embedded in article sections rather than the lead
+
 ## Testing Recommendations
 
 1. Test with articles that have disambiguation pages (e.g., "Mercury", "Lincoln")
-2. Test with articles that have photos in sections but not in infobox
+2. Test with articles that have photos in sections but not in infobox (e.g., "Albert Einstein")
 3. Test with articles that have no photos at all
-4. Verify API call counts remain reasonable
+4. Verify API call counts remain reasonable (2-4 calls per article)
 5. Test image selection dropdown with multiple images
 6. Test unlinking Wikipedia data cleans up all fields properly
+7. **NEW:** Test articles where REST API summary has no image but action API pageimages does
+8. **NEW:** Test articles where only embedded images exist (not in pageimages)
 
