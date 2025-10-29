@@ -258,9 +258,7 @@ const AlphaOnboardingModal = ({
       {/* Main Content */}
       <div
         style={{
-          flex: 1,
           lineHeight: '1.4',
-          marginBottom: isCompactLayout ? '8px' : '12px',
           fontFamily: "'EmOne', sans-serif",
           overflowY: 'auto'
         }}
@@ -291,11 +289,22 @@ const AlphaOnboardingModal = ({
           • Double-click a Thing to open it in the right panel<br />
         </div>
 
+        <p style={{
+          margin: '0',
+          padding: isCompactLayout ? '20px 16px' : '28px 24px',
+          fontSize: isCompactLayout ? '0.75rem' : '0.8rem',
+          color: '#666',
+          textAlign: 'center',
+          fontStyle: 'italic'
+        }}>
+          Your work is stored in <strong>Universes</strong>.<br />
+          Connect GitHub for cloud sync or use local files.
+        </p>
+
         <div style={{
           display: 'flex',
           flexDirection: 'column',
-          gap: '8px',
-          marginBottom: isCompactLayout ? '12px' : '16px'
+          gap: '8px'
         }}>
           <button
             onClick={() => {
@@ -335,24 +344,13 @@ const AlphaOnboardingModal = ({
               fontSize: isCompactLayout ? '0.85rem' : '0.9rem',
               fontWeight: 'bold',
               fontFamily: "'EmOne', sans-serif",
-              textAlign: 'center'
+              textAlign: 'center',
+              marginBottom: isCompactLayout ? '10px' : '12px'
             }}
           >
             Learn More
           </button>
         </div>
-
-        <p style={{
-          margin: '0',
-          padding: isCompactLayout ? '24px 16px' : '32px 24px',
-          fontSize: isCompactLayout ? '0.75rem' : '0.8rem',
-          color: '#666',
-          textAlign: 'center',
-          fontStyle: 'italic'
-        }}>
-          Your work is stored in <strong>Universes</strong>.<br />
-          Connect GitHub for cloud sync or use local files.
-        </p>
       </div>
     </>
   );

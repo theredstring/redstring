@@ -4095,6 +4095,10 @@ function NodeCanvas() {
       potentialClickNodeRef.current = null;
       // Open panel tab using the PROTOTYPE ID
       storeActions.openRightPanelNodeTab(prototypeId, nodeData.name);
+      // Ensure right panel is expanded
+      if (!rightPanelExpanded) {
+        setRightPanelExpanded(true);
+      }
       return;
     }
 
