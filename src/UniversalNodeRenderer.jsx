@@ -1014,15 +1014,22 @@ const UniversalNodeRenderer = ({
           // Determine multiline exactly like Node.jsx does
           const availableTextWidth = Math.max(0, node.width - (2 * singleLineSidePadding));
           const charsPerLine = Math.max(1, Math.floor(availableTextWidth / averageCharWidth));
-          const isMultiline = nameString.length > charsPerLine;
+          // Single words should NEVER wrap, regardless of length
+          const words = nameString.trim().split(/\s+/);
+          const isMultiline = words.length > 1 && nameString.length > charsPerLine;
           if (node.isGroup && isMultiline) {
             verticalPadding = Math.max(verticalPadding, (baseVerticalPadding + 6) * transform.scale);
           }
 
-          // Truncate text for decomposition view when nodes are very small
-          if (renderContext === 'decomposition' && computedFontSize < 12) {
+          // Truncate text for decomposition view when nodes are very small OR single words are too long
+          if (renderContext === 'decomposition') {
             const maxChars = Math.max(3, Math.floor(node.width / (averageCharWidth * 0.8)));
-            if (nameString.length > maxChars) {
+            // If single word is too long, truncate it
+            if (words.length === 1 && nameString.length > maxChars) {
+              nameString = nameString.substring(0, maxChars - 1) + '…';
+            }
+            // Also truncate when font is very small
+            else if (computedFontSize < 12 && nameString.length > maxChars) {
               nameString = nameString.substring(0, maxChars - 1) + '…';
             }
           }
