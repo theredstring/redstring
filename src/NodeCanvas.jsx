@@ -2586,42 +2586,6 @@ function NodeCanvas() {
     return [];
   }, [selectedNodePrototypes, nodeControlPanelVisible, lastSelectedNodePrototypes]);
 
-  // Use unified control panel actions hook
-  const {
-    handleNodePanelDelete,
-    handleNodePanelAdd,
-    handleNodePanelUp,
-    handleNodePanelOpenInPanel,
-    handleNodePanelDecompose,
-    handleNodePanelAbstraction,
-    handleNodePanelEdit,
-    handleNodePanelSave,
-    handleNodePanelMore,
-    handleNodePanelGroup
-  } = useControlPanelActions({
-    activeGraphId,
-    selectedInstanceIds,
-    selectedNodePrototypes,
-    nodes,
-    storeActions,
-    setSelectedInstanceIds,
-    setSelectedGroup,
-    setGroupControlPanelShouldShow,
-    setNodeControlPanelShouldShow,
-    setNodeControlPanelVisible,
-    setNodeNamePrompt,
-    setPreviewingNodeId,
-    setAbstractionCarouselNode,
-    setCarouselAnimationState,
-    setAbstractionCarouselVisible,
-    setSelectedNodeIdForPieMenu,
-    rightPanelExpanded,
-    setRightPanelExpanded,
-    setEditingNodeIdOnCanvas,
-    NODE_DEFAULT_COLOR,
-    onStartHurtleAnimationFromPanel: startHurtleAnimationFromPanel
-  });
-
   // Group control panel action handlers
   const handleGroupPanelUngroup = useCallback(() => {
     if (!activeGraphId || !selectedGroup) return;
@@ -7274,7 +7238,7 @@ function NodeCanvas() {
     runHurtleAnimation(animationData);
   }, [containerRef, runHurtleAnimation]);
 
-  // Use unified control panel actions hook
+  // Use unified control panel actions hook (depends on startHurtleAnimationFromPanel above)
   const {
     handleNodePanelDelete,
     handleNodePanelAdd,
