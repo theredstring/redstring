@@ -6,6 +6,7 @@ import UniversalNodeRenderer from './UniversalNodeRenderer.jsx'; // Import Unive
 import { getNodeDimensions } from './utils.js'; // Import needed for node dims
 import { ChevronLeft, ChevronRight, Trash2, Expand, ArrowUpFromDot, PackageOpen } from 'lucide-react'; // Import navigation icons, trash, expand, and package-open
 import useGraphStore, { getHydratedNodesForGraph, getEdgesForGraph } from "./store/graphStore.jsx"; // Import store selectors
+import HoverVisionAid from './components/HoverVisionAid.jsx'; // Import hover visual aid component
 
 const PREVIEW_SCALE_FACTOR = 0.3; // How much to shrink the network layout
 
@@ -164,6 +165,10 @@ const Node = ({
   // Determine if text will be multiline for conditional padding
   const isMultiline = useMemo(() => {
     if (!displayTitle) return false;
+    
+    // Single words should NEVER wrap, regardless of length
+    const words = displayTitle.trim().split(/\s+/);
+    if (words.length === 1) return false;
     
     // Estimate available width for text based on current width and the
     // actual single-line side padding that will be applied in the UI.
@@ -486,12 +491,17 @@ const Node = ({
                                       routingStyle="straight"
                                       scaleMode="fit"
                                       minNodeSize={60}
-                                      connectionStrokeScale={0.35}
+                                      renderContext="decomposition"
                                       nodeFontScale={1.4}
                                       cornerRadiusMultiplier={32}
-                                      onNodeHover={(nodeData) => {
-                                          setHoveredInnerNodeId(nodeData?.id || null);
-                                          setHoveredInnerNodeData(nodeData);
+                                      onNodeHover={(nodeData, isHovering) => {
+                                          if (isHovering) {
+                                              setHoveredInnerNodeId(nodeData?.id || null);
+                                              setHoveredInnerNodeData(nodeData);
+                                          } else {
+                                              setHoveredInnerNodeId(null);
+                                              setHoveredInnerNodeData(null);
+                                          }
                                       }}
                                   />
                               </div>
@@ -605,37 +615,37 @@ const Node = ({
         </foreignObject>
       )}
 
-      {/* Hover Preview - Shows hovered inner node name below title bar */}
+      {/* Hover Preview - Use actual HoverVisionAid component for consistency */}
       {isPreviewing && hoveredInnerNodeData && (
         <foreignObject
           x={nodeX + NODE_PADDING + 15}
           y={nodeY + textAreaHeight + 15}
           width={innerNetworkWidth - 30}
-          height={50}
+          height={100}
           style={{
             pointerEvents: 'none',
             overflow: 'visible'
           }}
         >
           <div
+            xmlns="http://www.w3.org/1999/xhtml"
             style={{
-              display: 'inline-block',
-              padding: '8px 16px',
-              backgroundColor: hoveredInnerNodeData.color || '#800000',
-              border: `3px solid ${canvasBackgroundColor}`,
-              borderRadius: '8px',
-              boxShadow: '0 4px 12px rgba(0,0,0,0.3)',
-              fontSize: '16px',
-              fontWeight: 'bold',
-              color: '#bdb5b5',
-              whiteSpace: 'nowrap',
-              overflow: 'hidden',
-              textOverflow: 'ellipsis',
-              maxWidth: '100%',
-              fontFamily: "'EmOne', sans-serif"
+              position: 'relative',
+              width: '100%',
+              height: '100%'
             }}
           >
-            {hoveredInnerNodeData.name || 'Untitled'}
+            <HoverVisionAid
+              hoveredNode={{
+                id: hoveredInnerNodeData.id,
+                name: hoveredInnerNodeData.name,
+                color: hoveredInnerNodeData.color,
+                prototypeId: hoveredInnerNodeData.prototypeId,
+                width: hoveredInnerNodeData.width || 176
+              }}
+              headerHeight={0}
+              verticalOffset={0}
+            />
           </div>
         </foreignObject>
       )}

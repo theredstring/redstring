@@ -8,13 +8,14 @@ import { getNodeDimensions } from './utils.js';
  * A dedicated component for rendering connection names with proper styling,
  * colors, and stroke effects that match NodeCanvas appearance.
  */
-const ConnectionText = ({ 
-  connection, 
-  sourcePoint, 
-  targetPoint, 
-  transform, 
+const ConnectionText = ({
+  connection,
+  sourcePoint,
+  targetPoint,
+  transform,
   isHovered,
-  fontScale = 1
+  fontScale = 1,
+  renderContext = 'full'
 }) => {
   if (!connection.connectionName) {
     return null;
@@ -28,6 +29,16 @@ const ConnectionText = ({
   const adjustedAngle = (angle > 90 || angle < -90) ? angle + 180 : angle;
   const fontSize = Math.max(8, 16 * transform.scale * fontScale);
   const strokeWidth = Math.max(2, (connection.strokeWidth || 6 * transform.scale) * fontScale);
+
+  // Truncate connection names for decomposition view
+  let displayName = connection.connectionName;
+  if (renderContext === 'decomposition' && fontSize < 10) {
+    const connectionLength = Math.sqrt(dx * dx + dy * dy);
+    const maxChars = Math.max(3, Math.floor(connectionLength / (fontSize * 0.7)));
+    if (displayName.length > maxChars) {
+      displayName = displayName.substring(0, maxChars - 1) + '…';
+    }
+  }
   
   return (
     <g>
@@ -51,10 +62,10 @@ const ConnectionText = ({
           fontFamily="'EmOne', sans-serif"
           style={{ pointerEvents: 'none' }}
         >
-          {connection.connectionName}
+          {displayName}
         </text>
       )}
-      
+
       {/* Main text with stroke */}
       <text
         x={midX}
@@ -73,7 +84,7 @@ const ConnectionText = ({
         fontFamily="'EmOne', sans-serif"
         style={{ pointerEvents: 'none' }}
       >
-        {connection.connectionName}
+        {displayName}
       </text>
     </g>
   );
@@ -119,14 +130,15 @@ const UniversalNodeRenderer = ({
   onConnectionClick,
   onConnectionHover,
   onToggleArrow,
-  
+
   // Advanced
   routingStyle = 'smart', // 'straight' | 'smart' | 'curved'
   className = '',
   connectionFontScale = 1,
   nodeFontScale = 1,
   connectionStrokeScale = 1, // Allow manual override of connection stroke width scaling
-  
+  renderContext = 'full', // 'full' | 'decomposition' | 'preview' - affects stroke/text rendering
+
   // Styling tweaks
   cornerRadiusMultiplier = 28
 }) => {
@@ -486,10 +498,22 @@ const UniversalNodeRenderer = ({
         hasTargetArrow
       );
       
-      // Calculate adaptive stroke width based on average node size
+      // Calculate adaptive stroke width with context-aware scaling
       const avgNodeSize = (sourceNode.width + sourceNode.height + targetNode.width + targetNode.height) / 4;
-      const baseStrokeMultiplier = Math.max(0.02, Math.min(0.08, avgNodeSize / 1000)); // Scales with node size
-      const adaptiveStrokeWidth = Math.max(1.5, avgNodeSize * baseStrokeMultiplier * connectionStrokeScale);
+
+      // Different stroke formulas based on render context
+      let adaptiveStrokeWidth;
+      if (renderContext === 'decomposition') {
+        // For decomposition view: use outer stroke approach with minimum threshold
+        // Outer stroke means the stroke extends outward from the path, not scaling with node size
+        const baseStroke = 2.5; // Base stroke width in pixels for decomposition
+        const scaleFactor = Math.max(0.8, Math.min(2.0, avgNodeSize / 30)); // Scale moderately with node size
+        adaptiveStrokeWidth = Math.max(2.0, baseStroke * scaleFactor * connectionStrokeScale);
+      } else {
+        // For full canvas view: use existing formula
+        const baseStrokeMultiplier = Math.max(0.02, Math.min(0.08, avgNodeSize / 1000)); // Scales with node size
+        adaptiveStrokeWidth = Math.max(1.5, avgNodeSize * baseStrokeMultiplier * connectionStrokeScale);
+      }
       
       return {
         ...conn,
@@ -504,12 +528,12 @@ const UniversalNodeRenderer = ({
       };
     }).filter(Boolean);
 
-    return { 
-      scaledNodes, 
-      scaledConnections, 
+    return {
+      scaledNodes,
+      scaledConnections,
       transform: { scale, offsetX, offsetY }
     };
-  }, [nodes, connections, instances, containerWidth, containerHeight, scaleMode, minNodeSize, maxNodeSize, padding, routingStyle, alignNodesHorizontally, calculateConnectionPath, connectionStrokeScale, nodePrototypesMap, getConnectionName, getConnectionColor]);
+  }, [nodes, connections, instances, containerWidth, containerHeight, scaleMode, minNodeSize, maxNodeSize, padding, routingStyle, alignNodesHorizontally, calculateConnectionPath, connectionStrokeScale, renderContext, nodePrototypesMap, getConnectionName, getConnectionColor]);
 
   // Event handlers
   const handleNodeMouseEnter = (node) => {
@@ -823,6 +847,7 @@ const UniversalNodeRenderer = ({
                 transform={transform}
                 isHovered={isStableHovered}
                 fontScale={connectionFontScale}
+                renderContext={renderContext}
               />
               
               {/* Render dots within the connection group to access adjusted points */}
@@ -957,8 +982,8 @@ const UniversalNodeRenderer = ({
           const hasImage = Boolean(node.imageSrc);
           
           // Calculate text sizing and padding to exactly match Node.jsx proportions
-          const nameString = typeof node.name === 'string' ? node.name : '';
-          
+          let nameString = typeof node.name === 'string' ? node.name : '';
+
           // Use Node.jsx's exact font size, line height, and padding calculations
           // Special handling for groups - larger text and different padding
           const baseFontSize = node.isGroup ? 24 : 20; // Slightly smaller font for groups to avoid oversizing short words
@@ -967,7 +992,7 @@ const UniversalNodeRenderer = ({
           const baseSingleLineSidePadding = node.isGroup ? 30 : 22; // Generous side padding for compact labels
           const baseMultiLineSidePadding = node.isGroup ? 36 : 30; // More breathing room for wrapped group names
           const baseAverageCharWidth = node.isGroup ? 14 : 12; // Adjust width estimation for larger type
-          
+
           // Apply transform scale to all measurements
           const computedFontSize = Math.max(8, baseFontSize * transform.scale * nodeFontScale);
           const computedLineHeight = Math.max(12, baseLineHeight * transform.scale * nodeFontScale);
@@ -975,14 +1000,31 @@ const UniversalNodeRenderer = ({
           const singleLineSidePadding = baseSingleLineSidePadding * transform.scale;
           const multiLineSidePadding = baseMultiLineSidePadding * transform.scale;
           const averageCharWidth = baseAverageCharWidth * transform.scale;
-          const cornerRadius = Math.max(1, cornerRadiusMultiplier * transform.scale); // NODE_CORNER_RADIUS baseline
-          
+
+          // Improved corner radius calculation for decomposition view
+          let cornerRadius;
+          if (renderContext === 'decomposition') {
+            // For decomposition view, use a minimum corner radius to maintain visual clarity at small scales
+            const scaledRadius = cornerRadiusMultiplier * transform.scale;
+            cornerRadius = Math.max(2, Math.min(scaledRadius, node.width * 0.1, node.height * 0.1));
+          } else {
+            cornerRadius = Math.max(1, cornerRadiusMultiplier * transform.scale); // NODE_CORNER_RADIUS baseline
+          }
+
           // Determine multiline exactly like Node.jsx does
           const availableTextWidth = Math.max(0, node.width - (2 * singleLineSidePadding));
           const charsPerLine = Math.max(1, Math.floor(availableTextWidth / averageCharWidth));
           const isMultiline = nameString.length > charsPerLine;
           if (node.isGroup && isMultiline) {
             verticalPadding = Math.max(verticalPadding, (baseVerticalPadding + 6) * transform.scale);
+          }
+
+          // Truncate text for decomposition view when nodes are very small
+          if (renderContext === 'decomposition' && computedFontSize < 12) {
+            const maxChars = Math.max(3, Math.floor(node.width / (averageCharWidth * 0.8)));
+            if (nameString.length > maxChars) {
+              nameString = nameString.substring(0, maxChars - 1) + '…';
+            }
           }
           
           return (
@@ -1034,11 +1076,13 @@ const UniversalNodeRenderer = ({
                 ry={cornerRadius}
                 fill={hasImage ? 'none' : (node.isGroup ? '#bdb5b5' : (node.color || '#800000'))}
                 stroke={hasImage ? (node.color || '#800000') : (node.isGroup ? (node.color || '#8B0000') : 'none')}
-                strokeWidth={hasImage ? Math.max(1, 2 * transform.scale) : (node.isGroup ? Math.max(3, 6 * transform.scale) : 0)}
-                style={{ 
+                strokeWidth={hasImage ? (renderContext === 'decomposition' ? Math.max(1.5, 3 * transform.scale) : Math.max(1, 2 * transform.scale)) : (node.isGroup ? Math.max(3, 6 * transform.scale) : 0)}
+                style={{
                   cursor: interactive ? 'pointer' : 'default',
                   transition: 'width 0.3s ease, height 0.3s ease, fill 0.2s ease',
-                  pointerEvents: 'none'
+                  pointerEvents: 'none',
+                  // Use vector-effect for true outer stroke in decomposition view
+                  vectorEffect: renderContext === 'decomposition' && hasImage ? 'non-scaling-stroke' : undefined
                 }}
               />
               

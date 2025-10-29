@@ -124,8 +124,11 @@ const AlphaOnboardingModal = ({
   }, [isVisible]);
 
   const handleClose = () => {
-    if (dontShowAgain && typeof window !== 'undefined') {
+    // Always mark onboarding as complete when modal is closed
+    if (typeof window !== 'undefined') {
       localStorage.setItem('redstring-alpha-welcome-seen', 'true');
+    }
+    if (dontShowAgain) {
       onDontShowAgain && onDontShowAgain();
     }
     onClose();

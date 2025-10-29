@@ -1473,6 +1473,14 @@ function NodeCanvas() {
   
   // Show onboarding modal when there's no universe file and universe isn't loaded
   useEffect(() => {
+    // Check if user has already completed onboarding
+    let hasCompletedOnboarding = false;
+    try {
+      if (typeof window !== 'undefined') {
+        hasCompletedOnboarding = localStorage.getItem('redstring-alpha-welcome-seen') === 'true';
+      }
+    } catch {}
+
     // Suppress welcome modal if Git auth/app flow is pending or resuming
     let suppressForGitFlow = false;
     try {
@@ -1486,6 +1494,7 @@ function NodeCanvas() {
     } catch {}
 
     const shouldShowOnboarding =
+      !hasCompletedOnboarding &&
       !suppressForGitFlow &&
       !isUniverseLoading && (
         !hasUniverseFile ||
@@ -11486,9 +11495,22 @@ function NodeCanvas() {
       {/* Onboarding Modal */}
       <AlphaOnboardingModal
         isVisible={showOnboardingModal}
-        onClose={() => setShowOnboardingModal(false)}
+        onClose={() => {
+          // Mark onboarding as complete when user closes the modal
+          try {
+            if (typeof window !== 'undefined') {
+              localStorage.setItem('redstring-alpha-welcome-seen', 'true');
+            }
+          } catch {}
+          setShowOnboardingModal(false);
+        }}
         onCreateLocal={async () => {
           try {
+            // Mark onboarding as complete
+            if (typeof window !== 'undefined') {
+              localStorage.setItem('redstring-alpha-welcome-seen', 'true');
+            }
+            
             // Set storage mode to local
             console.log('[NodeCanvas] Setting storage mode to local for file-based storage');
             storeActions.setStorageMode('local');
@@ -11518,6 +11540,11 @@ function NodeCanvas() {
         }}
         onOpenLocal={async () => {
           try {
+            // Mark onboarding as complete
+            if (typeof window !== 'undefined') {
+              localStorage.setItem('redstring-alpha-welcome-seen', 'true');
+            }
+            
             // Set storage mode to local
             console.log('[NodeCanvas] Setting storage mode to local for file-based storage');
             storeActions.setStorageMode('local');
@@ -11545,6 +11572,11 @@ function NodeCanvas() {
         onConnectGitHub={async (step) => {
           // Handle different GitHub setup steps
           console.log('[NodeCanvas] GitHub setup step:', step);
+
+          // Mark onboarding as complete when GitHub setup is initiated
+          if (typeof window !== 'undefined') {
+            localStorage.setItem('redstring-alpha-welcome-seen', 'true');
+          }
 
           // Set storage mode to git when GitHub is selected
           console.log('[NodeCanvas] Setting storage mode to git for GitHub sync');

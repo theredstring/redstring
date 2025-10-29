@@ -3300,7 +3300,13 @@ const GitNativeFederation = ({ variant = 'panel', onRequestClose }) => {
           gap: 6
         }}
       >
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <div style={{ 
+          display: 'flex', 
+          flexDirection: isSlim ? 'column' : 'row',
+          justifyContent: 'space-between', 
+          alignItems: isSlim ? 'flex-start' : 'center',
+          gap: isSlim ? 8 : 0
+        }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
             {storageIcon}
             <div>
@@ -3316,7 +3322,8 @@ const GitNativeFederation = ({ variant = 'panel', onRequestClose }) => {
                 fontWeight: 700,
                 padding: '2px 6px',
                 borderRadius: 10,
-                backgroundColor: 'rgba(122,0,0,0.1)'
+                backgroundColor: 'rgba(122,0,0,0.1)',
+                alignSelf: isSlim ? 'flex-start' : 'center'
               }}
             >
               PRIMARY
@@ -3370,7 +3377,13 @@ const GitNativeFederation = ({ variant = 'panel', onRequestClose }) => {
           gap: 8
         }}
       >
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <div style={{ 
+          display: 'flex', 
+          flexDirection: isSlim ? 'column' : 'row',
+          justifyContent: 'space-between', 
+          alignItems: isSlim ? 'stretch' : 'center',
+          gap: isSlim ? 10 : 0
+        }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
             <Save size={18} />
             <div>
@@ -3380,7 +3393,7 @@ const GitNativeFederation = ({ variant = 'panel', onRequestClose }) => {
               </div>
             </div>
           </div>
-          <div style={{ display: 'flex', gap: 6 }}>
+          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
             <button
               onClick={() => handleLinkLocalFile(universe.slug)}
               style={buttonStyle('outline')}
@@ -3440,7 +3453,13 @@ const GitNativeFederation = ({ variant = 'panel', onRequestClose }) => {
             gap: 8
           }}
         >
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <div style={{ 
+            display: 'flex', 
+            flexDirection: isSlim ? 'column' : 'row',
+            justifyContent: 'space-between', 
+            alignItems: isSlim ? 'stretch' : 'center',
+            gap: isSlim ? 10 : 0
+          }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
               <Github size={18} />
               <div>
@@ -3450,7 +3469,7 @@ const GitNativeFederation = ({ variant = 'panel', onRequestClose }) => {
                 </div>
               </div>
             </div>
-            <div style={{ display: 'flex', gap: 6 }}>
+            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
               <button 
                 onClick={() => handleDiscover(source)}
                 style={buttonStyle(discovery.loading ? 'disabled' : 'outline')}
@@ -3566,14 +3585,20 @@ const GitNativeFederation = ({ variant = 'panel', onRequestClose }) => {
           gap: 12
         }}
       >
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <div style={{ 
+          display: 'flex', 
+          flexDirection: isSlim ? 'column' : 'row',
+          justifyContent: 'space-between', 
+          alignItems: isSlim ? 'stretch' : 'center',
+          gap: isSlim ? 12 : 0
+        }}>
           <div>
             <div style={{ fontSize: '1rem', fontWeight: 700 }}>{activeUniverse.name}</div>
             <div style={{ fontSize: '0.75rem', color: '#444' }}>
               Nodes: {activeUniverse.nodeCount ?? '—'} · Last opened {formatWhen(activeUniverse.lastOpenedAt)}
               </div>
             </div>
-          <div style={{ display: 'flex', gap: 8 }}>
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
             <button onClick={() => handleAttachRepo(activeUniverse.slug)} style={buttonStyle('solid')}>
               Link repository
                 </button>
@@ -3671,7 +3696,13 @@ const renderUniversesList = () => (
       gap: 10
     }}
   >
-    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+    <div style={{ 
+      display: 'flex', 
+      flexDirection: isSlim ? 'column' : 'row',
+      justifyContent: 'space-between', 
+      alignItems: isSlim ? 'stretch' : 'center',
+      gap: isSlim ? 10 : 0
+    }}>
       <div>
         <div style={{ fontWeight: 700, fontSize: '1rem' }}>Universes</div>
         <div style={{ fontSize: '0.75rem', color: '#444' }}>Manage your knowledge spaces</div>
@@ -3693,8 +3724,10 @@ const renderUniversesList = () => (
               backgroundColor: '#bdb5b5',
               padding: 12,
               display: 'flex',
+              flexDirection: isSlim ? 'column' : 'row',
               justifyContent: 'space-between',
-              alignItems: 'center'
+              alignItems: isSlim ? 'stretch' : 'center',
+              gap: isSlim ? 10 : 0
             }}
           >
             <div>
@@ -3703,7 +3736,7 @@ const renderUniversesList = () => (
                 Created {formatWhen(universe.createdAt)} · Updated {formatWhen(universe.updatedAt)}
               </div>
             </div>
-            <div style={{ display: 'flex', gap: 6 }}>
+            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
               {!isActive && (
                 <button onClick={() => handleSwitchUniverse(universe.slug)} style={buttonStyle('outline')}>
                   Switch
