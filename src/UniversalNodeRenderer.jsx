@@ -981,25 +981,37 @@ const UniversalNodeRenderer = ({
           const isHovered = hoveredNodeId === node.id;
           const hasImage = Boolean(node.imageSrc);
           
-          // Calculate text sizing and padding to exactly match Node.jsx proportions
+          // Calculate text sizing and padding
           let nameString = typeof node.name === 'string' ? node.name : '';
 
-          // Use Node.jsx's exact font size, line height, and padding calculations
-          // Special handling for groups - larger text and different padding
-          const baseFontSize = node.isGroup ? 24 : 20; // Slightly smaller font for groups to avoid oversizing short words
-          const baseLineHeight = node.isGroup ? 32 : 26; // Match Node.jsx line height
-          const baseVerticalPadding = node.isGroup ? 18 : 12; // Tighter vertical padding to match compact multi-line display
-          const baseSingleLineSidePadding = node.isGroup ? 30 : 22; // Generous side padding for compact labels
-          const baseMultiLineSidePadding = node.isGroup ? 36 : 30; // More breathing room for wrapped group names
-          const baseAverageCharWidth = node.isGroup ? 14 : 12; // Adjust width estimation for larger type
+          // Different sizing for decomposition view (tiny/compact) vs full view
+          let baseFontSize, baseLineHeight, baseVerticalPadding, baseSingleLineSidePadding, baseMultiLineSidePadding, baseAverageCharWidth;
+          
+          if (renderContext === 'decomposition') {
+            // Decomposition view: tighter spacing, optimized for readability at small scales
+            baseFontSize = node.isGroup ? 22 : 20;
+            baseLineHeight = node.isGroup ? 28 : 24; // Tighter line height for compact display
+            baseVerticalPadding = node.isGroup ? 8 : 6; // Minimal vertical padding to maximize text space
+            baseSingleLineSidePadding = node.isGroup ? 16 : 12; // Tight side padding for small nodes
+            baseMultiLineSidePadding = node.isGroup ? 20 : 16; // Still compact for wrapped text
+            baseAverageCharWidth = node.isGroup ? 13 : 11; // Slightly narrower estimation for compact view
+          } else {
+            // Full canvas view: use Node.jsx's proportions
+            baseFontSize = node.isGroup ? 24 : 20;
+            baseLineHeight = node.isGroup ? 32 : 32; // Match Node.jsx line height
+            baseVerticalPadding = node.isGroup ? 18 : 20; // Match Node.jsx vertical padding
+            baseSingleLineSidePadding = node.isGroup ? 30 : 22; // Match Node.jsx side padding
+            baseMultiLineSidePadding = node.isGroup ? 36 : 30; // Match Node.jsx multiline padding
+            baseAverageCharWidth = node.isGroup ? 14 : 12; // Match Node.jsx char width
+          }
 
           // Apply transform scale to all measurements
           const computedFontSize = Math.max(8, baseFontSize * transform.scale * nodeFontScale);
-          const computedLineHeight = Math.max(12, baseLineHeight * transform.scale * nodeFontScale);
+          const computedLineHeight = Math.max(10, baseLineHeight * transform.scale * nodeFontScale);
           let verticalPadding = baseVerticalPadding * transform.scale;
           const singleLineSidePadding = baseSingleLineSidePadding * transform.scale;
           const multiLineSidePadding = baseMultiLineSidePadding * transform.scale;
-          const averageCharWidth = baseAverageCharWidth * transform.scale;
+          const averageCharWidth = baseAverageCharWidth * transform.scale * nodeFontScale;
 
           // Improved corner radius calculation for decomposition view
           let cornerRadius;
@@ -1021,16 +1033,26 @@ const UniversalNodeRenderer = ({
             verticalPadding = Math.max(verticalPadding, (baseVerticalPadding + 6) * transform.scale);
           }
 
-          // Truncate text for decomposition view when nodes are very small OR single words are too long
+          // Smart truncation for decomposition view
           if (renderContext === 'decomposition') {
-            const maxChars = Math.max(3, Math.floor(node.width / (averageCharWidth * 0.8)));
-            // If single word is too long, truncate it
+            // Calculate available characters more accurately
+            const availableWidth = node.width - (2 * (isMultiline ? multiLineSidePadding : singleLineSidePadding));
+            const maxChars = Math.max(3, Math.floor(availableWidth / averageCharWidth));
+            
+            // For single words that are too long, always truncate
             if (words.length === 1 && nameString.length > maxChars) {
-              nameString = nameString.substring(0, maxChars - 1) + '…';
+              nameString = nameString.substring(0, Math.max(1, maxChars - 1)) + '…';
             }
-            // Also truncate when font is very small
-            else if (computedFontSize < 12 && nameString.length > maxChars) {
-              nameString = nameString.substring(0, maxChars - 1) + '…';
+            // For multi-word names, truncate more aggressively at small scales
+            else if (words.length > 1) {
+              // At very small font sizes, prefer showing truncated single line
+              if (computedFontSize < 12 && nameString.length > maxChars) {
+                nameString = nameString.substring(0, Math.max(1, maxChars - 1)) + '…';
+              }
+              // At tiny scales, be very aggressive
+              else if (computedFontSize < 10 && nameString.length > maxChars * 0.7) {
+                nameString = nameString.substring(0, Math.max(1, Math.floor(maxChars * 0.7) - 1)) + '…';
+              }
             }
           }
           
@@ -1125,8 +1147,9 @@ const UniversalNodeRenderer = ({
                         fontWeight: 'bold',
                         color: node.isGroup ? (node.color || '#8B0000') : '#bdb5b5',
                         lineHeight: `${computedLineHeight}px`,
-                        letterSpacing: '-0.2px',
-                        whiteSpace: 'normal',
+                        // Tighter letter spacing for decomposition view to fit more text
+                        letterSpacing: renderContext === 'decomposition' ? '-0.3px' : '-0.2px',
+                        whiteSpace: renderContext === 'decomposition' && words.length === 1 ? 'nowrap' : 'normal',
                         overflowWrap: 'break-word',
                         wordBreak: 'break-word',
                         textAlign: 'center',
@@ -1134,7 +1157,9 @@ const UniversalNodeRenderer = ({
                         display: 'inline-block',
                         width: '100%',
                         fontFamily: 'EmOne, sans-serif',
-                        hyphens: 'auto',
+                        hyphens: renderContext === 'decomposition' ? 'none' : 'auto', // Disable hyphenation in tiny view
+                        // Better text rendering for small sizes
+                        textRendering: renderContext === 'decomposition' ? 'optimizeLegibility' : 'auto',
                       }}
                     >
                       {nameString}
