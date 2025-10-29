@@ -7,6 +7,7 @@ import Header from './Header.jsx';
 import { useCanvasWorker } from './useCanvasWorker.js';
 import Node from './Node.jsx';
 import PlusSign from './PlusSign.jsx'; // Import the new PlusSign component
+import VideoNodeAnimation from './VideoNodeAnimation.jsx'; // Import the video animation component
 import PieMenu from './PieMenu.jsx'; // Import the PieMenu component
 import AbstractionCarousel from './AbstractionCarousel.jsx'; // Import the AbstractionCarousel component
 import AbstractionControlPanel from './AbstractionControlPanel.jsx'; // Import the AbstractionControlPanel component
@@ -2147,6 +2148,7 @@ function NodeCanvas() {
   const [isViewReady, setIsViewReady] = useState(false);
 
   const [plusSign, setPlusSign] = useState(null);
+  const [videoAnimation, setVideoAnimation] = useState(null); // Y-key video animation state
   const [nodeNamePrompt, setNodeNamePrompt] = useState({ visible: false, name: '', color: null });
   const [connectionNamePrompt, setConnectionNamePrompt] = useState({ visible: false, name: '', color: null, edgeId: null });
   const [abstractionPrompt, setAbstractionPrompt] = useState({ visible: false, name: '', color: null, direction: 'above', nodeId: null, carouselLevel: null });
@@ -2563,6 +2565,16 @@ function NodeCanvas() {
       setSelectedGroup(null);
     }
   }, [selectedGroup, abstractionCarouselVisible, connectionNamePrompt.visible, groupControlPanelShouldShow]);
+
+  // --- Close all control panels on page/graph change ---
+  useEffect(() => {
+    // When activeGraphId changes, close all control panels with exit animation
+    setNodeControlPanelVisible(false);
+    setConnectionControlPanelVisible(false);
+    setAbstractionControlPanelVisible(false);
+    setGroupControlPanelShouldShow(false);
+    setSelectedGroup(null);
+  }, [activeGraphId]);
 
   const handleNodeControlPanelAnimationComplete = useCallback(() => {
     setNodeControlPanelShouldShow(false);
@@ -6065,6 +6077,14 @@ function NodeCanvas() {
     if (!plusSign) return;
     if (plusSign.mode === 'morph') return;
     
+    // Special Y-key video animation mode (session-only)
+    if (keysPressed.current['y']) {
+      // Store position and trigger video animation
+      setVideoAnimation({ x: plusSign.x, y: plusSign.y, active: true });
+      setPlusSign(null); // Immediately remove plus sign
+      return;
+    }
+    
     setNodeNamePrompt({ visible: true, name: '' });
     
     // Calculate position for the node selection grid (below the dialog)
@@ -6310,6 +6330,39 @@ function NodeCanvas() {
       }
 
       setPlusSign(null);
+  };
+
+  const handleVideoAnimationComplete = () => {
+    if (!videoAnimation || !activeGraphId) return;
+    
+    // Calculate position (centered)
+    const mockNode = { name: "Hello, World" };
+    const dims = getNodeDimensions(mockNode, false, null);
+    const position = {
+      x: videoAnimation.x - dims.currentWidth / 2,
+      y: videoAnimation.y - dims.currentHeight / 2
+    };
+    
+    // Apply smooth grid snapping when creating new nodes if grid is enabled
+    if (gridMode !== 'off') {
+      const snapped = snapToGridAnimated(videoAnimation.x, videoAnimation.y, dims.currentWidth, dims.currentHeight, null);
+      position.x = snapped.x;
+      position.y = snapped.y;
+    }
+    
+    // Create node prototype and instance
+    const newPrototypeId = uuidv4();
+    storeActions.addNodePrototype({
+      id: newPrototypeId,
+      name: "Hello, World",
+      description: '',
+      color: 'maroon',
+      definitionGraphIds: [],
+      typeNodeId: 'base-thing-prototype'
+    });
+    storeActions.addNodeInstance(activeGraphId, newPrototypeId, position);
+    
+    setVideoAnimation(null);
   };
 
   // Dialog color picker handlers
@@ -11183,6 +11236,15 @@ function NodeCanvas() {
                      // Make the PlusSign slightly smaller so the final node feels like an expansion
                      return dims.currentHeight * 0.9;
                    })() : NODE_HEIGHT}
+                 />
+               )}
+
+               {/* Y-key video animation (session-only special effect) */}
+               {videoAnimation && videoAnimation.active && (
+                 <VideoNodeAnimation
+                   x={videoAnimation.x}
+                   y={videoAnimation.y}
+                   onComplete={handleVideoAnimationComplete}
                  />
                )}
             </svg>

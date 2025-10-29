@@ -499,12 +499,8 @@ const UnifiedBottomControlPanel = ({
               const connections = triples.map(t => {
                 // Get the original edge to preserve definitionNodeIds
                 const originalEdge = edges.get(t.id);
-                // Truncate long connection names
-                const fullName = t.predicate?.name || 'Connection';
-                const maxLength = mobileState.isMobilePortrait ? 15 : 25;
-                const connectionName = fullName.length > maxLength 
-                  ? fullName.substring(0, maxLength - 3) + '...' 
-                  : fullName;
+                // Don't truncate - let it flow naturally
+                const connectionName = t.predicate?.name || 'Connection';
                 
                 return {
                   id: t.id,
@@ -528,7 +524,13 @@ const UnifiedBottomControlPanel = ({
               // Dynamic sizing based on actual content needs with reasonable maximum
               const baseSpacing = 200; // Base width for padding and connection line
               const nodeSpacing = nodes.length * 80; // Per-node spacing
-              const connectionLabelSpace = 150; // Space for connection label/line
+              
+              // Calculate connection label space based on longest connection name
+              const longestConnectionName = connections.reduce((max, conn) => 
+                Math.max(max, (conn.connectionName || '').length), 0
+              );
+              // Rough estimate: ~8px per character + some padding
+              const connectionLabelSpace = Math.max(150, longestConnectionName * 8 + 40);
 
               // Calculate container width - as big as needed with sensible max
               const calculatedWidth = Math.min(

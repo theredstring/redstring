@@ -1887,49 +1887,45 @@ const SharedPanelContent = ({
         )}
       </CollapsibleSection>
 
-      {!isHomeTab && (
-        <>
-          {/* Dividing line above Component Of section */}
-          <StandardDivider margin="20px 0" />
+      {/* Dividing line above Component Of section */}
+      <StandardDivider margin="20px 0" />
 
-          {/* Component Of Section */}
-          <CollapsibleSection
-            title="Component Of"
-            count={componentOfNodes.length}
-            defaultExpanded={true}
-          >
-            {componentOfNodes.length > 0 ? (
-              <div style={{
-                marginRight: '15px',
-                display: 'grid',
-                gridTemplateColumns: isUltraSlim ? '1fr' : '1fr 1fr',
-                gap: '8px',
-                maxHeight: '300px',
-                overflowY: 'auto'
-              }}>
-                {componentOfNodes.map((node) => (
-                  <DraggableNodeComponent
-                    key={node.prototypeId || node.id}
-                    node={node}
-                    onOpenNode={onOpenNode}
-                  />
-                ))}
-              </div>
-            ) : (
-              <div style={{ 
-                marginRight: '15px',
-                color: '#999', 
-                fontSize: '0.9rem', 
-                fontFamily: "'EmOne', sans-serif",
-                textAlign: 'left',
-                padding: '20px 0 20px 15px'
-              }}>
-                This prototype is not yet a component of other definitions.
-              </div>
-            )}
-          </CollapsibleSection>
-        </>
-      )}
+      {/* Component Of Section - now shown for both home and node tabs */}
+      <CollapsibleSection
+        title="Component Of"
+        count={componentOfNodes.length}
+        defaultExpanded={true}
+      >
+        {componentOfNodes.length > 0 ? (
+          <div style={{
+            marginRight: '15px',
+            display: 'grid',
+            gridTemplateColumns: isUltraSlim ? '1fr' : '1fr 1fr',
+            gap: '8px',
+            maxHeight: '300px',
+            overflowY: 'auto'
+          }}>
+            {componentOfNodes.map((node) => (
+              <DraggableNodeComponent
+                key={node.prototypeId || node.id}
+                node={node}
+                onOpenNode={onOpenNode}
+              />
+            ))}
+          </div>
+        ) : (
+          <div style={{ 
+            marginRight: '15px',
+            color: '#999', 
+            fontSize: '0.9rem', 
+            fontFamily: "'EmOne', sans-serif",
+            textAlign: 'left',
+            padding: '20px 0 20px 15px'
+          }}>
+            This {isHomeTab ? 'graph' : 'prototype'} is not yet a component of other definitions.
+          </div>
+        )}
+      </CollapsibleSection>
 
       {/* Dividing line above Connections section */}
       <StandardDivider margin="20px 0" />

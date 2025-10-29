@@ -118,7 +118,7 @@ const PanelContentWrapper = ({
   const graphData = getGraphData();
   const activeGraphNodes = getActiveGraphNodes();
   const componentOfNodes = (() => {
-    if (tabType !== 'node') return [];
+    // Support both home and node tabs
     if (!nodeData?.id || !graphs || !nodePrototypes) return [];
 
     const targetPrototypeId = nodeData.id;
