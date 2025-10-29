@@ -43,9 +43,9 @@ const VideoNodeAnimation = ({ x, y, onComplete }) => {
   });
 
   const PHASES = {
-    stretch: { duration: 1000, startTime: 0 },
-    tremble: { duration: 3000, startTime: 1000 },
-    explode: { duration: 1000, startTime: 4000 }
+    stretch: { duration: 1590, startTime: 0 },
+    tremble: { duration: 3110, startTime: 1590 },
+    explode: { duration: 1000, startTime: 4700 }
   };
 
   const lerp = (a, b, t) => a + (b - a) * t;
@@ -190,6 +190,7 @@ const VideoNodeAnimation = ({ x, y, onComplete }) => {
                 fontSize: '20px',
                 fontWeight: 'bold',
                 color: '#bdb5b5',
+                fontFamily: "'EmOne', sans-serif",
                 lineHeight: '32px',
                 whiteSpace: 'normal',
                 overflowWrap: 'break-word',

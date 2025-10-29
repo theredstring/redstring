@@ -690,8 +690,10 @@ function NodeCanvas() {
     handleMouseUp(synthetic);
     // Ensure touch tap behaves like click-off: close UI overlays if present
     if (isTap) {
-      if (groupControlPanelShouldShow || selectedGroup) {
-        setGroupControlPanelShouldShow(false);
+      if (groupControlPanelShouldShow || groupControlPanelVisible) {
+        setGroupControlPanelVisible(false);
+      }
+      if (selectedGroup) {
         setSelectedGroup(null);
       }
       if (selectedEdgeId || selectedEdgeIds.size > 0) {
@@ -2245,7 +2247,11 @@ function NodeCanvas() {
   const [nodeControlPanelVisible, setNodeControlPanelVisible] = useState(false);
   const [nodeControlPanelShouldShow, setNodeControlPanelShouldShow] = useState(false);
   const [groupControlPanelShouldShow, setGroupControlPanelShouldShow] = useState(false);
+  const [groupControlPanelVisible, setGroupControlPanelVisible] = useState(false);
   const [selectedGroup, setSelectedGroup] = useState(null);
+  // Preserve last selections during exit animations
+  const [lastSelectedNodePrototypes, setLastSelectedNodePrototypes] = useState([]);
+  const [lastSelectedGroup, setLastSelectedGroup] = useState(null);
   const [connectionControlPanelVisible, setConnectionControlPanelVisible] = useState(false);
   const [connectionControlPanelShouldShow, setConnectionControlPanelShouldShow] = useState(false);
 
@@ -2521,7 +2527,7 @@ function NodeCanvas() {
       setAbstractionControlPanelShouldShow(false);
       setConnectionControlPanelVisible(false);
       setConnectionControlPanelShouldShow(false);
-      setGroupControlPanelShouldShow(false);
+      setGroupControlPanelVisible(false);
       setSelectedGroup(null);
     } else if (!shouldShow && nodeControlPanelVisible) {
       setNodeControlPanelVisible(false);
@@ -2541,7 +2547,7 @@ function NodeCanvas() {
       setNodeControlPanelShouldShow(false);
       setAbstractionControlPanelVisible(false);
       setAbstractionControlPanelShouldShow(false);
-      setGroupControlPanelShouldShow(false);
+      setGroupControlPanelVisible(false);
       setSelectedGroup(null);
     } else if (!shouldShow && connectionControlPanelVisible) {
       setConnectionControlPanelVisible(false);
@@ -2553,6 +2559,7 @@ function NodeCanvas() {
     const shouldShow = Boolean(selectedGroup && !abstractionCarouselVisible && !connectionNamePrompt.visible);
     if (shouldShow) {
       setGroupControlPanelShouldShow(true);
+      setGroupControlPanelVisible(true);
       // Hide ALL other control panels
       setNodeControlPanelVisible(false);
       setNodeControlPanelShouldShow(false);
@@ -2560,11 +2567,10 @@ function NodeCanvas() {
       setAbstractionControlPanelShouldShow(false);
       setConnectionControlPanelVisible(false);
       setConnectionControlPanelShouldShow(false);
-    } else if (!shouldShow && groupControlPanelShouldShow) {
-      setGroupControlPanelShouldShow(false);
-      setSelectedGroup(null);
+    } else if (!shouldShow && groupControlPanelVisible) {
+      setGroupControlPanelVisible(false);
     }
-  }, [selectedGroup, abstractionCarouselVisible, connectionNamePrompt.visible, groupControlPanelShouldShow]);
+  }, [selectedGroup, abstractionCarouselVisible, connectionNamePrompt.visible, groupControlPanelVisible]);
 
   // --- Close all control panels on page/graph change ---
   useEffect(() => {
@@ -2572,7 +2578,7 @@ function NodeCanvas() {
     setNodeControlPanelVisible(false);
     setConnectionControlPanelVisible(false);
     setAbstractionControlPanelVisible(false);
-    setGroupControlPanelShouldShow(false);
+    setGroupControlPanelVisible(false);
     setSelectedGroup(null);
   }, [activeGraphId]);
 
@@ -2588,8 +2594,10 @@ function NodeCanvas() {
 
   const handleGroupControlPanelAnimationComplete = useCallback(() => {
     setGroupControlPanelShouldShow(false);
+    setGroupControlPanelVisible(false);
+    setLastSelectedGroup(null);
     setSelectedGroup(null);
-  }, [setGroupControlPanelShouldShow]);
+  }, []);
 
   const selectedNodePrototypes = useMemo(() => {
     const list = [];
@@ -2604,15 +2612,18 @@ function NodeCanvas() {
     return list;
   }, [selectedInstanceIds, nodes, nodePrototypesMap]);
 
-  // Keep the last selected node prototypes during exit animation
-  const [lastSelectedNodePrototypes, setLastSelectedNodePrototypes] = useState([]);
-  
   // Update last selected prototypes when selection changes
   useEffect(() => {
     if (selectedNodePrototypes.length > 0) {
       setLastSelectedNodePrototypes(selectedNodePrototypes);
     }
   }, [selectedNodePrototypes]);
+
+  useEffect(() => {
+    if (selectedGroup) {
+      setLastSelectedGroup(selectedGroup);
+    }
+  }, [selectedGroup]);
 
   // Use last selected prototypes if current ones are empty but panel is still visible
   const nodePrototypesForPanel = useMemo(() => {
@@ -2626,17 +2637,20 @@ function NodeCanvas() {
     return [];
   }, [selectedNodePrototypes, nodeControlPanelVisible, lastSelectedNodePrototypes]);
 
+  const groupPanelTarget = selectedGroup || lastSelectedGroup;
+  const groupPanelMode = groupPanelTarget?.linkedNodePrototypeId ? "nodegroup" : "group";
+
   // Group control panel action handlers
   const handleGroupPanelUngroup = useCallback(() => {
     if (!activeGraphId || !selectedGroup) return;
     try {
       storeActions.deleteGroup(activeGraphId, selectedGroup.id);
       setSelectedGroup(null);
-      setGroupControlPanelShouldShow(false);
+      setGroupControlPanelVisible(false);
     } catch (e) {
       
     }
-  }, [activeGraphId, selectedGroup, storeActions.deleteGroup]);
+  }, [activeGraphId, selectedGroup, storeActions.deleteGroup, setGroupControlPanelVisible]);
 
   const handleGroupPanelEdit = useCallback(() => {
     if (!selectedGroup) return;
@@ -5207,6 +5221,7 @@ function NodeCanvas() {
     const { x: currentX, y: currentY } = clampCoordinates(rawX, rawY);
 
     // Edge hover detection (only when not dragging/panning)
+    // PERFORMANCE: Skip all hover updates during drag to reduce per-frame work
     if (!isMouseDown.current && !draggingNodeInfo && !isPanning) {
       const now = performance.now();
       if (now - lastHoverCheckRef.current >= HOVER_CHECK_INTERVAL_MS) {
@@ -5405,14 +5420,12 @@ function NodeCanvas() {
           }
         }
       }
-    } else {
-      setHoveredNodeForVision(null);
-      setHoveredEdgeInfo(null);
-      setHoveredConnectionForVision(null);
     }
+    // PERFORMANCE: Don't clear hover states every frame during drag
+    // They're already cleared at drag start in handleMouseDown
 
-    // Selection Box Logic
-    if (selectionStart && isMouseDown.current) {
+    // Selection Box Logic (skip during node drag for performance)
+    if (selectionStart && isMouseDown.current && !draggingNodeInfo) {
       e.preventDefault();
       try {
         const selectionRes = await canvasWorker.calculateSelection({ selectionStart, currentX, currentY });
@@ -5722,7 +5735,10 @@ function NodeCanvas() {
     mouseDownPosition.current = { x: e.clientX, y: e.clientY };
     startedOnNode.current = false;
     mouseMoved.current = false;
-    setHoveredEdgeInfo(null); // Clear edge hover when starting interaction
+    // PERFORMANCE: Clear all hover states once at interaction start instead of every frame during drag
+    setHoveredEdgeInfo(null);
+    setHoveredNodeForVision(null);
+    setHoveredConnectionForVision(null);
     setLastInteractionType('mouse_down');
 
     if ((isMac && e.metaKey) || (!isMac && e.ctrlKey)) {
@@ -6009,9 +6025,13 @@ function NodeCanvas() {
       if (ignoreCanvasClick.current) { ignoreCanvasClick.current = false; return; }
 
       // Close Group panel on click-off like other panels
-      if (groupControlPanelShouldShow || selectedGroup) {
-        setGroupControlPanelShouldShow(false);
-        setSelectedGroup(null);
+      if (groupControlPanelShouldShow || groupControlPanelVisible || selectedGroup) {
+        if (groupControlPanelShouldShow || groupControlPanelVisible) {
+          setGroupControlPanelVisible(false);
+        }
+        if (selectedGroup) {
+          setSelectedGroup(null);
+        }
         return;
       }
 
@@ -7362,7 +7382,7 @@ function NodeCanvas() {
       console.warn('Node-group has no definition graph and cannot create one');
     }
 
-    setGroupControlPanelShouldShow(false);
+    setGroupControlPanelVisible(false);
     setSelectedGroup(null);
   }, [
     activeGraphId,
@@ -7370,7 +7390,7 @@ function NodeCanvas() {
     nodePrototypesMap,
     storeActions,
     startHurtleAnimationFromPanel,
-    setGroupControlPanelShouldShow,
+    setGroupControlPanelVisible,
     setSelectedGroup
   ]);
 
@@ -7399,13 +7419,13 @@ function NodeCanvas() {
 
     const newInstanceId = storeActions.combineNodeGroup(activeGraphId, selectedGroup.id);
 
-    setGroupControlPanelShouldShow(false);
+    setGroupControlPanelVisible(false);
     setSelectedGroup(null);
 
     if (newInstanceId) {
       setSelectedInstanceIds(new Set([newInstanceId]));
     }
-  }, [activeGraphId, selectedGroup, storeActions, setSelectedInstanceIds, setGroupControlPanelShouldShow, setSelectedGroup]);
+  }, [activeGraphId, selectedGroup, storeActions, setSelectedInstanceIds, setGroupControlPanelVisible, setSelectedGroup]);
 
   // Context Menu options for canvas background
   const getCanvasContextMenuOptions = useCallback(() => {
@@ -8391,9 +8411,13 @@ function NodeCanvas() {
                                   }
                                   
                                   // Close Group panel on click-off like other panels
-                                  if (groupControlPanelShouldShow || selectedGroup) {
-                                    setGroupControlPanelShouldShow(false);
-                                    setSelectedGroup(null);
+                                  if (groupControlPanelShouldShow || groupControlPanelVisible || selectedGroup) {
+                                    if (groupControlPanelShouldShow || groupControlPanelVisible) {
+                                      setGroupControlPanelVisible(false);
+                                    }
+                                    if (selectedGroup) {
+                                      setSelectedGroup(null);
+                                    }
                                     return;
                                   }
                                   
@@ -11563,13 +11587,13 @@ function NodeCanvas() {
       )}
 
       {/* GroupControlPanel Component - with animation */}
-      {(groupControlPanelShouldShow) && (
+      {(groupControlPanelShouldShow || groupControlPanelVisible) && (
         <UnifiedBottomControlPanel
-          mode={selectedGroup?.linkedNodePrototypeId ? "nodegroup" : "group"}
-          isVisible={groupControlPanelShouldShow}
+          mode={groupPanelMode}
+          isVisible={groupControlPanelVisible}
           typeListOpen={typeListMode !== 'closed'}
           onAnimationComplete={handleGroupControlPanelAnimationComplete}
-          selectedGroup={selectedGroup}
+          selectedGroup={groupPanelTarget}
           onUngroup={handleGroupPanelUngroup}
           onGroupEdit={handleGroupPanelEdit}
           onGroupColor={handleGroupPanelColor}
