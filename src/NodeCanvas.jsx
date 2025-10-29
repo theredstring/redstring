@@ -1466,13 +1466,41 @@ function NodeCanvas() {
     return map;
   }, [nodes]);
 
+  // PERFORMANCE OPTIMIZATION: Cache dimensions based on node content, not position
+  // Use a ref to persist the cache across renders, only recalculating when dimensional properties change
+  const dimensionCacheRef = useRef(new Map());
+  
   // Base dimensions for nodes (non-preview) for fast edge math and visibility checks
   const baseDimsById = useMemo(() => {
     const map = new Map();
+    const cache = dimensionCacheRef.current;
+    
     for (const n of nodes) {
-      // Use non-preview dimensions for consistent edge center calculations
-      map.set(n.id, getNodeDimensions(n, false, null));
+      // Create a stable key based only on properties that affect dimensions
+      // (not position x/y or scale which change during drag)
+      const cacheKey = `${n.prototypeId}-${n.name}-${n.thumbnailSrc || 'noimg'}`;
+      
+      // Check if we have cached dimensions for this node's dimensional properties
+      let dims = cache.get(cacheKey);
+      
+      if (!dims) {
+        // Only calculate if not in cache
+        dims = getNodeDimensions(n, false, null);
+        cache.set(cacheKey, dims);
+      }
+      
+      map.set(n.id, dims);
     }
+    
+    // Clean up cache entries for nodes that no longer exist
+    // Only keep entries for current nodes to prevent memory leaks
+    const currentCacheKeys = new Set(nodes.map(n => `${n.prototypeId}-${n.name}-${n.thumbnailSrc || 'noimg'}`));
+    for (const key of cache.keys()) {
+      if (!currentCacheKeys.has(key)) {
+        cache.delete(key);
+      }
+    }
+    
     return map;
   }, [nodes]);
   // Defer viewport-dependent culling until pan/zoom state is initialized below

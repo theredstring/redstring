@@ -70,6 +70,11 @@ const DESCRIPTION_LINE_HEIGHT = 24; // Height per line for description text
 const DESCRIPTION_MAX_LINES = 3; // Maximum lines to show
 const DESCRIPTION_PADDING = 8; // Padding around description text
 
+// PERFORMANCE: Internal cache for dimension calculations
+// This provides a second layer of caching beyond the caller's cache
+const dimensionCache = new Map();
+const MAX_CACHE_SIZE = 1000; // Prevent unbounded growth
+
 // --- getNodeDimensions Utility Function ---
 export const getNodeDimensions = (node, isPreviewing = false, descriptionContent = null) => {
     // --- ADDED: Handle undefined nodes gracefully ---
@@ -106,6 +111,15 @@ export const getNodeDimensions = (node, isPreviewing = false, descriptionContent
     const nodeName = node.getName ? node.getName() : (node.name || 'Unnamed Node'); // Handle potential plain objects gracefully for now?
     const thumbnailSrc = node.getThumbnailSrc ? node.getThumbnailSrc() : node.thumbnailSrc; // Use getter
     // const imageSrc = node.getImageSrc ? node.getImageSrc() : node.imageSrc; // If needed for dimensions
+    
+    // PERFORMANCE: Check cache first
+    // Create cache key based on all properties that affect dimensions
+    const cacheKey = `${nodeName}-${thumbnailSrc || 'noimg'}-${isPreviewing}-${descriptionContent || 'nodesc'}`;
+    
+    const cached = dimensionCache.get(cacheKey);
+    if (cached) {
+        return cached;
+    }
 
     const hasImage = Boolean(thumbnailSrc); // Check based on thumbnail
     // We can't easily get naturalWidth/Height from a src string here.
@@ -265,7 +279,7 @@ export const getNodeDimensions = (node, isPreviewing = false, descriptionContent
     innerNetworkHeight = Number(innerNetworkHeight) || 0;
     descriptionAreaHeight = Number(descriptionAreaHeight) || 0;
 
-    return {
+    const result = {
         currentWidth,
         currentHeight,
         textAreaHeight: textAreaHeight, // Return calculated text area height
@@ -275,6 +289,28 @@ export const getNodeDimensions = (node, isPreviewing = false, descriptionContent
         innerNetworkHeight, // Add inner network dimensions
         descriptionAreaHeight // Add description area height
     };
+    
+    // PERFORMANCE: Store in cache with LRU eviction
+    dimensionCache.set(cacheKey, result);
+    
+    // Implement simple LRU: if cache is too large, delete oldest entries
+    if (dimensionCache.size > MAX_CACHE_SIZE) {
+        const keysToDelete = [];
+        let count = 0;
+        const deleteCount = Math.floor(MAX_CACHE_SIZE * 0.2); // Delete oldest 20%
+        
+        for (const key of dimensionCache.keys()) {
+            if (count++ < deleteCount) {
+                keysToDelete.push(key);
+            } else {
+                break;
+            }
+        }
+        
+        keysToDelete.forEach(key => dimensionCache.delete(key));
+    }
+    
+    return result;
 };
 
 // Add other utility functions here if needed 

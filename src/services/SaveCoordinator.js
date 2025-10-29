@@ -30,6 +30,9 @@ class SaveCoordinator {
     this.lastChangeContext = {};
     this.saveTimer = null; // Single timer for all changes
 
+    // Drag performance optimization
+    this._lastDragLogTime = 0; // Throttle console logs during drag
+
     // Status tracking
     this.statusHandlers = new Set();
     this.isSaving = false;
@@ -78,7 +81,25 @@ class SaveCoordinator {
     }
 
     try {
-      // ALWAYS calculate hash to detect changes immediately
+      // PERFORMANCE OPTIMIZATION: Skip expensive hash calculation during drag 'move' phase
+      // Only compute hash on drag start/end, not during every frame of movement
+      if (changeContext.isDragging === true && changeContext.phase === 'move') {
+        // During drag move, just mark dirty and defer everything else
+        // We'll compute the hash and save when the drag ends
+        this.isDirty = true;
+        this.lastState = newState; // Store state for later save
+        this.lastChangeContext = changeContext;
+        
+        // Only log occasionally to avoid console spam (once per second max)
+        const now = Date.now();
+        if (!this._lastDragLogTime || (now - this._lastDragLogTime) > 1000) {
+          console.log('[SaveCoordinator] Drag in progress - deferring hash and save');
+          this._lastDragLogTime = now;
+        }
+        return; // Skip hash calculation and save scheduling during drag
+      }
+
+      // Calculate hash for non-drag-move changes
       const stateHash = this.generateStateHash(newState);
       
       // Check if this is a real change
@@ -88,16 +109,23 @@ class SaveCoordinator {
         return; // No changes, nothing to do
       }
 
-      // Set dirty flag IMMEDIATELY (even during drags) for UI feedback
+      // Set dirty flag IMMEDIATELY for UI feedback
       this.isDirty = true;
       
-      // During drag operations, track the hash but don't schedule saves yet
-      if (changeContext.isDragging === true || changeContext.phase === 'move') {
-        console.log('[SaveCoordinator] Drag in progress - marking dirty but deferring save (phase: move)');
-        this.dragPendingHash = stateHash;
-        this.lastState = newState; // Store state for later save
+      // Handle drag end differently - always process it
+      if (changeContext.phase === 'end' && changeContext.isDragging === false) {
+        console.log('[SaveCoordinator] Drag ended, processing final state');
+        this.pendingHash = stateHash;
+        this.dragPendingHash = null;
+        this.lastState = newState;
         this.lastChangeContext = changeContext;
-        return; // Don't schedule save during drag
+        
+        // Notify Git autosave policy of the change
+        gitAutosavePolicy.onEditActivity();
+        
+        // Schedule the save
+        this.scheduleSave();
+        return;
       }
 
       // If we were dragging and now stopped, use the pending hash
