@@ -1,20 +1,42 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { X, Play, Pause, RotateCcw } from 'lucide-react';
 import './ForceSimulationModal.css';
-import { FORCE_LAYOUT_DEFAULTS } from '../services/graphLayoutService.js';
+import { FORCE_LAYOUT_DEFAULTS, LAYOUT_ITERATION_PRESETS, LAYOUT_SCALE_PRESETS } from '../services/graphLayoutService.js';
 
 /**
  * Draggable modal for interactive force-directed layout tuning
  * Applies forces directly to the active graph - no separate preview!
  */
-const ForceSimulationModal = ({ isOpen, onClose, graphId, storeActions, getNodes, getEdges, onNodePositionsUpdated }) => {
-  const nodeSeparationMultiplier = FORCE_LAYOUT_DEFAULTS.nodeSeparationMultiplier || 1.25;
+const ForceSimulationModal = ({
+  isOpen,
+  onClose,
+  graphId,
+  storeActions,
+  getNodes,
+  getEdges,
+  onNodePositionsUpdated,
+  layoutScalePreset = FORCE_LAYOUT_DEFAULTS.layoutScale || 'balanced',
+  layoutScaleMultiplier = FORCE_LAYOUT_DEFAULTS.layoutScaleMultiplier || 1,
+  onLayoutScalePresetChange,
+  onLayoutScaleMultiplierChange,
+  layoutIterationPreset = FORCE_LAYOUT_DEFAULTS.iterationPreset || 'balanced',
+  onLayoutIterationPresetChange
+}) => {
   const [position, setPosition] = useState({ x: 100, y: 100 });
   const [isDragging, setIsDragging] = useState(false);
   const [dragOffset, setDragOffset] = useState({ x: 0, y: 0 });
   const [isRunning, setIsRunning] = useState(false);
   const modalRef = useRef(null);
   const animationRef = useRef(null);
+  const initialScaleMultiplier = layoutScaleMultiplier ?? (FORCE_LAYOUT_DEFAULTS.layoutScaleMultiplier || 1);
+  const initialIterationPreset = layoutIterationPreset ?? (FORCE_LAYOUT_DEFAULTS.iterationPreset || 'balanced');
+  const initialAlphaDecay = LAYOUT_ITERATION_PRESETS[initialIterationPreset]?.alphaDecay ?? defaultAlphaDecay;
+  const [scaleMultiplier, setScaleMultiplier] = useState(initialScaleMultiplier);
+  const [iterationPreset, setIterationPreset] = useState(initialIterationPreset);
+  const baseNodeSeparationMultiplier = FORCE_LAYOUT_DEFAULTS.nodeSeparationMultiplier || 1.25;
+  const nodeSeparationMultiplier = baseNodeSeparationMultiplier * scaleMultiplier;
+  const scalePresetEntries = Object.entries(LAYOUT_SCALE_PRESETS);
+  const iterationPresetEntries = Object.entries(LAYOUT_ITERATION_PRESETS);
   
   // Force simulation parameters (optimized defaults)
   const {
@@ -37,7 +59,7 @@ const ForceSimulationModal = ({ isOpen, onClose, graphId, storeActions, getNodes
     centerStrength: defaultCenterStrength,
     collisionRadius: defaultCollisionRadius,
     edgeAvoidance: defaultEdgeAvoidance,
-    alphaDecay: defaultAlphaDecay,
+    alphaDecay: initialAlphaDecay,
     velocityDecay: defaultVelocityDecay
   });
   
@@ -49,13 +71,52 @@ const ForceSimulationModal = ({ isOpen, onClose, graphId, storeActions, getNodes
     iteration: 0
   });
 
+  const handleScaleMultiplierChange = (value) => {
+    const numeric = Number(value);
+    if (!Number.isFinite(numeric)) return;
+    const clamped = Math.max(0.5, Math.min(2.5, numeric));
+    const rounded = Math.round(clamped * 100) / 100;
+    setScaleMultiplier(rounded);
+    onLayoutScaleMultiplierChange?.(rounded);
+  };
+
+  const handleIterationPresetChange = (presetKey) => {
+    if (!LAYOUT_ITERATION_PRESETS[presetKey]) return;
+    setIterationPreset(presetKey);
+    onLayoutIterationPresetChange?.(presetKey);
+    const preset = LAYOUT_ITERATION_PRESETS[presetKey];
+    if (preset?.alphaDecay !== undefined) {
+      setParams(prev => ({ ...prev, alphaDecay: preset.alphaDecay }));
+    }
+  };
+
+  const handleScalePresetChange = (presetKey) => {
+    if (!LAYOUT_SCALE_PRESETS[presetKey]) return;
+    onLayoutScalePresetChange?.(presetKey);
+    const preset = LAYOUT_SCALE_PRESETS[presetKey];
+    if (preset?.linkDistance) {
+      setParams(prev => {
+        const nextLinkDistance = preset.linkDistance;
+        const maxMinLink = Math.max(60, nextLinkDistance - 20);
+        const nextMinLink = Math.min(prev.minLinkDistance, maxMinLink);
+        return {
+          ...prev,
+          linkDistance: nextLinkDistance,
+          minLinkDistance: nextMinLink
+        };
+      });
+    }
+    handleScaleMultiplierChange(1);
+  };
+
   const getNodeRadiusWithPadding = (node) => {
-    if (!node) return params.collisionRadius;
+    const fallbackRadius = (params.collisionRadius || defaultCollisionRadius) * scaleMultiplier;
+    if (!node) return fallbackRadius;
     const base = Math.max(node.width || 0, node.height || 0) / 2;
     if (!base || !Number.isFinite(base)) {
-      return params.collisionRadius;
+      return fallbackRadius;
     }
-    const padding = params.collisionRadius * 0.25;
+    const padding = fallbackRadius * 0.25;
     const imageBonus = Math.max(node.imageHeight || 0, 0) * (FORCE_LAYOUT_DEFAULTS.imageRadiusMultiplier || 0.8);
     return base + padding + imageBonus;
   };
@@ -117,6 +178,25 @@ const ForceSimulationModal = ({ isOpen, onClose, graphId, storeActions, getNodes
       setIteration(0);
     }
   }, [isOpen, getNodes, graphId, storeActions]);
+
+  useEffect(() => {
+    if (typeof layoutScaleMultiplier === 'number' && !Number.isNaN(layoutScaleMultiplier)) {
+      setScaleMultiplier(layoutScaleMultiplier);
+    }
+  }, [layoutScaleMultiplier]);
+
+  useEffect(() => {
+    if (!layoutIterationPreset) return;
+    setIterationPreset(layoutIterationPreset);
+    const preset = LAYOUT_ITERATION_PRESETS[layoutIterationPreset];
+    if (preset?.alphaDecay === undefined) return;
+    setParams(prev => {
+      if (Math.abs(prev.alphaDecay - preset.alphaDecay) < 0.0001) {
+        return prev;
+      }
+      return { ...prev, alphaDecay: preset.alphaDecay };
+    });
+  }, [layoutIterationPreset]);
   
   // Force simulation step - applies directly to the store!
   const simulationStep = () => {
@@ -130,7 +210,7 @@ const ForceSimulationModal = ({ isOpen, onClose, graphId, storeActions, getNodes
     const nodesById = new Map(nodes.map(node => [node.id, node]));
     const nodeRadiusCache = new Map();
     const getRadius = (node) => {
-      if (!node) return params.collisionRadius;
+      if (!node) return (params.collisionRadius || defaultCollisionRadius) * scaleMultiplier;
       if (nodeRadiusCache.has(node.id)) return nodeRadiusCache.get(node.id);
       const radius = getNodeRadiusWithPadding(node);
       nodeRadiusCache.set(node.id, radius);
@@ -150,6 +230,9 @@ const ForceSimulationModal = ({ isOpen, onClose, graphId, storeActions, getNodes
       alphaDecay,
       velocityDecay
     } = params;
+    const scaledLinkDistance = linkDistance * scaleMultiplier;
+    const scaledMinLinkDistance = minLinkDistance * scaleMultiplier;
+    const scaledCollisionRadius = collisionRadius * scaleMultiplier;
     
     // Apply velocity decay
     velocities.forEach(vel => {
@@ -173,7 +256,7 @@ const ForceSimulationModal = ({ isOpen, onClose, graphId, storeActions, getNodes
         const dist = Math.sqrt(distSq) || 0.0001;
         
         // Only apply repulsion within a certain range (performance + stability)
-        const maxRepulsionDist = linkDistance * 3;
+        const maxRepulsionDist = scaledLinkDistance * 3;
         if (dist > maxRepulsionDist) continue;
         
         // Inverse square law with alpha scaling
@@ -210,7 +293,7 @@ const ForceSimulationModal = ({ isOpen, onClose, graphId, storeActions, getNodes
       
       const radiusSource = getRadius(source);
       const radiusTarget = getRadius(target);
-      const minDistance = Math.max(minLinkDistance, (radiusSource + radiusTarget) * nodeSeparationMultiplier);
+      const minDistance = Math.max(scaledMinLinkDistance, (radiusSource + radiusTarget) * nodeSeparationMultiplier);
       let force;
       
       // ENFORCE MINIMUM DISTANCE - strong repulsion if too close
@@ -220,15 +303,15 @@ const ForceSimulationModal = ({ isOpen, onClose, graphId, storeActions, getNodes
         force = -deficit * attractionStrength * 3 * state.alpha; // 3x stronger push
       } 
       // Normal spring behavior between min and target
-      else if (dist < linkDistance) {
+      else if (dist < scaledLinkDistance) {
         // Gentle pull toward target distance
-        const displacement = dist - linkDistance;
+        const displacement = dist - scaledLinkDistance;
         force = displacement * attractionStrength * state.alpha;
       }
       // Pull together if too far
       else {
         // Normal spring pull
-        const displacement = dist - linkDistance;
+        const displacement = dist - scaledLinkDistance;
         force = displacement * attractionStrength * state.alpha;
       }
       
@@ -278,7 +361,7 @@ const ForceSimulationModal = ({ isOpen, onClose, graphId, storeActions, getNodes
           const dist = Math.sqrt(distSq);
           
           // Only apply force if node is close to edge
-          const avoidanceRadius = collisionRadius * 1.5;
+          const avoidanceRadius = scaledCollisionRadius * 1.5;
           if (dist < avoidanceRadius && dist > 1) {
             // Push node away from edge
             const force = ((avoidanceRadius - dist) / avoidanceRadius) * edgeAvoidance * state.alpha * 100;
@@ -376,7 +459,7 @@ const ForceSimulationModal = ({ isOpen, onClose, graphId, storeActions, getNodes
         }
       };
     }
-  }, [isRunning, params]);
+  }, [isRunning, params, scaleMultiplier]);
   
   // Apply single step when params change (even when paused)
   useEffect(() => {
@@ -384,7 +467,7 @@ const ForceSimulationModal = ({ isOpen, onClose, graphId, storeActions, getNodes
       // Do a single simulation step when params change
       simulationStep();
     }
-  }, [params]);
+  }, [params, scaleMultiplier]);
   
   // Dragging logic
   const handleMouseDown = (e) => {
@@ -523,8 +606,50 @@ const ForceSimulationModal = ({ isOpen, onClose, graphId, storeActions, getNodes
             </button>
           </div>
           
+          <div className="force-sim-preset-row">
+            <div className="force-sim-preset-label">Layout Iterations</div>
+            <div className="force-sim-chip-row">
+              {iterationPresetEntries.map(([key, preset]) => (
+                <button
+                  key={key}
+                  type="button"
+                  className={`force-sim-chip ${iterationPreset === key ? 'active' : ''}`}
+                  onClick={() => handleIterationPresetChange(key)}
+                >
+                  <span>{key === 'fast' ? 'Fast' : key === 'deep' ? 'Deep' : 'Balanced'}</span>
+                  <small>{preset.iterations} iters</small>
+                </button>
+              ))}
+            </div>
+          </div>
+          
           {/* Parameters */}
           <div className="force-sim-params">
+            <div className="force-sim-param">
+              <label>Layout Scale</label>
+              <input
+                type="range"
+                min="0.6"
+                max="2.4"
+                step="0.05"
+                value={scaleMultiplier}
+                onChange={(e) => handleScaleMultiplierChange(e.target.value)}
+              />
+              <span>{scaleMultiplier.toFixed(2)}×</span>
+              <div className="force-sim-chip-group">
+                {scalePresetEntries.map(([key, preset]) => (
+                  <button
+                    key={key}
+                    type="button"
+                    className={`force-sim-chip ${layoutScalePreset === key ? 'active' : ''}`}
+                    onClick={() => handleScalePresetChange(key)}
+                  >
+                    {preset.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+            
             <div className="force-sim-param">
               <label>Repulsion</label>
               <input
@@ -565,11 +690,11 @@ const ForceSimulationModal = ({ isOpen, onClose, graphId, storeActions, getNodes
                     ...params, 
                     linkDistance: newDist,
                     // Keep minLinkDistance below linkDistance
-                    minLinkDistance: Math.min(params.minLinkDistance, newDist - 20)
+                    minLinkDistance: Math.min(params.minLinkDistance, Math.max(60, newDist - 20))
                   });
                 }}
               />
-              <span>{params.linkDistance}px</span>
+              <span>{Math.round(params.linkDistance * scaleMultiplier)}px</span>
             </div>
             
             <div className="force-sim-param">
@@ -577,12 +702,12 @@ const ForceSimulationModal = ({ isOpen, onClose, graphId, storeActions, getNodes
               <input
                 type="range"
                 min="60"
-                max={params.linkDistance - 20}
+                max={Math.max(80, params.linkDistance - 20)}
                 step="10"
                 value={params.minLinkDistance}
                 onChange={(e) => setParams({ ...params, minLinkDistance: Number(e.target.value) })}
               />
-              <span>{params.minLinkDistance}px</span>
+              <span>{Math.round(params.minLinkDistance * scaleMultiplier)}px</span>
             </div>
             
             <div className="force-sim-param">
@@ -608,7 +733,7 @@ const ForceSimulationModal = ({ isOpen, onClose, graphId, storeActions, getNodes
                 value={params.collisionRadius}
                 onChange={(e) => setParams({ ...params, collisionRadius: Number(e.target.value) })}
               />
-              <span>{params.collisionRadius}px</span>
+              <span>{Math.round(params.collisionRadius * scaleMultiplier)}px</span>
             </div>
             
             <div className="force-sim-param">

@@ -177,6 +177,10 @@ function NodeCanvas() {
         setTypeListMode: () => {},
         toggleEnableAutoRouting: () => {},
         setRoutingStyle: () => {},
+        setCleanLaneSpacing: () => {},
+        setLayoutScalePreset: () => {},
+        setLayoutScaleMultiplier: () => {},
+        setLayoutIterationPreset: () => {},
         deleteNodePrototype: () => {},
         deleteGraph: () => {}
       };
@@ -1168,6 +1172,9 @@ function NodeCanvas() {
   const routingStyle = useGraphStore(state => state.autoLayoutSettings?.routingStyle || 'straight');
   const manhattanBends = useGraphStore(state => state.autoLayoutSettings?.manhattanBends || 'auto');
   const cleanLaneSpacing = useGraphStore(state => state.autoLayoutSettings?.cleanLaneSpacing || 24);
+  const layoutScalePreset = useGraphStore(state => state.autoLayoutSettings?.layoutScale || 'balanced');
+  const layoutScaleMultiplier = useGraphStore(state => state.autoLayoutSettings?.layoutScaleMultiplier ?? 1);
+  const layoutIterationPreset = useGraphStore(state => state.autoLayoutSettings?.layoutIterations || 'balanced');
   const edgesMap = useGraphStore(state => state.edges);
   const savedNodeIds = useGraphStore(state => state.savedNodeIds);
   const savedGraphIds = useGraphStore(state => state.savedGraphIds);
@@ -2041,8 +2048,10 @@ function NodeCanvas() {
       }));
 
     const layoutOptions = {
-      ...FORCE_LAYOUT_DEFAULTS,
-      preSimulate: true
+      layoutScale: layoutScalePreset,
+      layoutScaleMultiplier,
+      iterationPreset: layoutIterationPreset,
+      useExistingPositions: false
     };
 
     try {
@@ -2074,7 +2083,7 @@ function NodeCanvas() {
       console.error('[AutoLayout] Failed to apply layout:', error);
       alert(`Auto-layout failed: ${error.message}`);
     }
-  }, [activeGraphId, baseDimsById, nodes, edges, storeActions, moveOutOfBoundsNodesInBounds, resetConnectionLabelCache]);
+  }, [activeGraphId, baseDimsById, nodes, edges, storeActions, moveOutOfBoundsNodesInBounds, resetConnectionLabelCache, layoutScalePreset, layoutScaleMultiplier, layoutIterationPreset]);
 
   // Auto-correct out-of-bounds nodes on graph load
   useEffect(() => {
@@ -12127,13 +12136,23 @@ function NodeCanvas() {
             
             // Get fresh state - will be updated after graph creation if needed
             let storeState = useGraphStore.getState();
+            const mergedLayoutOptions = {
+              ...options.layoutOptions,
+              layoutScale: layoutScalePreset,
+              layoutScaleMultiplier,
+              iterationPreset: layoutIterationPreset
+            };
+            const patchedOptions = {
+              ...options,
+              layoutOptions: mergedLayoutOptions
+            };
             
             const results = generateGraph(
               parsedData,
               targetGraphId,
               storeState,
               storeActions,
-              options,
+              patchedOptions,
               () => useGraphStore.getState() // Function to get fresh state
             );
             
@@ -12162,6 +12181,12 @@ function NodeCanvas() {
         onClose={() => setForceSimModalVisible(false)}
         graphId={activeGraphId}
         storeActions={storeActions}
+        layoutScalePreset={layoutScalePreset}
+        layoutScaleMultiplier={layoutScaleMultiplier}
+        onLayoutScalePresetChange={storeActions.setLayoutScalePreset}
+        onLayoutScaleMultiplierChange={storeActions.setLayoutScaleMultiplier}
+        layoutIterationPreset={layoutIterationPreset}
+        onLayoutIterationPresetChange={storeActions.setLayoutIterationPreset}
         getNodes={() => hydratedNodes.map(n => {
           const dims = baseDimsById.get(n.id) || getNodeDimensions(n, false, null);
           return {

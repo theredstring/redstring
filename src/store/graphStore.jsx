@@ -8,6 +8,22 @@ import { importFromRedstring } from '../formats/redstringFormat.js';
 // Enable Immer Map/Set plugin support
 enableMapSet();
 
+const getDefaultAutoLayoutSettings = () => ({
+  defaultSpacing: 15,
+  nodeClearance: 20,
+  enableAutoRouting: true,
+  showConnectionLabels: true,
+  routingStyle: 'straight',
+  manhattanBends: 'auto',
+  cleanLaneSpacing: 200,
+  layoutScale: 'balanced',
+  layoutScaleMultiplier: 1,
+  layoutIterations: 'balanced'
+});
+
+const VALID_LAYOUT_SCALE_PRESETS = ['compact', 'balanced', 'spacious'];
+const VALID_LAYOUT_ITERATION_PRESETS = ['fast', 'balanced', 'deep'];
+
 // String similarity calculation using Levenshtein distance
 const calculateStringSimilarity = (str1, str2) => {
   if (!str1 || !str2) return 0;
@@ -311,17 +327,7 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
       }
     })(),
     // Connections visualization/layout settings
-    autoLayoutSettings: {
-      defaultSpacing: 15,
-      nodeClearance: 20,
-      enableAutoRouting: true,
-      showConnectionLabels: true,
-      routingStyle: 'straight', // 'straight' | 'manhattan' | 'clean'
-      manhattanBends: 'auto', // 'auto' | 'one' | 'two'
-      cleanLaneSpacing: 200,
-      layoutScale: 'balanced',
-      layoutIterations: 'balanced'
-    },
+    autoLayoutSettings: getDefaultAutoLayoutSettings(),
 
     // Git Federation State
     gitConnection: (() => {
@@ -2022,13 +2028,7 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
   // Toggle global auto-routing enablement
   toggleEnableAutoRouting: () => set(produce((draft) => {
     if (!draft.autoLayoutSettings) {
-      draft.autoLayoutSettings = {
-        defaultSpacing: 15,
-        nodeClearance: 20,
-        enableAutoRouting: true,
-        showConnectionLabels: true,
-        routingStyle: 'straight'
-      };
+      draft.autoLayoutSettings = getDefaultAutoLayoutSettings();
     }
     draft.autoLayoutSettings.enableAutoRouting = !draft.autoLayoutSettings.enableAutoRouting;
   })),
@@ -2036,13 +2036,7 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
   // Set the global routing style
   setRoutingStyle: (style) => set(produce((draft) => {
     if (!draft.autoLayoutSettings) {
-      draft.autoLayoutSettings = {
-        defaultSpacing: 15,
-        nodeClearance: 20,
-        enableAutoRouting: true,
-        showConnectionLabels: true,
-        routingStyle: 'straight'
-      };
+      draft.autoLayoutSettings = getDefaultAutoLayoutSettings();
     }
     if (style === 'straight' || style === 'manhattan' || style === 'clean') {
       draft.autoLayoutSettings.routingStyle = style;
@@ -2054,14 +2048,7 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
   // Set number of bends preference for Manhattan routing
   setManhattanBends: (mode) => set(produce((draft) => {
     if (!draft.autoLayoutSettings) {
-      draft.autoLayoutSettings = {
-        defaultSpacing: 15,
-        nodeClearance: 20,
-        enableAutoRouting: true,
-        showConnectionLabels: true,
-        routingStyle: 'straight',
-        manhattanBends: 'auto'
-      };
+      draft.autoLayoutSettings = getDefaultAutoLayoutSettings();
     }
     if (mode === 'auto' || mode === 'one' || mode === 'two') {
       draft.autoLayoutSettings.manhattanBends = mode;
@@ -2073,15 +2060,7 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
   // Set lane spacing for clean routing
   setCleanLaneSpacing: (value) => set(produce((draft) => {
     if (!draft.autoLayoutSettings) {
-      draft.autoLayoutSettings = {
-        defaultSpacing: 15,
-        nodeClearance: 20,
-        enableAutoRouting: true,
-        showConnectionLabels: true,
-        routingStyle: 'straight',
-        manhattanBends: 'auto',
-        cleanLaneSpacing: 200,
-      };
+      draft.autoLayoutSettings = getDefaultAutoLayoutSettings();
     }
     const v = Number(value);
     if (!Number.isFinite(v)) {
@@ -2091,6 +2070,41 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
     // Clamp for sanity with new generous range
     const clamped = Math.max(100, Math.min(400, Math.round(v)));
     draft.autoLayoutSettings.cleanLaneSpacing = clamped;
+  })),
+
+  setLayoutScalePreset: (preset) => set(produce((draft) => {
+    if (!draft.autoLayoutSettings) {
+      draft.autoLayoutSettings = getDefaultAutoLayoutSettings();
+    }
+    if (!VALID_LAYOUT_SCALE_PRESETS.includes(preset)) {
+      console.warn(`[setLayoutScalePreset] Invalid preset: ${preset}`);
+      return;
+    }
+    draft.autoLayoutSettings.layoutScale = preset;
+  })),
+
+  setLayoutScaleMultiplier: (value) => set(produce((draft) => {
+    if (!draft.autoLayoutSettings) {
+      draft.autoLayoutSettings = getDefaultAutoLayoutSettings();
+    }
+    const numeric = Number(value);
+    if (!Number.isFinite(numeric)) {
+      console.warn(`[setLayoutScaleMultiplier] Invalid multiplier: ${value}`);
+      return;
+    }
+    const clamped = Math.max(0.5, Math.min(2.5, Number(numeric.toFixed(2))));
+    draft.autoLayoutSettings.layoutScaleMultiplier = clamped;
+  })),
+
+  setLayoutIterationPreset: (preset) => set(produce((draft) => {
+    if (!draft.autoLayoutSettings) {
+      draft.autoLayoutSettings = getDefaultAutoLayoutSettings();
+    }
+    if (!VALID_LAYOUT_ITERATION_PRESETS.includes(preset)) {
+      console.warn(`[setLayoutIterationPreset] Invalid preset: ${preset}`);
+      return;
+    }
+    draft.autoLayoutSettings.layoutIterations = preset;
   })),
 
   // Explicitly set active definition node (e.g., when switching graphs)

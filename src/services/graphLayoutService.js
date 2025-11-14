@@ -5,28 +5,54 @@
  * Respects Redstring's three-layer architecture (prototypes/instances/graphs).
  */
 
-function generateDeterministicPositions(nodesSorted, width, height) {
+function getGraphClusters(nodes, adjacency) {
+  const visited = new Set();
+  const clusters = [];
+  const nodeById = new Map(nodes.map(n => [n.id, n]));
+
+  nodes.forEach(node => {
+    if (visited.has(node.id)) return;
+    const stack = [node.id];
+    visited.add(node.id);
+    const cluster = [];
+
+    while (stack.length > 0) {
+      const currentId = stack.pop();
+      cluster.push(nodeById.get(currentId));
+      const neighbors = adjacency.get(currentId) || [];
+      neighbors.forEach(neighborId => {
+        if (!visited.has(neighborId)) {
+          visited.add(neighborId);
+          stack.push(neighborId);
+        }
+      });
+    }
+
+    clusters.push(cluster);
+  });
+
+  return clusters.sort((a, b) => b.length - a.length);
+}
+
+function generateRingPositions(nodesSorted, centerX, centerY, maxRadius) {
   const positions = new Map();
   if (nodesSorted.length === 0) return positions;
 
-  const centerX = width / 2;
-  const centerY = height / 2;
-  const maxRings = Math.max(2, Math.ceil(Math.sqrt(nodesSorted.length)));
-  const ringSpacing = Math.min(width, height) / (maxRings * 2.4);
-
+  const ringSpacing = Math.max(120, maxRadius / Math.max(3, Math.ceil(Math.sqrt(nodesSorted.length)) + 1));
   let index = 0;
-  let ringIndex = 0;
+  let ring = 0;
 
   while (index < nodesSorted.length) {
-    if (ringIndex === 0) {
+    if (ring === 0) {
       const node = nodesSorted[index++];
       positions.set(node.id, { x: centerX, y: centerY });
-      ringIndex += 1;
+      ring += 1;
       continue;
     }
 
-    const radius = Math.max(ringSpacing * ringIndex, 120 * ringIndex);
-    const ringCapacity = Math.max(6 * ringIndex, Math.round((2 * Math.PI * radius) / 140));
+    const radius = Math.min(maxRadius, ringSpacing * ring);
+    const circumference = Math.max(2 * Math.PI * radius, 1);
+    const ringCapacity = Math.max(6 * ring, Math.round(circumference / Math.max(ringSpacing * 0.9, 90)));
     const nodesInRing = Math.min(ringCapacity, nodesSorted.length - index);
 
     for (let j = 0; j < nodesInRing; j++) {
@@ -38,7 +64,62 @@ function generateDeterministicPositions(nodesSorted, width, height) {
       });
     }
 
-    ringIndex += 1;
+    ring += 1;
+    if (radius >= maxRadius) break;
+  }
+
+  if (index < nodesSorted.length) {
+    const remaining = nodesSorted.slice(index);
+    const radius = maxRadius;
+    const nodesInRing = remaining.length;
+    remaining.forEach((node, idx) => {
+      const angle = (2 * Math.PI * idx) / nodesInRing;
+      positions.set(node.id, {
+        x: centerX + Math.cos(angle) * radius,
+        y: centerY + Math.sin(angle) * radius
+      });
+    });
+  }
+
+  return positions;
+}
+
+function generateDeterministicPositions(nodes, adjacency, width, height, options = {}) {
+  const positions = new Map();
+  if (!nodes.length) return positions;
+
+  const centerX = width / 2;
+  const centerY = height / 2;
+  const maxRadius = (options.maxRadiusFactor ?? 0.45) * Math.min(width, height);
+  const nodeDegrees = new Map();
+  nodes.forEach(node => nodeDegrees.set(node.id, (adjacency.get(node.id) || []).length));
+
+  const clusters = getGraphClusters(nodes, adjacency);
+  const mainCluster = clusters[0] || [];
+  const otherClusters = clusters.slice(1);
+
+  const placeCluster = (clusterNodes, clusterCenterX, clusterCenterY, radius) => {
+    const sorted = [...clusterNodes].sort((a, b) => {
+      const degDiff = (nodeDegrees.get(b.id) || 0) - (nodeDegrees.get(a.id) || 0);
+      if (degDiff !== 0) return degDiff;
+      return String(a.id).localeCompare(String(b.id));
+    });
+    const placements = generateRingPositions(sorted, clusterCenterX, clusterCenterY, radius);
+    placements.forEach((pos, id) => positions.set(id, pos));
+  };
+
+  const innerRadius = Math.max(180, maxRadius * 0.35);
+  placeCluster(mainCluster, centerX, centerY, innerRadius);
+
+  if (otherClusters.length > 0) {
+    const outerRadius = Math.min(maxRadius * 0.85, Math.max(innerRadius + 140, maxRadius * 0.6));
+    otherClusters.forEach((cluster, idx) => {
+      const angle = (2 * Math.PI * idx) / otherClusters.length;
+      const clusterCenterX = centerX + Math.cos(angle) * outerRadius;
+      const clusterCenterY = centerY + Math.sin(angle) * outerRadius;
+      const clusterRadius = Math.max(160, innerRadius * 0.75);
+      placeCluster(cluster, clusterCenterX, clusterCenterY, clusterRadius);
+    });
   }
 
   return positions;
@@ -74,7 +155,25 @@ export const FORCE_LAYOUT_DEFAULTS = {
   nodeSeparationMultiplier: 2.1,
   postCenterRelaxation: 0.12,
   postRadialPasses: 4,
-  radialSpreadFactor: 0.35
+  radialSpreadFactor: 0.35,
+  maxRadiusFactor: 0.48,
+  layoutScale: 'balanced',
+  layoutScaleMultiplier: 1,
+  iterationPreset: 'balanced'
+};
+export const LAYOUT_ITERATION_PRESETS = {
+  fast: {
+    iterations: 160,
+    alphaDecay: 0.03
+  },
+  balanced: {
+    iterations: 260,
+    alphaDecay: 0.02
+  },
+  deep: {
+    iterations: 360,
+    alphaDecay: 0.015
+  }
 };
 export const LAYOUT_SCALE_PRESETS = {
   compact: {
@@ -171,10 +270,31 @@ function radialRelaxation(positions, nodes, centerX, centerY, spreadFactor, pass
  * @returns {Map} Map of nodeId -> {x, y} positions
  */
 export function forceDirectedLayout(nodes, edges, options = {}) {
+  const scaleKey = options.layoutScale || FORCE_LAYOUT_DEFAULTS.layoutScale || 'balanced';
+  const iterationKey = options.iterationPreset || FORCE_LAYOUT_DEFAULTS.iterationPreset || 'balanced';
+  const scalePreset = LAYOUT_SCALE_PRESETS[scaleKey] || LAYOUT_SCALE_PRESETS.balanced;
+  const iterationPreset = LAYOUT_ITERATION_PRESETS[iterationKey] || LAYOUT_ITERATION_PRESETS.balanced;
+
   const mergedOptions = {
     ...FORCE_LAYOUT_DEFAULTS,
+    ...scalePreset,
+    ...iterationPreset,
     ...options,
-    springLength: options.springLength ?? options.linkDistance ?? FORCE_LAYOUT_DEFAULTS.springLength
+    layoutScaleMultiplier: options.layoutScaleMultiplier ?? FORCE_LAYOUT_DEFAULTS.layoutScaleMultiplier ?? 1,
+    springLength: options.springLength ?? scalePreset?.springLength ?? FORCE_LAYOUT_DEFAULTS.springLength,
+    linkDistance: options.linkDistance ?? scalePreset?.linkDistance ?? FORCE_LAYOUT_DEFAULTS.linkDistance,
+    nodeSeparationMultiplier: options.nodeSeparationMultiplier ?? scalePreset?.nodeSeparationMultiplier ?? FORCE_LAYOUT_DEFAULTS.nodeSeparationMultiplier,
+    iterations: options.iterations ?? iterationPreset?.iterations ?? FORCE_LAYOUT_DEFAULTS.iterations,
+    alphaDecay: options.alphaDecay ?? iterationPreset?.alphaDecay ?? FORCE_LAYOUT_DEFAULTS.alphaDecay
+  };
+  const scaleMultiplier = mergedOptions.layoutScaleMultiplier ?? 1;
+  const scaledOptions = {
+    ...mergedOptions,
+    springLength: (mergedOptions.springLength ?? FORCE_LAYOUT_DEFAULTS.springLength) * scaleMultiplier,
+    linkDistance: (mergedOptions.linkDistance ?? FORCE_LAYOUT_DEFAULTS.linkDistance) * scaleMultiplier,
+    nodeSeparationMultiplier: (mergedOptions.nodeSeparationMultiplier ?? FORCE_LAYOUT_DEFAULTS.nodeSeparationMultiplier) * scaleMultiplier,
+    maxRepulsionDistance: (mergedOptions.maxRepulsionDistance ?? FORCE_LAYOUT_DEFAULTS.maxRepulsionDistance) * scaleMultiplier,
+    minLinkDistance: (mergedOptions.minLinkDistance ?? FORCE_LAYOUT_DEFAULTS.minLinkDistance) * scaleMultiplier
   };
 
   const {
@@ -199,12 +319,12 @@ export function forceDirectedLayout(nodes, edges, options = {}) {
     collisionRadius,
     maxRepulsionDistance,
     minNodeRadius
-  } = mergedOptions;
+  } = scaledOptions;
   const useExistingPositions = options.useExistingPositions ?? false;
 
   const effectiveCentering = (centerStrength ?? centeringStrength) * (mergedOptions.postCenterRelaxation ? 0.8 : 1);
   const effectiveSpringStrength = attractionStrength ?? springStrength;
-  const nodeSeparationMultiplier = mergedOptions.nodeSeparationMultiplier ?? FORCE_LAYOUT_DEFAULTS.nodeSeparationMultiplier;
+  const nodeSeparationMultiplier = scaledOptions.nodeSeparationMultiplier ?? FORCE_LAYOUT_DEFAULTS.nodeSeparationMultiplier;
 
   const nodeById = new Map(nodes.map(n => [n.id, n]));
   const adjacency = new Map();
@@ -216,14 +336,7 @@ export function forceDirectedLayout(nodes, edges, options = {}) {
     }
   });
 
-  const nodeDegrees = new Map();
-  nodes.forEach(node => nodeDegrees.set(node.id, adjacency.get(node.id)?.length || 0));
-  const sortedNodes = [...nodes].sort((a, b) => {
-    const degreeDiff = nodeDegrees.get(b.id) - nodeDegrees.get(a.id);
-    if (degreeDiff !== 0) return degreeDiff;
-    return String(a.id).localeCompare(String(b.id));
-  });
-  const deterministicPositions = generateDeterministicPositions(sortedNodes, width, height);
+  const deterministicPositions = generateDeterministicPositions(nodes, adjacency, width, height, mergedOptions);
 
   const positions = new Map();
   const velocities = new Map();
@@ -262,6 +375,9 @@ export function forceDirectedLayout(nodes, edges, options = {}) {
   const alphaDecay = mergedOptions.alphaDecay ?? FORCE_LAYOUT_DEFAULTS.alphaDecay;
   const alphaMin = mergedOptions.alphaMin ?? FORCE_LAYOUT_DEFAULTS.alphaMin;
   let alpha = 1;
+  const centerX = width / 2;
+  const centerY = height / 2;
+  const maxAllowedRadius = (mergedOptions.maxRadiusFactor ?? 0.48) * Math.min(width, height);
 
   for (let iter = 0; iter < iterations && alpha > alphaMin; iter++) {
     const forces = new Map();
@@ -343,8 +459,6 @@ export function forceDirectedLayout(nodes, edges, options = {}) {
       }
     });
 
-    const centerX = width / 2;
-    const centerY = height / 2;
     nodes.forEach(node => {
       const pos = positions.get(node.id);
       const force = forces.get(node.id);
@@ -408,6 +522,15 @@ export function forceDirectedLayout(nodes, edges, options = {}) {
 
       pos.x += vel.x;
       pos.y += vel.y;
+
+      const dx = pos.x - centerX;
+      const dy = pos.y - centerY;
+      const dist = Math.sqrt(dx * dx + dy * dy) || 0.0001;
+      if (dist > maxAllowedRadius) {
+        const clampFactor = maxAllowedRadius / dist;
+        pos.x = centerX + dx * clampFactor;
+        pos.y = centerY + dy * clampFactor;
+      }
 
       pos.x = Math.max(padding, Math.min(width - padding, pos.x));
       pos.y = Math.max(padding, Math.min(height - padding, pos.y));

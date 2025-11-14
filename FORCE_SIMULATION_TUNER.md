@@ -18,6 +18,12 @@ Interactive, draggable modal for tuning force-directed graph layout parameters i
 - **Reset**: Randomize node positions and restart from alpha=1.0
 - **Apply to Graph**: Apply the current positions to your actual Redstring graph
 
+### Layout Scale & Iteration Presets (Auto-Layout Synced)
+- **Layout Scale Slider (0.6–2.4×)**: Scales node spacing, repulsion reach, and link targets. Stored globally so Auto-Layout/Test Graph share the exact spacing you tested.
+- **Scale Presets (Compact / Balanced / Spacious)**: Quick chips that reset the slider to tuned baselines and update the shared layout-scale preset.
+- **Iteration Presets (Fast / Balanced / Deep)**: Choose how many solver passes auto-layout should run. Selecting a preset also updates the cooling rate slider to match.
+- These values are saved in the Zustand store (`autoLayoutSettings`) and flow into `applyAutoLayoutToActiveGraph`, the Auto Graph generator, and the Force tuner itself.
+
 ### Tunable Parameters
 
 #### Repulsion Strength (100-5000)

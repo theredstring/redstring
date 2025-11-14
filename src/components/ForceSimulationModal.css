@@ -221,3 +221,60 @@
   font-weight: bold;
 }
 
+.force-sim-preset-row {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px 12px 0;
+}
+
+.force-sim-preset-label {
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: #ffb3b3;
+  opacity: 0.8;
+}
+
+.force-sim-chip-row,
+.force-sim-chip-group {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.force-sim-chip-group {
+  grid-column: 1 / span 3;
+  margin-top: 6px;
+}
+
+.force-sim-chip {
+  flex: 1;
+  min-width: 90px;
+  background: #2a0000;
+  border: 1px solid #7A0000;
+  border-radius: 999px;
+  color: #bdb5b5;
+  font-size: 12px;
+  font-family: 'EmOne', sans-serif;
+  padding: 6px 12px;
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  transition: background 0.2s, border 0.2s, color 0.2s;
+}
+
+.force-sim-chip small {
+  font-size: 11px;
+  color: #bdb5b5;
+  opacity: 0.8;
+}
+
+.force-sim-chip.active {
+  background: #7A0000;
+  color: #ffffff;
+  border-color: #ff7070;
+}
+
