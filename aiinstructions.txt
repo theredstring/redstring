@@ -5,6 +5,26 @@ Redstring is a semantic knowledge graph application that allows users to create,
 
 ## Recent Enhancements (Latest)
 
+### Auto Layout & Graph Generation System (2025-01)
+- **New Feature**: Comprehensive auto-layout and graph generation system in Debug menu
+- **Access**: Redstring Menu → Debug → Generate Test Graph
+- **Key Components**:
+  - `src/services/graphLayoutService.js` - 5 layout algorithms (force-directed, hierarchical, radial, grid, circular)
+  - `src/services/autoGraphGenerator.js` - JSON-LD & Simple JSON parsers, intelligent prototype reuse
+  - `src/components/AutoGraphModal.jsx` - Configuration UI modal
+- **Features**:
+  - Parses Simple JSON and JSON-LD/RDF formats with auto-detection
+  - Intelligently reuses existing prototypes (searches by name before creating)
+  - Creates positioned instances using selected layout algorithm
+  - Four sample data templates for quick testing
+  - Respects three-layer architecture (prototypes→instances→graphs)
+  - Layout options: force-directed, hierarchical, radial, grid, circular
+  - Target modes: new graph, add to current, or replace existing
+- **Usage Flow**: Select data source (sample/custom) → Choose layout → Select target → Generate
+- **Documentation**: See `AUTO_LAYOUT_GUIDE.md` (complete guide) and `AUTOGRAPH_IMPLEMENTATION_SUMMARY.md` (implementation details)
+- **Prototype Intelligence**: Searches for existing prototypes by name to maintain semantic consistency across the universe
+- **Layout Quality**: All algorithms include collision avoidance, bounds management, and configurable parameters
+
 ### Node Drag Performance Optimization (2025-01)
 - **Major Performance Fix**: Optimized node dragging to eliminate THREE critical bottlenecks
 - **Dimension Caching**: 

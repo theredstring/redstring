@@ -1,8 +1,10 @@
 import React from 'react';
-import { Bot, Key, Settings, RotateCcw, Send, User } from 'lucide-react';
+import { Bot, Key, Settings, RotateCcw, Send, User, Square } from 'lucide-react';
 import APIKeySetup from '../../../ai/components/APIKeySetup.jsx';
 import mcpClient from '../../../services/mcpClient.js';
 import apiKeyManager from '../../../services/apiKeyManager.js';
+import StandardDivider from '../../StandardDivider.jsx';
+import { HEADER_HEIGHT } from '../../../constants.js';
 
 // Internal AI Collaboration View component (migrated from src/ai/AICollaborationPanel.jsx)
 const LeftAIView = ({ compact = false, activeGraphId, graphsMap }) => {
@@ -256,9 +258,20 @@ const LeftAIView = ({ compact = false, activeGraphId, graphsMap }) => {
   };
 
   const getGraphInfo = () => {
-    if (!activeGraphId || !graphsMap.has(activeGraphId)) { return { name: 'No active graph', nodeCount: 0, edgeCount: 0 }; }
+    if (!activeGraphId || !graphsMap || typeof graphsMap.has !== 'function' || !graphsMap.has(activeGraphId)) { 
+      return { name: 'No active graph', nodeCount: 0, edgeCount: 0 }; 
+    }
     const graph = graphsMap.get(activeGraphId);
-    return { name: graph.name, nodeCount: graph.instances.size, edgeCount: graph.edgeIds.length };
+    if (!graph) {
+      return { name: 'No active graph', nodeCount: 0, edgeCount: 0 };
+    }
+    const nodeCount = graph.instances && typeof graph.instances.size === 'number' ? graph.instances.size : 0;
+    const edgeCount = Array.isArray(graph.edgeIds) ? graph.edgeIds.length : 0;
+    return { 
+      name: graph.name || 'Unnamed graph', 
+      nodeCount, 
+      edgeCount 
+    };
   };
   const graphInfo = getGraphInfo();
   const toggleClearance = HEADER_HEIGHT + 14;

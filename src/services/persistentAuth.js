@@ -765,6 +765,22 @@ export class PersistentAuth {
 
     this.startHealthMonitoring();
 
+    // Update client-side user tracking if available
+    try {
+      const userTracking = await import('./userTracking.js').then(m => m.default).catch(() => null);
+      if (userTracking && userData) {
+        userTracking.updateUser(String(userData.id), userData.login);
+        userTracking.track('oauth_login_success', {
+          provider: 'github',
+          userId: String(userData.id),
+          login: userData.login
+        });
+      }
+    } catch (error) {
+      // User tracking is optional, don't fail if it's not available
+      console.debug('[PersistentAuth] User tracking update skipped:', error.message);
+    }
+
     this.emit('tokenStored', { tokenData, userData });
     this.dispatchAuthEvent('oauth', { user: userData?.login || null });
     this.dispatchConnectedEvent('oauth', { user: userData?.login || null });

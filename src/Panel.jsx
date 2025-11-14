@@ -2,7 +2,7 @@ import React, { useState, useEffect, forwardRef, useImperativeHandle, useRef, us
 import { useDrag, useDrop, useDragLayer } from 'react-dnd';
 import { getEmptyImage } from 'react-dnd-html5-backend'; // Import for hiding default preview
 import { HEADER_HEIGHT, NODE_CORNER_RADIUS, THUMBNAIL_MAX_DIMENSION, NODE_DEFAULT_COLOR, PANEL_CLOSE_ICON_SIZE } from './constants';
-import { ArrowLeftFromLine, ArrowRightFromLine, Info, ImagePlus, XCircle, BookOpen, LayoutGrid, Plus, Bookmark, ArrowUpFromDot, Palette, ArrowBigRightDash, X, Globe, Settings, RotateCcw, Send, Bot, User, Key, Square, Search, Merge, Copy, Loader2, TextSearch } from 'lucide-react';
+import { ArrowLeftFromLine, ArrowRightFromLine, Info, ImagePlus, XCircle, BookOpen, LayoutGrid, Plus, Bookmark, ArrowUpFromDot, Palette, ArrowBigRightDash, X, Globe, Settings, RotateCcw, Send, Bot, User, Key, Square, Search, Merge, Copy, Loader2, TextSearch, Sparkles } from 'lucide-react';
 import ToggleSlider from './components/ToggleSlider.jsx';
 import { v4 as uuidv4 } from 'uuid';
 import './Panel.css'
@@ -50,6 +50,7 @@ import LeftLibraryView from './components/panel/views/LeftLibraryView.jsx';
 import LeftAllThingsView from './components/panel/views/LeftAllThingsView.jsx';
 import LeftSemanticDiscoveryView from './components/panel/views/LeftSemanticDiscoveryView.jsx';
 import LeftGridView from './components/panel/views/LeftGridView.jsx';
+import LeftAIView from './components/panel/views/LeftAIView.jsx';
 
 // Generate color for concept based on name hash - unified color system
 // Uses the same saturation and brightness as maroon (#8B0000) but with different hues
@@ -752,7 +753,7 @@ const Panel = forwardRef(
         side === 'left' && initialViewActive
             ? initialViewActive
             : 'library'
-    ); // 'library', 'all', 'grid', 'federation', or 'semantic'
+    ); // 'library', 'all', 'grid', 'federation', 'semantic', or 'ai'
 
     // Allow external control of view when prop changes
     useEffect(() => {
@@ -795,11 +796,7 @@ const Panel = forwardRef(
         console.log(`[toggleSection] Toggled section '${name}'. New collapsed state: ${!sectionCollapsed[name]}`);
     };
 
-    useEffect(() => {
-        if (leftViewActive === 'ai') {
-            setLeftViewActive('semantic');
-        }
-    }, [leftViewActive]);
+    // AI view redirect removed - wizard is re-enabled
 
     // Debug section state
     useEffect(() => {
@@ -1594,20 +1591,11 @@ const Panel = forwardRef(
             );
         } else if (leftViewActive === 'ai') {
             panelContent = (
-                <div className="panel-content-inner" style={{ 
-                    display: 'flex',
-                    flexDirection: 'column',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    height: '100%',
-                    padding: 24,
-                    textAlign: 'center',
-                    color: '#260000',
-                    fontFamily: "'EmOne', sans-serif",
-                    fontSize: '0.9rem'
-                }}>
-                    <div>AI Wizard is temporarily disabled while we iterate on the workflow.</div>
-                </div>
+                <LeftAIView
+                    compact={panelWidth < 300}
+                    activeGraphId={activeGraphId}
+                    graphsMap={graphsMap}
+                />
             );
         }
     } else { // side === 'right'
@@ -1846,6 +1834,15 @@ const Panel = forwardRef(
                                 onClick={() => setLeftViewActive('semantic')}
                             >
                                 <TextSearch size={20} color="#260000" />
+                            </div>
+
+                            {/* AI Wizard Button */}
+                            <div 
+                                title="AI Wizard" 
+                                style={{ /* Common Button Styles */ width: 40, height: 40, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', backgroundColor: leftViewActive === 'ai' ? '#bdb5b5' : '#979090', zIndex: 2 }}
+                                onClick={() => setLeftViewActive('ai')}
+                            >
+                                <Sparkles size={20} color="#260000" />
                             </div>
                         </div>
                     ) : (

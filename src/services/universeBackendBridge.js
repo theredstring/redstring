@@ -17,6 +17,10 @@ class UniverseBackendBridge {
     this.isBackendReady = false;
     this.backendReadyPromise = null;
     this.hasWarnedInitDelay = false;
+    this.useDirectBackend = false;
+    this.directBackendPromise = null;
+    this.directBackendInitialized = false;
+    this.directStatusUnsubscribe = null;
     
     // Listen for backend ready signal
     this.setupBackendReadyListener();
@@ -132,6 +136,20 @@ class UniverseBackendBridge {
   
   async processQueuedCommands() {
     console.log(`[UniverseBackendBridge] Processing ${this.commandQueue.length} queued commands`);
+
+    if (this.useDirectBackend) {
+      while (this.commandQueue.length > 0) {
+        const queuedCommand = this.commandQueue.shift();
+        try {
+          const result = await this.executeDirectCommand(queuedCommand.command, queuedCommand.payload);
+          queuedCommand.resolve(result);
+        } catch (error) {
+          console.error('[UniverseBackendBridge] Queued command failed during direct fallback:', error);
+          queuedCommand.reject(error);
+        }
+      }
+      return;
+    }
     
     while (this.commandQueue.length > 0) {
       const queuedCommand = this.commandQueue.shift();
@@ -182,6 +200,22 @@ class UniverseBackendBridge {
   }
 
   async sendCommand(command, payload = {}) {
+    if (this.useDirectBackend) {
+      return this.executeDirectCommand(command, payload);
+    }
+
+    try {
+      return await this._sendCommandViaPromise(command, payload);
+    } catch (error) {
+      if (this.shouldFallbackToDirect(error)) {
+        console.warn(`[UniverseBackendBridge] Falling back to direct backend for "${command}" due to error:`, error);
+        return this.handleDirectFallback(command, payload);
+      }
+      throw error;
+    }
+  }
+
+  async _sendCommandViaPromise(command, payload = {}) {
     if (typeof window === 'undefined') {
       throw new Error('Universe backend bridge is only available in the browser environment.');
     }
@@ -222,6 +256,151 @@ class UniverseBackendBridge {
       // Execute command immediately if backend is ready
       await this.executeCommand(commandData);
     });
+  }
+
+  async handleDirectFallback(command, payload) {
+    this.useDirectBackend = true;
+    this.isBackendReady = true;
+
+    if (typeof window !== 'undefined') {
+      try {
+        window._universeBackendReady = true;
+      } catch (_) {}
+    }
+
+    // Drain any queued commands using the direct backend
+    if (this.commandQueue.length > 0) {
+      const pending = this.commandQueue.splice(0, this.commandQueue.length);
+      for (const queued of pending) {
+        try {
+          const result = await this.executeDirectCommand(queued.command, queued.payload);
+          queued.resolve(result);
+        } catch (error) {
+          queued.reject(error);
+        }
+      }
+    }
+
+    return this.executeDirectCommand(command, payload);
+  }
+
+  shouldFallbackToDirect(error) {
+    if (!error) return false;
+    const message = typeof error?.message === 'string' ? error.message : String(error);
+    if (!message) return false;
+    const normalized = message.toLowerCase();
+    if (normalized.includes('timed out')) return true;
+    if (normalized.includes('backend command')) return true;
+    if (normalized.includes('backend bridge')) return true;
+    if (normalized.includes('requires a browser environment')) return true;
+    return false;
+  }
+
+  async getDirectBackendInstance() {
+    if (!this.directBackendPromise) {
+      this.directBackendPromise = (async () => {
+        const module = await import('./universeBackend.js');
+        const backend = module.default || module.universeBackend;
+        if (!backend) {
+          throw new Error('Universe backend module could not be loaded for direct fallback');
+        }
+
+        if (!this.directBackendInitialized && typeof backend.initialize === 'function') {
+          try {
+            await backend.initialize();
+          } catch (initError) {
+            console.warn('[UniverseBackendBridge] Direct backend initialization failed:', initError);
+          } finally {
+            this.directBackendInitialized = true;
+          }
+        }
+
+        return backend;
+      })();
+    }
+
+    const backend = await this.directBackendPromise;
+
+    if (!this.directBackendInitialized && typeof backend?.initialize === 'function') {
+      try {
+        await backend.initialize();
+      } catch (initError) {
+        console.warn('[UniverseBackendBridge] Direct backend initialization retry failed:', initError);
+      } finally {
+        this.directBackendInitialized = true;
+      }
+    }
+
+    this.ensureDirectStatusRelay(backend);
+    return backend;
+  }
+
+  ensureDirectStatusRelay(backend) {
+    if (this.directStatusUnsubscribe || typeof window === 'undefined') return;
+    if (!backend || typeof backend.onStatusChange !== 'function') return;
+
+    try {
+      this.directStatusUnsubscribe = backend.onStatusChange((status) => {
+        try {
+          window.dispatchEvent(new CustomEvent(STATUS_EVENT, { detail: status }));
+        } catch (dispatchError) {
+          console.warn('[UniverseBackendBridge] Failed to dispatch status from direct backend fallback:', dispatchError);
+        }
+      });
+    } catch (error) {
+      console.warn('[UniverseBackendBridge] Failed to set up status relay for direct backend:', error);
+    }
+  }
+
+  async executeDirectCommand(command, payload = {}) {
+    const backend = await this.getDirectBackendInstance();
+
+    switch (command) {
+      case 'getAllUniverses':
+        return backend.getAllUniverses();
+      case 'getActiveUniverse':
+        return backend.getActiveUniverse();
+      case 'getAuthStatus':
+        return backend.getAuthStatus();
+      case 'getSyncStatus':
+        return backend.getSyncStatus(payload.universeSlug);
+      case 'getUniverseGitStatus':
+        return backend.getUniverseGitStatus(payload.universeSlug);
+      case 'getGitStatusDashboard':
+        return backend.getGitStatusDashboard();
+      case 'switchActiveUniverse':
+        return backend.switchActiveUniverse(payload.slug, payload.options);
+      case 'createUniverse':
+        return backend.createUniverse(payload.name, payload.options);
+      case 'deleteUniverse':
+        return backend.deleteUniverse(payload.slug);
+      case 'updateUniverse':
+        return backend.updateUniverse(payload.slug, payload.updates);
+      case 'discoverUniversesInRepository':
+        return backend.discoverUniversesInRepository(payload.repoConfig);
+      case 'linkToDiscoveredUniverse':
+        return backend.linkToDiscoveredUniverse(payload.discoveredUniverse, payload.repoConfig);
+      case 'forceSave':
+        return backend.forceSave(payload.universeSlug, payload.storeState, payload.options);
+      case 'saveActiveUniverse':
+        return backend.saveActiveUniverse(payload.storeState);
+      case 'reloadUniverse':
+        return backend.reloadUniverse(payload.universeSlug);
+      case 'uploadLocalFile':
+        return backend.uploadLocalFile(payload.file, payload.targetUniverseSlug);
+      case 'setupLocalFileHandle':
+        return backend.setupLocalFileHandle(payload.universeSlug, payload.options);
+      case 'downloadLocalFile':
+        return backend.downloadLocalFile(payload.universeSlug, payload.storeState);
+      case 'downloadGitUniverse':
+        return backend.downloadGitUniverse(payload.universeSlug);
+      case 'requestLocalFilePermission':
+        return backend.requestLocalFilePermission(payload.universeSlug);
+      case 'removeLocalFileLink':
+        return backend.removeLocalFileLink(payload.universeSlug);
+      default:
+        throw new Error(`Unknown command for direct execution: ${command}`);
+    }
   }
 
   onStatusChange(callback) {

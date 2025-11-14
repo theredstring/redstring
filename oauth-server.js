@@ -10,6 +10,7 @@ import fetch from 'node-fetch';
 import dotenv from 'dotenv';
 import jwt from 'jsonwebtoken';
 import tokenVault from './src/services/server/tokenVault.js';
+import userAnalytics from './src/services/UserAnalytics.js';
 
 // Load environment variables
 dotenv.config();
@@ -930,6 +931,26 @@ app.post('/api/github/oauth/token', async (req, res) => {
       });
       if (userResponse.ok) {
         userData = await userResponse.json();
+        
+        // Track OAuth login
+        try {
+          const ip = req.ip || req.headers['x-forwarded-for'] || req.connection.remoteAddress;
+          const userAgent = req.headers['user-agent'] || null;
+          userAnalytics.trackActivity({
+            userId: String(userData.id),
+            userLogin: userData.login,
+            action: 'oauth_login',
+            metadata: {
+              provider: 'github',
+              scope: tokenData.scope
+            },
+            ip,
+            userAgent,
+            path: req.path
+          });
+        } catch (analyticsError) {
+          logger.debug('[OAuth] Analytics tracking error:', analyticsError.message);
+        }
       } else {
         const text = await userResponse.text().catch(() => '');
         logger.warn('[OAuth] Failed to fetch GitHub user profile:', userResponse.status, text);

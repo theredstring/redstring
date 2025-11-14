@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import MaroonSlider from './components/MaroonSlider.jsx';
-import { ChevronRight, FileText, FolderOpen, Save, Clock, Globe, Bug, BookOpen, Home } from 'lucide-react';
+import { ChevronRight, FileText, FolderOpen, Save, Clock, Globe, Bug, BookOpen, Home, LayoutGrid, Activity } from 'lucide-react';
 import './RedstringMenu.css';
 import DebugOverlay from './DebugOverlay';
 import * as fileStorage from './store/fileStorage.js';
@@ -37,7 +37,11 @@ const RedstringMenu = ({
   onOpenUniverse,
   onSaveUniverse,
   onExportRdf,
-  onOpenRecentFile
+  onOpenRecentFile,
+  // Auto-graph generation
+  onGenerateTestGraph,
+  onOpenForceSim,
+  onAutoLayoutGraph
 }) => {
   const [isExiting, setIsExiting] = useState(false);
   const [shouldRender, setShouldRender] = useState(false);
@@ -328,6 +332,17 @@ const RedstringMenu = ({
                                 <div
                                   className="submenu-item"
                                   onClick={() => {
+                                    onAutoLayoutGraph?.();
+                                    onHoverView?.(false);
+                                  }}
+                                  style={{ cursor: 'pointer' }}
+                                >
+                                  <LayoutGrid size={16} style={{ marginRight: '8px', minWidth: '16px', flexShrink: 0 }} />
+                                  Auto-Layout Active Graph
+                                </div>
+                                <div
+                                  className="submenu-item"
+                                  onClick={() => {
                                     // Dispatch global event used by Panel to open DuplicateManager
                                     window.dispatchEvent(new Event('openMergeModal'));
                                   }}
@@ -541,6 +556,34 @@ const RedstringMenu = ({
                               onMouseEnter={handleTopLevelSubmenuEnter}
                               onMouseLeave={handleTopLevelMenuLeave}
                             >
+                                <div
+                                  className="submenu-item"
+                                  onClick={() => {
+                                    console.log('[DEBUG] Generate Test Graph clicked', { onGenerateTestGraph });
+                                    closeAllMenus();
+                                    if (onGenerateTestGraph) onGenerateTestGraph();
+                                  }}
+                                  style={{ cursor: 'pointer' }}
+                                >
+                                  <LayoutGrid size={14} style={{ marginRight: '8px' }} />
+                                  Generate Test Graph
+                                </div>
+                                
+                                <div
+                                  className="submenu-item"
+                                  onClick={() => {
+                                    console.log('[DEBUG] Force Simulation Tuner clicked');
+                                    closeAllMenus();
+                                    if (onOpenForceSim) onOpenForceSim();
+                                  }}
+                                  style={{ cursor: 'pointer' }}
+                                >
+                                  <Activity size={14} style={{ marginRight: '8px' }} />
+                                  Force Simulation Tuner
+                                </div>
+                                
+                                <div className="submenu-divider" style={{ margin: '8px 0', borderTop: '1px solid #444', opacity: 0.3 }} />
+                                
                                 <div
                                   className="submenu-item"
                                   onClick={() => setDebugMode(!debugMode)}

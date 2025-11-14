@@ -56,6 +56,9 @@ const Header = ({
   onSaveUniverse,
   onExportRdf,
   onOpenRecentFile,
+  onGenerateTestGraph,
+  onOpenForceSim,
+  onAutoLayoutGraph
 
 }) => {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
@@ -319,6 +322,9 @@ const Header = ({
             onSaveUniverse={onSaveUniverse}
             onExportRdf={onExportRdf}
             onOpenRecentFile={onOpenRecentFile}
+            onGenerateTestGraph={onGenerateTestGraph}
+            onOpenForceSim={onOpenForceSim}
+            onAutoLayoutGraph={onAutoLayoutGraph}
           />
       </header>
     );
@@ -394,6 +400,9 @@ const Header = ({
           onSaveUniverse={onSaveUniverse}
           onExportRdf={onExportRdf}
           onOpenRecentFile={onOpenRecentFile}
+          onGenerateTestGraph={onGenerateTestGraph}
+          onOpenForceSim={onOpenForceSim}
+          onAutoLayoutGraph={onAutoLayoutGraph}
         />
       </div>
 

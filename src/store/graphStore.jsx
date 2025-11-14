@@ -319,6 +319,8 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
       routingStyle: 'straight', // 'straight' | 'manhattan' | 'clean'
       manhattanBends: 'auto', // 'auto' | 'one' | 'two'
       cleanLaneSpacing: 200,
+      layoutScale: 'balanced',
+      layoutIterations: 'balanced'
     },
 
     // Git Federation State
@@ -1586,9 +1588,10 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
   })),
 
     // Creates a new, empty graph and sets it as active
-  createNewGraph: (initialData = {}) => set(produce((draft) => {
-    console.log('[Store createNewGraph] Creating new empty graph');
-    const newGraphId = uuidv4();
+  createNewGraph: (initialData = {}) => {
+    const newGraphId = initialData.id || uuidv4(); // Use provided ID if available
+    set(produce((draft) => {
+      console.log('[Store createNewGraph] Creating new empty graph with ID:', newGraphId);
     const newGraphName = initialData.name || "New Thing";
 
     // Create a new prototype that will define this graph.
@@ -1633,7 +1636,9 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
     draft.expandedGraphIds.add(newGraphId);
     
     console.log(`[Store] Created and activated new empty graph: ${newGraphId} ('${newGraphName}') defined by prototype ${definingPrototypeId}.`);
-  })),
+    }));
+    return newGraphId; // Return the actual graph ID that was created
+  },
 
     // Deterministic graph creation with provided id (no-op if exists)
     createGraphWithId: (graphId, initialData = {}) => set(produce((draft) => {

@@ -27,6 +27,10 @@ import { useDrop } from 'react-dnd';
 import { fetchOrbitCandidatesForPrototype } from './services/orbitResolver.js';
 import { showContextMenu } from './components/GlobalContextMenu';
 import * as fileStorage from './store/fileStorage.js';
+import AutoGraphModal from './components/AutoGraphModal';
+import ForceSimulationModal from './components/ForceSimulationModal';
+import { parseInputData, generateGraph } from './services/autoGraphGenerator';
+import { applyLayout, FORCE_LAYOUT_DEFAULTS } from './services/graphLayoutService.js';
 
 // Import Zustand store and selectors/actions
 import useGraphStore, {
@@ -1697,6 +1701,13 @@ function NodeCanvas() {
   const [selectionRect, setSelectionRect] = useState(null);
   const [selectionStart, setSelectionStart] = useState(null);
 
+  const labelCacheResetRef = useRef(null);
+  const resetConnectionLabelCache = useCallback(() => {
+    if (typeof labelCacheResetRef.current === 'function') {
+      labelCacheResetRef.current();
+    }
+  }, []);
+
   // Panel expansion states - must be defined before viewport bounds hook
   const [leftPanelExpanded, setLeftPanelExpanded] = useState(true);
   const [rightPanelExpanded, setRightPanelExpanded] = useState(true);
@@ -1985,8 +1996,85 @@ function NodeCanvas() {
     }));
 
     storeActions.updateMultipleNodeInstancePositions(activeGraphId, positionUpdates);
+    resetConnectionLabelCache();
           // console.log(`Moved ${outOfBoundsNodes.length} nodes back into bounds`);
   }, [nodes, baseDimsById, canvasSize, storeActions, activeGraphId]);
+
+  const applyAutoLayoutToActiveGraph = useCallback(() => {
+    if (!activeGraphId) {
+      alert('No active graph is selected for auto-layout.');
+      return;
+    }
+
+    if (!nodes || nodes.length === 0) {
+      alert('Active graph has no nodes to layout yet.');
+      return;
+    }
+
+    const layoutNodes = nodes.map(node => {
+      const cachedDims = baseDimsById.get(node.id);
+      const realDims = cachedDims && cachedDims.currentWidth && cachedDims.currentHeight
+        ? cachedDims
+        : getNodeDimensions(node, false, null);
+      const labelWidth = realDims?.currentWidth ?? FORCE_LAYOUT_DEFAULTS.nodeSpacing;
+      const labelHeight = realDims?.currentHeight ?? FORCE_LAYOUT_DEFAULTS.nodeSpacing;
+
+      return {
+        id: node.id,
+        prototypeId: node.prototypeId,
+        x: typeof node.x === 'number' ? node.x : 0,
+        y: typeof node.y === 'number' ? node.y : 0,
+        width: labelWidth,
+        height: labelHeight,
+        labelWidth,
+        labelHeight,
+        imageHeight: realDims?.calculatedImageHeight ?? 0,
+        nodeSize: Math.max(labelWidth, labelHeight, FORCE_LAYOUT_DEFAULTS.nodeSpacing)
+      };
+    });
+
+    const layoutEdges = edges
+      .filter(edge => edge && edge.sourceId && edge.destinationId)
+      .map(edge => ({
+        sourceId: edge.sourceId,
+        destinationId: edge.destinationId
+      }));
+
+    const layoutOptions = {
+      ...FORCE_LAYOUT_DEFAULTS,
+      preSimulate: true
+    };
+
+    try {
+      const updates = applyLayout(layoutNodes, layoutEdges, 'force-directed', layoutOptions);
+
+      if (!updates || updates.length === 0) {
+        console.warn('[AutoLayout] Layout produced no updates.');
+        return;
+      }
+
+      resetConnectionLabelCache();
+      storeActions.updateMultipleNodeInstancePositions(
+        activeGraphId,
+        updates,
+        { finalize: true, source: 'auto-layout', algorithm: 'force-directed' }
+      );
+      resetConnectionLabelCache();
+
+      console.log('[AutoLayout] Applied force-directed layout to graph', activeGraphId, 'for', updates.length, 'nodes.');
+
+      setTimeout(() => {
+        try {
+          moveOutOfBoundsNodesInBounds();
+        } catch (boundErr) {
+          console.warn('[AutoLayout] Bound correction failed:', boundErr);
+        }
+      }, 0);
+    } catch (error) {
+      console.error('[AutoLayout] Failed to apply layout:', error);
+      alert(`Auto-layout failed: ${error.message}`);
+    }
+  }, [activeGraphId, baseDimsById, nodes, edges, storeActions, moveOutOfBoundsNodesInBounds, resetConnectionLabelCache]);
 
   // Auto-correct out-of-bounds nodes on graph load
   useEffect(() => {
@@ -2314,7 +2402,8 @@ function NodeCanvas() {
   
   // Header search state
   const [headerSearchVisible, setHeaderSearchVisible] = useState(false);
-  
+  const [autoGraphModalVisible, setAutoGraphModalVisible] = useState(false);
+  const [forceSimModalVisible, setForceSimModalVisible] = useState(false);
 
 
   // Define carousel callbacks outside conditional rendering to avoid hook violations
@@ -4834,6 +4923,9 @@ function NodeCanvas() {
 
   // Global label registry to track placed labels and avoid overlaps
   const placedLabelsRef = useRef(new Map()); // edgeId -> { rect, position }
+  labelCacheResetRef.current = () => {
+    placedLabelsRef.current = new Map();
+  };
   const clearLabelsTimeoutRef = useRef(null);
   const stabilizeLabelPosition = useCallback((edgeId, x, y, angle = 0) => {
     // Stabilize by quantizing to screen pixels and applying a deadband
@@ -7971,6 +8063,13 @@ function NodeCanvas() {
          gridSize={gridSize}
          onSetGridSize={(v) => useGraphStore.getState().setGridSize(v)}
 
+         onGenerateTestGraph={() => {
+           setAutoGraphModalVisible(true);
+         }}
+        onOpenForceSim={() => {
+          setForceSimModalVisible(true);
+        }}
+        onAutoLayoutGraph={applyAutoLayoutToActiveGraph}
          onNewUniverse={async () => {
            try {
              
@@ -12016,6 +12115,68 @@ function NodeCanvas() {
           zoomLevel={zoomLevel}
         />
       )}
+
+      {/* Auto Graph Generation Modal */}
+      <AutoGraphModal
+        isOpen={autoGraphModalVisible}
+        onClose={() => setAutoGraphModalVisible(false)}
+        onGenerate={(inputData, inputFormat, options) => {
+          try {
+            const parsedData = parseInputData(inputData, inputFormat);
+            const targetGraphId = options.createNewGraph ? null : activeGraphId;
+            
+            // Get fresh state - will be updated after graph creation if needed
+            let storeState = useGraphStore.getState();
+            
+            const results = generateGraph(
+              parsedData,
+              targetGraphId,
+              storeState,
+              storeActions,
+              options,
+              () => useGraphStore.getState() // Function to get fresh state
+            );
+            
+            // Close modal
+            setAutoGraphModalVisible(false);
+            
+            // Show results notification
+            const message = `Generated ${results.instancesCreated.length} nodes and ${results.edgesCreated.length} edges.\n` +
+                          `Prototypes: ${results.prototypesCreated.length} new, ${results.prototypesReused.length} reused.` +
+                          (results.errors.length > 0 ? `\n\nWarnings: ${results.errors.length}` : '');
+            
+            alert(message);
+            
+            console.log('[AutoGraph] Generation results:', results);
+          } catch (error) {
+            console.error('[AutoGraph] Generation failed:', error);
+            alert(`Failed to generate graph: ${error.message}`);
+          }
+        }}
+        activeGraphId={activeGraphId}
+      />
+
+      {/* Force Simulation Modal */}
+      <ForceSimulationModal
+        isOpen={forceSimModalVisible}
+        onClose={() => setForceSimModalVisible(false)}
+        graphId={activeGraphId}
+        storeActions={storeActions}
+        getNodes={() => hydratedNodes.map(n => {
+          const dims = baseDimsById.get(n.id) || getNodeDimensions(n, false, null);
+          return {
+            id: n.id,
+            x: n.x,
+            y: n.y,
+            name: n.name,
+            width: dims?.currentWidth,
+            height: dims?.currentHeight,
+            imageHeight: dims?.calculatedImageHeight ?? 0
+          };
+        })}
+        getEdges={() => edges.map(e => ({ sourceId: e.sourceId, destinationId: e.destinationId }))}
+        onNodePositionsUpdated={resetConnectionLabelCache}
+      />
 
       {/* Help Modal */}
       <HelpModal

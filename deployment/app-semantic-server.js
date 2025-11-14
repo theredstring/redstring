@@ -13,6 +13,7 @@ import cors from 'cors';
 import fs from 'fs/promises';
 import jsonld from 'jsonld';
 import * as $rdf from 'rdflib';
+import userAnalytics from '../src/services/UserAnalytics.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -64,6 +65,159 @@ const distPath = path.join(process.cwd(), 'dist');
 app.use(express.json({ limit: '5mb' }));
 // Enable CORS for semantic web routes (safe for read-only endpoints)
 app.use(cors());
+
+// User analytics tracking middleware
+app.use((req, res, next) => {
+  // Skip tracking for static assets and health checks
+  if (req.path.startsWith('/assets/') || 
+      req.path === '/health' ||
+      req.path.startsWith('/api/analytics')) {
+    return next();
+  }
+
+  // Extract user info from request (if available)
+  // This will be populated by OAuth endpoints
+  const userId = req.headers['x-user-id'] || null;
+  const userLogin = req.headers['x-user-login'] || null;
+  const ip = req.ip || req.headers['x-forwarded-for'] || req.connection.remoteAddress;
+  const userAgent = req.headers['user-agent'] || null;
+
+  // Track the request
+  try {
+    userAnalytics.trackActivity({
+      userId,
+      userLogin,
+      action: 'http_request',
+      metadata: {
+        method: req.method,
+        path: req.path,
+        statusCode: res.statusCode
+      },
+      ip,
+      userAgent,
+      path: req.path
+    });
+  } catch (error) {
+    // Don't break requests if analytics fails
+    logger.debug('[Analytics] Tracking error:', error.message);
+  }
+
+  // Track response status
+  const originalSend = res.send;
+  res.send = function(data) {
+    try {
+      userAnalytics.trackActivity({
+        userId,
+        userLogin,
+        action: 'http_response',
+        metadata: {
+          method: req.method,
+          path: req.path,
+          statusCode: res.statusCode,
+          responseSize: data ? String(data).length : 0
+        },
+        ip,
+        userAgent,
+        path: req.path
+      });
+    } catch (error) {
+      // Ignore analytics errors
+    }
+    return originalSend.call(this, data);
+  };
+
+  next();
+});
+
+// Analytics API endpoints
+app.get('/api/analytics/stats', (req, res) => {
+  try {
+    const timeRange = req.query.range || 'all';
+    const stats = userAnalytics.getStats(timeRange);
+    res.json(stats);
+  } catch (error) {
+    logger.error('[Analytics] Stats error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.get('/api/analytics/active-users', (req, res) => {
+  try {
+    const minutes = parseInt(req.query.minutes || '30', 10);
+    const activeUsers = userAnalytics.getActiveUsers(minutes);
+    res.json({
+      count: activeUsers.length,
+      users: activeUsers,
+      minutes
+    });
+  } catch (error) {
+    logger.error('[Analytics] Active users error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.get('/api/analytics/user/:userId', (req, res) => {
+  try {
+    const user = userAnalytics.getUser(req.params.userId);
+    if (!user) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+    res.json(user);
+  } catch (error) {
+    logger.error('[Analytics] User error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.get('/api/analytics/activity', (req, res) => {
+  try {
+    const startTime = req.query.start ? parseInt(req.query.start, 10) : Date.now() - (24 * 60 * 60 * 1000);
+    const endTime = req.query.end ? parseInt(req.query.end, 10) : Date.now();
+    const limit = req.query.limit ? parseInt(req.query.limit, 10) : 1000;
+    
+    const activities = userAnalytics.getActivity(startTime, endTime);
+    const limited = activities.slice(-limit);
+    
+    res.json({
+      count: limited.length,
+      total: activities.length,
+      activities: limited,
+      startTime,
+      endTime
+    });
+  } catch (error) {
+    logger.error('[Analytics] Activity error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Client-side tracking endpoint
+app.post('/api/analytics/track', (req, res) => {
+  try {
+    const { action, metadata = {}, userId, userLogin, path, url } = req.body;
+    const ip = req.ip || req.headers['x-forwarded-for'] || req.connection.remoteAddress;
+    const userAgent = req.headers['user-agent'] || null;
+
+    userAnalytics.trackActivity({
+      userId: userId || null,
+      userLogin: userLogin || null,
+      action: action || 'unknown',
+      metadata: {
+        ...metadata,
+        source: 'client',
+        url: url || null
+      },
+      ip,
+      userAgent,
+      path: path || req.path
+    });
+
+    res.json({ success: true });
+  } catch (error) {
+    logger.error('[Analytics] Track error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
 
 // Proxy OAuth requests to internal OAuth server
 app.get('/api/github/oauth/client-id', async (req, res) => {

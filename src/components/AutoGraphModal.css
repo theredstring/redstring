@@ -1,0 +1,307 @@
+/**
+ * Auto Graph Modal Styles
+ */
+
+.autograph-modal-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-color: rgba(0, 0, 0, 0.7);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 20000;
+  backdrop-filter: blur(4px);
+}
+
+.autograph-modal {
+  background: #EFE8E5;
+  border-radius: 12px;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.4);
+  max-width: 600px;
+  width: 90%;
+  max-height: 90vh;
+  display: flex;
+  flex-direction: column;
+  font-family: 'EmOne', sans-serif;
+}
+
+.autograph-modal-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 20px 24px;
+  border-bottom: 2px solid #260000;
+  background: linear-gradient(135deg, #8B0000 0%, #A52A2A 100%);
+  border-radius: 12px 12px 0 0;
+}
+
+.autograph-modal-title {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 18px;
+  font-weight: 600;
+  color: #EFE8E5;
+}
+
+.autograph-modal-close {
+  background: none;
+  border: none;
+  color: #EFE8E5;
+  cursor: pointer;
+  padding: 4px;
+  border-radius: 4px;
+  transition: background-color 0.2s;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.autograph-modal-close:hover {
+  background-color: rgba(255, 255, 255, 0.2);
+}
+
+.autograph-modal-content {
+  padding: 24px;
+  overflow-y: auto;
+  flex: 1;
+}
+
+.autograph-section {
+  margin-bottom: 20px;
+}
+
+.autograph-section:last-child {
+  margin-bottom: 0;
+}
+
+.autograph-label {
+  display: block;
+  font-size: 13px;
+  font-weight: 600;
+  color: #260000;
+  margin-bottom: 8px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.autograph-button-group {
+  display: flex;
+  gap: 8px;
+}
+
+.autograph-button {
+  flex: 1;
+  padding: 10px 16px;
+  background: #fff;
+  border: 2px solid #260000;
+  border-radius: 6px;
+  font-family: 'EmOne', sans-serif;
+  font-size: 14px;
+  color: #260000;
+  cursor: pointer;
+  transition: all 0.2s;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+}
+
+.autograph-button:hover {
+  background: #f5f5f5;
+  border-color: #8B0000;
+}
+
+.autograph-button.active {
+  background: #8B0000;
+  color: #EFE8E5;
+  border-color: #8B0000;
+}
+
+.autograph-select,
+.autograph-input {
+  width: 100%;
+  padding: 10px 12px;
+  background: #fff;
+  border: 2px solid #260000;
+  border-radius: 6px;
+  font-family: 'EmOne', sans-serif;
+  font-size: 14px;
+  color: #260000;
+  transition: border-color 0.2s;
+}
+
+.autograph-select:focus,
+.autograph-input:focus {
+  outline: none;
+  border-color: #8B0000;
+}
+
+.autograph-textarea {
+  width: 100%;
+  padding: 12px;
+  background: #fff;
+  border: 2px solid #260000;
+  border-radius: 6px;
+  font-family: 'Courier New', monospace;
+  font-size: 13px;
+  color: #260000;
+  resize: vertical;
+  transition: border-color 0.2s;
+}
+
+.autograph-textarea:focus {
+  outline: none;
+  border-color: #8B0000;
+}
+
+.autograph-textarea::placeholder {
+  color: #999;
+  font-family: 'Courier New', monospace;
+}
+
+.autograph-preview {
+  margin-top: 12px;
+  padding: 12px;
+  background: rgba(139, 0, 0, 0.05);
+  border: 1px solid rgba(139, 0, 0, 0.2);
+  border-radius: 6px;
+  font-size: 13px;
+  color: #260000;
+  white-space: pre-line;
+  line-height: 1.5;
+}
+
+.autograph-radio-group {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.autograph-radio {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 14px;
+  color: #260000;
+  cursor: pointer;
+  padding: 8px 12px;
+  border-radius: 6px;
+  transition: background-color 0.2s;
+}
+
+.autograph-radio:hover {
+  background: rgba(139, 0, 0, 0.05);
+}
+
+.autograph-radio input[type="radio"] {
+  width: 18px;
+  height: 18px;
+  cursor: pointer;
+  accent-color: #8B0000;
+}
+
+.autograph-radio input[type="radio"]:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.autograph-radio:has(input:disabled) {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.autograph-hint {
+  font-size: 12px;
+  color: #999;
+  font-style: italic;
+}
+
+.autograph-modal-footer {
+  padding: 20px 24px;
+  border-top: 2px solid #260000;
+  display: flex;
+  justify-content: flex-end;
+  gap: 12px;
+  background: #f5f5f5;
+  border-radius: 0 0 12px 12px;
+}
+
+.autograph-button-secondary,
+.autograph-button-primary {
+  padding: 10px 20px;
+  border-radius: 6px;
+  font-family: 'EmOne', sans-serif;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border: 2px solid transparent;
+}
+
+.autograph-button-secondary {
+  background: transparent;
+  color: #260000;
+  border-color: #260000;
+}
+
+.autograph-button-secondary:hover {
+  background: rgba(139, 0, 0, 0.1);
+}
+
+.autograph-button-primary {
+  background: #8B0000;
+  color: #EFE8E5;
+  border-color: #8B0000;
+}
+
+.autograph-button-primary:hover:not(:disabled) {
+  background: #6B0000;
+  border-color: #6B0000;
+}
+
+.autograph-button-primary:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* Scrollbar styling for modal content */
+.autograph-modal-content::-webkit-scrollbar {
+  width: 10px;
+}
+
+.autograph-modal-content::-webkit-scrollbar-track {
+  background: rgba(139, 0, 0, 0.05);
+  border-radius: 5px;
+}
+
+.autograph-modal-content::-webkit-scrollbar-thumb {
+  background: rgba(139, 0, 0, 0.3);
+  border-radius: 5px;
+}
+
+.autograph-modal-content::-webkit-scrollbar-thumb:hover {
+  background: rgba(139, 0, 0, 0.5);
+}
+
+.autograph-info-box {
+  padding: 12px 16px;
+  background: rgba(78, 205, 196, 0.1);
+  border: 2px solid rgba(78, 205, 196, 0.3);
+  border-radius: 6px;
+  font-size: 13px;
+  color: #260000;
+  line-height: 1.5;
+}
+
+.autograph-info-box strong {
+  color: #8B0000;
+  font-weight: 700;
+}
+
