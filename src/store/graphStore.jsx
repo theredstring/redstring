@@ -21,6 +21,12 @@ const getDefaultAutoLayoutSettings = () => ({
   layoutIterations: 'balanced'
 });
 
+const getDefaultForceTunerSettings = () => ({
+  layoutScale: 'balanced',
+  layoutScaleMultiplier: 1,
+  layoutIterations: 'balanced'
+});
+
 const VALID_LAYOUT_SCALE_PRESETS = ['compact', 'balanced', 'spacious'];
 const VALID_LAYOUT_ITERATION_PRESETS = ['fast', 'balanced', 'deep'];
 
@@ -328,6 +334,7 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
     })(),
     // Connections visualization/layout settings
     autoLayoutSettings: getDefaultAutoLayoutSettings(),
+    forceTunerSettings: getDefaultForceTunerSettings(),
 
     // Git Federation State
     gitConnection: (() => {
@@ -2107,6 +2114,53 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
     draft.autoLayoutSettings.layoutIterations = preset;
   })),
 
+  setForceTunerScalePreset: (preset) => set(produce((draft) => {
+    if (!draft.forceTunerSettings) {
+      draft.forceTunerSettings = getDefaultForceTunerSettings();
+    }
+    if (!VALID_LAYOUT_SCALE_PRESETS.includes(preset)) {
+      console.warn(`[setForceTunerScalePreset] Invalid preset: ${preset}`);
+      return;
+    }
+    draft.forceTunerSettings.layoutScale = preset;
+  })),
+
+  setForceTunerScaleMultiplier: (value) => set(produce((draft) => {
+    if (!draft.forceTunerSettings) {
+      draft.forceTunerSettings = getDefaultForceTunerSettings();
+    }
+    const numeric = Number(value);
+    if (!Number.isFinite(numeric)) {
+      console.warn(`[setForceTunerScaleMultiplier] Invalid multiplier: ${value}`);
+      return;
+    }
+    const clamped = Math.max(0.2, Math.min(2.5, Number(numeric.toFixed(2))));
+    draft.forceTunerSettings.layoutScaleMultiplier = clamped;
+  })),
+
+  setForceTunerIterationPreset: (preset) => set(produce((draft) => {
+    if (!draft.forceTunerSettings) {
+      draft.forceTunerSettings = getDefaultForceTunerSettings();
+    }
+    if (!VALID_LAYOUT_ITERATION_PRESETS.includes(preset)) {
+      console.warn(`[setForceTunerIterationPreset] Invalid preset: ${preset}`);
+      return;
+    }
+    draft.forceTunerSettings.layoutIterations = preset;
+  })),
+
+  copyForceTunerSettingsToAutoLayout: () => set(produce((draft) => {
+    if (!draft.forceTunerSettings) {
+      return;
+    }
+    if (!draft.autoLayoutSettings) {
+      draft.autoLayoutSettings = getDefaultAutoLayoutSettings();
+    }
+    draft.autoLayoutSettings.layoutScale = draft.forceTunerSettings.layoutScale;
+    draft.autoLayoutSettings.layoutScaleMultiplier = draft.forceTunerSettings.layoutScaleMultiplier;
+    draft.autoLayoutSettings.layoutIterations = draft.forceTunerSettings.layoutIterations;
+  })),
+
   // Explicitly set active definition node (e.g., when switching graphs)
   setActiveDefinitionNode: (nodeId) => {
      console.log(`[Store Action] Explicitly setting activeDefinitionNodeId to: ${nodeId}`);
@@ -3077,8 +3131,5 @@ export default useGraphStore;
 // - Actions now operate on `nodePrototypes` and `instances` separately.
 // - Edges connect `instanceId`s.
 // - Selectors have been updated to provide data in the new format.
-//
-// TODO: Update all dependent components (`NodeCanvas.jsx`, `Node.jsx`, etc.)
-// to use the new actions and selectors.
 
 // Auto-save is now handled by the fileStorage module directly with enableAutoSave() 

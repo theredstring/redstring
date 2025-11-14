@@ -41,7 +41,8 @@ const RedstringMenu = ({
   // Auto-graph generation
   onGenerateTestGraph,
   onOpenForceSim,
-  onAutoLayoutGraph
+  onAutoLayoutGraph,
+  onCondenseNodes
 }) => {
   const [isExiting, setIsExiting] = useState(false);
   const [shouldRender, setShouldRender] = useState(false);
@@ -339,6 +340,17 @@ const RedstringMenu = ({
                                 >
                                   <LayoutGrid size={16} style={{ marginRight: '8px', minWidth: '16px', flexShrink: 0 }} />
                                   Auto-Layout Active Graph
+                                </div>
+                                <div
+                                  className="submenu-item"
+                                  onClick={() => {
+                                    onCondenseNodes?.();
+                                    onHoverView?.(false);
+                                  }}
+                                  style={{ cursor: 'pointer' }}
+                                >
+                                  <Activity size={16} style={{ marginRight: '8px', minWidth: '16px', flexShrink: 0 }} />
+                                  Condense Nodes to Center
                                 </div>
                                 <div
                                   className="submenu-item"

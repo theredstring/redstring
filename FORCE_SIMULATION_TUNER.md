@@ -1,17 +1,17 @@
 # Force Simulation Tuner
 
 ## Overview
-Interactive, draggable modal for tuning force-directed graph layout parameters in real-time. Perfect for finding the optimal values for your graph layouts!
+Interactive, draggable modal for tuning force-directed graph layout parameters in real-time. It runs directly against the active Redstring graph (no preview canvas), so every tick is applied to the live instances you see on NodeCanvas.
 
 ## Access
 **Redstring Menu → Debug → Force Simulation Tuner**
 
 ## Features
 
-### Live Visualization
-- 600x400 SVG canvas showing your current graph
-- Real-time simulation updates as you adjust parameters
-- Visual feedback with nodes and edges
+### Live Graph Editing
+- Applies forces straight onto the active graph via the Zustand store
+- Play/Pause the solver without leaving NodeCanvas
+- Reset injects jitter + alpha=1.0 so stacked nodes instantly separate
 
 ### Interactive Controls
 - **Play/Pause**: Start or stop the simulation
@@ -19,10 +19,10 @@ Interactive, draggable modal for tuning force-directed graph layout parameters i
 - **Apply to Graph**: Apply the current positions to your actual Redstring graph
 
 ### Layout Scale & Iteration Presets (Auto-Layout Synced)
-- **Layout Scale Slider (0.6–2.4×)**: Scales node spacing, repulsion reach, and link targets. Stored globally so Auto-Layout/Test Graph share the exact spacing you tested.
-- **Scale Presets (Compact / Balanced / Spacious)**: Quick chips that reset the slider to tuned baselines and update the shared layout-scale preset.
-- **Iteration Presets (Fast / Balanced / Deep)**: Choose how many solver passes auto-layout should run. Selecting a preset also updates the cooling rate slider to match.
-- These values are saved in the Zustand store (`autoLayoutSettings`) and flow into `applyAutoLayoutToActiveGraph`, the Auto Graph generator, and the Force tuner itself.
+- **Layout Scale Slider (0.5–2.5×)**: Controls the global spacing multiplier saved in `autoLayoutSettings.layoutScaleMultiplier`. The new adaptive solver amplifies this value on large graphs, so sliding toward Spacious now meaningfully expands dense clusters.
+- **Scale Presets (Compact / Balanced / Spacious)**: Chips that set both the preset key and reset the multiplier to 1.0. Auto-layout, auto-graph generation, and the tuner stay in sync.
+- **Iteration Presets (Fast / Balanced / Deep)**: Updates `autoLayoutSettings.layoutIterations`. Large graphs automatically add extra passes on top of the preset so Deep genuinely performs a longer settle.
+- The tuner reads + writes these same settings, so whatever you dial in here is exactly what `Auto-Layout Active Graph` and `Generate Test Graph` will use (including the adaptive spread multiplier + multi-phase cooling introduced in 2025.11).
 
 ### Tunable Parameters
 
@@ -111,6 +111,11 @@ Custom force-directed layout implementation based on:
 - Centering force
 - Collision detection and resolution
 - Alpha cooling schedule
+
+### Adaptive Spread & Phases
+- The core solver in `src/services/graphLayoutService.js` now computes an **auto spread multiplier** from node count + cluster count. The tuner feeds it by writing layout-scale settings back through the store.
+- Repulsion, spring targets, and collision radii run in three phases (expand → stabilize → settle) so large graphs open up quickly and then lock into a steady state without drifting.
+- After each run, the shared service performs cluster anchoring, multi-pass collisions, and radial relaxation. Running auto-layout after a tuning session gives you the exact same pipeline.
 
 ### Performance
 - Runs at 60 FPS in browser

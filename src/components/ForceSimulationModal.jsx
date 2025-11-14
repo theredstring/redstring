@@ -21,6 +21,8 @@ const ForceSimulationModal = ({
   onLayoutScaleMultiplierChange,
   layoutIterationPreset = FORCE_LAYOUT_DEFAULTS.iterationPreset || 'balanced',
   onLayoutIterationPresetChange
+  ,
+  onCopyToAutoLayout
 }) => {
   const [position, setPosition] = useState({ x: 100, y: 100 });
   const [isDragging, setIsDragging] = useState(false);
@@ -78,6 +80,15 @@ const ForceSimulationModal = ({
     const rounded = Math.round(clamped * 100) / 100;
     setScaleMultiplier(rounded);
     onLayoutScaleMultiplierChange?.(rounded);
+  };
+
+  const handleResetScale = () => {
+    setScaleMultiplier(1);
+    onLayoutScaleMultiplierChange?.(1);
+  };
+
+  const handleCopyToAutoLayout = () => {
+    onCopyToAutoLayout?.();
   };
 
   const handleIterationPresetChange = (presetKey) => {
@@ -629,7 +640,7 @@ const ForceSimulationModal = ({
               <label>Layout Scale</label>
               <input
                 type="range"
-                min="0.6"
+                min="0.2"
                 max="2.4"
                 step="0.05"
                 value={scaleMultiplier}
@@ -647,6 +658,14 @@ const ForceSimulationModal = ({
                     {preset.label}
                   </button>
                 ))}
+              </div>
+              <div className="force-sim-chip-group">
+                <button type="button" className="force-sim-chip" onClick={handleResetScale}>
+                  Reset scale
+                </button>
+                <button type="button" className="force-sim-chip primary" onClick={handleCopyToAutoLayout}>
+                  Copy to Auto Layout
+                </button>
               </div>
             </div>
             

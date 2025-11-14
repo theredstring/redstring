@@ -1175,6 +1175,11 @@ function NodeCanvas() {
   const layoutScalePreset = useGraphStore(state => state.autoLayoutSettings?.layoutScale || 'balanced');
   const layoutScaleMultiplier = useGraphStore(state => state.autoLayoutSettings?.layoutScaleMultiplier ?? 1);
   const layoutIterationPreset = useGraphStore(state => state.autoLayoutSettings?.layoutIterations || 'balanced');
+  const DEFAULT_FORCE_TUNER_SETTINGS = { layoutScale: 'balanced', layoutScaleMultiplier: 1, layoutIterations: 'balanced' };
+  const forceTunerSettings = useGraphStore(state => state.forceTunerSettings || DEFAULT_FORCE_TUNER_SETTINGS);
+  const forceLayoutScalePreset = forceTunerSettings.layoutScale || 'balanced';
+  const forceLayoutScaleMultiplier = forceTunerSettings.layoutScaleMultiplier ?? 1;
+  const forceLayoutIterationPreset = forceTunerSettings.layoutIterations || 'balanced';
   const edgesMap = useGraphStore(state => state.edges);
   const savedNodeIds = useGraphStore(state => state.savedNodeIds);
   const savedGraphIds = useGraphStore(state => state.savedGraphIds);
@@ -2047,7 +2052,14 @@ function NodeCanvas() {
         destinationId: edge.destinationId
       }));
 
+    const layoutWidth = Math.max(2000, canvasSize?.width || 2000);
+    const layoutHeight = Math.max(2000, canvasSize?.height || 2000);
+    const layoutPadding = Math.max(300, Math.min(layoutWidth, layoutHeight) * 0.08);
+
     const layoutOptions = {
+      width: layoutWidth,
+      height: layoutHeight,
+      padding: layoutPadding,
       layoutScale: layoutScalePreset,
       layoutScaleMultiplier,
       iterationPreset: layoutIterationPreset,
@@ -2055,11 +2067,38 @@ function NodeCanvas() {
     };
 
     try {
-      const updates = applyLayout(layoutNodes, layoutEdges, 'force-directed', layoutOptions);
+      let updates = applyLayout(layoutNodes, layoutEdges, 'force-directed', layoutOptions);
 
       if (!updates || updates.length === 0) {
         console.warn('[AutoLayout] Layout produced no updates.');
         return;
+      }
+
+      // Recentering: shift layout output so it's centered within current canvas
+      if (canvasSize && updates.length > 0) {
+        let minX = Infinity;
+        let minY = Infinity;
+        let maxX = -Infinity;
+        let maxY = -Infinity;
+        updates.forEach(update => {
+          if (update.x < minX) minX = update.x;
+          if (update.y < minY) minY = update.y;
+          if (update.x > maxX) maxX = update.x;
+          if (update.y > maxY) maxY = update.y;
+        });
+        if (Number.isFinite(minX) && Number.isFinite(maxX)) {
+          const producedCenterX = (minX + maxX) / 2;
+          const producedCenterY = (minY + maxY) / 2;
+          const targetCenterX = canvasSize.offsetX + canvasSize.width / 2;
+          const targetCenterY = canvasSize.offsetY + canvasSize.height / 2;
+          const shiftX = targetCenterX - producedCenterX;
+          const shiftY = targetCenterY - producedCenterY;
+          updates = updates.map(update => ({
+            ...update,
+            x: Math.round(update.x + shiftX),
+            y: Math.round(update.y + shiftY)
+          }));
+        }
       }
 
       resetConnectionLabelCache();
@@ -2083,7 +2122,29 @@ function NodeCanvas() {
       console.error('[AutoLayout] Failed to apply layout:', error);
       alert(`Auto-layout failed: ${error.message}`);
     }
-  }, [activeGraphId, baseDimsById, nodes, edges, storeActions, moveOutOfBoundsNodesInBounds, resetConnectionLabelCache, layoutScalePreset, layoutScaleMultiplier, layoutIterationPreset]);
+  }, [activeGraphId, baseDimsById, nodes, edges, storeActions, moveOutOfBoundsNodesInBounds, resetConnectionLabelCache, layoutScalePreset, layoutScaleMultiplier, layoutIterationPreset, canvasSize]);
+
+  const condenseGraphNodes = useCallback(() => {
+    if (!activeGraphId || !nodes?.length) return;
+    const targetX = canvasSize.offsetX + canvasSize.width / 2;
+    const targetY = canvasSize.offsetY + canvasSize.height / 2;
+    const radius = Math.min(160, Math.max(60, 160 - nodes.length));
+    const updates = nodes.map((node, index) => {
+      const angle = (2 * Math.PI * index) / nodes.length;
+      return {
+        instanceId: node.id,
+        x: targetX + Math.cos(angle) * radius * 0.3,
+        y: targetY + Math.sin(angle) * radius * 0.3
+      };
+    });
+
+    storeActions.updateMultipleNodeInstancePositions(
+      activeGraphId,
+      updates,
+      { finalize: true, source: 'condense' }
+    );
+    resetConnectionLabelCache();
+  }, [activeGraphId, nodes, canvasSize, storeActions, resetConnectionLabelCache]);
 
   // Auto-correct out-of-bounds nodes on graph load
   useEffect(() => {
@@ -8079,6 +8140,7 @@ function NodeCanvas() {
           setForceSimModalVisible(true);
         }}
         onAutoLayoutGraph={applyAutoLayoutToActiveGraph}
+        onCondenseNodes={condenseGraphNodes}
          onNewUniverse={async () => {
            try {
              
@@ -12181,12 +12243,13 @@ function NodeCanvas() {
         onClose={() => setForceSimModalVisible(false)}
         graphId={activeGraphId}
         storeActions={storeActions}
-        layoutScalePreset={layoutScalePreset}
-        layoutScaleMultiplier={layoutScaleMultiplier}
-        onLayoutScalePresetChange={storeActions.setLayoutScalePreset}
-        onLayoutScaleMultiplierChange={storeActions.setLayoutScaleMultiplier}
-        layoutIterationPreset={layoutIterationPreset}
-        onLayoutIterationPresetChange={storeActions.setLayoutIterationPreset}
+        layoutScalePreset={forceLayoutScalePreset}
+        layoutScaleMultiplier={forceLayoutScaleMultiplier}
+        onLayoutScalePresetChange={storeActions.setForceTunerScalePreset}
+        onLayoutScaleMultiplierChange={storeActions.setForceTunerScaleMultiplier}
+        layoutIterationPreset={forceLayoutIterationPreset}
+        onLayoutIterationPresetChange={storeActions.setForceTunerIterationPreset}
+        onCopyToAutoLayout={storeActions.copyForceTunerSettingsToAutoLayout}
         getNodes={() => hydratedNodes.map(n => {
           const dims = baseDimsById.get(n.id) || getNodeDimensions(n, false, null);
           return {

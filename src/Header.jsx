@@ -58,7 +58,8 @@ const Header = ({
   onOpenRecentFile,
   onGenerateTestGraph,
   onOpenForceSim,
-  onAutoLayoutGraph
+  onAutoLayoutGraph,
+  onCondenseNodes
 
 }) => {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
@@ -325,6 +326,7 @@ const Header = ({
             onGenerateTestGraph={onGenerateTestGraph}
             onOpenForceSim={onOpenForceSim}
             onAutoLayoutGraph={onAutoLayoutGraph}
+            onCondenseNodes={onCondenseNodes}
           />
       </header>
     );
@@ -403,6 +405,7 @@ const Header = ({
           onGenerateTestGraph={onGenerateTestGraph}
           onOpenForceSim={onOpenForceSim}
           onAutoLayoutGraph={onAutoLayoutGraph}
+          onCondenseNodes={onCondenseNodes}
         />
       </div>
 

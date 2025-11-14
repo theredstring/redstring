@@ -1,10 +1,19 @@
 /**
- * Graph Layout Service
+ * Graph Layout Service - Redesigned 2025
  * 
- * Provides various layout algorithms for positioning nodes in a graph.
- * Respects Redstring's three-layer architecture (prototypes/instances/graphs).
+ * Clean, robust force-directed layout with proper cluster separation.
+ * Focuses on predictability, spaciousness, and preventing node overlap.
  */
 
+// ============================================================================
+// UTILITY FUNCTIONS
+// ============================================================================
+
+const clamp = (value, min, max) => Math.max(min, Math.min(max, value));
+
+/**
+ * Find connected components (clusters) in the graph
+ */
 function getGraphClusters(nodes, adjacency) {
   const visited = new Set();
   const clusters = [];
@@ -34,299 +43,347 @@ function getGraphClusters(nodes, adjacency) {
   return clusters.sort((a, b) => b.length - a.length);
 }
 
-function generateRingPositions(nodesSorted, centerX, centerY, maxRadius) {
-  const positions = new Map();
-  if (nodesSorted.length === 0) return positions;
+/**
+ * Calculate node degree (connection count)
+ */
+function buildDegreeMap(nodes, adjacency) {
+  const degrees = new Map();
+  nodes.forEach(node => {
+    degrees.set(node.id, (adjacency.get(node.id) || []).length);
+  });
+  return degrees;
+}
 
-  const ringSpacing = Math.max(120, maxRadius / Math.max(3, Math.ceil(Math.sqrt(nodesSorted.length)) + 1));
-  let index = 0;
+// ============================================================================
+// INITIAL POSITIONING
+// ============================================================================
+
+/**
+ * Generate initial positions for a cluster using concentric rings
+ * High-degree nodes go in center, low-degree on periphery
+ */
+function positionClusterInRings(cluster, centerX, centerY, maxRadius, degrees) {
+  const positions = new Map();
+  if (cluster.length === 0) return positions;
+
+  // Sort by degree (high to low) for deterministic placement
+  const sorted = [...cluster].sort((a, b) => {
+    const degDiff = (degrees.get(b.id) || 0) - (degrees.get(a.id) || 0);
+    if (degDiff !== 0) return degDiff;
+    return String(a.id).localeCompare(String(b.id));
+  });
+
+  // Single node - place at center
+  if (sorted.length === 1) {
+    positions.set(sorted[0].id, { x: centerX, y: centerY });
+    return positions;
+  }
+
+  // Calculate ring spacing based on cluster size
+  const ringCount = Math.ceil(Math.sqrt(sorted.length));
+  const ringSpacing = maxRadius / Math.max(ringCount, 2);
+  
+  let nodeIndex = 0;
   let ring = 0;
 
-  while (index < nodesSorted.length) {
+  while (nodeIndex < sorted.length) {
     if (ring === 0) {
-      const node = nodesSorted[index++];
-      positions.set(node.id, { x: centerX, y: centerY });
-      ring += 1;
+      // Center node
+      positions.set(sorted[nodeIndex++].id, { x: centerX, y: centerY });
+      ring++;
       continue;
     }
 
-    const radius = Math.min(maxRadius, ringSpacing * ring);
-    const circumference = Math.max(2 * Math.PI * radius, 1);
-    const ringCapacity = Math.max(6 * ring, Math.round(circumference / Math.max(ringSpacing * 0.9, 90)));
-    const nodesInRing = Math.min(ringCapacity, nodesSorted.length - index);
+    const radius = Math.min(ringSpacing * ring, maxRadius);
+    const circumference = 2 * Math.PI * radius;
+    const nodesPerRing = Math.max(6 * ring, Math.ceil(circumference / 100));
+    const nodesToPlace = Math.min(nodesPerRing, sorted.length - nodeIndex);
 
-    for (let j = 0; j < nodesInRing; j++) {
-      const node = nodesSorted[index++];
-      const angle = (2 * Math.PI * j) / nodesInRing;
-      positions.set(node.id, {
+    for (let i = 0; i < nodesToPlace; i++) {
+      const angle = (2 * Math.PI * i) / nodesToPlace;
+      positions.set(sorted[nodeIndex++].id, {
         x: centerX + Math.cos(angle) * radius,
         y: centerY + Math.sin(angle) * radius
       });
     }
 
-    ring += 1;
+    ring++;
     if (radius >= maxRadius) break;
   }
 
-  if (index < nodesSorted.length) {
-    const remaining = nodesSorted.slice(index);
-    const radius = maxRadius;
-    const nodesInRing = remaining.length;
-    remaining.forEach((node, idx) => {
-      const angle = (2 * Math.PI * idx) / nodesInRing;
-      positions.set(node.id, {
-        x: centerX + Math.cos(angle) * radius,
-        y: centerY + Math.sin(angle) * radius
+  // Place any remaining nodes on outer ring
+  while (nodeIndex < sorted.length) {
+    const remainingCount = sorted.length - nodeIndex;
+    for (let i = 0; i < remainingCount; i++) {
+      const angle = (2 * Math.PI * i) / remainingCount;
+      positions.set(sorted[nodeIndex++].id, {
+        x: centerX + Math.cos(angle) * maxRadius,
+        y: centerY + Math.sin(angle) * maxRadius
       });
-    });
+    }
   }
 
   return positions;
 }
 
-function generateDeterministicPositions(nodes, adjacency, width, height, options = {}) {
+/**
+ * Generate deterministic initial positions for all nodes
+ * Separates clusters spatially from the start
+ */
+function generateInitialPositions(nodes, adjacency, width, height, options = {}) {
   const positions = new Map();
-  if (!nodes.length) return positions;
+  if (nodes.length === 0) return positions;
 
   const centerX = width / 2;
   const centerY = height / 2;
-  const maxRadius = (options.maxRadiusFactor ?? 0.45) * Math.min(width, height);
-  const nodeDegrees = new Map();
-  nodes.forEach(node => nodeDegrees.set(node.id, (adjacency.get(node.id) || []).length));
-
+  const degrees = buildDegreeMap(nodes, adjacency);
   const clusters = getGraphClusters(nodes, adjacency);
-  const mainCluster = clusters[0] || [];
-  const otherClusters = clusters.slice(1);
 
-  const placeCluster = (clusterNodes, clusterCenterX, clusterCenterY, radius) => {
-    const sorted = [...clusterNodes].sort((a, b) => {
-      const degDiff = (nodeDegrees.get(b.id) || 0) - (nodeDegrees.get(a.id) || 0);
-      if (degDiff !== 0) return degDiff;
-      return String(a.id).localeCompare(String(b.id));
-    });
-    const placements = generateRingPositions(sorted, clusterCenterX, clusterCenterY, radius);
-    placements.forEach((pos, id) => positions.set(id, pos));
-  };
-
-  const innerRadius = Math.max(180, maxRadius * 0.35);
-  placeCluster(mainCluster, centerX, centerY, innerRadius);
-
-  if (otherClusters.length > 0) {
-    const outerRadius = Math.min(maxRadius * 0.85, Math.max(innerRadius + 140, maxRadius * 0.6));
-    otherClusters.forEach((cluster, idx) => {
-      const angle = (2 * Math.PI * idx) / otherClusters.length;
-      const clusterCenterX = centerX + Math.cos(angle) * outerRadius;
-      const clusterCenterY = centerY + Math.sin(angle) * outerRadius;
-      const clusterRadius = Math.max(160, innerRadius * 0.75);
-      placeCluster(cluster, clusterCenterX, clusterCenterY, clusterRadius);
-    });
+  // Single cluster - place at center with generous spacing
+  if (clusters.length === 1) {
+    const clusterRadius = Math.min(width, height) * 0.45;  // Larger initial spread
+    const clusterPositions = positionClusterInRings(
+      clusters[0], centerX, centerY, clusterRadius, degrees
+    );
+    clusterPositions.forEach((pos, id) => positions.set(id, pos));
+    return positions;
   }
+
+  // Multiple clusters - distribute widely around circle
+  const mainCluster = clusters[0];
+  const smallClusters = clusters.slice(1);
+  
+  // Main cluster in center
+  const mainRadius = Math.min(width, height) * 0.2;  // Tighter main cluster
+  const mainPositions = positionClusterInRings(
+    mainCluster, centerX, centerY, mainRadius, degrees
+  );
+  mainPositions.forEach((pos, id) => positions.set(id, pos));
+
+  // Small clusters MUCH further out on periphery
+  const orbitRadius = Math.min(width, height) * 0.65;  // Further orbit
+  const clusterRadius = Math.min(width, height) * 0.18;  // Larger cluster radius
+  
+  smallClusters.forEach((cluster, index) => {
+    const angle = (2 * Math.PI * index) / smallClusters.length;
+    const clusterCenterX = centerX + Math.cos(angle) * orbitRadius;
+    const clusterCenterY = centerY + Math.sin(angle) * orbitRadius;
+    
+    const clusterPositions = positionClusterInRings(
+      cluster, clusterCenterX, clusterCenterY, clusterRadius, degrees
+    );
+    clusterPositions.forEach((pos, id) => positions.set(id, pos));
+  });
 
   return positions;
 }
+
+// ============================================================================
+// FORCE CALCULATION
+// ============================================================================
+
+/**
+ * Calculate repulsion force between two nodes
+ * Uses inverse-square law with distance cutoff
+ */
+function calculateRepulsion(pos1, pos2, strength, minDist = 1) {
+  const dx = pos2.x - pos1.x;
+  const dy = pos2.y - pos1.y;
+  const distSq = Math.max(dx * dx + dy * dy, minDist * minDist);
+  const dist = Math.sqrt(distSq);
+  
+  if (dist < 0.1) return { fx: 0, fy: 0 };
+  
+  const force = strength / distSq;
+  return {
+    fx: -(dx / dist) * force,
+    fy: -(dy / dist) * force
+  };
+}
+
+/**
+ * Calculate spring (attraction) force along an edge
+ * Hooke's law with target distance
+ */
+function calculateSpring(pos1, pos2, targetDist, strength) {
+  const dx = pos2.x - pos1.x;
+  const dy = pos2.y - pos1.y;
+  const dist = Math.sqrt(dx * dx + dy * dy);
+  
+  if (dist < 0.1) return { fx: 0, fy: 0 };
+  
+  const displacement = dist - targetDist;
+  const force = displacement * strength;
+  
+  return {
+    fx: (dx / dist) * force,
+    fy: (dy / dist) * force
+  };
+}
+
+/**
+ * Calculate centering force toward canvas center
+ */
+function calculateCentering(pos, centerX, centerY, strength) {
+  return {
+    fx: (centerX - pos.x) * strength,
+    fy: (centerY - pos.y) * strength
+  };
+}
+
+// ============================================================================
+// CONSTANTS & PRESETS
+// ============================================================================
 
 export const FORCE_LAYOUT_DEFAULTS = {
   width: 2000,
   height: 1500,
-  iterations: 220,
-  springLength: 720,
-  linkDistance: 720,
-  springStrength: 0.35,
-  attractionStrength: 0.35,
-  repulsionStrength: 5200,
-  damping: 0.6,
-  velocityDecay: 0.58,
-  centerStrength: 0.045,
-  centeringStrength: 0.045,
-  initialTemperature: 100,
-  cooldown: 0.978,
-  alphaDecay: 0.02,
-  alphaMin: 0.005,
-  padding: 200,
-  minLinkDistance: 60,
-  edgeAvoidance: 1.1,
-  edgeAvoidanceRadius: 420,
+  iterations: 300,
+  
+  // Basic forces
+  repulsionStrength: 500000,  // Much stronger to push nodes apart
+  attractionStrength: 0.2,    // Weaker to allow spreading
+  centerStrength: 0.015,      // Gentler centering
+  
+  // Distance parameters
+  targetLinkDistance: 400,    // Much longer target distance
+  linkDistance: 400,          // Alias for compatibility
+  minNodeDistance: 250,       // More minimum space
+  minLinkDistance: 250,       // Alias for compatibility
+  maxRepulsionDistance: 1500, // Allow repulsion from further away
+  
+  // Simulation control
+  damping: 0.85,
+  velocityDecay: 0.85,  // Alias for damping
+  alphaDecay: 0.015,
+  alphaMin: 0.001,
+  
+  // Node sizing
   nodeSpacing: 140,
   labelPadding: 40,
-  collisionRadius: 150,
-  maxRepulsionDistance: 1400,
-  minNodeRadius: 150,
-  imageRadiusMultiplier: 0.8,
-  nodeSeparationMultiplier: 2.1,
-  postCenterRelaxation: 0.12,
-  postRadialPasses: 4,
-  radialSpreadFactor: 0.35,
-  maxRadiusFactor: 0.48,
+  minNodeRadius: 80,
+  collisionRadius: 80,  // Alias for minNodeRadius
+  
+  // Edge avoidance (not used in new algo but kept for tuner)
+  edgeAvoidance: 0,
+  edgeAvoidanceRadius: 200,
+  
+  // Bounds
+  padding: 200,
+  
+  // Presets
   layoutScale: 'balanced',
   layoutScaleMultiplier: 1,
   iterationPreset: 'balanced'
 };
-export const LAYOUT_ITERATION_PRESETS = {
-  fast: {
-    iterations: 160,
-    alphaDecay: 0.03
-  },
-  balanced: {
-    iterations: 260,
-    alphaDecay: 0.02
-  },
-  deep: {
-    iterations: 360,
-    alphaDecay: 0.015
-  }
-};
+
 export const LAYOUT_SCALE_PRESETS = {
   compact: {
     label: 'Compact',
-    nodeSeparationMultiplier: 1.4,
-    springLength: 500,
-    linkDistance: 500
+    targetLinkDistance: 280,
+    linkDistance: 280,  // Alias
+    minNodeDistance: 180,
+    minLinkDistance: 180,  // Alias
+    repulsionStrength: 350000
   },
   balanced: {
     label: 'Balanced',
-    nodeSeparationMultiplier: 1.9,
-    springLength: 620,
-    linkDistance: 620
+    targetLinkDistance: 400,
+    linkDistance: 400,  // Alias
+    minNodeDistance: 250,
+    minLinkDistance: 250,  // Alias
+    repulsionStrength: 500000
   },
   spacious: {
     label: 'Spacious',
-    nodeSeparationMultiplier: 2.4,
-    springLength: 780,
-    linkDistance: 780
+    targetLinkDistance: 550,
+    linkDistance: 550,  // Alias
+    minNodeDistance: 350,
+    minLinkDistance: 350,  // Alias
+    repulsionStrength: 700000
   }
 };
 
-function resolveCollisions(positions, nodes, getRadius, padding, width, height, passes = 8, separationMultiplier = 1) {
-  for (let pass = 0; pass < passes; pass++) {
-    for (let i = 0; i < nodes.length; i++) {
-      for (let j = i + 1; j < nodes.length; j++) {
-        const nodeA = nodes[i];
-        const nodeB = nodes[j];
-        const posA = positions.get(nodeA.id);
-        const posB = positions.get(nodeB.id);
-        if (!posA || !posB) continue;
-
-        let dx = posB.x - posA.x;
-        let dy = posB.y - posA.y;
-        let dist = Math.sqrt(dx * dx + dy * dy);
-        if (dist === 0) {
-          dx = (Math.random() - 0.5) * 2;
-          dy = (Math.random() - 0.5) * 2;
-          dist = Math.sqrt(dx * dx + dy * dy) || 1;
-        }
-
-        const radiusA = getRadius(nodeA);
-        const radiusB = getRadius(nodeB);
-        const minDistance = (radiusA + radiusB) * separationMultiplier;
-
-        if (dist < minDistance) {
-          const overlap = (minDistance - dist) / 2;
-          const ux = dx / dist;
-          const uy = dy / dist;
-          posA.x -= ux * overlap;
-          posA.y -= uy * overlap;
-          posB.x += ux * overlap;
-          posB.y += uy * overlap;
-
-          posA.x = Math.max(padding, Math.min(width - padding, posA.x));
-          posA.y = Math.max(padding, Math.min(height - padding, posA.y));
-          posB.x = Math.max(padding, Math.min(width - padding, posB.x));
-          posB.y = Math.max(padding, Math.min(height - padding, posB.y));
-        }
-      }
-    }
+export const LAYOUT_ITERATION_PRESETS = {
+  fast: {
+    iterations: 200,
+    alphaDecay: 0.025
+  },
+  balanced: {
+    iterations: 300,
+    alphaDecay: 0.015
+  },
+  deep: {
+    iterations: 450,
+    alphaDecay: 0.01
   }
-}
+};
 
-function radialRelaxation(positions, nodes, centerX, centerY, spreadFactor, passes = 2) {
-  if (spreadFactor <= 0) return;
-  const epsilon = 0.0001;
-  for (let pass = 0; pass < passes; pass++) {
-    nodes.forEach(node => {
-      const pos = positions.get(node.id);
-      if (!pos) return;
-      let dx = pos.x - centerX;
-      let dy = pos.y - centerY;
-      let dist = Math.sqrt(dx * dx + dy * dy);
-      if (dist < epsilon) {
-        dx = (Math.random() - 0.5) * 2;
-        dy = (Math.random() - 0.5) * 2;
-        dist = Math.sqrt(dx * dx + dy * dy) || 1;
-      }
-      const move = spreadFactor * Math.log1p(dist);
-      pos.x += (dx / dist) * move;
-      pos.y += (dy / dist) * move;
-    });
-  }
-}
+// ============================================================================
+// ADAPTIVE SCALING
+// ============================================================================
 
 /**
- * Force-directed layout using simple physics simulation
- * Based on Fruchterman-Reingold algorithm
+ * Calculate automatic scale multiplier based on node count
+ * More nodes = more space needed
  * 
- * @param {Array} nodes - Array of node objects with {id, prototypeId, x?, y?}
- * @param {Array} edges - Array of edge objects with {sourceId, destinationId}
- * @param {Object} options - Layout configuration
- * @returns {Map} Map of nodeId -> {x, y} positions
+ * Scale curve:
+ * - 1-5 nodes: 1.0× (baseline)
+ * - 10 nodes: 1.15×
+ * - 20 nodes: 1.4×
+ * - 30 nodes: 1.6×
+ * - 50 nodes: 1.9×
+ * - 100+ nodes: 2.3×
+ */
+function calculateAutoScale(nodeCount) {
+  if (nodeCount <= 5) return 1.0;
+
+  // More aggressive curve to roughly double again (target ~4.1 at ~21 nodes)
+  const normalized = Math.max(0, nodeCount - 5);
+  const baseSpread = 1 + 2.15 * (1 - Math.exp(-normalized / 8));
+
+  // Additional boost for very large graphs
+  const extraNodes = Math.max(0, nodeCount - 21);
+  const extraGrowth = Math.log1p(extraNodes) * 0.18;
+
+  return Math.min(6, baseSpread + extraGrowth);
+}
+
+// ============================================================================
+// MAIN FORCE-DIRECTED LAYOUT
+// ============================================================================
+
+/**
+ * Force-directed graph layout
+ * Clean implementation with proper cluster separation
  */
 export function forceDirectedLayout(nodes, edges, options = {}) {
-  const scaleKey = options.layoutScale || FORCE_LAYOUT_DEFAULTS.layoutScale || 'balanced';
-  const iterationKey = options.iterationPreset || FORCE_LAYOUT_DEFAULTS.iterationPreset || 'balanced';
-  const scalePreset = LAYOUT_SCALE_PRESETS[scaleKey] || LAYOUT_SCALE_PRESETS.balanced;
-  const iterationPreset = LAYOUT_ITERATION_PRESETS[iterationKey] || LAYOUT_ITERATION_PRESETS.balanced;
-
-  const mergedOptions = {
+  if (nodes.length === 0) return new Map();
+  
+  // Merge options with presets
+  const scalePreset = LAYOUT_SCALE_PRESETS[options.layoutScale] || LAYOUT_SCALE_PRESETS.balanced;
+  const iterPreset = LAYOUT_ITERATION_PRESETS[options.iterationPreset] || LAYOUT_ITERATION_PRESETS.balanced;
+  
+  const config = {
     ...FORCE_LAYOUT_DEFAULTS,
     ...scalePreset,
-    ...iterationPreset,
-    ...options,
-    layoutScaleMultiplier: options.layoutScaleMultiplier ?? FORCE_LAYOUT_DEFAULTS.layoutScaleMultiplier ?? 1,
-    springLength: options.springLength ?? scalePreset?.springLength ?? FORCE_LAYOUT_DEFAULTS.springLength,
-    linkDistance: options.linkDistance ?? scalePreset?.linkDistance ?? FORCE_LAYOUT_DEFAULTS.linkDistance,
-    nodeSeparationMultiplier: options.nodeSeparationMultiplier ?? scalePreset?.nodeSeparationMultiplier ?? FORCE_LAYOUT_DEFAULTS.nodeSeparationMultiplier,
-    iterations: options.iterations ?? iterationPreset?.iterations ?? FORCE_LAYOUT_DEFAULTS.iterations,
-    alphaDecay: options.alphaDecay ?? iterationPreset?.alphaDecay ?? FORCE_LAYOUT_DEFAULTS.alphaDecay
+    ...iterPreset,
+    ...options
   };
-  const scaleMultiplier = mergedOptions.layoutScaleMultiplier ?? 1;
-  const scaledOptions = {
-    ...mergedOptions,
-    springLength: (mergedOptions.springLength ?? FORCE_LAYOUT_DEFAULTS.springLength) * scaleMultiplier,
-    linkDistance: (mergedOptions.linkDistance ?? FORCE_LAYOUT_DEFAULTS.linkDistance) * scaleMultiplier,
-    nodeSeparationMultiplier: (mergedOptions.nodeSeparationMultiplier ?? FORCE_LAYOUT_DEFAULTS.nodeSeparationMultiplier) * scaleMultiplier,
-    maxRepulsionDistance: (mergedOptions.maxRepulsionDistance ?? FORCE_LAYOUT_DEFAULTS.maxRepulsionDistance) * scaleMultiplier,
-    minLinkDistance: (mergedOptions.minLinkDistance ?? FORCE_LAYOUT_DEFAULTS.minLinkDistance) * scaleMultiplier
-  };
+  
+  // Calculate automatic scale based on node count
+  const totalNodes = nodes.length;
+  const autoScale = calculateAutoScale(totalNodes);
+  const manualScaleTarget = config.layoutScaleMultiplier ?? 1;
 
-  const {
-    width,
-    height,
-    iterations,
-    springLength,
-    springStrength,
-    attractionStrength,
-    repulsionStrength,
-    damping,
-    centeringStrength,
-    centerStrength,
-    initialTemperature,
-    cooldown,
-    padding,
-    minLinkDistance,
-    edgeAvoidance,
-    edgeAvoidanceRadius,
-    nodeSpacing,
-    labelPadding,
-    collisionRadius,
-    maxRepulsionDistance,
-    minNodeRadius
-  } = scaledOptions;
-  const useExistingPositions = options.useExistingPositions ?? false;
+  const effectiveScale = clamp(autoScale * manualScaleTarget, 0.4, 3);
 
-  const effectiveCentering = (centerStrength ?? centeringStrength) * (mergedOptions.postCenterRelaxation ? 0.8 : 1);
-  const effectiveSpringStrength = attractionStrength ?? springStrength;
-  const nodeSeparationMultiplier = scaledOptions.nodeSeparationMultiplier ?? FORCE_LAYOUT_DEFAULTS.nodeSeparationMultiplier;
-
-  const nodeById = new Map(nodes.map(n => [n.id, n]));
+  const targetLinkDistance = config.targetLinkDistance * effectiveScale;
+  const minNodeDistance = config.minNodeDistance * effectiveScale;
+  const maxRepulsionDistance = config.maxRepulsionDistance * effectiveScale;
+  const repulsionStrength = config.repulsionStrength * (effectiveScale ** 0.5);
+  
+  // Build adjacency
   const adjacency = new Map();
   nodes.forEach(node => adjacency.set(node.id, []));
   edges.forEach(edge => {
@@ -335,230 +392,329 @@ export function forceDirectedLayout(nodes, edges, options = {}) {
       adjacency.get(edge.destinationId).push(edge.sourceId);
     }
   });
-
-  const deterministicPositions = generateDeterministicPositions(nodes, adjacency, width, height, mergedOptions);
-
+  
+  // Identify clusters
+  const clusters = getGraphClusters(nodes, adjacency);
+  const clusterMap = new Map();
+  clusters.forEach((cluster, idx) => {
+    cluster.forEach(node => clusterMap.set(node.id, idx));
+  });
+  
+  // Apply cluster scaling - more clusters need more space
+  const totalClusters = clusters.length;
+  const clusterScale = totalClusters > 1 ? (1 + Math.log10(totalClusters) * 0.3) : 1;
+  
+  // Update distances with cluster scaling
+  const finalTargetLinkDistance = targetLinkDistance * clusterScale;
+  const finalMinNodeDistance = minNodeDistance * clusterScale;
+  const finalMaxRepulsionDistance = maxRepulsionDistance * clusterScale;
+  
+  // Calculate node radii
+  const getNodeRadius = (node) => {
+    if (!node) return config.minNodeRadius;
+    const w = Math.max(node.width || config.nodeSpacing, config.nodeSpacing);
+    const h = Math.max(node.height || config.nodeSpacing, config.nodeSpacing);
+    const baseRadius = Math.max(w, h) / 2 + config.labelPadding;
+    const imageBonus = Math.max(node.imageHeight || 0, 0) * 0.5;
+    return Math.max(baseRadius + imageBonus, config.minNodeRadius);
+  };
+  
+  // Initialize positions
   const positions = new Map();
   const velocities = new Map();
-
-  nodes.forEach(node => {
-    if (useExistingPositions && Number.isFinite(node.x) && Number.isFinite(node.y)) {
-      positions.set(node.id, { x: node.x, y: node.y });
-    } else if (deterministicPositions.has(node.id)) {
-      const initial = deterministicPositions.get(node.id);
-      positions.set(node.id, { x: initial.x, y: initial.y });
-    } else {
-      positions.set(node.id, { x: width / 2, y: height / 2 });
-    }
-    velocities.set(node.id, { x: 0, y: 0 });
-  });
-
-  const nodeRadii = new Map();
-  const getNodeRadius = (node) => {
-    if (!node) return minNodeRadius;
-    if (nodeRadii.has(node.id)) return nodeRadii.get(node.id);
-    const width = Math.max(node.width || node.labelWidth || node.nodeSize || nodeSpacing, nodeSpacing);
-    const height = Math.max(node.height || node.labelHeight || node.nodeSize || nodeSpacing, nodeSpacing);
-    const radius = Math.max(width, height) / 2 + labelPadding;
-    const rawImageBonus = Math.max(node.imageHeight || node.calculatedImageHeight || 0, 0) *
-      (mergedOptions.imageRadiusMultiplier ?? FORCE_LAYOUT_DEFAULTS.imageRadiusMultiplier);
-    const imageBonus = Math.min(rawImageBonus, minNodeRadius * 0.75);
-    const finalRadius = Math.max(radius + imageBonus, minNodeRadius);
-    nodeRadii.set(node.id, finalRadius);
-    return finalRadius;
-  };
-
-  const nodeCount = Math.max(nodes.length, 1);
-  const areaPerNode = Math.max((width * height) / nodeCount, 1);
-  const baseDistance = Math.sqrt(areaPerNode);
-
-  const alphaDecay = mergedOptions.alphaDecay ?? FORCE_LAYOUT_DEFAULTS.alphaDecay;
-  const alphaMin = mergedOptions.alphaMin ?? FORCE_LAYOUT_DEFAULTS.alphaMin;
-  let alpha = 1;
-  const centerX = width / 2;
-  const centerY = height / 2;
-  const maxAllowedRadius = (mergedOptions.maxRadiusFactor ?? 0.48) * Math.min(width, height);
-
-  for (let iter = 0; iter < iterations && alpha > alphaMin; iter++) {
+  
+  if (options.useExistingPositions) {
+    nodes.forEach(node => {
+      if (Number.isFinite(node.x) && Number.isFinite(node.y)) {
+        positions.set(node.id, { x: node.x, y: node.y });
+      } else {
+        positions.set(node.id, { x: config.width / 2, y: config.height / 2 });
+      }
+      velocities.set(node.id, { x: 0, y: 0 });
+    });
+  } else {
+    const initial = generateInitialPositions(nodes, adjacency, config.width, config.height, config);
+    initial.forEach((pos, id) => {
+      positions.set(id, { ...pos });
+      velocities.set(id, { x: 0, y: 0 });
+    });
+  }
+  
+  const nodeById = new Map(nodes.map(n => [n.id, n]));
+  const centerX = config.width / 2;
+  const centerY = config.height / 2;
+  
+  // Adaptive parameters
+  const nodeCount = nodes.length;
+  const clusterCount = clusters.length;
+  const isMultiCluster = clusterCount > 1;
+  const isSparse = edges.length < nodes.length;
+  
+  // Simulation loop
+  let alpha = 1.0;
+  
+  for (let iter = 0; iter < config.iterations; iter++) {
     const forces = new Map();
-    nodes.forEach(node => forces.set(node.id, { x: 0, y: 0 }));
-
+    nodes.forEach(node => forces.set(node.id, { fx: 0, fy: 0 }));
+    
+    // Phase control - stronger repulsion early, stronger spring/center late
+    const progress = iter / config.iterations;
+    const repulsionMult = progress < 0.3 ? 1.4 : (progress < 0.7 ? 1.0 : 0.8);
+    const springMult = progress < 0.3 ? 0.7 : (progress < 0.7 ? 1.0 : 1.2);
+    const centerMult = progress < 0.5 ? 0.5 : 1.0;
+    
+    // Repulsion forces (n-body)
     for (let i = 0; i < nodes.length; i++) {
       for (let j = i + 1; j < nodes.length; j++) {
-        const node1 = nodes[i];
-        const node2 = nodes[j];
-        const pos1 = positions.get(node1.id);
-        const pos2 = positions.get(node2.id);
-        if (!pos1 || !pos2) continue;
-
-        const dx = pos2.x - pos1.x;
-        const dy = pos2.y - pos1.y;
-        const distanceSq = dx * dx + dy * dy;
-        let distance = Math.sqrt(distanceSq);
-        if (distance === 0) distance = 0.1;
-
-        if (maxRepulsionDistance && distance > maxRepulsionDistance) continue;
-
-        const radius1 = getNodeRadius(node1);
-        const radius2 = getNodeRadius(node2);
-        const minDistance = (radius1 + radius2) * nodeSeparationMultiplier;
-        const directionX = dx / distance;
-        const directionY = dy / distance;
+        const n1 = nodes[i];
+        const n2 = nodes[j];
+        const p1 = positions.get(n1.id);
+        const p2 = positions.get(n2.id);
+        if (!p1 || !p2) continue;
         
-        const effectiveDistance = Math.max(distance, minDistance);
-        const repulsion = (repulsionStrength * alpha * baseDistance) / (effectiveDistance * effectiveDistance + 1);
-        const fx = directionX * repulsion;
-        const fy = directionY * repulsion;
-
-        const f1 = forces.get(node1.id);
-        const f2 = forces.get(node2.id);
-        const overlapForce = Math.max((minDistance - distance), 0) * (repulsionStrength * alpha * 0.6);
-
-        f1.x -= fx;
-        f1.y -= fy;
-        f2.x += fx;
-        f2.y += fy;
-
-        if (overlapForce > 0) {
-          f1.x -= directionX * overlapForce;
-          f1.y -= directionY * overlapForce;
-          f2.x += directionX * overlapForce;
-          f2.y += directionY * overlapForce;
+        const dx = p2.x - p1.x;
+        const dy = p2.y - p1.y;
+        const dist = Math.sqrt(dx * dx + dy * dy);
+        
+        // Distance cutoff for performance
+        if (dist > finalMaxRepulsionDistance) continue;
+        
+        // Stronger repulsion between different clusters
+        const c1 = clusterMap.get(n1.id);
+        const c2 = clusterMap.get(n2.id);
+        const crossCluster = isMultiCluster && c1 !== c2;
+        const clusterMult = crossCluster ? 2.5 : 1.0;
+        
+        const r1 = getNodeRadius(n1);
+        const r2 = getNodeRadius(n2);
+        const minDist = Math.max((r1 + r2) * 1.2, finalMinNodeDistance);
+        
+        const repulsion = calculateRepulsion(p1, p2, 
+          repulsionStrength * repulsionMult * clusterMult * alpha, minDist);
+        
+        const f1 = forces.get(n1.id);
+        const f2 = forces.get(n2.id);
+        f1.fx += repulsion.fx;
+        f1.fy += repulsion.fy;
+        f2.fx -= repulsion.fx;
+        f2.fy -= repulsion.fy;
+        
+        // Extra push if overlapping
+        if (dist < minDist) {
+          const pushStrength = (minDist - dist) * 2;
+          const pushX = (dx / Math.max(dist, 0.1)) * pushStrength;
+          const pushY = (dy / Math.max(dist, 0.1)) * pushStrength;
+          f1.fx -= pushX;
+          f1.fy -= pushY;
+          f2.fx += pushX;
+          f2.fy += pushY;
         }
       }
     }
-
+    
+    // Spring forces (edges)
     edges.forEach(edge => {
-      const pos1 = positions.get(edge.sourceId);
-      const pos2 = positions.get(edge.destinationId);
-      if (!pos1 || !pos2) return;
-
-      const dx = pos2.x - pos1.x;
-      const dy = pos2.y - pos1.y;
-      const distance = Math.max(Math.sqrt(dx * dx + dy * dy), 0.1);
-
-      const radius1 = getNodeRadius(nodeById.get(edge.sourceId));
-      const radius2 = getNodeRadius(nodeById.get(edge.destinationId));
-      const minDistance = Math.max(minLinkDistance, (radius1 + radius2) * nodeSeparationMultiplier);
-      const targetDistance = Math.max(springLength, minDistance);
-
-      const displacement = distance - targetDistance;
-      const distanceFactor = Math.max(targetDistance, 1);
-      const springForce = displacement * effectiveSpringStrength * alpha * (baseDistance / distanceFactor);
-
-      const fx = (dx / distance) * springForce;
-      const fy = (dy / distance) * springForce;
-
+      const p1 = positions.get(edge.sourceId);
+      const p2 = positions.get(edge.destinationId);
+      if (!p1 || !p2) return;
+      
+      const n1 = nodeById.get(edge.sourceId);
+      const n2 = nodeById.get(edge.destinationId);
+      const r1 = getNodeRadius(n1);
+      const r2 = getNodeRadius(n2);
+      const minDist = (r1 + r2) * 1.2;
+      const effectiveTarget = Math.max(finalTargetLinkDistance, minDist);
+      
+      const spring = calculateSpring(p1, p2, effectiveTarget, 
+        config.attractionStrength * springMult * alpha);
+      
       const f1 = forces.get(edge.sourceId);
       const f2 = forces.get(edge.destinationId);
       if (f1 && f2) {
-        f1.x += fx;
-        f1.y += fy;
-        f2.x -= fx;
-        f2.y -= fy;
+        f1.fx += spring.fx;
+        f1.fy += spring.fy;
+        f2.fx -= spring.fx;
+        f2.fy -= spring.fy;
       }
     });
-
+    
+    // Centering force
+    const centerStrength = isSparse ? config.centerStrength * 1.5 : config.centerStrength;
     nodes.forEach(node => {
       const pos = positions.get(node.id);
       const force = forces.get(node.id);
       if (!pos || !force) return;
-      force.x += (centerX - pos.x) * effectiveCentering * alpha;
-      force.y += (centerY - pos.y) * effectiveCentering * alpha;
+      
+      const center = calculateCentering(pos, centerX, centerY, 
+        centerStrength * centerMult * alpha);
+      force.fx += center.fx;
+      force.fy += center.fy;
     });
-
-    if (edgeAvoidance > 0) {
-      const avoidanceRadius = edgeAvoidanceRadius || collisionRadius * 1.8;
-      nodes.forEach(node => {
-        const force = forces.get(node.id);
-        const nodePos = positions.get(node.id);
-        if (!force || !nodePos) return;
-
-        edges.forEach(edge => {
-          if (edge.sourceId === node.id || edge.destinationId === node.id) return;
-          const pos1 = positions.get(edge.sourceId);
-          const pos2 = positions.get(edge.destinationId);
-          if (!pos1 || !pos2) return;
-
-          const edgeVecX = pos2.x - pos1.x;
-          const edgeVecY = pos2.y - pos1.y;
-          const edgeLenSq = edgeVecX * edgeVecX + edgeVecY * edgeVecY;
-          if (edgeLenSq < 1) return;
-
-          const nodeVecX = nodePos.x - pos1.x;
-          const nodeVecY = nodePos.y - pos1.y;
-          const t = Math.max(0, Math.min(1, (nodeVecX * edgeVecX + nodeVecY * edgeVecY) / edgeLenSq));
-          const closestX = pos1.x + t * edgeVecX;
-          const closestY = pos1.y + t * edgeVecY;
-
-          const dx = nodePos.x - closestX;
-          const dy = nodePos.y - closestY;
-          const dist = Math.sqrt(dx * dx + dy * dy) || 0.1;
-
-          if (dist < avoidanceRadius) {
-            const strength = ((avoidanceRadius - dist) / avoidanceRadius) * edgeAvoidance * alpha * 120;
-            force.x += (dx / dist) * strength;
-            force.y += (dy / dist) * strength;
-          }
-        });
-      });
-    }
-
+    
+    // Apply forces
     nodes.forEach(node => {
       const pos = positions.get(node.id);
       const vel = velocities.get(node.id);
       const force = forces.get(node.id);
       if (!pos || !vel || !force) return;
-
-      vel.x = (vel.x + force.x) * damping;
-      vel.y = (vel.y + force.y) * damping;
-
+      
+      // Update velocity with damping
+      vel.x = (vel.x + force.fx) * config.damping;
+      vel.y = (vel.y + force.fy) * config.damping;
+      
+      // Velocity limit
       const speed = Math.sqrt(vel.x * vel.x + vel.y * vel.y);
-      const maxVelocity = baseDistance * alpha * 0.8;
-      if (speed > maxVelocity && speed > 0) {
-        vel.x = (vel.x / speed) * maxVelocity;
-        vel.y = (vel.y / speed) * maxVelocity;
+      const maxSpeed = 50 * alpha;
+      if (speed > maxSpeed && speed > 0) {
+        vel.x = (vel.x / speed) * maxSpeed;
+        vel.y = (vel.y / speed) * maxSpeed;
       }
-
+      
+      // Update position
       pos.x += vel.x;
       pos.y += vel.y;
-
-      const dx = pos.x - centerX;
-      const dy = pos.y - centerY;
-      const dist = Math.sqrt(dx * dx + dy * dy) || 0.0001;
-      if (dist > maxAllowedRadius) {
-        const clampFactor = maxAllowedRadius / dist;
-        pos.x = centerX + dx * clampFactor;
-        pos.y = centerY + dy * clampFactor;
-      }
-
-      pos.x = Math.max(padding, Math.min(width - padding, pos.x));
-      pos.y = Math.max(padding, Math.min(height - padding, pos.y));
+      
+      // Keep within bounds
+      pos.x = clamp(pos.x, config.padding, config.width - config.padding);
+      pos.y = clamp(pos.y, config.padding, config.height - config.padding);
     });
-
-    alpha = Math.max(alphaMin, alpha * (1 - alphaDecay));
+    
+    // Cool down
+    alpha = Math.max(config.alphaMin, alpha * (1 - config.alphaDecay));
   }
-
-  resolveCollisions(positions, nodes, getNodeRadius, padding, width, height, 5, nodeSeparationMultiplier);
-  radialRelaxation(
-    positions,
-    nodes,
-    width / 2,
-    height / 2,
-    mergedOptions.radialSpreadFactor ?? FORCE_LAYOUT_DEFAULTS.radialSpreadFactor,
-    mergedOptions.postRadialPasses ?? FORCE_LAYOUT_DEFAULTS.postRadialPasses
-  );
-
+  
+  // Multi-stage constraint enforcement for rigidity
+  // Stage 1: Enforce edge constraints (connected nodes stay at target distance)
+  enforceEdgeConstraints(positions, edges, nodeById, getNodeRadius, 
+    finalTargetLinkDistance, 5);
+  
+  // Stage 2: Resolve all overlaps
+  resolveOverlaps(positions, nodes, getNodeRadius, config.padding, 
+    config.width, config.height, 10);
+  
+  // Stage 3: Re-enforce edge constraints (maintain connectivity after overlap resolution)
+  enforceEdgeConstraints(positions, edges, nodeById, getNodeRadius, 
+    finalTargetLinkDistance, 3);
+  
+  // Stage 4: Final gentle overlap check
+  resolveOverlaps(positions, nodes, getNodeRadius, config.padding, 
+    config.width, config.height, 3);
+  
   return positions;
 }
 
 /**
+ * Enforce edge length constraints
+ * Connected nodes try to maintain target distance (rigid body behavior)
+ */
+function enforceEdgeConstraints(positions, edges, nodeById, getRadius, targetDistance, passes) {
+  for (let pass = 0; pass < passes; pass++) {
+    edges.forEach(edge => {
+      const p1 = positions.get(edge.sourceId);
+      const p2 = positions.get(edge.destinationId);
+      if (!p1 || !p2) return;
+      
+      const dx = p2.x - p1.x;
+      const dy = p2.y - p1.y;
+      const dist = Math.sqrt(dx * dx + dy * dy);
+      
+      if (dist < 1) return; // Skip degenerate edges
+      
+      const n1 = nodeById.get(edge.sourceId);
+      const n2 = nodeById.get(edge.destinationId);
+      const r1 = getRadius(n1);
+      const r2 = getRadius(n2);
+      
+      // Constraint: maintain distance between min and target
+      const minAllowed = (r1 + r2) * 1.3;
+      const maxAllowed = targetDistance * 1.2;
+      
+      let correction = 0;
+      if (dist < minAllowed) {
+        // Too close - push apart
+        correction = (minAllowed - dist) / 2;
+      } else if (dist > maxAllowed) {
+        // Too far - pull together
+        correction = (maxAllowed - dist) / 2;
+      } else {
+        // Within acceptable range - still nudge toward target
+        correction = (targetDistance - dist) * 0.1;
+      }
+      
+      const ux = dx / dist;
+      const uy = dy / dist;
+      
+      // Apply constraint symmetrically (both nodes move)
+      p1.x -= ux * correction;
+      p1.y -= uy * correction;
+      p2.x += ux * correction;
+      p2.y += uy * correction;
+    });
+  }
+}
+
+/**
+ * Resolve any remaining overlaps after main simulation
+ */
+function resolveOverlaps(positions, nodes, getRadius, padding, width, height, passes) {
+  for (let pass = 0; pass < passes; pass++) {
+    for (let i = 0; i < nodes.length; i++) {
+      for (let j = i + 1; j < nodes.length; j++) {
+        const n1 = nodes[i];
+        const n2 = nodes[j];
+        const p1 = positions.get(n1.id);
+        const p2 = positions.get(n2.id);
+        if (!p1 || !p2) continue;
+        
+        const dx = p2.x - p1.x;
+        const dy = p2.y - p1.y;
+        const dist = Math.sqrt(dx * dx + dy * dy);
+        
+        if (dist < 0.1) {
+          // Nodes are stacked - separate them
+          const angle = Math.random() * 2 * Math.PI;
+          p1.x -= Math.cos(angle) * 5;
+          p1.y -= Math.sin(angle) * 5;
+          p2.x += Math.cos(angle) * 5;
+          p2.y += Math.sin(angle) * 5;
+          continue;
+        }
+        
+        const r1 = getRadius(n1);
+        const r2 = getRadius(n2);
+        const minDist = (r1 + r2) * 1.4; // Increased from 1.3 for more breathing room
+        
+        if (dist < minDist) {
+          // More aggressive separation - use full overlap + 10% extra
+          const overlap = (minDist - dist) / 2;
+          const extraPush = overlap * 0.1; // 10% extra push
+          const totalSeparation = overlap + extraPush;
+          
+          const ux = dx / dist;
+          const uy = dy / dist;
+          
+          p1.x -= ux * totalSeparation;
+          p1.y -= uy * totalSeparation;
+          p2.x += ux * totalSeparation;
+          p2.y += uy * totalSeparation;
+          
+          // Keep in bounds
+          p1.x = clamp(p1.x, padding, width - padding);
+          p1.y = clamp(p1.y, padding, height - padding);
+          p2.x = clamp(p2.x, padding, width - padding);
+          p2.y = clamp(p2.y, padding, height - padding);
+        }
+      }
+    }
+  }
+}
+
+// ============================================================================
+// OTHER LAYOUT ALGORITHMS
+// ============================================================================
+
+/**
  * Hierarchical tree layout (for tree-structured graphs)
- * 
- * @param {Array} nodes - Array of node objects
- * @param {Array} edges - Array of edge objects
- * @param {Object} options - Layout configuration
- * @returns {Map} Map of nodeId -> {x, y} positions
  */
 export function hierarchicalLayout(nodes, edges, options = {}) {
   const {
@@ -567,22 +723,21 @@ export function hierarchicalLayout(nodes, edges, options = {}) {
     levelSpacing = 200,
     nodeSpacing = 150,
     padding = 200,
-    direction = 'vertical' // 'vertical' or 'horizontal'
+    direction = 'vertical'
   } = options;
 
   const positions = new Map();
   
-  // Find root nodes (nodes with no incoming edges)
+  // Find root nodes
   const hasIncoming = new Set();
   edges.forEach(edge => hasIncoming.add(edge.destinationId));
   const roots = nodes.filter(node => !hasIncoming.has(node.id));
   
   if (roots.length === 0) {
-    // No clear hierarchy, fallback to force-directed
     return forceDirectedLayout(nodes, edges, { width, height });
   }
 
-  // Build adjacency list for children
+  // Build children map
   const children = new Map();
   nodes.forEach(node => children.set(node.id, []));
   edges.forEach(edge => {
@@ -591,52 +746,46 @@ export function hierarchicalLayout(nodes, edges, options = {}) {
     }
   });
 
-  // Calculate tree levels using BFS
+  // BFS to assign levels
   const levels = [];
   const visited = new Set();
-  const nodeToLevel = new Map();
-  
   const queue = roots.map(root => ({ id: root.id, level: 0 }));
   
   while (queue.length > 0) {
     const { id, level } = queue.shift();
-    
     if (visited.has(id)) continue;
     visited.add(id);
-    nodeToLevel.set(id, level);
     
     if (!levels[level]) levels[level] = [];
     levels[level].push(id);
     
-    const nodeChildren = children.get(id) || [];
-    nodeChildren.forEach(childId => {
+    (children.get(id) || []).forEach(childId => {
       if (!visited.has(childId)) {
         queue.push({ id: childId, level: level + 1 });
       }
     });
   }
 
-  // Position nodes by level
-  const maxLevel = levels.length;
+  // Position nodes
   const effectiveWidth = width - 2 * padding;
   const effectiveHeight = height - 2 * padding;
   
-  levels.forEach((levelNodes, levelIndex) => {
-    const nodeCount = levelNodes.length;
+  levels.forEach((levelNodes, levelIdx) => {
+    const count = levelNodes.length;
     const spacing = direction === 'vertical' 
-      ? effectiveWidth / (nodeCount + 1)
-      : effectiveHeight / (nodeCount + 1);
+      ? effectiveWidth / (count + 1)
+      : effectiveHeight / (count + 1);
     
-    levelNodes.forEach((nodeId, index) => {
+    levelNodes.forEach((nodeId, idx) => {
       if (direction === 'vertical') {
         positions.set(nodeId, {
-          x: padding + spacing * (index + 1),
-          y: padding + (levelIndex / Math.max(1, maxLevel - 1)) * effectiveHeight
+          x: padding + spacing * (idx + 1),
+          y: padding + (levelIdx / Math.max(1, levels.length - 1)) * effectiveHeight
         });
       } else {
         positions.set(nodeId, {
-          x: padding + (levelIndex / Math.max(1, maxLevel - 1)) * effectiveWidth,
-          y: padding + spacing * (index + 1)
+          x: padding + (levelIdx / Math.max(1, levels.length - 1)) * effectiveWidth,
+          y: padding + spacing * (idx + 1)
         });
       }
     });
@@ -646,12 +795,7 @@ export function hierarchicalLayout(nodes, edges, options = {}) {
 }
 
 /**
- * Radial layout (nodes arranged in concentric circles)
- * 
- * @param {Array} nodes - Array of node objects
- * @param {Array} edges - Array of edge objects
- * @param {Object} options - Layout configuration
- * @returns {Map} Map of nodeId -> {x, y} positions
+ * Radial layout (concentric circles around center node)
  */
 export function radialLayout(nodes, edges, options = {}) {
   const {
@@ -672,7 +816,7 @@ export function radialLayout(nodes, edges, options = {}) {
     return positions;
   }
 
-  // Find the most connected node as center
+  // Find most connected node
   const connectivity = new Map();
   nodes.forEach(node => connectivity.set(node.id, 0));
   edges.forEach(edge => {
@@ -684,10 +828,9 @@ export function radialLayout(nodes, edges, options = {}) {
     connectivity.get(node.id) > connectivity.get(max.id) ? node : max
   );
 
-  // Position center node
   positions.set(centerNode.id, { x: centerX, y: centerY });
 
-  // Build adjacency and calculate distances from center using BFS
+  // Build adjacency
   const adjacency = new Map();
   nodes.forEach(node => adjacency.set(node.id, []));
   edges.forEach(edge => {
@@ -695,6 +838,7 @@ export function radialLayout(nodes, edges, options = {}) {
     adjacency.get(edge.destinationId).push(edge.sourceId);
   });
 
+  // BFS for distances
   const distances = new Map();
   const visited = new Set([centerNode.id]);
   const queue = [{ id: centerNode.id, dist: 0 }];
@@ -711,21 +855,21 @@ export function radialLayout(nodes, edges, options = {}) {
     });
   }
 
-  // Group nodes by distance (orbit)
+  // Group by distance
   const orbits = [];
   distances.forEach((dist, nodeId) => {
-    if (dist === 0) return; // Skip center
+    if (dist === 0) return;
     if (!orbits[dist - 1]) orbits[dist - 1] = [];
     orbits[dist - 1].push(nodeId);
   });
 
-  // Position nodes in orbits
-  orbits.forEach((orbitNodes, orbitIndex) => {
-    const radius = startRadius + orbitIndex * radiusStep;
+  // Position in orbits
+  orbits.forEach((orbitNodes, orbitIdx) => {
+    const radius = startRadius + orbitIdx * radiusStep;
     const angleStep = (2 * Math.PI) / orbitNodes.length;
     
-    orbitNodes.forEach((nodeId, index) => {
-      const angle = index * angleStep;
+    orbitNodes.forEach((nodeId, idx) => {
+      const angle = idx * angleStep;
       positions.set(nodeId, {
         x: centerX + Math.cos(angle) * radius,
         y: centerY + Math.sin(angle) * radius
@@ -736,7 +880,6 @@ export function radialLayout(nodes, edges, options = {}) {
   // Handle disconnected nodes
   nodes.forEach(node => {
     if (!positions.has(node.id)) {
-      // Place disconnected nodes randomly in outer ring
       const angle = Math.random() * 2 * Math.PI;
       const radius = startRadius + orbits.length * radiusStep;
       positions.set(node.id, {
@@ -750,12 +893,7 @@ export function radialLayout(nodes, edges, options = {}) {
 }
 
 /**
- * Grid layout (nodes arranged in a regular grid)
- * 
- * @param {Array} nodes - Array of node objects
- * @param {Array} edges - Array of edge objects (not used for grid)
- * @param {Object} options - Layout configuration
- * @returns {Map} Map of nodeId -> {x, y} positions
+ * Grid layout (regular rows and columns)
  */
 export function gridLayout(nodes, edges, options = {}) {
   const {
@@ -766,8 +904,6 @@ export function gridLayout(nodes, edges, options = {}) {
   } = options;
 
   const positions = new Map();
-  
-  // Calculate grid dimensions
   const effectiveWidth = width - 2 * padding;
   const effectiveHeight = height - 2 * padding;
   const cols = Math.ceil(Math.sqrt(nodes.length * (effectiveWidth / effectiveHeight)));
@@ -776,7 +912,6 @@ export function gridLayout(nodes, edges, options = {}) {
   const cellWidth = effectiveWidth / cols;
   const cellHeight = effectiveHeight / rows;
 
-  // Position nodes in grid
   nodes.forEach((node, index) => {
     const row = Math.floor(index / cols);
     const col = index % cols;
@@ -791,18 +926,13 @@ export function gridLayout(nodes, edges, options = {}) {
 }
 
 /**
- * Circular layout (nodes arranged in a single circle)
- * 
- * @param {Array} nodes - Array of node objects
- * @param {Array} edges - Array of edge objects (not used)
- * @param {Object} options - Layout configuration
- * @returns {Map} Map of nodeId -> {x, y} positions
+ * Circular layout (nodes on circle perimeter)
  */
 export function circularLayout(nodes, edges, options = {}) {
   const {
     width = 2000,
     height = 1500,
-    padding = 300
+    padding = 200
   } = options;
 
   const positions = new Map();
@@ -819,7 +949,7 @@ export function circularLayout(nodes, edges, options = {}) {
   const angleStep = (2 * Math.PI) / nodes.length;
   
   nodes.forEach((node, index) => {
-    const angle = index * angleStep - Math.PI / 2; // Start at top
+    const angle = index * angleStep - Math.PI / 2;
     positions.set(node.id, {
       x: centerX + Math.cos(angle) * radius,
       y: centerY + Math.sin(angle) * radius
@@ -829,14 +959,12 @@ export function circularLayout(nodes, edges, options = {}) {
   return positions;
 }
 
+// ============================================================================
+// LAYOUT WRAPPER
+// ============================================================================
+
 /**
- * Apply layout to nodes, respecting Redstring's instance structure
- * 
- * @param {Array} nodes - Array of node instances with {id, prototypeId, ...}
- * @param {Array} edges - Array of edge objects
- * @param {string} algorithm - Layout algorithm name
- * @param {Object} options - Layout options
- * @returns {Array} Array of {instanceId, x, y} position updates
+ * Apply layout algorithm and return position updates
  */
 export function applyLayout(nodes, edges, algorithm = 'force', options = {}) {
   let positions;
@@ -866,7 +994,7 @@ export function applyLayout(nodes, edges, algorithm = 'force', options = {}) {
       positions = forceDirectedLayout(nodes, edges, options);
   }
 
-  // Convert positions Map to array of updates
+  // Convert to update format
   const updates = [];
   positions.forEach((pos, nodeId) => {
     updates.push({
@@ -885,6 +1013,8 @@ export default {
   radialLayout,
   gridLayout,
   circularLayout,
-  applyLayout
+  applyLayout,
+  FORCE_LAYOUT_DEFAULTS,
+  LAYOUT_SCALE_PRESETS,
+  LAYOUT_ITERATION_PRESETS
 };
-

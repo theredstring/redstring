@@ -175,6 +175,15 @@ const results = generateGraph(
 }
 ```
 
+### Adaptive Force Layout (2025.11)
+
+- **Deterministic seeding**: Every run starts from cluster-aware rings, so repeated auto-layouts converge quickly.
+- **Layout Scale Pipeline**: Presets (Compact/Balanced/Spacious) plus the global multiplier (0.5–2.5×) are synced through `autoLayoutSettings.layoutScale` and `layoutScaleMultiplier`. The multiplier now feeds both the Force Simulation Tuner and the auto-layout / auto-graph workflows.
+- **Auto spread multiplier**: Large graphs (≈18+ nodes) automatically expand link distances, collision radii, and repulsion reach based on node count and disconnected cluster count. When you also increase the layout-scale slider, the solver amplifies that intent instead of letting dense hubs re-collapse.
+- **Iteration presets with adaptive boost**: Fast/Balanced/Deep still map to the base iteration counts, but dense graphs transparently add up to +22% more passes so Deep truly settles big imports.
+- **Multi-phase cooling**: Repulsion is intentionally stronger during the early 45 % of the solve, then gradually hands off to spring + centering forces for a clean settle. This prevents “tied up” lattices without exploding the canvas.
+- **Cluster anchoring & post-processing**: After the force pass we anchor disconnected clusters around a ring, run additional collision passes that respect node sizes, and finish with radial relaxation tuned to the current spread multiplier. Edge labels and image badges stay clear because collisions include label/image padding.
+
 ### Other Layout Options
 
 ```javascript
