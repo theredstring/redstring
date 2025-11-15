@@ -11,6 +11,7 @@ class APIKeyManager {
     this.ENCRYPTION_KEY = 'redstring_ai_encryption_key';
     this.STORAGE_PROFILES = 'redstring_ai_api_profiles';
     this.ACTIVE_PROFILE = 'redstring_ai_active_profile';
+    this.OPENROUTER_MODELS_KEY = 'redstring_openrouter_recent_models';
   }
 
   /**
@@ -52,6 +53,14 @@ class APIKeyManager {
       console.log('[API Key Manager] API profile stored successfully');
       // Maintain legacy single-key for backward compat
       localStorage.setItem(this.STORAGE_KEY, JSON.stringify(keyData));
+
+      if ((provider === 'openrouter' || (provider || '').includes('openrouter')) && keyData.model) {
+        try {
+          await this._rememberOpenRouterModel(keyData.model);
+        } catch (err) {
+          console.warn('[API Key Manager] Failed to record recent OpenRouter model', err);
+        }
+      }
       
       return { success: true, id, name: keyData.name, provider, endpoint: keyData.endpoint, model: keyData.model };
     } catch (error) {
@@ -178,6 +187,19 @@ class APIKeyManager {
     throw new Error('Profile not found');
   }
 
+  async getRecentOpenRouterModels(limit = 6) {
+    try {
+      const raw = localStorage.getItem(this.OPENROUTER_MODELS_KEY);
+      if (!raw) return [];
+      const models = JSON.parse(raw);
+      if (!Array.isArray(models)) return [];
+      return models.slice(0, limit);
+    } catch (err) {
+      console.warn('[API Key Manager] Failed to read recent OpenRouter models', err);
+      return [];
+    }
+  }
+
   // Internal helpers
   async _getActiveProfileData() {
     const profiles = await this._getProfilesInternal();
@@ -200,6 +222,22 @@ class APIKeyManager {
     const raw = localStorage.getItem(this.STORAGE_PROFILES);
     if (!raw) return {};
     try { return JSON.parse(raw) || {}; } catch { return {}; }
+  }
+
+  async _rememberOpenRouterModel(model) {
+    const trimmed = String(model || '').trim();
+    if (!trimmed) return;
+    const raw = localStorage.getItem(this.OPENROUTER_MODELS_KEY);
+    let models = [];
+    try {
+      models = raw ? JSON.parse(raw) : [];
+      if (!Array.isArray(models)) models = [];
+    } catch {
+      models = [];
+    }
+    models = [trimmed, ...models.filter(m => m && m !== trimmed)];
+    models = models.slice(0, 10);
+    localStorage.setItem(this.OPENROUTER_MODELS_KEY, JSON.stringify(models));
   }
 
   /**

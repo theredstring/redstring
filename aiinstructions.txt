@@ -5,6 +5,53 @@ Redstring is a semantic knowledge graph application that allows users to create,
 
 ## Recent Enhancements (Latest)
 
+### Bridge + Wizard Revival (2025-11)
+- **Goal**: Reactivate The Wizard via the HTTP bridge instead of relying on spatial LLM outputs.
+- **Core Files**: `src/ai/BridgeClient.jsx` (state sync), `src/components/panel/views/LeftAIView.jsx` (AI panel), `bridge-daemon.js` (Orchestrator HTTP server), `src/services/bridgeConfig.js` (URL helpers).
+- **Run Loop**:
+  1. `npm install` (first time).
+  2. `npm run dev` (Vite UI on :4000) in one shell.
+  3. `npm run bridge` (starts `bridge-daemon.js` on :3001, auto-kills stale listeners). Use `npm run bridge -- --kill-only` to stop it.
+  4. Verify the daemon with `curl http://localhost:3001/health` and `curl http://localhost:3001/api/bridge/health`.
+  5. In the UI, click the 🔑 icon in the AI panel to store your Anthropic/OpenRouter key locally (never committed).
+- **Using The Wizard**:
+  - Bridge client now mounts automatically via `<BridgeClient />` in `src/App.jsx` and streams graph state + pending actions to the daemon.
+  - The left AI panel replays bridge telemetry, reconnects via the refresh icon, and calls `/api/ai/chat` or `/api/ai/agent` with your stored key.
+  - Status messages surface in-panel whenever the bridge reconnects or health checks fail.
+- **Troubleshooting**:
+  - If the refresh icon reports an unreachable bridge, rerun `npm run bridge` and ensure nothing else is bound to :3001.
+  - The bridge expects your API key in the `Authorization` header; the UI handles this once the key is stored locally.
+- **The Wizard's Magic: LLM + Auto-Layout Pipeline**:
+  - **Core Philosophy**: LLM handles semantics (what nodes/edges), auto-layout handles spatial positioning (where to place them).
+  - **Flow**: User message → `/api/ai/agent` → LLM produces graphSpec → enqueued with layoutAlgorithm → Executor calls `graphLayoutService.applyLayout()` → positioned ops → Committer → UI.
+  - **Key Files**: `bridge-daemon.js` (lines 911-1011: graphSpec routing), `src/services/orchestrator/roleRunners.js` (lines 41-132: Executor's `create_subgraph` + auto-layout), `src/services/graphLayoutService.js` (5 deterministic layouts).
+  - **LLM Guidance**: AGENT_PLANNER_PROMPT explicitly forbids x/y coordinates, instructs LLM to choose layoutAlgorithm (force/hierarchical/radial/grid/circular) based on structure.
+  - **Result**: Wizard generates complex multi-node graphs with deterministic spatial layout, no LLM spatial hallucination.
+- **The Wizard Can Now "See" (2025-11)**:
+  - **New Capability**: `read_graph_structure` tool allows Wizard to read semantic graph data (nodes, edges, relationships) without spatial coordinates.
+  - **Implementation**: `src/services/bridgeStoreAccessor.js` provides read-only access to mirrored UI state, `src/services/orchestrator/roleRunners.js` handles `read_graph_structure` execution, `src/services/Committer.js` sends results to chat.
+  - **Usage**: When user asks "what's in this graph?" or "show me what you made", LLM uses intent:"analyze" → triggers `read_graph_structure` → receives semantic data → responds with node/edge summary.
+  - **Schema**: `src/services/toolValidator.js` defines validation for `read_graph_structure` (graph_id, include_edges, include_descriptions).
+  - **Allowlists**: Added to Planner, Executor, and Auditor allowlists in `src/services/roles.js`.
+  - **Result**: Wizard can verify its creations, answer questions about graph contents, and make informed decisions about future additions.
+- **Connection Definitions (2025-11)**:
+  - **New Capability**: Wizard proactively creates connection definition nodes for all specific relationship types.
+  - **How It Works**: Edges can have `definitionNodeIds` that point to node prototypes (NOT instances). When rendering, the edge uses that prototype's color and name. Definition nodes are NOT placed in the graph - they exist as reusable type definitions.
+  - **GraphSpec Format**: LLM includes `definitionNode` in edge specs: `{"source":"A","target":"B","type":"orbits","definitionNode":{"name":"Orbital Relationship","color":"#FDB813","description":"what this means"}}`
+  - **Deduplication**: `src/services/orchestrator/roleRunners.js` (lines 131-161, 373-403) searches existing prototypes by name before creating new ones, preventing duplicates across graphs.
+  - **LLM Guidance**: AGENT_PLANNER_PROMPT instructs to ALWAYS define specific relationships ("orbits", "eats", "manages") but SKIP generic ones ("connects", "relates to").
+  - **Result**: All meaningful relationships are first-class semantic concepts with custom colors, automatically deduplicated and reusable across the entire universe.
+- **Define Connections Tool (2025-11)**:
+  - **Goal**: Label edges that lack definition nodes in the active graph without touching the layout.
+  - **Usage**: When the user asks to "define", "label", or "name" connections, the planner queues the `define_connections` tool instead of adding nodes.
+  - **Implementation**: `src/services/orchestrator/roleRunners.js` inspects `bridgeStoreData.graphEdges`, creates/reuses definition prototypes, and emits `updateEdgeDefinition` ops for the selected edges.
+  - **Options**: The tool accepts `limit` (max edges per run) and `includeGeneralTypes` if the user wants even vague links labeled.
+  - **UI Feedback**: When no edges need definitions, the tool emits a friendly read response instead of mutating the graph.
+- **Active Graph Awareness**:
+  - Treat words like "here", "this graph", or "current graph" as references to the active graph.
+  - Always mention the active graph’s name when acting on it so the user knows what’s being modified.
+  - If the user asks what tools are available, mention the list (`create_graph`, `create_subgraph`, `define_connections`, `read_graph_structure`, `verify_state`) before continuing.
+
 ### Auto Layout & Graph Generation System (2025-01)
 - **New Feature**: Comprehensive auto-layout and graph generation system in Debug menu
 - **Access**: Redstring Menu → Debug → Generate Test Graph

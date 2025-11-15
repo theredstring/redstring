@@ -244,6 +244,206 @@ class ToolValidator {
       }
     });
 
+    this.registerSchema('create_subgraph', {
+      type: 'object',
+      required: ['graphId', 'graphSpec'],
+      properties: {
+        graphId: {
+          type: 'string',
+          description: 'Target graph ID to add subgraph to'
+        },
+        graph_id: {
+          type: 'string',
+          description: 'Target graph ID (alternate field name)'
+        },
+        graphSpec: {
+          type: 'object',
+          required: ['nodes'],
+          properties: {
+            nodes: {
+              type: 'array',
+              items: {
+                type: 'object',
+                required: ['name'],
+                properties: {
+                  name: { type: 'string', minLength: 1 },
+                  description: { type: 'string', default: '' },
+                  color: { type: 'string', pattern: '^#[0-9A-Fa-f]{6}$', default: '#5B6CFF' }
+                }
+              },
+              description: 'Array of nodes to create'
+            },
+            edges: {
+              type: 'array',
+              items: {
+                type: 'object',
+                required: ['source', 'target'],
+                properties: {
+                  source: { type: 'string' },
+                  target: { type: 'string' },
+                  relation: { type: 'string', default: '' },
+                  type: { type: 'string', default: '' }
+                }
+              },
+              default: [],
+              description: 'Array of edges to create'
+            }
+          },
+          description: 'Specification of nodes and edges to create'
+        },
+        layoutAlgorithm: {
+          type: 'string',
+          enum: ['force', 'force-directed', 'hierarchical', 'tree', 'radial', 'orbit', 'grid', 'circular', 'circle'],
+          default: 'force',
+          description: 'Layout algorithm to use for positioning nodes'
+        },
+        layoutMode: {
+        type: 'string',
+        enum: ['auto', 'full', 'partial'],
+        default: 'auto',
+        description: 'Controls whether new nodes are laid out relative to the existing layout (partial)'
+      }
+      }
+    });
+
+    this.registerSchema('define_connections', {
+      type: 'object',
+      properties: {
+        graphId: {
+          type: 'string',
+          description: 'Target graph to define connection types (defaults to active graph)'
+        },
+        limit: {
+          type: 'integer',
+          minimum: 1,
+          maximum: 100,
+          default: 32,
+          description: 'Maximum number of edges to define in this run'
+        },
+        includeGeneralTypes: {
+          type: 'boolean',
+          default: false,
+          description: 'Also define edges with very generic names (connects, relates, links)'
+        }
+      }
+    });
+
+    this.registerSchema('create_populated_graph', {
+      type: 'object',
+      required: ['name', 'graphSpec'],
+      properties: {
+        name: {
+          type: 'string',
+          minLength: 1,
+          description: 'Name of the graph to create'
+        },
+        description: {
+          type: 'string',
+          default: '',
+          description: 'Optional description'
+        },
+        graphSpec: {
+          type: 'object',
+          required: ['nodes'],
+          properties: {
+            nodes: {
+              type: 'array',
+              items: {
+                type: 'object',
+                required: ['name'],
+                properties: {
+                  name: { type: 'string', minLength: 1 },
+                  description: { type: 'string', default: '' },
+                  color: { type: 'string', pattern: '^#[0-9A-Fa-f]{6}$', default: '#5B6CFF' }
+                }
+              },
+              description: 'Array of nodes to create'
+            },
+            edges: {
+              type: 'array',
+              items: {
+                type: 'object',
+                required: ['source', 'target'],
+                properties: {
+                  source: { type: 'string' },
+                  target: { type: 'string' },
+                  relation: { type: 'string', default: '' },
+                  type: { type: 'string', default: '' }
+                }
+              },
+              default: [],
+              description: 'Array of edges to create'
+            }
+          },
+          description: 'Specification of nodes and edges'
+        },
+        layoutAlgorithm: {
+          type: 'string',
+          enum: ['force', 'force-directed', 'hierarchical', 'tree', 'radial', 'orbit', 'grid', 'circular', 'circle'],
+          default: 'force',
+          description: 'Layout algorithm for positioning'
+        },
+        layoutMode: {
+          type: 'string',
+          enum: ['auto', 'full', 'partial'],
+          default: 'auto',
+          description: 'Controls whether new nodes are laid out relative to existing layout (partial)'
+        }
+      }
+    });
+
+    this.registerSchema('create_subgraph_in_new_graph', {
+      type: 'object',
+      required: ['graphName', 'graphSpec'],
+      properties: {
+        graphName: {
+          type: 'string',
+          description: 'Name of the newly created graph to populate'
+        },
+        graphSpec: {
+          type: 'object',
+          required: ['nodes'],
+          properties: {
+            nodes: {
+              type: 'array',
+              items: {
+                type: 'object',
+                required: ['name'],
+                properties: {
+                  name: { type: 'string', minLength: 1 },
+                  description: { type: 'string', default: '' },
+                  color: { type: 'string', pattern: '^#[0-9A-Fa-f]{6}$', default: '#5B6CFF' }
+                }
+              },
+              description: 'Array of nodes to create'
+            },
+            edges: {
+              type: 'array',
+              items: {
+                type: 'object',
+                required: ['source', 'target'],
+                properties: {
+                  source: { type: 'string' },
+                  target: { type: 'string' },
+                  relation: { type: 'string', default: '' },
+                  type: { type: 'string', default: '' }
+                }
+              },
+              default: [],
+              description: 'Array of edges to create'
+            }
+          },
+          description: 'Specification of nodes and edges to create'
+        },
+        layoutAlgorithm: {
+          type: 'string',
+          enum: ['force', 'force-directed', 'hierarchical', 'tree', 'radial', 'orbit', 'grid', 'circular', 'circle'],
+          default: 'force',
+          description: 'Layout algorithm to use for positioning nodes'
+        }
+      }
+    });
+
     this.registerSchema('open_graph', {
       type: 'object',
       required: ['graph_id'],
@@ -303,6 +503,27 @@ class ToolValidator {
       type: 'object',
       properties: {},
       additionalProperties: false
+    });
+
+    // Read graph structure schema (semantic view without spatial data)
+    this.registerSchema('read_graph_structure', {
+      type: 'object',
+      properties: {
+        graph_id: {
+          type: 'string',
+          description: 'Graph ID to read (defaults to active graph)'
+        },
+        include_edges: {
+          type: 'boolean',
+          default: true,
+          description: 'Whether to include edge information'
+        },
+        include_descriptions: {
+          type: 'boolean',
+          default: true,
+          description: 'Whether to include node/edge descriptions'
+        }
+      }
     });
   }
 

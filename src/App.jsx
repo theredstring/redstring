@@ -1,7 +1,7 @@
 import React from 'react';
 import NodeCanvas from './NodeCanvas';
 import SpawningNodeDragLayer from './SpawningNodeDragLayer';
-// import BridgeClient from './ai/BridgeClient.jsx';
+import BridgeClient from './ai/BridgeClient.jsx';
 import GlobalContextMenu from './components/GlobalContextMenu.jsx';
 import GitFederationBootstrap from './components/GitFederationBootstrap.jsx';
 import './App.css';
@@ -13,7 +13,7 @@ function App() {
       <GitFederationBootstrap enableEagerInit={true} />
       <NodeCanvas />
       <SpawningNodeDragLayer />
-      {/* <BridgeClient /> */}
+      <BridgeClient />
       <GlobalContextMenu />
     </>
   );

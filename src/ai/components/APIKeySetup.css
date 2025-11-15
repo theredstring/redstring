@@ -389,3 +389,41 @@
   border-radius: 4px;
   border-left: 3px solid #dc2626;
 } 
+
+.recent-model-select {
+  width: 100%;
+  padding: 10px;
+  border: 1px solid #260000;
+  border-radius: 0;
+  background: #fff;
+  font-size: 14px;
+  font-family: 'EmOne', sans-serif;
+  color: #260000;
+}
+
+.key-edit-toggle {
+  border: 1px dashed #260000;
+  padding: 12px;
+  border-radius: 4px;
+  background: rgba(38, 0, 0, 0.05);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  color: #260000;
+  font-family: 'EmOne', sans-serif;
+}
+
+.edit-key-button {
+  align-self: flex-start;
+  background: #260000;
+  color: #bdb5b5;
+  border: none;
+  padding: 8px 16px;
+  cursor: pointer;
+  font-family: 'EmOne', sans-serif;
+  transition: all 0.2s;
+}
+
+.edit-key-button:hover:not(:disabled) {
+  background: #8B0000;
+}

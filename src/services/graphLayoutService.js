@@ -152,6 +152,8 @@ function generateInitialPositions(nodes, adjacency, width, height, options = {})
   // Multiple clusters - distribute widely around circle
   const mainCluster = clusters[0];
   const smallClusters = clusters.slice(1);
+  const smallClusterCount = smallClusters.length;
+
   
   // Main cluster in center
   const mainRadius = Math.min(width, height) * 0.2;  // Tighter main cluster
@@ -160,9 +162,16 @@ function generateInitialPositions(nodes, adjacency, width, height, options = {})
   );
   mainPositions.forEach((pos, id) => positions.set(id, pos));
 
-  // Small clusters MUCH further out on periphery
-  const orbitRadius = Math.min(width, height) * 0.65;  // Further orbit
-  const clusterRadius = Math.min(width, height) * 0.18;  // Larger cluster radius
+  // Small clusters initially placed further out, but keep small counts tighter
+  const minDimension = Math.min(width, height);
+  const isTwoClusterScenario = smallClusterCount === 1;
+  const baseOrbitFactor = isTwoClusterScenario ? 0.28 : 0.45;
+  const maxOrbitFactor = isTwoClusterScenario ? 0.35 : 0.65;
+  const perClusterBoost = isTwoClusterScenario ? 0.02 : 0.05;
+  const additionalClusters = Math.max(0, smallClusterCount - (isTwoClusterScenario ? 0 : 1));
+  const orbitBoost = Math.min(maxOrbitFactor - baseOrbitFactor, additionalClusters * perClusterBoost);
+  const orbitRadius = minDimension * (baseOrbitFactor + orbitBoost);
+  const clusterRadius = minDimension * 0.18;  // Larger cluster radius
   
   smallClusters.forEach((cluster, index) => {
     const angle = (2 * Math.PI * index) / smallClusters.length;
@@ -449,6 +458,7 @@ export function forceDirectedLayout(nodes, edges, options = {}) {
   const clusterCount = clusters.length;
   const isMultiCluster = clusterCount > 1;
   const isSparse = edges.length < nodes.length;
+  const isTwoClusterScenario = clusterCount === 2;
   
   // Simulation loop
   let alpha = 1.0;
@@ -479,18 +489,23 @@ export function forceDirectedLayout(nodes, edges, options = {}) {
         // Distance cutoff for performance
         if (dist > finalMaxRepulsionDistance) continue;
         
-        // Stronger repulsion between different clusters
+        // Stronger repulsion between different clusters, but soften for small cluster counts
         const c1 = clusterMap.get(n1.id);
         const c2 = clusterMap.get(n2.id);
         const crossCluster = isMultiCluster && c1 !== c2;
-        const clusterMult = crossCluster ? 2.5 : 1.0;
+        const crossClusterMultiplier = crossCluster
+          ? Math.min(2.2, 1 + Math.max(0, clusterCount - 2) * 0.25)
+          : 1.0;
         
         const r1 = getNodeRadius(n1);
         const r2 = getNodeRadius(n2);
-        const minDist = Math.max((r1 + r2) * 1.2, finalMinNodeDistance);
+        const effectiveMinNodeDistance = crossCluster
+          ? finalMinNodeDistance * (isTwoClusterScenario ? 0.65 : 0.8)
+          : finalMinNodeDistance;
+        const minDist = Math.max((r1 + r2) * 1.2, effectiveMinNodeDistance);
         
         const repulsion = calculateRepulsion(p1, p2, 
-          repulsionStrength * repulsionMult * clusterMult * alpha, minDist);
+          repulsionStrength * repulsionMult * crossClusterMultiplier * alpha, minDist);
         
         const f1 = forces.get(n1.id);
         const f2 = forces.get(n2.id);

@@ -16,11 +16,15 @@ const APIKeySetup = ({ onKeySet, onClose, inline = false }) => {
   const [success, setSuccess] = useState('');
   const [existingKeyInfo, setExistingKeyInfo] = useState(null);
   const [isValidating, setIsValidating] = useState(false);
+  const [recentModels, setRecentModels] = useState([]);
+  const [isEditingExisting, setIsEditingExisting] = useState(false);
+  const [allowKeyEdit, setAllowKeyEdit] = useState(true);
 
   const providers = apiKeyManager.getCommonProviders();
 
   useEffect(() => {
     loadExistingKey();
+    loadRecentModels();
   }, []);
 
   // Initialize defaults when component loads
@@ -39,9 +43,24 @@ const APIKeySetup = ({ onKeySet, onClose, inline = false }) => {
         setProvider(keyInfo.provider);
         setEndpoint(keyInfo.endpoint || '');
         setModel(keyInfo.model || '');
+        setIsEditingExisting(false);
+        setAllowKeyEdit(false);
+      } else {
+        setAllowKeyEdit(true);
       }
     } catch (error) {
       console.error('Failed to load existing key info:', error);
+    }
+  };
+
+  const loadRecentModels = async () => {
+    try {
+      if (typeof apiKeyManager.getRecentOpenRouterModels === 'function') {
+        const models = await apiKeyManager.getRecentOpenRouterModels();
+        setRecentModels(models);
+      }
+    } catch (err) {
+      console.warn('Failed to load recent OpenRouter models:', err);
     }
   };
 
@@ -64,16 +83,25 @@ const APIKeySetup = ({ onKeySet, onClose, inline = false }) => {
     setSuccess('');
 
     try {
-      // Validate the API key
-      if (!apiKeyManager.validateAPIKey(apiKey)) {
-        throw new Error('API key cannot be empty');
+      let keyToStore = apiKey.trim();
+      if (!keyToStore) {
+        if (isEditingExisting && !allowKeyEdit) {
+          keyToStore = await apiKeyManager.getAPIKey();
+          if (!keyToStore) {
+            throw new Error('Stored API key not found. Please enter it manually.');
+          }
+        } else {
+          throw new Error('API key cannot be empty');
+        }
+      } else if (!apiKeyManager.validateAPIKey(keyToStore)) {
+        throw new Error('Invalid API key');
       }
 
       // For custom providers, use the custom name
       const finalProvider = provider === 'custom' ? customProviderName : provider;
       
       // Store the API key with configuration
-      await apiKeyManager.storeAPIKey(apiKey, finalProvider, {
+      await apiKeyManager.storeAPIKey(keyToStore, finalProvider, {
         endpoint: endpoint.trim(),
         model: model.trim(),
         settings: {
@@ -85,9 +113,12 @@ const APIKeySetup = ({ onKeySet, onClose, inline = false }) => {
               setSuccess(`API key stored successfully for ${finalProvider}`);
       setApiKey('');
       setShowKey(false);
+      setAllowKeyEdit(false);
+      setIsEditingExisting(false);
       
       // Reload existing key info
       await loadExistingKey();
+      await loadRecentModels();
       
       // Notify parent component
       if (onKeySet) {
@@ -118,6 +149,8 @@ const APIKeySetup = ({ onKeySet, onClose, inline = false }) => {
     try {
       await apiKeyManager.removeAPIKey();
       setExistingKeyInfo(null);
+      setIsEditingExisting(false);
+      setAllowKeyEdit(true);
       setSuccess('API key removed successfully');
       
       // Notify parent component
@@ -159,6 +192,19 @@ const APIKeySetup = ({ onKeySet, onClose, inline = false }) => {
   const maskAPIKey = (key) => {
     if (!key) return '';
     return key.substring(0, 8) + '...' + key.substring(key.length - 4);
+  };
+
+  const handleRecentModelSelect = (value) => {
+    if (!value) return;
+    setModel(value);
+  };
+
+  const beginEditConfiguration = () => {
+    setIsEditingExisting(true);
+    setAllowKeyEdit(false);
+    setApiKey('');
+    setShowKey(false);
+    setExistingKeyInfo(null);
   };
 
   return (
@@ -208,7 +254,7 @@ const APIKeySetup = ({ onKeySet, onClose, inline = false }) => {
           <div className="key-actions">
             <button 
               className="update-button"
-              onClick={() => setExistingKeyInfo(null)}
+              onClick={beginEditConfiguration}
             >
               Update Configuration
             </button>
@@ -293,6 +339,25 @@ const APIKeySetup = ({ onKeySet, onClose, inline = false }) => {
               </div>
             )}
 
+            {provider === 'openrouter' && recentModels.length > 0 && (
+              <div className="form-group">
+                <label htmlFor="recentModel">Recent OpenRouter Models</label>
+                <select
+                  id="recentModel"
+                  className="recent-model-select"
+                  value=""
+                  onChange={(e) => {
+                    handleRecentModelSelect(e.target.value);
+                  }}
+                >
+                  <option value="">Select a recent model…</option>
+                  {recentModels.map((m) => (
+                    <option key={m} value={m}>{m}</option>
+                  ))}
+                </select>
+              </div>
+            )}
+
             {/* Advanced Configuration */}
             <div className="form-group">
               <button
@@ -345,25 +410,42 @@ const APIKeySetup = ({ onKeySet, onClose, inline = false }) => {
 
             <div className="form-group">
               <label htmlFor="apiKey">API Key</label>
-              <div className="key-input-container">
-                <input
-                  id="apiKey"
-                  type={showKey ? 'text' : 'password'}
-                  value={apiKey}
-                  onChange={(e) => setApiKey(e.target.value)}
-                  placeholder="Enter your API key"
-                  disabled={isLoading}
-                  className="key-input"
-                />
-                <button
-                  type="button"
-                  className="toggle-visibility"
-                  onClick={() => setShowKey(!showKey)}
-                  disabled={isLoading}
-                >
-                  {showKey ? <EyeOff size={16} /> : <Eye size={16} />}
-                </button>
-              </div>
+              {(!isEditingExisting || allowKeyEdit) ? (
+                <div className="key-input-container">
+                  <input
+                    id="apiKey"
+                    type={showKey ? 'text' : 'password'}
+                    value={apiKey}
+                    onChange={(e) => setApiKey(e.target.value)}
+                    placeholder="Enter your API key"
+                    disabled={isLoading}
+                    className="key-input"
+                  />
+                  <button
+                    type="button"
+                    className="toggle-visibility"
+                    onClick={() => setShowKey(!showKey)}
+                    disabled={isLoading}
+                  >
+                    {showKey ? <EyeOff size={16} /> : <Eye size={16} />}
+                  </button>
+                </div>
+              ) : (
+                <div className="key-edit-toggle">
+                  <p>This configuration will reuse your existing API key.</p>
+                  <button
+                    type="button"
+                    className="edit-key-button"
+                    onClick={() => {
+                      setAllowKeyEdit(true);
+                      setShowKey(false);
+                    }}
+                    disabled={isLoading}
+                  >
+                    Edit API Key
+                  </button>
+                </div>
+              )}
             </div>
 
             {error && (
@@ -383,10 +465,10 @@ const APIKeySetup = ({ onKeySet, onClose, inline = false }) => {
             <div className="form-actions">
               <button
                 type="submit"
-                disabled={isLoading || !apiKey.trim()}
+                disabled={isLoading || (!apiKey.trim() && !(isEditingExisting && !allowKeyEdit))}
                 className="submit-button"
               >
-                {isLoading ? 'Storing...' : 'Store API Key'}
+                {isLoading ? 'Storing...' : isEditingExisting ? 'Save Configuration' : 'Store API Key'}
               </button>
             </div>
           </form>

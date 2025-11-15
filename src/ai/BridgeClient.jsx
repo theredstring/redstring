@@ -576,6 +576,25 @@ const BridgeClient = () => {
                 for (const op of (operations || [])) {
                   try {
                     switch (op.type) {
+                      case 'addNodePrototype': {
+                        const st = useGraphStore.getState();
+                        if (st.nodePrototypes.has(op.prototypeData?.id)) {
+                          console.log('MCPBridge: Prototype already exists, skipping', op.prototypeData?.id);
+                          results.push({ type: op.type, ok: true, id: op.prototypeData?.id, skipped: true });
+                          break;
+                        }
+                        st.addNodePrototype({
+                          id: op.prototypeData.id,
+                          name: op.prototypeData.name || 'Unnamed',
+                          description: op.prototypeData.description || '',
+                          color: op.prototypeData.color || '#5B6CFF',
+                          typeNodeId: op.prototypeData.typeNodeId || null,
+                          definitionGraphIds: op.prototypeData.definitionGraphIds || []
+                        });
+                        console.log('MCPBridge: addNodePrototype created', op.prototypeData.name, op.prototypeData.id);
+                        results.push({ type: op.type, ok: true, id: op.prototypeData.id });
+                        break;
+                      }
                       case 'addNodeInstance': {
                         const st = useGraphStore.getState();
                         let graph = st.graphs.get(op.graphId);
@@ -657,6 +676,22 @@ const BridgeClient = () => {
                         });
                         try {
                           window.dispatchEvent(new CustomEvent('rs-telemetry', { detail: [{ ts: Date.now(), type: 'info', name: 'applyMutations', message: 'Updated connection direction' }] }));
+                        } catch {}
+                        results.push({ type: op.type, ok: true, id: op.edgeId });
+                        break;
+                      }
+                      case 'updateEdgeDefinition': {
+                        const st = useGraphStore.getState();
+                        const edgeExists = st.edges.has(op.edgeId);
+                        if (!edgeExists) {
+                          results.push({ type: op.type, ok: false, id: op.edgeId, error: 'Missing edge' });
+                          break;
+                        }
+                        st.updateEdge(op.edgeId, (edge) => {
+                          edge.definitionNodeIds = Array.isArray(op.definitionNodeIds) ? [...op.definitionNodeIds] : [];
+                        });
+                        try {
+                          window.dispatchEvent(new CustomEvent('rs-telemetry', { detail: [{ ts: Date.now(), type: 'info', name: 'applyMutations', message: 'Defined connections for an edge' }] }));
                         } catch {}
                         results.push({ type: op.type, ok: true, id: op.edgeId });
                         break;
@@ -760,6 +795,39 @@ const BridgeClient = () => {
                   const a = s.activeGraphId;
                   const g = a ? s.graphs.get(a) : null;
                   console.log('MCPBridge: applyMutations summary', { activeGraphId: a, activeInstanceCount: g?.instances?.size, totalGraphs: s.graphs.size });
+                  
+                  // Apply auto-layout whenever nodes are created
+                  const addedInstances = results.filter(r => r.type === 'addNodeInstance' && r.ok);
+                  if (addedInstances.length > 0 && a) {
+                    console.log(`MCPBridge: Triggering auto-layout for ${addedInstances.length} new node${addedInstances.length !== 1 ? 's' : ''}`);
+                    try {
+                      // Import and apply layout service
+                      const { applyLayout } = await import('../services/graphLayoutService.js');
+                      const graphToLayout = s.graphs.get(a);
+                      if (graphToLayout) {
+                        const instances = Array.from(graphToLayout.instances?.values() || []);
+                        const edges = (graphToLayout.edgeIds || []).map(eid => {
+                          const edge = s.edges.get(eid);
+                          return edge ? { sourceId: edge.sourceId, destinationId: edge.destinationId } : null;
+                        }).filter(Boolean);
+                        
+                        // Determine layout algorithm based on structure
+                        const layoutAlgorithm = 'force'; // Default, could be inferred from edge patterns
+                        const positions = applyLayout(instances, edges, layoutAlgorithm, {});
+                        
+                        // Apply positions
+                        positions.forEach(pos => {
+                          s.updateNodeInstance(a, pos.instanceId, (inst) => {
+                            inst.x = pos.x;
+                            inst.y = pos.y;
+                          });
+                        });
+                        console.log(`MCPBridge: Auto-layout applied to ${positions.length} nodes`);
+                      }
+                    } catch (layoutErr) {
+                      console.warn('MCPBridge: Auto-layout failed:', layoutErr);
+                    }
+                  }
                 } catch {}
                 console.groupEnd();
                 return { success: true, results };
@@ -818,8 +886,30 @@ const BridgeClient = () => {
             fileStatus = mod.getFileStatus();
           }
         } catch {}
-        
+        const layouts = buildGraphLayouts(state);
+        const summaries = buildGraphSummaries(state);
+
         // Send only minimal essential data to keep payload small
+        const graphEdges = state.activeGraphId && state.edges
+          ? Array.from(state.edges.values())
+              .filter(edge => edge.graphId === state.activeGraphId)
+              .map(edge => ({
+                id: edge.id,
+                graphId: edge.graphId,
+                sourceId: edge.sourceId,
+                destinationId: edge.destinationId,
+                name: edge.name || '',
+                type: edge.type || '',
+                typeNodeId: edge.typeNodeId || null,
+                definitionNodeIds: Array.isArray(edge.definitionNodeIds) ? [...edge.definitionNodeIds] : [],
+                directionality: {
+                  arrowsToward: Array.isArray(edge.directionality?.arrowsToward)
+                    ? [...edge.directionality.arrowsToward]
+                    : (edge.directionality?.arrowsToward ? [...edge.directionality.arrowsToward] : [])
+                }
+              }))
+          : [];
+
         const bridgeData = {
           // Graph data with instance positions for spatial reasoning
           graphs: Array.from(state.graphs.entries()).map(([id, graph]) => ({
@@ -860,7 +950,8 @@ const BridgeClient = () => {
             lastUpdate: Date.now()
           },
           graphLayouts: layouts,
-          graphSummaries: summaries
+          graphSummaries: summaries,
+          graphEdges: graphEdges
         };
 
         // Send to server

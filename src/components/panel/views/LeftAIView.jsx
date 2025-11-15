@@ -1,8 +1,9 @@
 import React from 'react';
-import { Bot, Key, Settings, RotateCcw, Send, User, Square } from 'lucide-react';
+import { Bot, Key, Settings, RotateCcw, Send, User, Square, Copy, Trash2 } from 'lucide-react';
 import APIKeySetup from '../../../ai/components/APIKeySetup.jsx';
 import mcpClient from '../../../services/mcpClient.js';
 import apiKeyManager from '../../../services/apiKeyManager.js';
+import { bridgeFetch } from '../../../services/bridgeConfig.js';
 import StandardDivider from '../../StandardDivider.jsx';
 import { HEADER_HEIGHT } from '../../../constants.js';
 
@@ -47,26 +48,24 @@ const LeftAIView = ({ compact = false, activeGraphId, graphsMap }) => {
     } catch {}
     (async () => {
       try {
-        if (messages.length > 0) return;
-        // Bridge telemetry disabled
-        // const res = await bridgeFetch('/api/bridge/telemetry');
-        // if (res.ok) {
-        //   const data = await res.json();
-        //   const chat = Array.isArray(data?.chat) ? data.chat : [];
-        //   if (chat.length > 0) {
-        //     const hydrated = chat
-        //       .filter((c) => !resetTs || (typeof c.ts === 'number' && c.ts >= resetTs))
-        //       .map((c) => ({
-        //         id: `${c.ts || Date.now()}_${Math.random().toString(36).slice(2,9)}`,
-        //         sender: c.role === 'user' ? 'user' : (c.role === 'ai' : 'ai' : 'system'),
-        //         content: c.text || '',
-        //         timestamp: new Date(c.ts || Date.now()).toISOString(),
-        //         metadata: {}
-        //       }));
-        //     setMessages((prev) => (prev.length === 0 ? hydrated : prev));
-        //   }
-        // }
-      } catch {}
+        const res = await bridgeFetch('/api/bridge/telemetry');
+        if (!res.ok) return;
+        const data = await res.json();
+        const chat = Array.isArray(data?.chat) ? data.chat : [];
+        if (chat.length === 0) return;
+        const hydrated = chat
+          .filter((c) => !resetTs || (typeof c.ts === 'number' && c.ts >= resetTs))
+          .map((c) => ({
+            id: `${c.ts || Date.now()}_${Math.random().toString(36).slice(2, 9)}`,
+            sender: c.role === 'user' ? 'user' : c.role === 'ai' ? 'ai' : 'system',
+            content: c.text || '',
+            timestamp: new Date(c.ts || Date.now()).toISOString(),
+            metadata: {}
+          }));
+        setMessages((prev) => (prev.length === 0 ? hydrated : prev));
+      } catch (error) {
+        console.warn('[AI Collaboration] Failed to hydrate bridge telemetry:', error);
+      }
     })();
   }, []);
 
@@ -186,10 +185,34 @@ const LeftAIView = ({ compact = false, activeGraphId, graphsMap }) => {
   const refreshBridgeConnection = async () => {
     try {
       setIsProcessing(true);
-      addMessage('system', 'Bridge functionality is currently disabled.');
+      const [healthRes, stateRes] = await Promise.all([
+        bridgeFetch('/api/bridge/health').catch((error) => { throw new Error(error.message || 'Bridge health request failed'); }),
+        bridgeFetch('/api/bridge/state').catch(() => null)
+      ]);
+
+      if (!healthRes || !healthRes.ok) {
+        throw new Error('Bridge daemon is unreachable. Make sure it is running on :3001.');
+      }
+      const health = await healthRes.json();
+      let summary = `Bridge daemon online (${health.source || 'bridge-daemon'})`;
+
+      if (stateRes && stateRes.ok) {
+        const bridgeState = await stateRes.json();
+        const graphCount = Array.isArray(bridgeState?.graphs) ? bridgeState.graphs.length : 0;
+        const pending = Array.isArray(bridgeState?.pendingActions) ? bridgeState.pendingActions.length : 0;
+        summary += ` • Graphs mirrored: ${graphCount}${pending ? ` • Pending actions: ${pending}` : ''}`;
+      }
+
+      await mcpClient.connect();
+      setIsConnected(true);
+      addMessage('system', `${summary}\nConnection refreshed.`);
     } catch (e) {
-      addMessage('system', `Refresh failed: ${e.message}`);
-    } finally { setIsProcessing(false); }
+      console.error('[AI Collaboration] Bridge refresh failed:', e);
+      setIsConnected(false);
+      addMessage('system', `Bridge refresh failed: ${e.message}`);
+    } finally {
+      setIsProcessing(false);
+    }
   };
 
   const handleSendMessage = async () => {
@@ -217,46 +240,6 @@ const LeftAIView = ({ compact = false, activeGraphId, graphsMap }) => {
     }
   };
 
-  const handleAutonomousAgent = async (question) => {
-    try {
-      const apiConfig = await apiKeyManager.getAPIKeyInfo();
-      const apiKey = await apiKeyManager.getAPIKey();
-      if (!apiKey) { addMessage('ai', 'No API key found. Please set up your API key first.'); return; }
-      if (!apiConfig) { addMessage('ai', 'API configuration not found. Please set up your API key first.'); return; }
-      const abortController = new AbortController();
-      setCurrentAgentRequest(abortController);
-      // Bridge agent API disabled
-      // const response = await bridgeFetch('/api/ai/agent', {
-      //   method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
-      //   body: JSON.stringify({ message: question, systemPrompt: 'You are an AI assistant with access to Redstring knowledge graph tools.', context: { activeGraphId, graphCount: graphs.size, hasAPIKey, apiConfig: apiConfig ? { provider: apiConfig.provider, endpoint: apiConfig.endpoint, model: apiConfig.model, settings: apiConfig.settings } : null } }),
-      //   signal: abortController.signal
-      // });
-      // if (!response.ok) throw new Error(`Agent request failed: ${response.status} ${response.statusText}`);
-      // const result = await response.json();
-      // addMessage('ai', result.response || '', { toolCalls: result.toolCalls || [], iterations: result.iterations, mode: 'autonomous', isComplete: result.isComplete });
-      addMessage('ai', 'Autonomous agent mode is currently disabled due to bridge server being unavailable.');
-    } catch (error) {
-      if (error.name !== 'AbortError') { console.error('[AI Collaboration] Autonomous agent failed:', error); addMessage('ai', `Agent error: ${error.message}`); }
-    }
-  };
-
-  const handleQuestion = async (question) => {
-    try {
-      const apiConfig = await apiKeyManager.getAPIKeyInfo();
-      if (!apiConfig) { addMessage('ai', 'Please set up your API key first by clicking the key icon in the header.'); return; }
-      const apiKey = await apiKeyManager.getAPIKey();
-      // Bridge chat API disabled
-      addMessage('ai', 'Chat functionality is currently disabled due to bridge server being unavailable.');
-    } catch (error) {
-      console.error('[AI Collaboration] Question handling failed:', error);
-      addMessage('ai', 'I encountered an error while processing your question. Please try again or check your connection to the MCP server.');
-    }
-  };
-
-  const handleKeyPress = (e) => {
-    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSendMessage(); }
-  };
-
   const getGraphInfo = () => {
     if (!activeGraphId || !graphsMap || typeof graphsMap.has !== 'function' || !graphsMap.has(activeGraphId)) { 
       return { name: 'No active graph', nodeCount: 0, edgeCount: 0 }; 
@@ -265,7 +248,7 @@ const LeftAIView = ({ compact = false, activeGraphId, graphsMap }) => {
     if (!graph) {
       return { name: 'No active graph', nodeCount: 0, edgeCount: 0 };
     }
-    const nodeCount = graph.instances && typeof graph.instances.size === 'number' ? graph.instances.size : 0;
+    const nodeCount = graph.instances && typeof graph.instances.size === 'number' ? graph.instances.size : (graph.instances ? Object.keys(graph.instances).length : 0);
     const edgeCount = Array.isArray(graph.edgeIds) ? graph.edgeIds.length : 0;
     return { 
       name: graph.name || 'Unnamed graph', 
@@ -274,6 +257,96 @@ const LeftAIView = ({ compact = false, activeGraphId, graphsMap }) => {
     };
   };
   const graphInfo = getGraphInfo();
+  const graphCount = graphsMap && typeof graphsMap.size === 'number' ? graphsMap.size : 0;
+
+  const handleAutonomousAgent = async (question) => {
+    try {
+      const apiConfig = await apiKeyManager.getAPIKeyInfo();
+      const apiKey = await apiKeyManager.getAPIKey();
+      if (!apiKey) { addMessage('ai', 'No API key found. Please set up your API key first.'); return; }
+      if (!apiConfig) { addMessage('ai', 'API configuration not found. Please set up your API key first.'); return; }
+      const abortController = new AbortController();
+      setCurrentAgentRequest(abortController);
+      
+      // Send recent conversation history for context memory
+      const recentMessages = messages.slice(-10).map(msg => ({
+        role: msg.sender === 'user' ? 'user' : msg.sender === 'ai' ? 'assistant' : 'system',
+        content: msg.content
+      }));
+      
+      const response = await bridgeFetch('/api/ai/agent', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
+        body: JSON.stringify({
+          message: question,
+          conversationHistory: recentMessages,
+          systemPrompt: 'You are the Redstring Wizard. Converse, plan small steps, and enqueue goals that the orchestrator can execute. Stay grounded in the active graph.',
+          context: {
+            activeGraphId: activeGraphId || null,
+            graphInfo,
+            graphCount,
+            hasAPIKey,
+            apiConfig: apiConfig ? { provider: apiConfig.provider, endpoint: apiConfig.endpoint, model: apiConfig.model, settings: apiConfig.settings } : null
+          }
+        }),
+        signal: abortController.signal
+      });
+      if (!response.ok) {
+        const errorBody = await response.text();
+        throw new Error(`Agent request failed (${response.status}): ${errorBody}`);
+      }
+      const result = await response.json();
+      const text = result?.response || 'Agent completed without a response.';
+      addMessage('ai', text, { toolCalls: result.toolCalls || [], iterations: result.iterations, mode: 'autonomous', isComplete: result.isComplete });
+      setIsConnected(true);
+    } catch (error) {
+      if (error.name !== 'AbortError') {
+        console.error('[AI Collaboration] Autonomous agent failed:', error);
+        addMessage('ai', `Agent error: ${error.message}`);
+      }
+    } finally {
+      setCurrentAgentRequest(null);
+    }
+  };
+
+  const handleQuestion = async (question) => {
+    try {
+      const apiConfig = await apiKeyManager.getAPIKeyInfo();
+      if (!apiConfig) { addMessage('ai', 'Please set up your API key first by clicking the key icon in the header.'); return; }
+      const apiKey = await apiKeyManager.getAPIKey();
+      if (!apiKey) { addMessage('ai', 'No API key found. Please set one via the key icon.'); return; }
+      const response = await bridgeFetch('/api/ai/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
+        body: JSON.stringify({
+          message: question,
+          systemPrompt: 'You are a concise Redstring copilot. Reference the active graph when possible and keep answers grounded.',
+          context: {
+            activeGraphId: activeGraphId || null,
+            graphInfo,
+            graphCount,
+            apiConfig: apiConfig ? { provider: apiConfig.provider, endpoint: apiConfig.endpoint, model: apiConfig.model, settings: apiConfig.settings } : null
+          },
+          model: apiConfig?.model || undefined
+        })
+      });
+      if (!response.ok) {
+        const errorBody = await response.text();
+        throw new Error(`Chat request failed (${response.status}): ${errorBody}`);
+      }
+      const data = await response.json();
+      addMessage('ai', data.response || 'No response received from the model.');
+      setIsConnected(true);
+    } catch (error) {
+      console.error('[AI Collaboration] Question handling failed:', error);
+      addMessage('ai', error.message?.includes('API key') ? error.message : 'I encountered an error while processing your question. Please try again or check your bridge connection.');
+    }
+  };
+
+  const handleKeyPress = (e) => {
+    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSendMessage(); }
+  };
+
   const toggleClearance = HEADER_HEIGHT + 14;
   const [fileStatus, setFileStatus] = React.useState(null);
   React.useEffect(() => {
@@ -292,6 +365,59 @@ const LeftAIView = ({ compact = false, activeGraphId, graphsMap }) => {
     return () => { mounted = false; clearInterval(t); };
   }, []);
 
+  const handleCopyConversation = () => {
+    const conversationText = messages.map(msg => {
+      const sender = msg.sender === 'user' ? 'User' : msg.sender === 'ai' ? 'AI' : 'System';
+      let text = `${sender}: ${msg.content}`;
+      
+      // Add metadata if present (tool calls, mode, etc.)
+      if (msg.metadata) {
+        const meta = [];
+        if (msg.metadata.toolCalls && Array.isArray(msg.metadata.toolCalls) && msg.metadata.toolCalls.length > 0) {
+          meta.push('\n  Tool Calls:');
+          msg.metadata.toolCalls.forEach((tc, idx) => {
+            meta.push(`\n    ${idx + 1}. ${tc.name || 'unknown'} (${tc.status || 'unknown'})`);
+            if (tc.args) {
+              meta.push(`\n       Args: ${JSON.stringify(tc.args, null, 2).replace(/\n/g, '\n       ')}`);
+            }
+          });
+        }
+        if (msg.metadata.mode) {
+          meta.push(`\n  Mode: ${msg.metadata.mode}`);
+        }
+        if (msg.metadata.iterations) {
+          meta.push(`\n  Iterations: ${msg.metadata.iterations}`);
+        }
+        if (msg.metadata.isComplete !== undefined) {
+          meta.push(`\n  Complete: ${msg.metadata.isComplete}`);
+        }
+        text += meta.join('');
+      }
+      
+      return text;
+    }).join('\n\n');
+    
+    navigator.clipboard.writeText(conversationText).then(() => {
+      addMessage('system', '📋 Conversation copied to clipboard');
+    }).catch(err => {
+      console.error('Failed to copy:', err);
+      addMessage('system', '❌ Failed to copy conversation');
+    });
+  };
+
+  const handleClearConversation = () => {
+    if (messages.length === 0) return;
+    if (window.confirm('Clear entire conversation? This cannot be undone.')) {
+      setMessages([]);
+      try {
+        const ts = Date.now();
+        localStorage.setItem(RESET_TS_KEY, String(ts));
+        localStorage.removeItem(STORAGE_KEY);
+      } catch {}
+      addMessage('system', '🗑️ Conversation cleared');
+    }
+  };
+
   const headerActionsEl = (
     <div className="ai-header-actions">
       <button 
@@ -309,9 +435,25 @@ const LeftAIView = ({ compact = false, activeGraphId, graphsMap }) => {
         <Settings size={20} />
       </button>
       <button 
+        className="ai-flat-button" 
+        onClick={handleCopyConversation} 
+        title="Copy conversation to clipboard"
+        disabled={messages.length === 0}
+      >
+        <Copy size={20} />
+      </button>
+      <button 
+        className="ai-flat-button" 
+        onClick={handleClearConversation} 
+        title="Clear conversation"
+        disabled={messages.length === 0}
+      >
+        <Trash2 size={20} />
+      </button>
+      <button 
         className={`ai-flat-button ${isConnected ? 'ai-refresh-button' : 'ai-connect-button'}`} 
         onClick={refreshBridgeConnection} 
-        title="Bridge Disabled" 
+        title={isConnected ? 'Bridge connected' : 'Reconnect bridge daemon'} 
         disabled={isProcessing}
       >
         <RotateCcw size={20} />

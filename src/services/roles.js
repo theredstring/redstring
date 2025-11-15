@@ -16,14 +16,14 @@ Decide approved/rejected with reasons. Never mutate the graph.`,
 };
 
 export const ToolAllowlists = {
-  planner: ['verify_state', 'list_available_graphs', 'get_active_graph', 'search_nodes'],
+  planner: ['verify_state', 'list_available_graphs', 'get_active_graph', 'search_nodes', 'read_graph_structure', 'define_connections'],
   executor: [
     // write-capable tasks executed into patches (Committer is single-writer)
-    'create_graph', 'create_node_prototype', 'create_node_instance', 'create_edge',
+    'create_graph', 'create_node_prototype', 'create_node_instance', 'create_edge', 'create_subgraph', 'create_populated_graph',
     // read-only inspection tasks allowed for analysis pipelines
-    'verify_state', 'list_available_graphs', 'get_active_graph', 'get_graph_instances', 'identify_patterns'
+    'verify_state', 'list_available_graphs', 'get_active_graph', 'get_graph_instances', 'identify_patterns', 'read_graph_structure', 'define_connections'
   ],
-  auditor: ['verify_state', 'get_active_graph', 'get_graph_instances', 'search_nodes'],
+  auditor: ['verify_state', 'get_active_graph', 'get_graph_instances', 'search_nodes', 'read_graph_structure', 'define_connections'],
   committer: []
 };
 
