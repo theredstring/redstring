@@ -4,6 +4,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { NODE_WIDTH, NODE_HEIGHT, NODE_DEFAULT_COLOR } from '../constants.js';
 import { getFileStatus, restoreLastSession, clearSession, notifyChanges } from './fileStorage.js';
 import { importFromRedstring } from '../formats/redstringFormat.js';
+import { MAX_LAYOUT_SCALE_MULTIPLIER } from '../services/graphLayoutService.js';
 
 // Enable Immer Map/Set plugin support
 enableMapSet();
@@ -2099,7 +2100,7 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
       console.warn(`[setLayoutScaleMultiplier] Invalid multiplier: ${value}`);
       return;
     }
-    const clamped = Math.max(0.5, Math.min(2.5, Number(numeric.toFixed(2))));
+    const clamped = Math.max(0.5, Math.min(MAX_LAYOUT_SCALE_MULTIPLIER, Number(numeric.toFixed(2))));
     draft.autoLayoutSettings.layoutScaleMultiplier = clamped;
   })),
 
@@ -2134,7 +2135,7 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
       console.warn(`[setForceTunerScaleMultiplier] Invalid multiplier: ${value}`);
       return;
     }
-    const clamped = Math.max(0.2, Math.min(2.5, Number(numeric.toFixed(2))));
+    const clamped = Math.max(0.2, Math.min(MAX_LAYOUT_SCALE_MULTIPLIER, Number(numeric.toFixed(2))));
     draft.forceTunerSettings.layoutScaleMultiplier = clamped;
   })),
 

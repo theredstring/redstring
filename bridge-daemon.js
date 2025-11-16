@@ -269,7 +269,21 @@ Example response: {"intent":"create_graph","response":"I'll create a Solar Syste
 Intent: "create_node" (ADD TO EXISTING GRAPH)
 When: "add X", "populate with Y", "fill this out".
 Always include a graphSpec referencing the active graph.
-Example: {"intent":"create_node","response":"Adding the inner planets (Mercury, Venus, Earth, Mars) with orbital connections.","graphSpec":{"nodes":[{"name":"Mercury","color":"#8C7853","description":"Closest to Sun"},{"name":"Venus","color":"#FFC649"},{"name":"Earth","color":"#4A90E2"},{"name":"Mars","color":"#E27B58"}],"edges":[{"source":"Sun","target":"Mercury","type":"orbits"},{"source":"Sun","target":"Venus","type":"orbits"},{"source":"Sun","target":"Earth","type":"orbits"},{"source":"Sun","target":"Mars","type":"orbits"}],"layoutAlgorithm":"radial"}}
+
+CRITICAL SYNTHESIS RULES:
+1. CONNECTIONS ARE PRIORITY: Every new node should connect to at LEAST one existing node via edges
+2. CHECK EXISTING NODES: Read "Example concepts" in CURRENT GRAPH context - those nodes already exist!
+3. NO DUPLICATES: If a similar node exists (e.g., "Avengers" vs "The Avengers"), DON'T create it again - just link to the existing one
+4. EDGE SYNTAX: To link to existing node, reference its name in edges but DON'T add it to nodes array
+   - nodes: [NEW nodes only]
+   - edges: [NEW → EXISTING, NEW → NEW, EXISTING → NEW]
+5. BREVITY + CONNECTIONS: Add 3-5 NEW nodes max, but create 5-8 edges connecting them to existing graph
+6. FUZZY MATCHING: "Avengers Initiative" ≈ "The Avengers" ≈ "Avengers" - treat as same node
+
+Example: Graph has [Sun, Earth, Mars]. You add Moon and Venus:
+{"intent":"create_node","response":"Adding Moon (orbits Earth) and Venus (between Mercury and Earth).","graphSpec":{"nodes":[{"name":"Moon","color":"#C0C0C0"},{"name":"Venus","color":"#FFC649"}],"edges":[{"source":"Earth","target":"Moon","type":"orbits"},{"source":"Sun","target":"Venus","type":"orbits"},{"source":"Venus","target":"Earth","type":"closer_to_sun"}],"layoutAlgorithm":"radial"}}
+
+Notice: Only 2 new nodes, but 3 edges total - all connecting to existing nodes (Sun, Earth)
 
 Intent: "analyze" (INSPECTION)
 When: "show me patterns", "find connections", "analyze this".
@@ -634,6 +648,51 @@ app.post('/api/ai/agent/continue', async (req, res) => {
     return res.json({ success: true, message: 'Auto-chain triggered', cid, goalId });
   } catch (e) {
     logger.error('[Agent/Continue] Error:', e);
+    return res.status(500).json({ error: e.message });
+  }
+});
+
+// Follow-up audit endpoint: triggered after graph modifications to check for duplicates and missing connections
+app.post('/api/ai/agent/audit', async (req, res) => {
+  try {
+    const body = req.body || {};
+    const { cid, graphId, nodeCount, edgeCount, action } = body;
+    
+    if (!cid || !graphId) {
+      return res.status(400).json({ error: 'Missing cid or graphId' });
+    }
+    
+    logger.info(`[Agent/Audit] Triggered for graph ${graphId}: ${nodeCount} nodes, ${edgeCount} edges`);
+    
+    // Enqueue a read_graph_structure followed by AI analysis
+    const goalId = queueManager.enqueue('goalQueue', {
+      type: 'goal',
+      goal: 'audit_graph',
+      dag: {
+        tasks: [
+          {
+            toolName: 'read_graph_structure',
+            args: { graph_id: graphId, include_descriptions: true },
+            threadId: cid
+          }
+        ]
+      },
+      threadId: cid,
+      partitionKey: cid,
+      context: {
+        auditType: action,
+        graphId,
+        nodeCount,
+        edgeCount
+      }
+    });
+    
+    ensureSchedulerStarted();
+    logger.info(`[Agent/Audit] Enqueued audit goal: ${goalId}`);
+    
+    return res.json({ success: true, message: 'Audit triggered', cid, goalId });
+  } catch (e) {
+    logger.error('[Agent/Audit] Error:', e);
     return res.status(500).json({ error: e.message });
   }
 });

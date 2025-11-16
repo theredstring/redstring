@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { X, Play, Pause, RotateCcw } from 'lucide-react';
 import './ForceSimulationModal.css';
-import { FORCE_LAYOUT_DEFAULTS, LAYOUT_ITERATION_PRESETS, LAYOUT_SCALE_PRESETS } from '../services/graphLayoutService.js';
+import { FORCE_LAYOUT_DEFAULTS, LAYOUT_ITERATION_PRESETS, LAYOUT_SCALE_PRESETS, MAX_LAYOUT_SCALE_MULTIPLIER } from '../services/graphLayoutService.js';
 
 /**
  * Draggable modal for interactive force-directed layout tuning
@@ -30,7 +30,10 @@ const ForceSimulationModal = ({
   const [isRunning, setIsRunning] = useState(false);
   const modalRef = useRef(null);
   const animationRef = useRef(null);
-  const initialScaleMultiplier = layoutScaleMultiplier ?? (FORCE_LAYOUT_DEFAULTS.layoutScaleMultiplier || 1);
+  const initialScaleMultiplier = Math.min(
+    MAX_LAYOUT_SCALE_MULTIPLIER,
+    layoutScaleMultiplier ?? (FORCE_LAYOUT_DEFAULTS.layoutScaleMultiplier || 1)
+  );
   const initialIterationPreset = layoutIterationPreset ?? (FORCE_LAYOUT_DEFAULTS.iterationPreset || 'balanced');
   const initialAlphaDecay = LAYOUT_ITERATION_PRESETS[initialIterationPreset]?.alphaDecay ?? defaultAlphaDecay;
   const [scaleMultiplier, setScaleMultiplier] = useState(initialScaleMultiplier);
@@ -76,7 +79,7 @@ const ForceSimulationModal = ({
   const handleScaleMultiplierChange = (value) => {
     const numeric = Number(value);
     if (!Number.isFinite(numeric)) return;
-    const clamped = Math.max(0.5, Math.min(2.5, numeric));
+    const clamped = Math.max(0.2, Math.min(MAX_LAYOUT_SCALE_MULTIPLIER, numeric));
     const rounded = Math.round(clamped * 100) / 100;
     setScaleMultiplier(rounded);
     onLayoutScaleMultiplierChange?.(rounded);
@@ -641,7 +644,7 @@ const ForceSimulationModal = ({
               <input
                 type="range"
                 min="0.2"
-                max="2.4"
+                max={MAX_LAYOUT_SCALE_MULTIPLIER}
                 step="0.05"
                 value={scaleMultiplier}
                 onChange={(e) => handleScaleMultiplierChange(e.target.value)}

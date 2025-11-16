@@ -93,30 +93,45 @@ export async function runExecutorOnce() {
       const edges = Array.isArray(graphSpec.edges) ? graphSpec.edges : [];
       
       // Create prototype IDs and temporary instance IDs for layout
+      // SYNTHESIS: Get store to check for existing prototypes
+      const store = getBridgeStore();
       const protoIdByName = new Map();
       const instanceIdByName = new Map();
       const tempInstances = [];
       
       nodes.forEach((node, idx) => {
         const name = String(node?.name || '').trim() || `Concept ${idx + 1}`;
-        const prototypeId = `prototype-${Date.now()}-${idx}-${Math.random().toString(36).slice(2,8)}`;
-        const instanceId = `inst-${Date.now()}-${idx}-${Math.random().toString(36).slice(2,8)}`;
         
+        // SYNTHESIS: Check if a prototype with this name already exists (case-insensitive)
+        const existingProto = Array.isArray(store.nodePrototypes)
+          ? store.nodePrototypes.find(p => p.name?.toLowerCase() === name.toLowerCase())
+          : null;
+        
+        let prototypeId;
+        if (existingProto) {
+          // Reuse existing prototype
+          prototypeId = existingProto.id;
+          console.log(`[Executor] SYNTHESIS: Reusing existing prototype "${name}" (${prototypeId})`);
+        } else {
+          // Create new prototype
+          prototypeId = `prototype-${Date.now()}-${idx}-${Math.random().toString(36).slice(2,8)}`;
+          ops.push({
+            type: 'addNodePrototype',
+            prototypeData: {
+              id: prototypeId,
+              name,
+              description: node.description || '',
+              color: node.color || '#5B6CFF',
+              typeNodeId: null,
+              definitionGraphIds: []
+            }
+          });
+          console.log(`[Executor] SYNTHESIS: Created new prototype "${name}" (${prototypeId})`);
+        }
+        
+        const instanceId = `inst-${Date.now()}-${idx}-${Math.random().toString(36).slice(2,8)}`;
         protoIdByName.set(name, prototypeId);
         instanceIdByName.set(name, instanceId);
-        
-        // Add prototype creation op
-        ops.push({
-          type: 'addNodePrototype',
-          prototypeData: {
-            id: prototypeId,
-            name,
-            description: node.description || '',
-            color: node.color || '#5B6CFF',
-            typeNodeId: null,
-            definitionGraphIds: []
-          }
-        });
         
         // Store temp instance for layout calculation
         tempInstances.push({
@@ -136,7 +151,17 @@ export async function runExecutorOnce() {
       const partialContext = (layoutMode !== 'full') ? buildPartialLayoutContext(graphId) : null;
       const usePartialLayout = partialContext && (layoutMode === 'partial' || layoutMode === 'auto');
       const layoutNodes = [...tempInstances];
-      const layoutOptions = {};
+      
+      // DETERMINISTIC LAYOUT: Use same parameters as Edit menu's Auto-Layout button
+      const layoutWidth = 2000;
+      const layoutHeight = 2000;
+      const layoutPadding = 300;
+      const layoutOptions = {
+        width: layoutWidth,
+        height: layoutHeight,
+        padding: layoutPadding,
+        useExistingPositions: false  // Full re-layout by default
+      };
       let partialTranslation = null;
 
       if (usePartialLayout && partialContext) {
@@ -407,30 +432,45 @@ export async function runExecutorOnce() {
       const edges = Array.isArray(graphSpec.edges) ? graphSpec.edges : [];
       
       // Create prototype IDs and temporary instance IDs for layout
+      // SYNTHESIS: Get store to check for existing prototypes
+      const store = getBridgeStore();
       const protoIdByName = new Map();
       const instanceIdByName = new Map();
       const tempInstances = [];
       
       nodes.forEach((node, idx) => {
         const name = String(node?.name || '').trim() || `Concept ${idx + 1}`;
-        const prototypeId = `prototype-${Date.now()}-${idx}-${Math.random().toString(36).slice(2,8)}`;
-        const instanceId = `inst-${Date.now()}-${idx}-${Math.random().toString(36).slice(2,8)}`;
         
+        // SYNTHESIS: Check if a prototype with this name already exists (case-insensitive)
+        const existingProto = Array.isArray(store.nodePrototypes)
+          ? store.nodePrototypes.find(p => p.name?.toLowerCase() === name.toLowerCase())
+          : null;
+        
+        let prototypeId;
+        if (existingProto) {
+          // Reuse existing prototype
+          prototypeId = existingProto.id;
+          console.log(`[Executor] SYNTHESIS: Reusing existing prototype "${name}" (${prototypeId})`);
+        } else {
+          // Create new prototype
+          prototypeId = `prototype-${Date.now()}-${idx}-${Math.random().toString(36).slice(2,8)}`;
+          ops.push({
+            type: 'addNodePrototype',
+            prototypeData: {
+              id: prototypeId,
+              name,
+              description: node.description || '',
+              color: node.color || '#5B6CFF',
+              typeNodeId: null,
+              definitionGraphIds: []
+            }
+          });
+          console.log(`[Executor] SYNTHESIS: Created new prototype "${name}" (${prototypeId})`);
+        }
+        
+        const instanceId = `inst-${Date.now()}-${idx}-${Math.random().toString(36).slice(2,8)}`;
         protoIdByName.set(name, prototypeId);
         instanceIdByName.set(name, instanceId);
-        
-        // Add prototype creation op
-        ops.push({
-          type: 'addNodePrototype',
-          prototypeData: {
-            id: prototypeId,
-            name,
-            description: node.description || '',
-            color: node.color || '#5B6CFF',
-            typeNodeId: null,
-            definitionGraphIds: []
-          }
-        });
         
         // Store temp instance for layout calculation
         tempInstances.push({
@@ -446,8 +486,19 @@ export async function runExecutorOnce() {
         destinationId: instanceIdByName.get(edge.target)
       })).filter(e => e.sourceId && e.destinationId);
       
+      // DETERMINISTIC LAYOUT: Use same parameters as Edit menu's Auto-Layout button
+      const layoutWidth = 2000;
+      const layoutHeight = 2000;
+      const layoutPadding = 300;
+      const layoutOptions = {
+        width: layoutWidth,
+        height: layoutHeight,
+        padding: layoutPadding,
+        useExistingPositions: false
+      };
+      
       // Apply auto-layout to get positions
-      const positions = applyLayout(tempInstances, tempEdges, layoutAlgorithm, {});
+      const positions = applyLayout(tempInstances, tempEdges, layoutAlgorithm, layoutOptions);
       
       // Create position map
       const positionMap = new Map();

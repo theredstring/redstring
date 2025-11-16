@@ -208,6 +208,23 @@ class CommitterService {
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ role: 'system', text: msg, cid: threadId, channel: 'agent' })
               }).catch(() => {});
+              
+              // FOLLOW-UP LOOP: Trigger audit/cleanup after graph modifications
+              // Only if nodes were added (potential for duplicates/missing connections)
+              if (nodeCount >= 3) {
+                console.log(`[Committer] FOLLOW-UP: Triggering audit for ${nodeCount} new nodes in graph ${graphId}`);
+                await bridgeFetch('/api/ai/agent/audit', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({
+                    cid: threadId,
+                    graphId: graphId,
+                    nodeCount,
+                    edgeCount,
+                    action: 'audit_and_cleanup'
+                  })
+                }).catch(err => console.warn('[Committer] Follow-up audit failed:', err.message));
+              }
             }
           }
         } catch (e) {

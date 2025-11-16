@@ -10,6 +10,7 @@
 // ============================================================================
 
 const clamp = (value, min, max) => Math.max(min, Math.min(max, value));
+export const MAX_LAYOUT_SCALE_MULTIPLIER = 1.6;
 
 /**
  * Find connected components (clusters) in the graph
@@ -138,6 +139,13 @@ function generateInitialPositions(nodes, adjacency, width, height, options = {})
   const centerY = height / 2;
   const degrees = buildDegreeMap(nodes, adjacency);
   const clusters = getGraphClusters(nodes, adjacency);
+  const manualScaleTarget = clamp(
+    options.layoutScaleMultiplier ?? 1,
+    0.5,
+    MAX_LAYOUT_SCALE_MULTIPLIER
+  );
+  const layoutScaleAdjustment = Math.min(Math.max(manualScaleTarget - 1, 0), 0.6);
+  const clusterSpacingFactor = 1 - layoutScaleAdjustment * 0.25;
 
   // Single cluster - place at center with generous spacing
   if (clusters.length === 1) {
@@ -165,21 +173,35 @@ function generateInitialPositions(nodes, adjacency, width, height, options = {})
   // Small clusters start close to the main cluster for fewer groups, expanding gently as count grows
   const minDimension = Math.min(width, height);
   const isTwoClusterScenario = smallClusterCount === 1;
-  const baseOrbitFactor = isTwoClusterScenario ? 0.18 : 0.32;
-  const maxOrbitFactor = isTwoClusterScenario ? 0.25 : 0.55;
-  const perClusterBoost = isTwoClusterScenario ? 0.02 : 0.04;
+  const baseOrbitFactor = isTwoClusterScenario ? 0.12 : 0.26;
+  const maxOrbitFactor = isTwoClusterScenario ? 0.2 : 0.45;
+  const perClusterBoost = isTwoClusterScenario ? 0.015 : 0.03;
   const additionalClusters = Math.max(0, smallClusterCount - (isTwoClusterScenario ? 0 : 1));
   const orbitBoost = Math.min(maxOrbitFactor - baseOrbitFactor, additionalClusters * perClusterBoost);
-  const orbitRadius = minDimension * (baseOrbitFactor + orbitBoost);
-  const clusterRadius = minDimension * (isTwoClusterScenario ? 0.34 : 0.22);  // Larger cluster radius
+  const orbitRadius = minDimension * (baseOrbitFactor + orbitBoost) * clusterSpacingFactor;
+  const clusterRadiusBoost = 1 + layoutScaleAdjustment * 0.2;
+  const clusterRadius = minDimension * (isTwoClusterScenario ? 0.34 : 0.22) * clusterRadiusBoost;
   
   smallClusters.forEach((cluster, index) => {
     const angle = (2 * Math.PI * index) / smallClusters.length;
-    const clusterCenterX = centerX + Math.cos(angle) * orbitRadius;
-    const clusterCenterY = centerY + Math.sin(angle) * orbitRadius;
+    const geometryFactor = 1 + Math.log10(cluster.length + 1) * 0.04;
+    const computedClusterRadius = clusterRadius * geometryFactor;
+    const separationMargin = Math.max(
+      computedClusterRadius * 0.25,
+      minDimension * 0.06,
+      90
+    );
+    const desiredDistance = Math.max(
+      mainRadius + computedClusterRadius + separationMargin,
+      minDimension * 0.15
+    );
+    const finalDistance = Math.min(orbitRadius, desiredDistance);
+    const clusterCenterX = centerX + Math.cos(angle) * finalDistance;
+    const clusterCenterY = centerY + Math.sin(angle) * finalDistance;
     
+    const ringRadius = Math.max(clusterRadius, computedClusterRadius);
     const clusterPositions = positionClusterInRings(
-      cluster, clusterCenterX, clusterCenterY, clusterRadius, degrees
+      cluster, clusterCenterX, clusterCenterY, ringRadius, degrees
     );
     clusterPositions.forEach((pos, id) => positions.set(id, pos));
   });
@@ -279,6 +301,11 @@ export const FORCE_LAYOUT_DEFAULTS = {
   
   // Bounds
   padding: 200,
+
+  // Label-aware connection tuning
+  labelAwareLinkDistance: true,
+  labelAwareLinkPadding: 60,
+  labelAwareLinkReduction: 1,
   
   // Presets
   layoutScale: 'balanced',
@@ -383,9 +410,14 @@ export function forceDirectedLayout(nodes, edges, options = {}) {
   // Calculate automatic scale based on node count
   const totalNodes = nodes.length;
   const autoScale = calculateAutoScale(totalNodes);
-  const manualScaleTarget = config.layoutScaleMultiplier ?? 1;
-
+  const manualScaleTargetRaw = config.layoutScaleMultiplier ?? 1;
+  const manualScaleTarget = clamp(
+    manualScaleTargetRaw,
+    0.5,
+    MAX_LAYOUT_SCALE_MULTIPLIER
+  );
   const effectiveScale = clamp(autoScale * manualScaleTarget, 0.4, 3);
+  const manualScaleReduction = Math.min(Math.max(manualScaleTarget - 1, 0), 0.6);
 
   const targetLinkDistance = config.targetLinkDistance * effectiveScale;
   const minNodeDistance = config.minNodeDistance * effectiveScale;
@@ -411,13 +443,19 @@ export function forceDirectedLayout(nodes, edges, options = {}) {
   
   // Apply cluster scaling - more clusters need more space, but keep link stretch tight
   const totalClusters = clusters.length;
-  const clusterScale = totalClusters > 1 ? (1 + Math.log10(totalClusters) * 0.2) : 1;
+  const clusterDistanceFactor = totalClusters > 1
+    ? Math.max(0.75, 1 - manualScaleReduction * 0.35)
+    : 1;
+  const clusterScale = totalClusters > 1
+    ? (1 + Math.log10(totalClusters) * 0.15) * clusterDistanceFactor
+    : 1;
   const linkStretch = totalClusters > 1
     ? Math.min(1.15, 0.95 + Math.log10(totalClusters) * 0.1)
     : 1;
+  const linkShrinkFactor = Math.max(0.85, 1 - manualScaleReduction * 0.2);
   
   // Update distances with cluster scaling
-  const finalTargetLinkDistance = targetLinkDistance * linkStretch;
+  const finalTargetLinkDistance = targetLinkDistance * Math.max(0.85, linkStretch * linkShrinkFactor);
   const finalMinNodeDistance = minNodeDistance * clusterScale;
   const finalMaxRepulsionDistance = maxRepulsionDistance * clusterScale;
   
@@ -429,6 +467,18 @@ export function forceDirectedLayout(nodes, edges, options = {}) {
     const baseRadius = Math.max(w, h) / 2 + config.labelPadding;
     const imageBonus = Math.max(node.imageHeight || 0, 0) * 0.5;
     return Math.max(baseRadius + imageBonus, config.minNodeRadius);
+  };
+
+  const getLabelWidth = (node) => {
+    if (!node) return config.nodeSpacing;
+    return Math.max(node.labelWidth ?? node.width ?? 0, config.nodeSpacing);
+  };
+
+  const getLabelAwareTarget = (n1, n2) => {
+    if (!config.labelAwareLinkDistance) return 0;
+    const widthSum = getLabelWidth(n1) + getLabelWidth(n2);
+    const padding = config.labelAwareLinkPadding || 0;
+    return widthSum * 0.6 + padding;
   };
   
   // Initialize positions
@@ -496,9 +546,14 @@ export function forceDirectedLayout(nodes, edges, options = {}) {
         const c1 = clusterMap.get(n1.id);
         const c2 = clusterMap.get(n2.id);
         const crossCluster = isMultiCluster && c1 !== c2;
-        const crossClusterMultiplier = crossCluster
+        const baseCrossClusterMultiplier = crossCluster
           ? 1 + Math.min(0.5, 0.1 * Math.max(0, clusterCount - 1))
           : 1.0;
+        const proximityThreshold = finalTargetLinkDistance * 0.4;
+        const proximityBoost = crossCluster && dist < proximityThreshold
+          ? ((proximityThreshold - dist) / proximityThreshold) * 1.2
+          : 0;
+        const crossClusterMultiplier = baseCrossClusterMultiplier + proximityBoost;
         
         const r1 = getNodeRadius(n1);
         const r2 = getNodeRadius(n2);
@@ -541,7 +596,9 @@ export function forceDirectedLayout(nodes, edges, options = {}) {
       const r1 = getNodeRadius(n1);
       const r2 = getNodeRadius(n2);
       const minDist = (r1 + r2) * 1.2;
-      const effectiveTarget = Math.max(finalTargetLinkDistance, minDist);
+      const labelAwareTarget = getLabelAwareTarget(n1, n2);
+      const baseTarget = finalTargetLinkDistance;
+      const effectiveTarget = Math.max(baseTarget, labelAwareTarget, minDist);
       
       const spring = calculateSpring(p1, p2, effectiveTarget, 
         config.attractionStrength * springMult * alpha);
@@ -735,7 +792,7 @@ function resolveOverlaps(positions, nodes, getRadius, padding, width, height, pa
 function condenseClusters(positions, clusters, centerX, centerY, config) {
   if (clusters.length <= 1) return;
 
-  const shrinkFactor = 0.65;
+  const shrinkFactor = 0.75;
   const minDistanceFromCenter = 120;
 
   clusters.forEach(cluster => {
