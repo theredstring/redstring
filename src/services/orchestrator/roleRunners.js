@@ -3,6 +3,7 @@ import queueManager from '../queue/Queue.js';
 import toolValidator from '../toolValidator.js';
 import { RolePrompts, ToolAllowlists } from '../roles.js';
 import { getBridgeStore, getGraphById, getActiveGraph } from '../bridgeStoreAccessor.js';
+import { getGraphSemanticStructure } from '../graphQueries.js';
 
 function buildPartialLayoutContext(graphId) {
   const store = getBridgeStore();
@@ -600,68 +601,27 @@ export async function runExecutorOnce() {
       }
     } else if (task.toolName === 'read_graph_structure') {
       // Read-only tool: return semantic graph structure without spatial data
+      // Uses abstracted graph query layer for consistency
       const store = getBridgeStore();
       const graphId = validation.sanitized.graph_id || store.activeGraphId;
-      const graph = graphId ? getGraphById(graphId) : getActiveGraph();
       
-      if (!graph) {
-        console.warn(`[Executor] read_graph_structure: Graph not found (${graphId})`);
-        // Create a response op that the UI can interpret
-        ops.push({
-          type: 'readResponse',
-          toolName: 'read_graph_structure',
-          data: { error: 'Graph not found', graphId }
-        });
+      const result = getGraphSemanticStructure(store, graphId, {
+        includeDescriptions: validation.sanitized.include_descriptions !== false,
+        includeColors: true
+      });
+      
+      if (result.error) {
+        console.warn(`[Executor] read_graph_structure: ${result.error} (${graphId})`);
       } else {
-        // Build semantic structure (nodes, edges, no x/y coordinates)
-        const nodes = (graph.instances || []).map(inst => {
-          const proto = store.nodePrototypes.find(p => p.id === inst.prototypeId);
-          return {
-            id: inst.id,
-            prototypeId: inst.prototypeId,
-            name: proto?.name || 'Unknown',
-            description: validation.sanitized.include_descriptions !== false ? (proto?.description || '') : undefined,
-            color: proto?.color || '#5B6CFF'
-          };
-        });
-        const nodeNameByInstanceId = new Map(nodes.map(n => [n.id, n.name]));
-        
-        const edges = validation.sanitized.include_edges !== false 
-          ? (graph.edgeIds || []).map(edgeId => {
-              const edge = store.edges?.find(e => e.id === edgeId);
-              if (!edge) return null;
-              return {
-                id: edge.id,
-                sourceId: edge.sourceId,
-                sourceName: nodeNameByInstanceId.get(edge.sourceId) || edge.sourceId,
-                destinationId: edge.destinationId,
-                destinationName: nodeNameByInstanceId.get(edge.destinationId) || edge.destinationId,
-                name: edge.name || '',
-                description: validation.sanitized.include_descriptions !== false ? (edge.description || '') : undefined,
-                directionality: edge.directionality
-              };
-            }).filter(Boolean)
-          : [];
-        
-        const result = {
-          graphId: graph.id,
-          name: graph.name || 'Untitled',
-          description: validation.sanitized.include_descriptions !== false ? (graph.description || '') : undefined,
-          nodeCount: nodes.length,
-          edgeCount: edges.length,
-          nodes,
-          edges
-        };
-        
-        // Create a response op that the UI can interpret
-        ops.push({
-          type: 'readResponse',
-          toolName: 'read_graph_structure',
-          data: result
-        });
-        
-        console.log(`[Executor] read_graph_structure: Read ${nodes.length} nodes, ${edges.length} edges from "${result.name}"`);
+        console.log(`[Executor] read_graph_structure: Read ${result.nodeCount} nodes, ${result.edgeCount} edges from "${result.name}"`);
       }
+      
+      // Create a response op that the UI can interpret
+      ops.push({
+        type: 'readResponse',
+        toolName: 'read_graph_structure',
+        data: result
+      });
     } else if (task.toolName === 'update_node_prototype') {
       // Update an existing node prototype
       ops.push({

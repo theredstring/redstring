@@ -162,16 +162,16 @@ function generateInitialPositions(nodes, adjacency, width, height, options = {})
   );
   mainPositions.forEach((pos, id) => positions.set(id, pos));
 
-  // Small clusters initially placed further out, but keep small counts tighter
+  // Small clusters start close to the main cluster for fewer groups, expanding gently as count grows
   const minDimension = Math.min(width, height);
   const isTwoClusterScenario = smallClusterCount === 1;
-  const baseOrbitFactor = isTwoClusterScenario ? 0.28 : 0.45;
-  const maxOrbitFactor = isTwoClusterScenario ? 0.35 : 0.65;
-  const perClusterBoost = isTwoClusterScenario ? 0.02 : 0.05;
+  const baseOrbitFactor = isTwoClusterScenario ? 0.18 : 0.32;
+  const maxOrbitFactor = isTwoClusterScenario ? 0.25 : 0.55;
+  const perClusterBoost = isTwoClusterScenario ? 0.02 : 0.04;
   const additionalClusters = Math.max(0, smallClusterCount - (isTwoClusterScenario ? 0 : 1));
   const orbitBoost = Math.min(maxOrbitFactor - baseOrbitFactor, additionalClusters * perClusterBoost);
   const orbitRadius = minDimension * (baseOrbitFactor + orbitBoost);
-  const clusterRadius = minDimension * 0.18;  // Larger cluster radius
+  const clusterRadius = minDimension * (isTwoClusterScenario ? 0.34 : 0.22);  // Larger cluster radius
   
   smallClusters.forEach((cluster, index) => {
     const angle = (2 * Math.PI * index) / smallClusters.length;
@@ -409,12 +409,15 @@ export function forceDirectedLayout(nodes, edges, options = {}) {
     cluster.forEach(node => clusterMap.set(node.id, idx));
   });
   
-  // Apply cluster scaling - more clusters need more space
+  // Apply cluster scaling - more clusters need more space, but keep link stretch tight
   const totalClusters = clusters.length;
-  const clusterScale = totalClusters > 1 ? (1 + Math.log10(totalClusters) * 0.3) : 1;
+  const clusterScale = totalClusters > 1 ? (1 + Math.log10(totalClusters) * 0.2) : 1;
+  const linkStretch = totalClusters > 1
+    ? Math.min(1.15, 0.95 + Math.log10(totalClusters) * 0.1)
+    : 1;
   
   // Update distances with cluster scaling
-  const finalTargetLinkDistance = targetLinkDistance * clusterScale;
+  const finalTargetLinkDistance = targetLinkDistance * linkStretch;
   const finalMinNodeDistance = minNodeDistance * clusterScale;
   const finalMaxRepulsionDistance = maxRepulsionDistance * clusterScale;
   
@@ -494,13 +497,13 @@ export function forceDirectedLayout(nodes, edges, options = {}) {
         const c2 = clusterMap.get(n2.id);
         const crossCluster = isMultiCluster && c1 !== c2;
         const crossClusterMultiplier = crossCluster
-          ? Math.min(2.2, 1 + Math.max(0, clusterCount - 2) * 0.25)
+          ? 1 + Math.min(0.5, 0.1 * Math.max(0, clusterCount - 1))
           : 1.0;
         
         const r1 = getNodeRadius(n1);
         const r2 = getNodeRadius(n2);
         const effectiveMinNodeDistance = crossCluster
-          ? finalMinNodeDistance * (isTwoClusterScenario ? 0.65 : 0.8)
+          ? finalMinNodeDistance * (isTwoClusterScenario ? 0.55 : 0.75)
           : finalMinNodeDistance;
         const minDist = Math.max((r1 + r2) * 1.2, effectiveMinNodeDistance);
         
@@ -615,6 +618,8 @@ export function forceDirectedLayout(nodes, edges, options = {}) {
   resolveOverlaps(positions, nodes, getNodeRadius, config.padding, 
     config.width, config.height, 3);
   
+  condenseClusters(positions, clusters, centerX, centerY, config);
+
   return positions;
 }
 
@@ -722,6 +727,60 @@ function resolveOverlaps(positions, nodes, getRadius, padding, width, height, pa
       }
     }
   }
+}
+
+/**
+ * Pull clusters closer to center after layout so we undo overly distant placement.
+ */
+function condenseClusters(positions, clusters, centerX, centerY, config) {
+  if (clusters.length <= 1) return;
+
+  const shrinkFactor = 0.65;
+  const minDistanceFromCenter = 120;
+
+  clusters.forEach(cluster => {
+    if (!cluster || cluster.length === 0) return;
+
+    let sumX = 0;
+    let sumY = 0;
+    let count = 0;
+    cluster.forEach(node => {
+      const pos = positions.get(node.id);
+      if (pos) {
+        sumX += pos.x;
+        sumY += pos.y;
+        count += 1;
+      }
+    });
+
+    if (count === 0) return;
+
+    const centroidX = sumX / count;
+    const centroidY = sumY / count;
+    const dx = centroidX - centerX;
+    const dy = centroidY - centerY;
+    const dist = Math.sqrt(dx * dx + dy * dy);
+    if (dist <= minDistanceFromCenter) return;
+
+    const maxShrink = Math.min(dist - minDistanceFromCenter, dist * shrinkFactor);
+    if (maxShrink <= 0) return;
+
+    const shiftDistance = maxShrink;
+    const ux = dx / dist;
+    const uy = dy / dist;
+
+    const shiftX = ux * shiftDistance;
+    const shiftY = uy * shiftDistance;
+
+    cluster.forEach(node => {
+      const pos = positions.get(node.id);
+      if (!pos) return;
+      pos.x -= shiftX;
+      pos.y -= shiftY;
+      pos.x = clamp(pos.x, config.padding, config.width - config.padding);
+      pos.y = clamp(pos.y, config.padding, config.height - config.padding);
+    });
+  });
 }
 
 // ============================================================================

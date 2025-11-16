@@ -9,6 +9,7 @@ import queueManager from './src/services/queue/Queue.js';
 import eventLog from './src/services/EventLog.js';
 import committer from './src/services/Committer.js';
 import { setBridgeStoreRef } from './src/services/bridgeStoreAccessor.js';
+import { getGraphStatistics, getGraphSemanticStructure } from './src/services/graphQueries.js';
 import fs from 'fs';
 import http from 'http';
 import https from 'https';
@@ -986,26 +987,27 @@ app.post('/api/ai/agent', async (req, res) => {
           ? `\n🎨 USER'S COLOR PALETTE (${userPalette.count} colors, avg hue: ${userPalette.avgHue}°):\nUSE THESE COLORS: ${paletteColors.join(', ')}\n⚠️ ONLY use colors from the list above. Pick colors that match the concept's meaning.` 
           : `\n🎨 AVAILABLE COLORS: ${paletteColors.join(', ')}\n⚠️ ONLY use colors from the list above. Pick colors that match the concept's meaning.`;
         
-        // Build rich current graph context
-        const activeGraph = postedGraphs.find(g => g.id === targetGraphId);
+        // Build rich current graph context using abstracted queries
+        const stats = getGraphStatistics(bridgeStoreData);
         let graphContext = '';
-        if (activeGraph) {
-          const nodeCount = activeGraph.instanceCount || 0;
-          const edgeCount = activeGraph.edgeCount || 0;
-          const isEmpty = nodeCount === 0;
-          graphContext = `\n\n🎯 CURRENT GRAPH: "${activeGraph.name}"`;
-          if (isEmpty) {
+        
+        if (stats.activeGraph) {
+          const ag = stats.activeGraph;
+          graphContext = `\n\n🎯 CURRENT GRAPH: "${ag.name}"`;
+          if (ag.nodeCount === 0) {
             graphContext += '\nStatus: Empty (perfect for populating!)';
           } else {
-            graphContext += `\nStatus: ${nodeCount} node${nodeCount !== 1 ? 's' : ''}, ${edgeCount} connection${edgeCount !== 1 ? 's' : ''}`;
-            // Add a few example nodes if available
-            if (activeGraph.nodes && activeGraph.nodes.length > 0) {
-              const exampleNodes = activeGraph.nodes.slice(0, 3).map(n => n.name || 'Unnamed').join(', ');
-              graphContext += `\nExample concepts: ${exampleNodes}${activeGraph.nodes.length > 3 ? '...' : ''}`;
+            graphContext += `\nStatus: ${ag.nodeCount} node${ag.nodeCount !== 1 ? 's' : ''}, ${ag.edgeCount} connection${ag.edgeCount !== 1 ? 's' : ''}`;
+            // Add a few example nodes from semantic structure
+            const structure = getGraphSemanticStructure(bridgeStoreData, ag.id, { includeDescriptions: false });
+            if (structure.nodes && structure.nodes.length > 0) {
+              const exampleNodes = structure.nodes.slice(0, 3).map(n => n.name).join(', ');
+              graphContext += `\nExample concepts: ${exampleNodes}${structure.nodes.length > 3 ? '...' : ''}`;
             }
           }
-        } else if (postedGraphs.length > 0) {
-          graphContext = `\n\n📚 AVAILABLE GRAPHS: ${postedGraphs.length} total (${postedGraphs.slice(0, 3).map(g => `"${g.name}"`).join(', ')}${postedGraphs.length > 3 ? '...' : ''})`;
+        } else if (stats.totalGraphs > 0) {
+          const graphNames = stats.allGraphs.slice(0, 3).map(g => `"${g.name}"`).join(', ');
+          graphContext = `\n\n📚 AVAILABLE GRAPHS: ${stats.totalGraphs} total (${graphNames}${stats.totalGraphs > 3 ? '...' : ''})`;
         } else {
           graphContext = '\n\n📚 No graphs yet - perfect time to create one!';
         }
