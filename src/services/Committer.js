@@ -156,15 +156,33 @@ class CommitterService {
                     // AUTO-CHAIN: Trigger next planning step with read results
                     // This enables agentic behavior: read → reason → act
                     console.log('[Committer] Auto-chaining: triggering follow-up planning with read results');
-                    await bridgeFetch('/api/ai/agent/continue', {
-                      method: 'POST',
-                      headers: { 'Content-Type': 'application/json' },
-                      body: JSON.stringify({ 
-                        cid: threadId, 
-                        readResult: data,
-                        context: { graphId: data.graphId }
-                      })
-                    }).catch(e => console.warn('[Committer] Auto-chain failed:', e.message));
+                    
+                    // Get API key for continuation call
+                    const apiKeyManager = await import('./apiKeyManager.js').then(m => m.default);
+                    const apiConfig = await apiKeyManager.getAPIKeyInfo();
+                    const apiKey = await apiKeyManager.getAPIKey();
+                    
+                    if (apiKey) {
+                      await bridgeFetch('/api/ai/agent/continue', {
+                        method: 'POST',
+                        headers: { 
+                          'Content-Type': 'application/json',
+                          'Authorization': `Bearer ${apiKey}`
+                        },
+                        body: JSON.stringify({ 
+                          cid: threadId, 
+                          readResult: data,
+                          context: { graphId: data.graphId },
+                          apiConfig: apiConfig ? {
+                            provider: apiConfig.provider,
+                            endpoint: apiConfig.endpoint,
+                            model: apiConfig.model
+                          } : null
+                        })
+                      }).catch(e => console.warn('[Committer] Auto-chain failed:', e.message));
+                    } else {
+                      console.warn('[Committer] Auto-chain skipped: No API key available');
+                    }
                   }
                 }
               }
@@ -203,27 +221,102 @@ class CommitterService {
             for (const threadId of threadIds) {
               const msg = `Applied ${nodeCount} node${nodeCount !== 1 ? 's' : ''}${edgeCount > 0 ? ` and ${edgeCount} edge${edgeCount !== 1 ? 's' : ''}` : ''}`;
               const { bridgeFetch } = await import('./bridgeConfig.js');
+              
+              // Send completion message to chat
               await bridgeFetch('/api/bridge/chat/append', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ role: 'system', text: msg, cid: threadId, channel: 'agent' })
               }).catch(() => {});
               
-              // FOLLOW-UP LOOP: Trigger audit/cleanup after graph modifications
-              // Only if nodes were added (potential for duplicates/missing connections)
-              if (nodeCount >= 3) {
-                console.log(`[Committer] FOLLOW-UP: Triggering audit for ${nodeCount} new nodes in graph ${graphId}`);
-                await bridgeFetch('/api/ai/agent/audit', {
+              // Report tool call completion status updates to chat
+              // Determine which tool completed based on operation types
+              const hasPrototypes = ops.some(o => o.type === 'addNodePrototype');
+              const hasInstances = ops.some(o => o.type === 'addNodeInstance');
+              const hasEdges = ops.some(o => o.type === 'addEdge');
+              const hasEdgeUpdates = ops.some(o => o.type === 'updateEdgeDefinition');
+              
+              const completedTools = [];
+              
+              if (hasPrototypes && hasInstances && hasEdges) {
+                completedTools.push({
+                  name: 'create_subgraph',
+                  status: 'completed',
+                  args: { graphId, nodeCount, edgeCount }
+                });
+              }
+              
+              if (hasEdgeUpdates || (hasEdges && !hasInstances)) {
+                completedTools.push({
+                  name: 'define_connections',
+                  status: 'completed',
+                  args: { graphId, edgeCount }
+                });
+              }
+              
+              // Send tool call status updates if any tools completed
+              if (completedTools.length > 0) {
+                await bridgeFetch('/api/bridge/tool-status', {
                   method: 'POST',
                   headers: { 'Content-Type': 'application/json' },
                   body: JSON.stringify({
                     cid: threadId,
-                    graphId: graphId,
-                    nodeCount,
-                    edgeCount,
-                    action: 'audit_and_cleanup'
+                    toolCalls: completedTools
                   })
-                }).catch(err => console.warn('[Committer] Follow-up audit failed:', err.message));
+                }).catch(err => console.warn('[Committer] Tool status update failed:', err.message));
+              }
+              
+              // AGENTIC LOOP: Check if we should continue building
+              // Look for meta.agenticLoop flag to determine if this is part of an iterative build
+              const isAgenticBatch = unseen.some(p => p.meta?.agenticLoop);
+              const currentIteration = unseen[0]?.meta?.iteration || 0;
+              
+              if (isAgenticBatch || (nodeCount >= 3 && !isAgenticBatch)) {
+                console.log(`[Committer] AGENTIC LOOP: Checking if more work needed (iteration ${currentIteration})`);
+                
+                // Get current graph state for LLM context
+                const store = await import('./bridgeStoreAccessor.js').then(m => m.getBridgeStore());
+                const graph = store.graphs instanceof Map 
+                  ? store.graphs.get(graphId)
+                  : Array.isArray(store.graphs) 
+                    ? store.graphs.find(g => g.id === graphId)
+                    : null;
+                
+                const graphState = graph ? {
+                  graphId,
+                  name: graph.name || 'Unnamed graph',
+                  nodeCount: graph.instances ? Object.keys(graph.instances).length : 0,
+                  edgeCount: Array.isArray(graph.edgeIds) ? graph.edgeIds.length : 0,
+                  nodes: Array.isArray(store.nodePrototypes) 
+                    ? store.nodePrototypes.slice(0, 10).map(p => ({ name: p.name }))
+                    : []
+                } : null;
+                
+                // Get API config for continuation
+                const apiKeyManager = await import('./apiKeyManager.js').then(m => m.default);
+                const apiConfig = await apiKeyManager.getAPIKeyInfo();
+                const apiKey = await apiKeyManager.getAPIKey();
+                
+                if (graphState && apiKey) {
+                  await bridgeFetch('/api/ai/agent/continue', {
+                    method: 'POST',
+                    headers: { 
+                      'Content-Type': 'application/json',
+                      'Authorization': `Bearer ${apiKey}`
+                    },
+                    body: JSON.stringify({
+                      cid: threadId,
+                      lastAction: { type: 'create_subgraph', nodeCount, edgeCount },
+                      graphState,
+                      iteration: currentIteration,
+                      apiConfig: apiConfig ? {
+                        provider: apiConfig.provider,
+                        endpoint: apiConfig.endpoint,
+                        model: apiConfig.model
+                      } : null
+                    })
+                  }).catch(err => console.warn('[Committer] Agentic loop continuation failed:', err.message));
+                }
               }
             }
           }

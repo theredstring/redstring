@@ -888,7 +888,7 @@ const BridgeClient = () => {
         } catch {}
         const layouts = buildGraphLayouts(state);
         const summaries = buildGraphSummaries(state);
-
+        
         // Send only minimal essential data to keep payload small
         const graphEdges = state.activeGraphId && state.edges
           ? Array.from(state.edges.values())

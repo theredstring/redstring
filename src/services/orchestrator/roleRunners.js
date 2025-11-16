@@ -5,6 +5,60 @@ import { RolePrompts, ToolAllowlists } from '../roles.js';
 import { getBridgeStore, getGraphById, getActiveGraph } from '../bridgeStoreAccessor.js';
 import { getGraphSemanticStructure } from '../graphQueries.js';
 
+// FUZZY DEDUPLICATION HELPER: Calculate string similarity (Dice coefficient on bigrams)
+function calculateStringSimilarity(s1, s2) {
+  const a = (s1 || '').toLowerCase().trim();
+  const b = (s2 || '').toLowerCase().trim();
+  if (a === b) return 1;
+  if (a.length < 2 || b.length < 2) return 0;
+  
+  const getBigrams = str => {
+    const bigrams = [];
+    for (let i = 0; i < str.length - 1; i++) bigrams.push(str.slice(i, i + 2));
+    return bigrams;
+  };
+  
+  const bigramsA = getBigrams(a);
+  const bigramsB = getBigrams(b);
+  let matches = 0;
+  const used = new Set();
+  
+  bigramsA.forEach(bigram => {
+    const idx = bigramsB.findIndex((b, i) => b === bigram && !used.has(i));
+    if (idx >= 0) {
+      matches++;
+      used.add(idx);
+    }
+  });
+  
+  return (2 * matches) / (bigramsA.length + bigramsB.length);
+}
+
+// FUZZY DEDUPLICATION HELPER: Find existing prototype for a node name (exact or fuzzy match)
+function findExistingPrototype(nodeName, store, similarityThreshold = 0.80) {
+  if (!Array.isArray(store.nodePrototypes)) return null;
+  
+  // First try exact match (case-insensitive)
+  let existingProto = store.nodePrototypes.find(p => p.name?.toLowerCase() === nodeName.toLowerCase());
+  if (existingProto) return { proto: existingProto, matchType: 'exact' };
+  
+  // If no exact match, try fuzzy matching
+  const candidates = store.nodePrototypes
+    .map(p => ({ proto: p, similarity: calculateStringSimilarity(nodeName, p.name || '') }))
+    .filter(c => c.similarity >= similarityThreshold)
+    .sort((a, b) => b.similarity - a.similarity);
+  
+  if (candidates.length > 0) {
+    return { 
+      proto: candidates[0].proto, 
+      matchType: 'fuzzy', 
+      similarity: candidates[0].similarity 
+    };
+  }
+  
+  return null;
+}
+
 function buildPartialLayoutContext(graphId) {
   const store = getBridgeStore();
   const targetGraph = graphId ? getGraphById(graphId) : getActiveGraph();
@@ -52,13 +106,27 @@ export async function runPlannerOnce() {
   if (items.length === 0) return;
   const item = items[0];
   // Fan out tasks from provided DAG or create a trivial task
+  // Propagate meta from goal to tasks for agentic loop tracking
   const dag = item.dag || { tasks: [] };
+  const goalMeta = item.meta || {};
+  
   if (Array.isArray(dag.tasks) && dag.tasks.length > 0) {
     for (const t of dag.tasks) {
-      queueManager.enqueue('taskQueue', { ...t, threadId: t.threadId || item.threadId, partitionKey: t.threadId || item.threadId || 'default' });
+      queueManager.enqueue('taskQueue', { 
+        ...t, 
+        threadId: t.threadId || item.threadId, 
+        partitionKey: t.threadId || item.threadId || 'default',
+        meta: goalMeta  // Propagate meta for agentic loop
+      });
     }
   } else {
-    queueManager.enqueue('taskQueue', { toolName: 'verify_state', args: {}, threadId: item.threadId, partitionKey: item.threadId || 'default' });
+    queueManager.enqueue('taskQueue', { 
+      toolName: 'verify_state', 
+      args: {}, 
+      threadId: item.threadId, 
+      partitionKey: item.threadId || 'default',
+      meta: goalMeta
+    });
   }
   queueManager.ack('goalQueue', item.leaseId);
 }
@@ -102,16 +170,18 @@ export async function runExecutorOnce() {
       nodes.forEach((node, idx) => {
         const name = String(node?.name || '').trim() || `Concept ${idx + 1}`;
         
-        // SYNTHESIS: Check if a prototype with this name already exists (case-insensitive)
-        const existingProto = Array.isArray(store.nodePrototypes)
-          ? store.nodePrototypes.find(p => p.name?.toLowerCase() === name.toLowerCase())
-          : null;
+        // FUZZY DEDUPLICATION: Check for exact or similar existing prototype
+        const match = findExistingPrototype(name, store);
         
         let prototypeId;
-        if (existingProto) {
-          // Reuse existing prototype
-          prototypeId = existingProto.id;
-          console.log(`[Executor] SYNTHESIS: Reusing existing prototype "${name}" (${prototypeId})`);
+        if (match) {
+          // Reuse existing prototype (exact or fuzzy match)
+          prototypeId = match.proto.id;
+          if (match.matchType === 'fuzzy') {
+            console.log(`[Executor] 🧬 FUZZY MATCH: "${name}" → "${match.proto.name}" (${Math.round(match.similarity * 100)}% similar)`);
+          } else {
+            console.log(`[Executor] ♻️  EXACT MATCH: Reusing prototype "${match.proto.name}" (${prototypeId})`);
+          }
         } else {
           // Create new prototype
           prototypeId = `prototype-${Date.now()}-${idx}-${Math.random().toString(36).slice(2,8)}`;
@@ -126,7 +196,7 @@ export async function runExecutorOnce() {
               definitionGraphIds: []
             }
           });
-          console.log(`[Executor] SYNTHESIS: Created new prototype "${name}" (${prototypeId})`);
+          console.log(`[Executor] ✨ NEW PROTOTYPE: Created "${name}" (${prototypeId})`);
         }
         
         const instanceId = `inst-${Date.now()}-${idx}-${Math.random().toString(36).slice(2,8)}`;
@@ -441,16 +511,18 @@ export async function runExecutorOnce() {
       nodes.forEach((node, idx) => {
         const name = String(node?.name || '').trim() || `Concept ${idx + 1}`;
         
-        // SYNTHESIS: Check if a prototype with this name already exists (case-insensitive)
-        const existingProto = Array.isArray(store.nodePrototypes)
-          ? store.nodePrototypes.find(p => p.name?.toLowerCase() === name.toLowerCase())
-          : null;
+        // FUZZY DEDUPLICATION: Check for exact or similar existing prototype
+        const match = findExistingPrototype(name, store);
         
         let prototypeId;
-        if (existingProto) {
-          // Reuse existing prototype
-          prototypeId = existingProto.id;
-          console.log(`[Executor] SYNTHESIS: Reusing existing prototype "${name}" (${prototypeId})`);
+        if (match) {
+          // Reuse existing prototype (exact or fuzzy match)
+          prototypeId = match.proto.id;
+          if (match.matchType === 'fuzzy') {
+            console.log(`[Executor] 🧬 FUZZY MATCH: "${name}" → "${match.proto.name}" (${Math.round(match.similarity * 100)}% similar)`);
+          } else {
+            console.log(`[Executor] ♻️  EXACT MATCH: Reusing prototype "${match.proto.name}" (${prototypeId})`);
+          }
         } else {
           // Create new prototype
           prototypeId = `prototype-${Date.now()}-${idx}-${Math.random().toString(36).slice(2,8)}`;
@@ -465,7 +537,7 @@ export async function runExecutorOnce() {
               definitionGraphIds: []
             }
           });
-          console.log(`[Executor] SYNTHESIS: Created new prototype "${name}" (${prototypeId})`);
+          console.log(`[Executor] ✨ NEW PROTOTYPE: Created "${name}" (${prototypeId})`);
         }
         
         const instanceId = `inst-${Date.now()}-${idx}-${Math.random().toString(36).slice(2,8)}`;
@@ -707,7 +779,8 @@ export async function runExecutorOnce() {
       threadId: task.threadId,
       graphId: validation.sanitized.graph_id || validation.sanitized.graphId || 'unknown',
       baseHash: null,
-      ops
+      ops,
+      meta: task.meta || {}  // Propagate meta from task to patch
     };
     queueManager.enqueue('patchQueue', patch, { partitionKey: patch.threadId || 'default' });
     queueManager.ack('taskQueue', task.leaseId);
@@ -727,7 +800,13 @@ export async function runAuditorOnce() {
     const ok = Array.isArray(item.ops);
     const decision = ok ? 'approved' : 'rejected';
     // Use a distinct field that won't be overwritten by queue wrapper
-    queueManager.enqueue('reviewQueue', { reviewStatus: decision, graphId: item.graphId, patch: item });
+    // Propagate meta to review queue for Committer access
+    queueManager.enqueue('reviewQueue', { 
+      reviewStatus: decision, 
+      graphId: item.graphId, 
+      patch: item,
+      meta: item.meta || {}  // Propagate meta for agentic loop
+    });
     // Ack original patch item now that mirrored
     queueManager.ack('patchQueue', item.leaseId);
   } catch (e) {

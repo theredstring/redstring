@@ -139,6 +139,7 @@ function generateInitialPositions(nodes, adjacency, width, height, options = {})
   const centerY = height / 2;
   const degrees = buildDegreeMap(nodes, adjacency);
   const clusters = getGraphClusters(nodes, adjacency);
+  const densityFactor = Math.max(0, Math.min(1, options.densityFactor ?? 0));
   const manualScaleTarget = clamp(
     options.layoutScaleMultiplier ?? 1,
     0.5,
@@ -164,7 +165,7 @@ function generateInitialPositions(nodes, adjacency, width, height, options = {})
 
   
   // Main cluster in center
-  const mainRadius = Math.min(width, height) * 0.2;  // Tighter main cluster
+  const mainRadius = Math.min(width, height) * (0.2 * Math.max(0.6, 1 - densityFactor * 0.2));  // Tighter main cluster
   const mainPositions = positionClusterInRings(
     mainCluster, centerX, centerY, mainRadius, degrees
   );
@@ -178,9 +179,10 @@ function generateInitialPositions(nodes, adjacency, width, height, options = {})
   const perClusterBoost = isTwoClusterScenario ? 0.015 : 0.03;
   const additionalClusters = Math.max(0, smallClusterCount - (isTwoClusterScenario ? 0 : 1));
   const orbitBoost = Math.min(maxOrbitFactor - baseOrbitFactor, additionalClusters * perClusterBoost);
-  const orbitRadius = minDimension * (baseOrbitFactor + orbitBoost) * clusterSpacingFactor;
+  const orbitCompression = 1 - densityFactor * 0.35;
+  const orbitRadius = minDimension * (baseOrbitFactor + orbitBoost) * clusterSpacingFactor * Math.max(0.55, orbitCompression);
   const clusterRadiusBoost = 1 + layoutScaleAdjustment * 0.2;
-  const clusterRadius = minDimension * (isTwoClusterScenario ? 0.34 : 0.22) * clusterRadiusBoost;
+  const clusterRadius = minDimension * (isTwoClusterScenario ? 0.34 : 0.22) * clusterRadiusBoost * (1 - densityFactor * 0.12);
   
   smallClusters.forEach((cluster, index) => {
     const angle = (2 * Math.PI * index) / smallClusters.length;
@@ -422,7 +424,16 @@ export function forceDirectedLayout(nodes, edges, options = {}) {
   const targetLinkDistance = config.targetLinkDistance * effectiveScale;
   const minNodeDistance = config.minNodeDistance * effectiveScale;
   const maxRepulsionDistance = config.maxRepulsionDistance * effectiveScale;
-  const repulsionStrength = config.repulsionStrength * (effectiveScale ** 0.5);
+  const baseRepulsionStrength = config.repulsionStrength * (effectiveScale ** 0.5);
+  const totalPossibleEdges = Math.max(1, totalNodes * (totalNodes - 1) / 2);
+  const rawDensity = edges.length / totalPossibleEdges;
+  const densityFactor = Math.min(1, rawDensity * 1.25);
+  const densityRepulsionMultiplier = Math.max(0.4, 1 - densityFactor * 0.6);
+  const densityAttractionMultiplier = 1 + densityFactor * 0.45;
+  const densityNodeDistanceFactor = Math.max(0.65, 1 - densityFactor * 0.35);
+  const densityRepulsionDistanceFactor = Math.max(0.6, 1 - densityFactor * 0.25);
+  const repulsionStrength = baseRepulsionStrength * densityRepulsionMultiplier;
+  const attractionStrength = config.attractionStrength * densityAttractionMultiplier;
   
   // Build adjacency
   const adjacency = new Map();
@@ -456,8 +467,8 @@ export function forceDirectedLayout(nodes, edges, options = {}) {
   
   // Update distances with cluster scaling
   const finalTargetLinkDistance = targetLinkDistance * Math.max(0.85, linkStretch * linkShrinkFactor);
-  const finalMinNodeDistance = minNodeDistance * clusterScale;
-  const finalMaxRepulsionDistance = maxRepulsionDistance * clusterScale;
+  const finalMinNodeDistance = minNodeDistance * clusterScale * densityNodeDistanceFactor;
+  const finalMaxRepulsionDistance = maxRepulsionDistance * clusterScale * densityRepulsionDistanceFactor;
   
   // Calculate node radii
   const getNodeRadius = (node) => {
@@ -495,7 +506,12 @@ export function forceDirectedLayout(nodes, edges, options = {}) {
       velocities.set(node.id, { x: 0, y: 0 });
     });
   } else {
-    const initial = generateInitialPositions(nodes, adjacency, config.width, config.height, config);
+    const initialOptions = {
+      ...config,
+      densityFactor,
+      layoutScaleMultiplier: manualScaleTarget
+    };
+    const initial = generateInitialPositions(nodes, adjacency, config.width, config.height, initialOptions);
     initial.forEach((pos, id) => {
       positions.set(id, { ...pos });
       velocities.set(id, { x: 0, y: 0 });
@@ -601,7 +617,7 @@ export function forceDirectedLayout(nodes, edges, options = {}) {
       const effectiveTarget = Math.max(baseTarget, labelAwareTarget, minDist);
       
       const spring = calculateSpring(p1, p2, effectiveTarget, 
-        config.attractionStrength * springMult * alpha);
+        attractionStrength * springMult * alpha);
       
       const f1 = forces.get(edge.sourceId);
       const f2 = forces.get(edge.destinationId);

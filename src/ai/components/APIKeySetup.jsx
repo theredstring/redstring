@@ -91,7 +91,7 @@ const APIKeySetup = ({ onKeySet, onClose, inline = false }) => {
             throw new Error('Stored API key not found. Please enter it manually.');
           }
         } else {
-          throw new Error('API key cannot be empty');
+        throw new Error('API key cannot be empty');
         }
       } else if (!apiKeyManager.validateAPIKey(keyToStore)) {
         throw new Error('Invalid API key');
@@ -476,25 +476,25 @@ const APIKeySetup = ({ onKeySet, onClose, inline = false }) => {
             <div className="form-group">
               <label htmlFor="apiKey">API Key</label>
               {(!isEditingExisting || allowKeyEdit) ? (
-                <div className="key-input-container">
-                  <input
-                    id="apiKey"
-                    type={showKey ? 'text' : 'password'}
-                    value={apiKey}
-                    onChange={(e) => setApiKey(e.target.value)}
-                    placeholder="Enter your API key"
-                    disabled={isLoading}
-                    className="key-input"
-                  />
-                  <button
-                    type="button"
-                    className="toggle-visibility"
-                    onClick={() => setShowKey(!showKey)}
-                    disabled={isLoading}
-                  >
-                    {showKey ? <EyeOff size={16} /> : <Eye size={16} />}
-                  </button>
-                </div>
+              <div className="key-input-container">
+                <input
+                  id="apiKey"
+                  type={showKey ? 'text' : 'password'}
+                  value={apiKey}
+                  onChange={(e) => setApiKey(e.target.value)}
+                  placeholder="Enter your API key"
+                  disabled={isLoading}
+                  className="key-input"
+                />
+                <button
+                  type="button"
+                  className="toggle-visibility"
+                  onClick={() => setShowKey(!showKey)}
+                  disabled={isLoading}
+                >
+                  {showKey ? <EyeOff size={16} /> : <Eye size={16} />}
+                </button>
+              </div>
               ) : (
                 <div className="key-edit-toggle">
                   <p>This configuration will reuse your existing API key.</p>
