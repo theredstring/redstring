@@ -190,3 +190,7 @@
 {"type":"ack","itemId":"itm-1763255700276-uyi6ze2j","leaseId":"lease-1763255700276-1tl5i0sd","ts":1763255700276}
 {"type":"enq","item":{"patchId":"patch-1763255700493-09ttxg","threadId":"cid-1763255690769-afhorf","graphId":"graph-1763255699986-of3rq7","baseHash":null,"ops":[{"type":"readResponse","toolName":"define_connections","data":{"message":"All visible edges already have connection definitions."}}],"id":"itm-1763255700493-jshq3uy0","partitionKey":"cid-1763255690769-afhorf","enqueuedAt":1763255700493,"status":"queued"}}
 {"type":"ack","itemId":"itm-1763255700493-jshq3uy0","leaseId":"lease-1763255700493-uwempcbo","ts":1763255700493}
+{"type":"enq","item":{"patchId":"patch-1763255871633-yfiubu","threadId":"cid-1763255772488-00ta3t","graphId":"graph-1763255699986-of3rq7","baseHash":null,"ops":[{"type":"readResponse","toolName":"read_graph_structure","data":{"error":"Graph not found","graphId":"graph-1763255699986-of3rq7"}}],"id":"itm-1763255871633-d89azpvb","partitionKey":"cid-1763255772488-00ta3t","enqueuedAt":1763255871633,"status":"queued"}}
+{"type":"ack","itemId":"itm-1763255871633-d89azpvb","leaseId":"lease-1763255871634-vefzozpe","ts":1763255871634}
+{"type":"enq","item":{"patchId":"patch-1763255871884-f3fcqq","threadId":"cid-1763255772488-00ta3t","graphId":"unknown","baseHash":null,"ops":[],"id":"itm-1763255871884-c5gccv7i","partitionKey":"cid-1763255772488-00ta3t","enqueuedAt":1763255871884,"status":"queued"}}
+{"type":"ack","itemId":"itm-1763255871884-c5gccv7i","leaseId":"lease-1763255871885-pidmxd8t","ts":1763255871885}
