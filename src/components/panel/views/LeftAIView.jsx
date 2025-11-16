@@ -222,7 +222,12 @@ const LeftAIView = ({ compact = false, activeGraphId, graphsMap }) => {
     setCurrentInput('');
     setIsProcessing(true);
     try {
-      if (!hasAPIKey) { addMessage('ai', 'Please set up your API key first by clicking the key icon (🔑) in the header.'); setIsProcessing(false); return; }
+      if (!hasAPIKey) { 
+        addMessage('system', 'No API key configured. Please set up your OpenRouter or Anthropic API key below to use the Wizard.');
+        setShowAPIKeySetup(true);
+        setIsProcessing(false); 
+        return; 
+      }
       if (!mcpClient.isConnected) { await initializeConnection(); if (!mcpClient.isConnected) { setIsProcessing(false); return; } }
       if (isAutonomousMode) { await handleAutonomousAgent(userMessage); } else { await handleQuestion(userMessage); }
     } catch (error) {
@@ -263,8 +268,16 @@ const LeftAIView = ({ compact = false, activeGraphId, graphsMap }) => {
     try {
       const apiConfig = await apiKeyManager.getAPIKeyInfo();
       const apiKey = await apiKeyManager.getAPIKey();
-      if (!apiKey) { addMessage('ai', 'No API key found. Please set up your API key first.'); return; }
-      if (!apiConfig) { addMessage('ai', 'API configuration not found. Please set up your API key first.'); return; }
+      if (!apiKey) { 
+        addMessage('system', 'No API key configured. Please set up your OpenRouter or Anthropic API key below to use the Wizard.');
+        setShowAPIKeySetup(true);
+        return; 
+      }
+      if (!apiConfig) { 
+        addMessage('system', 'API configuration not found. Please set up your API key below.');
+        setShowAPIKeySetup(true);
+        return; 
+      }
       const abortController = new AbortController();
       setCurrentAgentRequest(abortController);
       
@@ -521,7 +534,9 @@ const LeftAIView = ({ compact = false, activeGraphId, graphsMap }) => {
             )}
             {messages.map((message) => (
               <div key={message.id} className={`ai-message ai-message-${message.sender}`} style={{ alignSelf: message.sender === 'user' ? 'flex-end' : 'flex-start', maxWidth: '85%' }}>
-                <div className="ai-message-avatar">{message.sender === 'user' ? <User size={16} /> : <Bot size={16} />}</div>
+                <div className="ai-message-avatar">
+                  {message.sender === 'user' ? <User size={16} /> : message.sender === 'system' ? null : <Bot size={16} />}
+                </div>
                 <div className="ai-message-content">
                   {message.toolCalls && message.toolCalls.length > 0 && (
                     <div className="ai-tool-calls">

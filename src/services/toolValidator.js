@@ -342,6 +342,10 @@ class ToolValidator {
           default: '',
           description: 'Optional description'
         },
+        graphId: {
+          type: 'string',
+          description: 'Optional graph ID to use when creating the graph (enables follow-up tasks in the same DAG)'
+        },
         graphSpec: {
           type: 'object',
           required: ['nodes'],
@@ -440,6 +444,57 @@ class ToolValidator {
           enum: ['force', 'force-directed', 'hierarchical', 'tree', 'radial', 'orbit', 'grid', 'circular', 'circle'],
           default: 'force',
           description: 'Layout algorithm to use for positioning nodes'
+        }
+      }
+    });
+
+    this.registerSchema('update_node_prototype', {
+      type: 'object',
+      required: ['prototypeId'],
+      properties: {
+        prototypeId: {
+          type: 'string',
+          description: 'ID of the prototype to update'
+        },
+        name: {
+          type: 'string',
+          minLength: 1,
+          description: 'New name for the prototype'
+        },
+        description: {
+          type: 'string',
+          description: 'New description for the prototype'
+        },
+        color: {
+          type: 'string',
+          pattern: '^#[0-9A-Fa-f]{6}$',
+          description: 'New hex color for the prototype'
+        }
+      }
+    });
+
+    this.registerSchema('delete_node_instance', {
+      type: 'object',
+      required: ['graphId', 'instanceId'],
+      properties: {
+        graphId: {
+          type: 'string',
+          description: 'Graph containing the instance'
+        },
+        instanceId: {
+          type: 'string',
+          description: 'ID of the instance to delete'
+        }
+      }
+    });
+
+    this.registerSchema('delete_graph', {
+      type: 'object',
+      required: ['graphId'],
+      properties: {
+        graphId: {
+          type: 'string',
+          description: 'ID of the graph to delete'
         }
       }
     });

@@ -20,6 +20,7 @@ export const ToolAllowlists = {
   executor: [
     // write-capable tasks executed into patches (Committer is single-writer)
     'create_graph', 'create_node_prototype', 'create_node_instance', 'create_edge', 'create_subgraph', 'create_populated_graph',
+    'update_node_prototype', 'delete_node_instance', 'delete_graph',
     // read-only inspection tasks allowed for analysis pipelines
     'verify_state', 'list_available_graphs', 'get_active_graph', 'get_graph_instances', 'identify_patterns', 'read_graph_structure', 'define_connections'
   ],

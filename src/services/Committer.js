@@ -135,17 +135,36 @@ class CommitterService {
                     await bridgeFetch('/api/bridge/chat/append', {
                       method: 'POST',
                       headers: { 'Content-Type': 'application/json' },
-                      body: JSON.stringify({ role: 'system', text: `❌ ${data.error}`, cid: threadId, channel: 'agent' })
+                      body: JSON.stringify({ role: 'system', text: `Error: ${data.error}`, cid: threadId, channel: 'agent' })
                     }).catch(() => {});
                   } else {
-                    const nodeList = (data.nodes || []).map(n => n.name).join(', ');
-                    const edgeList = (data.edges || []).map(e => `${e.sourceId} → ${e.destinationId} (${e.name || 'connects'})`).join(', ');
-                    const msg = `📊 **${data.name}**\n${data.nodeCount} node${data.nodeCount !== 1 ? 's' : ''}: ${nodeList}\n${data.edgeCount} edge${data.edgeCount !== 1 ? 's' : ''}: ${edgeList || 'none'}`;
+                  const nodeList = (data.nodes || []).map(n => n.name).join(', ');
+                  const edgeLines = (data.edges || []).map(e => {
+                    const label = e.name || 'connects';
+                    const src = e.sourceName || e.sourceId;
+                    const dst = e.destinationName || e.destinationId;
+                    return `• ${src} → ${dst} (${label})`;
+                  });
+                  const edgesSection = edgeLines.length > 0 ? edgeLines.join('\n') : '• (no edges yet)';
+                  const msg = `**${data.name}**\n${data.nodeCount} node${data.nodeCount !== 1 ? 's' : ''}: ${nodeList || '(none)'}\n${data.edgeCount} edge${data.edgeCount !== 1 ? 's' : ''}:\n${edgesSection}`;
                     await bridgeFetch('/api/bridge/chat/append', {
                       method: 'POST',
                       headers: { 'Content-Type': 'application/json' },
                       body: JSON.stringify({ role: 'system', text: msg, cid: threadId, channel: 'agent' })
                     }).catch(() => {});
+                    
+                    // AUTO-CHAIN: Trigger next planning step with read results
+                    // This enables agentic behavior: read → reason → act
+                    console.log('[Committer] Auto-chaining: triggering follow-up planning with read results');
+                    await bridgeFetch('/api/ai/agent/continue', {
+                      method: 'POST',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify({ 
+                        cid: threadId, 
+                        readResult: data,
+                        context: { graphId: data.graphId }
+                      })
+                    }).catch(e => console.warn('[Committer] Auto-chain failed:', e.message));
                   }
                 }
               }
@@ -182,7 +201,7 @@ class CommitterService {
           
           if (threadIds.size > 0 && (nodeCount > 0 || edgeCount > 0)) {
             for (const threadId of threadIds) {
-              const msg = `✅ Applied ${nodeCount} node${nodeCount !== 1 ? 's' : ''}${edgeCount > 0 ? ` and ${edgeCount} edge${edgeCount !== 1 ? 's' : ''}` : ''}`;
+              const msg = `Applied ${nodeCount} node${nodeCount !== 1 ? 's' : ''}${edgeCount > 0 ? ` and ${edgeCount} edge${edgeCount !== 1 ? 's' : ''}` : ''}`;
               const { bridgeFetch } = await import('./bridgeConfig.js');
               await bridgeFetch('/api/bridge/chat/append', {
                 method: 'POST',

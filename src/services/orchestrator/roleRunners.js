@@ -251,9 +251,11 @@ export async function runExecutorOnce() {
       const description = validation.sanitized.description || '';
       const graphSpec = validation.sanitized.graphSpec || {};
       const layoutAlgorithm = validation.sanitized.layoutAlgorithm || 'force';
+      const layoutMode = validation.sanitized.layoutMode || 'auto';
+      const providedGraphId = validation.sanitized.graphId;
       
       // 1. Create the graph
-      const graphId = `graph-${Date.now()}-${Math.random().toString(36).slice(2,8)}`;
+      const graphId = providedGraphId || `graph-${Date.now()}-${Math.random().toString(36).slice(2,8)}`;
       ops.push({
         type: 'createNewGraph',
         initialData: {
@@ -306,7 +308,7 @@ export async function runExecutorOnce() {
         destinationId: instanceIdByName.get(edge.target)
       })).filter(e => e.sourceId && e.destinationId);
       
-      const positions = applyLayout(tempInstances, tempEdges, layoutAlgorithm, {});
+      const positions = applyLayout(tempInstances, tempEdges, layoutAlgorithm, { layoutMode });
       const positionMap = new Map();
       positions.forEach(pos => {
         positionMap.set(pos.instanceId, { x: pos.x, y: pos.y });
@@ -340,6 +342,39 @@ export async function runExecutorOnce() {
           }
           // else: default unidirectional to target
           
+          // Handle connection definition node if specified
+          let definitionNodeIds = [];
+          if (edge.definitionNode && typeof edge.definitionNode === 'object') {
+            const defNode = edge.definitionNode;
+            const defNodeName = String(defNode.name || '').trim();
+            if (defNodeName) {
+              const store = getBridgeStore();
+              const existingProto = Array.isArray(store.nodePrototypes) 
+                ? store.nodePrototypes.find(p => p.name?.toLowerCase() === defNodeName.toLowerCase())
+                : null;
+              
+              if (existingProto) {
+                definitionNodeIds = [existingProto.id];
+                console.log(`[Executor] Reusing existing connection definition prototype: "${defNodeName}" (${existingProto.id})`);
+              } else {
+                const defProtoId = `prototype-def-${Date.now()}-${Math.random().toString(36).slice(2,8)}`;
+                ops.push({
+                  type: 'addNodePrototype',
+                  prototypeData: {
+                    id: defProtoId,
+                    name: defNodeName,
+                    description: defNode.description || `Defines the "${edge.relation || edge.type || 'connection'}" relationship`,
+                    color: defNode.color || '#5B6CFF',
+                    typeNodeId: null,
+                    definitionGraphIds: []
+                  }
+                });
+                definitionNodeIds = [defProtoId];
+                console.log(`[Executor] Created new connection definition prototype: "${defNodeName}" (${defProtoId})`);
+              }
+            }
+          }
+          
           ops.push({
             type: 'addEdge',
             graphId,
@@ -349,7 +384,8 @@ export async function runExecutorOnce() {
               destinationId: targetId,
               name: edge.relation || edge.type || '',
               typeNodeId: edge.typeNodeId || 'base-connection-prototype',
-              directionality: { arrowsToward }
+              directionality: { arrowsToward },
+              definitionNodeIds
             }
           });
         }
@@ -588,6 +624,7 @@ export async function runExecutorOnce() {
             color: proto?.color || '#5B6CFF'
           };
         });
+        const nodeNameByInstanceId = new Map(nodes.map(n => [n.id, n.name]));
         
         const edges = validation.sanitized.include_edges !== false 
           ? (graph.edgeIds || []).map(edgeId => {
@@ -596,7 +633,9 @@ export async function runExecutorOnce() {
               return {
                 id: edge.id,
                 sourceId: edge.sourceId,
+                sourceName: nodeNameByInstanceId.get(edge.sourceId) || edge.sourceId,
                 destinationId: edge.destinationId,
+                destinationName: nodeNameByInstanceId.get(edge.destinationId) || edge.destinationId,
                 name: edge.name || '',
                 description: validation.sanitized.include_descriptions !== false ? (edge.description || '') : undefined,
                 directionality: edge.directionality
@@ -623,6 +662,33 @@ export async function runExecutorOnce() {
         
         console.log(`[Executor] read_graph_structure: Read ${nodes.length} nodes, ${edges.length} edges from "${result.name}"`);
       }
+    } else if (task.toolName === 'update_node_prototype') {
+      // Update an existing node prototype
+      ops.push({
+        type: 'updateNodePrototype',
+        prototypeId: validation.sanitized.prototypeId,
+        updates: {
+          name: validation.sanitized.name,
+          description: validation.sanitized.description,
+          color: validation.sanitized.color
+        }
+      });
+      console.log(`[Executor] update_node_prototype: Updating prototype ${validation.sanitized.prototypeId}`);
+    } else if (task.toolName === 'delete_node_instance') {
+      // Delete a node instance from a graph
+      ops.push({
+        type: 'deleteNodeInstance',
+        graphId: validation.sanitized.graphId,
+        instanceId: validation.sanitized.instanceId
+      });
+      console.log(`[Executor] delete_node_instance: Deleting instance ${validation.sanitized.instanceId} from graph ${validation.sanitized.graphId}`);
+    } else if (task.toolName === 'delete_graph') {
+      // Delete an entire graph
+      ops.push({
+        type: 'deleteGraph',
+        graphId: validation.sanitized.graphId
+      });
+      console.log(`[Executor] delete_graph: Deleting graph ${validation.sanitized.graphId}`);
     }
     // Fallback: executor could be richer; keep empty ops acceptable
     const patch = {

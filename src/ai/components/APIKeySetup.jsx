@@ -166,20 +166,85 @@ const APIKeySetup = ({ onKeySet, onClose, inline = false }) => {
   };
 
   const handleTestKey = async () => {
+    console.log('[APIKeySetup] Testing API key...');
     setIsValidating(true);
     setError('');
     setSuccess('');
+
+    // Import bridgeFetch once at the top
+    const { bridgeFetch } = await import('../../services/bridgeConfig.js');
 
     try {
       const storedKey = await apiKeyManager.getAPIKey();
       if (!storedKey) {
         throw new Error('No API key found');
       }
+      console.log('[APIKeySetup] API key found, testing connection...');
 
-      setSuccess('✅ API key is stored and ready to use!');
+      // Actually test the API connection with a simple request
+      const response = await bridgeFetch('/api/ai/chat', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${storedKey}`
+        },
+        body: JSON.stringify({
+          message: 'test',
+          context: {
+            apiConfig: {
+              provider: existingKeyInfo?.provider || 'openrouter',
+              endpoint: existingKeyInfo?.endpoint || '',
+              model: existingKeyInfo?.model || ''
+            }
+          }
+        })
+      });
+
+      console.log('[APIKeySetup] Response status:', response.status);
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error('[APIKeySetup] Test failed:', errorText);
+        throw new Error(`API test failed: ${errorText}`);
+      }
+
+      const data = await response.json();
+      console.log('[APIKeySetup] Response data:', data);
+      
+      if (data.error) {
+        throw new Error(data.error);
+      }
+
+      console.log('[APIKeySetup] Test successful!');
+      setSuccess('API key works! Connection verified.');
+      
+      // Send success to chat log
+      await bridgeFetch('/api/bridge/chat/append', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ 
+          role: 'system', 
+          text: 'API Key Test: Connection successful! Your API key is working correctly.',
+          channel: 'agent' 
+        })
+      }).catch(e => console.warn('Failed to send test result to chat:', e));
       
     } catch (error) {
-      setError(`API key check failed: ${error.message}`);
+      console.error('[APIKeySetup] Test error:', error);
+      setError(`API key test failed: ${error.message}`);
+      
+      // Send error to chat log
+      try {
+        await bridgeFetch('/api/bridge/chat/append', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ 
+            role: 'system', 
+            text: `API Key Test Failed: ${error.message}`,
+            channel: 'agent' 
+          })
+        }).catch(e => console.warn('Failed to send error to chat:', e));
+      } catch {}
     } finally {
       setIsValidating(false);
     }
