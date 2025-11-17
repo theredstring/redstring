@@ -137,10 +137,14 @@ export async function runExecutorOnce() {
   if (tasks.length === 0) return;
   const task = tasks[0];
   try {
+    console.log(`[Executor] Processing task: ${task.toolName}`, JSON.stringify(task.args || {}));
     const allow = new Set(ToolAllowlists.executor);
     if (!allow.has(task.toolName)) throw new Error(`Tool not allowed for executor: ${task.toolName}`);
     const validation = toolValidator.validateToolArgs(task.toolName, task.args || {});
-    if (!validation.valid) throw new Error(`Validation failed: ${validation.error}`);
+    if (!validation.valid) {
+      console.error(`[Executor] Validation failed for ${task.toolName}:`, validation.error, '\nTask args:', JSON.stringify(task.args, null, 2));
+      throw new Error(`Validation failed: ${validation.error}`);
+    }
     // Convert task into ops without touching UI store (Committer + UI will apply)
     const ops = [];
     if (task.toolName === 'create_node_instance') {
@@ -168,7 +172,12 @@ export async function runExecutorOnce() {
       const tempInstances = [];
       
       nodes.forEach((node, idx) => {
-        const name = String(node?.name || '').trim() || `Concept ${idx + 1}`;
+        // CRITICAL: Node MUST have a name - check common field names (LLMs use different ones)
+        const name = String(node?.name || node?.title || node?.label || node?.id || '').trim();
+        
+        if (!name) {
+          throw new Error(`Node at index ${idx} missing required name field (checked: name, title, label, id). Node data: ${JSON.stringify(node)}`);
+        }
         
         // FUZZY DEDUPLICATION: Check for exact or similar existing prototype
         const match = findExistingPrototype(name, store);
@@ -509,7 +518,12 @@ export async function runExecutorOnce() {
       const tempInstances = [];
       
       nodes.forEach((node, idx) => {
-        const name = String(node?.name || '').trim() || `Concept ${idx + 1}`;
+        // CRITICAL: Node MUST have a name - check common field names (LLMs use different ones)
+        const name = String(node?.name || node?.title || node?.label || node?.id || '').trim();
+        
+        if (!name) {
+          throw new Error(`Node at index ${idx} missing required name field (checked: name, title, label, id). Node data: ${JSON.stringify(node)}`);
+        }
         
         // FUZZY DEDUPLICATION: Check for exact or similar existing prototype
         const match = findExistingPrototype(name, store);
@@ -786,7 +800,67 @@ export async function runExecutorOnce() {
     queueManager.ack('taskQueue', task.leaseId);
   } catch (e) {
     console.error('[Executor] Task execution failed:', e);
-    queueManager.nack('taskQueue', task.leaseId);
+    
+    // CRITICAL: Distinguish between permanent and transient errors
+    // Validation errors are PERMANENT - retrying won't fix them, so we must ACK (drop) the task
+    // Transient errors (network, resource) should NACK (retry)
+    const isPermanentError = e.message?.includes('Validation failed') 
+      || e.message?.includes('Tool not allowed')
+      || e.message?.includes('not found')
+      || e.message?.includes('Invalid')
+      || e.message?.includes('missing required');
+    
+    if (isPermanentError) {
+      console.error(`[Executor] PERMANENT ERROR: Dropping task to prevent infinite retry. Task: ${task.toolName}, Error: ${e.message}`);
+      queueManager.ack('taskQueue', task.leaseId); // Drop the task permanently
+      
+      // CRITICAL: Send detailed error to chat for AI visibility
+      // The AI needs to see what went wrong so it can adjust its plan
+      const threadId = task.threadId || 'unknown';
+      const errorDetails = {
+        tool: task.toolName,
+        error: e.message,
+        args: task.args,
+        timestamp: new Date().toISOString()
+      };
+      
+      // Format error message for AI comprehension
+      let errorText = `⚠️ TOOL EXECUTION ERROR\n\n`;
+      errorText += `Tool: ${task.toolName}\n`;
+      errorText += `Error: ${e.message}\n`;
+      if (task.args && Object.keys(task.args).length > 0) {
+        errorText += `Arguments: ${JSON.stringify(task.args, null, 2)}\n`;
+      }
+      errorText += `\nThis error prevented the operation from completing. `;
+      
+      // Add actionable guidance based on error type
+      if (e.message.includes('graphId')) {
+        errorText += `The graphId was missing or invalid. Please ensure you're targeting an existing graph.`;
+      } else if (e.message.includes('Validation failed')) {
+        errorText += `The arguments provided did not match the expected schema. Check the tool's requirements.`;
+      } else {
+        errorText += `Please review the error and adjust your approach accordingly.`;
+      }
+      
+      try {
+        await fetch('http://localhost:3001/api/bridge/chat/append', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ 
+            role: 'system', 
+            text: errorText, 
+            cid: threadId, 
+            channel: 'agent',
+            metadata: { errorDetails, severity: 'error' }
+          })
+        });
+      } catch (fetchErr) {
+        console.warn('[Executor] Failed to send error to chat:', fetchErr.message);
+      }
+    } else {
+      console.warn('[Executor] TRANSIENT ERROR: Re-queuing task for retry');
+      queueManager.nack('taskQueue', task.leaseId); // Retry transient errors
+    }
   }
 }
 

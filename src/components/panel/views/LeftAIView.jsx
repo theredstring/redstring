@@ -3,7 +3,7 @@ import { Bot, Key, Settings, RotateCcw, Send, User, Square, Copy, Trash2 } from 
 import APIKeySetup from '../../../ai/components/APIKeySetup.jsx';
 import mcpClient from '../../../services/mcpClient.js';
 import apiKeyManager from '../../../services/apiKeyManager.js';
-import { bridgeFetch } from '../../../services/bridgeConfig.js';
+import { bridgeFetch, bridgeEventSource } from '../../../services/bridgeConfig.js';
 import StandardDivider from '../../StandardDivider.jsx';
 import { HEADER_HEIGHT } from '../../../constants.js';
 
@@ -67,6 +67,59 @@ const LeftAIView = ({ compact = false, activeGraphId, graphsMap }) => {
         console.warn('[AI Collaboration] Failed to hydrate bridge telemetry:', error);
       }
     })();
+    
+    // CRITICAL: Subscribe to SSE for real-time chat updates (e.g., executor errors)
+    let eventSource;
+    try {
+      eventSource = bridgeEventSource('/events/stream');
+      
+      eventSource.addEventListener('chat', (event) => {
+        try {
+          const data = JSON.parse(event.data);
+          console.log('[AI Collaboration] Received chat event:', data);
+          
+          // Add message to chat immediately (real-time update)
+          setMessages(prev => {
+            // Check if message already exists (avoid duplicates)
+            const alreadyExists = prev.some(m => 
+              Math.abs(new Date(m.timestamp).getTime() - data.ts) < 1000 && m.content === data.text
+            );
+            
+            if (alreadyExists) return prev;
+            
+            // Add new message
+            const newMessage = {
+              id: `${data.ts || Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+              sender: data.role === 'user' ? 'user' : data.role === 'ai' ? 'ai' : 'system',
+              content: data.text || '',
+              timestamp: new Date(data.ts || Date.now()).toISOString(),
+              metadata: data,
+              toolCalls: []
+            };
+            
+            return [...prev, newMessage];
+          });
+        } catch (err) {
+          console.warn('[AI Collaboration] Failed to process chat event:', err);
+        }
+      });
+      
+      eventSource.onerror = (err) => {
+        console.warn('[AI Collaboration] SSE error:', err);
+      };
+    } catch (err) {
+      console.warn('[AI Collaboration] Failed to establish SSE:', err);
+    }
+    
+    return () => {
+      if (eventSource) {
+        try {
+          eventSource.close();
+        } catch (err) {
+          console.warn('[AI Collaboration] Failed to close SSE:', err);
+        }
+      }
+    };
   }, []);
 
   React.useEffect(() => {
@@ -93,6 +146,19 @@ const LeftAIView = ({ compact = false, activeGraphId, graphsMap }) => {
       toolCalls: (metadata.toolCalls || []).map(tc => ({ ...tc, expanded: false }))
     };
     setMessages(prev => [...prev, message]);
+  };
+
+  // Simple markdown renderer for system messages (supports **bold** and basic formatting)
+  const renderMarkdown = (text) => {
+    if (!text) return text;
+    
+    // Replace **bold** with <strong>
+    let html = text.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+    
+    // Replace newlines with <br>
+    html = html.replace(/\n/g, '<br>');
+    
+    return html;
   };
 
   const upsertToolCall = (toolUpdate) => {
@@ -287,6 +353,39 @@ const LeftAIView = ({ compact = false, activeGraphId, graphsMap }) => {
         content: msg.content
       }));
       
+      // Build rich context with actual graph data (not just ID)
+      const activeGraphData = activeGraphId && graphsMap && graphsMap.has(activeGraphId) 
+        ? graphsMap.get(activeGraphId) 
+        : null;
+      
+      // Extract nodes and edges for LLM context (token-limited to top 50 nodes)
+      let graphStructure = null;
+      if (activeGraphData) {
+        const instances = activeGraphData.instances instanceof Map 
+          ? Array.from(activeGraphData.instances.values())
+          : Array.isArray(activeGraphData.instances)
+            ? activeGraphData.instances
+            : Object.values(activeGraphData.instances || {});
+        
+        const nodeNames = instances.slice(0, 50).map(inst => {
+          // Get prototype name (instances have prototypeId)
+          const protoId = inst.prototypeId;
+          // Note: We don't have nodePrototypes here, so we'll use instance data
+          return inst.name || `Node ${inst.id?.slice(-4) || ''}`;
+        });
+        
+        const edgeCount = Array.isArray(activeGraphData.edgeIds) ? activeGraphData.edgeIds.length : 0;
+        
+        graphStructure = {
+          id: activeGraphId,
+          name: activeGraphData.name || 'Unnamed',
+          nodeCount: instances.length,
+          edgeCount,
+          nodes: nodeNames,
+          truncated: instances.length > 50
+        };
+      }
+      
       const response = await bridgeFetch('/api/ai/agent', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
@@ -296,6 +395,7 @@ const LeftAIView = ({ compact = false, activeGraphId, graphsMap }) => {
           systemPrompt: 'You are the Redstring Wizard. Converse, plan small steps, and enqueue goals that the orchestrator can execute. Stay grounded in the active graph.',
           context: {
             activeGraphId: activeGraphId || null,
+            activeGraph: graphStructure,  // CRITICAL: Send actual graph data
             graphInfo,
             graphCount,
             hasAPIKey,
@@ -562,7 +662,13 @@ const LeftAIView = ({ compact = false, activeGraphId, graphsMap }) => {
                       ))}
                     </div>
                   )}
-                  <div className="ai-message-text" style={{ userSelect: 'text', cursor: 'text' }}>{message.content}</div>
+                  <div 
+                    className="ai-message-text" 
+                    style={{ userSelect: 'text', cursor: 'text' }}
+                    dangerouslySetInnerHTML={message.sender === 'system' ? { __html: renderMarkdown(message.content) } : undefined}
+                  >
+                    {message.sender !== 'system' ? message.content : null}
+                  </div>
                   <div className="ai-message-timestamp">{new Date(message.timestamp).toLocaleTimeString()}</div>
                 </div>
               </div>

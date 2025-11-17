@@ -889,24 +889,18 @@ const BridgeClient = () => {
         const layouts = buildGraphLayouts(state);
         const summaries = buildGraphSummaries(state);
         
-        // Send only minimal essential data to keep payload small
-        const graphEdges = state.activeGraphId && state.edges
-          ? Array.from(state.edges.values())
-              .filter(edge => edge.graphId === state.activeGraphId)
-              .map(edge => ({
+        // CRITICAL: Send ALL edges (edges don't have graphId - graphs have edgeIds)
+        // The graph.edgeIds array determines which edges belong to which graph
+        const graphEdges = state.edges
+          ? Array.from(state.edges.values()).map(edge => ({
                 id: edge.id,
-                graphId: edge.graphId,
                 sourceId: edge.sourceId,
                 destinationId: edge.destinationId,
                 name: edge.name || '',
                 type: edge.type || '',
                 typeNodeId: edge.typeNodeId || null,
                 definitionNodeIds: Array.isArray(edge.definitionNodeIds) ? [...edge.definitionNodeIds] : [],
-                directionality: {
-                  arrowsToward: Array.isArray(edge.directionality?.arrowsToward)
-                    ? [...edge.directionality.arrowsToward]
-                    : (edge.directionality?.arrowsToward ? [...edge.directionality.arrowsToward] : [])
-                }
+                arrowsToward: Array.isArray(edge.arrowsToward) ? [...edge.arrowsToward] : []
               }))
           : [];
 
@@ -917,6 +911,8 @@ const BridgeClient = () => {
             name: graph.name,
             description: graph.description || '',
             instanceCount: graph.instances?.size || 0,
+            // CRITICAL: Include edgeIds for semantic graph queries
+            edgeIds: Array.isArray(graph.edgeIds) ? graph.edgeIds : [],
             // Include instance data for spatial reasoning (only for active graph to keep payload small)
             instances: id === state.activeGraphId && graph.instances ? 
               Object.fromEntries(Array.from(graph.instances.entries()).map(([instanceId, instance]) => [
@@ -930,10 +926,12 @@ const BridgeClient = () => {
               ])) : undefined
           })),
           
-          // Only essential prototype info (send all; previously truncated to 50 caused sync issues)
+          // CRITICAL: Include color for LLM context (palette matching)
           nodePrototypes: Array.from(state.nodePrototypes.entries()).map(([id, prototype]) => ({
             id,
-            name: prototype.name
+            name: prototype.name,
+            color: prototype.color || '#5B6CFF',
+            description: prototype.description || ''
           })),
           
           // UI state

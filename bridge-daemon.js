@@ -334,26 +334,54 @@ Intent: "create_graph" (NEW GRAPH)
 When: "create/make/build a graph about X".
 CRITICAL: You MUST always return a populated graphSpec with 5-12 nodes. Never return an empty graph.
 If the user doesn't specify details, make reasonable assumptions based on the topic.
-Example response: {"intent":"create_graph","response":"I'll create a Solar System graph with all 8 planets orbiting the Sun.","graph":{"name":"Solar System"},"graphSpec":{"nodes":[{"name":"Sun","color":"#FDB813","description":"Central star"},{"name":"Mercury","color":"#8C7853"},{"name":"Venus","color":"#FFC649"},{"name":"Earth","color":"#4A90E2"},{"name":"Mars","color":"#E27B58"},{"name":"Jupiter","color":"#C88B3A"},{"name":"Saturn","color":"#FAD5A5"},{"name":"Uranus","color":"#4FD0E7"},{"name":"Neptune","color":"#4166F5"}],"edges":[{"source":"Sun","target":"Mercury","type":"orbits"},{"source":"Sun","target":"Venus","type":"orbits"},{"source":"Sun","target":"Earth","type":"orbits"},{"source":"Sun","target":"Mars","type":"orbits"},{"source":"Sun","target":"Jupiter","type":"orbits"},{"source":"Sun","target":"Saturn","type":"orbits"},{"source":"Sun","target":"Uranus","type":"orbits"},{"source":"Sun","target":"Neptune","type":"orbits"}],"layoutAlgorithm":"radial"}}
+Example response: {"intent":"create_graph","response":"I'll create a Solar System graph with 8 planets (inner/outer groups) orbiting the Sun, plus planetary neighbor connections.","graph":{"name":"Solar System"},"graphSpec":{"nodes":[{"name":"Sun","color":"#FDB813","description":"Central star"},{"name":"Mercury","color":"#8C7853","description":"Innermost planet"},{"name":"Venus","color":"#FFC649"},{"name":"Earth","color":"#4A90E2"},{"name":"Mars","color":"#E27B58"},{"name":"Jupiter","color":"#C88B3A","description":"Largest planet"},{"name":"Saturn","color":"#FAD5A5"},{"name":"Uranus","color":"#4FD0E7"},{"name":"Neptune","color":"#4166F5","description":"Outermost planet"}],"edges":[{"source":"Sun","target":"Mercury","directionality":"unidirectional","definitionNode":{"name":"Orbits","description":"Gravitational orbit"}},{"source":"Sun","target":"Venus","directionality":"unidirectional","definitionNode":{"name":"Orbits","description":"Gravitational orbit"}},{"source":"Sun","target":"Earth","directionality":"unidirectional","definitionNode":{"name":"Orbits","description":"Gravitational orbit"}},{"source":"Sun","target":"Mars","directionality":"unidirectional","definitionNode":{"name":"Orbits","description":"Gravitational orbit"}},{"source":"Sun","target":"Jupiter","directionality":"unidirectional","definitionNode":{"name":"Orbits","description":"Gravitational orbit"}},{"source":"Sun","target":"Saturn","directionality":"unidirectional","definitionNode":{"name":"Orbits","description":"Gravitational orbit"}},{"source":"Sun","target":"Uranus","directionality":"unidirectional","definitionNode":{"name":"Orbits","description":"Gravitational orbit"}},{"source":"Sun","target":"Neptune","directionality":"unidirectional","definitionNode":{"name":"Orbits","description":"Gravitational orbit"}},{"source":"Mercury","target":"Venus","directionality":"none","definitionNode":{"name":"Planetary Neighbor","description":"Adjacent in orbit"}},{"source":"Venus","target":"Earth","directionality":"none","definitionNode":{"name":"Planetary Neighbor","description":"Adjacent in orbit"}},{"source":"Earth","target":"Mars","directionality":"none","definitionNode":{"name":"Planetary Neighbor","description":"Adjacent in orbit"}},{"source":"Jupiter","target":"Saturn","directionality":"none","definitionNode":{"name":"Planetary Neighbor","description":"Adjacent in orbit"}}],"layoutAlgorithm":"radial"}}
 
 Intent: "create_node" (ADD TO EXISTING GRAPH)
 When: "add X", "populate with Y", "fill this out".
 CRITICAL: You MUST set "graph": {"name": "{EXACT active graph name from CURRENT GRAPH context}"} - DO NOT invent a different graph name!
 
+GRAPHSPEC SCHEMA (REQUIRED FIELDS):
+{
+  "nodes": [
+    {
+      "name": "Node Name",          // REQUIRED - MUST use field name "name" (NOT "id"!)
+      "color": "#HEX",               // REQUIRED - pick from color palette
+      "description": "Brief text"    // OPTIONAL
+    }
+  ],
+CRITICAL: nodes MUST use "name" field. DO NOT use "id", "title", or "label". The system will reject any graphSpec that uses "id" instead of "name".
+  "edges": [
+    {
+      "source": "Node Name",         // REQUIRED - must match a node name
+      "target": "Node Name",         // REQUIRED - must match a node name
+      "directionality": "unidirectional" | "bidirectional" | "none" | "reverse",  // REQUIRED
+      "definitionNode": {            // OPTIONAL - defines connection type
+        "name": "Connection Type",   // Use Title Case with spaces (e.g., "Orbits", "Parent Of")
+        "description": "What this connection means"
+      }
+    }
+  ],
+  "layoutAlgorithm": "force" | "hierarchical" | "radial" | "grid"  // OPTIONAL, defaults to "force"
+}
+
 CRITICAL SYNTHESIS RULES:
-1. CONNECTIONS ARE PRIORITY: Every new node should connect to at LEAST one existing node via edges
-2. CHECK EXISTING NODES: Read "Example concepts" in CURRENT GRAPH context - those nodes already exist!
-3. NO DUPLICATES: If a similar node exists (e.g., "Avengers" vs "The Avengers"), DON'T create it again - just link to the existing one
-4. EDGE SYNTAX: To link to existing node, reference its name in edges but DON'T add it to nodes array
+1. USE "name" FIELD: Nodes MUST use {"name":"X"}, NEVER {"id":"X"} or {"title":"X"}
+2. CONNECTION DENSITY: EVERY new node MUST have 2-3 edges minimum (connecting to existing OR other new nodes)
+3. ALWAYS SPECIFY:
+   - directionality: "unidirectional" (default), "bidirectional", "none", or "reverse"
+   - definitionNode: {name, description} for meaningful relationships (not generic ones)
+4. CHECK EXISTING NODES: Read "Example concepts" in CURRENT GRAPH context - those nodes already exist!
+5. NO DUPLICATES: If a similar node exists (e.g., "Avengers" vs "The Avengers"), DON'T create it again - just link to the existing one
+6. EDGE SYNTAX: To link to existing node, reference its name in edges but DON'T add it to nodes array
    - nodes: [NEW nodes only]
    - edges: [NEW → EXISTING, NEW → NEW, EXISTING → NEW]
-5. BREVITY + CONNECTIONS: Add 3-5 NEW nodes max, but create 5-8 edges connecting them to existing graph
-6. FUZZY MATCHING: "Avengers Initiative" ≈ "The Avengers" ≈ "Avengers" - treat as same node
+7. TARGET: 3-5 NEW nodes, 6-12 edges total (dense connections = better graph)
+8. FUZZY MATCHING: "Avengers Initiative" ≈ "The Avengers" ≈ "Avengers" - treat as same node
 
 Example: Graph has [Sun, Earth, Mars]. You add Moon and Venus:
-{"intent":"create_node","response":"Adding Moon (orbits Earth) and Venus (between Mercury and Earth).","graphSpec":{"nodes":[{"name":"Moon","color":"#C0C0C0"},{"name":"Venus","color":"#FFC649"}],"edges":[{"source":"Earth","target":"Moon","type":"orbits"},{"source":"Sun","target":"Venus","type":"orbits"},{"source":"Venus","target":"Earth","type":"closer_to_sun"}],"layoutAlgorithm":"radial"}}
+{"intent":"create_node","response":"I'll add Moon (orbiting Earth) and Venus (inner planet), with 5 orbital relationships.","graphSpec":{"nodes":[{"name":"Moon","color":"#C0C0C0","description":"Earth's natural satellite"},{"name":"Venus","color":"#FFC649","description":"Second planet from Sun"}],"edges":[{"source":"Earth","target":"Moon","directionality":"unidirectional","definitionNode":{"name":"Orbits","description":"Gravitational orbit relationship"}},{"source":"Sun","target":"Venus","directionality":"unidirectional","definitionNode":{"name":"Orbits","description":"Gravitational orbit relationship"}},{"source":"Venus","target":"Earth","directionality":"none","definitionNode":{"name":"Planetary Neighbor","description":"Adjacent planets in solar system"}},{"source":"Moon","target":"Mars","directionality":"none"},{"source":"Venus","target":"Mars","directionality":"none"}],"layoutAlgorithm":"radial"}}
 
-Notice: Only 2 new nodes, but 3 edges total - all connecting to existing nodes (Sun, Earth)
+Notice: 2 new nodes, 5 edges (dense!), directionality specified, meaningful relationships defined
 
 Intent: "analyze" (INSPECTION)
 When: "show me patterns", "find connections", "analyze this".
@@ -417,6 +445,20 @@ app.get('/api/bridge/health', (_req, res) => {
 app.post('/api/bridge/state', (req, res) => {
   try {
     bridgeStoreData = { ...req.body, source: 'redstring-ui' };
+    
+    // CRITICAL: Normalize edge data structure
+    // UI sends "graphEdges" array, but orchestrator expects "edges" object/Map
+    if (bridgeStoreData.graphEdges && Array.isArray(bridgeStoreData.graphEdges)) {
+      // Convert array to object keyed by edge ID for O(1) lookup
+      bridgeStoreData.edges = {};
+      for (const edge of bridgeStoreData.graphEdges) {
+        if (edge && edge.id) {
+          bridgeStoreData.edges[edge.id] = edge;
+        }
+      }
+      logger.debug(`[Bridge] Normalized ${bridgeStoreData.graphEdges.length} edges from UI to store.edges object`);
+    }
+    
     // Make store accessible to orchestrator components
     setBridgeStoreRef(bridgeStoreData);
     // Emit debug telemetry snapshot occasionally for visibility
@@ -759,18 +801,20 @@ Edges: ${allEdges || '(no edges yet)'}
 
 YOUR TASK: Generate a graphSpec that adds 3-6 NEW nodes to this graph.
 CRITICAL RULES:
-1. CHECK FOR DUPLICATES: Review the node list above. DO NOT recreate existing nodes!
-2. LINK TO EXISTING: Every new node should connect to at least one existing node via edges
-3. EXPAND SEMANTICALLY: Add related concepts that enrich the graph's domain
-4. USE EXISTING NODE NAMES IN EDGES: Reference exact names from the list above
+1. USE "name" FIELD: Nodes MUST use {name:"X"}, NEVER {id:"X"}
+2. CHECK FOR DUPLICATES: Review the node list above. DO NOT recreate existing nodes!
+3. LINK TO EXISTING: EVERY new node must connect to 2-3 existing nodes via edges
+4. EXPAND SEMANTICALLY: Add related concepts that enrich the graph's domain
+5. USE EXISTING NODE NAMES IN EDGES: Reference exact names from the list above
+6. SPECIFY DIRECTIONALITY: Every edge must have "directionality":"unidirectional"|"bidirectional"|"none"
 
 Respond with JSON:
 {
   "intent": "create_node",
   "response": "brief message about what you're adding",
   "graphSpec": {
-    "nodes": [ /* only NEW nodes */ ],
-    "edges": [ /* connect NEW nodes to EXISTING nodes using exact names */ ],
+    "nodes": [ {name:"X",color:"#HEX",description:"..."}, ... ],
+    "edges": [ {source:"ExistingNode",target:"NewNode",directionality:"unidirectional"}, ... ],
     "layoutAlgorithm": "force"
   }
 }
@@ -915,6 +959,10 @@ Respond with JSON:
         ]
       };
       
+      // Store API credentials in meta for Committer continuation loop
+      const apiKey = req.headers.authorization?.replace(/^Bearer\s+/i, '');
+      const apiConfig = body?.apiConfig || null;
+      
       const goalId = queueManager.enqueue('goalQueue', {
         type: 'goal',
         goal: 'agent_continue_batch',
@@ -923,7 +971,9 @@ Respond with JSON:
         partitionKey: cid,
         meta: {
           iteration: iteration + 1,
-          agenticLoop: true
+          agenticLoop: true,
+          apiKey,      // Pass API key for next iteration
+          apiConfig    // Pass API config for next iteration
         }
       });
       
@@ -1179,6 +1229,7 @@ app.post('/api/ai/agent', async (req, res) => {
     // Basic arg validation
     const postedGraphs = Array.isArray(bridgeStoreData?.graphs) ? bridgeStoreData.graphs : [];
     const contextGraphId = body?.context?.activeGraphId;
+    const activeGraphFromUI = body?.context?.activeGraph; // Rich context from UI
     const targetGraphId = args.graphId
       || contextGraphId
       || bridgeStoreData?.activeGraphId
@@ -1250,18 +1301,19 @@ app.post('/api/ai/agent', async (req, res) => {
           ? '\n\n📝 RECENT CONVERSATION:\n' + conversationHistory.map(msg => `${msg.role === 'user' ? 'User' : 'You'}: ${msg.content}`).join('\n')
           : '';
         
-        // Extract user's color palette from existing nodes
+        // Extract user's color palette from ALL existing prototypes (comprehensive)
         const extractColorPalette = () => {
           const allColors = [];
-          for (const g of postedGraphs) {
-            if (g.nodes && Array.isArray(g.nodes)) {
-              for (const n of g.nodes) {
-                if (n.color && n.color.startsWith('#')) {
-                  allColors.push(n.color);
-                }
+          
+          // PRIORITY: Get colors from ALL node prototypes (now includes color + description from UI)
+          if (bridgeStoreData.nodePrototypes && Array.isArray(bridgeStoreData.nodePrototypes)) {
+            for (const proto of bridgeStoreData.nodePrototypes) {
+              if (proto.color && /^#[0-9A-Fa-f]{6}$/.test(proto.color)) {
+                allColors.push(proto.color);
               }
             }
           }
+          
           if (allColors.length === 0) return null;
           
           // Get unique colors and extract hues
@@ -1291,11 +1343,19 @@ app.post('/api/ai/agent', async (req, res) => {
         
         const userPalette = extractColorPalette();
         
-        // Generate spectrum colors with locked sat/val (like the color picker)
+        // PRIORITY: Use user's ACTUAL existing colors first, then generate new ones
         const generateSpectrumColors = (basePalette) => {
-          // ColorPicker constants from ColorPicker.jsx
+          // If user has colors, return them FIRST, then supplement with generated ones
+          const userColors = basePalette?.colors || [];
+          if (userColors.length >= 8) {
+            // User has enough colors - just use theirs
+            return userColors;
+          }
+          
+          // User has some colors - use them first, then generate more in the same style
+          // ColorPicker constants from ColorPicker.jsx (matches #8B0000)
           const saturation = 1.0; // Full saturation
-          const value = 0.545; // Maroon-like brightness (from #8B0000)
+          const value = 0.5451; // Exact maroon brightness (was 0.545, now more precise)
           
           // If user has colors, bias toward their hue range, otherwise use full spectrum
           let hueSteps;
@@ -1320,7 +1380,7 @@ app.post('/api/ai/agent', async (req, res) => {
           }
           
           // Convert hues to hex with locked sat/val
-          return hueSteps.map(h => {
+          const generatedColors = hueSteps.map(h => {
             const c = value * saturation;
             const x = c * (1 - Math.abs(((h / 60) % 2) - 1));
             const m = value - c;
@@ -1336,6 +1396,9 @@ app.post('/api/ai/agent', async (req, res) => {
             b = Math.round((b + m) * 255);
             return `#${r.toString(16).padStart(2, '0')}${g.toString(16).padStart(2, '0')}${b.toString(16).padStart(2, '0')}`;
           });
+          
+          // Return user colors first, then generated ones
+          return [...userColors, ...generatedColors].slice(0, 12);
         };
         
         const paletteColors = generateSpectrumColors(userPalette);
@@ -1343,29 +1406,43 @@ app.post('/api/ai/agent', async (req, res) => {
           ? `\n🎨 USER'S COLOR PALETTE (${userPalette.count} colors, avg hue: ${userPalette.avgHue}°):\nUSE THESE COLORS: ${paletteColors.join(', ')}\n⚠️ ONLY use colors from the list above. Pick colors that match the concept's meaning.` 
           : `\n🎨 AVAILABLE COLORS: ${paletteColors.join(', ')}\n⚠️ ONLY use colors from the list above. Pick colors that match the concept's meaning.`;
         
-        // Build rich current graph context using abstracted queries
-        const stats = getGraphStatistics(bridgeStoreData);
+        // Build rich current graph context - PREFER UI's data over bridge store
         let graphContext = '';
         
-        if (stats.activeGraph) {
-          const ag = stats.activeGraph;
-          graphContext = `\n\n🎯 CURRENT GRAPH: "${ag.name}"`;
-          if (ag.nodeCount === 0) {
+        if (activeGraphFromUI && activeGraphFromUI.name) {
+          // UI sent full graph context (BEST - most reliable)
+          graphContext = `\n\n🎯 CURRENT GRAPH: "${activeGraphFromUI.name}"`;
+          if (activeGraphFromUI.nodeCount === 0) {
             graphContext += '\nStatus: Empty (perfect for populating!)';
           } else {
-            graphContext += `\nStatus: ${ag.nodeCount} node${ag.nodeCount !== 1 ? 's' : ''}, ${ag.edgeCount} connection${ag.edgeCount !== 1 ? 's' : ''}`;
-            // Add a few example nodes from semantic structure
-            const structure = getGraphSemanticStructure(bridgeStoreData, ag.id, { includeDescriptions: false });
-            if (structure.nodes && structure.nodes.length > 0) {
-              const exampleNodes = structure.nodes.slice(0, 3).map(n => n.name).join(', ');
-              graphContext += `\nExample concepts: ${exampleNodes}${structure.nodes.length > 3 ? '...' : ''}`;
+            graphContext += `\nStatus: ${activeGraphFromUI.nodeCount} node${activeGraphFromUI.nodeCount !== 1 ? 's' : ''}, ${activeGraphFromUI.edgeCount} connection${activeGraphFromUI.edgeCount !== 1 ? 's' : ''}`;
+            if (activeGraphFromUI.nodes && activeGraphFromUI.nodes.length > 0) {
+              const nodeList = activeGraphFromUI.nodes.slice(0, 15).join(', ');
+              graphContext += `\nExisting nodes: ${nodeList}${activeGraphFromUI.truncated ? '...' : ''}`;
             }
           }
-        } else if (stats.totalGraphs > 0) {
-          const graphNames = stats.allGraphs.slice(0, 3).map(g => `"${g.name}"`).join(', ');
-          graphContext = `\n\n📚 AVAILABLE GRAPHS: ${stats.totalGraphs} total (${graphNames}${stats.totalGraphs > 3 ? '...' : ''})`;
         } else {
-          graphContext = '\n\n📚 No graphs yet - perfect time to create one!';
+          // Fallback to bridge store (less reliable if out of sync)
+          const stats = getGraphStatistics(bridgeStoreData);
+          if (stats.activeGraph) {
+            const ag = stats.activeGraph;
+            graphContext = `\n\n🎯 CURRENT GRAPH: "${ag.name}"`;
+            if (ag.nodeCount === 0) {
+              graphContext += '\nStatus: Empty (perfect for populating!)';
+            } else {
+              graphContext += `\nStatus: ${ag.nodeCount} node${ag.nodeCount !== 1 ? 's' : ''}, ${ag.edgeCount} connection${ag.edgeCount !== 1 ? 's' : ''}`;
+              const structure = getGraphSemanticStructure(bridgeStoreData, ag.id, { includeDescriptions: false });
+              if (structure.nodes && structure.nodes.length > 0) {
+                const exampleNodes = structure.nodes.slice(0, 3).map(n => n.name).join(', ');
+                graphContext += `\nExample concepts: ${exampleNodes}${structure.nodes.length > 3 ? '...' : ''}`;
+              }
+            }
+          } else if (stats.totalGraphs > 0) {
+            const graphNames = stats.allGraphs.slice(0, 3).map(g => `"${g.name}"`).join(', ');
+            graphContext = `\n\n📚 AVAILABLE GRAPHS: ${stats.totalGraphs} total (${graphNames}${stats.totalGraphs > 3 ? '...' : ''})`;
+          } else {
+            graphContext = '\n\n📚 No graphs yet - perfect time to create one!';
+          }
         }
         
         const wantsDefineConnections = /\b(define|label|annotate)\b[\s\S]{0,80}\b(connection|edge|relationship|link)s?\b/i.test(msgText);
@@ -1959,7 +2036,17 @@ app.post('/api/ai/agent', async (req, res) => {
           { toolName: 'verify_state', args: {}, threadId: cid }
         ]
       };
-      const goalId = queueManager.enqueue('goalQueue', { type: 'goal', goal: 'analyze_graph', dag, threadId: cid, partitionKey: cid });
+      // Store API credentials in meta for Committer auto-chain
+      const apiKey = req.headers.authorization?.replace(/^Bearer\s+/i, '');
+      const apiConfig = body?.context?.apiConfig || null;
+      const goalId = queueManager.enqueue('goalQueue', { 
+        type: 'goal', 
+        goal: 'analyze_graph', 
+        dag, 
+        threadId: cid, 
+        partitionKey: cid,
+        meta: { apiKey, apiConfig } // Pass credentials for auto-chain
+      });
       ensureSchedulerStarted();
       eventLog.append({ type: 'GOAL_ENQUEUED', id: goalId, threadId: cid });
       telemetry.push({ ts: Date.now(), type: 'agent_queued', cid, queued: ['goal:analyze_graph'], graphId: targetGraphId });
@@ -2143,10 +2230,11 @@ app.post('/api/ai/agent', async (req, res) => {
           goalId
         });
       } catch (e) {
-        const text = 'Something went wrong planning the graph. Please try again.';
-        telemetry.push({ ts: Date.now(), type: 'agent_answer', cid, text, error: String(e?.message || e) });
-        appendChat('ai', text, { cid, channel: 'agent' });
-        return res.json({ success: true, response: text, toolCalls: [], cid });
+        const errorMsg = `Error creating graph: ${e.message || e}`;
+        logger.error('[Agent] Graph creation failed:', e);
+        telemetry.push({ ts: Date.now(), type: 'agent_answer', cid, error: errorMsg });
+        appendChat('system', `⚠️ ${errorMsg}\n\nPlease check the error and try again with different parameters.`, { cid, channel: 'agent' });
+        return res.json({ success: false, error: errorMsg, cid });
       }
     }
 
@@ -2202,9 +2290,10 @@ app.post('/api/ai/agent', async (req, res) => {
           goalId
         });
       } catch (e) {
-        const text = 'Something went wrong updating the node. Please try again.';
-        appendChat('ai', text, { cid, channel: 'agent' });
-        return res.json({ success: true, response: text, toolCalls: [], cid });
+        const errorMsg = `Error updating node: ${e.message || e}`;
+        logger.error('[Agent] Node update failed:', e);
+        appendChat('system', `⚠️ ${errorMsg}\n\nCouldn't update "${planned?.update?.target || 'the node'}". Check if the node exists and try again.`, { cid, channel: 'agent' });
+        return res.json({ success: false, error: errorMsg, cid });
       }
     }
 
@@ -2273,9 +2362,10 @@ app.post('/api/ai/agent', async (req, res) => {
           goalId
         });
       } catch (e) {
-        const text = 'Something went wrong deleting the node. Please try again.';
-        appendChat('ai', text, { cid, channel: 'agent' });
-        return res.json({ success: true, response: text, toolCalls: [], cid });
+        const errorMsg = `Error deleting node: ${e.message || e}`;
+        logger.error('[Agent] Node deletion failed:', e);
+        appendChat('system', `⚠️ ${errorMsg}\n\nCouldn't delete "${planned?.delete?.target || 'the node'}". Check if it exists and try again.`, { cid, channel: 'agent' });
+        return res.json({ success: false, error: errorMsg, cid });
       }
     }
 
@@ -2328,9 +2418,10 @@ app.post('/api/ai/agent', async (req, res) => {
           goalId
         });
       } catch (e) {
-        const text = 'Something went wrong deleting the graph. Please try again.';
-        appendChat('ai', text, { cid, channel: 'agent' });
-        return res.json({ success: true, response: text, toolCalls: [], cid });
+        const errorMsg = `Error deleting graph: ${e.message || e}`;
+        logger.error('[Agent] Graph deletion failed:', e);
+        appendChat('system', `⚠️ ${errorMsg}\n\nCouldn't delete the graph. Check if it exists and try again.`, { cid, channel: 'agent' });
+        return res.json({ success: false, error: errorMsg, cid });
       }
     }
 
@@ -2621,7 +2712,25 @@ app.post('/api/ai/agent', async (req, res) => {
     appendChat('ai', text, { cid, channel: 'agent' });
     return res.json({ success: true, response: text, toolCalls: [], cid });
   } catch (err) {
-    return res.status(500).json({ success: false, error: String(err?.message || err) });
+    // CRITICAL: Provide detailed error info for debugging and AI feedback
+    const errorMsg = err?.message || String(err);
+    logger.error('[Agent] Unhandled error in /api/ai/agent:', err);
+    logger.error('[Agent] Error stack:', err.stack);
+    
+    // Send error to chat for visibility
+    const errorText = `⚠️ SYSTEM ERROR\n\n${errorMsg}\n\nAn unexpected error occurred. Please check your request and try again.`;
+    try {
+      appendChat('system', errorText, { cid, channel: 'agent' });
+    } catch (chatErr) {
+      logger.error('[Agent] Failed to send error to chat:', chatErr);
+    }
+    
+    return res.status(500).json({ 
+      success: false, 
+      error: errorMsg,
+      cid,
+      details: process.env.NODE_ENV === 'development' ? err.stack : undefined
+    });
   }
 });
 

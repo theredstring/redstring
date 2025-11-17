@@ -67,12 +67,20 @@ export function getGraphSemanticStructure(store, graphId, options = {}) {
   const includeDescriptions = options.includeDescriptions !== false;
   const includeColors = options.includeColors !== false;
   
-  // Extract instances as array
+  // Extract instances as array (handle Map, Array, or Object)
   const instancesArray = graph.instances instanceof Map 
     ? Array.from(graph.instances.values())
     : Array.isArray(graph.instances) 
       ? graph.instances 
-      : [];
+      : graph.instances && typeof graph.instances === 'object'
+        ? Object.values(graph.instances).filter(inst => inst && typeof inst === 'object')
+        : [];
+  
+  console.log(`[graphQueries] getGraphSemanticStructure: graph "${graph.name}" (${graphId}) has ${instancesArray.length} instances`, {
+    instancesType: graph.instances ? (graph.instances instanceof Map ? 'Map' : Array.isArray(graph.instances) ? 'Array' : 'Object') : 'null',
+    rawInstancesLength: graph.instances instanceof Map ? graph.instances.size : Array.isArray(graph.instances) ? graph.instances.length : Object.keys(graph.instances || {}).length,
+    sampleKeys: graph.instances ? (graph.instances instanceof Map ? Array.from(graph.instances.keys()).slice(0, 3) : Array.isArray(graph.instances) ? 'N/A-Array' : Object.keys(graph.instances).slice(0, 3)) : []
+  });
   
   // Build node list with prototype data
   const nodes = instancesArray.map(inst => {
@@ -98,6 +106,7 @@ export function getGraphSemanticStructure(store, graphId, options = {}) {
   const nodeNameById = new Map(nodes.map(n => [n.id, n.name]));
   
   // Extract edges
+  console.log(`[graphQueries] Extracting edges for graph "${graph.name}": edgeIds type=${Array.isArray(graph.edgeIds) ? 'array' : typeof graph.edgeIds}, length=${Array.isArray(graph.edgeIds) ? graph.edgeIds.length : 'N/A'}, sample=${JSON.stringify((graph.edgeIds || []).slice(0, 3))}`);
   const edges = (graph.edgeIds || [])
     .map(edgeId => {
       const edge = getEdgeById(store, edgeId);
@@ -110,6 +119,8 @@ export function getGraphSemanticStructure(store, graphId, options = {}) {
         id: edge.id,
         sourceId: edge.sourceId,
         destinationId: edge.destinationId,
+        sourceName: sourceName,
+        destinationName: destName,
         label: `${sourceName} → ${destName}`,
         directionality: edge.arrowsToward?.length === 2 ? 'bidirectional' 
           : edge.arrowsToward?.length === 0 ? 'none' 
@@ -150,14 +161,19 @@ export function getPrototypeById(store, prototypeId) {
 export function getEdgeById(store, edgeId) {
   if (!store?.edges || !edgeId) return null;
   
-  // Edges are stored as a Map
+  // Edges stored as Map
   if (store.edges instanceof Map) {
     return store.edges.get(edgeId) || null;
   }
   
-  // Fallback: edges as array
+  // Edges stored as Array
   if (Array.isArray(store.edges)) {
     return store.edges.find(e => e.id === edgeId) || null;
+  }
+  
+  // Edges stored as Object
+  if (typeof store.edges === 'object') {
+    return store.edges[edgeId] || null;
   }
   
   return null;

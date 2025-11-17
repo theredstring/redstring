@@ -138,15 +138,12 @@ class CommitterService {
                       body: JSON.stringify({ role: 'system', text: `Error: ${data.error}`, cid: threadId, channel: 'agent' })
                     }).catch(() => {});
                   } else {
-                  const nodeList = (data.nodes || []).map(n => n.name).join(', ');
-                  const edgeLines = (data.edges || []).map(e => {
-                    const label = e.name || 'connects';
-                    const src = e.sourceName || e.sourceId;
-                    const dst = e.destinationName || e.destinationId;
-                    return `• ${src} → ${dst} (${label})`;
-                  });
-                  const edgesSection = edgeLines.length > 0 ? edgeLines.join('\n') : '• (no edges yet)';
-                  const msg = `**${data.name}**\n${data.nodeCount} node${data.nodeCount !== 1 ? 's' : ''}: ${nodeList || '(none)'}\n${data.edgeCount} edge${data.edgeCount !== 1 ? 's' : ''}:\n${edgesSection}`;
+                  // Cursor-style brief system message
+                  const nodeNames = (data.nodes || []).slice(0, 5).map(n => n.name);
+                  const nodePreview = nodeNames.length > 0 
+                    ? nodeNames.join(', ') + (data.nodeCount > 5 ? '...' : '')
+                    : 'empty';
+                  const msg = `Read **${data.name}**: ${data.nodeCount} node${data.nodeCount !== 1 ? 's' : ''} (${nodePreview}), ${data.edgeCount} connection${data.edgeCount !== 1 ? 's' : ''}`;
                     await bridgeFetch('/api/bridge/chat/append', {
                       method: 'POST',
                       headers: { 'Content-Type': 'application/json' },
@@ -157,12 +154,27 @@ class CommitterService {
                     // This enables agentic behavior: read → reason → act
                     console.log('[Committer] Auto-chaining: triggering follow-up planning with read results');
                     
-                    // Get API key for continuation call
-                    const apiKeyManager = await import('./apiKeyManager.js').then(m => m.default);
-                    const apiConfig = await apiKeyManager.getAPIKeyInfo();
-                    const apiKey = await apiKeyManager.getAPIKey();
+                    // Get API credentials from patch metadata (passed from bridge)
+                    const apiKey = unseen[0]?.meta?.apiKey;
+                    const apiConfig = unseen[0]?.meta?.apiConfig;
+                    
+                    console.log('[Committer] Auto-chain API key check:', { 
+                      hasApiKey: !!apiKey, 
+                      hasApiConfig: !!apiConfig,
+                      provider: apiConfig?.provider,
+                      source: 'patch.meta'
+                    });
                     
                     if (apiKey) {
+                      // CRITICAL: Construct graphState from readResult for /api/ai/agent/continue
+                      // The continue endpoint expects graphState.graphId to create tasks
+                      const graphState = {
+                        graphId: data.graphId,
+                        name: data.name,
+                        nodeCount: data.nodeCount || 0,
+                        edgeCount: data.edgeCount || 0
+                      };
+                      
                       await bridgeFetch('/api/ai/agent/continue', {
                         method: 'POST',
                         headers: { 
@@ -172,16 +184,13 @@ class CommitterService {
                         body: JSON.stringify({ 
                           cid: threadId, 
                           readResult: data,
+                          graphState: graphState,  // Pass graphState for task creation
                           context: { graphId: data.graphId },
-                          apiConfig: apiConfig ? {
-                            provider: apiConfig.provider,
-                            endpoint: apiConfig.endpoint,
-                            model: apiConfig.model
-                          } : null
+                          apiConfig: apiConfig || null
                         })
                       }).catch(e => console.warn('[Committer] Auto-chain failed:', e.message));
                     } else {
-                      console.warn('[Committer] Auto-chain skipped: No API key available');
+                      console.warn('[Committer] Auto-chain skipped: No API key in patch metadata');
                     }
                   }
                 }
@@ -219,7 +228,24 @@ class CommitterService {
           
           if (threadIds.size > 0 && (nodeCount > 0 || edgeCount > 0)) {
             for (const threadId of threadIds) {
-              const msg = `Applied ${nodeCount} node${nodeCount !== 1 ? 's' : ''}${edgeCount > 0 ? ` and ${edgeCount} edge${edgeCount !== 1 ? 's' : ''}` : ''}`;
+              // CRITICAL: Get node names from the PATCH OPERATIONS, not the store
+              // The prototypes were just added in this patch, so they might not be in the store yet
+              const addedProtoOps = ops.filter(o => o.type === 'addNodePrototype');
+              const protoById = new Map(addedProtoOps.map(o => [o.prototypeData.id, o.prototypeData.name]));
+              
+              const addedNodeOps = ops.filter(o => o.type === 'addNodeInstance');
+              const nodeNames = addedNodeOps.slice(0, 3).map(o => {
+                return protoById.get(o.prototypeId) || 'Unknown';
+              });
+              
+              let msg = `✅ Added ${nodeCount} node${nodeCount !== 1 ? 's' : ''}`;
+              if (nodeNames.length > 0) {
+                msg += `: ${nodeNames.join(', ')}${nodeCount > 3 ? '...' : ''}`;
+              }
+              if (edgeCount > 0) {
+                msg += ` and ${edgeCount} connection${edgeCount !== 1 ? 's' : ''}`;
+              }
+              
               const { bridgeFetch } = await import('./bridgeConfig.js');
               
               // Send completion message to chat
@@ -292,12 +318,31 @@ class CommitterService {
                     : []
                 } : null;
                 
-                // Get API config for continuation
-                const apiKeyManager = await import('./apiKeyManager.js').then(m => m.default);
-                const apiConfig = await apiKeyManager.getAPIKeyInfo();
-                const apiKey = await apiKeyManager.getAPIKey();
+                // Get API credentials from patch metadata (passed from bridge)
+                // CRITICAL: apiKeyManager uses localStorage (browser-only), so we get credentials from patch.meta
+                const apiKey = unseen[0]?.meta?.apiKey;
+                const apiConfig = unseen[0]?.meta?.apiConfig;
+                
+                console.log('[Committer] Agentic loop API key check:', { 
+                  hasApiKey: !!apiKey, 
+                  hasApiConfig: !!apiConfig,
+                  provider: apiConfig?.provider,
+                  source: 'patch.meta'
+                });
                 
                 if (graphState && apiKey) {
+                  // Send "Working..." status before continuing
+                  await bridgeFetch('/api/bridge/chat/append', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ 
+                      role: 'system', 
+                      text: `⏳ Continuing... (iteration ${currentIteration + 1}/5)`, 
+                      cid: threadId, 
+                      channel: 'agent' 
+                    })
+                  }).catch(() => {});
+                  
                   await bridgeFetch('/api/ai/agent/continue', {
                     method: 'POST',
                     headers: { 
@@ -316,6 +361,20 @@ class CommitterService {
                       } : null
                     })
                   }).catch(err => console.warn('[Committer] Agentic loop continuation failed:', err.message));
+                } else {
+                  // No more work - send final summary
+                  const totalNodes = graphState?.nodeCount || 0;
+                  const totalEdges = graphState?.edgeCount || 0;
+                  await bridgeFetch('/api/bridge/chat/append', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ 
+                      role: 'ai', 
+                      text: `✅ Done! The graph now has ${totalNodes} node${totalNodes !== 1 ? 's' : ''} and ${totalEdges} connection${totalEdges !== 1 ? 's' : ''}.`, 
+                      cid: threadId, 
+                      channel: 'agent' 
+                    })
+                  }).catch(() => {});
                 }
               }
             }
