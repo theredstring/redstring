@@ -527,7 +527,7 @@ const LeftAIView = ({ compact = false, activeGraphId, graphsMap }) => {
         localStorage.setItem(RESET_TS_KEY, String(ts));
         localStorage.removeItem(STORAGE_KEY);
       } catch {}
-      addMessage('system', '🗑️ Conversation cleared');
+      // Conversation cleared silently (no message)
     }
   };
 
