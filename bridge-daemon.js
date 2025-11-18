@@ -1816,7 +1816,7 @@ app.post('/api/ai/agent', async (req, res) => {
     if (resolvedIntent === 'qa' && planned) {
       const text = planned.response || "I'm here to help you create knowledge graphs. What would you like to map?";
       telemetry.push({ ts: Date.now(), type: 'agent_answer', cid, text });
-      appendChat('ai', text, { cid, channel: 'agent' });
+      // NOTE: Don't appendChat here - UI displays from JSON response to avoid duplicates
       return res.json({ success: true, response: text, toolCalls: [], cid });
     }
 
@@ -1842,7 +1842,7 @@ app.post('/api/ai/agent', async (req, res) => {
           if (!req.headers.authorization) {
             const msg = 'I need your AI API key (Authorization: Bearer …) to reply.';
             telemetry.push({ ts: Date.now(), type: 'agent_answer', cid, graphId: targetGraphId, text: msg, needs_key: true });
-            appendChat('ai', msg, { cid, channel: 'agent' });
+            // NOTE: Don't appendChat here - UI displays from JSON response to avoid duplicates
             return res.json({ success: true, response: msg, toolCalls: [], cid });
           }
           try {
@@ -1887,7 +1887,7 @@ app.post('/api/ai/agent', async (req, res) => {
           return res.json({ success: true, response: msg, toolCalls: [], cid });
         }
         telemetry.push({ ts: Date.now(), type: 'agent_answer', cid, graphId: targetGraphId, text });
-        appendChat('ai', text, { cid, channel: 'agent' });
+        // NOTE: Don't appendChat here - UI displays from JSON response to avoid duplicates
         console.log('[Agent] Chat greeting/capabilities response');
         return res.json({ success: true, response: text, toolCalls: [], cid });
       }
@@ -1899,7 +1899,7 @@ app.post('/api/ai/agent', async (req, res) => {
           if (!req.headers.authorization) {
             const msg = 'I need your AI API key (Authorization: Bearer …) to reply.';
             telemetry.push({ ts: Date.now(), type: 'agent_answer', cid, graphId: targetGraphId, text: msg, needs_key: true });
-            appendChat('ai', msg, { cid, channel: 'agent' });
+            // NOTE: Don't appendChat here - UI displays from JSON response to avoid duplicates
             return res.json({ success: true, response: msg, toolCalls: [], cid });
           }
           try {
