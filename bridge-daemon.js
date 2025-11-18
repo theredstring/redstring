@@ -495,6 +495,22 @@ app.post('/api/bridge/state', (req, res) => {
       logger.debug(`[Bridge] Normalized ${bridgeStoreData.graphEdges.length} edges from UI to store.edges object`);
     }
     
+    // CRITICAL: Normalize graph instances structure
+    // Ensure instances are objects (not undefined) for all graphs
+    if (Array.isArray(bridgeStoreData.graphs)) {
+      bridgeStoreData.graphs.forEach(graph => {
+        if (graph && !graph.instances) {
+          graph.instances = {};
+        } else if (graph && graph.instances && typeof graph.instances === 'object') {
+          // Ensure instances is an object (not Map)
+          if (graph.instances instanceof Map) {
+            graph.instances = Object.fromEntries(graph.instances.entries());
+          }
+        }
+      });
+      logger.debug(`[Bridge] Normalized ${bridgeStoreData.graphs.length} graphs with instances`);
+    }
+    
     // Make store accessible to orchestrator components
     setBridgeStoreRef(bridgeStoreData);
     // Emit debug telemetry snapshot occasionally for visibility

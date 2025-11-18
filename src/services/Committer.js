@@ -205,7 +205,7 @@ class CommitterService {
         if (mutationOps.length > 0) {
           await emitApplyMutations(mutationOps);
           
-          // If layout operations occurred (nodes added/repositioned), trigger "back to civilization"
+          // If layout operations occurred (nodes added/repositioned), trigger auto-layout
           const hasLayoutOps = mutationOps.some(op => 
             op.type === 'addNodeInstance' || 
             op.type === 'updateNodeInstance' ||
@@ -213,11 +213,15 @@ class CommitterService {
           );
           
           if (hasLayoutOps && typeof window !== 'undefined') {
-            // Dispatch event for UI to center view on new layout
-            window.dispatchEvent(new CustomEvent('rs-auto-layout-complete', {
+            const graphId = mutationOps.find(o => o.graphId)?.graphId;
+            const nodeCount = mutationOps.filter(o => o.type === 'addNodeInstance').length;
+            
+            // Dispatch event to trigger auto-layout (like clicking Edit > Auto-Layout)
+            // The layout function will dispatch rs-auto-layout-complete when done
+            window.dispatchEvent(new CustomEvent('rs-trigger-auto-layout', {
               detail: { 
-                nodeCount: mutationOps.filter(o => o.type === 'addNodeInstance').length,
-                graphId: mutationOps.find(o => o.graphId)?.graphId
+                graphId,
+                nodeCount
               }
             }));
           }

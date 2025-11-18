@@ -494,7 +494,18 @@ const BridgeClient = () => {
                       name: graph.name,
                       description: graph.description || '',
                       instanceCount: graph.instances?.size || 0,
-                      edgeIds: Array.isArray(graph.edgeIds) ? graph.edgeIds : []
+                      edgeIds: Array.isArray(graph.edgeIds) ? graph.edgeIds : [],
+                      // CRITICAL: Include instances so read_graph_structure can find nodes
+                      instances: graph.instances ?
+                        Object.fromEntries(Array.from(graph.instances.entries()).map(([instanceId, instance]) => [
+                          instanceId, {
+                            id: instance.id,
+                            prototypeId: instance.prototypeId,
+                            x: instance.x || 0,
+                            y: instance.y || 0,
+                            scale: instance.scale || 1
+                          }
+                        ])) : {}
                     })),
                     nodePrototypes: Array.from(s2.nodePrototypes.values()).map(p => ({
                       id: p.id,

@@ -8092,6 +8092,25 @@ function NodeCanvas() {
     setPanOffset({ x: finalPanX, y: finalPanY });
   }, [enableClustering, clusterAnalysis, nodes, baseDimsById, viewportSize, canvasSize, MAX_ZOOM]);
   
+  // Listen for auto-layout trigger events from AI operations (mutations)
+  useEffect(() => {
+    const handleTriggerAutoLayout = (event) => {
+      const { graphId } = event.detail || {};
+      // Only trigger if this is the active graph
+      if (!graphId || graphId === activeGraphId) {
+        // Small delay to ensure mutations are fully applied before layout
+        setTimeout(() => {
+          applyAutoLayoutToActiveGraph();
+        }, 200);
+      }
+    };
+    
+    window.addEventListener('rs-trigger-auto-layout', handleTriggerAutoLayout);
+    return () => {
+      window.removeEventListener('rs-trigger-auto-layout', handleTriggerAutoLayout);
+    };
+  }, [applyAutoLayoutToActiveGraph, activeGraphId]);
+  
   // Listen for auto-layout completion events from AI operations
   useEffect(() => {
     const handleAutoLayoutComplete = (event) => {
