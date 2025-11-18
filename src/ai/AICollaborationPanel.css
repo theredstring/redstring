@@ -241,9 +241,7 @@
 }
 
 .ai-message-system .ai-message-avatar {
-  background: rgba(255, 193, 7, 0.1);
-  border: 1px solid rgba(255, 193, 7, 0.2);
-  color: #FFC107;
+  /* No special styling - system messages are plain */
 }
 
 .ai-message-content {

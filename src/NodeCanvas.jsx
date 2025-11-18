@@ -2117,6 +2117,13 @@ function NodeCanvas() {
         } catch (boundErr) {
           console.warn('[AutoLayout] Bound correction failed:', boundErr);
         }
+        // Center view on newly laid out graph (back to civilization)
+        // Dispatch event so the listener can handle it (avoids dependency issues)
+        setTimeout(() => {
+          window.dispatchEvent(new CustomEvent('rs-auto-layout-complete', {
+            detail: { graphId: activeGraphId, nodeCount: updates.length }
+          }));
+        }, 100);
       }, 0);
     } catch (error) {
       console.error('[AutoLayout] Failed to apply layout:', error);

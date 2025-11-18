@@ -2365,7 +2365,7 @@ app.post('/api/ai/agent', async (req, res) => {
         const errorMsg = `Error creating graph: ${e.message || e}`;
         logger.error('[Agent] Graph creation failed:', e);
         telemetry.push({ ts: Date.now(), type: 'agent_answer', cid, error: errorMsg });
-        appendChat('system', `⚠️ ${errorMsg}\n\nPlease check the error and try again with different parameters.`, { cid, channel: 'agent' });
+        appendChat('system', `${errorMsg}\n\nPlease check the error and try again with different parameters.`, { cid, channel: 'agent' });
         return res.json({ success: false, error: errorMsg, cid });
       }
     }
@@ -2424,7 +2424,7 @@ app.post('/api/ai/agent', async (req, res) => {
       } catch (e) {
         const errorMsg = `Error updating node: ${e.message || e}`;
         logger.error('[Agent] Node update failed:', e);
-        appendChat('system', `⚠️ ${errorMsg}\n\nCouldn't update "${planned?.update?.target || 'the node'}". Check if the node exists and try again.`, { cid, channel: 'agent' });
+        appendChat('system', `${errorMsg}\n\nCouldn't update "${planned?.update?.target || 'the node'}". Check if the node exists and try again.`, { cid, channel: 'agent' });
         return res.json({ success: false, error: errorMsg, cid });
       }
     }
@@ -2496,7 +2496,7 @@ app.post('/api/ai/agent', async (req, res) => {
       } catch (e) {
         const errorMsg = `Error deleting node: ${e.message || e}`;
         logger.error('[Agent] Node deletion failed:', e);
-        appendChat('system', `⚠️ ${errorMsg}\n\nCouldn't delete "${planned?.delete?.target || 'the node'}". Check if it exists and try again.`, { cid, channel: 'agent' });
+        appendChat('system', `${errorMsg}\n\nCouldn't delete "${planned?.delete?.target || 'the node'}". Check if it exists and try again.`, { cid, channel: 'agent' });
         return res.json({ success: false, error: errorMsg, cid });
       }
     }
@@ -2552,7 +2552,7 @@ app.post('/api/ai/agent', async (req, res) => {
       } catch (e) {
         const errorMsg = `Error deleting graph: ${e.message || e}`;
         logger.error('[Agent] Graph deletion failed:', e);
-        appendChat('system', `⚠️ ${errorMsg}\n\nCouldn't delete the graph. Check if it exists and try again.`, { cid, channel: 'agent' });
+        appendChat('system', `${errorMsg}\n\nCouldn't delete the graph. Check if it exists and try again.`, { cid, channel: 'agent' });
         return res.json({ success: false, error: errorMsg, cid });
       }
     }

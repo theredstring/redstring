@@ -255,7 +255,7 @@ class CommitterService {
                 return protoById.get(o.prototypeId) || 'Unknown';
               });
               
-              let msg = `✅ Added ${nodeCount} node${nodeCount !== 1 ? 's' : ''}`;
+              let msg = `Added ${nodeCount} node${nodeCount !== 1 ? 's' : ''}`;
               if (nodeNames.length > 0) {
                 msg += `: ${nodeNames.join(', ')}${nodeCount > 3 ? '...' : ''}`;
               }
@@ -354,7 +354,7 @@ class CommitterService {
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ 
                       role: 'system', 
-                      text: `⏳ Continuing... (iteration ${currentIteration + 1}/5)`, 
+                      text: `Continuing... (iteration ${currentIteration + 1}/5)`, 
                       cid: threadId, 
                       channel: 'agent' 
                     })
@@ -380,14 +380,17 @@ class CommitterService {
                   }).catch(err => console.warn('[Committer] Agentic loop continuation failed:', err.message));
                 } else {
                   // No more work - send final summary
-                  const totalNodes = graphState?.nodeCount || 0;
-                  const totalEdges = graphState?.edgeCount || 0;
+                  // Calculate final counts: current state + mutations just applied
+                  const mutationsNodeCount = ops.filter(o => o.type === 'addNodeInstance').length;
+                  const mutationsEdgeCount = ops.filter(o => o.type === 'addEdge').length;
+                  const totalNodes = (graphState?.nodeCount || 0) + mutationsNodeCount;
+                  const totalEdges = (graphState?.edgeCount || 0) + mutationsEdgeCount;
                   await bridgeFetch('/api/bridge/chat/append', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ 
                       role: 'ai', 
-                      text: `✅ Done! The graph now has ${totalNodes} node${totalNodes !== 1 ? 's' : ''} and ${totalEdges} connection${totalEdges !== 1 ? 's' : ''}.`, 
+                      text: `Done! The graph now has ${totalNodes} node${totalNodes !== 1 ? 's' : ''} and ${totalEdges} connection${totalEdges !== 1 ? 's' : ''}.`, 
                       cid: threadId, 
                       channel: 'agent' 
                     })
