@@ -204,6 +204,23 @@ class CommitterService {
         // Emit to UI; UI will apply and persist via its Git engines
         if (mutationOps.length > 0) {
           await emitApplyMutations(mutationOps);
+          
+          // If layout operations occurred (nodes added/repositioned), trigger "back to civilization"
+          const hasLayoutOps = mutationOps.some(op => 
+            op.type === 'addNodeInstance' || 
+            op.type === 'updateNodeInstance' ||
+            (op.type === 'createNewGraph' && op.initialData?.nodes?.length > 0)
+          );
+          
+          if (hasLayoutOps && typeof window !== 'undefined') {
+            // Dispatch event for UI to center view on new layout
+            window.dispatchEvent(new CustomEvent('rs-auto-layout-complete', {
+              detail: { 
+                nodeCount: mutationOps.filter(o => o.type === 'addNodeInstance').length,
+                graphId: mutationOps.find(o => o.graphId)?.graphId
+              }
+            }));
+          }
         }
         
         // If we created any graphs, enqueue openGraph to ensure UI switches to them

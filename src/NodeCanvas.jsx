@@ -8084,6 +8084,26 @@ function NodeCanvas() {
     setZoomLevel(targetZoom);
     setPanOffset({ x: finalPanX, y: finalPanY });
   }, [enableClustering, clusterAnalysis, nodes, baseDimsById, viewportSize, canvasSize, MAX_ZOOM]);
+  
+  // Listen for auto-layout completion events from AI operations
+  useEffect(() => {
+    const handleAutoLayoutComplete = (event) => {
+      const { graphId } = event.detail || {};
+      // Only trigger if this is the active graph
+      if (!graphId || graphId === activeGraphId) {
+        // Small delay to ensure nodes are rendered before centering
+        setTimeout(() => {
+          handleBackToCivilizationClick();
+        }, 100);
+      }
+    };
+    
+    window.addEventListener('rs-auto-layout-complete', handleAutoLayoutComplete);
+    return () => {
+      window.removeEventListener('rs-auto-layout-complete', handleAutoLayoutComplete);
+    };
+  }, [handleBackToCivilizationClick, activeGraphId]);
+  
   return (
     <div
       className="node-canvas-container"
