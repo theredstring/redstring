@@ -486,6 +486,32 @@ const BridgeClient = () => {
                   const g = afterId ? s2.graphs.get(afterId) : null;
                   const friendly = `Created graph "${g?.name || 'New Thing'}" (${afterId || 'unknown'})`;
                   window.dispatchEvent(new CustomEvent('rs-telemetry', { detail: [{ ts: Date.now(), type: 'info', name: 'createNewGraph', message: friendly, graphId: afterId }] }));
+                  
+                  // CRITICAL: Sync new graph to bridge immediately so AI can see it
+                  const bridgeData = {
+                    graphs: Array.from(s2.graphs.entries()).map(([id, graph]) => ({
+                      id,
+                      name: graph.name,
+                      description: graph.description || '',
+                      instanceCount: graph.instances?.size || 0,
+                      edgeIds: Array.isArray(graph.edgeIds) ? graph.edgeIds : []
+                    })),
+                    nodePrototypes: Array.from(s2.nodePrototypes.values()).map(p => ({
+                      id: p.id,
+                      name: p.name,
+                      color: p.color,
+                      description: p.description || ''
+                    })),
+                    edges: Array.from(s2.edges.values()),
+                    activeGraphId: s2.activeGraphId,
+                    activeGraphName: s2.activeGraphId ? (s2.graphs.get(s2.activeGraphId)?.name || null) : null,
+                    openGraphIds: s2.openGraphIds
+                  };
+                  await bridgeFetch('/api/bridge/state', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(bridgeData)
+                  }).catch(err => console.warn('[BridgeClient] Failed to sync new graph:', err));
                 } catch {}
                 return { success: true, graphId: afterId || beforeId };
               },

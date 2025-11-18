@@ -188,10 +188,12 @@ function generateInitialPositions(nodes, adjacency, width, height, options = {})
     const angle = (2 * Math.PI * index) / smallClusters.length;
     const geometryFactor = 1 + Math.log10(cluster.length + 1) * 0.04;
     const computedClusterRadius = clusterRadius * geometryFactor;
+    const clusterNodeSpan = Math.max(5, cluster.length);
     const separationMargin = Math.max(
-      computedClusterRadius * 0.25,
-      minDimension * 0.06,
-      90
+      computedClusterRadius * 0.15,
+      Math.sqrt(clusterNodeSpan) * 14,
+      minDimension * 0.035,
+      50
     );
     const desiredDistance = Math.max(
       mainRadius + computedClusterRadius + separationMargin,
@@ -808,8 +810,8 @@ function resolveOverlaps(positions, nodes, getRadius, padding, width, height, pa
 function condenseClusters(positions, clusters, centerX, centerY, config) {
   if (clusters.length <= 1) return;
 
-  const shrinkFactor = 0.75;
-  const minDistanceFromCenter = 120;
+  const shrinkFactor = 0.9;
+  const minDistanceFromCenter = 90;
 
   clusters.forEach(cluster => {
     if (!cluster || cluster.length === 0) return;

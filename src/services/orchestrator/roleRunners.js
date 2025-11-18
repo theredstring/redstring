@@ -5,6 +5,38 @@ import { RolePrompts, ToolAllowlists } from '../roles.js';
 import { getBridgeStore, getGraphById, getActiveGraph } from '../bridgeStoreAccessor.js';
 import { getGraphSemanticStructure } from '../graphQueries.js';
 
+// Generate a unique color for a connection type based on its name (deterministic hash)
+function generateConnectionColor(connectionName) {
+  if (!connectionName) return '#5B6CFF'; // Fallback blue
+  
+  // Simple hash to get a consistent hue for the same name
+  let hash = 0;
+  for (let i = 0; i < connectionName.length; i++) {
+    hash = ((hash << 5) - hash) + connectionName.charCodeAt(i);
+    hash = hash & hash; // Convert to 32-bit integer
+  }
+  
+  // Generate HSV with fixed saturation and value (matching user's palette style)
+  const hue = Math.abs(hash % 360);
+  const saturation = 1.0; // Full saturation
+  const value = 0.5451; // Match user's existing palette brightness
+  
+  // Convert HSV to RGB
+  const c = value * saturation;
+  const x = c * (1 - Math.abs(((hue / 60) % 2) - 1));
+  const m = value - c;
+  let r, g, b;
+  if (hue >= 0 && hue < 60) { r = c; g = x; b = 0; }
+  else if (hue >= 60 && hue < 120) { r = x; g = c; b = 0; }
+  else if (hue >= 120 && hue < 180) { r = 0; g = c; b = x; }
+  else if (hue >= 180 && hue < 240) { r = 0; g = x; b = c; }
+  else if (hue >= 240 && hue < 300) { r = x; g = 0; b = c; }
+  else { r = c; g = 0; b = x; }
+  
+  const toHex = (n) => Math.round((n + m) * 255).toString(16).padStart(2, '0');
+  return `#${toHex(r)}${toHex(g)}${toHex(b)}`.toUpperCase();
+}
+
 // FUZZY DEDUPLICATION HELPER: Calculate string similarity (Dice coefficient on bigrams)
 function calculateStringSimilarity(s1, s2) {
   const a = (s1 || '').toLowerCase().trim();
@@ -281,9 +313,36 @@ export async function runExecutorOnce() {
       });
       
       // Add edge ops
+      // CRITICAL: Look up existing instances for edges that connect to existing nodes
+      const graph = getGraphById(graphId);
+      const existingInstances = graph && graph.instances 
+        ? (graph.instances instanceof Map ? Array.from(graph.instances.values()) : Object.values(graph.instances))
+        : [];
+      
       edges.forEach(edge => {
-        const sourceId = instanceIdByName.get(edge.source);
-        const targetId = instanceIdByName.get(edge.target);
+        let sourceId = instanceIdByName.get(edge.source);
+        let targetId = instanceIdByName.get(edge.target);
+        
+        // If source/target not in new nodes, look up existing instances by prototype name
+        if (!sourceId && edge.source) {
+          const proto = Array.isArray(store.nodePrototypes)
+            ? store.nodePrototypes.find(p => p.name?.toLowerCase() === edge.source.toLowerCase())
+            : null;
+          if (proto) {
+            const instance = existingInstances.find(inst => inst.prototypeId === proto.id);
+            if (instance) sourceId = instance.id;
+          }
+        }
+        if (!targetId && edge.target) {
+          const proto = Array.isArray(store.nodePrototypes)
+            ? store.nodePrototypes.find(p => p.name?.toLowerCase() === edge.target.toLowerCase())
+            : null;
+          if (proto) {
+            const instance = existingInstances.find(inst => inst.prototypeId === proto.id);
+            if (instance) targetId = instance.id;
+          }
+        }
+        
         if (sourceId && targetId) {
           const edgeId = `edge-${Date.now()}-${Math.random().toString(36).slice(2,8)}`;
           
@@ -323,7 +382,7 @@ export async function runExecutorOnce() {
                     id: defProtoId,
                     name: defNodeName,
                     description: defNode.description || `Defines the "${edge.relation || edge.type || 'connection'}" relationship`,
-                    color: defNode.color || '#5B6CFF',
+                    color: defNode.color || generateConnectionColor(defNodeName),
                     typeNodeId: null,
                     definitionGraphIds: []
                   }
@@ -469,7 +528,7 @@ export async function runExecutorOnce() {
                     id: defProtoId,
                     name: defNodeName,
                     description: defNode.description || `Defines the "${edge.relation || edge.type || 'connection'}" relationship`,
-                    color: defNode.color || '#5B6CFF',
+                    color: defNode.color || generateConnectionColor(defNodeName),
                     typeNodeId: null,
                     definitionGraphIds: []
                   }
@@ -647,7 +706,7 @@ export async function runExecutorOnce() {
                     id: defProtoId,
                     name: defNodeName,
                     description: defNode.description || `Defines the "${edge.relation || edge.type || 'connection'}" relationship`,
-                    color: defNode.color || '#5B6CFF',
+                    color: defNode.color || generateConnectionColor(defNodeName),
                     typeNodeId: null,
                     definitionGraphIds: []
                   }

@@ -214,6 +214,29 @@ const HIDDEN_DOMAIN_APPENDIX = `\n\nRedstring domain quick reference
 - Edge: a connection between instances; has a type (prototype), optional label, and directionality (arrowsToward).
 - Definition graph: a graph assigned to a prototype to define/elaborate it.
 
+WHAT REDSTRING GRAPHS ARE:
+Redstring creates KNOWLEDGE GRAPHS that decompose complex concepts into their semantic components and relationships.
+
+Core Principles:
+1. COMPOSITIONAL DECOMPOSITION: When creating/expanding a graph, you're breaking down a concept into its parts
+   - Graph name = the concept being explored (e.g., "Solar System", "Super Hero Team", "Neural Networks")
+   - Nodes = components, aspects, or related concepts that compose/define the main concept
+   - Edges = meaningful relationships between components (not arbitrary links)
+
+2. COMPREHENSIVE COVERAGE: Create ALL relevant components that define the concept
+   - Don't just add 2-3 nodes - if a solar system has 8 planets, show all 8
+   - If a team has key members, include all key members
+   - Aim for completeness within the graph's scope
+
+3. SEMANTIC RELEVANCE: Every node should help answer "What is X?" or "How does X work?"
+   - When expanding "Avengers", add actual team members, not random characters
+   - When expanding "CPU Architecture", add registers/ALU/cache, not operating systems
+   - Stay within the semantic boundary of the graph's defining concept
+
+4. ASK FOR CLARIFICATION: If the graph's purpose or scope is unclear, ASK before generating
+   - "This graph has diverse concepts - what aspect should I focus on?"
+   - "Should I add more team members, or explore their powers?"
+
 HOW THE PIPELINE WORKS (Your Role):
 You are the PLANNER in a multi-stage orchestration pipeline:
 
@@ -300,6 +323,11 @@ NEVER USE:
 ❌ ALL_CAPS: "ROMANTIC_PARTNERSHIP" (unless it's an acronym like "NASA")
 ❌ lowercase: "romantic partnership" (harder to read at small scale)
 
+CONNECTION DEFINITION NODE COLORS (CRITICAL):
+- EVERY edge's definitionNode MUST include a unique "color" field
+- Different relationship types = different colors
+- Example: {"name":"Romantic Partnership","color":"#E74C3C","description":"..."}
+
 EXAMPLES BY DOMAIN:
 Family: "Parent-Child Bond", "Sibling Rivalry", "Extended Family"
 Tech: "API Integration", "Database Connection", "Cloud Infrastructure"
@@ -332,7 +360,15 @@ Example response: {"intent":"qa","response":"Hi! I'm ready to help you build a g
 
 Intent: "create_graph" (NEW GRAPH)
 When: "create/make/build a graph about X".
-CRITICAL: You MUST always return a populated graphSpec with 5-12 nodes. Never return an empty graph.
+
+GRAPH CREATION PHILOSOPHY:
+- A graph decomposes a concept into its COMPONENTS and RELATIONSHIPS
+- Think: "What are the key parts that DEFINE this concept?"
+- Create a COMPREHENSIVE initial structure (8-15 nodes for most topics)
+- Connect components with MEANINGFUL relationships (not arbitrary links)
+- If uncertain about scope, make reasonable assumptions or ask
+
+CRITICAL: You MUST always return a populated graphSpec with 8-15 nodes. Never return an empty graph.
 If the user doesn't specify details, make reasonable assumptions based on the topic.
 Example response: {"intent":"create_graph","response":"I'll create a Solar System graph with 8 planets (inner/outer groups) orbiting the Sun, plus planetary neighbor connections.","graph":{"name":"Solar System"},"graphSpec":{"nodes":[{"name":"Sun","color":"#FDB813","description":"Central star"},{"name":"Mercury","color":"#8C7853","description":"Innermost planet"},{"name":"Venus","color":"#FFC649"},{"name":"Earth","color":"#4A90E2"},{"name":"Mars","color":"#E27B58"},{"name":"Jupiter","color":"#C88B3A","description":"Largest planet"},{"name":"Saturn","color":"#FAD5A5"},{"name":"Uranus","color":"#4FD0E7"},{"name":"Neptune","color":"#4166F5","description":"Outermost planet"}],"edges":[{"source":"Sun","target":"Mercury","directionality":"unidirectional","definitionNode":{"name":"Orbits","description":"Gravitational orbit"}},{"source":"Sun","target":"Venus","directionality":"unidirectional","definitionNode":{"name":"Orbits","description":"Gravitational orbit"}},{"source":"Sun","target":"Earth","directionality":"unidirectional","definitionNode":{"name":"Orbits","description":"Gravitational orbit"}},{"source":"Sun","target":"Mars","directionality":"unidirectional","definitionNode":{"name":"Orbits","description":"Gravitational orbit"}},{"source":"Sun","target":"Jupiter","directionality":"unidirectional","definitionNode":{"name":"Orbits","description":"Gravitational orbit"}},{"source":"Sun","target":"Saturn","directionality":"unidirectional","definitionNode":{"name":"Orbits","description":"Gravitational orbit"}},{"source":"Sun","target":"Uranus","directionality":"unidirectional","definitionNode":{"name":"Orbits","description":"Gravitational orbit"}},{"source":"Sun","target":"Neptune","directionality":"unidirectional","definitionNode":{"name":"Orbits","description":"Gravitational orbit"}},{"source":"Mercury","target":"Venus","directionality":"none","definitionNode":{"name":"Planetary Neighbor","description":"Adjacent in orbit"}},{"source":"Venus","target":"Earth","directionality":"none","definitionNode":{"name":"Planetary Neighbor","description":"Adjacent in orbit"}},{"source":"Earth","target":"Mars","directionality":"none","definitionNode":{"name":"Planetary Neighbor","description":"Adjacent in orbit"}},{"source":"Jupiter","target":"Saturn","directionality":"none","definitionNode":{"name":"Planetary Neighbor","description":"Adjacent in orbit"}}],"layoutAlgorithm":"radial"}}
 
@@ -761,8 +797,9 @@ app.post('/api/ai/agent/continue', async (req, res) => {
     
     if (iteration >= MAX_ITERATIONS) {
       logger.warn(`[Agent/Continue] Max iterations (${MAX_ITERATIONS}) reached for cid=${cid}`);
-      appendChat('ai', `✅ Reached maximum iteration limit. The graph has been populated with ${graphState?.nodeCount || 0} nodes and ${graphState?.edgeCount || 0} connections.`, { cid, channel: 'agent' });
-      return res.json({ success: true, completed: true, reason: 'max_iterations' });
+      const responseText = `✅ Reached maximum iteration limit. The graph has been populated with ${graphState?.nodeCount || 0} nodes and ${graphState?.edgeCount || 0} connections.`;
+      // NOTE: Don't appendChat here - UI displays from JSON response to avoid duplicates
+      return res.json({ success: true, completed: true, response: responseText, reason: 'max_iterations' });
     }
     
     logger.debug(`[Agent/Continue] Iteration ${iteration + 1} for cid=${cid}, graph has ${graphState?.nodeCount || 0} nodes`);
@@ -783,6 +820,25 @@ app.post('/api/ai/agent/continue', async (req, res) => {
     const readResult = body.readResult;
     const isReadThenCreate = readResult && readResult.nodeCount > 0;
     
+    // Extract user's color palette for consistent styling
+    const extractColorPalette = () => {
+      const allColors = [];
+      if (bridgeStoreData.nodePrototypes && Array.isArray(bridgeStoreData.nodePrototypes)) {
+        for (const proto of bridgeStoreData.nodePrototypes) {
+          if (proto.color && /^#[0-9A-Fa-f]{6}$/.test(proto.color)) {
+            allColors.push(proto.color);
+          }
+        }
+      }
+      if (allColors.length === 0) return null;
+      const uniqueColors = [...new Set(allColors)];
+      return { colors: uniqueColors.slice(0, 10) };  // Top 10 user colors
+    };
+    const userPalette = extractColorPalette();
+    const paletteContext = userPalette 
+      ? `\n\n🎨 USER'S COLOR PALETTE:\nUSE THESE COLORS: ${userPalette.colors.join(', ')}\n⚠️ Match the existing graph's color style. Use colors from the list above or similar muted/dark tones.`
+      : '';
+    
     // Build continuation prompt
     let continuePrompt;
     
@@ -798,26 +854,79 @@ EXISTING GRAPH STRUCTURE (All ${readResult.nodeCount} nodes):
 Nodes: ${allNodeNames}
 
 Edges: ${allEdges || '(no edges yet)'}
+${paletteContext}
 
-YOUR TASK: Generate a graphSpec that adds 3-6 NEW nodes to this graph.
+YOUR TASK: Generate a graphSpec that adds NEW nodes to expand this graph's compositional coverage.
+
+🎯 GRAPH EXPANSION PHILOSOPHY 🎯
+You are EXPANDING a knowledge graph that decomposes "${readResult.name || 'this concept'}".
+- Ask yourself: "What COMPONENTS or ASPECTS of '${readResult.name || 'this concept'}' are missing?"
+- Add nodes that DEFINE or COMPOSE the main concept (not random related ideas)
+- Connect new nodes to existing ones WHERE RELATIONSHIPS EXIST
+- ADD MISSING CONNECTIONS between EXISTING nodes if relationships exist but weren't defined yet
+- If uncertain about scope, ask: "Should I focus on [specific aspect] or [another aspect]?"
+
+COMPLETENESS: If this graph represents a concept with known components (e.g., team members, system parts), 
+add ALL relevant components, not just 2-3. Aim for comprehensive coverage.
+
+ENRICHMENT: Look at existing nodes and ask "Are there obvious relationships missing?" 
+(e.g., if Iron Man and Captain America exist but aren't connected, add their "Team Partnership" edge)
+
 CRITICAL RULES:
 1. USE "name" FIELD: Nodes MUST use {name:"X"}, NEVER {id:"X"}
 2. CHECK FOR DUPLICATES: Review the node list above. DO NOT recreate existing nodes!
-3. LINK TO EXISTING: EVERY new node must connect to 2-3 existing nodes via edges
-4. EXPAND SEMANTICALLY: Add related concepts that enrich the graph's domain
-5. USE EXISTING NODE NAMES IN EDGES: Reference exact names from the list above
+3. INTEGRATE WITH EXISTING: Each new node should connect to 1-3 EXISTING nodes where relationships make sense
+   - Example: If adding "Moon" to a solar system, connect it to EXISTING "Earth" (orbits) and maybe "Sun" (reflects light)
+   - If no semantic relationship exists to ANY existing node, you may be adding unrelated concepts
+4. EXPAND SEMANTICALLY: Add related concepts that naturally extend the graph's domain
+5. USE EXACT NODE NAMES IN EDGES: Copy exact names from "Nodes:" list above (case-sensitive)
 6. SPECIFY DIRECTIONALITY: Every edge must have "directionality":"unidirectional"|"bidirectional"|"none"
+7. DEFINE ALL CONNECTIONS: EVERY edge MUST include a "definitionNode" with name, color, and description
+8. DEFINITION NODE COLORS: Every definitionNode MUST have a unique "color" field (different colors for different relationship types)
 
 Respond with JSON:
 {
   "intent": "create_node",
   "response": "brief message about what you're adding",
   "graphSpec": {
-    "nodes": [ {name:"X",color:"#HEX",description:"..."}, ... ],
-    "edges": [ {source:"ExistingNode",target:"NewNode",directionality:"unidirectional"}, ... ],
+    "nodes": [ 
+      {name:"NewNode1",color:"#3498DB",description:"first new concept"},
+      {name:"NewNode2",color:"#E74C3C",description:"second new concept"}
+    ],
+    "edges": [ 
+      {
+        source:"ExistingNodeFromList",
+        target:"NewNode1",
+        directionality:"unidirectional",
+        definitionNode:{name:"Relationship Type",color:"#9B59B6",description:"how they're connected"}
+      },
+      {
+        source:"AnotherExistingNode",
+        target:"NewNode1",
+        directionality:"bidirectional",
+        definitionNode:{name:"Different Relationship",color:"#E67E22",description:"another connection"}
+      },
+      {
+        source:"NewNode1",
+        target:"NewNode2",
+        directionality:"none",
+        definitionNode:{name:"Sibling Relationship",color:"#1ABC9C",description:"connects new nodes to each other"}
+      },
+      {
+        source:"ExistingNodeA",
+        target:"ExistingNodeB",
+        directionality:"bidirectional",
+        definitionNode:{name:"Missing Relationship",color:"#E74C3C",description:"connection that should have existed"}
+      }
+    ],
     "layoutAlgorithm": "force"
   }
 }
+
+NOTE: 
+- Edges 1-2: Connect NEW→EXISTING (integration)
+- Edge 3: Connects NEW→NEW (optional enrichment)
+- Edge 4: Connects EXISTING→EXISTING (fill gaps in the graph)
 `;
     } else {
       // AGENTIC BATCHING: Iterative building, simple continuation decision
@@ -835,18 +944,29 @@ Your options:
 2. "refine" - Define connections or update existing nodes
 3. "complete" - Task is complete, provide summary
 
+CRITICAL: Every edge MUST include definitionNode with {name, color, description}
+
 Respond with JSON:
 {
   "decision": "continue" | "refine" | "complete",
   "reasoning": "why you chose this",
-  "graphSpec": { ... } // if decision is "continue" or "refine"
+  "response": "brief message about what you're doing",
+  "graphSpec": { 
+    "nodes": [{name:"X",color:"#HEX",description:"..."}],
+    "edges": [{
+      source:"NodeA",
+      target:"NodeB",
+      directionality:"unidirectional"|"bidirectional"|"none",
+      definitionNode:{name:"Relationship",color:"#E74C3C",description:"what this means"}
+    }]
+  }
 }
 `;
     }
     
     const routerPayload = {
       model,
-      max_tokens: 1500,
+      max_tokens: 4000,  // Safe for all models, allows comprehensive graph expansion
       temperature: 0.3,
       messages: [
         { role: 'system', content: 'You are an iterative graph builder. Decide whether to continue adding nodes, refine connections, or complete the task.' },
@@ -865,7 +985,7 @@ Respond with JSON:
         headers: {
           'Authorization': `Bearer ${apiKey}`,
           'Content-Type': 'application/json',
-          'HTTP-Referer': 'https://redstring.app',
+          'HTTP-Referer': 'https://redstring.io',
           'X-Title': 'Redstring'
         },
         body: JSON.stringify(routerPayload)
@@ -877,6 +997,8 @@ Respond with JSON:
       
       const data = await llmResponse.json();
       const content = data.choices?.[0]?.message?.content || '';
+      logger.debug(`[Agent/Continue] Raw LLM response (first 500 chars): ${content.substring(0, 500)}`);
+      logger.debug(`[Agent/Continue] Raw LLM response (last 500 chars): ${content.substring(Math.max(0, content.length - 500))}`);
       decision = JSON.parse(content);
       
       // Log decision (handle both "decision" and "intent" fields)
@@ -885,8 +1007,9 @@ Respond with JSON:
       logger.info(`[Agent/Continue] LLM decision: ${decisionType} - ${reasoning}`);
     } catch (err) {
       logger.error('[Agent/Continue] LLM call failed:', err);
+      logger.error('[Agent/Continue] This typically means the LLM response was truncated or had invalid JSON syntax');
       // Fail gracefully - assume completion
-      decision = { decision: 'complete', reasoning: 'LLM call failed' };
+      decision = { decision: 'complete', reasoning: 'LLM parse error - assuming complete' };
     }
     
     // Handle READ-THEN-CREATE: LLM returns "intent": "create_node" with graphSpec
@@ -905,7 +1028,7 @@ Respond with JSON:
                 edges: decision.graphSpec.edges || []
               },
               layoutAlgorithm,
-              layoutMode: 'auto'
+              layoutMode: 'partial'  // CRITICAL: Use partial layout to preserve existing node positions when expanding
             },
             threadId: cid
           }
@@ -922,11 +1045,12 @@ Respond with JSON:
       
       ensureSchedulerStarted();
       const responseText = decision.response || `I'll expand "${readResult.name}" with ${(decision.graphSpec.nodes || []).length} new nodes.`;
-      appendChat('ai', responseText, { cid, channel: 'agent' });
+      // NOTE: Don't appendChat here - UI displays from JSON response to avoid duplicates
       
       return res.json({ 
         success: true, 
-        completed: false, 
+        completed: false,
+        response: responseText,
         goalId, 
         nodeCount: (decision.graphSpec.nodes || []).length 
       });
@@ -934,8 +1058,9 @@ Respond with JSON:
     
     if (decision.decision === 'complete') {
       const summary = decision.reasoning || `Populated graph with ${graphState?.nodeCount || 0} nodes and ${graphState?.edgeCount || 0} connections.`;
-      appendChat('ai', `✅ ${summary}`, { cid, channel: 'agent' });
-      return res.json({ success: true, completed: true, reason: 'llm_complete' });
+      const responseText = `✅ ${summary}`;
+      // NOTE: Don't appendChat here - UI displays from JSON response to avoid duplicates
+      return res.json({ success: true, completed: true, response: responseText, reason: 'llm_complete' });
     }
     
     if (decision.decision === 'continue' && decision.graphSpec) {
@@ -952,7 +1077,7 @@ Respond with JSON:
                 edges: decision.graphSpec.edges || []
               },
               layoutAlgorithm,
-              layoutMode: 'auto'
+              layoutMode: 'partial'  // CRITICAL: Use partial layout to preserve existing node positions when expanding
             },
             threadId: cid
           }
@@ -990,8 +1115,9 @@ Respond with JSON:
     }
     
     // Fallback: complete
-    appendChat('ai', `✅ Task complete.`, { cid, channel: 'agent' });
-    return res.json({ success: true, completed: true, reason: 'fallback' });
+    const responseText = `✅ Task complete.`;
+    // NOTE: Don't appendChat here - UI displays from JSON response to avoid duplicates
+    return res.json({ success: true, completed: true, response: responseText, reason: 'fallback' });
     
   } catch (e) {
     logger.error('[Agent/Continue] Error:', e);
@@ -1064,7 +1190,7 @@ app.post('/api/ai/chat', async (req, res) => {
     // Default provider/model
     let provider = 'openrouter';
     let endpoint = 'https://openrouter.ai/api/v1/chat/completions';
-    let model = 'anthropic/claude-3-sonnet-20240229';
+    let model = 'openai/gpt-4o-mini';
 
     if (context?.apiConfig) {
       provider = context.apiConfig.provider || provider;
@@ -1114,7 +1240,7 @@ app.post('/api/ai/chat', async (req, res) => {
         headers: {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${apiKey}`,
-          'HTTP-Referer': 'http://localhost:4000',
+          'HTTP-Referer': 'https://redstring.io',
           'X-Title': 'Redstring Knowledge Graph'
         },
         body: JSON.stringify({
@@ -1183,7 +1309,7 @@ app.post('/api/ai/chat', async (req, res) => {
             headers: {
               'Content-Type': 'application/json',
               'Authorization': `Bearer ${apiKey}`,
-              'HTTP-Referer': 'http://localhost:4000',
+              'HTTP-Referer': 'https://redstring.io',
               'X-Title': 'Redstring Knowledge Graph'
             },
             body: JSON.stringify({
@@ -1276,11 +1402,12 @@ app.post('/api/ai/agent', async (req, res) => {
     try {
       if (req.headers.authorization) {
         const apiKey = String(req.headers.authorization || '').replace(/^Bearer\s+/i, '');
+        logger.debug(`[Agent] API Key received: ${apiKey ? `${apiKey.slice(0, 8)}...${apiKey.slice(-4)}` : 'EMPTY'} (length: ${apiKey.length})`);
         
         // Use API config from UI if available, otherwise fallback to defaults
         let provider = 'openrouter';
         let endpoint = 'https://openrouter.ai/api/v1/chat/completions';
-        let model = 'anthropic/claude-3.5-sonnet';
+        let model = 'openai/gpt-4o-mini';
         
         if (body?.context?.apiConfig) {
           provider = body.context.apiConfig.provider || provider;
@@ -1516,7 +1643,7 @@ app.post('/api/ai/agent', async (req, res) => {
           const payload = { ...baseRouterPayload, model: targetModel };
           const r = await fetch(endpoint, {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}`, 'HTTP-Referer': 'http://localhost:4000', 'X-Title': 'Redstring Knowledge Graph' },
+            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}`, 'HTTP-Referer': 'https://redstring.io', 'X-Title': 'Redstring Knowledge Graph' },
             body: JSON.stringify(payload)
           });
           if (r.ok) {
@@ -1537,7 +1664,7 @@ app.post('/api/ai/agent', async (req, res) => {
           ? body.context.apiConfig.fallbackModels.filter(m => typeof m === 'string')
           : [];
         const defaultFallbacks = provider === 'openrouter'
-          ? ['anthropic/claude-3.5-sonnet', 'openai/gpt-4o-mini']
+          ? ['openai/gpt-4o-mini', 'anthropic/claude-3.5-sonnet']
           : [];
         const candidateModels = [requestedModel, ...explicitFallbacks, ...defaultFallbacks]
           .filter((m, idx, arr) => typeof m === 'string' && arr.indexOf(m) === idx);
@@ -1722,7 +1849,7 @@ app.post('/api/ai/agent', async (req, res) => {
             const apiKey = String(req.headers.authorization || '').replace(/^Bearer\s+/i, '');
             let provider = 'openrouter';
             let endpoint = 'https://openrouter.ai/api/v1/chat/completions';
-            let model = 'anthropic/claude-3-sonnet-20240229';
+            let model = 'openai/gpt-4o-mini';
             if (body?.context?.apiConfig) {
               provider = body.context.apiConfig.provider || provider;
               endpoint = body.context.apiConfig.endpoint || endpoint;
@@ -1779,7 +1906,7 @@ app.post('/api/ai/agent', async (req, res) => {
             const apiKey = String(req.headers.authorization || '').replace(/^Bearer\s+/i, '');
             let provider = 'openrouter';
             let endpoint = 'https://openrouter.ai/api/v1/chat/completions';
-            let model = 'anthropic/claude-3-sonnet-20240229';
+            let model = 'openai/gpt-4o-mini';
             if (body?.context?.apiConfig) {
               provider = body.context.apiConfig.provider || provider;
               endpoint = body.context.apiConfig.endpoint || endpoint;
@@ -2045,7 +2172,12 @@ app.post('/api/ai/agent', async (req, res) => {
         dag, 
         threadId: cid, 
         partitionKey: cid,
-        meta: { apiKey, apiConfig } // Pass credentials for auto-chain
+        meta: { 
+          apiKey, 
+          apiConfig,
+          iteration: 0,
+          agenticLoop: true  // Enable READ-THEN-CREATE auto-chain
+        }
       });
       ensureSchedulerStarted();
       eventLog.append({ type: 'GOAL_ENQUEUED', id: goalId, threadId: cid });
@@ -2122,7 +2254,7 @@ app.post('/api/ai/agent', async (req, res) => {
 
         // Extract layout algorithm and mode from graphSpec or use defaults
         const layoutAlgorithm = planned.graphSpec.layoutAlgorithm || 'force';
-        const layoutMode = planned.graphSpec.layoutMode || 'auto';
+        const layoutMode = planned.graphSpec.layoutMode || 'partial'; // Use partial layout when adding to existing graph
         
         // Enqueue goal with graphSpec for orchestrator to handle with auto-layout
         const dag = {
@@ -2477,7 +2609,7 @@ app.post('/api/ai/agent', async (req, res) => {
           } else {
             const r = await fetch(endpoint, {
               method: 'POST',
-              headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}`, 'HTTP-Referer': 'http://localhost:4000', 'X-Title': 'Redstring Knowledge Graph' },
+              headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}`, 'HTTP-Referer': 'https://redstring.io', 'X-Title': 'Redstring Knowledge Graph' },
               body: JSON.stringify({ model, max_tokens: 300, temperature: 0.2, messages: [ { role: 'system', content: 'You extract lists.' }, { role: 'user', content: userPrompt } ] })
             });
             if (r.ok) { const data = await r.json(); text = data?.choices?.[0]?.message?.content || ''; }
