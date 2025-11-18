@@ -308,7 +308,7 @@ export const FORCE_LAYOUT_DEFAULTS = {
 
   // Label-aware connection tuning
   labelAwareLinkDistance: true,
-  labelAwareLinkPadding: 40,
+  labelAwareLinkPadding: 30,
   labelAwareLinkReduction: 1,
   
   // Presets
@@ -491,8 +491,9 @@ export function forceDirectedLayout(nodes, edges, options = {}) {
     if (!config.labelAwareLinkDistance) return 0;
     const widthSum = getLabelWidth(n1) + getLabelWidth(n2);
     const padding = config.labelAwareLinkPadding || 0;
-    // Prefer just-enough length for label plus modest padding
-    return widthSum * 0.45 + padding;
+    // Prefer just-enough length for label plus modest padding,
+    // staying close to the minimum viable width
+    return widthSum * 0.4 + padding;
   };
   
   // Initialize positions
@@ -618,7 +619,7 @@ export function forceDirectedLayout(nodes, edges, options = {}) {
       const labelAwareTarget = getLabelAwareTarget(n1, n2);
       const baseTarget = finalTargetLinkDistance;
       const preferredTarget = Math.max(labelAwareTarget, minDist);
-      const blendWeight = config.labelAwareLinkDistance ? 0.85 : 0.6;
+      const blendWeight = config.labelAwareLinkDistance ? 0.9 : 0.65;
       const blendedTarget = preferredTarget * blendWeight + baseTarget * (1 - blendWeight);
       const effectiveTarget = Math.max(preferredTarget, Math.min(blendedTarget, baseTarget));
       

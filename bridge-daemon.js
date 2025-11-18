@@ -2070,7 +2070,7 @@ app.post('/api/ai/agent', async (req, res) => {
         console.log('[Agent] Queued create_populated_graph goal:', { graphName, cid, nodeCount, edgeCount, layoutAlgorithm, layoutMode });
         
         const resp = planned?.response || `Creating "${graphName}" with ${nodeCount} concept${nodeCount > 1 ? 's' : ''} using ${layoutAlgorithm} layout, then labeling the connections.`;
-        appendChat('ai', resp, { cid, channel: 'agent' });
+        // Response sent via JSON below - don't duplicate with appendChat
         const toolCalls = [
           {
             name: 'create_populated_graph',

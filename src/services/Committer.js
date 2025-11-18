@@ -274,6 +274,7 @@ class CommitterService {
               
               // Report tool call completion status updates to chat
               // Determine which tool completed based on operation types
+              const hasNewGraph = ops.some(o => o.type === 'createNewGraph');
               const hasPrototypes = ops.some(o => o.type === 'addNodePrototype');
               const hasInstances = ops.some(o => o.type === 'addNodeInstance');
               const hasEdges = ops.some(o => o.type === 'addEdge');
@@ -281,7 +282,18 @@ class CommitterService {
               
               const completedTools = [];
               
-              if (hasPrototypes && hasInstances && hasEdges) {
+              // create_populated_graph: creates new graph + nodes + edges in one operation
+              if (hasNewGraph && hasPrototypes && hasInstances && hasEdges) {
+                const newGraphOp = ops.find(o => o.type === 'createNewGraph');
+                const graphName = newGraphOp?.initialData?.name || 'graph';
+                completedTools.push({
+                  name: 'create_populated_graph',
+                  status: 'completed',
+                  args: { graphId, graphName, nodeCount, edgeCount }
+                });
+              }
+              // create_subgraph: adds nodes + edges to existing graph
+              else if (hasPrototypes && hasInstances && hasEdges) {
                 completedTools.push({
                   name: 'create_subgraph',
                   status: 'completed',
@@ -289,7 +301,8 @@ class CommitterService {
                 });
               }
               
-              if (hasEdgeUpdates || (hasEdges && !hasInstances)) {
+              // define_connections: updates edge definitions (can happen standalone or after create)
+              if (hasEdgeUpdates || (hasEdges && !hasInstances && !hasNewGraph)) {
                 completedTools.push({
                   name: 'define_connections',
                   status: 'completed',

@@ -137,15 +137,29 @@ const LeftAIView = ({ compact = false, activeGraphId, graphsMap }) => {
   };
 
   const addMessage = (sender, content, metadata = {}) => {
-    const message = {
-      id: `${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
-      sender,
-      content,
-      timestamp: new Date().toISOString(),
-      metadata,
-      toolCalls: (metadata.toolCalls || []).map(tc => ({ ...tc, expanded: false }))
-    };
-    setMessages(prev => [...prev, message]);
+    // Check for duplicates before adding
+    setMessages(prev => {
+      // Check if this exact message already exists (same sender, content, and recent timestamp)
+      const isDuplicate = prev.some(m => 
+        m.sender === sender && 
+        m.content === content &&
+        Math.abs(new Date(m.timestamp).getTime() - Date.now()) < 2000 // Within 2 seconds
+      );
+      if (isDuplicate) {
+        console.log('[AI Collaboration] Skipping duplicate message:', content.substring(0, 50));
+        return prev;
+      }
+      
+      const message = {
+        id: `${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+        sender,
+        content,
+        timestamp: new Date().toISOString(),
+        metadata,
+        toolCalls: (metadata.toolCalls || []).map(tc => ({ ...tc, expanded: false }))
+      };
+      return [...prev, message];
+    });
   };
 
   // Simple markdown renderer for system messages (supports **bold** and basic formatting)

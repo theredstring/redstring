@@ -66,8 +66,8 @@ class OrchestratorScheduler {
     if (planner) {
       for (let i = 0; i < (maxPerTick.planner || 0); i++) {
         try {
-          await this.runners.runPlannerOnce();
-          this.metrics.runs.planner++;
+        await this.runners.runPlannerOnce();
+        this.metrics.runs.planner++;
         } catch (e) {
           console.error('[Scheduler] Planner error:', e);
           this.metrics.lastError = `Planner: ${e.message}`;
@@ -77,8 +77,8 @@ class OrchestratorScheduler {
     if (executor) {
       for (let i = 0; i < (maxPerTick.executor || 0); i++) {
         try {
-          await this.runners.runExecutorOnce();
-          this.metrics.runs.executor++;
+        await this.runners.runExecutorOnce();
+        this.metrics.runs.executor++;
         } catch (e) {
           console.error('[Scheduler] Executor error:', e);
           this.metrics.lastError = `Executor: ${e.message}`;
@@ -88,8 +88,8 @@ class OrchestratorScheduler {
     if (auditor) {
       for (let i = 0; i < (maxPerTick.auditor || 0); i++) {
         try {
-          await this.runners.runAuditorOnce();
-          this.metrics.runs.auditor++;
+        await this.runners.runAuditorOnce();
+        this.metrics.runs.auditor++;
         } catch (e) {
           console.error('[Scheduler] Auditor error:', e);
           this.metrics.lastError = `Auditor: ${e.message}`;

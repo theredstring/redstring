@@ -253,15 +253,71 @@ export async function runExecutorOnce() {
       });
       
       // Build edge list for layout algorithm
-      const tempEdges = edges.map(edge => ({
+      // Start with edges from the graphSpec (new edges being added)
+      let tempEdges = edges.map(edge => ({
         sourceId: instanceIdByName.get(edge.source),
         destinationId: instanceIdByName.get(edge.target)
       })).filter(e => e.sourceId && e.destinationId);
       
-      // Determine layout nodes + options (partial layout uses existing positions)
-      const partialContext = (layoutMode !== 'full') ? buildPartialLayoutContext(graphId) : null;
+      // Determine layout nodes + options
+      // FULL layout: include ALL nodes (existing + new) for complete re-layout
+      // PARTIAL layout: only layout new nodes, preserve existing positions
+      const isFullLayout = layoutMode === 'full';
+      const partialContext = !isFullLayout ? buildPartialLayoutContext(graphId) : null;
       const usePartialLayout = partialContext && (layoutMode === 'partial' || layoutMode === 'auto');
-      const layoutNodes = [...tempInstances];
+      
+      // For full layout, get ALL existing instances to include in layout
+      let layoutNodes = [...tempInstances];
+      if (isFullLayout) {
+        const graph = getGraphById(graphId);
+        const store = getBridgeStore();
+        const existingInstances = graph && graph.instances 
+          ? (graph.instances instanceof Map ? Array.from(graph.instances.values()) : Object.values(graph.instances))
+          : [];
+        // Add existing nodes to layout (they'll be repositioned)
+        existingInstances.forEach(inst => {
+          const proto = Array.isArray(store.nodePrototypes)
+            ? store.nodePrototypes.find(p => p.id === inst.prototypeId)
+            : null;
+          if (proto) {
+            layoutNodes.push({
+              id: inst.id,
+              prototypeId: inst.prototypeId,
+              x: inst.x || 0,
+              y: inst.y || 0,
+              width: 200, // Approximate - layout will calculate properly
+              height: 100
+            });
+          }
+        });
+        
+        // For full layout, also include ALL existing edges
+        if (graph && Array.isArray(graph.edgeIds) && store.edges) {
+          const existingEdges = graph.edgeIds
+            .map(edgeId => {
+              const edge = typeof store.edges === 'object' && !Array.isArray(store.edges)
+                ? store.edges[edgeId]
+                : Array.isArray(store.edges)
+                  ? store.edges.find(e => e.id === edgeId)
+                  : null;
+              return edge;
+            })
+            .filter(e => e && e.sourceId && e.destinationId)
+            .map(e => ({
+              sourceId: e.sourceId,
+              destinationId: e.destinationId
+            }));
+          // Merge with new edges (avoid duplicates)
+          const edgeSet = new Set(tempEdges.map(e => `${e.sourceId}-${e.destinationId}`));
+          existingEdges.forEach(e => {
+            const key = `${e.sourceId}-${e.destinationId}`;
+            if (!edgeSet.has(key)) {
+              tempEdges.push(e);
+              edgeSet.add(key);
+            }
+          });
+        }
+      }
       
       // DETERMINISTIC LAYOUT: Use same parameters as Edit menu's Auto-Layout button
       const layoutWidth = 2000;
@@ -294,22 +350,40 @@ export async function runExecutorOnce() {
         });
       }
       
-      // Create position map
+      // Create position map - only include positions for NEW nodes (tempInstances)
       const positionMap = new Map();
+      const newInstanceIds = new Set(tempInstances.map(inst => inst.id));
       positions.forEach(pos => {
-        positionMap.set(pos.instanceId, { x: pos.x, y: pos.y });
+        // Only map positions for new instances (ignore existing nodes in partial layout)
+        if (newInstanceIds.has(pos.instanceId)) {
+          positionMap.set(pos.instanceId, { x: pos.x, y: pos.y });
+        }
       });
       
       // Add node instance ops with calculated positions
       tempInstances.forEach(inst => {
-        const position = positionMap.get(inst.id) || { x: 500, y: 300 };
-        ops.push({
-          type: 'addNodeInstance',
-          graphId,
-          prototypeId: inst.prototypeId,
-          position,
-          instanceId: inst.id
-        });
+        const position = positionMap.get(inst.id);
+        if (!position) {
+          console.error(`[Executor] Layout did not return position for instance ${inst.id} (${inst.name}). Available positions:`, positions.map(p => p.instanceId));
+          // Fallback: use a random position to avoid stacking
+          const fallbackX = 500 + Math.random() * 400;
+          const fallbackY = 300 + Math.random() * 400;
+          ops.push({
+            type: 'addNodeInstance',
+            graphId,
+            prototypeId: inst.prototypeId,
+            position: { x: fallbackX, y: fallbackY },
+            instanceId: inst.id
+          });
+        } else {
+          ops.push({
+            type: 'addNodeInstance',
+            graphId,
+            prototypeId: inst.prototypeId,
+            position,
+            instanceId: inst.id
+          });
+        }
       });
       
       // Add edge ops
