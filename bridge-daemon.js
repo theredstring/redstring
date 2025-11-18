@@ -1028,7 +1028,7 @@ Respond with JSON:
                 edges: decision.graphSpec.edges || []
               },
               layoutAlgorithm,
-              layoutMode: 'partial'  // CRITICAL: Use partial layout to preserve existing node positions when expanding
+              layoutMode: 'full'  // Full re-layout like the Auto Layout menu button
             },
             threadId: cid
           }
@@ -1077,7 +1077,7 @@ Respond with JSON:
                 edges: decision.graphSpec.edges || []
               },
               layoutAlgorithm,
-              layoutMode: 'partial'  // CRITICAL: Use partial layout to preserve existing node positions when expanding
+              layoutMode: 'full'  // Full re-layout like the Auto Layout menu button
             },
             threadId: cid
           }

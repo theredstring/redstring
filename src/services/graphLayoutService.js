@@ -308,7 +308,7 @@ export const FORCE_LAYOUT_DEFAULTS = {
 
   // Label-aware connection tuning
   labelAwareLinkDistance: true,
-  labelAwareLinkPadding: 60,
+  labelAwareLinkPadding: 40,
   labelAwareLinkReduction: 1,
   
   // Presets
@@ -491,7 +491,7 @@ export function forceDirectedLayout(nodes, edges, options = {}) {
     if (!config.labelAwareLinkDistance) return 0;
     const widthSum = getLabelWidth(n1) + getLabelWidth(n2);
     const padding = config.labelAwareLinkPadding || 0;
-    return widthSum * 0.6 + padding;
+    return widthSum * 0.5 + padding;
   };
   
   // Initialize positions
@@ -616,7 +616,10 @@ export function forceDirectedLayout(nodes, edges, options = {}) {
       const minDist = (r1 + r2) * 1.2;
       const labelAwareTarget = getLabelAwareTarget(n1, n2);
       const baseTarget = finalTargetLinkDistance;
-      const effectiveTarget = Math.max(baseTarget, labelAwareTarget, minDist);
+      const preferredTarget = Math.max(labelAwareTarget, minDist);
+      const blendWeight = config.labelAwareLinkDistance ? 0.7 : 0.5;
+      const blendedTarget = preferredTarget * blendWeight + baseTarget * (1 - blendWeight);
+      const effectiveTarget = Math.max(preferredTarget, Math.min(blendedTarget, baseTarget));
       
       const spring = calculateSpring(p1, p2, effectiveTarget, 
         attractionStrength * springMult * alpha);
