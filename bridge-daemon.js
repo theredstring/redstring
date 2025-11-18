@@ -328,6 +328,16 @@ CONNECTION DEFINITION NODE COLORS (CRITICAL):
 - Different relationship types = different colors
 - Example: {"name":"Romantic Partnership","color":"#E74C3C","description":"..."}
 
+CLARIFICATION & QUESTIONS:
+- If the request is ambiguous or broad ("map the world"), ASK clarifying questions using intent "qa".
+- "qa" intent is also for chat, explanations, and search results without modification.
+- Example: {"intent":"qa", "response":"Should I focus on political borders or physical geography?", "questions":["Focus on politics?", "Focus on geography?"]}
+
+AGENTIC LOOP & BATCHING:
+- You have a 5-iteration budget. Start strong with core concepts (5-8 nodes).
+- The system will loop back to you with the new state so you can add more.
+- Don't try to do everything in one shot if it's complex; build the foundation first.
+
 EXAMPLES BY DOMAIN:
 Family: "Parent-Child Bond", "Sibling Rivalry", "Extended Family"
 Tech: "API Integration", "Database Connection", "Cloud Infrastructure"
@@ -1372,7 +1382,27 @@ app.post('/api/ai/agent', async (req, res) => {
     const postedGraphs = Array.isArray(bridgeStoreData?.graphs) ? bridgeStoreData.graphs : [];
     const contextGraphId = body?.context?.activeGraphId;
     const activeGraphFromUI = body?.context?.activeGraph; // Rich context from UI
+    
+    // Check for explicit @GraphName mention in the message (Cursor-style context)
+    let mentionedGraphId = null;
+    if (body.message) {
+      // Match @Graph Name (allows spaces, stops at common punctuation or end of line)
+      const mentionMatch = body.message.match(/@([A-Za-z0-9][A-Za-z0-9' _-]*?)(?=[.,;:?!]|$|\s\n)/);
+      if (mentionMatch) {
+        const mentionedName = mentionMatch[1].trim();
+        // Find graph by exact or case-insensitive name
+        const graph = postedGraphs.find(g => g.name === mentionedName) || 
+                      postedGraphs.find(g => (g.name || '').toLowerCase() === mentionedName.toLowerCase());
+        
+        if (graph) {
+          mentionedGraphId = graph.id;
+          logger.debug(`[Agent] Found explicit graph mention: @${graph.name} (${graph.id})`);
+        }
+      }
+    }
+
     const targetGraphId = args.graphId
+      || mentionedGraphId // Priority 1: Explicit @mention
       || contextGraphId
       || bridgeStoreData?.activeGraphId
       || (Array.isArray(bridgeStoreData?.openGraphIds) && bridgeStoreData.openGraphIds[0])
@@ -1726,15 +1756,23 @@ app.post('/api/ai/agent', async (req, res) => {
         logger.debug('[Agent] Raw LLM response length:', text?.length || 0);
         logger.debug('[Agent] Raw LLM response:', text);
         
+        // Extract conversational preamble (text before JSON) - LLMs often add conversational text before the JSON
+        let conversationalPreamble = '';
+        let jsonStartIndex = -1;
+        
         // Try multiple strategies to extract JSON (LLMs are chatty and don't follow instructions perfectly)
         try { 
-          planned = JSON.parse(text); 
+          planned = JSON.parse(text);
+          // If direct parse works, there's no preamble
+          jsonStartIndex = 0;
         } catch (e) {
           logger.debug('[Agent] Direct JSON parse failed, trying extraction strategies:', e.message);
           
           // Strategy 1: Look for ```json markdown block
           const markdownMatch = text.match(/```json\s*([\s\S]*?)```/i);
-          if (markdownMatch) { 
+          if (markdownMatch) {
+            jsonStartIndex = text.indexOf('```json');
+            conversationalPreamble = text.substring(0, jsonStartIndex).trim();
             try { 
               planned = JSON.parse(markdownMatch[1]); 
               logger.debug('[Agent] Successfully extracted JSON from markdown block');
@@ -1744,14 +1782,41 @@ app.post('/api/ai/agent', async (req, res) => {
           }
           
           // Strategy 2: Look for any {..."intent":...} pattern (most common - LLM adds text before JSON)
+          // Use balanced brace matching to capture the full JSON object
           if (!planned) {
-            const jsonMatch = text.match(/\{[\s\S]*"intent"[\s\S]*?\}/);
-            if (jsonMatch) {
-              try {
-                planned = JSON.parse(jsonMatch[0]);
-                logger.debug('[Agent] Successfully extracted JSON using intent pattern');
-              } catch (e3) {
-                logger.error('[Agent] Failed to parse extracted JSON:', e3.message);
+            const intentIndex = text.indexOf('"intent"');
+            if (intentIndex >= 0) {
+              // Find the opening brace before "intent"
+              let startBrace = -1;
+              for (let i = intentIndex; i >= 0; i--) {
+                if (text[i] === '{') {
+                  startBrace = i;
+                  break;
+                }
+              }
+              if (startBrace >= 0) {
+                // Find the matching closing brace by counting braces
+                let braceCount = 0;
+                let endBrace = startBrace;
+                for (let i = startBrace; i < text.length; i++) {
+                  if (text[i] === '{') braceCount++;
+                  if (text[i] === '}') braceCount--;
+                  if (braceCount === 0) {
+                    endBrace = i;
+                    break;
+                  }
+                }
+                if (endBrace > startBrace) {
+                  const jsonStr = text.substring(startBrace, endBrace + 1);
+                  jsonStartIndex = startBrace;
+                  conversationalPreamble = text.substring(0, startBrace).trim();
+                  try {
+                    planned = JSON.parse(jsonStr);
+                    logger.debug('[Agent] Successfully extracted JSON using balanced brace matching');
+                  } catch (e3) {
+                    logger.error('[Agent] Failed to parse extracted JSON:', e3.message);
+                  }
+                }
               }
             }
           }
@@ -1760,6 +1825,8 @@ app.post('/api/ai/agent', async (req, res) => {
           if (!planned) {
             const firstBrace = text.indexOf('{');
             if (firstBrace >= 0) {
+              jsonStartIndex = firstBrace;
+              conversationalPreamble = text.substring(0, firstBrace).trim();
               try {
                 planned = JSON.parse(text.substring(firstBrace));
                 logger.debug('[Agent] Successfully extracted JSON from first brace');
@@ -1772,6 +1839,19 @@ app.post('/api/ai/agent', async (req, res) => {
           if (!planned) {
             logger.error('[Agent] All JSON extraction strategies failed. Raw text:', text);
           }
+        }
+        
+        // If we found conversational preamble, merge it with planned.response
+        if (conversationalPreamble && planned) {
+          const originalResponse = planned.response || '';
+          // Combine preamble with response (preamble first, then response if different)
+          if (originalResponse && originalResponse !== conversationalPreamble && !conversationalPreamble.includes(originalResponse)) {
+            planned.response = conversationalPreamble + (originalResponse ? ' ' + originalResponse : '');
+          } else if (!originalResponse || conversationalPreamble.length > originalResponse.length) {
+            // Use preamble if it's longer/more detailed than the response
+            planned.response = conversationalPreamble;
+          }
+          logger.debug('[Agent] Merged conversational preamble with response:', planned.response);
         }
         
         if (planned) {

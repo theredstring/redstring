@@ -99,6 +99,11 @@ export function getGraphSemanticStructure(store, graphId, options = {}) {
       node.color = proto.color;
     }
     
+    // Include definitionGraphIds so AI knows which nodes are "expandable"
+    if (proto?.definitionGraphIds && Array.isArray(proto.definitionGraphIds) && proto.definitionGraphIds.length > 0) {
+      node.definitionGraphIds = proto.definitionGraphIds;
+    }
+    
     return node;
   });
   

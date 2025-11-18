@@ -381,12 +381,22 @@ const LeftAIView = ({ compact = false, activeGraphId, graphsMap }) => {
             ? activeGraphData.instances
             : Object.values(activeGraphData.instances || {});
         
-        const nodeNames = instances.slice(0, 50).map(inst => {
-          // Get prototype name (instances have prototypeId)
-          const protoId = inst.prototypeId;
-          // Note: We don't have nodePrototypes here, so we'll use instance data
-          return inst.name || `Node ${inst.id?.slice(-4) || ''}`;
-        });
+        // Extract nodes and edges for LLM context
+        // Adaptive token limit: Use a character budget instead of hard 50-node limit
+        const CHAR_BUDGET = 15000; // Approx 3k-4k tokens
+        let currentChars = 0;
+        const nodeNames = [];
+        let truncated = false;
+        
+        for (const inst of instances) {
+          const name = inst.name || `Node ${inst.id?.slice(-4) || ''}`;
+          if (currentChars + name.length > CHAR_BUDGET) {
+            truncated = true;
+            break;
+          }
+          nodeNames.push(name);
+          currentChars += name.length + 2; // +2 for separator overhead
+        }
         
         const edgeCount = Array.isArray(activeGraphData.edgeIds) ? activeGraphData.edgeIds.length : 0;
         
@@ -396,7 +406,7 @@ const LeftAIView = ({ compact = false, activeGraphId, graphsMap }) => {
           nodeCount: instances.length,
           edgeCount,
           nodes: nodeNames,
-          truncated: instances.length > 50
+          truncated
         };
       }
       

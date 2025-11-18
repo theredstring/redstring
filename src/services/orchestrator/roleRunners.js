@@ -5,6 +5,15 @@ import { RolePrompts, ToolAllowlists } from '../roles.js';
 import { getBridgeStore, getGraphById, getActiveGraph } from '../bridgeStoreAccessor.js';
 import { getGraphSemanticStructure } from '../graphQueries.js';
 
+// Helper to normalize string to Title Case
+function toTitleCase(str) {
+  if (!str) return '';
+  return str
+    .replace(/_/g, ' ') // snake_case -> space
+    .replace(/([a-z])([A-Z])/g, '$1 $2') // camelCase -> space
+    .replace(/\w\S*/g, (txt) => txt.charAt(0).toUpperCase() + txt.substr(1).toLowerCase());
+}
+
 // Generate a unique color for a connection type based on its name (deterministic hash)
 function generateConnectionColor(connectionName) {
   if (!connectionName) return '#5B6CFF'; // Fallback blue
@@ -320,6 +329,9 @@ export async function runExecutorOnce() {
       }
       
       // DETERMINISTIC LAYOUT: Use same parameters as Edit menu's Auto-Layout button
+      const { getAutoLayoutSettings } = await import('../bridgeStoreAccessor.js');
+      const autoSettings = getAutoLayoutSettings();
+      
       const layoutWidth = 2000;
       const layoutHeight = 2000;
       const layoutPadding = 300;
@@ -327,6 +339,10 @@ export async function runExecutorOnce() {
         width: layoutWidth,
         height: layoutHeight,
         padding: layoutPadding,
+        layoutMode,
+        layoutScale: autoSettings.layoutScale,
+        layoutScaleMultiplier: autoSettings.layoutScaleMultiplier,
+        iterationPreset: autoSettings.iterationPreset,
         useExistingPositions: false  // Full re-layout by default
       };
       let partialTranslation = null;
@@ -435,7 +451,9 @@ export async function runExecutorOnce() {
           let definitionNodeIds = [];
           if (edge.definitionNode && typeof edge.definitionNode === 'object') {
             const defNode = edge.definitionNode;
-            const defNodeName = String(defNode.name || '').trim();
+            // Normalize connection name to Title Case
+            const rawName = String(defNode.name || '').trim();
+            const defNodeName = toTitleCase(rawName);
             if (defNodeName) {
               // Search for existing prototype with same name (deduplication)
               const store = getBridgeStore();
@@ -474,7 +492,7 @@ export async function runExecutorOnce() {
               id: edgeId,
               sourceId,
               destinationId: targetId,
-              name: edge.relation || edge.type || '',
+              name: toTitleCase(edge.relation || edge.type || ''),
               typeNodeId: edge.typeNodeId || 'base-connection-prototype',
               directionality: { arrowsToward },
               definitionNodeIds
@@ -546,7 +564,16 @@ export async function runExecutorOnce() {
         destinationId: instanceIdByName.get(edge.target)
       })).filter(e => e.sourceId && e.destinationId);
       
-      const positions = applyLayout(tempInstances, tempEdges, layoutAlgorithm, { layoutMode });
+      // Use same layout settings as UI Auto-Layout button
+      const { getAutoLayoutSettings } = await import('../bridgeStoreAccessor.js');
+      const autoSettings = getAutoLayoutSettings();
+      
+      const positions = applyLayout(tempInstances, tempEdges, layoutAlgorithm, { 
+        layoutMode,
+        layoutScale: autoSettings.layoutScale,
+        layoutScaleMultiplier: autoSettings.layoutScaleMultiplier,
+        iterationPreset: autoSettings.iterationPreset
+      });
       const positionMap = new Map();
       positions.forEach(pos => {
         positionMap.set(pos.instanceId, { x: pos.x, y: pos.y });
@@ -620,7 +647,7 @@ export async function runExecutorOnce() {
               id: edgeId,
               sourceId,
               destinationId: targetId,
-              name: edge.relation || edge.type || '',
+              name: toTitleCase(edge.relation || edge.type || ''),
               typeNodeId: edge.typeNodeId || 'base-connection-prototype',
               directionality: { arrowsToward },
               definitionNodeIds
@@ -706,6 +733,9 @@ export async function runExecutorOnce() {
       })).filter(e => e.sourceId && e.destinationId);
       
       // DETERMINISTIC LAYOUT: Use same parameters as Edit menu's Auto-Layout button
+      const { getAutoLayoutSettings } = await import('../bridgeStoreAccessor.js');
+      const autoSettings = getAutoLayoutSettings();
+      
       const layoutWidth = 2000;
       const layoutHeight = 2000;
       const layoutPadding = 300;
@@ -713,6 +743,9 @@ export async function runExecutorOnce() {
         width: layoutWidth,
         height: layoutHeight,
         padding: layoutPadding,
+        layoutScale: autoSettings.layoutScale,
+        layoutScaleMultiplier: autoSettings.layoutScaleMultiplier,
+        iterationPreset: autoSettings.iterationPreset,
         useExistingPositions: false
       };
       
@@ -759,7 +792,9 @@ export async function runExecutorOnce() {
           let definitionNodeIds = [];
           if (edge.definitionNode && typeof edge.definitionNode === 'object') {
             const defNode = edge.definitionNode;
-            const defNodeName = String(defNode.name || '').trim();
+            // Normalize connection name to Title Case
+            const rawName = String(defNode.name || '').trim();
+            const defNodeName = toTitleCase(rawName);
             if (defNodeName) {
               // Search for existing prototype with same name (deduplication)
               const store = getBridgeStore();
@@ -798,7 +833,7 @@ export async function runExecutorOnce() {
               id: edgeId,
               sourceId,
               destinationId: targetId,
-              name: edge.relation || edge.type || '',
+              name: toTitleCase(edge.relation || edge.type || ''),
               typeNodeId: edge.typeNodeId || 'base-connection-prototype',
               directionality: { arrowsToward },
               definitionNodeIds
@@ -828,7 +863,8 @@ export async function runExecutorOnce() {
       const defMapping = new Map();
 
       toDefine.forEach(edge => {
-        const label = (edge.type || edge.name || 'Connection').trim() || 'Connection';
+        const rawLabel = (edge.type || edge.name || 'Connection').trim() || 'Connection';
+        const label = toTitleCase(rawLabel);
         const key = label.toLowerCase();
         let protoId = defMapping.get(key) || existingProtos.get(key);
         if (!protoId) {
@@ -919,6 +955,332 @@ export async function runExecutorOnce() {
         graphId: validation.sanitized.graphId
       });
       console.log(`[Executor] delete_graph: Deleting graph ${validation.sanitized.graphId}`);
+    } else if (task.toolName === 'get_edge_info') {
+      // Find specific edges between two named nodes
+      const store = getBridgeStore();
+      const graphId = validation.sanitized.graphId || store.activeGraphId;
+      const sourceName = validation.sanitized.sourceName;
+      const targetName = validation.sanitized.targetName;
+      
+      if (!sourceName || !targetName) {
+        ops.push({
+          type: 'readResponse',
+          toolName: 'get_edge_info',
+          data: { error: 'Both sourceName and targetName are required' }
+        });
+      } else {
+        const graph = getGraphById(graphId);
+        if (!graph) {
+          ops.push({
+            type: 'readResponse',
+            toolName: 'get_edge_info',
+            data: { error: `Graph ${graphId} not found` }
+          });
+        } else {
+          // Get node instances to find IDs by name
+          const instancesArray = graph.instances instanceof Map 
+            ? Array.from(graph.instances.values())
+            : Array.isArray(graph.instances) 
+              ? graph.instances 
+              : Object.values(graph.instances || {});
+          
+          const sourceProto = store.nodePrototypes?.find(p => p.name?.toLowerCase() === sourceName.toLowerCase());
+          const targetProto = store.nodePrototypes?.find(p => p.name?.toLowerCase() === targetName.toLowerCase());
+          
+          if (!sourceProto || !targetProto) {
+            ops.push({
+              type: 'readResponse',
+              toolName: 'get_edge_info',
+              data: { error: `Could not find prototypes for "${sourceName}" or "${targetName}"` }
+            });
+          } else {
+            const sourceInstances = instancesArray.filter(inst => inst.prototypeId === sourceProto.id);
+            const targetInstances = instancesArray.filter(inst => inst.prototypeId === targetProto.id);
+            
+            // Find edges between any source and target instances
+            const matchingEdges = [];
+            const edgeIds = graph.edgeIds || [];
+            
+            for (const edgeId of edgeIds) {
+              const edge = store.edges instanceof Map 
+                ? store.edges.get(edgeId)
+                : Array.isArray(store.edges)
+                  ? store.edges.find(e => e.id === edgeId)
+                  : store.edges?.[edgeId];
+              
+              if (edge) {
+                const sourceMatches = sourceInstances.some(inst => inst.id === edge.sourceId);
+                const targetMatches = targetInstances.some(inst => inst.id === edge.destinationId);
+                
+                if (sourceMatches && targetMatches) {
+                  matchingEdges.push({
+                    id: edge.id,
+                    sourceId: edge.sourceId,
+                    destinationId: edge.destinationId,
+                    sourceName,
+                    targetName,
+                    name: edge.name || edge.type || 'Connection',
+                    definitionNodeIds: edge.definitionNodeIds || []
+                  });
+                }
+              }
+            }
+            
+            ops.push({
+              type: 'readResponse',
+              toolName: 'get_edge_info',
+              data: {
+                graphId,
+                sourceName,
+                targetName,
+                edges: matchingEdges,
+                count: matchingEdges.length
+              }
+            });
+          }
+        }
+      }
+    } else if (task.toolName === 'get_node_definition') {
+      // Check if a node has a definition graph
+      const store = getBridgeStore();
+      const nodeId = validation.sanitized.nodeId;
+      
+      if (!nodeId) {
+        ops.push({
+          type: 'readResponse',
+          toolName: 'get_node_definition',
+          data: { error: 'nodeId is required' }
+        });
+      } else {
+        // Find the instance to get its prototype
+        const graphId = validation.sanitized.graphId || store.activeGraphId;
+        const graph = getGraphById(graphId);
+        
+        if (!graph) {
+          ops.push({
+            type: 'readResponse',
+            toolName: 'get_node_definition',
+            data: { error: `Graph ${graphId} not found` }
+          });
+        } else {
+          const instancesArray = graph.instances instanceof Map 
+            ? Array.from(graph.instances.values())
+            : Array.isArray(graph.instances) 
+              ? graph.instances 
+              : Object.values(graph.instances || {});
+          
+          const instance = instancesArray.find(inst => inst.id === nodeId);
+          
+          if (!instance) {
+            ops.push({
+              type: 'readResponse',
+              toolName: 'get_node_definition',
+              data: { error: `Node instance ${nodeId} not found in graph ${graphId}` }
+            });
+          } else {
+            const proto = store.nodePrototypes?.find(p => p.id === instance.prototypeId);
+            
+            if (!proto) {
+              ops.push({
+                type: 'readResponse',
+                toolName: 'get_node_definition',
+                data: { error: `Prototype for node ${nodeId} not found` }
+              });
+            } else {
+              const definitionGraphIds = proto.definitionGraphIds || [];
+              ops.push({
+                type: 'readResponse',
+                toolName: 'get_node_definition',
+                data: {
+                  nodeId,
+                  prototypeId: proto.id,
+                  nodeName: proto.name,
+                  hasDefinition: definitionGraphIds.length > 0,
+                  definitionGraphIds
+                }
+              });
+            }
+          }
+        }
+      }
+    } else if (task.toolName === 'delete_edge') {
+      // Delete a specific edge
+      const graphId = validation.sanitized.graphId;
+      const edgeId = validation.sanitized.edgeId;
+      
+      if (!graphId || !edgeId) {
+        throw new Error('Both graphId and edgeId are required for delete_edge');
+      }
+      
+      ops.push({
+        type: 'deleteEdge',
+        graphId,
+        edgeId
+      });
+      console.log(`[Executor] delete_edge: Deleting edge ${edgeId} from graph ${graphId}`);
+    } else if (task.toolName === 'delete_node_prototype') {
+      // Delete a node prototype (hard delete - removes the concept)
+      const prototypeId = validation.sanitized.prototypeId;
+      
+      if (!prototypeId) {
+        throw new Error('prototypeId is required for delete_node_prototype');
+      }
+      
+      ops.push({
+        type: 'deleteNodePrototype',
+        prototypeId
+      });
+      console.log(`[Executor] delete_node_prototype: Deleting prototype ${prototypeId}`);
+    } else if (task.toolName === 'create_group') {
+      // Create a visual group
+      const graphId = validation.sanitized.graphId;
+      const name = validation.sanitized.name || 'Group';
+      const memberInstanceIds = validation.sanitized.memberInstanceIds || [];
+      
+      if (!graphId) {
+        throw new Error('graphId is required for create_group');
+      }
+      
+      ops.push({
+        type: 'createGroup',
+        graphId,
+        groupData: {
+          name,
+          color: validation.sanitized.color || '#8B0000',
+          memberInstanceIds
+        }
+      });
+      console.log(`[Executor] create_group: Creating group "${name}" with ${memberInstanceIds.length} members`);
+    } else if (task.toolName === 'convert_to_node_group') {
+      // Convert a group into a Node with a nested graph definition
+      const graphId = validation.sanitized.graphId;
+      const groupId = validation.sanitized.groupId;
+      const nodePrototypeId = validation.sanitized.nodePrototypeId;
+      const createNewPrototype = validation.sanitized.createNewPrototype || false;
+      const newPrototypeName = validation.sanitized.newPrototypeName || '';
+      const newPrototypeColor = validation.sanitized.newPrototypeColor || '#8B0000';
+      
+      if (!graphId || !groupId) {
+        throw new Error('Both graphId and groupId are required for convert_to_node_group');
+      }
+      
+      ops.push({
+        type: 'convertToNodeGroup',
+        graphId,
+        groupId,
+        nodePrototypeId,
+        createNewPrototype,
+        newPrototypeName,
+        newPrototypeColor
+      });
+      console.log(`[Executor] convert_to_node_group: Converting group ${groupId} to node-group`);
+    } else if (task.toolName === 'set_active_graph') {
+      // Switch the active view to a specific graph
+      const graphId = validation.sanitized.graphId;
+      
+      if (!graphId) {
+        throw new Error('graphId is required for set_active_graph');
+      }
+      
+      ops.push({
+        type: 'setActiveGraph',
+        graphId
+      });
+      console.log(`[Executor] set_active_graph: Setting active graph to ${graphId}`);
+    } else if (task.toolName === 'sparql_query') {
+      // Execute raw SPARQL query
+      const query = validation.sanitized.query;
+      const endpoint = validation.sanitized.endpoint || 'https://query.wikidata.org/sparql';
+      
+      if (!query) {
+        ops.push({
+          type: 'readResponse',
+          toolName: 'sparql_query',
+          data: { error: 'SPARQL query is required' }
+        });
+      } else {
+        try {
+          const controller = new AbortController();
+          const timeoutId = setTimeout(() => controller.abort(), 30000);
+          
+          const response = await fetch(endpoint, {
+            method: 'POST',
+            headers: {
+              'Accept': 'application/sparql-results+json',
+              'Content-Type': 'application/x-www-form-urlencoded',
+              'User-Agent': 'Redstring-SemanticWeb/1.0'
+            },
+            body: `query=${encodeURIComponent(query)}`,
+            signal: controller.signal
+          });
+          
+          clearTimeout(timeoutId);
+          
+          if (!response.ok) {
+            throw new Error(`SPARQL endpoint returned ${response.status}: ${response.statusText}`);
+          }
+          
+          const data = await response.json();
+          
+          ops.push({
+            type: 'readResponse',
+            toolName: 'sparql_query',
+            data: {
+              endpoint,
+              results: data.results?.bindings || [],
+              head: data.head || {}
+            }
+          });
+        } catch (error) {
+          ops.push({
+            type: 'readResponse',
+            toolName: 'sparql_query',
+            data: { error: error.message || 'SPARQL query failed' }
+          });
+        }
+      }
+    } else if (task.toolName === 'semantic_search') {
+      // High-level concept discovery via enhancedSemanticSearch
+      const query = validation.sanitized.query;
+      
+      if (!query) {
+        ops.push({
+          type: 'readResponse',
+          toolName: 'semantic_search',
+          data: { error: 'Search query is required' }
+        });
+      } else {
+        try {
+          const { enhancedSemanticSearch } = await import('../semanticWebQuery.js');
+          const results = await enhancedSemanticSearch(query, {
+            timeout: 45000,
+            limit: 50
+          });
+          
+          // Convert Map to array for JSON serialization
+          const entitiesArray = Array.from(results.entities.entries()).map(([id, entity]) => ({
+            id,
+            ...entity
+          }));
+          
+          ops.push({
+            type: 'readResponse',
+            toolName: 'semantic_search',
+            data: {
+              query,
+              entities: entitiesArray,
+              relationships: results.relationships || [],
+              metadata: results.metadata || {}
+            }
+          });
+        } catch (error) {
+          ops.push({
+            type: 'readResponse',
+            toolName: 'semantic_search',
+            data: { error: error.message || 'Semantic search failed' }
+          });
+        }
+      }
     }
     // Fallback: executor could be richer; keep empty ops acceptable
     const patch = {

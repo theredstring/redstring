@@ -512,9 +512,9 @@ class ToolValidator {
 
     this.registerSchema('set_active_graph', {
       type: 'object',
-      required: ['graph_id'],
+      required: ['graphId'],
       properties: {
-        graph_id: {
+        graphId: {
           type: 'string',
           description: 'Graph ID to make active'
         }
@@ -577,6 +577,163 @@ class ToolValidator {
           type: 'boolean',
           default: true,
           description: 'Whether to include node/edge descriptions'
+        }
+      }
+    });
+
+    // New inspection tools
+    this.registerSchema('get_edge_info', {
+      type: 'object',
+      required: ['sourceName', 'targetName'],
+      properties: {
+        graphId: {
+          type: 'string',
+          description: 'Graph ID (defaults to active graph)'
+        },
+        sourceName: {
+          type: 'string',
+          minLength: 1,
+          description: 'Source node name'
+        },
+        targetName: {
+          type: 'string',
+          minLength: 1,
+          description: 'Target node name'
+        }
+      }
+    });
+
+    this.registerSchema('get_node_definition', {
+      type: 'object',
+      required: ['nodeId'],
+      properties: {
+        nodeId: {
+          type: 'string',
+          description: 'Node instance ID'
+        },
+        graphId: {
+          type: 'string',
+          description: 'Graph ID (defaults to active graph)'
+        }
+      }
+    });
+
+    // Deletion tools
+    this.registerSchema('delete_edge', {
+      type: 'object',
+      required: ['graphId', 'edgeId'],
+      properties: {
+        graphId: {
+          type: 'string',
+          description: 'Graph ID containing the edge'
+        },
+        edgeId: {
+          type: 'string',
+          description: 'Edge ID to delete'
+        }
+      }
+    });
+
+    this.registerSchema('delete_node_prototype', {
+      type: 'object',
+      required: ['prototypeId'],
+      properties: {
+        prototypeId: {
+          type: 'string',
+          description: 'Prototype ID to delete'
+        }
+      }
+    });
+
+    // Group tools
+    this.registerSchema('create_group', {
+      type: 'object',
+      required: ['graphId'],
+      properties: {
+        graphId: {
+          type: 'string',
+          description: 'Graph ID'
+        },
+        name: {
+          type: 'string',
+          default: 'Group',
+          description: 'Group name'
+        },
+        color: {
+          type: 'string',
+          pattern: '^#[0-9A-Fa-f]{6}$',
+          default: '#8B0000',
+          description: 'Group color'
+        },
+        memberInstanceIds: {
+          type: 'array',
+          items: { type: 'string' },
+          default: [],
+          description: 'Instance IDs to include in group'
+        }
+      }
+    });
+
+    this.registerSchema('convert_to_node_group', {
+      type: 'object',
+      required: ['graphId', 'groupId'],
+      properties: {
+        graphId: {
+          type: 'string',
+          description: 'Graph ID'
+        },
+        groupId: {
+          type: 'string',
+          description: 'Group ID to convert'
+        },
+        nodePrototypeId: {
+          type: 'string',
+          description: 'Existing prototype ID to link (if not creating new)'
+        },
+        createNewPrototype: {
+          type: 'boolean',
+          default: false,
+          description: 'Create a new prototype for the node-group'
+        },
+        newPrototypeName: {
+          type: 'string',
+          description: 'Name for new prototype (if createNewPrototype is true)'
+        },
+        newPrototypeColor: {
+          type: 'string',
+          pattern: '^#[0-9A-Fa-f]{6}$',
+          default: '#8B0000',
+          description: 'Color for new prototype'
+        }
+      }
+    });
+
+    // Semantic tools
+    this.registerSchema('sparql_query', {
+      type: 'object',
+      required: ['query'],
+      properties: {
+        query: {
+          type: 'string',
+          minLength: 1,
+          description: 'SPARQL query string'
+        },
+        endpoint: {
+          type: 'string',
+          default: 'https://query.wikidata.org/sparql',
+          description: 'SPARQL endpoint URL'
+        }
+      }
+    });
+
+    this.registerSchema('semantic_search', {
+      type: 'object',
+      required: ['query'],
+      properties: {
+        query: {
+          type: 'string',
+          minLength: 1,
+          description: 'Search query string'
         }
       }
     });

@@ -820,6 +820,41 @@ const BridgeClient = () => {
                         store.createAndAssignGraphDefinition(op.prototypeId);
                         results.push({ type: op.type, ok: true, id: op.prototypeId });
                         break;
+                      case 'deleteEdge':
+                        store.removeEdge(op.edgeId);
+                        results.push({ type: op.type, ok: true, id: op.edgeId });
+                        break;
+                      case 'deleteNodePrototype':
+                        store.deleteNodePrototype(op.prototypeId);
+                        results.push({ type: op.type, ok: true, id: op.prototypeId });
+                        break;
+                      case 'createGroup':
+                        store.createGroup(op.graphId, op.groupData || {});
+                        results.push({ type: op.type, ok: true, graphId: op.graphId });
+                        break;
+                      case 'convertToNodeGroup':
+                        store.convertGroupToNodeGroup(
+                          op.graphId,
+                          op.groupId,
+                          op.nodePrototypeId,
+                          op.createNewPrototype,
+                          op.newPrototypeName,
+                          op.newPrototypeColor
+                        );
+                        results.push({ type: op.type, ok: true, graphId: op.graphId, groupId: op.groupId });
+                        break;
+                      case 'setActiveGraph':
+                        store.setActiveGraph(op.graphId);
+                        results.push({ type: op.type, ok: true, graphId: op.graphId });
+                        break;
+                      case 'deleteNodeInstance':
+                        store.removeNodeInstance(op.graphId, op.instanceId);
+                        results.push({ type: op.type, ok: true, id: op.instanceId });
+                        break;
+                      case 'deleteGraph':
+                        store.deleteGraph(op.graphId);
+                        results.push({ type: op.type, ok: true, id: op.graphId });
+                        break;
                       default:
                         results.push({ type: op.type, ok: false, error: 'Unknown operation type' });
                     }

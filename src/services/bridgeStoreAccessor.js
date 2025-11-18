@@ -46,3 +46,17 @@ export function getActiveGraph() {
   return getGraphById(store.activeGraphId);
 }
 
+/**
+ * Get auto-layout settings from the store
+ * Returns the same settings used by the UI's Auto-Layout button
+ */
+export function getAutoLayoutSettings() {
+  const store = getBridgeStore();
+  const settings = store.autoLayoutSettings || {};
+  return {
+    layoutScale: settings.layoutScale || 'balanced',
+    layoutScaleMultiplier: settings.layoutScaleMultiplier ?? 1,
+    iterationPreset: settings.layoutIterations || 'balanced'
+  };
+}
+
