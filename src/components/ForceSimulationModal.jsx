@@ -42,7 +42,7 @@ const ForceSimulationModal = ({
   const nodeSeparationMultiplier = baseNodeSeparationMultiplier * scaleMultiplier;
   const scalePresetEntries = Object.entries(LAYOUT_SCALE_PRESETS);
   const iterationPresetEntries = Object.entries(LAYOUT_ITERATION_PRESETS);
-  
+
   // Force simulation parameters (optimized defaults)
   const {
     repulsionStrength: defaultRepulsion,
@@ -67,7 +67,7 @@ const ForceSimulationModal = ({
     alphaDecay: initialAlphaDecay,
     velocityDecay: defaultVelocityDecay
   });
-  
+
   // Simulation state
   const [iteration, setIteration] = useState(0);
   const simulationState = useRef({
@@ -134,12 +134,12 @@ const ForceSimulationModal = ({
     const imageBonus = Math.max(node.imageHeight || 0, 0) * (FORCE_LAYOUT_DEFAULTS.imageRadiusMultiplier || 0.8);
     return base + padding + imageBonus;
   };
-  
+
   // Initialize velocities when modal opens + add jitter for stacked nodes
   useEffect(() => {
     if (isOpen) {
       const nodes = getNodes();
-      
+
       // Check if nodes are stacked (within 50px of each other)
       let hasStackedNodes = false;
       if (nodes.length > 1) {
@@ -156,7 +156,7 @@ const ForceSimulationModal = ({
           if (hasStackedNodes) break;
         }
       }
-      
+
       // If nodes are stacked, add initial jitter to break symmetry
       if (hasStackedNodes) {
         console.log('[ForceSim] Detected stacked nodes, applying jitter');
@@ -166,7 +166,7 @@ const ForceSimulationModal = ({
           x: node.x + (Math.random() - 0.5) * jitterRadius * 2,
           y: node.y + (Math.random() - 0.5) * jitterRadius * 2
         }));
-        
+
         storeActions.updateMultipleNodeInstancePositions(
           graphId,
           updates,
@@ -174,7 +174,7 @@ const ForceSimulationModal = ({
         );
         onNodePositionsUpdated?.();
       }
-      
+
       // Initialize velocities with slight random impulse
       const velocities = new Map();
       nodes.forEach(node => {
@@ -183,7 +183,7 @@ const ForceSimulationModal = ({
           vy: (Math.random() - 0.5) * 2
         });
       });
-      
+
       simulationState.current = {
         velocities,
         alpha: 1.0,
@@ -211,7 +211,7 @@ const ForceSimulationModal = ({
       return { ...prev, alphaDecay: preset.alphaDecay };
     });
   }, [layoutIterationPreset]);
-  
+
   // Force simulation step - applies directly to the store!
   const simulationStep = () => {
     const state = simulationState.current;
@@ -219,7 +219,7 @@ const ForceSimulationModal = ({
       setIsRunning(false);
       return;
     }
-    
+
     const nodes = getNodes();
     const nodesById = new Map(nodes.map(node => [node.id, node]));
     const nodeRadiusCache = new Map();
@@ -232,7 +232,7 @@ const ForceSimulationModal = ({
     };
     const edges = getEdges();
     const velocities = state.velocities;
-    
+
     const {
       repulsionStrength,
       attractionStrength,
@@ -247,13 +247,13 @@ const ForceSimulationModal = ({
     const scaledLinkDistance = linkDistance * scaleMultiplier;
     const scaledMinLinkDistance = minLinkDistance * scaleMultiplier;
     const scaledCollisionRadius = collisionRadius * scaleMultiplier;
-    
+
     // Apply velocity decay
     velocities.forEach(vel => {
       vel.vx *= velocityDecay;
       vel.vy *= velocityDecay;
     });
-    
+
     // Repulsion force (n-body) - improved with distance cap
     for (let i = 0; i < nodes.length; i++) {
       for (let j = i + 1; j < nodes.length; j++) {
@@ -261,18 +261,18 @@ const ForceSimulationModal = ({
         const nodeB = nodes[j];
         const velA = velocities.get(nodeA.id);
         const velB = velocities.get(nodeB.id);
-        
+
         if (!velA || !velB) continue;
-        
+
         const dx = nodeB.x - nodeA.x;
         const dy = nodeB.y - nodeA.y;
         const distSq = Math.max(dx * dx + dy * dy, 1); // Prevent division by zero
         const dist = Math.sqrt(distSq) || 0.0001;
-        
+
         // Only apply repulsion within a certain range (performance + stability)
         const maxRepulsionDist = scaledLinkDistance * 3;
         if (dist > maxRepulsionDist) continue;
-        
+
         // Inverse square law with alpha scaling
         const radiusA = getRadius(nodeA);
         const radiusB = getRadius(nodeB);
@@ -281,41 +281,41 @@ const ForceSimulationModal = ({
         const force = (repulsionStrength * state.alpha) / (effectiveDistance * effectiveDistance);
         const fx = (dx / dist) * force;
         const fy = (dy / dist) * force;
-        
+
         velA.vx -= fx;
         velA.vy -= fy;
         velB.vx += fx;
         velB.vy += fy;
       }
     }
-    
+
     // Attraction/Repulsion force along edges - maintains distance range
     edges.forEach(edge => {
       const source = nodesById.get(edge.sourceId);
       const target = nodesById.get(edge.destinationId);
-      
+
       if (!source || !target) return;
-      
+
       const velSource = velocities.get(source.id);
       const velTarget = velocities.get(target.id);
-      
+
       if (!velSource || !velTarget) return;
-      
+
       const dx = target.x - source.x;
       const dy = target.y - source.y;
       const dist = Math.sqrt(dx * dx + dy * dy) || 1;
-      
+
       const radiusSource = getRadius(source);
       const radiusTarget = getRadius(target);
       const minDistance = Math.max(scaledMinLinkDistance, (radiusSource + radiusTarget) * nodeSeparationMultiplier);
       let force;
-      
+
       // ENFORCE MINIMUM DISTANCE - strong repulsion if too close
       if (dist < minDistance) {
         // Push apart HARD when below minimum
         const deficit = minDistance - dist;
         force = -deficit * attractionStrength * 3 * state.alpha; // 3x stronger push
-      } 
+      }
       // Normal spring behavior between min and target
       else if (dist < scaledLinkDistance) {
         // Gentle pull toward target distance
@@ -328,52 +328,52 @@ const ForceSimulationModal = ({
         const displacement = dist - scaledLinkDistance;
         force = displacement * attractionStrength * state.alpha;
       }
-      
+
       const fx = (dx / dist) * force;
       const fy = (dy / dist) * force;
-      
+
       velSource.vx += fx;
       velSource.vy += fy;
       velTarget.vx -= fx;
       velTarget.vy -= fy;
     });
-    
+
     // Edge avoidance force - push nodes away from edges they're not part of
     if (edgeAvoidance > 0) {
       nodes.forEach(node => {
         const vel = velocities.get(node.id);
         if (!vel) return;
-        
+
         edges.forEach(edge => {
           // Skip if node is part of this edge
           if (edge.sourceId === node.id || edge.destinationId === node.id) return;
-          
+
           const source = nodes.find(n => n.id === edge.sourceId);
           const target = nodes.find(n => n.id === edge.destinationId);
           if (!source || !target) return;
-          
+
           // Calculate distance from node to line segment (edge)
           const edgeVecX = target.x - source.x;
           const edgeVecY = target.y - source.y;
           const edgeLengthSq = edgeVecX * edgeVecX + edgeVecY * edgeVecY;
-          
+
           if (edgeLengthSq < 1) return; // Skip degenerate edges
-          
+
           // Project node onto edge line
           const nodeVecX = node.x - source.x;
           const nodeVecY = node.y - source.y;
           const t = Math.max(0, Math.min(1, (nodeVecX * edgeVecX + nodeVecY * edgeVecY) / edgeLengthSq));
-          
+
           // Closest point on edge to node
           const closestX = source.x + t * edgeVecX;
           const closestY = source.y + t * edgeVecY;
-          
+
           // Distance from node to closest point on edge
           const dx = node.x - closestX;
           const dy = node.y - closestY;
           const distSq = dx * dx + dy * dy;
           const dist = Math.sqrt(distSq);
-          
+
           // Only apply force if node is close to edge
           const avoidanceRadius = scaledCollisionRadius * 1.5;
           if (dist < avoidanceRadius && dist > 1) {
@@ -385,7 +385,7 @@ const ForceSimulationModal = ({
         });
       });
     }
-    
+
     // Center force
     const centerX = 0;
     const centerY = 0;
@@ -396,7 +396,7 @@ const ForceSimulationModal = ({
         vel.vy += (centerY - node.y) * centerStrength * state.alpha;
       }
     });
-    
+
     // Update positions in bulk
     const updates = [];
     nodes.forEach(node => {
@@ -409,13 +409,13 @@ const ForceSimulationModal = ({
         });
       }
     });
-    
+
     // Apply STRONG collision detection to updates with padding
     for (let i = 0; i < updates.length; i++) {
       for (let j = i + 1; j < updates.length; j++) {
         const updateA = updates[i];
         const updateB = updates[j];
-        
+
         const dx = updateB.x - updateA.x;
         const dy = updateB.y - updateA.y;
         const dist = Math.sqrt(dx * dx + dy * dy);
@@ -424,7 +424,7 @@ const ForceSimulationModal = ({
         const radiusA = getRadius(nodeA);
         const radiusB = getRadius(nodeB);
         const minDist = (radiusA + radiusB) * nodeSeparationMultiplier;
-        
+
         if (dist < minDist && dist > 0) {
           // Strong separation with extra push
           const overlap = minDist - dist;
@@ -432,7 +432,7 @@ const ForceSimulationModal = ({
           const pushFactor = 0.6; // Push harder (was 0.5)
           const moveX = Math.cos(angle) * overlap * pushFactor;
           const moveY = Math.sin(angle) * overlap * pushFactor;
-          
+
           updateA.x -= moveX;
           updateA.y -= moveY;
           updateB.x += moveX;
@@ -440,7 +440,7 @@ const ForceSimulationModal = ({
         }
       }
     }
-    
+
     // Apply to store (batch update)
     if (updates.length > 0) {
       storeActions.updateMultipleNodeInstancePositions(
@@ -450,14 +450,14 @@ const ForceSimulationModal = ({
       );
       onNodePositionsUpdated?.();
     }
-    
+
     // Decay alpha
     state.alpha *= (1 - alphaDecay);
     state.iteration++;
-    
+
     setIteration(state.iteration);
   };
-  
+
   // Animation loop
   useEffect(() => {
     if (isRunning) {
@@ -466,7 +466,7 @@ const ForceSimulationModal = ({
         animationRef.current = requestAnimationFrame(animate);
       };
       animationRef.current = requestAnimationFrame(animate);
-      
+
       return () => {
         if (animationRef.current) {
           cancelAnimationFrame(animationRef.current);
@@ -474,7 +474,7 @@ const ForceSimulationModal = ({
       };
     }
   }, [isRunning, params, scaleMultiplier]);
-  
+
   // Apply single step when params change (even when paused)
   useEffect(() => {
     if (!isRunning && isOpen) {
@@ -482,7 +482,7 @@ const ForceSimulationModal = ({
       simulationStep();
     }
   }, [params, scaleMultiplier]);
-  
+
   // Dragging logic
   const handleMouseDown = (e) => {
     if (e.target.closest('.force-sim-header')) {
@@ -493,7 +493,7 @@ const ForceSimulationModal = ({
       });
     }
   };
-  
+
   useEffect(() => {
     const handleMouseMove = (e) => {
       if (isDragging) {
@@ -503,27 +503,27 @@ const ForceSimulationModal = ({
         });
       }
     };
-    
+
     const handleMouseUp = () => {
       setIsDragging(false);
     };
-    
+
     if (isDragging) {
       document.addEventListener('mousemove', handleMouseMove);
       document.addEventListener('mouseup', handleMouseUp);
-      
+
       return () => {
         document.removeEventListener('mousemove', handleMouseMove);
         document.removeEventListener('mouseup', handleMouseUp);
       };
     }
   }, [isDragging, dragOffset]);
-  
+
   const handleReset = () => {
     setIsRunning(false);
     simulationState.current.alpha = 1.0;
     simulationState.current.iteration = 0;
-    
+
     // Reset velocities with random impulse
     const velocities = new Map();
     const nodes = getNodes();
@@ -536,17 +536,17 @@ const ForceSimulationModal = ({
     simulationState.current.velocities = velocities;
     setIteration(0);
   };
-  
+
   const handleRandomize = () => {
     const nodes = getNodes();
     const spreadRadius = 200;
-    
+
     const updates = nodes.map(node => ({
       instanceId: node.id,
       x: node.x + (Math.random() - 0.5) * spreadRadius * 2,
       y: node.y + (Math.random() - 0.5) * spreadRadius * 2
     }));
-    
+
     if (updates.length > 0) {
       storeActions.updateMultipleNodeInstancePositions(
         graphId,
@@ -555,13 +555,13 @@ const ForceSimulationModal = ({
       );
       onNodePositionsUpdated?.();
     }
-    
+
     // Reset simulation
     handleReset();
   };
-  
+
   if (!isOpen) return null;
-  
+
   return (
     <div
       ref={modalRef}
@@ -579,7 +579,7 @@ const ForceSimulationModal = ({
           <X size={18} />
         </button>
       </div>
-      
+
       <div className="force-sim-body">
         {/* Stats */}
         <div className="force-sim-stats-box">
@@ -596,11 +596,11 @@ const ForceSimulationModal = ({
             <span className="force-sim-stat-value">{isRunning ? '🟢 Running' : '⏸️ Paused'}</span>
           </div>
         </div>
-        
+
         <div className="force-sim-info">
           💡 <strong>Edge Avoidance</strong> pushes nodes away from crossing over edges. <strong>Min Link Length</strong> keeps connected nodes apart.
         </div>
-        
+
         {/* Controls */}
         <div className="force-sim-controls">
           <div className="force-sim-buttons">
@@ -618,8 +618,11 @@ const ForceSimulationModal = ({
             <button className="force-sim-btn force-sim-btn-secondary" onClick={handleRandomize}>
               🎲 Randomize
             </button>
+            <button className="force-sim-btn" onClick={handleCopyToAutoLayout} title="Copy current settings to Auto-Layout defaults">
+              💾 Copy
+            </button>
           </div>
-          
+
           <div className="force-sim-preset-row">
             <div className="force-sim-preset-label">Layout Iterations</div>
             <div className="force-sim-chip-row">
@@ -636,7 +639,7 @@ const ForceSimulationModal = ({
               ))}
             </div>
           </div>
-          
+
           {/* Parameters */}
           <div className="force-sim-params">
             <div className="force-sim-param">
@@ -666,12 +669,9 @@ const ForceSimulationModal = ({
                 <button type="button" className="force-sim-chip" onClick={handleResetScale}>
                   Reset scale
                 </button>
-                <button type="button" className="force-sim-chip primary" onClick={handleCopyToAutoLayout}>
-                  Copy to Auto Layout
-                </button>
               </div>
             </div>
-            
+
             <div className="force-sim-param">
               <label>Repulsion</label>
               <input
@@ -684,7 +684,7 @@ const ForceSimulationModal = ({
               />
               <span>{params.repulsionStrength}</span>
             </div>
-            
+
             <div className="force-sim-param">
               <label>Attraction</label>
               <input
@@ -697,7 +697,7 @@ const ForceSimulationModal = ({
               />
               <span>{params.attractionStrength.toFixed(2)}</span>
             </div>
-            
+
             <div className="force-sim-param">
               <label>Link Distance</label>
               <input
@@ -708,8 +708,8 @@ const ForceSimulationModal = ({
                 value={params.linkDistance}
                 onChange={(e) => {
                   const newDist = Number(e.target.value);
-                  setParams({ 
-                    ...params, 
+                  setParams({
+                    ...params,
                     linkDistance: newDist,
                     // Keep minLinkDistance below linkDistance
                     minLinkDistance: Math.min(params.minLinkDistance, Math.max(60, newDist - 20))
@@ -718,7 +718,7 @@ const ForceSimulationModal = ({
               />
               <span>{Math.round(params.linkDistance * scaleMultiplier)}px</span>
             </div>
-            
+
             <div className="force-sim-param">
               <label>Min Link Length</label>
               <input
@@ -731,7 +731,7 @@ const ForceSimulationModal = ({
               />
               <span>{Math.round(params.minLinkDistance * scaleMultiplier)}px</span>
             </div>
-            
+
             <div className="force-sim-param">
               <label>Damping</label>
               <input
@@ -744,7 +744,7 @@ const ForceSimulationModal = ({
               />
               <span>{params.velocityDecay.toFixed(2)}</span>
             </div>
-            
+
             <div className="force-sim-param">
               <label>Node Size</label>
               <input
@@ -757,7 +757,7 @@ const ForceSimulationModal = ({
               />
               <span>{Math.round(params.collisionRadius * scaleMultiplier)}px</span>
             </div>
-            
+
             <div className="force-sim-param">
               <label>Edge Avoidance</label>
               <input
@@ -770,7 +770,7 @@ const ForceSimulationModal = ({
               />
               <span>{params.edgeAvoidance.toFixed(2)}</span>
             </div>
-            
+
             <div className="force-sim-param">
               <label>Center Pull</label>
               <input
@@ -783,7 +783,7 @@ const ForceSimulationModal = ({
               />
               <span>{params.centerStrength.toFixed(2)}</span>
             </div>
-            
+
             <div className="force-sim-param">
               <label>Cooling Rate</label>
               <input

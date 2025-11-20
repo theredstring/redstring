@@ -17,19 +17,19 @@ function toTitleCase(str) {
 // Generate a unique color for a connection type based on its name (deterministic hash)
 function generateConnectionColor(connectionName) {
   if (!connectionName) return '#5B6CFF'; // Fallback blue
-  
+
   // Simple hash to get a consistent hue for the same name
   let hash = 0;
   for (let i = 0; i < connectionName.length; i++) {
     hash = ((hash << 5) - hash) + connectionName.charCodeAt(i);
     hash = hash & hash; // Convert to 32-bit integer
   }
-  
+
   // Generate HSV with fixed saturation and value (matching user's palette style)
   const hue = Math.abs(hash % 360);
   const saturation = 1.0; // Full saturation
   const value = 0.5451; // Match user's existing palette brightness
-  
+
   // Convert HSV to RGB
   const c = value * saturation;
   const x = c * (1 - Math.abs(((hue / 60) % 2) - 1));
@@ -41,7 +41,7 @@ function generateConnectionColor(connectionName) {
   else if (hue >= 180 && hue < 240) { r = 0; g = x; b = c; }
   else if (hue >= 240 && hue < 300) { r = x; g = 0; b = c; }
   else { r = c; g = 0; b = x; }
-  
+
   const toHex = (n) => Math.round((n + m) * 255).toString(16).padStart(2, '0');
   return `#${toHex(r)}${toHex(g)}${toHex(b)}`.toUpperCase();
 }
@@ -52,18 +52,18 @@ function calculateStringSimilarity(s1, s2) {
   const b = (s2 || '').toLowerCase().trim();
   if (a === b) return 1;
   if (a.length < 2 || b.length < 2) return 0;
-  
+
   const getBigrams = str => {
     const bigrams = [];
     for (let i = 0; i < str.length - 1; i++) bigrams.push(str.slice(i, i + 2));
     return bigrams;
   };
-  
+
   const bigramsA = getBigrams(a);
   const bigramsB = getBigrams(b);
   let matches = 0;
   const used = new Set();
-  
+
   bigramsA.forEach(bigram => {
     const idx = bigramsB.findIndex((b, i) => b === bigram && !used.has(i));
     if (idx >= 0) {
@@ -71,32 +71,32 @@ function calculateStringSimilarity(s1, s2) {
       used.add(idx);
     }
   });
-  
+
   return (2 * matches) / (bigramsA.length + bigramsB.length);
 }
 
 // FUZZY DEDUPLICATION HELPER: Find existing prototype for a node name (exact or fuzzy match)
 function findExistingPrototype(nodeName, store, similarityThreshold = 0.80) {
   if (!Array.isArray(store.nodePrototypes)) return null;
-  
+
   // First try exact match (case-insensitive)
   let existingProto = store.nodePrototypes.find(p => p.name?.toLowerCase() === nodeName.toLowerCase());
   if (existingProto) return { proto: existingProto, matchType: 'exact' };
-  
+
   // If no exact match, try fuzzy matching
   const candidates = store.nodePrototypes
     .map(p => ({ proto: p, similarity: calculateStringSimilarity(nodeName, p.name || '') }))
     .filter(c => c.similarity >= similarityThreshold)
     .sort((a, b) => b.similarity - a.similarity);
-  
+
   if (candidates.length > 0) {
-    return { 
-      proto: candidates[0].proto, 
-      matchType: 'fuzzy', 
-      similarity: candidates[0].similarity 
+    return {
+      proto: candidates[0].proto,
+      matchType: 'fuzzy',
+      similarity: candidates[0].similarity
     };
   }
-  
+
   return null;
 }
 
@@ -150,21 +150,21 @@ export async function runPlannerOnce() {
   // Propagate meta from goal to tasks for agentic loop tracking
   const dag = item.dag || { tasks: [] };
   const goalMeta = item.meta || {};
-  
+
   if (Array.isArray(dag.tasks) && dag.tasks.length > 0) {
     for (const t of dag.tasks) {
-      queueManager.enqueue('taskQueue', { 
-        ...t, 
-        threadId: t.threadId || item.threadId, 
+      queueManager.enqueue('taskQueue', {
+        ...t,
+        threadId: t.threadId || item.threadId,
         partitionKey: t.threadId || item.threadId || 'default',
         meta: goalMeta  // Propagate meta for agentic loop
       });
     }
   } else {
-    queueManager.enqueue('taskQueue', { 
-      toolName: 'verify_state', 
-      args: {}, 
-      threadId: item.threadId, 
+    queueManager.enqueue('taskQueue', {
+      toolName: 'verify_state',
+      args: {},
+      threadId: item.threadId,
       partitionKey: item.threadId || 'default',
       meta: goalMeta
     });
@@ -189,10 +189,10 @@ export async function runExecutorOnce() {
     // Convert task into ops without touching UI store (Committer + UI will apply)
     const ops = [];
     if (task.toolName === 'create_node_instance') {
-      const instanceId = `inst-${Date.now()}-${Math.random().toString(36).slice(2,8)}`;
+      const instanceId = `inst-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
       ops.push({ type: 'addNodeInstance', graphId: validation.sanitized.graph_id, prototypeId: validation.sanitized.prototype_id, position: { x: validation.sanitized.x, y: validation.sanitized.y }, instanceId });
     } else if (task.toolName === 'create_graph') {
-      const newGraphId = `graph-${Date.now()}-${Math.random().toString(36).slice(2,8)}`;
+      const newGraphId = `graph-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
       ops.push({ type: 'createNewGraph', initialData: { id: newGraphId, name: validation.sanitized.name, description: validation.sanitized.description || '', color: validation.sanitized.color || '#4A90E2' } });
     } else if (task.toolName === 'create_subgraph') {
       // Use auto-layout to position nodes from LLM's semantic output
@@ -201,29 +201,37 @@ export async function runExecutorOnce() {
       const graphSpec = validation.sanitized.graphSpec || {};
       const layoutAlgorithm = validation.sanitized.layoutAlgorithm || 'force';
       const layoutMode = validation.sanitized.layoutMode || 'auto';
-      
+
       const nodes = Array.isArray(graphSpec.nodes) ? graphSpec.nodes : [];
       const edges = Array.isArray(graphSpec.edges) ? graphSpec.edges : [];
-      
+
       // Create prototype IDs and temporary instance IDs for layout
       // SYNTHESIS: Get store to check for existing prototypes
       const store = getBridgeStore();
+      const graph = getGraphById(graphId);
+      const existingInstances = graph && graph.instances
+        ? (graph.instances instanceof Map ? Array.from(graph.instances.values()) : Object.values(graph.instances))
+        : [];
+
       const protoIdByName = new Map();
       const instanceIdByName = new Map();
       const tempInstances = [];
-      
+
       nodes.forEach((node, idx) => {
         // CRITICAL: Node MUST have a name - check common field names (LLMs use different ones)
         const name = String(node?.name || node?.title || node?.label || node?.id || '').trim();
-        
+
         if (!name) {
           throw new Error(`Node at index ${idx} missing required name field (checked: name, title, label, id). Node data: ${JSON.stringify(node)}`);
         }
-        
+
         // FUZZY DEDUPLICATION: Check for exact or similar existing prototype
         const match = findExistingPrototype(name, store);
-        
+
         let prototypeId;
+        let instanceId;
+        let isExistingInstance = false;
+
         if (match) {
           // Reuse existing prototype (exact or fuzzy match)
           prototypeId = match.proto.id;
@@ -232,9 +240,17 @@ export async function runExecutorOnce() {
           } else {
             console.log(`[Executor] ♻️  EXACT MATCH: Reusing prototype "${match.proto.name}" (${prototypeId})`);
           }
+
+          // Check if an instance of this prototype already exists in the graph
+          const existingInstance = existingInstances.find(inst => inst.prototypeId === prototypeId);
+          if (existingInstance) {
+            instanceId = existingInstance.id;
+            isExistingInstance = true;
+            console.log(`[Executor] 📍 REUSING INSTANCE: "${name}" (${instanceId})`);
+          }
         } else {
           // Create new prototype
-          prototypeId = `prototype-${Date.now()}-${idx}-${Math.random().toString(36).slice(2,8)}`;
+          prototypeId = `prototype-${Date.now()}-${idx}-${Math.random().toString(36).slice(2, 8)}`;
           ops.push({
             type: 'addNodePrototype',
             prototypeData: {
@@ -248,43 +264,47 @@ export async function runExecutorOnce() {
           });
           console.log(`[Executor] ✨ NEW PROTOTYPE: Created "${name}" (${prototypeId})`);
         }
-        
-        const instanceId = `inst-${Date.now()}-${idx}-${Math.random().toString(36).slice(2,8)}`;
+
+        if (!instanceId) {
+          instanceId = `inst-${Date.now()}-${idx}-${Math.random().toString(36).slice(2, 8)}`;
+        }
+
         protoIdByName.set(name, prototypeId);
         instanceIdByName.set(name, instanceId);
-        
+
         // Store temp instance for layout calculation
         tempInstances.push({
           id: instanceId,
           prototypeId,
-          name
+          name,
+          isExisting: isExistingInstance
         });
       });
-      
+
       // Build edge list for layout algorithm
       // Start with edges from the graphSpec (new edges being added)
       let tempEdges = edges.map(edge => ({
         sourceId: instanceIdByName.get(edge.source),
         destinationId: instanceIdByName.get(edge.target)
       })).filter(e => e.sourceId && e.destinationId);
-      
+
       // Determine layout nodes + options
       // FULL layout: include ALL nodes (existing + new) for complete re-layout
       // PARTIAL layout: only layout new nodes, preserve existing positions
       const isFullLayout = layoutMode === 'full';
       const partialContext = !isFullLayout ? buildPartialLayoutContext(graphId) : null;
       const usePartialLayout = partialContext && (layoutMode === 'partial' || layoutMode === 'auto');
-      
+
       // For full layout, get ALL existing instances to include in layout
       let layoutNodes = [...tempInstances];
+      const tempInstanceIds = new Set(tempInstances.map(i => i.id));
+
       if (isFullLayout) {
-        const graph = getGraphById(graphId);
-        const store = getBridgeStore();
-        const existingInstances = graph && graph.instances 
-          ? (graph.instances instanceof Map ? Array.from(graph.instances.values()) : Object.values(graph.instances))
-          : [];
         // Add existing nodes to layout (they'll be repositioned)
+        // Exclude those that are already in tempInstances (reused ones)
         existingInstances.forEach(inst => {
+          if (tempInstanceIds.has(inst.id)) return;
+
           const proto = Array.isArray(store.nodePrototypes)
             ? store.nodePrototypes.find(p => p.id === inst.prototypeId)
             : null;
@@ -299,7 +319,7 @@ export async function runExecutorOnce() {
             });
           }
         });
-        
+
         // For full layout, also include ALL existing edges
         if (graph && Array.isArray(graph.edgeIds) && store.edges) {
           const existingEdges = graph.edgeIds
@@ -327,14 +347,34 @@ export async function runExecutorOnce() {
           });
         }
       }
-      
+
       // DETERMINISTIC LAYOUT: Use same parameters as Edit menu's Auto-Layout button
       const { getAutoLayoutSettings } = await import('../bridgeStoreAccessor.js');
       const autoSettings = getAutoLayoutSettings();
-      
-      const layoutWidth = 2000;
-      const layoutHeight = 2000;
-      const layoutPadding = 300;
+
+      // Dynamic layout sizing based on node count (heuristic since we don't have canvas size)
+      const nodeCount = layoutNodes.length;
+      const layoutWidth = Math.max(2000, Math.sqrt(nodeCount) * 400);
+      const layoutHeight = Math.max(2000, Math.sqrt(nodeCount) * 400);
+      const layoutPadding = Math.max(300, Math.min(layoutWidth, layoutHeight) * 0.08);
+
+      // Update layout nodes with estimated dimensions
+      layoutNodes = layoutNodes.map(n => {
+        const nameLen = (n.name || '').length;
+        // Estimate width: ~10px per char + padding, min 160
+        const width = Math.max(160, nameLen * 10 + 40);
+        // Estimate height: fixed 100 for now, or more if long text
+        const height = nameLen > 30 ? 140 : 100;
+        return {
+          ...n,
+          width,
+          height,
+          // Ensure x/y are numbers
+          x: Number.isFinite(n.x) ? n.x : 0,
+          y: Number.isFinite(n.y) ? n.y : 0
+        };
+      });
+
       const layoutOptions = {
         width: layoutWidth,
         height: layoutHeight,
@@ -348,7 +388,9 @@ export async function runExecutorOnce() {
       let partialTranslation = null;
 
       if (usePartialLayout && partialContext) {
-        layoutNodes.unshift(...partialContext.nodes);
+        // Exclude reused instances from partial context to avoid duplicates
+        const contextNodes = partialContext.nodes.filter(n => !tempInstanceIds.has(n.id));
+        layoutNodes.unshift(...contextNodes);
         layoutOptions.useExistingPositions = true;
         layoutOptions.width = partialContext.width;
         layoutOptions.height = partialContext.height;
@@ -358,61 +400,99 @@ export async function runExecutorOnce() {
         };
       }
 
-      const positions = applyLayout(layoutNodes, tempEdges, layoutAlgorithm, layoutOptions);
+      // Force 'force-directed' if 'force' is requested, to match UI
+      const algorithmToUse = layoutAlgorithm === 'force' ? 'force-directed' : layoutAlgorithm;
+      const positions = applyLayout(layoutNodes, tempEdges, algorithmToUse, layoutOptions);
+
       if (partialTranslation) {
         positions.forEach(pos => {
           pos.x += partialTranslation.x;
           pos.y += partialTranslation.y;
         });
       }
-      
-      // Create position map - only include positions for NEW nodes (tempInstances)
+
+      // RECENTERING: Shift layout to center around (0,0) if it's a full layout or new graph
+      // This mirrors the UI's behavior of centering the result
+      if (isFullLayout || !usePartialLayout) {
+        let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+        let hasPos = false;
+        positions.forEach(p => {
+          if (Number.isFinite(p.x) && Number.isFinite(p.y)) {
+            minX = Math.min(minX, p.x);
+            minY = Math.min(minY, p.y);
+            maxX = Math.max(maxX, p.x);
+            maxY = Math.max(maxY, p.y);
+            hasPos = true;
+          }
+        });
+
+        if (hasPos) {
+          const centerX = (minX + maxX) / 2;
+          const centerY = (minY + maxY) / 2;
+          // Target center is (0,0)
+          const offsetX = -centerX;
+          const offsetY = -centerY;
+
+          positions.forEach(p => {
+            p.x += offsetX;
+            p.y += offsetY;
+          });
+        }
+      }
+
+      // Create position map
       const positionMap = new Map();
-      const newInstanceIds = new Set(tempInstances.map(inst => inst.id));
+      // We want positions for ALL tempInstances (whether new or reused)
+      const tempInstanceIdsSet = new Set(tempInstances.map(inst => inst.id));
       positions.forEach(pos => {
-        // Only map positions for new instances (ignore existing nodes in partial layout)
-        if (newInstanceIds.has(pos.instanceId)) {
+        if (tempInstanceIdsSet.has(pos.instanceId)) {
           positionMap.set(pos.instanceId, { x: pos.x, y: pos.y });
         }
       });
-      
+
       // Add node instance ops with calculated positions
       tempInstances.forEach(inst => {
         const position = positionMap.get(inst.id);
+        // Fallback if layout failed for this node
+        const finalPos = position || {
+          x: 500 + Math.random() * 400,
+          y: 300 + Math.random() * 400
+        };
+
         if (!position) {
-          console.error(`[Executor] Layout did not return position for instance ${inst.id} (${inst.name}). Available positions:`, positions.map(p => p.instanceId));
-          // Fallback: use a random position to avoid stacking
-          const fallbackX = 500 + Math.random() * 400;
-          const fallbackY = 300 + Math.random() * 400;
+          console.error(`[Executor] Layout did not return position for instance ${inst.id} (${inst.name}).`);
+        }
+
+        if (inst.isExisting) {
+          // Update existing instance position
           ops.push({
-            type: 'addNodeInstance',
+            type: 'moveNodeInstance',
             graphId,
-            prototypeId: inst.prototypeId,
-            position: { x: fallbackX, y: fallbackY },
-            instanceId: inst.id
+            instanceId: inst.id,
+            position: finalPos
           });
         } else {
+          // Create new instance
           ops.push({
             type: 'addNodeInstance',
             graphId,
             prototypeId: inst.prototypeId,
-            position,
+            position: finalPos,
             instanceId: inst.id
           });
         }
       });
-      
+
       // Add edge ops
       // CRITICAL: Look up existing instances for edges that connect to existing nodes
-      const graph = getGraphById(graphId);
-      const existingInstances = graph && graph.instances 
-        ? (graph.instances instanceof Map ? Array.from(graph.instances.values()) : Object.values(graph.instances))
-        : [];
-      
+
+      // Local cache for connection definition prototypes created in this batch
+      const localConnectionProtoCache = new Map();
+
       edges.forEach(edge => {
         let sourceId = instanceIdByName.get(edge.source);
         let targetId = instanceIdByName.get(edge.target);
-        
+
         // If source/target not in new nodes, look up existing instances by prototype name
         if (!sourceId && edge.source) {
           const proto = Array.isArray(store.nodePrototypes)
@@ -432,10 +512,10 @@ export async function runExecutorOnce() {
             if (instance) targetId = instance.id;
           }
         }
-        
+
         if (sourceId && targetId) {
-          const edgeId = `edge-${Date.now()}-${Math.random().toString(36).slice(2,8)}`;
-          
+          const edgeId = `edge-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+
           // Determine directionality from edge spec
           let arrowsToward = [targetId]; // Default: unidirectional arrow to target
           if (edge.directionality === 'bidirectional') {
@@ -446,7 +526,7 @@ export async function runExecutorOnce() {
             arrowsToward = [sourceId]; // Arrow points back to source
           }
           // else: default unidirectional to target
-          
+
           // Handle connection definition node if specified
           let definitionNodeIds = [];
           if (edge.definitionNode && typeof edge.definitionNode === 'object') {
@@ -454,37 +534,47 @@ export async function runExecutorOnce() {
             // Normalize connection name to Title Case
             const rawName = String(defNode.name || '').trim();
             const defNodeName = toTitleCase(rawName);
+
             if (defNodeName) {
-              // Search for existing prototype with same name (deduplication)
-              const store = getBridgeStore();
-              const existingProto = Array.isArray(store.nodePrototypes) 
-                ? store.nodePrototypes.find(p => p.name?.toLowerCase() === defNodeName.toLowerCase())
-                : null;
-              
-              if (existingProto) {
-                // Reuse existing prototype
-                definitionNodeIds = [existingProto.id];
-                console.log(`[Executor] Reusing existing connection definition prototype: "${defNodeName}" (${existingProto.id})`);
+              // Check local cache first to avoid duplicates in same batch
+              if (localConnectionProtoCache.has(defNodeName)) {
+                const cachedId = localConnectionProtoCache.get(defNodeName);
+                definitionNodeIds = [cachedId];
+                // console.log(`[Executor] Reusing locally cached connection definition: "${defNodeName}" (${cachedId})`);
               } else {
-                // Create a new prototype for the connection definition
-                const defProtoId = `prototype-def-${Date.now()}-${Math.random().toString(36).slice(2,8)}`;
-                ops.push({
-                  type: 'addNodePrototype',
-                  prototypeData: {
-                    id: defProtoId,
-                    name: defNodeName,
-                    description: defNode.description || `Defines the "${edge.relation || edge.type || 'connection'}" relationship`,
-                    color: defNode.color || generateConnectionColor(defNodeName),
-                    typeNodeId: null,
-                    definitionGraphIds: []
-                  }
-                });
-                definitionNodeIds = [defProtoId];
-                console.log(`[Executor] Created new connection definition prototype: "${defNodeName}" (${defProtoId})`);
+                // Search for existing prototype with same name (deduplication)
+                const store = getBridgeStore();
+                const existingProto = Array.isArray(store.nodePrototypes)
+                  ? store.nodePrototypes.find(p => p.name?.toLowerCase() === defNodeName.toLowerCase())
+                  : null;
+
+                if (existingProto) {
+                  // Reuse existing prototype
+                  definitionNodeIds = [existingProto.id];
+                  localConnectionProtoCache.set(defNodeName, existingProto.id);
+                  console.log(`[Executor] Reusing existing connection definition prototype: "${defNodeName}" (${existingProto.id})`);
+                } else {
+                  // Create a new prototype for the connection definition
+                  const defProtoId = `prototype-def-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+                  ops.push({
+                    type: 'addNodePrototype',
+                    prototypeData: {
+                      id: defProtoId,
+                      name: defNodeName,
+                      description: defNode.description || `Defines the "${edge.relation || edge.type || 'connection'}" relationship`,
+                      color: defNode.color || generateConnectionColor(defNodeName),
+                      typeNodeId: null,
+                      definitionGraphIds: []
+                    }
+                  });
+                  definitionNodeIds = [defProtoId];
+                  localConnectionProtoCache.set(defNodeName, defProtoId);
+                  console.log(`[Executor] Created new connection definition prototype: "${defNodeName}" (${defProtoId})`);
+                }
               }
             }
           }
-          
+
           ops.push({
             type: 'addEdge',
             graphId,
@@ -509,9 +599,9 @@ export async function runExecutorOnce() {
       const layoutAlgorithm = validation.sanitized.layoutAlgorithm || 'force';
       const layoutMode = validation.sanitized.layoutMode || 'auto';
       const providedGraphId = validation.sanitized.graphId;
-      
+
       // 1. Create the graph
-      const graphId = providedGraphId || `graph-${Date.now()}-${Math.random().toString(36).slice(2,8)}`;
+      const graphId = providedGraphId || `graph-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
       ops.push({
         type: 'createNewGraph',
         initialData: {
@@ -523,23 +613,23 @@ export async function runExecutorOnce() {
           edges: []
         }
       });
-      
+
       // 2. Create prototypes, instances, and edges with auto-layout
       const nodes = Array.isArray(graphSpec.nodes) ? graphSpec.nodes : [];
       const edges = Array.isArray(graphSpec.edges) ? graphSpec.edges : [];
-      
+
       const protoIdByName = new Map();
       const instanceIdByName = new Map();
       const tempInstances = [];
-      
+
       nodes.forEach((node, idx) => {
         const nodeName = String(node?.name || '').trim() || `Concept ${idx + 1}`;
-        const prototypeId = `prototype-${Date.now()}-${idx}-${Math.random().toString(36).slice(2,8)}`;
-        const instanceId = `inst-${Date.now()}-${idx}-${Math.random().toString(36).slice(2,8)}`;
-        
+        const prototypeId = `prototype-${Date.now()}-${idx}-${Math.random().toString(36).slice(2, 8)}`;
+        const instanceId = `inst-${Date.now()}-${idx}-${Math.random().toString(36).slice(2, 8)}`;
+
         protoIdByName.set(nodeName, prototypeId);
         instanceIdByName.set(nodeName, instanceId);
-        
+
         ops.push({
           type: 'addNodePrototype',
           prototypeData: {
@@ -551,34 +641,85 @@ export async function runExecutorOnce() {
             definitionGraphIds: []
           }
         });
-        
+
         tempInstances.push({
           id: instanceId,
           prototypeId,
           name: nodeName
         });
       });
-      
+
       const tempEdges = edges.map(edge => ({
         sourceId: instanceIdByName.get(edge.source),
         destinationId: instanceIdByName.get(edge.target)
       })).filter(e => e.sourceId && e.destinationId);
-      
+
       // Use same layout settings as UI Auto-Layout button
       const { getAutoLayoutSettings } = await import('../bridgeStoreAccessor.js');
       const autoSettings = getAutoLayoutSettings();
-      
-      const positions = applyLayout(tempInstances, tempEdges, layoutAlgorithm, { 
+
+      // Force 'force-directed' if 'force' is requested
+      const algorithmToUse = layoutAlgorithm === 'force' ? 'force-directed' : layoutAlgorithm;
+
+      // Dynamic layout sizing based on node count
+      const nodeCount = tempInstances.length;
+      const layoutWidth = Math.max(2000, Math.sqrt(nodeCount) * 400);
+      const layoutHeight = Math.max(2000, Math.sqrt(nodeCount) * 400);
+      const layoutPadding = Math.max(300, Math.min(layoutWidth, layoutHeight) * 0.08);
+
+      // Update tempInstances with estimated dimensions for layout
+      const layoutNodes = tempInstances.map(n => {
+        const nameLen = (n.name || '').length;
+        const width = Math.max(160, nameLen * 10 + 40);
+        const height = nameLen > 30 ? 140 : 100;
+        return {
+          ...n,
+          width,
+          height,
+          x: 0, y: 0
+        };
+      });
+
+      const positions = applyLayout(layoutNodes, tempEdges, algorithmToUse, {
         layoutMode,
         layoutScale: autoSettings.layoutScale,
         layoutScaleMultiplier: autoSettings.layoutScaleMultiplier,
-        iterationPreset: autoSettings.iterationPreset
+        iterationPreset: autoSettings.iterationPreset,
+        width: layoutWidth,
+        height: layoutHeight,
+        padding: layoutPadding
       });
+
+      // RECENTERING: Shift layout to center around (0,0)
+      let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+      let hasPos = false;
+      positions.forEach(p => {
+        if (Number.isFinite(p.x) && Number.isFinite(p.y)) {
+          minX = Math.min(minX, p.x);
+          minY = Math.min(minY, p.y);
+          maxX = Math.max(maxX, p.x);
+          maxY = Math.max(maxY, p.y);
+          hasPos = true;
+        }
+      });
+
+      if (hasPos) {
+        const centerX = (minX + maxX) / 2;
+        const centerY = (minY + maxY) / 2;
+        const offsetX = -centerX;
+        const offsetY = -centerY;
+
+        positions.forEach(p => {
+          p.x += offsetX;
+          p.y += offsetY;
+        });
+      }
+
       const positionMap = new Map();
       positions.forEach(pos => {
         positionMap.set(pos.instanceId, { x: pos.x, y: pos.y });
       });
-      
+
       tempInstances.forEach(inst => {
         const position = positionMap.get(inst.id) || { x: 500, y: 300 };
         ops.push({
@@ -589,13 +730,16 @@ export async function runExecutorOnce() {
           instanceId: inst.id
         });
       });
-      
+
+      // Local cache for connection definition prototypes created in this batch
+      const localConnectionProtoCache = new Map();
+
       edges.forEach(edge => {
         const sourceId = instanceIdByName.get(edge.source);
         const targetId = instanceIdByName.get(edge.target);
         if (sourceId && targetId) {
-          const edgeId = `edge-${Date.now()}-${Math.random().toString(36).slice(2,8)}`;
-          
+          const edgeId = `edge-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+
           // Determine directionality from edge spec
           let arrowsToward = [targetId]; // Default: unidirectional arrow to target
           if (edge.directionality === 'bidirectional') {
@@ -606,40 +750,48 @@ export async function runExecutorOnce() {
             arrowsToward = [sourceId]; // Arrow points back to source
           }
           // else: default unidirectional to target
-          
+
           // Handle connection definition node if specified
           let definitionNodeIds = [];
           if (edge.definitionNode && typeof edge.definitionNode === 'object') {
             const defNode = edge.definitionNode;
-            const defNodeName = String(defNode.name || '').trim();
+            const defNodeName = toTitleCase(String(defNode.name || '').trim());
+
             if (defNodeName) {
-              const store = getBridgeStore();
-              const existingProto = Array.isArray(store.nodePrototypes) 
-                ? store.nodePrototypes.find(p => p.name?.toLowerCase() === defNodeName.toLowerCase())
-                : null;
-              
-              if (existingProto) {
-                definitionNodeIds = [existingProto.id];
-                console.log(`[Executor] Reusing existing connection definition prototype: "${defNodeName}" (${existingProto.id})`);
+              // Check local cache first
+              if (localConnectionProtoCache.has(defNodeName)) {
+                definitionNodeIds = [localConnectionProtoCache.get(defNodeName)];
               } else {
-                const defProtoId = `prototype-def-${Date.now()}-${Math.random().toString(36).slice(2,8)}`;
-                ops.push({
-                  type: 'addNodePrototype',
-                  prototypeData: {
-                    id: defProtoId,
-                    name: defNodeName,
-                    description: defNode.description || `Defines the "${edge.relation || edge.type || 'connection'}" relationship`,
-                    color: defNode.color || generateConnectionColor(defNodeName),
-                    typeNodeId: null,
-                    definitionGraphIds: []
-                  }
-                });
-                definitionNodeIds = [defProtoId];
-                console.log(`[Executor] Created new connection definition prototype: "${defNodeName}" (${defProtoId})`);
+                const store = getBridgeStore();
+                const existingProto = Array.isArray(store.nodePrototypes)
+                  ? store.nodePrototypes.find(p => p.name?.toLowerCase() === defNodeName.toLowerCase())
+                  : null;
+
+                if (existingProto) {
+                  definitionNodeIds = [existingProto.id];
+                  localConnectionProtoCache.set(defNodeName, existingProto.id);
+                  console.log(`[Executor] Reusing existing connection definition prototype: "${defNodeName}" (${existingProto.id})`);
+                } else {
+                  const defProtoId = `prototype-def-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+                  ops.push({
+                    type: 'addNodePrototype',
+                    prototypeData: {
+                      id: defProtoId,
+                      name: defNodeName,
+                      description: defNode.description || `Defines the "${edge.relation || edge.type || 'connection'}" relationship`,
+                      color: defNode.color || generateConnectionColor(defNodeName),
+                      typeNodeId: null,
+                      definitionGraphIds: []
+                    }
+                  });
+                  definitionNodeIds = [defProtoId];
+                  localConnectionProtoCache.set(defNodeName, defProtoId);
+                  console.log(`[Executor] Created new connection definition prototype: "${defNodeName}" (${defProtoId})`);
+                }
               }
             }
           }
-          
+
           ops.push({
             type: 'addEdge',
             graphId,
@@ -662,32 +814,32 @@ export async function runExecutorOnce() {
       const graphName = validation.sanitized.graphName;
       const graphSpec = validation.sanitized.graphSpec || {};
       const layoutAlgorithm = validation.sanitized.layoutAlgorithm || 'force';
-      
+
       // This will be resolved by the committer after the graph is created
       // For now, use a placeholder that the committer will replace
       const graphId = `NEW_GRAPH:${graphName}`;
-      
+
       const nodes = Array.isArray(graphSpec.nodes) ? graphSpec.nodes : [];
       const edges = Array.isArray(graphSpec.edges) ? graphSpec.edges : [];
-      
+
       // Create prototype IDs and temporary instance IDs for layout
       // SYNTHESIS: Get store to check for existing prototypes
       const store = getBridgeStore();
       const protoIdByName = new Map();
       const instanceIdByName = new Map();
       const tempInstances = [];
-      
+
       nodes.forEach((node, idx) => {
         // CRITICAL: Node MUST have a name - check common field names (LLMs use different ones)
         const name = String(node?.name || node?.title || node?.label || node?.id || '').trim();
-        
+
         if (!name) {
           throw new Error(`Node at index ${idx} missing required name field (checked: name, title, label, id). Node data: ${JSON.stringify(node)}`);
         }
-        
+
         // FUZZY DEDUPLICATION: Check for exact or similar existing prototype
         const match = findExistingPrototype(name, store);
-        
+
         let prototypeId;
         if (match) {
           // Reuse existing prototype (exact or fuzzy match)
@@ -699,7 +851,7 @@ export async function runExecutorOnce() {
           }
         } else {
           // Create new prototype
-          prototypeId = `prototype-${Date.now()}-${idx}-${Math.random().toString(36).slice(2,8)}`;
+          prototypeId = `prototype-${Date.now()}-${idx}-${Math.random().toString(36).slice(2, 8)}`;
           ops.push({
             type: 'addNodePrototype',
             prototypeData: {
@@ -713,11 +865,11 @@ export async function runExecutorOnce() {
           });
           console.log(`[Executor] ✨ NEW PROTOTYPE: Created "${name}" (${prototypeId})`);
         }
-        
-        const instanceId = `inst-${Date.now()}-${idx}-${Math.random().toString(36).slice(2,8)}`;
+
+        const instanceId = `inst-${Date.now()}-${idx}-${Math.random().toString(36).slice(2, 8)}`;
         protoIdByName.set(name, prototypeId);
         instanceIdByName.set(name, instanceId);
-        
+
         // Store temp instance for layout calculation
         tempInstances.push({
           id: instanceId,
@@ -725,39 +877,62 @@ export async function runExecutorOnce() {
           name
         });
       });
-      
+
       // Build edge list for layout algorithm
       const tempEdges = edges.map(edge => ({
         sourceId: instanceIdByName.get(edge.source),
         destinationId: instanceIdByName.get(edge.target)
       })).filter(e => e.sourceId && e.destinationId);
-      
+
       // DETERMINISTIC LAYOUT: Use same parameters as Edit menu's Auto-Layout button
       const { getAutoLayoutSettings } = await import('../bridgeStoreAccessor.js');
       const autoSettings = getAutoLayoutSettings();
-      
-      const layoutWidth = 2000;
-      const layoutHeight = 2000;
-      const layoutPadding = 300;
+
+      // Dynamic layout sizing based on node count (heuristic since we don't have canvas size)
+      const nodeCount = tempInstances.length;
+      const layoutWidth = Math.max(2000, Math.sqrt(nodeCount) * 400);
+      const layoutHeight = Math.max(2000, Math.sqrt(nodeCount) * 400);
+      const layoutPadding = Math.max(300, Math.min(layoutWidth, layoutHeight) * 0.08);
+
+      // Initialize layoutNodes from tempInstances
+      let layoutNodes = tempInstances;
+
+      // Update layout nodes with estimated dimensions
+      layoutNodes = layoutNodes.map(n => {
+        const nameLen = (n.name || '').length;
+        // Estimate width: ~10px per char + padding, min 160
+        const width = Math.max(160, nameLen * 10 + 40);
+        // Estimate height: fixed 100 for now, or more if long text
+        const height = nameLen > 30 ? 140 : 100;
+        return {
+          ...n,
+          width,
+          height,
+          // Ensure x/y are numbers
+          x: Number.isFinite(n.x) ? n.x : 0,
+          y: Number.isFinite(n.y) ? n.y : 0
+        };
+      });
+
       const layoutOptions = {
         width: layoutWidth,
         height: layoutHeight,
         padding: layoutPadding,
+        layoutMode,
         layoutScale: autoSettings.layoutScale,
         layoutScaleMultiplier: autoSettings.layoutScaleMultiplier,
         iterationPreset: autoSettings.iterationPreset,
-        useExistingPositions: false
+        useExistingPositions: false  // Full re-layout by default
       };
-      
       // Apply auto-layout to get positions
-      const positions = applyLayout(tempInstances, tempEdges, layoutAlgorithm, layoutOptions);
-      
+      const positions = applyLayout(layoutNodes, tempEdges, layoutAlgorithm, layoutOptions);
+
       // Create position map
       const positionMap = new Map();
       positions.forEach(pos => {
         positionMap.set(pos.instanceId, { x: pos.x, y: pos.y });
       });
-      
+
       // Add node instance ops with calculated positions (graphId will be resolved by committer)
       tempInstances.forEach(inst => {
         const position = positionMap.get(inst.id) || { x: 500, y: 300 };
@@ -769,14 +944,17 @@ export async function runExecutorOnce() {
           instanceId: inst.id
         });
       });
-      
+
       // Add edge ops
+      // Local cache for connection definition prototypes created in this batch
+      const localConnectionProtoCache = new Map();
+
       edges.forEach(edge => {
         const sourceId = instanceIdByName.get(edge.source);
         const targetId = instanceIdByName.get(edge.target);
         if (sourceId && targetId) {
-          const edgeId = `edge-${Date.now()}-${Math.random().toString(36).slice(2,8)}`;
-          
+          const edgeId = `edge-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+
           // Determine directionality from edge spec
           let arrowsToward = [targetId]; // Default: unidirectional arrow to target
           if (edge.directionality === 'bidirectional') {
@@ -787,45 +965,48 @@ export async function runExecutorOnce() {
             arrowsToward = [sourceId]; // Arrow points back to source
           }
           // else: default unidirectional to target
-          
+
           // Handle connection definition node if specified
           let definitionNodeIds = [];
           if (edge.definitionNode && typeof edge.definitionNode === 'object') {
             const defNode = edge.definitionNode;
-            // Normalize connection name to Title Case
-            const rawName = String(defNode.name || '').trim();
-            const defNodeName = toTitleCase(rawName);
+            const defNodeName = toTitleCase(String(defNode.name || '').trim());
+
             if (defNodeName) {
-              // Search for existing prototype with same name (deduplication)
-              const store = getBridgeStore();
-              const existingProto = Array.isArray(store.nodePrototypes) 
-                ? store.nodePrototypes.find(p => p.name?.toLowerCase() === defNodeName.toLowerCase())
-                : null;
-              
-              if (existingProto) {
-                // Reuse existing prototype
-                definitionNodeIds = [existingProto.id];
-                console.log(`[Executor] Reusing existing connection definition prototype: "${defNodeName}" (${existingProto.id})`);
+              // Check local cache first
+              if (localConnectionProtoCache.has(defNodeName)) {
+                definitionNodeIds = [localConnectionProtoCache.get(defNodeName)];
               } else {
-                // Create a new prototype for the connection definition
-                const defProtoId = `prototype-def-${Date.now()}-${Math.random().toString(36).slice(2,8)}`;
-                ops.push({
-                  type: 'addNodePrototype',
-                  prototypeData: {
-                    id: defProtoId,
-                    name: defNodeName,
-                    description: defNode.description || `Defines the "${edge.relation || edge.type || 'connection'}" relationship`,
-                    color: defNode.color || generateConnectionColor(defNodeName),
-                    typeNodeId: null,
-                    definitionGraphIds: []
-                  }
-                });
-                definitionNodeIds = [defProtoId];
-                console.log(`[Executor] Created new connection definition prototype: "${defNodeName}" (${defProtoId})`);
+                const store = getBridgeStore();
+                const existingProto = Array.isArray(store.nodePrototypes)
+                  ? store.nodePrototypes.find(p => p.name?.toLowerCase() === defNodeName.toLowerCase())
+                  : null;
+
+                if (existingProto) {
+                  definitionNodeIds = [existingProto.id];
+                  localConnectionProtoCache.set(defNodeName, existingProto.id);
+                  console.log(`[Executor] Reusing existing connection definition prototype: "${defNodeName}" (${existingProto.id})`);
+                } else {
+                  const defProtoId = `prototype-def-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+                  ops.push({
+                    type: 'addNodePrototype',
+                    prototypeData: {
+                      id: defProtoId,
+                      name: defNodeName,
+                      description: defNode.description || `Defines the "${edge.relation || edge.type || 'connection'}" relationship`,
+                      color: defNode.color || generateConnectionColor(defNodeName),
+                      typeNodeId: null,
+                      definitionGraphIds: []
+                    }
+                  });
+                  definitionNodeIds = [defProtoId];
+                  localConnectionProtoCache.set(defNodeName, defProtoId);
+                  console.log(`[Executor] Created new connection definition prototype: "${defNodeName}" (${defProtoId})`);
+                }
               }
             }
           }
-          
+
           ops.push({
             type: 'addEdge',
             graphId,
@@ -868,7 +1049,7 @@ export async function runExecutorOnce() {
         const key = label.toLowerCase();
         let protoId = defMapping.get(key) || existingProtos.get(key);
         if (!protoId) {
-          protoId = `prototype-conn-${Date.now()}-${Math.random().toString(36).slice(2,8)}`;
+          protoId = `prototype-conn-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
           addOps.push({
             type: 'addNodePrototype',
             prototypeData: {
@@ -910,18 +1091,18 @@ export async function runExecutorOnce() {
       // Uses abstracted graph query layer for consistency
       const store = getBridgeStore();
       const graphId = validation.sanitized.graph_id || store.activeGraphId;
-      
+
       const result = getGraphSemanticStructure(store, graphId, {
         includeDescriptions: validation.sanitized.include_descriptions !== false,
         includeColors: true
       });
-      
+
       if (result.error) {
         console.warn(`[Executor] read_graph_structure: ${result.error} (${graphId})`);
       } else {
         console.log(`[Executor] read_graph_structure: Read ${result.nodeCount} nodes, ${result.edgeCount} edges from "${result.name}"`);
       }
-      
+
       // Create a response op that the UI can interpret
       ops.push({
         type: 'readResponse',
@@ -950,18 +1131,25 @@ export async function runExecutorOnce() {
       console.log(`[Executor] delete_node_instance: Deleting instance ${validation.sanitized.instanceId} from graph ${validation.sanitized.graphId}`);
     } else if (task.toolName === 'delete_graph') {
       // Delete an entire graph
+      const store = getBridgeStore();
+      const graphId = validation.sanitized.graphId || store.activeGraphId;
+
+      if (!graphId) {
+        throw new Error('No graph ID specified and no active graph found to delete.');
+      }
+
       ops.push({
         type: 'deleteGraph',
-        graphId: validation.sanitized.graphId
+        graphId
       });
-      console.log(`[Executor] delete_graph: Deleting graph ${validation.sanitized.graphId}`);
+      console.log(`[Executor] delete_graph: Deleting graph ${graphId}`);
     } else if (task.toolName === 'get_edge_info') {
       // Find specific edges between two named nodes
       const store = getBridgeStore();
       const graphId = validation.sanitized.graphId || store.activeGraphId;
       const sourceName = validation.sanitized.sourceName;
       const targetName = validation.sanitized.targetName;
-      
+
       if (!sourceName || !targetName) {
         ops.push({
           type: 'readResponse',
@@ -978,15 +1166,15 @@ export async function runExecutorOnce() {
           });
         } else {
           // Get node instances to find IDs by name
-          const instancesArray = graph.instances instanceof Map 
+          const instancesArray = graph.instances instanceof Map
             ? Array.from(graph.instances.values())
-            : Array.isArray(graph.instances) 
-              ? graph.instances 
+            : Array.isArray(graph.instances)
+              ? graph.instances
               : Object.values(graph.instances || {});
-          
+
           const sourceProto = store.nodePrototypes?.find(p => p.name?.toLowerCase() === sourceName.toLowerCase());
           const targetProto = store.nodePrototypes?.find(p => p.name?.toLowerCase() === targetName.toLowerCase());
-          
+
           if (!sourceProto || !targetProto) {
             ops.push({
               type: 'readResponse',
@@ -996,22 +1184,22 @@ export async function runExecutorOnce() {
           } else {
             const sourceInstances = instancesArray.filter(inst => inst.prototypeId === sourceProto.id);
             const targetInstances = instancesArray.filter(inst => inst.prototypeId === targetProto.id);
-            
+
             // Find edges between any source and target instances
             const matchingEdges = [];
             const edgeIds = graph.edgeIds || [];
-            
+
             for (const edgeId of edgeIds) {
-              const edge = store.edges instanceof Map 
+              const edge = store.edges instanceof Map
                 ? store.edges.get(edgeId)
                 : Array.isArray(store.edges)
                   ? store.edges.find(e => e.id === edgeId)
                   : store.edges?.[edgeId];
-              
+
               if (edge) {
                 const sourceMatches = sourceInstances.some(inst => inst.id === edge.sourceId);
                 const targetMatches = targetInstances.some(inst => inst.id === edge.destinationId);
-                
+
                 if (sourceMatches && targetMatches) {
                   matchingEdges.push({
                     id: edge.id,
@@ -1025,7 +1213,7 @@ export async function runExecutorOnce() {
                 }
               }
             }
-            
+
             ops.push({
               type: 'readResponse',
               toolName: 'get_edge_info',
@@ -1044,7 +1232,7 @@ export async function runExecutorOnce() {
       // Check if a node has a definition graph
       const store = getBridgeStore();
       const nodeId = validation.sanitized.nodeId;
-      
+
       if (!nodeId) {
         ops.push({
           type: 'readResponse',
@@ -1055,7 +1243,7 @@ export async function runExecutorOnce() {
         // Find the instance to get its prototype
         const graphId = validation.sanitized.graphId || store.activeGraphId;
         const graph = getGraphById(graphId);
-        
+
         if (!graph) {
           ops.push({
             type: 'readResponse',
@@ -1063,14 +1251,14 @@ export async function runExecutorOnce() {
             data: { error: `Graph ${graphId} not found` }
           });
         } else {
-          const instancesArray = graph.instances instanceof Map 
+          const instancesArray = graph.instances instanceof Map
             ? Array.from(graph.instances.values())
-            : Array.isArray(graph.instances) 
-              ? graph.instances 
+            : Array.isArray(graph.instances)
+              ? graph.instances
               : Object.values(graph.instances || {});
-          
+
           const instance = instancesArray.find(inst => inst.id === nodeId);
-          
+
           if (!instance) {
             ops.push({
               type: 'readResponse',
@@ -1079,7 +1267,7 @@ export async function runExecutorOnce() {
             });
           } else {
             const proto = store.nodePrototypes?.find(p => p.id === instance.prototypeId);
-            
+
             if (!proto) {
               ops.push({
                 type: 'readResponse',
@@ -1107,11 +1295,11 @@ export async function runExecutorOnce() {
       // Delete a specific edge
       const graphId = validation.sanitized.graphId;
       const edgeId = validation.sanitized.edgeId;
-      
+
       if (!graphId || !edgeId) {
         throw new Error('Both graphId and edgeId are required for delete_edge');
       }
-      
+
       ops.push({
         type: 'deleteEdge',
         graphId,
@@ -1121,11 +1309,11 @@ export async function runExecutorOnce() {
     } else if (task.toolName === 'delete_node_prototype') {
       // Delete a node prototype (hard delete - removes the concept)
       const prototypeId = validation.sanitized.prototypeId;
-      
+
       if (!prototypeId) {
         throw new Error('prototypeId is required for delete_node_prototype');
       }
-      
+
       ops.push({
         type: 'deleteNodePrototype',
         prototypeId
@@ -1136,11 +1324,11 @@ export async function runExecutorOnce() {
       const graphId = validation.sanitized.graphId;
       const name = validation.sanitized.name || 'Group';
       const memberInstanceIds = validation.sanitized.memberInstanceIds || [];
-      
+
       if (!graphId) {
         throw new Error('graphId is required for create_group');
       }
-      
+
       ops.push({
         type: 'createGroup',
         graphId,
@@ -1159,11 +1347,11 @@ export async function runExecutorOnce() {
       const createNewPrototype = validation.sanitized.createNewPrototype || false;
       const newPrototypeName = validation.sanitized.newPrototypeName || '';
       const newPrototypeColor = validation.sanitized.newPrototypeColor || '#8B0000';
-      
+
       if (!graphId || !groupId) {
         throw new Error('Both graphId and groupId are required for convert_to_node_group');
       }
-      
+
       ops.push({
         type: 'convertToNodeGroup',
         graphId,
@@ -1177,11 +1365,11 @@ export async function runExecutorOnce() {
     } else if (task.toolName === 'set_active_graph') {
       // Switch the active view to a specific graph
       const graphId = validation.sanitized.graphId;
-      
+
       if (!graphId) {
         throw new Error('graphId is required for set_active_graph');
       }
-      
+
       ops.push({
         type: 'setActiveGraph',
         graphId
@@ -1191,7 +1379,7 @@ export async function runExecutorOnce() {
       // Execute raw SPARQL query
       const query = validation.sanitized.query;
       const endpoint = validation.sanitized.endpoint || 'https://query.wikidata.org/sparql';
-      
+
       if (!query) {
         ops.push({
           type: 'readResponse',
@@ -1202,7 +1390,7 @@ export async function runExecutorOnce() {
         try {
           const controller = new AbortController();
           const timeoutId = setTimeout(() => controller.abort(), 30000);
-          
+
           const response = await fetch(endpoint, {
             method: 'POST',
             headers: {
@@ -1213,15 +1401,15 @@ export async function runExecutorOnce() {
             body: `query=${encodeURIComponent(query)}`,
             signal: controller.signal
           });
-          
+
           clearTimeout(timeoutId);
-          
+
           if (!response.ok) {
             throw new Error(`SPARQL endpoint returned ${response.status}: ${response.statusText}`);
           }
-          
+
           const data = await response.json();
-          
+
           ops.push({
             type: 'readResponse',
             toolName: 'sparql_query',
@@ -1242,7 +1430,7 @@ export async function runExecutorOnce() {
     } else if (task.toolName === 'semantic_search') {
       // High-level concept discovery via enhancedSemanticSearch
       const query = validation.sanitized.query;
-      
+
       if (!query) {
         ops.push({
           type: 'readResponse',
@@ -1256,13 +1444,13 @@ export async function runExecutorOnce() {
             timeout: 45000,
             limit: 50
           });
-          
+
           // Convert Map to array for JSON serialization
           const entitiesArray = Array.from(results.entities.entries()).map(([id, entity]) => ({
             id,
             ...entity
           }));
-          
+
           ops.push({
             type: 'readResponse',
             toolName: 'semantic_search',
@@ -1295,20 +1483,20 @@ export async function runExecutorOnce() {
     queueManager.ack('taskQueue', task.leaseId);
   } catch (e) {
     console.error('[Executor] Task execution failed:', e);
-    
+
     // CRITICAL: Distinguish between permanent and transient errors
     // Validation errors are PERMANENT - retrying won't fix them, so we must ACK (drop) the task
     // Transient errors (network, resource) should NACK (retry)
-    const isPermanentError = e.message?.includes('Validation failed') 
+    const isPermanentError = e.message?.includes('Validation failed')
       || e.message?.includes('Tool not allowed')
       || e.message?.includes('not found')
       || e.message?.includes('Invalid')
       || e.message?.includes('missing required');
-    
+
     if (isPermanentError) {
       console.error(`[Executor] PERMANENT ERROR: Dropping task to prevent infinite retry. Task: ${task.toolName}, Error: ${e.message}`);
       queueManager.ack('taskQueue', task.leaseId); // Drop the task permanently
-      
+
       // CRITICAL: Send detailed error to chat for AI visibility
       // The AI needs to see what went wrong so it can adjust its plan
       const threadId = task.threadId || 'unknown';
@@ -1318,7 +1506,7 @@ export async function runExecutorOnce() {
         args: task.args,
         timestamp: new Date().toISOString()
       };
-      
+
       // Format error message for AI comprehension
       let errorText = `⚠️ TOOL EXECUTION ERROR\n\n`;
       errorText += `Tool: ${task.toolName}\n`;
@@ -1327,7 +1515,7 @@ export async function runExecutorOnce() {
         errorText += `Arguments: ${JSON.stringify(task.args, null, 2)}\n`;
       }
       errorText += `\nThis error prevented the operation from completing. `;
-      
+
       // Add actionable guidance based on error type
       if (e.message.includes('graphId')) {
         errorText += `The graphId was missing or invalid. Please ensure you're targeting an existing graph.`;
@@ -1336,15 +1524,15 @@ export async function runExecutorOnce() {
       } else {
         errorText += `Please review the error and adjust your approach accordingly.`;
       }
-      
+
       try {
         await fetch('http://localhost:3001/api/bridge/chat/append', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ 
-            role: 'system', 
-            text: errorText, 
-            cid: threadId, 
+          body: JSON.stringify({
+            role: 'system',
+            text: errorText,
+            cid: threadId,
             channel: 'agent',
             metadata: { errorDetails, severity: 'error' }
           })
@@ -1370,9 +1558,9 @@ export async function runAuditorOnce() {
     const decision = ok ? 'approved' : 'rejected';
     // Use a distinct field that won't be overwritten by queue wrapper
     // Propagate meta to review queue for Committer access
-    queueManager.enqueue('reviewQueue', { 
-      reviewStatus: decision, 
-      graphId: item.graphId, 
+    queueManager.enqueue('reviewQueue', {
+      reviewStatus: decision,
+      graphId: item.graphId,
       patch: item,
       meta: item.meta || {}  // Propagate meta for agentic loop
     });

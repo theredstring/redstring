@@ -35,7 +35,7 @@ const LeftAIView = ({ compact = false, activeGraphId, graphsMap }) => {
   React.useEffect(() => {
     try {
       if (mcpClient && mcpClient.isConnected) setIsConnected(true);
-    } catch {}
+    } catch { }
     let resetTs = 0;
     try {
       const cached = localStorage.getItem(STORAGE_KEY);
@@ -45,7 +45,7 @@ const LeftAIView = ({ compact = false, activeGraphId, graphsMap }) => {
         const parsed = JSON.parse(cached);
         if (Array.isArray(parsed)) setMessages(parsed);
       }
-    } catch {}
+    } catch { }
     (async () => {
       try {
         const res = await bridgeFetch('/api/bridge/telemetry');
@@ -67,26 +67,26 @@ const LeftAIView = ({ compact = false, activeGraphId, graphsMap }) => {
         console.warn('[AI Collaboration] Failed to hydrate bridge telemetry:', error);
       }
     })();
-    
+
     // CRITICAL: Subscribe to SSE for real-time chat updates (e.g., executor errors)
     let eventSource;
     try {
       eventSource = bridgeEventSource('/events/stream');
-      
+
       eventSource.addEventListener('chat', (event) => {
         try {
           const data = JSON.parse(event.data);
           console.log('[AI Collaboration] Received chat event:', data);
-          
+
           // Add message to chat immediately (real-time update)
           setMessages(prev => {
             // Check if message already exists (avoid duplicates)
-            const alreadyExists = prev.some(m => 
+            const alreadyExists = prev.some(m =>
               Math.abs(new Date(m.timestamp).getTime() - data.ts) < 1000 && m.content === data.text
             );
-            
+
             if (alreadyExists) return prev;
-            
+
             // Add new message
             const newMessage = {
               id: `${data.ts || Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
@@ -96,21 +96,21 @@ const LeftAIView = ({ compact = false, activeGraphId, graphsMap }) => {
               metadata: data,
               toolCalls: []
             };
-            
+
             return [...prev, newMessage];
           });
         } catch (err) {
           console.warn('[AI Collaboration] Failed to process chat event:', err);
         }
       });
-      
+
       eventSource.onerror = (err) => {
         console.warn('[AI Collaboration] SSE error:', err);
       };
     } catch (err) {
       console.warn('[AI Collaboration] Failed to establish SSE:', err);
     }
-    
+
     return () => {
       if (eventSource) {
         try {
@@ -123,7 +123,7 @@ const LeftAIView = ({ compact = false, activeGraphId, graphsMap }) => {
   }, []);
 
   React.useEffect(() => {
-    try { localStorage.setItem(STORAGE_KEY, JSON.stringify(messages)); } catch {}
+    try { localStorage.setItem(STORAGE_KEY, JSON.stringify(messages)); } catch { }
   }, [messages]);
 
   React.useEffect(() => { checkAPIKey(); }, []);
@@ -140,8 +140,8 @@ const LeftAIView = ({ compact = false, activeGraphId, graphsMap }) => {
     // Check for duplicates before adding
     setMessages(prev => {
       // Check if this exact message already exists (same sender, content, and recent timestamp)
-      const isDuplicate = prev.some(m => 
-        m.sender === sender && 
+      const isDuplicate = prev.some(m =>
+        m.sender === sender &&
         m.content === content &&
         Math.abs(new Date(m.timestamp).getTime() - Date.now()) < 2000 // Within 2 seconds
       );
@@ -149,7 +149,7 @@ const LeftAIView = ({ compact = false, activeGraphId, graphsMap }) => {
         console.log('[AI Collaboration] Skipping duplicate message:', content.substring(0, 50));
         return prev;
       }
-      
+
       const message = {
         id: `${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
         sender,
@@ -165,13 +165,13 @@ const LeftAIView = ({ compact = false, activeGraphId, graphsMap }) => {
   // Simple markdown renderer for system messages (supports **bold** and basic formatting)
   const renderMarkdown = (text) => {
     if (!text) return text;
-    
+
     // Replace **bold** with <strong>
     let html = text.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
-    
+
     // Replace newlines with <br>
     html = html.replace(/\n/g, '<br>');
-    
+
     return html;
   };
 
@@ -226,7 +226,14 @@ const LeftAIView = ({ compact = false, activeGraphId, graphsMap }) => {
             let idx = updated.length - 1;
             while (idx >= 0 && updated[idx].sender !== 'ai') idx--;
             if (idx >= 0) {
-              updated[idx] = { ...updated[idx], content: finalText };
+              const currentContent = updated[idx].content || '';
+              // Avoid duplicating if the text is already at the end
+              if (!currentContent.endsWith(finalText)) {
+                updated[idx] = {
+                  ...updated[idx],
+                  content: currentContent ? `${currentContent}\n${finalText}` : finalText
+                };
+              }
               return updated;
             }
             if (updated.length === 0 && isDefault) return updated;
@@ -261,7 +268,7 @@ const LeftAIView = ({ compact = false, activeGraphId, graphsMap }) => {
     }
   };
 
-    // Bridge connection refresh disabled
+  // Bridge connection refresh disabled
   const refreshBridgeConnection = async () => {
     try {
       setIsProcessing(true);
@@ -302,11 +309,11 @@ const LeftAIView = ({ compact = false, activeGraphId, graphsMap }) => {
     setCurrentInput('');
     setIsProcessing(true);
     try {
-      if (!hasAPIKey) { 
+      if (!hasAPIKey) {
         addMessage('system', 'No API key configured. Please set up your OpenRouter or Anthropic API key below to use the Wizard.');
         setShowAPIKeySetup(true);
-        setIsProcessing(false); 
-        return; 
+        setIsProcessing(false);
+        return;
       }
       if (!mcpClient.isConnected) { await initializeConnection(); if (!mcpClient.isConnected) { setIsProcessing(false); return; } }
       if (isAutonomousMode) { await handleAutonomousAgent(userMessage); } else { await handleQuestion(userMessage); }
@@ -326,8 +333,8 @@ const LeftAIView = ({ compact = false, activeGraphId, graphsMap }) => {
   };
 
   const getGraphInfo = () => {
-    if (!activeGraphId || !graphsMap || typeof graphsMap.has !== 'function' || !graphsMap.has(activeGraphId)) { 
-      return { name: 'No active graph', nodeCount: 0, edgeCount: 0 }; 
+    if (!activeGraphId || !graphsMap || typeof graphsMap.has !== 'function' || !graphsMap.has(activeGraphId)) {
+      return { name: 'No active graph', nodeCount: 0, edgeCount: 0 };
     }
     const graph = graphsMap.get(activeGraphId);
     if (!graph) {
@@ -335,10 +342,10 @@ const LeftAIView = ({ compact = false, activeGraphId, graphsMap }) => {
     }
     const nodeCount = graph.instances && typeof graph.instances.size === 'number' ? graph.instances.size : (graph.instances ? Object.keys(graph.instances).length : 0);
     const edgeCount = Array.isArray(graph.edgeIds) ? graph.edgeIds.length : 0;
-    return { 
-      name: graph.name || 'Unnamed graph', 
-      nodeCount, 
-      edgeCount 
+    return {
+      name: graph.name || 'Unnamed graph',
+      nodeCount,
+      edgeCount
     };
   };
   const graphInfo = getGraphInfo();
@@ -348,46 +355,46 @@ const LeftAIView = ({ compact = false, activeGraphId, graphsMap }) => {
     try {
       const apiConfig = await apiKeyManager.getAPIKeyInfo();
       const apiKey = await apiKeyManager.getAPIKey();
-      if (!apiKey) { 
+      if (!apiKey) {
         addMessage('system', 'No API key configured. Please set up your OpenRouter or Anthropic API key below to use the Wizard.');
         setShowAPIKeySetup(true);
-        return; 
+        return;
       }
-      if (!apiConfig) { 
+      if (!apiConfig) {
         addMessage('system', 'API configuration not found. Please set up your API key below.');
         setShowAPIKeySetup(true);
-        return; 
+        return;
       }
       const abortController = new AbortController();
       setCurrentAgentRequest(abortController);
-      
+
       // Send recent conversation history for context memory
       const recentMessages = messages.slice(-10).map(msg => ({
         role: msg.sender === 'user' ? 'user' : msg.sender === 'ai' ? 'assistant' : 'system',
         content: msg.content
       }));
-      
+
       // Build rich context with actual graph data (not just ID)
-      const activeGraphData = activeGraphId && graphsMap && graphsMap.has(activeGraphId) 
-        ? graphsMap.get(activeGraphId) 
+      const activeGraphData = activeGraphId && graphsMap && graphsMap.has(activeGraphId)
+        ? graphsMap.get(activeGraphId)
         : null;
-      
+
       // Extract nodes and edges for LLM context (token-limited to top 50 nodes)
       let graphStructure = null;
       if (activeGraphData) {
-        const instances = activeGraphData.instances instanceof Map 
+        const instances = activeGraphData.instances instanceof Map
           ? Array.from(activeGraphData.instances.values())
           : Array.isArray(activeGraphData.instances)
             ? activeGraphData.instances
             : Object.values(activeGraphData.instances || {});
-        
+
         // Extract nodes and edges for LLM context
         // Adaptive token limit: Use a character budget instead of hard 50-node limit
         const CHAR_BUDGET = 15000; // Approx 3k-4k tokens
         let currentChars = 0;
         const nodeNames = [];
         let truncated = false;
-        
+
         for (const inst of instances) {
           const name = inst.name || `Node ${inst.id?.slice(-4) || ''}`;
           if (currentChars + name.length > CHAR_BUDGET) {
@@ -397,9 +404,9 @@ const LeftAIView = ({ compact = false, activeGraphId, graphsMap }) => {
           nodeNames.push(name);
           currentChars += name.length + 2; // +2 for separator overhead
         }
-        
+
         const edgeCount = Array.isArray(activeGraphData.edgeIds) ? activeGraphData.edgeIds.length : 0;
-        
+
         graphStructure = {
           id: activeGraphId,
           name: activeGraphData.name || 'Unnamed',
@@ -409,7 +416,7 @@ const LeftAIView = ({ compact = false, activeGraphId, graphsMap }) => {
           truncated
         };
       }
-      
+
       const response = await bridgeFetch('/api/ai/agent', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
@@ -495,7 +502,7 @@ const LeftAIView = ({ compact = false, activeGraphId, graphsMap }) => {
           const status = mod.getFileStatus();
           if (mounted) setFileStatus(status);
         }
-      } catch {}
+      } catch { }
     };
     fetchFileStatus();
     const t = setInterval(fetchFileStatus, 3000);
@@ -506,7 +513,7 @@ const LeftAIView = ({ compact = false, activeGraphId, graphsMap }) => {
     const conversationText = messages.map(msg => {
       const sender = msg.sender === 'user' ? 'User' : msg.sender === 'ai' ? 'AI' : 'System';
       let text = `${sender}: ${msg.content}`;
-      
+
       // Add metadata if present (tool calls, mode, etc.)
       if (msg.metadata) {
         const meta = [];
@@ -530,10 +537,10 @@ const LeftAIView = ({ compact = false, activeGraphId, graphsMap }) => {
         }
         text += meta.join('');
       }
-      
+
       return text;
     }).join('\n\n');
-    
+
     navigator.clipboard.writeText(conversationText).then(() => {
       addMessage('system', '📋 Conversation copied to clipboard');
     }).catch(err => {
@@ -550,47 +557,47 @@ const LeftAIView = ({ compact = false, activeGraphId, graphsMap }) => {
         const ts = Date.now();
         localStorage.setItem(RESET_TS_KEY, String(ts));
         localStorage.removeItem(STORAGE_KEY);
-      } catch {}
+      } catch { }
       // Conversation cleared silently (no message)
     }
   };
 
   const headerActionsEl = (
     <div className="ai-header-actions">
-      <button 
-        className={`ai-flat-button ${showAPIKeySetup ? 'active' : ''}`} 
-        onClick={() => setShowAPIKeySetup(!showAPIKeySetup)} 
+      <button
+        className={`ai-flat-button ${showAPIKeySetup ? 'active' : ''}`}
+        onClick={() => setShowAPIKeySetup(!showAPIKeySetup)}
         title={hasAPIKey ? 'Manage API Key' : 'Setup API Key'}
       >
         <Key size={20} />
       </button>
-      <button 
-        className="ai-flat-button" 
-        onClick={() => setShowAdvanced(!showAdvanced)} 
+      <button
+        className="ai-flat-button"
+        onClick={() => setShowAdvanced(!showAdvanced)}
         title="Advanced Options"
       >
         <Settings size={20} />
       </button>
-      <button 
-        className="ai-flat-button" 
-        onClick={handleCopyConversation} 
+      <button
+        className="ai-flat-button"
+        onClick={handleCopyConversation}
         title="Copy conversation to clipboard"
         disabled={messages.length === 0}
       >
         <Copy size={20} />
       </button>
-      <button 
-        className="ai-flat-button" 
-        onClick={handleClearConversation} 
+      <button
+        className="ai-flat-button"
+        onClick={handleClearConversation}
         title="Clear conversation"
         disabled={messages.length === 0}
       >
         <Trash2 size={20} />
       </button>
-      <button 
-        className={`ai-flat-button ${isConnected ? 'ai-refresh-button' : 'ai-connect-button'}`} 
-        onClick={refreshBridgeConnection} 
-        title={isConnected ? 'Bridge connected' : 'Reconnect bridge daemon'} 
+      <button
+        className={`ai-flat-button ${isConnected ? 'ai-refresh-button' : 'ai-connect-button'}`}
+        onClick={refreshBridgeConnection}
+        title={isConnected ? 'Bridge connected' : 'Reconnect bridge daemon'}
         disabled={isProcessing}
       >
         <RotateCcw size={20} />
@@ -686,8 +693,8 @@ const LeftAIView = ({ compact = false, activeGraphId, graphsMap }) => {
                       ))}
                     </div>
                   )}
-                  <div 
-                    className="ai-message-text" 
+                  <div
+                    className="ai-message-text"
                     style={{ userSelect: 'text', cursor: 'text' }}
                     dangerouslySetInnerHTML={message.sender === 'system' ? { __html: renderMarkdown(message.content) } : undefined}
                   >
@@ -720,7 +727,7 @@ const LeftAIView = ({ compact = false, activeGraphId, graphsMap }) => {
           </div>
         </div>
       </div>
-      
+
     </div>
   );
 };

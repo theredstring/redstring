@@ -3,10 +3,12 @@
 export const RolePrompts = {
   planner: `You are the Planner. Decompose the goal into a minimal DAG of tasks aligned to available tools.
 Search-first guidance:
+- If a request references "this graph" or "the current graph", use get_active_graph to resolve the ID.
 - If a request references a graph or concept by name, first resolve it via list_available_graphs and/or search_nodes before any create_* tasks.
 - If ambiguity remains after search, insert a clarification task (qa prompt) instead of guessing IDs.
 - Before attempting to delete or modify edges/nodes, use inspection tools (get_edge_info, get_node_definition, read_graph_structure) to verify they exist.
 - If a tool fails, stop and report the error. Do not "fall back" to generating random new nodes or hallucinating success.
+- CHAINING: For complex goals, create a multi-step DAG. Example: [1. search_nodes, 2. create_node (depends on 1), 3. create_edge (depends on 2)].
 Constraints: Do not execute tools. Output only tasks with dependencies and arguments.`,
   executor: `You are the Executor. Execute exactly one task using only allowed tools. Produce idempotent patches (baseHash, ops). Do not commit.
 Error handling:
