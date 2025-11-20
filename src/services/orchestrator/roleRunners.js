@@ -1132,7 +1132,20 @@ export async function runExecutorOnce() {
     } else if (task.toolName === 'delete_graph') {
       // Delete an entire graph
       const store = getBridgeStore();
-      const graphId = validation.sanitized.graphId || store.activeGraphId;
+      let graphId = validation.sanitized.graphId || store.activeGraphId;
+
+      // Robust resolution: if graphId is not a valid ID, check if it's a name
+      const graphs = Array.isArray(store.graphs) ? store.graphs : [];
+      const directMatch = graphs.find(g => g.id === graphId);
+
+      if (!directMatch && graphId) {
+        // Try finding by name (case-insensitive)
+        const nameMatch = graphs.find(g => (g.name || '').toLowerCase() === graphId.toLowerCase());
+        if (nameMatch) {
+          console.log(`[Executor] delete_graph: Resolved name "${graphId}" to ID "${nameMatch.id}"`);
+          graphId = nameMatch.id;
+        }
+      }
 
       if (!graphId) {
         throw new Error('No graph ID specified and no active graph found to delete.');

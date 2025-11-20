@@ -89,9 +89,9 @@ function appendChat(role, text, extra = {}) {
     chatLog.push(entry);
     if (chatLog.length > 1000) chatLog = chatLog.slice(-800);
     telemetry.push({ ts: entry.ts, type: 'chat', role, text: entry.text, ...extra });
-    try { eventLog.append({ type: 'chat', role, text: entry.text, ...extra }); } catch {}
+    try { eventLog.append({ type: 'chat', role, text: entry.text, ...extra }); } catch { }
     logger.debug(`[Chat][${role}] ${entry.text}`);
-  } catch {}
+  } catch { }
 }
 
 // Reload recent chat history from the event log so chat persists across restarts
@@ -104,7 +104,7 @@ try {
     // Seed telemetry with the restored chat snapshot for API consumers
     telemetry.push(...chatLog.map(e => ({ ts: e.ts, type: 'chat', role: e.role, text: e.text, cid: e.cid })));
   }
-} catch {}
+} catch { }
 
 // Ensure orchestrator scheduler is running with safe defaults
 async function ensureSchedulerStarted() {
@@ -204,7 +204,7 @@ Behavioral policy
 - Don't spam details: user text stays brief; structured tool calls are emitted separately.
 - Robustness: If the active graph is unknown, say so and propose a small next step (open a graph or provide a name).
 - Safety & quality: Avoid hallucinating identifiers; request or search as needed. Respect canvas constraints (avoid left panel 0–300px and header 0–80px when suggesting positions).`;
- 
+
 // Domain quick reference for the hidden system prompt (kept concise to guide reasoning)
 // Note: This is appended to the hidden prompt at runtime to avoid exposing internals in UI
 const HIDDEN_DOMAIN_APPENDIX = `\n\nRedstring domain quick reference
@@ -369,7 +369,20 @@ When: greetings, questions, unclear prompts.
 Example response: {"intent":"qa","response":"Hi! I'm ready to help you build a graph. What would you like to explore today?"}
 
 Intent: "create_graph" (NEW GRAPH)
-When: "create/make/build a graph about X".
+When: "create/make/build a graph about X" (SINGLE graph only).
+
+Intent: "decompose_goal" (COMPLEX REQUESTS - CHECK THIS FIRST!)
+CRITICAL: Check for this intent BEFORE create_graph or create_node!
+When: The user's request implies multiple distinct steps or graphs. Look for:
+  - Multiple graph mentions: "a graph of X and a graph of Y", "X graph and Y graph"
+  - Sequential indicators: "then", "and then", "then another", "after that", "next", "followed by"
+  - Plural graphs: "graphs of X and Y", "make graphs for X and Y"
+  - Explicit steps: "First create X, then Y", "Break this down into parts"
+Response: {"intent":"decompose_goal","response":"I'll create two graphs: first X, then Y.","subgoals":["Create a graph about X","Create a graph about Y"]}
+IMPORTANT: 
+  - Each subgoal should be a complete, standalone instruction (e.g., "Create a graph about famous dogs")
+  - Do NOT use create_graph intent if you detect multiple graphs - use decompose_goal instead
+  - The system will automatically execute each subgoal sequentially
 
 GRAPH CREATION PHILOSOPHY:
 - A graph decomposes a concept into its COMPONENTS and RELATIONSHIPS
@@ -377,6 +390,33 @@ GRAPH CREATION PHILOSOPHY:
 - Create a COMPREHENSIVE initial structure (8-15 nodes for most topics)
 - Connect components with MEANINGFUL relationships (not arbitrary links)
 - If uncertain about scope, make reasonable assumptions or ask
+
+SPECIAL CASE - CONNECTION GRAPHS (e.g., "connect X to Y"):
+When the user asks to "connect X to Y" or "make a graph connecting X to Y":
+- This is a DEGREES OF SEPARATION problem, not a hub-and-spoke graph
+- Goal: Find a PATH from X to Y through intermediate people, places, or concepts
+- Strategy:
+  1. Start with X and Y as anchor nodes
+  2. Identify intermediate nodes that bridge the gap (shared industries, mutual connections, common locations, cultural touchpoints)
+  3. Create a CHAIN or PATH structure: X → A → B → C → Y
+  4. Each connection should represent a real relationship (worked together, same industry, influenced by, etc.)
+  5. If X and Y have a SUBSTANTIAL direct connection (worked together, same company, close relationship), you can use fewer intermediates (even just X → Y)
+  6. If X and Y are distant (different fields, no obvious connection), use 3-5 intermediate nodes to bridge the gap
+- Example: "Connect Elon Musk to Shane Gillis"
+  - BAD: Elon → Tesla, Shane → Comedy, Tesla → Comedy (arbitrary hub-and-spoke)
+  - GOOD: Elon Musk → Joe Rogan (appeared on podcast) → Comedy Podcasting → Shane Gillis (comedian on podcasts)
+  - GOOD: Elon Musk → Twitter/X → Social Media Culture → Comedy → Shane Gillis
+- Example: "Connect Steve Jobs to Steve Wozniak"
+  - GOOD: Steve Jobs → Apple (co-founded) → Steve Wozniak (direct substantial connection, minimal intermediates needed)
+
+LAYOUT ALGORITHM SELECTION:
+Choose the layout that best fits the graph structure you're creating:
+- "force-directed" or "force": General purpose, good for most graphs with complex interconnections
+- "hierarchical" or "tree": Best for parent-child relationships, organizational charts, taxonomies
+- "radial": Good for showing centrality, hub-and-spoke patterns, or emanating from a central concept
+- "circular" or "circle": Good for cyclical processes, equal relationships, or showing all nodes at once
+- "grid": Good for structured data, matrices, or when spatial arrangement matters
+Feel free to choose creatively based on what will best reveal the relationships in your specific graph.
 
 CRITICAL: You MUST always return a populated graphSpec with 8-15 nodes. Never return an empty graph.
 If the user doesn't specify details, make reasonable assumptions based on the topic.
@@ -438,10 +478,13 @@ When: "rename X to Y", "change X's color to Z", "update X's description".
 Example: {"intent":"update_node","response":"I'll rename 'Earth' to 'Terra' and change its color to green.","update":{"target":"Earth","changes":{"name":"Terra","color":"#4ECDC4"}}}
 
 Intent: "delete_node" (REMOVE NODE)
-When: "delete X", "remove Y", "clear X", "get rid of Y", "remove all X", "delete everything", "clear the graph".
-For "delete everything" or "clear the graph", you must queue multiple delete operations (one per node).
+When: "delete X", "remove Y", "clear X", "get rid of Y".
 Example: {"intent":"delete_node","response":"I'll banish 'Pluto' from the Solar System graph.","delete":{"target":"Pluto"}}
-Example (delete all): {"intent":"delete_node","response":"I'll clear all 4 nodes from the active graph.","delete":{"target":"all"}}
+
+Intent: "clear_graph" (REMOVE ALL NODES)
+When: "delete everything", "clear the graph", "delete all nodes", "remove all", "start over", "delete the contents".
+IMPORTANT: Use "analyze" intent first to read the graph, then delete each node individually.
+Example: {"intent":"analyze","response":"I'll clear all nodes from this graph. Let me first see what's here."}
 
 Intent: "delete_graph" (REMOVE ENTIRE GRAPH)
 When: "delete the X graph", "remove this graph".
@@ -491,7 +534,7 @@ app.get('/api/bridge/health', (_req, res) => {
 app.post('/api/bridge/state', (req, res) => {
   try {
     bridgeStoreData = { ...req.body, source: 'redstring-ui' };
-    
+
     // CRITICAL: Normalize edge data structure
     // UI sends "graphEdges" array, but orchestrator expects "edges" object/Map
     if (bridgeStoreData.graphEdges && Array.isArray(bridgeStoreData.graphEdges)) {
@@ -504,7 +547,7 @@ app.post('/api/bridge/state', (req, res) => {
       }
       logger.debug(`[Bridge] Normalized ${bridgeStoreData.graphEdges.length} edges from UI to store.edges object`);
     }
-    
+
     // CRITICAL: Normalize graph instances structure
     // Ensure instances are objects (not undefined) for all graphs
     if (Array.isArray(bridgeStoreData.graphs)) {
@@ -520,7 +563,7 @@ app.post('/api/bridge/state', (req, res) => {
       });
       logger.debug(`[Bridge] Normalized ${bridgeStoreData.graphs.length} graphs with instances`);
     }
-    
+
     // Make store accessible to orchestrator components
     setBridgeStoreRef(bridgeStoreData);
     // Emit debug telemetry snapshot occasionally for visibility
@@ -530,7 +573,7 @@ app.post('/api/bridge/state', (req, res) => {
       const aName = bridgeStoreData.activeGraphName || null;
       const file = bridgeStoreData.fileStatus || null;
       telemetry.push({ ts: Date.now(), type: 'bridge_state', graphs: gCount, activeGraphId: aId, activeGraphName: aName, fileStatus: file });
-    } catch {}
+    } catch { }
     if (bridgeStoreData.summary) bridgeStoreData.summary.lastUpdate = Date.now();
     res.json({ success: true });
   } catch (err) {
@@ -606,6 +649,9 @@ app.get('/api/bridge/pending-actions', (_req, res) => {
       inflightMeta.set(a.id, { ts: Date.now(), action: a.action, params: a.params });
       telemetry.push({ ts: Date.now(), type: 'tool_call', name: a.action, args: a.params, leased: true, id: a.id });
       // Emit pre-action chat summary for visibility
+      // DISABLED: This creates duplicate status messages in the chat
+      // The UI already shows tool call status via the tool_call telemetry above
+      /*
       try {
         let preText = `Starting: ${a.action}...`;
         if (a.action === 'applyMutations' && Array.isArray(a.params?.[0])) {
@@ -618,7 +664,8 @@ app.get('/api/bridge/pending-actions', (_req, res) => {
           preText = 'Starting: create a concept...';
         }
         telemetry.push({ ts: Date.now(), type: 'agent_answer', text: preText });
-      } catch {}
+      } catch { }
+      */
     });
     res.json({ pendingActions: available });
   } catch (err) {
@@ -636,6 +683,9 @@ app.post('/api/bridge/action-completed', (req, res) => {
       if (meta) {
         telemetry.push({ ts: Date.now(), type: 'tool_call', name: meta.action, args: meta.params, status: 'completed', id: actionId, seq: ++actionSequence });
         // Emit post-action chat summary with specifics when possible
+        // DISABLED: This creates duplicate status messages in the chat
+        // The UI already shows tool call completion via the tool_call telemetry above
+        /*
         try {
           let postText = `Completed: ${meta.action}.`;
           if (meta.action === 'applyMutations' && Array.isArray(meta.params?.[0])) {
@@ -653,7 +703,8 @@ app.post('/api/bridge/action-completed', (req, res) => {
             postText = 'Created a new concept.';
           }
           telemetry.push({ ts: Date.now(), type: 'agent_answer', text: postText });
-        } catch {}
+        } catch { }
+        */
         inflightMeta.delete(actionId);
       }
     }
@@ -692,7 +743,7 @@ app.post('/api/bridge/tool-status', (req, res) => {
     if (!Array.isArray(toolCalls) || toolCalls.length === 0) {
       return res.status(400).json({ error: 'toolCalls array required' });
     }
-    
+
     // Push telemetry events for each completed tool
     for (const tool of toolCalls) {
       telemetry.push({
@@ -704,7 +755,7 @@ app.post('/api/bridge/tool-status', (req, res) => {
         cid
       });
     }
-    
+
     logger.debug(`[Bridge] Tool status update: ${toolCalls.length} tool(s) completed for cid=${cid}`);
     res.json({ ok: true, updated: toolCalls.length });
   } catch (err) {
@@ -814,38 +865,87 @@ app.post('/api/ai/agent/continue', async (req, res) => {
   try {
     const body = req.body || {};
     const { cid, lastAction, graphState, iteration = 0 } = body;
-    
+
     if (!cid) {
       return res.status(400).json({ error: 'Missing cid' });
     }
-    
+
+    // Check for agent chain state (decomposition) - if present, prioritize next chain step over iterative refinement
+    const chainState = body.meta?.chainState;
+    if (chainState && Array.isArray(chainState.remainingSubgoals) && chainState.remainingSubgoals.length > 0) {
+      const nextGoal = chainState.remainingSubgoals[0];
+      const remaining = chainState.remainingSubgoals.slice(1);
+
+      logger.info(`[Agent/Continue] Continuing agent chain. Next goal: "${nextGoal}"`);
+
+      // Recursive call to plan the next subgoal
+      const protocol = req.protocol || 'http';
+      const host = req.get('host') || 'localhost:3001';
+      const selfUrl = `${protocol}://${host}/api/ai/agent`;
+
+      // We need to pass the API key
+      const apiKey = req.headers.authorization;
+
+      try {
+        const r = await fetch(selfUrl, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': apiKey
+          },
+          body: JSON.stringify({
+            message: nextGoal,
+            conversationHistory: body.conversationHistory || [],
+            context: {
+              activeGraphId: graphState?.graphId, // Ensure we work on the current graph
+              chainState: { remainingSubgoals: remaining },
+              apiConfig: body.apiConfig
+            }
+          })
+        });
+
+        if (!r.ok) throw new Error(`Chain continuation failed: ${r.status}`);
+        const result = await r.json();
+
+        return res.json({
+          success: true,
+          completed: false,
+          response: `Step complete. Next: ${result.response}`,
+          goalId: result.goalId
+        });
+      } catch (e) {
+        logger.error('[Agent/Continue] Chain continuation failed:', e);
+        return res.status(500).json({ error: 'Failed to continue agent chain' });
+      }
+    }
+
     const MAX_ITERATIONS = 5; // Prevent infinite loops
-    
+
     if (iteration >= MAX_ITERATIONS) {
       logger.warn(`[Agent/Continue] Max iterations (${MAX_ITERATIONS}) reached for cid=${cid}`);
       const responseText = `✅ Reached maximum iteration limit. The graph has been populated with ${graphState?.nodeCount || 0} nodes and ${graphState?.edgeCount || 0} connections.`;
       // NOTE: Don't appendChat here - UI displays from JSON response to avoid duplicates
       return res.json({ success: true, completed: true, response: responseText, reason: 'max_iterations' });
     }
-    
+
     logger.debug(`[Agent/Continue] Iteration ${iteration + 1} for cid=${cid}, graph has ${graphState?.nodeCount || 0} nodes`);
-    
+
     // Call LLM to decide next action: continue | refine | complete
     const apiKey = req.headers.authorization?.replace(/^Bearer\s+/i, '');
     if (!apiKey) {
       logger.error('[Agent/Continue] No API key provided');
       return res.status(401).json({ error: 'Missing API key' });
     }
-    
+
     // Use API config from request body if available
     let provider = body.apiConfig?.provider || 'openrouter';
     let endpoint = body.apiConfig?.endpoint || 'https://openrouter.ai/api/v1/chat/completions';
     let model = body.apiConfig?.model || 'anthropic/claude-3.5-sonnet';
-    
+
     // Check if this is a "read-then-create" auto-chain (from analyze intent)
     const readResult = body.readResult;
     const isReadThenCreate = readResult && readResult.nodeCount > 0;
-    
+
     // Extract user's color palette for consistent styling
     const extractColorPalette = () => {
       const allColors = [];
@@ -861,18 +961,18 @@ app.post('/api/ai/agent/continue', async (req, res) => {
       return { colors: uniqueColors.slice(0, 10) };  // Top 10 user colors
     };
     const userPalette = extractColorPalette();
-    const paletteContext = userPalette 
+    const paletteContext = userPalette
       ? `\n\n🎨 USER'S COLOR PALETTE:\nUSE THESE COLORS: ${userPalette.colors.join(', ')}\n⚠️ Match the existing graph's color style. Use colors from the list above or similar muted/dark tones.`
       : '';
-    
+
     // Build continuation prompt
     let continuePrompt;
-    
+
     if (isReadThenCreate) {
       // READ-THEN-CREATE: User asked to expand, we read the graph, now synthesize new nodes
       const allNodeNames = (readResult.nodes || []).map(n => n.name).join(', ');
       const allEdges = (readResult.edges || []).map(e => `${e.sourceName} → ${e.destinationName} (${e.name || 'connects'})`).join('; ');
-      
+
       continuePrompt = `
 SYNTHESIS MODE: The user asked to expand "${readResult.name || 'the graph'}".
 
@@ -989,7 +1089,7 @@ Respond with JSON:
 }
 `;
     }
-    
+
     const routerPayload = {
       model,
       max_tokens: 4000,  // Safe for all models, allows comprehensive graph expansion
@@ -999,11 +1099,11 @@ Respond with JSON:
         { role: 'user', content: continuePrompt }
       ]
     };
-    
+
     if (provider === 'openrouter') {
       routerPayload.response_format = { type: 'json_object' };
     }
-    
+
     let decision = null;
     try {
       const llmResponse = await fetch(endpoint, {
@@ -1016,17 +1116,17 @@ Respond with JSON:
         },
         body: JSON.stringify(routerPayload)
       });
-      
+
       if (!llmResponse.ok) {
         throw new Error(`LLM API error: ${llmResponse.status}`);
       }
-      
+
       const data = await llmResponse.json();
       const content = data.choices?.[0]?.message?.content || '';
       logger.debug(`[Agent/Continue] Raw LLM response (first 500 chars): ${content.substring(0, 500)}`);
       logger.debug(`[Agent/Continue] Raw LLM response (last 500 chars): ${content.substring(Math.max(0, content.length - 500))}`);
       decision = JSON.parse(content);
-      
+
       // Log decision (handle both "decision" and "intent" fields)
       const decisionType = decision.decision || decision.intent;
       const reasoning = decision.reasoning || decision.response;
@@ -1037,11 +1137,11 @@ Respond with JSON:
       // Fail gracefully - assume completion
       decision = { decision: 'complete', reasoning: 'LLM parse error - assuming complete' };
     }
-    
+
     // Handle READ-THEN-CREATE: LLM returns "intent": "create_node" with graphSpec
     if (isReadThenCreate && decision.intent === 'create_node' && decision.graphSpec) {
       logger.info(`[Agent/Continue] Read-then-create: Enqueuing synthesis with ${(decision.graphSpec.nodes || []).length} new nodes`);
-      
+
       const layoutAlgorithm = decision.graphSpec.layoutAlgorithm || 'force-directed';
       const dag = {
         tasks: [
@@ -1060,7 +1160,7 @@ Respond with JSON:
           }
         ]
       };
-      
+
       const goalId = queueManager.enqueue('goalQueue', {
         type: 'goal',
         goal: 'synthesize_nodes',
@@ -1068,27 +1168,27 @@ Respond with JSON:
         threadId: cid,
         partitionKey: cid
       });
-      
+
       ensureSchedulerStarted();
       const responseText = decision.response || `I'll expand "${readResult.name}" with ${(decision.graphSpec.nodes || []).length} new nodes.`;
       // NOTE: Don't appendChat here - UI displays from JSON response to avoid duplicates
-      
-      return res.json({ 
-        success: true, 
+
+      return res.json({
+        success: true,
         completed: false,
         response: responseText,
-        goalId, 
-        nodeCount: (decision.graphSpec.nodes || []).length 
+        goalId,
+        nodeCount: (decision.graphSpec.nodes || []).length
       });
     }
-    
+
     if (decision.decision === 'complete') {
       const summary = decision.reasoning || `Populated graph with ${graphState?.nodeCount || 0} nodes and ${graphState?.edgeCount || 0} connections.`;
       const responseText = `✅ ${summary}`;
       // NOTE: Don't appendChat here - UI displays from JSON response to avoid duplicates
       return res.json({ success: true, completed: true, response: responseText, reason: 'llm_complete' });
     }
-    
+
     if (decision.decision === 'continue' && decision.graphSpec) {
       // Enqueue next batch
       const layoutAlgorithm = decision.graphSpec.layoutAlgorithm || 'force-directed';
@@ -1109,11 +1209,11 @@ Respond with JSON:
           }
         ]
       };
-      
+
       // Store API credentials in meta for Committer continuation loop
       const apiKey = req.headers.authorization?.replace(/^Bearer\s+/i, '');
       const apiConfig = body?.apiConfig || null;
-      
+
       const goalId = queueManager.enqueue('goalQueue', {
         type: 'goal',
         goal: 'agent_continue_batch',
@@ -1127,24 +1227,24 @@ Respond with JSON:
           apiConfig    // Pass API config for next iteration
         }
       });
-      
+
       ensureSchedulerStarted();
       logger.info(`[Agent/Continue] Enqueued batch ${iteration + 1}: ${goalId}`);
-      
-      return res.json({ 
-        success: true, 
-        completed: false, 
-        goalId, 
+
+      return res.json({
+        success: true,
+        completed: false,
+        goalId,
         iteration: iteration + 1,
-        nodeCount: (decision.graphSpec.nodes || []).length 
+        nodeCount: (decision.graphSpec.nodes || []).length
       });
     }
-    
+
     // Fallback: complete
     const responseText = `✅ Task complete.`;
     // NOTE: Don't appendChat here - UI displays from JSON response to avoid duplicates
     return res.json({ success: true, completed: true, response: responseText, reason: 'fallback' });
-    
+
   } catch (e) {
     logger.error('[Agent/Continue] Error:', e);
     return res.status(500).json({ error: e.message });
@@ -1156,13 +1256,13 @@ app.post('/api/ai/agent/audit', async (req, res) => {
   try {
     const body = req.body || {};
     const { cid, graphId, nodeCount, edgeCount, action } = body;
-    
+
     if (!cid || !graphId) {
       return res.status(400).json({ error: 'Missing cid or graphId' });
     }
-    
+
     logger.info(`[Agent/Audit] Triggered for graph ${graphId}: ${nodeCount} nodes, ${edgeCount} edges`);
-    
+
     // Enqueue a read_graph_structure followed by AI analysis
     const goalId = queueManager.enqueue('goalQueue', {
       type: 'goal',
@@ -1185,10 +1285,10 @@ app.post('/api/ai/agent/audit', async (req, res) => {
         edgeCount
       }
     });
-    
+
     ensureSchedulerStarted();
     logger.info(`[Agent/Audit] Enqueued audit goal: ${goalId}`);
-    
+
     return res.json({ success: true, message: 'Audit triggered', cid, goalId });
   } catch (e) {
     logger.error('[Agent/Audit] Error:', e);
@@ -1236,23 +1336,23 @@ app.post('/api/ai/chat', async (req, res) => {
     let usedFallbackModel = false;
 
     const sendLLMRequest = async (targetModel) => {
-    if (provider === 'anthropic') {
+      if (provider === 'anthropic') {
         const res = await fetch(endpoint, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'x-api-key': apiKey,
-          'anthropic-version': '2023-06-01'
-        },
-        body: JSON.stringify({
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'x-api-key': apiKey,
+            'anthropic-version': '2023-06-01'
+          },
+          body: JSON.stringify({
             model: targetModel,
-          max_tokens: context?.apiConfig?.settings?.max_tokens || 1000,
-          temperature: context?.apiConfig?.settings?.temperature || 0.7,
-          messages: [
-            { role: 'user', content: `${effectiveSystemPrompt}\n\nUser: ${message}` }
-          ]
-        })
-      });
+            max_tokens: context?.apiConfig?.settings?.max_tokens || 1000,
+            temperature: context?.apiConfig?.settings?.temperature || 0.7,
+            messages: [
+              { role: 'user', content: `${effectiveSystemPrompt}\n\nUser: ${message}` }
+            ]
+          })
+        });
         if (!res.ok) {
           const text = await res.text();
           throw { status: res.status, body: text };
@@ -1350,7 +1450,7 @@ app.post('/api/ai/chat', async (req, res) => {
           });
           if (r2.ok) { const d2 = await r2.json(); trimmed = String(d2?.choices?.[0]?.message?.content || '').trim(); }
         }
-      } catch {}
+      } catch { }
     }
 
     if (!trimmed) {
@@ -1369,9 +1469,12 @@ app.post('/api/ai/chat', async (req, res) => {
 app.post('/api/ai/agent', async (req, res) => {
   try {
     const body = req.body || {};
-    const cid = `cid-${Date.now()}-${Math.random().toString(36).slice(2,8)}`;
+    const cid = `cid-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
     logger.debug(`[Agent] Request received: ${JSON.stringify({ message: body.message, cid, conversationHistory: body.conversationHistory?.length || 0 })}`);
-    if (body.message) appendChat('user', body.message, { channel: 'agent' });
+    const isChainContinuation = body.context?.chainState?.remainingSubgoals;
+    if (body.message && !isChainContinuation) {
+      appendChat('user', body.message, { channel: 'agent' });
+    }
     const args = body.args || {};
     const conceptName = args.conceptName || body.conceptName || extractEntityName(body.message, 'New Concept');
     const x = Number(args.x ?? (args.position && args.position.x));
@@ -1382,7 +1485,7 @@ app.post('/api/ai/agent', async (req, res) => {
     const postedGraphs = Array.isArray(bridgeStoreData?.graphs) ? bridgeStoreData.graphs : [];
     const contextGraphId = body?.context?.activeGraphId;
     const activeGraphFromUI = body?.context?.activeGraph; // Rich context from UI
-    
+
     // Check for explicit @GraphName mention in the message (Cursor-style context)
     let mentionedGraphId = null;
     if (body.message) {
@@ -1391,9 +1494,9 @@ app.post('/api/ai/agent', async (req, res) => {
       if (mentionMatch) {
         const mentionedName = mentionMatch[1].trim();
         // Find graph by exact or case-insensitive name
-        const graph = postedGraphs.find(g => g.name === mentionedName) || 
-                      postedGraphs.find(g => (g.name || '').toLowerCase() === mentionedName.toLowerCase());
-        
+        const graph = postedGraphs.find(g => g.name === mentionedName) ||
+          postedGraphs.find(g => (g.name || '').toLowerCase() === mentionedName.toLowerCase());
+
         if (graph) {
           mentionedGraphId = graph.id;
           logger.debug(`[Agent] Found explicit graph mention: @${graph.name} (${graph.id})`);
@@ -1420,7 +1523,7 @@ app.post('/api/ai/agent', async (req, res) => {
       : null;
 
     const opsQueued = [];
-    const actionId = id => `pa-${Date.now()}-${Math.random().toString(36).slice(2,8)}-${id}`;
+    const actionId = id => `pa-${Date.now()}-${Math.random().toString(36).slice(2, 8)}-${id}`;
     let ensuredPrototypeId = proto?.id;
 
     // Detect intent
@@ -1449,12 +1552,12 @@ app.post('/api/ai/agent', async (req, res) => {
       if (req.headers.authorization) {
         const apiKey = String(req.headers.authorization || '').replace(/^Bearer\s+/i, '');
         logger.debug(`[Agent] API Key received: ${apiKey ? `${apiKey.slice(0, 8)}...${apiKey.slice(-4)}` : 'EMPTY'} (length: ${apiKey.length})`);
-        
+
         // Use API config from UI if available, otherwise fallback to defaults
         let provider = 'openrouter';
         let endpoint = 'https://openrouter.ai/api/v1/chat/completions';
         let model = 'openai/gpt-4o-mini';
-        
+
         if (body?.context?.apiConfig) {
           provider = body.context.apiConfig.provider || provider;
           endpoint = body.context.apiConfig.endpoint || endpoint;
@@ -1465,19 +1568,19 @@ app.post('/api/ai/agent', async (req, res) => {
           endpoint = 'https://api.anthropic.com/v1/messages';
           model = 'claude-3-5-sonnet-20241022';
         }
-        
+
         const system = [HIDDEN_SYSTEM_PROMPT + HIDDEN_DOMAIN_APPENDIX, AGENT_PLANNER_PROMPT].join('\n\n');
-        
+
         // Build conversation history for context memory
         const conversationHistory = Array.isArray(body.conversationHistory) ? body.conversationHistory : [];
-        const recentContext = conversationHistory.length > 0 
+        const recentContext = conversationHistory.length > 0
           ? '\n\n📝 RECENT CONVERSATION:\n' + conversationHistory.map(msg => `${msg.role === 'user' ? 'User' : 'You'}: ${msg.content}`).join('\n')
           : '';
-        
+
         // Extract user's color palette from ALL existing prototypes (comprehensive)
         const extractColorPalette = () => {
           const allColors = [];
-          
+
           // PRIORITY: Get colors from ALL node prototypes (now includes color + description from UI)
           if (bridgeStoreData.nodePrototypes && Array.isArray(bridgeStoreData.nodePrototypes)) {
             for (const proto of bridgeStoreData.nodePrototypes) {
@@ -1486,9 +1589,9 @@ app.post('/api/ai/agent', async (req, res) => {
               }
             }
           }
-          
+
           if (allColors.length === 0) return null;
-          
+
           // Get unique colors and extract hues
           const uniqueColors = [...new Set(allColors)];
           const hues = uniqueColors.map(color => {
@@ -1508,14 +1611,14 @@ app.post('/api/ai/agent', async (req, res) => {
             if (h < 0) h += 360;
             return h;
           });
-          
+
           // Get average hue or most common hue range
           const avgHue = Math.round(hues.reduce((a, b) => a + b, 0) / hues.length);
           return { colors: uniqueColors.slice(0, 5), avgHue, count: uniqueColors.length };
         };
-        
+
         const userPalette = extractColorPalette();
-        
+
         // PRIORITY: Use user's ACTUAL existing colors first, then generate new ones
         const generateSpectrumColors = (basePalette) => {
           // If user has colors, return them FIRST, then supplement with generated ones
@@ -1524,12 +1627,12 @@ app.post('/api/ai/agent', async (req, res) => {
             // User has enough colors - just use theirs
             return userColors;
           }
-          
+
           // User has some colors - use them first, then generate more in the same style
           // ColorPicker constants from ColorPicker.jsx (matches #8B0000)
           const saturation = 1.0; // Full saturation
           const value = 0.5451; // Exact maroon brightness (was 0.545, now more precise)
-          
+
           // If user has colors, bias toward their hue range, otherwise use full spectrum
           let hueSteps;
           if (basePalette && basePalette.avgHue !== undefined) {
@@ -1551,7 +1654,7 @@ app.post('/api/ai/agent', async (req, res) => {
             // No palette - offer full spectrum in 30° steps (12 colors)
             hueSteps = [0, 30, 60, 90, 120, 150, 180, 210, 240, 270, 300, 330];
           }
-          
+
           // Convert hues to hex with locked sat/val
           const generatedColors = hueSteps.map(h => {
             const c = value * saturation;
@@ -1569,19 +1672,19 @@ app.post('/api/ai/agent', async (req, res) => {
             b = Math.round((b + m) * 255);
             return `#${r.toString(16).padStart(2, '0')}${g.toString(16).padStart(2, '0')}${b.toString(16).padStart(2, '0')}`;
           });
-          
+
           // Return user colors first, then generated ones
           return [...userColors, ...generatedColors].slice(0, 12);
         };
-        
+
         const paletteColors = generateSpectrumColors(userPalette);
-        const paletteContext = userPalette 
-          ? `\n🎨 USER'S COLOR PALETTE (${userPalette.count} colors, avg hue: ${userPalette.avgHue}°):\nUSE THESE COLORS: ${paletteColors.join(', ')}\n⚠️ ONLY use colors from the list above. Pick colors that match the concept's meaning.` 
+        const paletteContext = userPalette
+          ? `\n🎨 USER'S COLOR PALETTE (${userPalette.count} colors, avg hue: ${userPalette.avgHue}°):\nUSE THESE COLORS: ${paletteColors.join(', ')}\n⚠️ ONLY use colors from the list above. Pick colors that match the concept's meaning.`
           : `\n🎨 AVAILABLE COLORS: ${paletteColors.join(', ')}\n⚠️ ONLY use colors from the list above. Pick colors that match the concept's meaning.`;
-        
+
         // Build rich current graph context - PREFER UI's data over bridge store
         let graphContext = '';
-        
+
         if (activeGraphFromUI && activeGraphFromUI.name) {
           // UI sent full graph context (BEST - most reliable)
           graphContext = `\n\n🎯 CURRENT GRAPH: "${activeGraphFromUI.name}"`;
@@ -1617,7 +1720,7 @@ app.post('/api/ai/agent', async (req, res) => {
             graphContext = '\n\n📚 No graphs yet - perfect time to create one!';
           }
         }
-        
+
         const wantsDefineConnections = /\b(define|label|annotate)\b[\s\S]{0,80}\b(connection|edge|relationship|link)s?\b/i.test(msgText);
         const actionHints = [];
         if (wantsPopulate) {
@@ -1635,13 +1738,13 @@ app.post('/api/ai/agent', async (req, res) => {
           ? '\n\n🧭 NEXT ACTION:\n' + actionHints.join('\n')
           : '';
         const plannerContextBlock = `${recentContext}${graphContext}${paletteContext}${actionHintBlock}`;
-        
+
         let text = '';
         const systemPrompt = `${system}${plannerContextBlock}`;
         const userPrompt = String(body.message || '');
         const estimatedInputTokens = Math.ceil((systemPrompt.length + userPrompt.length) / 4); // Rough estimate: 1 token ≈ 4 chars
         logger.debug(`[Agent] Estimated input tokens: ~${estimatedInputTokens}, requested max_tokens: ${PLANNER_MAX_TOKENS}, total budget needed: ~${estimatedInputTokens + PLANNER_MAX_TOKENS}`);
-        
+
         const baseRouterPayload = {
           model,
           max_tokens: PLANNER_MAX_TOKENS,
@@ -1673,7 +1776,7 @@ app.post('/api/ai/agent', async (req, res) => {
           const r = await fetch(endpoint, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', 'x-api-key': apiKey, 'anthropic-version': '2023-06-01' },
-            body: JSON.stringify({ model: targetModel, max_tokens: PLANNER_MAX_TOKENS, temperature: 0.3, messages: [ { role: 'user', content: `${system}${plannerContextBlock}\n\nUser: ${String(body.message || '')}` } ] })
+            body: JSON.stringify({ model: targetModel, max_tokens: PLANNER_MAX_TOKENS, temperature: 0.3, messages: [{ role: 'user', content: `${system}${plannerContextBlock}\n\nUser: ${String(body.message || '')}` }] })
           });
           if (r.ok) {
             const data = await r.json();
@@ -1698,7 +1801,7 @@ app.post('/api/ai/agent', async (req, res) => {
           }
           const errPayloadText = await r.text();
           let parsed;
-          try { parsed = JSON.parse(errPayloadText); } catch {}
+          try { parsed = JSON.parse(errPayloadText); } catch { }
           const err = new Error('OpenRouter API error');
           err.status = r.status;
           err.body = parsed || errPayloadText;
@@ -1752,35 +1855,35 @@ app.post('/api/ai/agent', async (req, res) => {
           appendChat('ai', friendly, { cid, channel: 'agent' });
           return res.json({ success: true, response: friendly, toolCalls: [], cid });
         }
-        
+
         logger.debug('[Agent] Raw LLM response length:', text?.length || 0);
         logger.debug('[Agent] Raw LLM response:', text);
-        
+
         // Extract conversational preamble (text before JSON) - LLMs often add conversational text before the JSON
         let conversationalPreamble = '';
         let jsonStartIndex = -1;
-        
+
         // Try multiple strategies to extract JSON (LLMs are chatty and don't follow instructions perfectly)
-        try { 
+        try {
           planned = JSON.parse(text);
           // If direct parse works, there's no preamble
           jsonStartIndex = 0;
         } catch (e) {
           logger.debug('[Agent] Direct JSON parse failed, trying extraction strategies:', e.message);
-          
+
           // Strategy 1: Look for ```json markdown block
           const markdownMatch = text.match(/```json\s*([\s\S]*?)```/i);
           if (markdownMatch) {
             jsonStartIndex = text.indexOf('```json');
             conversationalPreamble = text.substring(0, jsonStartIndex).trim();
-            try { 
-              planned = JSON.parse(markdownMatch[1]); 
+            try {
+              planned = JSON.parse(markdownMatch[1]);
               logger.debug('[Agent] Successfully extracted JSON from markdown block');
             } catch (e2) {
               logger.error('[Agent] Failed to parse markdown JSON:', e2.message);
             }
           }
-          
+
           // Strategy 2: Look for any {..."intent":...} pattern (most common - LLM adds text before JSON)
           // Use balanced brace matching to capture the full JSON object
           if (!planned) {
@@ -1820,7 +1923,7 @@ app.post('/api/ai/agent', async (req, res) => {
               }
             }
           }
-          
+
           // Strategy 3: Find first { and try to parse from there
           if (!planned) {
             const firstBrace = text.indexOf('{');
@@ -1835,12 +1938,12 @@ app.post('/api/ai/agent', async (req, res) => {
               }
             }
           }
-          
+
           if (!planned) {
             logger.error('[Agent] All JSON extraction strategies failed. Raw text:', text);
           }
         }
-        
+
         // If we found conversational preamble, merge it with planned.response
         if (conversationalPreamble && planned) {
           const originalResponse = planned.response || '';
@@ -1853,7 +1956,7 @@ app.post('/api/ai/agent', async (req, res) => {
           }
           logger.debug('[Agent] Merged conversational preamble with response:', planned.response);
         }
-        
+
         if (planned) {
           logger.debug('[Agent] Parsed plan:', JSON.stringify(planned, null, 2));
         }
@@ -1884,7 +1987,7 @@ app.post('/api/ai/agent', async (req, res) => {
           }
         });
       }
-    } catch {}
+    } catch { }
 
     // Heuristic intent resolution to avoid misclassifying node requests as graph creation
     // (Intent flags already declared above before LLM call)
@@ -1921,17 +2024,17 @@ app.post('/api/ai/agent', async (req, res) => {
 
     // Q&A/chat mode: handle greetings/capabilities vs status summary (no mutations)
     // Trust the LLM's intent first; only fall back to regex if no plan was returned
-    const shouldUseQAMode = planned 
+    const shouldUseQAMode = planned
       ? (planned.intent === 'qa') // If LLM returned a plan, trust its intent
       : !isCreateIntent; // Otherwise fall back to regex heuristic
-    
+
     if (shouldUseQAMode) {
       const msg = msgText.toLowerCase();
       const isGreeting = /\b(hi|hello|hey|yo|howdy)\b/.test(msg);
       const isCapabilities = /(what can you do|capabilities|help|tools|what do you do|how can you help)/.test(msg);
       const wantsStatus = /(show|status|state|current|where.*(are|we are)|graph)/.test(msg);
 
-        if (isGreeting || isCapabilities) {
+      if (isGreeting || isCapabilities) {
         let text = (typeof planned?.response === 'string') ? planned.response.trim() : '';
         if (!text) {
           // Require API key for model-generated text; otherwise return a clear requirement message
@@ -1957,28 +2060,28 @@ app.post('/api/ai/agent', async (req, res) => {
             const basePrompt = 'Reply briefly to a greeting. Do not list capabilities.';
             // First attempt
             if (provider === 'anthropic') {
-              const r = await fetch(endpoint, { method: 'POST', headers: { 'Content-Type': 'application/json', 'x-api-key': apiKey, 'anthropic-version': '2023-06-01' }, body: JSON.stringify({ model, max_tokens: 40, temperature: 0.2, messages: [ { role: 'user', content: basePrompt } ] }) });
+              const r = await fetch(endpoint, { method: 'POST', headers: { 'Content-Type': 'application/json', 'x-api-key': apiKey, 'anthropic-version': '2023-06-01' }, body: JSON.stringify({ model, max_tokens: 40, temperature: 0.2, messages: [{ role: 'user', content: basePrompt }] }) });
               if (r.ok) { const data = await r.json(); text = (data?.content?.[0]?.text || '').trim(); }
             } else {
-              const r = await fetch(endpoint, { method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}`, 'HTTP-Referer': 'http://localhost:4000', 'X-Title': 'Redstring Knowledge Graph' }, body: JSON.stringify({ model, max_tokens: 40, temperature: 0.2, messages: [ { role: 'user', content: basePrompt } ] }) });
+              const r = await fetch(endpoint, { method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}`, 'HTTP-Referer': 'http://localhost:4000', 'X-Title': 'Redstring Knowledge Graph' }, body: JSON.stringify({ model, max_tokens: 40, temperature: 0.2, messages: [{ role: 'user', content: basePrompt }] }) });
               if (r.ok) { const data = await r.json(); text = (data?.choices?.[0]?.message?.content || '').trim(); }
             }
             // One-shot retry if empty
             if (!text) {
               const retryPrompt = basePrompt + ' Reply with a non-empty sentence.';
               if (provider === 'anthropic') {
-                const r2 = await fetch(endpoint, { method: 'POST', headers: { 'Content-Type': 'application/json', 'x-api-key': apiKey, 'anthropic-version': '2023-06-01' }, body: JSON.stringify({ model, max_tokens: 60, temperature: 0.2, messages: [ { role: 'user', content: retryPrompt } ] }) });
+                const r2 = await fetch(endpoint, { method: 'POST', headers: { 'Content-Type': 'application/json', 'x-api-key': apiKey, 'anthropic-version': '2023-06-01' }, body: JSON.stringify({ model, max_tokens: 60, temperature: 0.2, messages: [{ role: 'user', content: retryPrompt }] }) });
                 if (r2.ok) { const d2 = await r2.json(); text = (d2?.content?.[0]?.text || '').trim(); }
               } else {
-                const r2 = await fetch(endpoint, { method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}`, 'HTTP-Referer': 'http://localhost:4000', 'X-Title': 'Redstring Knowledge Graph' }, body: JSON.stringify({ model, max_tokens: 60, temperature: 0.2, messages: [ { role: 'user', content: retryPrompt } ] }) });
+                const r2 = await fetch(endpoint, { method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}`, 'HTTP-Referer': 'http://localhost:4000', 'X-Title': 'Redstring Knowledge Graph' }, body: JSON.stringify({ model, max_tokens: 60, temperature: 0.2, messages: [{ role: 'user', content: retryPrompt }] }) });
                 if (r2.ok) { const d2 = await r2.json(); text = (d2?.choices?.[0]?.message?.content || '').trim(); }
               }
             }
-          } catch {}
+          } catch { }
         }
         if (!text) {
           const msg = 'The model did not return a plan. Please try again in a moment.';
-          telemetry.push({ ts: Date.now(), type: 'agent_answer', cid, graphId: targetGraphId, text: msg, fallback: 'model_empty_retry_failed', provider: (body?.context?.apiConfig?.provider)||null, model: (body?.context?.apiConfig?.model)||null });
+          telemetry.push({ ts: Date.now(), type: 'agent_answer', cid, graphId: targetGraphId, text: msg, fallback: 'model_empty_retry_failed', provider: (body?.context?.apiConfig?.provider) || null, model: (body?.context?.apiConfig?.model) || null });
           appendChat('ai', msg, { cid, channel: 'agent' });
           return res.json({ success: true, response: msg, toolCalls: [], cid });
         }
@@ -2014,29 +2117,29 @@ app.post('/api/ai/agent', async (req, res) => {
             const basePrompt = `Reply briefly to: ${msgText}`;
             // First attempt
             if (provider === 'anthropic') {
-              const r = await fetch(endpoint, { method: 'POST', headers: { 'Content-Type': 'application/json', 'x-api-key': apiKey, 'anthropic-version': '2023-06-01' }, body: JSON.stringify({ model, max_tokens: 60, temperature: 0.2, messages: [ { role: 'user', content: basePrompt } ] }) });
+              const r = await fetch(endpoint, { method: 'POST', headers: { 'Content-Type': 'application/json', 'x-api-key': apiKey, 'anthropic-version': '2023-06-01' }, body: JSON.stringify({ model, max_tokens: 60, temperature: 0.2, messages: [{ role: 'user', content: basePrompt }] }) });
               if (r.ok) { const data = await r.json(); text = (data?.content?.[0]?.text || '').trim(); }
             } else {
-              const r = await fetch(endpoint, { method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}`, 'HTTP-Referer': 'http://localhost:4000', 'X-Title': 'Redstring Knowledge Graph' }, body: JSON.stringify({ model, max_tokens: 60, temperature: 0.2, messages: [ { role: 'user', content: basePrompt } ] }) });
+              const r = await fetch(endpoint, { method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}`, 'HTTP-Referer': 'http://localhost:4000', 'X-Title': 'Redstring Knowledge Graph' }, body: JSON.stringify({ model, max_tokens: 60, temperature: 0.2, messages: [{ role: 'user', content: basePrompt }] }) });
               if (r.ok) { const data = await r.json(); text = (data?.choices?.[0]?.message?.content || '').trim(); }
             }
             // One-shot retry if empty
             if (!text) {
               const retryPrompt = basePrompt + ' Reply with a non-empty sentence.';
               if (provider === 'anthropic') {
-                const r2 = await fetch(endpoint, { method: 'POST', headers: { 'Content-Type': 'application/json', 'x-api-key': apiKey, 'anthropic-version': '2023-06-01' }, body: JSON.stringify({ model, max_tokens: 80, temperature: 0.2, messages: [ { role: 'user', content: retryPrompt } ] }) });
+                const r2 = await fetch(endpoint, { method: 'POST', headers: { 'Content-Type': 'application/json', 'x-api-key': apiKey, 'anthropic-version': '2023-06-01' }, body: JSON.stringify({ model, max_tokens: 80, temperature: 0.2, messages: [{ role: 'user', content: retryPrompt }] }) });
                 if (r2.ok) { const d2 = await r2.json(); text = (d2?.content?.[0]?.text || '').trim(); }
               } else {
-                const r2 = await fetch(endpoint, { method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}`, 'HTTP-Referer': 'http://localhost:4000', 'X-Title': 'Redstring Knowledge Graph' }, body: JSON.stringify({ model, max_tokens: 80, temperature: 0.2, messages: [ { role: 'user', content: retryPrompt } ] }) });
+                const r2 = await fetch(endpoint, { method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}`, 'HTTP-Referer': 'http://localhost:4000', 'X-Title': 'Redstring Knowledge Graph' }, body: JSON.stringify({ model, max_tokens: 80, temperature: 0.2, messages: [{ role: 'user', content: retryPrompt }] }) });
                 if (r2.ok) { const d2 = await r2.json(); text = (d2?.choices?.[0]?.message?.content || '').trim(); }
               }
               if (!text) telemetry.push({ ts: Date.now(), type: 'agent_answer', cid, graphId: targetGraphId, text: '[empty_after_retry]', fallback: 'agent_qa_retry_failed' });
             }
-          } catch {}
+          } catch { }
         }
         if (!text) {
           const msg = 'The model did not return a plan. Please try again in a moment.';
-          telemetry.push({ ts: Date.now(), type: 'agent_answer', cid, graphId: targetGraphId, text: msg, fallback: 'model_empty_retry_failed', provider: (body?.context?.apiConfig?.provider)||null, model: (body?.context?.apiConfig?.model)||null });
+          telemetry.push({ ts: Date.now(), type: 'agent_answer', cid, graphId: targetGraphId, text: msg, fallback: 'model_empty_retry_failed', provider: (body?.context?.apiConfig?.provider) || null, model: (body?.context?.apiConfig?.model) || null });
           appendChat('ai', msg, { cid, channel: 'agent' });
           return res.json({ success: true, response: msg, toolCalls: [], cid });
         }
@@ -2056,16 +2159,73 @@ app.post('/api/ai/agent', async (req, res) => {
         const n = protoNameById.get(inst.prototypeId) || inst.prototypeId;
         counts.set(n, (counts.get(n) || 0) + 1);
       }
-      const top = Array.from(counts.entries()).sort((a,b)=>b[1]-a[1]).slice(0, 10);
-      const bullets = top.map(([name, c]) => `- ${name}${c>1?` (x${c})`:''}`).join('\n');
+      const top = Array.from(counts.entries()).sort((a, b) => b[1] - a[1]).slice(0, 10);
+      const bullets = top.map(([name, c]) => `- ${name}${c > 1 ? ` (x${c})` : ''}`).join('\n');
       const graphName = g?.name || (bridgeStoreData.activeGraphName || 'Active Graph');
       const summary = top.length > 0 ? bullets : '- (no instances in this graph)';
       const base = planned?.response || `Here's where we are.`;
       const text = `${base}\n\nActive graph: "${graphName}". Instances: ${instanceEntries.length}.\n\n${summary}`;
-      telemetry.push({ ts: Date.now(), type: 'agent_answer', cid, graphId: targetGraphId, text, concepts: top.map(([n,c]) => ({ name:n, count:c })) });
+      telemetry.push({ ts: Date.now(), type: 'agent_answer', cid, graphId: targetGraphId, text, concepts: top.map(([n, c]) => ({ name: n, count: c })) });
       appendChat('ai', text, { cid, channel: 'agent' });
       console.log('[Agent] Status summary generated for graph:', targetGraphId, 'instances:', instanceEntries.length);
       return res.json({ success: true, response: text, toolCalls: [{ name: 'verify_state', status: 'completed', args: { graphId: targetGraphId } }], cid });
+    }
+
+    // Decompose goal intent: break down complex request into sub-goals
+    if (resolvedIntent === 'decompose_goal' && Array.isArray(planned?.subgoals) && planned.subgoals.length > 0) {
+      const subgoals = planned.subgoals;
+      const firstGoal = subgoals[0];
+      const remaining = subgoals.slice(1);
+
+      logger.info(`[Agent] Decomposing goal into ${subgoals.length} steps. First: "${firstGoal}"`);
+
+      // Recursive call to plan the first subgoal
+      // We pass the remaining subgoals in the context so they can be attached to the generated goal
+      const nextContext = {
+        ...body.context,
+        chainState: { remainingSubgoals: remaining }
+      };
+
+      // Construct self-request
+      const protocol = req.protocol || 'http';
+      const host = req.get('host') || 'localhost:3001';
+      const selfUrl = `${protocol}://${host}/api/ai/agent`;
+
+      try {
+        const r = await fetch(selfUrl, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': req.headers.authorization
+          },
+          body: JSON.stringify({
+            message: firstGoal,
+            conversationHistory: body.conversationHistory || [], // Keep history
+            context: {
+              ...nextContext,
+              apiConfig: body.context?.apiConfig // Preserve API config
+            }
+          })
+        });
+
+        if (!r.ok) {
+          const errorText = await r.text();
+          throw new Error(`Recursive agent call failed: ${r.status} - ${errorText}`);
+        }
+        const result = await r.json();
+
+        // Return the result of the first step, but prepend the decomposition plan to the response
+        const planText = planned.response || "I've broken this down into steps.";
+        const combinedResponse = `${planText}\n\nStep 1: ${result.response}`;
+
+        return res.json({
+          ...result,
+          response: combinedResponse
+        });
+      } catch (e) {
+        logger.error('[Agent] Decomposition recursion failed:', e);
+        return res.status(500).json({ error: 'Failed to execute decomposed plan' });
+      }
     }
 
     // Create intent: route graph creation through orchestrator queues
@@ -2079,19 +2239,19 @@ app.post('/api/ai/agent', async (req, res) => {
         if (mQ && mQ[1]) return mQ[1];
         const mCalled = msgText.match(/\b(called|named)\s+([A-Za-z0-9][A-Za-z0-9' _-]{0,63})\b/i);
         if (mCalled && mCalled[2]) return mCalled[2];
-        
+
         // Try to extract topic/subject from "make a graph about X" or "create X graph"
         const mAbout = msgText.match(/\b(?:graph|map|network)\s+(?:about|of|for)\s+(?:the\s+)?([A-Za-z0-9][A-Za-z0-9' _-]{2,40})/i);
         if (mAbout && mAbout[1]) return mAbout[1].trim();
-        
+
         const mSubject = msgText.match(/\b(?:make|create|build|add|new)\s+(?:a\s+|an\s+)?([A-Za-z0-9][A-Za-z0-9' _-]{2,40})\s+(?:graph|map|network)/i);
         if (mSubject && mSubject[1]) return mSubject[1].trim();
-        
+
         // fallback to a compacted version of message
         const trimmed = msgText.replace(/\s+/g, ' ').trim();
         return trimmed.length > 40 ? `${trimmed.slice(0, 37)}...` : trimmed || 'New Graph';
       })();
-      
+
       // Determine graphSpec to use (LLM-provided or Wizard default)
       let graphSpecToUse = null;
       if (Array.isArray(planned?.graphSpec?.nodes) && planned.graphSpec.nodes.length > 0) {
@@ -2100,15 +2260,15 @@ app.post('/api/ai/agent', async (req, res) => {
         graphSpecToUse = getWizardChoiceGraphSpec();
       }
       const hasGraphSpec = Array.isArray(graphSpecToUse?.nodes) && graphSpecToUse.nodes.length > 0;
-      
+
       if (hasGraphSpec) {
         // Single atomic operation: create + populate in one shot
         const layoutAlgorithm = graphSpecToUse.layoutAlgorithm || 'force';
         const layoutMode = graphSpecToUse.layoutMode || 'auto';
         const nodeCount = graphSpecToUse.nodes.length;
         const edgeCount = (graphSpecToUse.edges || []).length;
-        const newGraphId = `graph-${Date.now()}-${Math.random().toString(36).slice(2,8)}`;
-        
+        const newGraphId = `graph-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+
         const dag = {
           tasks: [
             {
@@ -2130,41 +2290,44 @@ app.post('/api/ai/agent', async (req, res) => {
               toolName: 'define_connections',
               args: {
                 graphId: newGraphId,
-                includeGeneralTypes: planned?.includeGeneralTypes ?? true
+                includeGeneralTypes: planned?.includeGeneralTypes ?? false
               },
               threadId: cid
             }
           ]
         };
-        
-        const goalId = queueManager.enqueue('goalQueue', { 
-          type: 'goal', 
-          goal: 'create_populated_graph', 
-          dag, 
-          threadId: cid, 
+
+        const goalId = queueManager.enqueue('goalQueue', {
+          type: 'goal',
+          goal: 'create_populated_graph',
+          dag,
+          threadId: cid,
           partitionKey: cid,
           meta: {
             iteration: 0,  // First batch in agentic loop
-            agenticLoop: true  // Flag to trigger continuation after commit
+            agenticLoop: true,  // Flag to trigger continuation after commit
+            chainState: body.context?.chainState,
+            apiKey: req.headers.authorization?.replace(/^Bearer\s+/i, ''),
+            apiConfig: body.context?.apiConfig
           }
         });
-        
+
         ensureSchedulerStarted();
         eventLog.append({ type: 'GOAL_ENQUEUED', id: goalId, threadId: cid, goal: 'create_populated_graph' });
-        telemetry.push({ 
-          ts: Date.now(), 
-          type: 'agent_queued', 
-          cid, 
-          queued: ['goal:create_populated_graph'], 
+        telemetry.push({
+          ts: Date.now(),
+          type: 'agent_queued',
+          cid,
+          queued: ['goal:create_populated_graph'],
           graphName,
           nodes: nodeCount,
           edges: edgeCount,
           layoutAlgorithm,
           layoutMode
         });
-        
+
         console.log('[Agent] Queued create_populated_graph goal:', { graphName, cid, nodeCount, edgeCount, layoutAlgorithm, layoutMode });
-        
+
         const resp = planned?.response || `Creating "${graphName}" with ${nodeCount} concept${nodeCount > 1 ? 's' : ''} using ${layoutAlgorithm} layout, then labeling the connections.`;
         // Response sent via JSON below - don't duplicate with appendChat
         const toolCalls = [
@@ -2180,10 +2343,10 @@ app.post('/api/ai/agent', async (req, res) => {
             displayName: 'Define Connections',
             description: `Labeling relationships in ${graphName}`,
             status: 'queued',
-            args: { graphId: newGraphId, includeGeneralTypes: planned?.includeGeneralTypes ?? true }
+            args: { graphId: newGraphId, includeGeneralTypes: planned?.includeGeneralTypes ?? false }
           }
         ];
-        
+
         return res.json({
           success: true,
           response: resp,
@@ -2193,19 +2356,29 @@ app.post('/api/ai/agent', async (req, res) => {
         });
       } else {
         // Just create empty graph
-      const dag = {
-        tasks: [
-          { toolName: 'create_graph', args: { name: graphName, description: `Created by agent (${cid})` }, threadId: cid }
-        ]
-      };
-      const goalId = queueManager.enqueue('goalQueue', { type: 'goal', goal: 'create_graph', dag, threadId: cid, partitionKey: cid });
-      ensureSchedulerStarted();
-      eventLog.append({ type: 'GOAL_ENQUEUED', id: goalId, threadId: cid });
-      telemetry.push({ ts: Date.now(), type: 'agent_queued', cid, queued: ['goal:create_graph'], graphId: targetGraphId, graphName });
-      console.log('[Agent] Queued create_graph goal:', { graphName, cid });
-      return res.json({
-        success: true,
-        response: planned?.response || `Okay — I queued a goal to create a new graph "${graphName}". I'll report once it's applied.`,
+        const dag = {
+          tasks: [
+            { toolName: 'create_graph', args: { name: graphName, description: `Created by agent (${cid})` }, threadId: cid }
+          ]
+        };
+        const goalId = queueManager.enqueue('goalQueue', {
+          type: 'goal',
+          goal: 'create_graph',
+          dag,
+          threadId: cid,
+          partitionKey: cid,
+          meta: {
+            agenticLoop: true,
+            chainState: body.context?.chainState
+          }
+        });
+        ensureSchedulerStarted();
+        eventLog.append({ type: 'GOAL_ENQUEUED', id: goalId, threadId: cid });
+        telemetry.push({ ts: Date.now(), type: 'agent_queued', cid, queued: ['goal:create_graph'], graphId: targetGraphId, graphName });
+        console.log('[Agent] Queued create_graph goal:', { graphName, cid });
+        return res.json({
+          success: true,
+          response: planned?.response || `Okay — I queued a goal to create a new graph "${graphName}". I'll report once it's applied.`,
           toolCalls: [{ name: 'create_graph', status: 'queued', args: { graphName } }],
           cid,
           goalId
@@ -2228,7 +2401,19 @@ app.post('/api/ai/agent', async (req, res) => {
           }
         ]
       };
-      const goalId = queueManager.enqueue('goalQueue', { type: 'goal', goal: 'define_connections', dag, threadId: cid, partitionKey: cid });
+      const goalId = queueManager.enqueue('goalQueue', {
+        type: 'goal',
+        goal: 'define_connections',
+        dag,
+        threadId: cid,
+        partitionKey: cid,
+        meta: {
+          agenticLoop: true,
+          chainState: body.context?.chainState,
+          apiKey: req.headers.authorization?.replace(/^Bearer\s+/i, ''),
+          apiConfig: body.context?.apiConfig
+        }
+      });
       ensureSchedulerStarted();
       eventLog.append({ type: 'GOAL_ENQUEUED', id: goalId, threadId: cid, goal: 'define_connections' });
       telemetry.push({ ts: Date.now(), type: 'agent_queued', cid, queued: ['goal:define_connections'], graphId: targetGraphId });
@@ -2262,17 +2447,18 @@ app.post('/api/ai/agent', async (req, res) => {
       // Store API credentials in meta for Committer auto-chain
       const apiKey = req.headers.authorization?.replace(/^Bearer\s+/i, '');
       const apiConfig = body?.context?.apiConfig || null;
-      const goalId = queueManager.enqueue('goalQueue', { 
-        type: 'goal', 
-        goal: 'analyze_graph', 
-        dag, 
-        threadId: cid, 
+      const goalId = queueManager.enqueue('goalQueue', {
+        type: 'goal',
+        goal: 'analyze_graph',
+        dag,
+        threadId: cid,
         partitionKey: cid,
-        meta: { 
-          apiKey, 
+        meta: {
+          apiKey,
           apiConfig,
           iteration: 0,
-          agenticLoop: true  // Enable READ-THEN-CREATE auto-chain
+          agenticLoop: true,  // Enable READ-THEN-CREATE auto-chain
+          chainState: body.context?.chainState
         }
       });
       ensureSchedulerStarted();
@@ -2288,19 +2474,19 @@ app.post('/api/ai/agent', async (req, res) => {
           : null;
       const graphName = activeGraph?.name || 'graph';
       const analyzeToolCalls = [
-        { 
-          name: 'read_graph_structure', 
+        {
+          name: 'read_graph_structure',
           displayName: `Reading ${graphName}`,
           description: 'Inspecting all nodes and connections',
-          status: 'queued', 
-          args: { graphId: targetGraphId || null, include_edges: true, include_descriptions: true } 
+          status: 'queued',
+          args: { graphId: targetGraphId || null, include_edges: true, include_descriptions: true }
         },
-        { 
-          name: 'verify_state', 
+        {
+          name: 'verify_state',
           displayName: 'Verify State',
           description: 'Checking graph integrity',
-          status: 'queued', 
-          args: {} 
+          status: 'queued',
+          args: {}
         }
       ];
       return res.json({
@@ -2313,11 +2499,11 @@ app.post('/api/ai/agent', async (req, res) => {
     }
 
     // Planner-first multi-item creation via graphSpec (model-led + auto-layout)
-    console.log('[Agent] Checking create_node branch:', { 
-      resolvedIntent, 
-      wantsAddToGraph, 
-      wantsPopulate, 
-      hasGraphSpec: !!planned?.graphSpec, 
+    console.log('[Agent] Checking create_node branch:', {
+      resolvedIntent,
+      wantsAddToGraph,
+      wantsPopulate,
+      hasGraphSpec: !!planned?.graphSpec,
       nodeCount: planned?.graphSpec?.nodes?.length,
       fullPlan: JSON.stringify(planned)
     });
@@ -2328,7 +2514,7 @@ app.post('/api/ai/agent', async (req, res) => {
         const plannedGraphName = (planned?.graph?.name || '').trim();
         const graphsArr = Array.isArray(bridgeStoreData.graphs) ? bridgeStoreData.graphs : [];
         let effectiveGraphId = targetGraphId || null;
-        
+
         if (plannedGraphName) {
           const norm = s => String(s || '').toLowerCase().replace(/\s+/g, ' ').trim();
           const g = graphsArr.find(x => norm(x?.name) === norm(plannedGraphName));
@@ -2340,7 +2526,7 @@ app.post('/api/ai/agent', async (req, res) => {
             return res.json({ success: true, response: text, toolCalls: [], cid });
           }
         }
-        
+
         if (!effectiveGraphId) {
           const text = planned?.response || 'I need an active graph to add concepts. Open a graph first, or tell me the graph name.';
           telemetry.push({ ts: Date.now(), type: 'agent_answer', cid, text, clarification: true });
@@ -2351,7 +2537,7 @@ app.post('/api/ai/agent', async (req, res) => {
         // Extract layout algorithm and mode from graphSpec or use defaults
         const layoutAlgorithm = planned.graphSpec.layoutAlgorithm || 'force';
         const layoutMode = planned.graphSpec.layoutMode || 'partial'; // Use partial layout when adding to existing graph
-        
+
         // Enqueue goal with graphSpec for orchestrator to handle with auto-layout
         const dag = {
           tasks: [
@@ -2367,18 +2553,18 @@ app.post('/api/ai/agent', async (req, res) => {
                 layoutMode
               },
               threadId: cid
-          },
-          {
-            toolName: 'define_connections',
-            args: {
-              graphId: effectiveGraphId,
-              includeGeneralTypes: planned?.includeGeneralTypes ?? true
             },
-            threadId: cid
-          }
+            {
+              toolName: 'define_connections',
+              args: {
+                graphId: effectiveGraphId,
+                includeGeneralTypes: planned?.includeGeneralTypes ?? false
+              },
+              threadId: cid
+            }
           ]
         };
-        
+
         const goalId = queueManager.enqueue('goalQueue', {
           type: 'goal',
           goal: 'create_subgraph',
@@ -2387,16 +2573,19 @@ app.post('/api/ai/agent', async (req, res) => {
           partitionKey: cid,
           meta: {
             iteration: 0,  // First batch in agentic loop
-            agenticLoop: true  // Flag to trigger continuation after commit
+            agenticLoop: true,  // Flag to trigger continuation after commit
+            chainState: body.context?.chainState,
+            apiKey: req.headers.authorization?.replace(/^Bearer\s+/i, ''),
+            apiConfig: body.context?.apiConfig
           }
         });
-        
+
         ensureSchedulerStarted();
         eventLog.append({ type: 'GOAL_ENQUEUED', id: goalId, threadId: cid, goal: 'create_subgraph' });
-        
+
         const nodeCount = planned.graphSpec.nodes.length;
         const edgeCount = (planned.graphSpec.edges || []).length;
-        
+
         telemetry.push({
           ts: Date.now(),
           type: 'agent_queued',
@@ -2408,7 +2597,7 @@ app.post('/api/ai/agent', async (req, res) => {
           layoutAlgorithm,
           layoutMode
         });
-        
+
         logger.info('[Agent] Queued create_subgraph goal:', {
           cid,
           graphId: effectiveGraphId,
@@ -2417,11 +2606,11 @@ app.post('/api/ai/agent', async (req, res) => {
           layoutAlgorithm,
           layoutMode
         });
-        
+
         const resp = planned?.response || `Okay — I'll create ${nodeCount} concept${nodeCount > 1 ? 's' : ''}${edgeCount ? ` with ${edgeCount} connection${edgeCount > 1 ? 's' : ''}` : ''} using ${layoutAlgorithm} layout, then label their relationships.`;
-        
+
         appendChat('ai', resp, { cid, channel: 'agent' });
-        
+
         // Tool call abstraction: Show user-friendly descriptions while keeping internal names
         // Get graph name from store (stats is out of scope here)
         const activeGraph = bridgeStoreData?.graphs instanceof Map
@@ -2432,7 +2621,7 @@ app.post('/api/ai/agent', async (req, res) => {
         const graphName = activeGraph?.name || 'graph';
         const isNewGraph = !effectiveGraphId || effectiveGraphId === 'NEW_GRAPH';
         const actionVerb = isNewGraph ? 'Populating' : 'Expanding';
-        
+
         const toolCalls = [
           {
             name: 'create_subgraph',
@@ -2446,10 +2635,10 @@ app.post('/api/ai/agent', async (req, res) => {
             displayName: 'Define Connections',
             description: `Labeling relationships in ${graphName}`,
             status: 'queued',
-            args: { graphId: effectiveGraphId, includeGeneralTypes: planned?.includeGeneralTypes ?? true }
+            args: { graphId: effectiveGraphId, includeGeneralTypes: planned?.includeGeneralTypes ?? false }
           }
         ];
-        
+
         return res.json({
           success: true,
           response: resp,
@@ -2471,17 +2660,17 @@ app.post('/api/ai/agent', async (req, res) => {
       try {
         const targetName = String(planned.update.target).trim();
         const changes = planned.update.changes;
-        
+
         // Find the prototype by name
         const list = Array.isArray(bridgeStoreData.nodePrototypes) ? bridgeStoreData.nodePrototypes : [];
         const proto = list.find(p => String(p?.name || '').toLowerCase() === targetName.toLowerCase());
-        
+
         if (!proto) {
           const text = `I couldn't find a node named "${targetName}" to update.`;
           appendChat('ai', text, { cid, channel: 'agent' });
           return res.json({ success: true, response: text, toolCalls: [], cid });
         }
-        
+
         // Queue update_node_prototype task
         const dag = {
           tasks: [{
@@ -2495,7 +2684,7 @@ app.post('/api/ai/agent', async (req, res) => {
             threadId: cid
           }]
         };
-        
+
         const goalId = queueManager.enqueue('goalQueue', {
           type: 'goal',
           goal: 'update_node_prototype',
@@ -2503,13 +2692,13 @@ app.post('/api/ai/agent', async (req, res) => {
           threadId: cid,
           partitionKey: cid
         });
-        
+
         ensureSchedulerStarted();
         eventLog.append({ type: 'GOAL_ENQUEUED', id: goalId, threadId: cid, goal: 'update_node_prototype' });
-        
+
         const resp = planned?.response || `I'll update "${targetName}" with the new properties.`;
         appendChat('ai', resp, { cid, channel: 'agent' });
-        
+
         return res.json({
           success: true,
           response: resp,
@@ -2529,17 +2718,17 @@ app.post('/api/ai/agent', async (req, res) => {
     if (resolvedIntent === 'delete_node' && planned?.delete?.target) {
       try {
         const targetName = String(planned.delete.target).trim();
-        
+
         // Find the prototype by name
         const list = Array.isArray(bridgeStoreData.nodePrototypes) ? bridgeStoreData.nodePrototypes : [];
         const proto = list.find(p => String(p?.name || '').toLowerCase() === targetName.toLowerCase());
-        
+
         if (!proto) {
           const text = `I couldn't find a node named "${targetName}" to delete.`;
           appendChat('ai', text, { cid, channel: 'agent' });
           return res.json({ success: true, response: text, toolCalls: [], cid });
         }
-        
+
         // Find all instances of this prototype in the active graph
         const activeGraph = (Array.isArray(bridgeStoreData.graphs) ? bridgeStoreData.graphs : []).find(g => g.id === targetGraphId);
         const instancesToDelete = [];
@@ -2550,13 +2739,13 @@ app.post('/api/ai/agent', async (req, res) => {
             }
           }
         }
-        
+
         if (instancesToDelete.length === 0) {
           const text = `"${targetName}" isn't in the active graph.`;
           appendChat('ai', text, { cid, channel: 'agent' });
           return res.json({ success: true, response: text, toolCalls: [], cid });
         }
-        
+
         // Queue delete tasks for each instance
         const tasks = instancesToDelete.map(iid => ({
           toolName: 'delete_node_instance',
@@ -2566,7 +2755,7 @@ app.post('/api/ai/agent', async (req, res) => {
           },
           threadId: cid
         }));
-        
+
         const dag = { tasks };
         const goalId = queueManager.enqueue('goalQueue', {
           type: 'goal',
@@ -2575,13 +2764,13 @@ app.post('/api/ai/agent', async (req, res) => {
           threadId: cid,
           partitionKey: cid
         });
-        
+
         ensureSchedulerStarted();
         eventLog.append({ type: 'GOAL_ENQUEUED', id: goalId, threadId: cid, goal: 'delete_node_instance' });
-        
+
         const resp = planned?.response || `I'll banish ${instancesToDelete.length} instance${instancesToDelete.length > 1 ? 's' : ''} of "${targetName}" from this graph.`;
         appendChat('ai', resp, { cid, channel: 'agent' });
-        
+
         return res.json({
           success: true,
           response: resp,
@@ -2601,20 +2790,20 @@ app.post('/api/ai/agent', async (req, res) => {
     if (resolvedIntent === 'delete_graph') {
       try {
         const graphIdToDelete = planned?.delete?.graphId || targetGraphId;
-        
+
         if (!graphIdToDelete) {
           const text = 'I need to know which graph to delete. Can you specify the graph name?';
           appendChat('ai', text, { cid, channel: 'agent' });
           return res.json({ success: true, response: text, toolCalls: [], cid });
         }
-        
+
         const graphToDelete = (Array.isArray(bridgeStoreData.graphs) ? bridgeStoreData.graphs : []).find(g => g.id === graphIdToDelete);
         if (!graphToDelete) {
           const text = 'I couldn\'t find that graph to delete.';
           appendChat('ai', text, { cid, channel: 'agent' });
           return res.json({ success: true, response: text, toolCalls: [], cid });
         }
-        
+
         // Queue delete_graph task
         const dag = {
           tasks: [{
@@ -2623,7 +2812,7 @@ app.post('/api/ai/agent', async (req, res) => {
             threadId: cid
           }]
         };
-        
+
         const goalId = queueManager.enqueue('goalQueue', {
           type: 'goal',
           goal: 'delete_graph',
@@ -2631,13 +2820,13 @@ app.post('/api/ai/agent', async (req, res) => {
           threadId: cid,
           partitionKey: cid
         });
-        
+
         ensureSchedulerStarted();
         eventLog.append({ type: 'GOAL_ENQUEUED', id: goalId, threadId: cid, goal: 'delete_graph' });
-        
+
         const resp = planned?.response || `I'll dissolve the "${graphToDelete.name}" graph.`;
         appendChat('ai', resp, { cid, channel: 'agent' });
-        
+
         return res.json({
           success: true,
           response: resp,
@@ -2699,14 +2888,14 @@ app.post('/api/ai/agent', async (req, res) => {
             const r = await fetch(endpoint, {
               method: 'POST',
               headers: { 'Content-Type': 'application/json', 'x-api-key': apiKey, 'anthropic-version': '2023-06-01' },
-              body: JSON.stringify({ model, max_tokens: 300, temperature: 0.2, messages: [ { role: 'user', content: userPrompt } ] })
+              body: JSON.stringify({ model, max_tokens: 300, temperature: 0.2, messages: [{ role: 'user', content: userPrompt }] })
             });
             if (r.ok) { const data = await r.json(); text = data?.content?.[0]?.text || ''; }
           } else {
             const r = await fetch(endpoint, {
               method: 'POST',
               headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}`, 'HTTP-Referer': 'https://redstring.io', 'X-Title': 'Redstring Knowledge Graph' },
-              body: JSON.stringify({ model, max_tokens: 300, temperature: 0.2, messages: [ { role: 'system', content: 'You extract lists.' }, { role: 'user', content: userPrompt } ] })
+              body: JSON.stringify({ model, max_tokens: 300, temperature: 0.2, messages: [{ role: 'system', content: 'You extract lists.' }, { role: 'user', content: userPrompt }] })
             });
             if (r.ok) { const data = await r.json(); text = data?.choices?.[0]?.message?.content || ''; }
           }
@@ -2714,10 +2903,10 @@ app.post('/api/ai/agent', async (req, res) => {
             const json = JSON.parse(text);
             if (Array.isArray(json?.concepts)) concepts = json.concepts.map(s => String(s)).filter(s => s.trim().length > 0).slice(0, 8);
           } catch {
-            const m = text.match(/```json\s*([\s\S]*?)```/i); if (m) { try { const json = JSON.parse(m[1]); if (Array.isArray(json?.concepts)) concepts = json.concepts.map(s => String(s)).filter(s => s.trim().length > 0).slice(0, 8);} catch {} }
+            const m = text.match(/```json\s*([\s\S]*?)```/i); if (m) { try { const json = JSON.parse(m[1]); if (Array.isArray(json?.concepts)) concepts = json.concepts.map(s => String(s)).filter(s => s.trim().length > 0).slice(0, 8); } catch { } }
           }
         }
-      } catch {}
+      } catch { }
       if (concepts.length === 0) {
         // Fallback tiny seed list based on hint words
         const hint = msgText.toLowerCase();
@@ -2732,7 +2921,7 @@ app.post('/api/ai/agent', async (req, res) => {
         const existing = findPrototypeIdByName(name);
         let pid = existing;
         if (!pid) {
-          pid = `prototype-${Date.now()}-${Math.random().toString(36).slice(2,8)}`;
+          pid = `prototype-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
           pendingActions.push({ id: actionId('addProto'), action: 'addNodePrototype', params: [{ id: pid, name, description: '', color: '#5B6CFF', typeNodeId: null, definitionGraphIds: [] }], meta: { cid } });
           telemetry.push({ ts: Date.now(), type: 'tool_call', cid, name: 'addNodePrototype', args: { name } });
           created.push(name);
@@ -2740,7 +2929,7 @@ app.post('/api/ai/agent', async (req, res) => {
         const angle = (2 * Math.PI * idx) / Math.max(1, concepts.length);
         const xPos = Math.round(cx + r * Math.cos(angle));
         const yPos = Math.round(cy + r * Math.sin(angle));
-        placeOps.push({ type: 'addNodeInstance', graphId: targetGraphId, prototypeId: pid, position: { x: xPos, y: yPos }, instanceId: `inst-${Date.now()}-${Math.random().toString(36).slice(2,8)}` });
+        placeOps.push({ type: 'addNodeInstance', graphId: targetGraphId, prototypeId: pid, position: { x: xPos, y: yPos }, instanceId: `inst-${Date.now()}-${Math.random().toString(36).slice(2, 8)}` });
       });
       if (bridgeStoreData?.activeGraphId !== targetGraphId) {
         pendingActions.push({ id: actionId('openGraph'), action: 'openGraph', params: [targetGraphId], meta: { cid } });
@@ -2763,13 +2952,13 @@ app.post('/api/ai/agent', async (req, res) => {
       if (g) {
         pendingActions.push({ id: actionId('openGraph'), action: 'openGraph', params: [g.id], meta: { cid } });
         telemetry.push({ ts: Date.now(), type: 'tool_call', cid, name: 'openGraph', args: { graphId: g.id } });
-        return res.json({ success: true, response: `Okay — I'll open "${g.name}".`, toolCalls: [ { name: 'openGraph', status: 'queued', args: { graphId: g.id } } ], cid });
+        return res.json({ success: true, response: `Okay — I'll open "${g.name}".`, toolCalls: [{ name: 'openGraph', status: 'queued', args: { graphId: g.id } }], cid });
       }
     }
     // b) Loose form: open the Breaking Bad graph / open Breaking Bad
     const openGraphLoose = msgText.match(/\b(open|switch\s*to|go\s*to)\b\s+(?:the\s+)?([A-Za-z0-9' _-]+?)(?:\s+graph\b|$)/i);
     if (openGraphLoose) {
-      const norm = (s='') => String(s).toLowerCase().replace(/\s+/g, ' ').trim();
+      const norm = (s = '') => String(s).toLowerCase().replace(/\s+/g, ' ').trim();
       const targetName = norm(openGraphLoose[2]);
       const graphsArr = Array.isArray(bridgeStoreData.graphs) ? bridgeStoreData.graphs : [];
       // exact (normalized) match first
@@ -2780,13 +2969,13 @@ app.post('/api/ai/agent', async (req, res) => {
         const candidates = graphsArr
           .map(x => ({ g: x, name: norm(x?.name) }))
           .filter(x => x.name && msgNorm.includes(x.name))
-          .sort((a,b) => b.name.length - a.name.length);
+          .sort((a, b) => b.name.length - a.name.length);
         g = candidates.length ? candidates[0].g : null;
       }
       if (g) {
         pendingActions.push({ id: actionId('openGraph'), action: 'openGraph', params: [g.id], meta: { cid } });
         telemetry.push({ ts: Date.now(), type: 'tool_call', cid, name: 'openGraph', args: { graphId: g.id } });
-        return res.json({ success: true, response: `Okay — I'll open "${g.name}".`, toolCalls: [ { name: 'openGraph', status: 'queued', args: { graphId: g.id } } ], cid });
+        return res.json({ success: true, response: `Okay — I'll open "${g.name}".`, toolCalls: [{ name: 'openGraph', status: 'queued', args: { graphId: g.id } }], cid });
       } else {
         const names = graphsArr.map(x => x.name).filter(Boolean);
         const text = names.length ? `I couldn't find that graph. Available graphs include:\n- ${names.join('\n- ')}` : "I couldn't find that graph.";
@@ -2807,7 +2996,7 @@ app.post('/api/ai/agent', async (req, res) => {
     if (searchQuoted || searchLoose) {
       const query = searchQuoted ? searchQuoted[1] : searchLoose[1];
       const scope = (searchQuoted && searchQuoted[3]) ? searchQuoted[3].toLowerCase() : 'all';
-      const resScope = ['graphs','prototypes','nodes','instances','all'].includes(scope) ? (scope === 'nodes' ? 'prototypes' : scope) : 'all';
+      const resScope = ['graphs', 'prototypes', 'nodes', 'instances', 'all'].includes(scope) ? (scope === 'nodes' ? 'prototypes' : scope) : 'all';
       const graphsArr = Array.isArray(bridgeStoreData.graphs) ? bridgeStoreData.graphs : [];
       const gid = bridgeStoreData.activeGraphId || (graphsArr[0] && graphsArr[0].id) || null;
       const items = collectSearchItems({ scope: resScope, graphId: gid });
@@ -2843,12 +3032,12 @@ app.post('/api/ai/agent', async (req, res) => {
         const aInst = findInstanceIdInActiveGraph(aProto, targetGraphId);
         const bInst = findInstanceIdInActiveGraph(bProto, targetGraphId);
         if (aInst && bInst) {
-          const edgeId = `edge-${Date.now()}-${Math.random().toString(36).slice(2,8)}`;
+          const edgeId = `edge-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
           const edgeData = { id: edgeId, sourceId: aInst, destinationId: bInst, name: label, typeNodeId: 'base-connection-prototype', directionality: { arrowsToward: [bInst] } };
           const op = [{ type: 'addEdge', graphId: targetGraphId, edgeData }];
           pendingActions.push({ id: actionId('addEdge'), action: 'applyMutations', params: [op], meta: { cid } });
           telemetry.push({ ts: Date.now(), type: 'tool_call', cid, name: 'applyMutations', args: op[0] });
-          return res.json({ success: true, response: `Connecting "${aName}" → "${bName}"${label?` as "${label}"`:''}.`, toolCalls: [{ name: 'applyMutations(addEdge)', status: 'queued', args: op[0] }], cid });
+          return res.json({ success: true, response: `Connecting "${aName}" → "${bName}"${label ? ` as "${label}"` : ''}.`, toolCalls: [{ name: 'applyMutations(addEdge)', status: 'queued', args: op[0] }], cid });
         }
       }
     }
@@ -2944,7 +3133,7 @@ app.post('/api/ai/agent', async (req, res) => {
     const errorMsg = err?.message || String(err);
     logger.error('[Agent] Unhandled error in /api/ai/agent:', err);
     logger.error('[Agent] Error stack:', err.stack);
-    
+
     // Send error to chat for visibility
     const errorText = `⚠️ SYSTEM ERROR\n\n${errorMsg}\n\nAn unexpected error occurred. Please check your request and try again.`;
     try {
@@ -2952,9 +3141,9 @@ app.post('/api/ai/agent', async (req, res) => {
     } catch (chatErr) {
       logger.error('[Agent] Failed to send error to chat:', chatErr);
     }
-    
-    return res.status(500).json({ 
-      success: false, 
+
+    return res.status(500).json({
+      success: false,
       error: errorMsg,
       cid,
       details: process.env.NODE_ENV === 'development' ? err.stack : undefined
@@ -2999,7 +3188,7 @@ const startBridgeListener = () => {
   netServer.listen(PORT, () => {
     console.log(`✅ Bridge daemon listening on ${protocol}://localhost:${PORT}`);
     committer.start();
-    import('./src/services/orchestrator/Scheduler.js').then(mod => { scheduler = mod.default; }).catch(() => {});
+    import('./src/services/orchestrator/Scheduler.js').then(mod => { scheduler = mod.default; }).catch(() => { });
   });
   netServer.on('error', handleServerError);
   return netServer;
@@ -3016,7 +3205,7 @@ setInterval(() => {
     // Pull a few approved review items and turn them into pending UI actions
     const items = queueManager.pull('reviewQueue', { max: 5, filter: it => it.reviewStatus === 'approved' });
     if (items.length === 0) return;
-    const id = (suffix) => `pa-${Date.now()}-${Math.random().toString(36).slice(2,8)}-${suffix}`;
+    const id = (suffix) => `pa-${Date.now()}-${Math.random().toString(36).slice(2, 8)}-${suffix}`;
     for (const it of items) {
       const patch = it.patch;
       if (!patch || drainedPatchIds.has(patch.patchId)) {
@@ -3031,7 +3220,7 @@ setInterval(() => {
       drainedPatchIds.add(patch.patchId);
       queueManager.ack('reviewQueue', it.leaseId);
     }
-  } catch {}
+  } catch { }
 }, 1000);
 
 async function killOnPort(port) {
@@ -3081,7 +3270,7 @@ app.post('/queue/goals.enqueue', (req, res) => {
     res.json({ ok: true, id });
   } catch (e) {
     // Emit telemetry so the UI can show progress instead of stalling silently
-    try { telemetry.push({ ts: Date.now(), type: 'tool_call', name: 'queue.goals.enqueue', status: 'failed', error: String(e?.message || e) }); } catch {}
+    try { telemetry.push({ ts: Date.now(), type: 'tool_call', name: 'queue.goals.enqueue', status: 'failed', error: String(e?.message || e) }); } catch { }
     res.status(500).json({ ok: false, error: String(e?.message || e) });
   }
 });
@@ -3093,7 +3282,7 @@ app.post('/queue/tasks.pull', (req, res) => {
     const items = queueManager.pull('taskQueue', { partitionKey: threadId, max: Number(max) || 1 });
     res.json({ ok: true, items });
   } catch (e) {
-    try { telemetry.push({ ts: Date.now(), type: 'tool_call', name: 'queue/reviews.submit', status: 'failed', error: String(e?.message || e) }); } catch {}
+    try { telemetry.push({ ts: Date.now(), type: 'tool_call', name: 'queue/reviews.submit', status: 'failed', error: String(e?.message || e) }); } catch { }
     res.status(500).json({ ok: false, error: String(e?.message || e) });
   }
 });
@@ -3185,12 +3374,12 @@ app.get('/events/stream', (req, res) => {
           send({ type: 'CHAT', item: c, ts: Date.now() });
         }
       }
-    } catch {}
+    } catch { }
   }, 1000);
   req.on('close', () => {
     clearInterval(tInterval);
     unsub();
-    try { res.end(); } catch {}
+    try { res.end(); } catch { }
   });
   req.on('error', () => {
     clearInterval(tInterval);
@@ -3218,14 +3407,14 @@ app.post('/api/bridge/pending-actions/enqueue', (req, res) => {
       }
       expanded.push(a);
     }
-    const id = (suffix) => `pa-${Date.now()}-${Math.random().toString(36).slice(2,8)}-${suffix}`;
+    const id = (suffix) => `pa-${Date.now()}-${Math.random().toString(36).slice(2, 8)}-${suffix}`;
     for (const a of expanded) {
       pendingActions.push({ id: id(a.action || 'act'), action: a.action, params: a.params, timestamp: Date.now() });
       telemetry.push({ ts: Date.now(), type: 'tool_call', name: a.action, args: a.params, status: 'queued' });
     }
     res.json({ ok: true, enqueued: actions.length });
     // Nudge any listeners to lease immediately
-    try { eventLog.append({ type: 'PENDING_ACTIONS_ENQUEUED', count: expanded.length }); } catch {}
+    try { eventLog.append({ type: 'PENDING_ACTIONS_ENQUEUED', count: expanded.length }); } catch { }
   } catch (e) {
     res.status(500).json({ ok: false, error: String(e?.message || e) });
   }
@@ -3235,7 +3424,7 @@ app.post('/api/bridge/pending-actions/enqueue', (req, res) => {
 app.post('/api/bridge/actions/add-node-prototype', (req, res) => {
   try {
     const body = req.body || {};
-    const id = body.id || `prototype-${Date.now()}-${Math.random().toString(36).slice(2,8)}`;
+    const id = body.id || `prototype-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
     const proto = {
       id,
       name: String(body.name || 'New Concept'),
@@ -3258,11 +3447,11 @@ app.post('/api/bridge/actions/add-node-instance', (req, res) => {
     const graphId = String(body.graphId || '');
     const prototypeId = String(body.prototypeId || '');
     const position = body.position && typeof body.position === 'object' ? body.position : { x: 400, y: 200 };
-    const instanceId = body.instanceId || `inst-${Date.now()}-${Math.random().toString(36).slice(2,8)}`;
+    const instanceId = body.instanceId || `inst-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
     if (!graphId || !prototypeId) {
       return res.status(400).json({ success: false, error: 'graphId and prototypeId required' });
     }
-    const ops = [ { type: 'addNodeInstance', graphId, prototypeId, position, instanceId } ];
+    const ops = [{ type: 'addNodeInstance', graphId, prototypeId, position, instanceId }];
     pendingActions.push({ id: `pa-${Date.now()}-ani`, action: 'applyMutations', params: [ops] });
     telemetry.push({ ts: Date.now(), type: 'tool_call', name: 'applyMutations', args: ops[0] });
     return res.json({ success: true, instance: { id: instanceId, graphId, prototypeId, position } });
@@ -3279,7 +3468,7 @@ app.post('/api/bridge/actions/ai-guided-workflow', (req, res) => {
     const { workflowType, prototypeName, prototypeDescription = '', prototypeColor = '#3B82F6', instancePositions = [], connections = [], targetGraphId, enableUserGuidance } = req.body || {};
 
     const actions = [];
-    const mkId = (s) => `pa-${Date.now()}-${Math.random().toString(36).slice(2,8)}-${s}`;
+    const mkId = (s) => `pa-${Date.now()}-${Math.random().toString(36).slice(2, 8)}-${s}`;
 
     // Ensure a graph is open/active
     let graphId = targetGraphId || bridgeStoreData.activeGraphId || (Array.isArray(bridgeStoreData.openGraphIds) && bridgeStoreData.openGraphIds[0]) || (Array.isArray(bridgeStoreData.graphs) && bridgeStoreData.graphs[0]?.id) || null;
@@ -3292,18 +3481,18 @@ app.post('/api/bridge/actions/ai-guided-workflow', (req, res) => {
     }
 
     if (workflowType === 'create_prototype_and_definition' || workflowType === 'full_workflow') {
-      const protoId = `prototype-${Date.now()}-${Math.random().toString(36).slice(2,8)}`;
+      const protoId = `prototype-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
       actions.push({ id: mkId('addNodePrototype'), action: 'addNodePrototype', params: [{ id: protoId, name: prototypeName || 'New Concept', description: prototypeDescription, color: prototypeColor, typeNodeId: null, definitionGraphIds: [] }] });
       actions.push({ id: mkId('createDef'), action: 'createAndAssignGraphDefinition', params: [protoId] });
 
       if (workflowType === 'full_workflow') {
         // Place primary prototype and any provided instances
         const placeOps = [];
-        placeOps.push({ type: 'addNodeInstance', graphId, prototypeId: protoId, position: { x: 400, y: 200 }, instanceId: `inst-${Date.now()}-${Math.random().toString(36).slice(2,8)}` });
+        placeOps.push({ type: 'addNodeInstance', graphId, prototypeId: protoId, position: { x: 400, y: 200 }, instanceId: `inst-${Date.now()}-${Math.random().toString(36).slice(2, 8)}` });
         for (const p of instancePositions) {
-          const pid = `prototype-${Date.now()}-${Math.random().toString(36).slice(2,8)}`;
+          const pid = `prototype-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
           actions.push({ id: mkId('addNodePrototype'), action: 'addNodePrototype', params: [{ id: pid, name: p.prototypeName || 'Item', description: '', color: '#8888FF', typeNodeId: null, definitionGraphIds: [] }] });
-          placeOps.push({ type: 'addNodeInstance', graphId, prototypeId: pid, position: { x: Number(p.x)||400, y: Number(p.y)||200 }, instanceId: `inst-${Date.now()}-${Math.random().toString(36).slice(2,8)}` });
+          placeOps.push({ type: 'addNodeInstance', graphId, prototypeId: pid, position: { x: Number(p.x) || 400, y: Number(p.y) || 200 }, instanceId: `inst-${Date.now()}-${Math.random().toString(36).slice(2, 8)}` });
         }
         actions.push({ id: mkId('apply'), action: 'applyMutations', params: [placeOps] });
         // Connections are best-effort; require UI to resolve instance ids post-placement. Skipped here for brevity.
@@ -3311,9 +3500,9 @@ app.post('/api/bridge/actions/ai-guided-workflow', (req, res) => {
     } else if (workflowType === 'add_instance_to_graph') {
       const placeOps = [];
       for (const p of instancePositions) {
-        const pid = `prototype-${Date.now()}-${Math.random().toString(36).slice(2,8)}`;
+        const pid = `prototype-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
         actions.push({ id: mkId('addNodePrototype'), action: 'addNodePrototype', params: [{ id: pid, name: p.prototypeName || 'Item', description: '', color: '#88CC88', typeNodeId: null, definitionGraphIds: [] }] });
-        placeOps.push({ type: 'addNodeInstance', graphId, prototypeId: pid, position: { x: Number(p.x)||400, y: Number(p.y)||200 }, instanceId: `inst-${Date.now()}-${Math.random().toString(36).slice(2,8)}` });
+        placeOps.push({ type: 'addNodeInstance', graphId, prototypeId: pid, position: { x: Number(p.x) || 400, y: Number(p.y) || 200 }, instanceId: `inst-${Date.now()}-${Math.random().toString(36).slice(2, 8)}` });
       }
       if (placeOps.length) actions.push({ id: mkId('apply'), action: 'applyMutations', params: [placeOps] });
     } else {
@@ -3424,7 +3613,7 @@ app.get('/orchestration/help', (_req, res) => {
     ui: {
       endpoints: [
         { method: 'GET', path: '/events/stream', note: 'SSE stream (events like PATCH_APPLIED).' },
-        { method: 'POST', path: '/api/bridge/pending-actions/enqueue', body: { actions: [ { action: 'applyMutations', params: [ 'ops[]' ] } ] } }
+        { method: 'POST', path: '/api/bridge/pending-actions/enqueue', body: { actions: [{ action: 'applyMutations', params: ['ops[]'] }] } }
       ]
     },
     testing: {
@@ -3433,7 +3622,7 @@ app.get('/orchestration/help', (_req, res) => {
         { method: 'GET', path: '/queue/peek?name=patchQueue&head=10', note: 'Peek queued items.' },
         { method: 'POST', path: '/queue/patches.approve-next', note: 'Approve the next queued patch for quick commits.' },
         { method: 'POST', path: '/test/create-task', body: { threadId: 'string', toolName: 'verify_state', args: {} } },
-        { method: 'POST', path: '/test/commit-ops', body: { graphId: 'string', ops: [ { type: 'addNodeInstance', graphId: 'string', prototypeId: 'string', position: { x: 400, y: 200 }, instanceId: 'string' } ] } }
+        { method: 'POST', path: '/test/commit-ops', body: { graphId: 'string', ops: [{ type: 'addNodeInstance', graphId: 'string', prototypeId: 'string', position: { x: 400, y: 200 }, instanceId: 'string' }] } }
       ]
     },
     scheduler: {
@@ -3540,11 +3729,11 @@ app.get('/telemetry/stream', (req, res) => {
         flush();
         // keep-alive comment
         res.write(`: keep-alive ${Date.now()}\n\n`);
-      } catch {}
+      } catch { }
     }, 500);
     req.on('close', () => {
       clearInterval(interval);
-      try { res.end(); } catch {}
+      try { res.end(); } catch { }
     });
   } catch (e) {
     res.status(500).end();
@@ -3562,7 +3751,7 @@ function waitFor(predicate, timeoutMs = 5000, intervalMs = 100) {
     const iv = setInterval(() => {
       try {
         if (predicate()) { clearInterval(iv); return resolve(true); }
-      } catch {}
+      } catch { }
       if (Date.now() - start >= timeoutMs) { clearInterval(iv); return resolve(false); }
     }, intervalMs);
   });
@@ -3592,10 +3781,10 @@ app.post('/test/ai/roundtrip/add-node', async (req, res) => {
     let proto = Array.isArray(bridgeStoreData.nodePrototypes)
       ? bridgeStoreData.nodePrototypes.find(p => (p?.name || '').toLowerCase() === String(conceptName).toLowerCase())
       : null;
-    let ensuredPrototypeId = proto?.id || `prototype-${Date.now()}-${Math.random().toString(36).substr(2,9)}`;
-    const instanceId = `inst-${Date.now()}-${Math.random().toString(36).slice(2,8)}`;
+    let ensuredPrototypeId = proto?.id || `prototype-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+    const instanceId = `inst-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 
-    const enqueue = (action, params) => pendingActions.push({ id: `pa-${Date.now()}-${Math.random().toString(36).slice(2,8)}-${action}`, action, params, meta: { test: true } });
+    const enqueue = (action, params) => pendingActions.push({ id: `pa-${Date.now()}-${Math.random().toString(36).slice(2, 8)}-${action}`, action, params, meta: { test: true } });
 
     // Ensure graph is open/active so its instances are projected from the UI
     enqueue('openGraph', [graphId]);

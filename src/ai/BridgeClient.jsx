@@ -196,53 +196,53 @@ const BridgeClient = () => {
     // Function to handle connection recovery
     const handleConnectionRecovery = async () => {
       const connectionState = connectionStateRef.current;
-      
+
       console.log(`🔄 MCP Bridge: Attempting reconnection (attempt ${connectionState.reconnectAttempts + 1}/${connectionState.maxReconnectAttempts})`);
-      
+
       const isHealthy = await checkBridgeHealth();
-      
+
       if (isHealthy) {
         console.log('✅ MCP Bridge: Server is healthy, re-establishing connection...');
-        
+
         // Reset connection state
         connectionState.isConnected = true;
         connectionState.lastSuccessfulConnection = Date.now();
         connectionState.reconnectAttempts = 0;
-        
-         // Clear reconnection interval
-         if (reconnectIntervalRef.current) {
-           clearInterval(reconnectIntervalRef.current);
-           reconnectIntervalRef.current = null;
-         }
-        
+
+        // Clear reconnection interval
+        if (reconnectIntervalRef.current) {
+          clearInterval(reconnectIntervalRef.current);
+          reconnectIntervalRef.current = null;
+        }
+
         // Re-register actions and restart polling
         try {
           await registerStoreActions();
           await sendStoreToServer();
-          
-           // Restart normal polling
-           if (dataIntervalRef.current) {
-             clearInterval(dataIntervalRef.current);
-           }
-           dataIntervalRef.current = setInterval(sendStoreToServer, 10000);
-          
+
+          // Restart normal polling
+          if (dataIntervalRef.current) {
+            clearInterval(dataIntervalRef.current);
+          }
+          dataIntervalRef.current = setInterval(sendStoreToServer, 10000);
+
           console.log('🎉 MCP Bridge: Connection fully restored!');
           // Ensure SSE is established only when connected
           try {
             if (!eventSourceRef.current) {
               const es = bridgeEventSource('/events/stream');
               eventSourceRef.current = es;
-              es.addEventListener('PATCH_APPLIED', () => {});
-              es.onerror = () => { try { es.close(); } catch {}; eventSourceRef.current = null; };
+              es.addEventListener('PATCH_APPLIED', () => { });
+              es.onerror = () => { try { es.close(); } catch { }; eventSourceRef.current = null; };
             }
-          } catch {}
+          } catch { }
         } catch (error) {
           console.error('❌ MCP Bridge: Failed to re-establish full connection:', error);
           connectionState.isConnected = false;
         }
       } else {
         connectionState.reconnectAttempts++;
-        
+
         if (connectionState.reconnectAttempts >= connectionState.maxReconnectAttempts) {
           console.log('🔌 MCP Bridge: Max reconnection attempts reached - this is normal if the bridge connector isn\'t running');
           if (reconnectIntervalRef.current) {
@@ -251,7 +251,7 @@ const BridgeClient = () => {
           }
         } else {
           const nextAttemptDelay = Math.min(1000 * Math.pow(2, connectionState.reconnectAttempts), 30000);
-          console.log(`⏳ MCP Bridge: Next reconnection attempt in ${nextAttemptDelay/1000}s - this is normal if the bridge connector isn't running`);
+          console.log(`⏳ MCP Bridge: Next reconnection attempt in ${nextAttemptDelay / 1000}s - this is normal if the bridge connector isn't running`);
         }
       }
     };
@@ -259,12 +259,12 @@ const BridgeClient = () => {
     // Function to start reconnection process
     const startReconnection = () => {
       const connectionState = connectionStateRef.current;
-      
+
       if (connectionState.isConnected) {
         connectionState.isConnected = false;
         console.log('🔌 MCP Bridge: Connection lost, starting reconnection process... - this is normal if the bridge connector isn\'t running');
       }
-      
+
       // Stop normal polling
       if (dataIntervalRef.current) {
         clearInterval(dataIntervalRef.current);
@@ -276,13 +276,13 @@ const BridgeClient = () => {
           eventSourceRef.current.close();
           eventSourceRef.current = null;
         }
-      } catch {}
-      
+      } catch { }
+
       // Start reconnection attempts if not already running
       if (!reconnectIntervalRef.current) {
         connectionState.reconnectAttempts = 0;
         handleConnectionRecovery(); // Immediate first attempt
-        
+
         // Set up periodic reconnection attempts with exponential backoff
         reconnectIntervalRef.current = setInterval(() => {
           const currentDelay = Math.min(5000 * Math.pow(2, connectionState.reconnectAttempts), 30000);
@@ -297,7 +297,7 @@ const BridgeClient = () => {
         const state = useGraphStore.getState();
         const layouts = buildGraphLayouts(state);
         const summaries = buildGraphSummaries(state);
-        
+
         // Create a wrapper for store actions that can be called remotely
         // Create action metadata (not functions, since they can't be serialized)
         const actionMetadata = {
@@ -399,7 +399,7 @@ const BridgeClient = () => {
                 const protoName = String(dataWithId?.name || 'Concept');
                 const evt = [{ ts: Date.now(), type: 'info', name: 'addNodePrototype', message: `Created concept "${protoName}"` }];
                 window.dispatchEvent(new CustomEvent('rs-telemetry', { detail: evt }));
-              } catch {}
+              } catch { }
               return { success: true, prototypeId };
             },
             addNodeInstance: async (graphId, prototypeId, position, instanceId) => {
@@ -427,7 +427,7 @@ const BridgeClient = () => {
                 const g = s.graphs.get(graphId);
                 const friendly = `Switched to graph "${g?.name || graphId}"`;
                 window.dispatchEvent(new CustomEvent('rs-telemetry', { detail: [{ ts: Date.now(), type: 'info', name: 'setActiveGraph', message: friendly }] }));
-              } catch {}
+              } catch { }
               return { success: true, graphId };
             },
             openGraph: async (graphId) => {
@@ -472,457 +472,457 @@ const BridgeClient = () => {
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify(bridgeData)
                   });
-                } catch {}
-              } catch {}
+                } catch { }
+              } catch { }
               return { success: true, graphId };
             },
-              createNewGraph: async (initialData) => {
-                console.log('MCPBridge: Calling createNewGraph', initialData);
-                const beforeId = state.activeGraphId;
-                state.createNewGraph(initialData || {});
-                const afterId = useGraphStore.getState().activeGraphId;
-                try {
-                  const s2 = useGraphStore.getState();
-                  const g = afterId ? s2.graphs.get(afterId) : null;
-                  const friendly = `Created graph "${g?.name || 'New Thing'}" (${afterId || 'unknown'})`;
-                  window.dispatchEvent(new CustomEvent('rs-telemetry', { detail: [{ ts: Date.now(), type: 'info', name: 'createNewGraph', message: friendly, graphId: afterId }] }));
-                  
-                  // CRITICAL: Sync new graph to bridge immediately so AI can see it
-                  const bridgeData = {
-                    graphs: Array.from(s2.graphs.entries()).map(([id, graph]) => ({
-                      id,
-                      name: graph.name,
-                      description: graph.description || '',
-                      instanceCount: graph.instances?.size || 0,
-                      edgeIds: Array.isArray(graph.edgeIds) ? graph.edgeIds : [],
-                      // CRITICAL: Include instances so read_graph_structure can find nodes
-                      instances: graph.instances ?
-                        Object.fromEntries(Array.from(graph.instances.entries()).map(([instanceId, instance]) => [
-                          instanceId, {
-                            id: instance.id,
-                            prototypeId: instance.prototypeId,
-                            x: instance.x || 0,
-                            y: instance.y || 0,
-                            scale: instance.scale || 1
-                          }
-                        ])) : {}
-                    })),
-                    nodePrototypes: Array.from(s2.nodePrototypes.values()).map(p => ({
-                      id: p.id,
-                      name: p.name,
-                      color: p.color,
-                      description: p.description || ''
-                    })),
-                    edges: Array.from(s2.edges.values()),
-                    activeGraphId: s2.activeGraphId,
-                    activeGraphName: s2.activeGraphId ? (s2.graphs.get(s2.activeGraphId)?.name || null) : null,
-                    openGraphIds: s2.openGraphIds
-                  };
-                  await bridgeFetch('/api/bridge/state', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(bridgeData)
-                  }).catch(err => console.warn('[BridgeClient] Failed to sync new graph:', err));
-                } catch {}
-                return { success: true, graphId: afterId || beforeId };
-              },
-              createAndAssignGraphDefinition: async (prototypeId) => {
-                console.log('MCPBridge: Calling createAndAssignGraphDefinition', prototypeId);
-                const graphId = state.createAndAssignGraphDefinition(prototypeId);
-                return { success: true, graphId, prototypeId };
-              },
-              openRightPanelNodeTab: async (nodeId) => {
-                console.log('MCPBridge: Calling openRightPanelNodeTab', nodeId);
-                state.openRightPanelNodeTab(nodeId);
-                return { success: true, nodeId };
-              },
-              addEdge: async (graphId, edgeData) => {
-                console.log('MCPBridge: Calling addEdge', graphId, edgeData);
-                state.addEdge(graphId, edgeData);
-                return { success: true, edgeId: edgeData.id };
-              },
-              updateEdgeDirectionality: async (edgeId, arrowsToward) => {
-                console.log('MCPBridge: Calling updateEdgeDirectionality', edgeId, arrowsToward);
-                state.updateEdge(edgeId, (edge) => {
-                  edge.directionality = {
-                    arrowsToward: new Set(Array.isArray(arrowsToward) ? arrowsToward : [])
-                  };
-                });
-                return { success: true, edgeId };
-              },
-              addToAbstractionChain: async (nodeId, dimension, direction, newNodeId, insertRelativeToNodeId) => {
-                console.log('MCPBridge: Calling addToAbstractionChain', { nodeId, dimension, direction, newNodeId, insertRelativeToNodeId });
-                state.addToAbstractionChain(nodeId, dimension, direction, newNodeId, insertRelativeToNodeId);
-                return { success: true };
-              },
-              removeFromAbstractionChain: async (nodeId, dimension, nodeToRemove) => {
-                console.log('MCPBridge: Calling removeFromAbstractionChain', { nodeId, dimension, nodeToRemove });
-                state.removeFromAbstractionChain(nodeId, dimension, nodeToRemove);
-                return { success: true };
-              },
-              swapNodeInChain: async (currentNodeId, newNodeId) => {
-                console.log('MCPBridge: Calling swapNodeInChain', currentNodeId, newNodeId);
-                state.swapNodeInChain(currentNodeId, newNodeId);
-                return { success: true };
-              },
-              setNodeType: async (nodeId, typeNodeId) => {
-                console.log('MCPBridge: Calling setNodeType', nodeId, typeNodeId);
-                state.setNodeType(nodeId, typeNodeId);
-                return { success: true };
-              },
-              closeGraphTab: async (graphId) => {
-                console.log('MCPBridge: Calling closeGraphTab', graphId);
-                state.closeGraphTab(graphId);
-                return { success: true };
-              },
+            createNewGraph: async (initialData) => {
+              console.log('MCPBridge: Calling createNewGraph', initialData);
+              const beforeId = state.activeGraphId;
+              state.createNewGraph(initialData || {});
+              const afterId = useGraphStore.getState().activeGraphId;
+              try {
+                const s2 = useGraphStore.getState();
+                const g = afterId ? s2.graphs.get(afterId) : null;
+                const friendly = `Created graph "${g?.name || 'New Thing'}" (${afterId || 'unknown'})`;
+                window.dispatchEvent(new CustomEvent('rs-telemetry', { detail: [{ ts: Date.now(), type: 'info', name: 'createNewGraph', message: friendly, graphId: afterId }] }));
+
+                // CRITICAL: Sync new graph to bridge immediately so AI can see it
+                const bridgeData = {
+                  graphs: Array.from(s2.graphs.entries()).map(([id, graph]) => ({
+                    id,
+                    name: graph.name,
+                    description: graph.description || '',
+                    instanceCount: graph.instances?.size || 0,
+                    edgeIds: Array.isArray(graph.edgeIds) ? graph.edgeIds : [],
+                    // CRITICAL: Include instances so read_graph_structure can find nodes
+                    instances: graph.instances ?
+                      Object.fromEntries(Array.from(graph.instances.entries()).map(([instanceId, instance]) => [
+                        instanceId, {
+                          id: instance.id,
+                          prototypeId: instance.prototypeId,
+                          x: instance.x || 0,
+                          y: instance.y || 0,
+                          scale: instance.scale || 1
+                        }
+                      ])) : {}
+                  })),
+                  nodePrototypes: Array.from(s2.nodePrototypes.values()).map(p => ({
+                    id: p.id,
+                    name: p.name,
+                    color: p.color,
+                    description: p.description || ''
+                  })),
+                  edges: Array.from(s2.edges.values()),
+                  activeGraphId: s2.activeGraphId,
+                  activeGraphName: s2.activeGraphId ? (s2.graphs.get(s2.activeGraphId)?.name || null) : null,
+                  openGraphIds: s2.openGraphIds
+                };
+                await bridgeFetch('/api/bridge/state', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify(bridgeData)
+                }).catch(err => console.warn('[BridgeClient] Failed to sync new graph:', err));
+              } catch { }
+              return { success: true, graphId: afterId || beforeId };
+            },
+            createAndAssignGraphDefinition: async (prototypeId) => {
+              console.log('MCPBridge: Calling createAndAssignGraphDefinition', prototypeId);
+              const graphId = state.createAndAssignGraphDefinition(prototypeId);
+              return { success: true, graphId, prototypeId };
+            },
+            openRightPanelNodeTab: async (nodeId) => {
+              console.log('MCPBridge: Calling openRightPanelNodeTab', nodeId);
+              state.openRightPanelNodeTab(nodeId);
+              return { success: true, nodeId };
+            },
+            addEdge: async (graphId, edgeData) => {
+              console.log('MCPBridge: Calling addEdge', graphId, edgeData);
+              state.addEdge(graphId, edgeData);
+              return { success: true, edgeId: edgeData.id };
+            },
+            updateEdgeDirectionality: async (edgeId, arrowsToward) => {
+              console.log('MCPBridge: Calling updateEdgeDirectionality', edgeId, arrowsToward);
+              state.updateEdge(edgeId, (edge) => {
+                edge.directionality = {
+                  arrowsToward: new Set(Array.isArray(arrowsToward) ? arrowsToward : [])
+                };
+              });
+              return { success: true, edgeId };
+            },
+            addToAbstractionChain: async (nodeId, dimension, direction, newNodeId, insertRelativeToNodeId) => {
+              console.log('MCPBridge: Calling addToAbstractionChain', { nodeId, dimension, direction, newNodeId, insertRelativeToNodeId });
+              state.addToAbstractionChain(nodeId, dimension, direction, newNodeId, insertRelativeToNodeId);
+              return { success: true };
+            },
+            removeFromAbstractionChain: async (nodeId, dimension, nodeToRemove) => {
+              console.log('MCPBridge: Calling removeFromAbstractionChain', { nodeId, dimension, nodeToRemove });
+              state.removeFromAbstractionChain(nodeId, dimension, nodeToRemove);
+              return { success: true };
+            },
+            swapNodeInChain: async (currentNodeId, newNodeId) => {
+              console.log('MCPBridge: Calling swapNodeInChain', currentNodeId, newNodeId);
+              state.swapNodeInChain(currentNodeId, newNodeId);
+              return { success: true };
+            },
+            setNodeType: async (nodeId, typeNodeId) => {
+              console.log('MCPBridge: Calling setNodeType', nodeId, typeNodeId);
+              state.setNodeType(nodeId, typeNodeId);
+              return { success: true };
+            },
+            closeGraphTab: async (graphId) => {
+              console.log('MCPBridge: Calling closeGraphTab', graphId);
+              state.closeGraphTab(graphId);
+              return { success: true };
+            },
             chat: async (message, context) => {
               console.log('MCPBridge: Forwarding chat message to AI model', { message, context });
               // The actual chat handling happens in the MCP server
               return { success: true, message, context };
-              },
-              applyMutations: async (operations) => {
-                console.groupCollapsed('MCPBridge: Applying batch mutations');
-                console.log('Operation count:', operations?.length || 0);
-                console.log('Operations:', operations);
-                const store = useGraphStore.getState();
-                const results = [];
-                // Helper: sync prototype from bridge state if missing
-                const ensurePrototype = async (prototypeId) => {
-                  const st = useGraphStore.getState();
-                  if (st.nodePrototypes.has(prototypeId)) return true;
-                  try {
-                    const resp = await bridgeFetch('/api/bridge/state');
-                    if (!resp.ok) return false;
-                    const b = await resp.json();
-                    const p = Array.isArray(b.nodePrototypes) ? b.nodePrototypes.find(x => x.id === prototypeId) : null;
-                    if (p) {
+            },
+            applyMutations: async (operations) => {
+              console.groupCollapsed('MCPBridge: Applying batch mutations');
+              console.log('Operation count:', operations?.length || 0);
+              console.log('Operations:', operations);
+              const store = useGraphStore.getState();
+              const results = [];
+              // Helper: sync prototype from bridge state if missing
+              const ensurePrototype = async (prototypeId) => {
+                const st = useGraphStore.getState();
+                if (st.nodePrototypes.has(prototypeId)) return true;
+                try {
+                  const resp = await bridgeFetch('/api/bridge/state');
+                  if (!resp.ok) return false;
+                  const b = await resp.json();
+                  const p = Array.isArray(b.nodePrototypes) ? b.nodePrototypes.find(x => x.id === prototypeId) : null;
+                  if (p) {
+                    st.addNodePrototype({
+                      id: prototypeId,
+                      name: p.name,
+                      description: p.description || '',
+                      color: p.color || '#3B82F6',
+                      typeNodeId: p.typeNodeId || null,
+                      definitionGraphIds: p.definitionGraphIds || []
+                    });
+                    console.log('MCPBridge: ensurePrototype added missing prototype', p.name, prototypeId);
+                    return true;
+                  }
+                } catch { }
+                return false;
+              };
+              for (const op of (operations || [])) {
+                try {
+                  switch (op.type) {
+                    case 'addNodePrototype': {
+                      const st = useGraphStore.getState();
+                      if (st.nodePrototypes.has(op.prototypeData?.id)) {
+                        console.log('MCPBridge: Prototype already exists, skipping', op.prototypeData?.id);
+                        results.push({ type: op.type, ok: true, id: op.prototypeData?.id, skipped: true });
+                        break;
+                      }
                       st.addNodePrototype({
-                        id: prototypeId,
-                        name: p.name,
-                        description: p.description || '',
-                        color: p.color || '#3B82F6',
-                        typeNodeId: p.typeNodeId || null,
-                        definitionGraphIds: p.definitionGraphIds || []
+                        id: op.prototypeData.id,
+                        name: op.prototypeData.name || 'Unnamed',
+                        description: op.prototypeData.description || '',
+                        color: op.prototypeData.color || '#5B6CFF',
+                        typeNodeId: op.prototypeData.typeNodeId || null,
+                        definitionGraphIds: op.prototypeData.definitionGraphIds || []
                       });
-                      console.log('MCPBridge: ensurePrototype added missing prototype', p.name, prototypeId);
-                      return true;
+                      console.log('MCPBridge: addNodePrototype created', op.prototypeData.name, op.prototypeData.id);
+                      results.push({ type: op.type, ok: true, id: op.prototypeData.id });
+                      break;
                     }
-                  } catch {}
-                  return false;
-                };
-                for (const op of (operations || [])) {
+                    case 'addNodeInstance': {
+                      const st = useGraphStore.getState();
+                      let graph = st.graphs.get(op.graphId);
+                      let protoExists = st.nodePrototypes.has(op.prototypeId);
+                      if (!protoExists) {
+                        protoExists = await ensurePrototype(op.prototypeId);
+                      }
+                      if (!graph || !protoExists) {
+                        console.warn('MCPBridge: Skipping addNodeInstance due to missing graph/prototype', { graphExists: !!graph, protoExists, graphId: op.graphId, prototypeId: op.prototypeId });
+                        results.push({ type: op.type, ok: false, id: op.instanceId, error: 'Missing graph/prototype' });
+                        break;
+                      }
+                      const beforeCount = (st.graphs.get(op.graphId)?.instances?.size) || 0;
+                      st.addNodeInstance(op.graphId, op.prototypeId, op.position, op.instanceId);
+                      try {
+                        const s2 = useGraphStore.getState();
+                        const g = s2.graphs.get(op.graphId);
+                        const proto = s2.nodePrototypes.get(op.prototypeId);
+                        const friendly = `Added "${proto?.name || 'Concept'}" to "${g?.name || 'Graph'}" at (${Math.round(op.position?.x ?? 0)}, ${Math.round(op.position?.y ?? 0)})`;
+                        window.dispatchEvent(new CustomEvent('rs-telemetry', { detail: [{ ts: Date.now(), type: 'info', name: 'applyMutations', message: friendly }] }));
+                        const afterCount = (g?.instances?.size) || 0;
+                        console.log('MCPBridge: addNodeInstance applied', { graphId: op.graphId, instanceId: op.instanceId, position: op.position, instanceCountBefore: beforeCount, instanceCountAfter: afterCount });
+                      } catch { }
+                      results.push({ type: op.type, ok: true, id: op.instanceId });
+                      break;
+                    }
+                    case 'addEdge': {
+                      const st = useGraphStore.getState();
+                      const g = st.graphs.get(op.graphId);
+                      const ok = !!(g && g.instances && g.instances.has(op.edgeData?.sourceId) && g.instances.has(op.edgeData?.destinationId));
+                      if (!ok) {
+                        results.push({ type: op.type, ok: false, id: op.edgeData?.id, error: 'Missing instances/graph' });
+                        break;
+                      }
+                      st.addEdge(op.graphId, op.edgeData);
+                      try {
+                        const s2 = useGraphStore.getState();
+                        const gi = s2.graphs.get(op.graphId);
+                        const srcInst = gi?.instances?.get(op.edgeData?.sourceId);
+                        const dstInst = gi?.instances?.get(op.edgeData?.destinationId);
+                        const srcProto = srcInst ? s2.nodePrototypes.get(srcInst.prototypeId) : null;
+                        const dstProto = dstInst ? s2.nodePrototypes.get(dstInst.prototypeId) : null;
+                        const friendly = `Connected "${srcProto?.name || 'A'}" → "${dstProto?.name || 'B'}"`;
+                        window.dispatchEvent(new CustomEvent('rs-telemetry', { detail: [{ ts: Date.now(), type: 'info', name: 'applyMutations', message: friendly }] }));
+                      } catch { }
+                      results.push({ type: op.type, ok: true, id: op.edgeData?.id });
+                      break;
+                    }
+                    case 'moveNodeInstance': {
+                      const st = useGraphStore.getState();
+                      const g = st.graphs.get(op.graphId);
+                      const exists = !!(g && g.instances && g.instances.get(op.instanceId));
+                      if (!exists) {
+                        results.push({ type: op.type, ok: false, id: op.instanceId, error: 'Missing instance/graph' });
+                        break;
+                      }
+                      st.updateNodeInstance(op.graphId, op.instanceId, (inst) => { inst.x = op.position.x; inst.y = op.position.y; });
+                      try {
+                        const s2 = useGraphStore.getState();
+                        const g2 = s2.graphs.get(op.graphId);
+                        const inst2 = g2?.instances?.get(op.instanceId);
+                        const proto = inst2 ? s2.nodePrototypes.get(inst2.prototypeId) : null;
+                        const friendly = `Moved "${proto?.name || 'Concept'}" to (${Math.round(op.position?.x ?? 0)}, ${Math.round(op.position?.y ?? 0)})`;
+                        window.dispatchEvent(new CustomEvent('rs-telemetry', { detail: [{ ts: Date.now(), type: 'info', name: 'applyMutations', message: friendly }] }));
+                        console.log('MCPBridge: moveNodeInstance applied', { graphId: op.graphId, instanceId: op.instanceId, position: op.position, instanceCount: g2?.instances?.size });
+                      } catch { }
+                      results.push({ type: op.type, ok: true, id: op.instanceId });
+                      break;
+                    }
+                    case 'updateEdgeDirectionality': {
+                      const st = useGraphStore.getState();
+                      const edgeExists = st.edges.has(op.edgeId);
+                      if (!edgeExists) {
+                        results.push({ type: op.type, ok: false, id: op.edgeId, error: 'Missing edge' });
+                        break;
+                      }
+                      st.updateEdge(op.edgeId, (edge) => {
+                        edge.directionality = { arrowsToward: new Set(Array.isArray(op.arrowsToward) ? op.arrowsToward : []) };
+                      });
+                      try {
+                        window.dispatchEvent(new CustomEvent('rs-telemetry', { detail: [{ ts: Date.now(), type: 'info', name: 'applyMutations', message: 'Updated connection direction' }] }));
+                      } catch { }
+                      results.push({ type: op.type, ok: true, id: op.edgeId });
+                      break;
+                    }
+                    case 'updateEdgeDefinition': {
+                      const st = useGraphStore.getState();
+                      const edgeExists = st.edges.has(op.edgeId);
+                      if (!edgeExists) {
+                        results.push({ type: op.type, ok: false, id: op.edgeId, error: 'Missing edge' });
+                        break;
+                      }
+                      st.updateEdge(op.edgeId, (edge) => {
+                        edge.definitionNodeIds = Array.isArray(op.definitionNodeIds) ? [...op.definitionNodeIds] : [];
+                      });
+                      try {
+                        window.dispatchEvent(new CustomEvent('rs-telemetry', { detail: [{ ts: Date.now(), type: 'info', name: 'applyMutations', message: 'Defined connections for an edge' }] }));
+                      } catch { }
+                      results.push({ type: op.type, ok: true, id: op.edgeId });
+                      break;
+                    }
+                    case 'updateGraph': {
+                      const st = useGraphStore.getState();
+                      const g = st.graphs.get(op.graphId);
+                      if (!g) {
+                        results.push({ type: op.type, ok: false, id: op.graphId, error: 'Missing graph' });
+                        break;
+                      }
+                      st.updateGraph(op.graphId, (graph) => {
+                        if (typeof op.updates?.name === 'string') graph.name = op.updates.name;
+                        if (typeof op.updates?.color === 'string') graph.color = op.updates.color;
+                      });
+                      try {
+                        const s2 = useGraphStore.getState();
+                        const g2 = s2.graphs.get(op.graphId);
+                        const friendly = `Updated graph "${g2?.name || op.graphId}"`;
+                        window.dispatchEvent(new CustomEvent('rs-telemetry', { detail: [{ ts: Date.now(), type: 'info', name: 'applyMutations', message: friendly }] }));
+                      } catch { }
+                      results.push({ type: op.type, ok: true, id: op.graphId });
+                      break;
+                    }
+                    case 'updateNodePrototype': {
+                      const st = useGraphStore.getState();
+                      const exists = st.nodePrototypes.has(op.prototypeId);
+                      if (!exists) {
+                        results.push({ type: op.type, ok: false, id: op.prototypeId, error: 'Missing prototype' });
+                        break;
+                      }
+                      st.updateNodePrototype(op.prototypeId, (prototype) => {
+                        if (typeof op.updates?.name === 'string') prototype.name = op.updates.name;
+                        if (typeof op.updates?.color === 'string') prototype.color = op.updates.color;
+                        if (typeof op.updates?.description === 'string') prototype.description = op.updates.description;
+                      });
+                      try {
+                        const s2 = useGraphStore.getState();
+                        const p2 = s2.nodePrototypes.get(op.prototypeId);
+                        const friendly = `Updated concept "${p2?.name || op.prototypeId}"`;
+                        window.dispatchEvent(new CustomEvent('rs-telemetry', { detail: [{ ts: Date.now(), type: 'info', name: 'applyMutations', message: friendly }] }));
+                      } catch { }
+                      results.push({ type: op.type, ok: true, id: op.prototypeId });
+                      break;
+                    }
+                    case 'openRightPanelNodeTab':
+                      store.openRightPanelNodeTab(op.nodeId);
+                      results.push({ type: op.type, ok: true, id: op.nodeId });
+                      break;
+                    case 'addToAbstractionChain':
+                      store.addToAbstractionChain(op.nodeId, op.dimension, op.direction, op.newNodeId, op.insertRelativeToNodeId);
+                      results.push({ type: op.type, ok: true });
+                      break;
+                    case 'removeFromAbstractionChain':
+                      store.removeFromAbstractionChain(op.nodeId, op.dimension, op.nodeToRemove);
+                      results.push({ type: op.type, ok: true });
+                      break;
+                    case 'swapNodeInChain':
+                      store.swapNodeInChain(op.currentNodeId, op.newNodeId);
+                      results.push({ type: op.type, ok: true });
+                      break;
+                    case 'setNodeType':
+                      store.setNodeType(op.nodeId, op.typeNodeId);
+                      results.push({ type: op.type, ok: true });
+                      break;
+                    case 'closeGraphTab':
+                      store.closeGraphTab(op.graphId);
+                      results.push({ type: op.type, ok: true });
+                      break;
+                    case 'createNewGraph': {
+                      const init = op.initialData || {};
+                      if (init.id) {
+                        store.createGraphWithId(init.id, init);
+                        try { store.openGraphTab(init.id); } catch { }
+                      } else {
+                        store.createNewGraph(init);
+                      }
+                      try {
+                        const s2 = useGraphStore.getState();
+                        const gid = s2.activeGraphId;
+                        const g = gid ? s2.graphs.get(gid) : null;
+                        const friendly = `Created graph "${g?.name || 'New Graph'}"`;
+                        window.dispatchEvent(new CustomEvent('rs-telemetry', { detail: [{ ts: Date.now(), type: 'info', name: 'applyMutations', message: friendly }] }));
+                      } catch { }
+                      results.push({ type: op.type, ok: true });
+                      break;
+                    }
+                    case 'createAndAssignGraphDefinition':
+                      store.createAndAssignGraphDefinition(op.prototypeId);
+                      results.push({ type: op.type, ok: true, id: op.prototypeId });
+                      break;
+                    case 'deleteEdge':
+                      store.removeEdge(op.edgeId);
+                      results.push({ type: op.type, ok: true, id: op.edgeId });
+                      break;
+                    case 'deleteNodePrototype':
+                      store.deleteNodePrototype(op.prototypeId);
+                      results.push({ type: op.type, ok: true, id: op.prototypeId });
+                      break;
+                    case 'createGroup':
+                      store.createGroup(op.graphId, op.groupData || {});
+                      results.push({ type: op.type, ok: true, graphId: op.graphId });
+                      break;
+                    case 'convertToNodeGroup':
+                      store.convertGroupToNodeGroup(
+                        op.graphId,
+                        op.groupId,
+                        op.nodePrototypeId,
+                        op.createNewPrototype,
+                        op.newPrototypeName,
+                        op.newPrototypeColor
+                      );
+                      results.push({ type: op.type, ok: true, graphId: op.graphId, groupId: op.groupId });
+                      break;
+                    case 'setActiveGraph':
+                      store.setActiveGraph(op.graphId);
+                      results.push({ type: op.type, ok: true, graphId: op.graphId });
+                      break;
+                    case 'deleteNodeInstance':
+                      store.removeNodeInstance(op.graphId, op.instanceId);
+                      results.push({ type: op.type, ok: true, id: op.instanceId });
+                      break;
+                    case 'deleteGraph':
+                      store.deleteGraph(op.graphId);
+                      results.push({ type: op.type, ok: true, id: op.graphId });
+                      break;
+                    default:
+                      results.push({ type: op.type, ok: false, error: 'Unknown operation type' });
+                  }
+                } catch (err) {
+                  results.push({ type: op.type, ok: false, error: String(err?.message || err) });
+                }
+              }
+              try {
+                const s = useGraphStore.getState();
+                const a = s.activeGraphId;
+                const g = a ? s.graphs.get(a) : null;
+                console.log('MCPBridge: applyMutations summary', { activeGraphId: a, activeInstanceCount: g?.instances?.size, totalGraphs: s.graphs.size });
+
+                // Apply auto-layout whenever nodes are created
+                const addedInstances = results.filter(r => r.type === 'addNodeInstance' && r.ok);
+                if (addedInstances.length > 0 && a) {
+                  console.log(`MCPBridge: Triggering auto-layout for ${addedInstances.length} new node${addedInstances.length !== 1 ? 's' : ''}`);
                   try {
-                    switch (op.type) {
-                      case 'addNodePrototype': {
-                        const st = useGraphStore.getState();
-                        if (st.nodePrototypes.has(op.prototypeData?.id)) {
-                          console.log('MCPBridge: Prototype already exists, skipping', op.prototypeData?.id);
-                          results.push({ type: op.type, ok: true, id: op.prototypeData?.id, skipped: true });
-                          break;
-                        }
-                        st.addNodePrototype({
-                          id: op.prototypeData.id,
-                          name: op.prototypeData.name || 'Unnamed',
-                          description: op.prototypeData.description || '',
-                          color: op.prototypeData.color || '#5B6CFF',
-                          typeNodeId: op.prototypeData.typeNodeId || null,
-                          definitionGraphIds: op.prototypeData.definitionGraphIds || []
+                    // Import and apply layout service
+                    const { applyLayout } = await import('../services/graphLayoutService.js');
+                    const graphToLayout = s.graphs.get(a);
+                    if (graphToLayout) {
+                      const instances = Array.from(graphToLayout.instances?.values() || []);
+                      const edges = (graphToLayout.edgeIds || []).map(eid => {
+                        const edge = s.edges.get(eid);
+                        return edge ? { sourceId: edge.sourceId, destinationId: edge.destinationId } : null;
+                      }).filter(Boolean);
+
+                      // Determine layout algorithm based on structure
+                      const layoutAlgorithm = 'force'; // Default, could be inferred from edge patterns
+                      const positions = applyLayout(instances, edges, layoutAlgorithm, {});
+
+                      // Apply positions
+                      positions.forEach(pos => {
+                        s.updateNodeInstance(a, pos.instanceId, (inst) => {
+                          inst.x = pos.x;
+                          inst.y = pos.y;
                         });
-                        console.log('MCPBridge: addNodePrototype created', op.prototypeData.name, op.prototypeData.id);
-                        results.push({ type: op.type, ok: true, id: op.prototypeData.id });
-                        break;
-                      }
-                      case 'addNodeInstance': {
-                        const st = useGraphStore.getState();
-                        let graph = st.graphs.get(op.graphId);
-                        let protoExists = st.nodePrototypes.has(op.prototypeId);
-                        if (!protoExists) {
-                          protoExists = await ensurePrototype(op.prototypeId);
-                        }
-                        if (!graph || !protoExists) {
-                          console.warn('MCPBridge: Skipping addNodeInstance due to missing graph/prototype', { graphExists: !!graph, protoExists, graphId: op.graphId, prototypeId: op.prototypeId });
-                          results.push({ type: op.type, ok: false, id: op.instanceId, error: 'Missing graph/prototype' });
-                          break;
-                        }
-                        const beforeCount = (st.graphs.get(op.graphId)?.instances?.size) || 0;
-                        st.addNodeInstance(op.graphId, op.prototypeId, op.position, op.instanceId);
-                        try {
-                          const s2 = useGraphStore.getState();
-                          const g = s2.graphs.get(op.graphId);
-                          const proto = s2.nodePrototypes.get(op.prototypeId);
-                          const friendly = `Added "${proto?.name || 'Concept'}" to "${g?.name || 'Graph'}" at (${Math.round(op.position?.x ?? 0)}, ${Math.round(op.position?.y ?? 0)})`;
-                          window.dispatchEvent(new CustomEvent('rs-telemetry', { detail: [{ ts: Date.now(), type: 'info', name: 'applyMutations', message: friendly }] }));
-                          const afterCount = (g?.instances?.size) || 0;
-                          console.log('MCPBridge: addNodeInstance applied', { graphId: op.graphId, instanceId: op.instanceId, position: op.position, instanceCountBefore: beforeCount, instanceCountAfter: afterCount });
-                        } catch {}
-                        results.push({ type: op.type, ok: true, id: op.instanceId });
-                        break;
-                      }
-                      case 'addEdge': {
-                        const st = useGraphStore.getState();
-                        const g = st.graphs.get(op.graphId);
-                        const ok = !!(g && g.instances && g.instances.has(op.edgeData?.sourceId) && g.instances.has(op.edgeData?.destinationId));
-                        if (!ok) {
-                          results.push({ type: op.type, ok: false, id: op.edgeData?.id, error: 'Missing instances/graph' });
-                          break;
-                        }
-                        st.addEdge(op.graphId, op.edgeData);
-                        try {
-                          const s2 = useGraphStore.getState();
-                          const gi = s2.graphs.get(op.graphId);
-                          const srcInst = gi?.instances?.get(op.edgeData?.sourceId);
-                          const dstInst = gi?.instances?.get(op.edgeData?.destinationId);
-                          const srcProto = srcInst ? s2.nodePrototypes.get(srcInst.prototypeId) : null;
-                          const dstProto = dstInst ? s2.nodePrototypes.get(dstInst.prototypeId) : null;
-                          const friendly = `Connected "${srcProto?.name || 'A'}" → "${dstProto?.name || 'B'}"`;
-                          window.dispatchEvent(new CustomEvent('rs-telemetry', { detail: [{ ts: Date.now(), type: 'info', name: 'applyMutations', message: friendly }] }));
-                        } catch {}
-                        results.push({ type: op.type, ok: true, id: op.edgeData?.id });
-                        break;
-                      }
-                      case 'moveNodeInstance': {
-                        const st = useGraphStore.getState();
-                        const g = st.graphs.get(op.graphId);
-                        const exists = !!(g && g.instances && g.instances.get(op.instanceId));
-                        if (!exists) {
-                          results.push({ type: op.type, ok: false, id: op.instanceId, error: 'Missing instance/graph' });
-                          break;
-                        }
-                        st.updateNodeInstance(op.graphId, op.instanceId, (inst) => { inst.x = op.position.x; inst.y = op.position.y; });
-                        try {
-                          const s2 = useGraphStore.getState();
-                          const g2 = s2.graphs.get(op.graphId);
-                          const inst2 = g2?.instances?.get(op.instanceId);
-                          const proto = inst2 ? s2.nodePrototypes.get(inst2.prototypeId) : null;
-                          const friendly = `Moved "${proto?.name || 'Concept'}" to (${Math.round(op.position?.x ?? 0)}, ${Math.round(op.position?.y ?? 0)})`;
-                          window.dispatchEvent(new CustomEvent('rs-telemetry', { detail: [{ ts: Date.now(), type: 'info', name: 'applyMutations', message: friendly }] }));
-                          console.log('MCPBridge: moveNodeInstance applied', { graphId: op.graphId, instanceId: op.instanceId, position: op.position, instanceCount: g2?.instances?.size });
-                        } catch {}
-                        results.push({ type: op.type, ok: true, id: op.instanceId });
-                        break;
-                      }
-                      case 'updateEdgeDirectionality': {
-                        const st = useGraphStore.getState();
-                        const edgeExists = st.edges.has(op.edgeId);
-                        if (!edgeExists) {
-                          results.push({ type: op.type, ok: false, id: op.edgeId, error: 'Missing edge' });
-                          break;
-                        }
-                        st.updateEdge(op.edgeId, (edge) => {
-                          edge.directionality = { arrowsToward: new Set(Array.isArray(op.arrowsToward) ? op.arrowsToward : []) };
-                        });
-                        try {
-                          window.dispatchEvent(new CustomEvent('rs-telemetry', { detail: [{ ts: Date.now(), type: 'info', name: 'applyMutations', message: 'Updated connection direction' }] }));
-                        } catch {}
-                        results.push({ type: op.type, ok: true, id: op.edgeId });
-                        break;
-                      }
-                      case 'updateEdgeDefinition': {
-                        const st = useGraphStore.getState();
-                        const edgeExists = st.edges.has(op.edgeId);
-                        if (!edgeExists) {
-                          results.push({ type: op.type, ok: false, id: op.edgeId, error: 'Missing edge' });
-                          break;
-                        }
-                        st.updateEdge(op.edgeId, (edge) => {
-                          edge.definitionNodeIds = Array.isArray(op.definitionNodeIds) ? [...op.definitionNodeIds] : [];
-                        });
-                        try {
-                          window.dispatchEvent(new CustomEvent('rs-telemetry', { detail: [{ ts: Date.now(), type: 'info', name: 'applyMutations', message: 'Defined connections for an edge' }] }));
-                        } catch {}
-                        results.push({ type: op.type, ok: true, id: op.edgeId });
-                        break;
-                      }
-                      case 'updateGraph': {
-                        const st = useGraphStore.getState();
-                        const g = st.graphs.get(op.graphId);
-                        if (!g) {
-                          results.push({ type: op.type, ok: false, id: op.graphId, error: 'Missing graph' });
-                          break;
-                        }
-                        st.updateGraph(op.graphId, (graph) => {
-                          if (typeof op.updates?.name === 'string') graph.name = op.updates.name;
-                          if (typeof op.updates?.color === 'string') graph.color = op.updates.color;
-                        });
-                        try {
-                          const s2 = useGraphStore.getState();
-                          const g2 = s2.graphs.get(op.graphId);
-                          const friendly = `Updated graph "${g2?.name || op.graphId}"`;
-                          window.dispatchEvent(new CustomEvent('rs-telemetry', { detail: [{ ts: Date.now(), type: 'info', name: 'applyMutations', message: friendly }] }));
-                        } catch {}
-                        results.push({ type: op.type, ok: true, id: op.graphId });
-                        break;
-                      }
-                      case 'updateNodePrototype': {
-                        const st = useGraphStore.getState();
-                        const exists = st.nodePrototypes.has(op.prototypeId);
-                        if (!exists) {
-                          results.push({ type: op.type, ok: false, id: op.prototypeId, error: 'Missing prototype' });
-                          break;
-                        }
-                        st.updateNodePrototype(op.prototypeId, (prototype) => {
-                          if (typeof op.updates?.name === 'string') prototype.name = op.updates.name;
-                          if (typeof op.updates?.color === 'string') prototype.color = op.updates.color;
-                          if (typeof op.updates?.description === 'string') prototype.description = op.updates.description;
-                        });
-                        try {
-                          const s2 = useGraphStore.getState();
-                          const p2 = s2.nodePrototypes.get(op.prototypeId);
-                          const friendly = `Updated concept "${p2?.name || op.prototypeId}"`;
-                          window.dispatchEvent(new CustomEvent('rs-telemetry', { detail: [{ ts: Date.now(), type: 'info', name: 'applyMutations', message: friendly }] }));
-                        } catch {}
-                        results.push({ type: op.type, ok: true, id: op.prototypeId });
-                        break;
-                      }
-                      case 'openRightPanelNodeTab':
-                        store.openRightPanelNodeTab(op.nodeId);
-                        results.push({ type: op.type, ok: true, id: op.nodeId });
-                        break;
-                      case 'addToAbstractionChain':
-                        store.addToAbstractionChain(op.nodeId, op.dimension, op.direction, op.newNodeId, op.insertRelativeToNodeId);
-                        results.push({ type: op.type, ok: true });
-                        break;
-                      case 'removeFromAbstractionChain':
-                        store.removeFromAbstractionChain(op.nodeId, op.dimension, op.nodeToRemove);
-                        results.push({ type: op.type, ok: true });
-                        break;
-                      case 'swapNodeInChain':
-                        store.swapNodeInChain(op.currentNodeId, op.newNodeId);
-                        results.push({ type: op.type, ok: true });
-                        break;
-                      case 'setNodeType':
-                        store.setNodeType(op.nodeId, op.typeNodeId);
-                        results.push({ type: op.type, ok: true });
-                        break;
-                      case 'closeGraphTab':
-                        store.closeGraphTab(op.graphId);
-                        results.push({ type: op.type, ok: true });
-                        break;
-                      case 'createNewGraph': {
-                        const init = op.initialData || {};
-                        if (init.id) {
-                          store.createGraphWithId(init.id, init);
-                          try { store.openGraphTab(init.id); } catch {}
-                        } else {
-                          store.createNewGraph(init);
-                        }
-                        try {
-                          const s2 = useGraphStore.getState();
-                          const gid = s2.activeGraphId;
-                          const g = gid ? s2.graphs.get(gid) : null;
-                          const friendly = `Created graph "${g?.name || 'New Graph'}"`;
-                          window.dispatchEvent(new CustomEvent('rs-telemetry', { detail: [{ ts: Date.now(), type: 'info', name: 'applyMutations', message: friendly }] }));
-                        } catch {}
-                        results.push({ type: op.type, ok: true });
-                        break;
-                      }
-                      case 'createAndAssignGraphDefinition':
-                        store.createAndAssignGraphDefinition(op.prototypeId);
-                        results.push({ type: op.type, ok: true, id: op.prototypeId });
-                        break;
-                      case 'deleteEdge':
-                        store.removeEdge(op.edgeId);
-                        results.push({ type: op.type, ok: true, id: op.edgeId });
-                        break;
-                      case 'deleteNodePrototype':
-                        store.deleteNodePrototype(op.prototypeId);
-                        results.push({ type: op.type, ok: true, id: op.prototypeId });
-                        break;
-                      case 'createGroup':
-                        store.createGroup(op.graphId, op.groupData || {});
-                        results.push({ type: op.type, ok: true, graphId: op.graphId });
-                        break;
-                      case 'convertToNodeGroup':
-                        store.convertGroupToNodeGroup(
-                          op.graphId,
-                          op.groupId,
-                          op.nodePrototypeId,
-                          op.createNewPrototype,
-                          op.newPrototypeName,
-                          op.newPrototypeColor
-                        );
-                        results.push({ type: op.type, ok: true, graphId: op.graphId, groupId: op.groupId });
-                        break;
-                      case 'setActiveGraph':
-                        store.setActiveGraph(op.graphId);
-                        results.push({ type: op.type, ok: true, graphId: op.graphId });
-                        break;
-                      case 'deleteNodeInstance':
-                        store.removeNodeInstance(op.graphId, op.instanceId);
-                        results.push({ type: op.type, ok: true, id: op.instanceId });
-                        break;
-                      case 'deleteGraph':
-                        store.deleteGraph(op.graphId);
-                        results.push({ type: op.type, ok: true, id: op.graphId });
-                        break;
-                      default:
-                        results.push({ type: op.type, ok: false, error: 'Unknown operation type' });
+                      });
+                      console.log(`MCPBridge: Auto-layout applied to ${positions.length} nodes`);
                     }
-                  } catch (err) {
-                    results.push({ type: op.type, ok: false, error: String(err?.message || err) });
+                  } catch (layoutErr) {
+                    console.warn('MCPBridge: Auto-layout failed:', layoutErr);
                   }
                 }
-                try {
-                  const s = useGraphStore.getState();
-                  const a = s.activeGraphId;
-                  const g = a ? s.graphs.get(a) : null;
-                  console.log('MCPBridge: applyMutations summary', { activeGraphId: a, activeInstanceCount: g?.instances?.size, totalGraphs: s.graphs.size });
-                  
-                  // Apply auto-layout whenever nodes are created
-                  const addedInstances = results.filter(r => r.type === 'addNodeInstance' && r.ok);
-                  if (addedInstances.length > 0 && a) {
-                    console.log(`MCPBridge: Triggering auto-layout for ${addedInstances.length} new node${addedInstances.length !== 1 ? 's' : ''}`);
-                    try {
-                      // Import and apply layout service
-                      const { applyLayout } = await import('../services/graphLayoutService.js');
-                      const graphToLayout = s.graphs.get(a);
-                      if (graphToLayout) {
-                        const instances = Array.from(graphToLayout.instances?.values() || []);
-                        const edges = (graphToLayout.edgeIds || []).map(eid => {
-                          const edge = s.edges.get(eid);
-                          return edge ? { sourceId: edge.sourceId, destinationId: edge.destinationId } : null;
-                        }).filter(Boolean);
-                        
-                        // Determine layout algorithm based on structure
-                        const layoutAlgorithm = 'force'; // Default, could be inferred from edge patterns
-                        const positions = applyLayout(instances, edges, layoutAlgorithm, {});
-                        
-                        // Apply positions
-                        positions.forEach(pos => {
-                          s.updateNodeInstance(a, pos.instanceId, (inst) => {
-                            inst.x = pos.x;
-                            inst.y = pos.y;
-                          });
-                        });
-                        console.log(`MCPBridge: Auto-layout applied to ${positions.length} nodes`);
-                      }
-                    } catch (layoutErr) {
-                      console.warn('MCPBridge: Auto-layout failed:', layoutErr);
-                    }
-                  }
-                } catch {}
-                console.groupEnd();
-                return { success: true, results };
+              } catch { }
+              console.groupEnd();
+              return { success: true, results };
             }
           };
         }
-        
+
         console.log('MCPBridge: Created action metadata with keys:', Object.keys(actionMetadata));
 
         // Register action metadata with bridge server
         console.log('MCPBridge: About to register action metadata:', Object.keys(actionMetadata));
-        
+
         const response = await bridgeFetch('/api/bridge/register-store', {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
           },
-          body: JSON.stringify({ 
+          body: JSON.stringify({
             actions: actionMetadata,
             hasWindowActions: typeof window !== 'undefined' && !!window.redstringStoreActions
           })
         });
-        
+
         if (response.ok) {
           const result = await response.json();
           console.log('✅ MCP Bridge: Store actions registered with bridge server:', result);
@@ -957,23 +957,23 @@ const BridgeClient = () => {
           if (typeof mod.getFileStatus === 'function') {
             fileStatus = mod.getFileStatus();
           }
-        } catch {}
+        } catch { }
         const layouts = buildGraphLayouts(state);
         const summaries = buildGraphSummaries(state);
-        
+
         // CRITICAL: Send ALL edges (edges don't have graphId - graphs have edgeIds)
         // The graph.edgeIds array determines which edges belong to which graph
         const graphEdges = state.edges
           ? Array.from(state.edges.values()).map(edge => ({
-                id: edge.id,
-                sourceId: edge.sourceId,
-                destinationId: edge.destinationId,
-                name: edge.name || '',
-                type: edge.type || '',
-                typeNodeId: edge.typeNodeId || null,
-                definitionNodeIds: Array.isArray(edge.definitionNodeIds) ? [...edge.definitionNodeIds] : [],
-                arrowsToward: Array.isArray(edge.arrowsToward) ? [...edge.arrowsToward] : []
-              }))
+            id: edge.id,
+            sourceId: edge.sourceId,
+            destinationId: edge.destinationId,
+            name: edge.name || '',
+            type: edge.type || '',
+            typeNodeId: edge.typeNodeId || null,
+            definitionNodeIds: Array.isArray(edge.definitionNodeIds) ? [...edge.definitionNodeIds] : [],
+            arrowsToward: Array.isArray(edge.arrowsToward) ? [...edge.arrowsToward] : []
+          }))
           : [];
 
         const bridgeData = {
@@ -986,7 +986,7 @@ const BridgeClient = () => {
             // CRITICAL: Include edgeIds for semantic graph queries
             edgeIds: Array.isArray(graph.edgeIds) ? graph.edgeIds : [],
             // Include instance data for spatial reasoning (only for active graph to keep payload small)
-            instances: id === state.activeGraphId && graph.instances ? 
+            instances: id === state.activeGraphId && graph.instances ?
               Object.fromEntries(Array.from(graph.instances.entries()).map(([instanceId, instance]) => [
                 instanceId, {
                   id: instance.id,
@@ -997,7 +997,7 @@ const BridgeClient = () => {
                 }
               ])) : undefined
           })),
-          
+
           // CRITICAL: Include color for LLM context (palette matching)
           nodePrototypes: Array.from(state.nodePrototypes.entries()).map(([id, prototype]) => ({
             id,
@@ -1005,14 +1005,14 @@ const BridgeClient = () => {
             color: prototype.color || '#5B6CFF',
             description: prototype.description || ''
           })),
-          
+
           // UI state
           activeGraphId: state.activeGraphId,
           activeGraphName: state.activeGraphId ? (state.graphs.get(state.activeGraphId)?.name || null) : null,
           openGraphIds: state.openGraphIds,
           // File status (optional)
           fileStatus,
-          
+
           // Summary stats
           summary: {
             totalGraphs: state.graphs.size,
@@ -1032,7 +1032,7 @@ const BridgeClient = () => {
           },
           body: JSON.stringify(bridgeData)
         });
-        
+
         if (!response.ok) {
           throw new Error(`HTTP ${response.status}: ${response.statusText}`);
         }
@@ -1047,11 +1047,11 @@ const BridgeClient = () => {
         } else {
           console.error('❌ MCP Bridge: Failed to send store to server:', error);
         }
-        
-        const isConnectionError = error.message.includes('fetch') || 
-                                 error.message.includes('ECONNREFUSED') ||
-                                 error.message.includes('Failed to fetch') ||
-                                 error.message.includes('bridge_unavailable_cooldown');
+
+        const isConnectionError = error.message.includes('fetch') ||
+          error.message.includes('ECONNREFUSED') ||
+          error.message.includes('Failed to fetch') ||
+          error.message.includes('bridge_unavailable_cooldown');
         if (isConnectionError && connectionStateRef.current.isConnected) {
           connectionStateRef.current.isConnected = false;
           startReconnection();
@@ -1064,11 +1064,11 @@ const BridgeClient = () => {
       try {
         await registerStoreActions();
         await sendStoreToServer();
-        
+
         // Mark as connected on successful initialization
         connectionStateRef.current.isConnected = true;
         connectionStateRef.current.lastSuccessfulConnection = Date.now();
-        
+
         console.log('✅ MCP Bridge: Redstring store bridge established');
         console.log('✅ MCP Bridge: Store state:', {
           graphs: useGraphStore.getState().graphs.size,
@@ -1081,17 +1081,17 @@ const BridgeClient = () => {
           if (!eventSourceRef.current) {
             const es = bridgeEventSource('/events/stream');
             eventSourceRef.current = es;
-            es.addEventListener('PATCH_APPLIED', () => {});
-            es.onerror = () => { try { es.close(); } catch {}; eventSourceRef.current = null; };
+            es.addEventListener('PATCH_APPLIED', () => { });
+            es.onerror = () => { try { es.close(); } catch { }; eventSourceRef.current = null; };
           }
-        } catch {}
+        } catch { }
       } catch (error) {
         console.error('❌ MCP Bridge: Failed to initialize connection:', error);
         connectionStateRef.current.isConnected = false;
         startReconnection();
       }
     };
-    
+
     // Expose a manual reconnect hook so the panel Refresh button can restart attempts
     try {
       window.rsBridgeManualReconnect = () => {
@@ -1100,19 +1100,19 @@ const BridgeClient = () => {
             clearInterval(reconnectIntervalRef.current);
             reconnectIntervalRef.current = null;
           }
-        } catch {}
+        } catch { }
         try {
           const mod = require('../services/bridgeConfig.js');
           if (mod && typeof mod.resetBridgeBackoff === 'function') {
             mod.resetBridgeBackoff();
           }
-        } catch {}
+        } catch { }
         const st = connectionStateRef.current;
         st.reconnectAttempts = 0;
         st.isConnected = false;
         startReconnection();
       };
-    } catch {}
+    } catch { }
 
     // Attempt immediate connection, then retry a few times quickly if needed
     initializeConnection();
@@ -1134,7 +1134,7 @@ const BridgeClient = () => {
         connectionStateRef.current.lastSuccessfulConnection = Date.now();
         console.log('✅ MCP Bridge: Quick retry connected');
         clearInterval(quickRetryTimer);
-      } catch {}
+      } catch { }
     }, 1000);
 
     // Set up a polling mechanism to keep the bridge updated
@@ -1148,7 +1148,7 @@ const BridgeClient = () => {
           return;
         }
         // Check for save triggers (legacy noop) — disabled to avoid 404 spam
-        
+
         // Check for bridge state changes and sync them back to Redstring
         // DISABLED: This was causing conflicts with Redstring state restoration
         // TODO: Re-implement this as a one-way sync only when AI tools make explicit changes
@@ -1181,7 +1181,7 @@ const BridgeClient = () => {
               }
             };
             const orderedActions = [...actionsData.pendingActions].sort((a, b) => priority(a) - priority(b));
-            
+
             for (const pendingAction of orderedActions) {
               try {
                 // Emit running status to telemetry so chat shows non-stalled progress
@@ -1192,10 +1192,13 @@ const BridgeClient = () => {
                       method: 'POST', headers: { 'Content-Type': 'application/json' },
                       body: JSON.stringify({ actionId: pendingAction.id, action: pendingAction.action, params: pendingAction.params })
                     });
-                  } catch {}
+                  } catch { }
                   window.dispatchEvent(new CustomEvent('rs-telemetry', { detail: [{ ts: Date.now(), type: 'tool_call', name: pendingAction.action, args: pendingAction.params, status: 'running', id: pendingAction.id }] }));
-                } catch {}
+                } catch { }
                 // Also emit a brief chat update before executing
+                // DISABLED: This creates duplicate status messages
+                // The tool_call telemetry above already shows the status
+                /*
                 try {
                   const preText = (() => {
                     if (pendingAction.action === 'applyMutations' && Array.isArray(pendingAction.params?.[0])) {
@@ -1210,9 +1213,10 @@ const BridgeClient = () => {
                   })();
                   window.dispatchEvent(new CustomEvent('rs-telemetry', { detail: [{ ts: Date.now(), type: 'agent_answer', text: preText, cid: pendingAction.meta?.cid, id: pendingAction.id }] }));
                 } catch {}
+                */
                 if (window.redstringStoreActions && window.redstringStoreActions[pendingAction.action]) {
                   console.log('✅ MCP Bridge: Executing action:', pendingAction.action, pendingAction.params);
-                  
+
                   // Special handling: openGraph with missing graph should be deferred
                   if (pendingAction.action === 'openGraph') {
                     try {
@@ -1225,7 +1229,7 @@ const BridgeClient = () => {
                           const b = await bridgeResponse.json();
                           const existsInBridge = Array.isArray(b.graphs) && b.graphs.some(g => g.id === gid);
                           if (existsInBridge && window.redstringStoreActions.ensureGraph) {
-                            await window.redstringStoreActions.ensureGraph(gid, { name: (b.graphs.find(g => g.id===gid)?.name)||'New Graph' });
+                            await window.redstringStoreActions.ensureGraph(gid, { name: (b.graphs.find(g => g.id === gid)?.name) || 'New Graph' });
                           }
                         }
                         const stAfter = useGraphStore.getState();
@@ -1235,39 +1239,39 @@ const BridgeClient = () => {
                             setTimeout(async () => {
                               await bridgeFetch('/api/bridge/pending-actions/enqueue', {
                                 method: 'POST', headers: { 'Content-Type': 'application/json' },
-                                body: JSON.stringify({ actions: [ { action: 'openGraph', params: [gid] } ] })
+                                body: JSON.stringify({ actions: [{ action: 'openGraph', params: [gid] }] })
                               });
                             }, 400);
-                          } catch {}
+                          } catch { }
                           // Mark as completed-noop so chat doesn't hang
-                          try { window.dispatchEvent(new CustomEvent('rs-telemetry', { detail: [{ ts: Date.now(), type: 'tool_call', name: 'openGraph', status: 'completed', id: pendingAction.id }] })); } catch {}
+                          try { window.dispatchEvent(new CustomEvent('rs-telemetry', { detail: [{ ts: Date.now(), type: 'tool_call', name: 'openGraph', status: 'completed', id: pendingAction.id }] })); } catch { }
                           continue;
                         }
                       }
-                    } catch {}
+                    } catch { }
                   }
 
                   // For addNodeInstance, ensure the graph and prototype exist in the store first
                   if (pendingAction.action === 'addNodeInstance') {
                     const [graphId, prototypeId, position, instanceId] = pendingAction.params;
                     console.log('🔍 MCP Bridge: Checking if graph and prototype exist before adding instance...');
-                    
+
                     // Get current store state
                     const currentState = useGraphStore.getState();
                     const graphExists = currentState.graphs.has(graphId);
                     const prototypeExists = currentState.nodePrototypes.has(prototypeId);
-                    
+
                     console.log('🔍 MCP Bridge: Graph exists:', graphExists, 'Prototype exists:', prototypeExists);
-                    
+
                     if (!graphExists || !prototypeExists) {
                       console.warn('⚠️ MCP Bridge: Graph or prototype not found in store, attempting to sync from bridge...');
-                      
+
                       // Try to sync missing data from bridge server
                       try {
                         const bridgeResponse = await bridgeFetch('/api/bridge/state');
                         if (bridgeResponse.ok) {
                           const bridgeData = await bridgeResponse.json();
-                          
+
                           // Add missing prototype if it exists in bridge
                           if (!prototypeExists && bridgeData.nodePrototypes) {
                             const bridgePrototype = bridgeData.nodePrototypes.find(p => p.id === prototypeId);
@@ -1298,12 +1302,12 @@ const BridgeClient = () => {
                       } catch (syncError) {
                         console.error('❌ MCP Bridge: Failed to sync from bridge:', syncError);
                       }
-                      
+
                       // Check again after sync attempt
                       const updatedState = useGraphStore.getState();
                       const graphExistsAfterSync = updatedState.graphs.has(graphId);
                       const prototypeExistsAfterSync = updatedState.nodePrototypes.has(prototypeId);
-                      
+
                       if (!graphExistsAfterSync || !prototypeExistsAfterSync) {
                         console.warn('⚠️ MCP Bridge: Graph or prototype still not found after sync, skipping instance creation');
                         // Send warning feedback
@@ -1325,18 +1329,18 @@ const BridgeClient = () => {
                               await bridgeFetch('/api/bridge/pending-actions/enqueue', {
                                 method: 'POST',
                                 headers: { 'Content-Type': 'application/json' },
-                                body: JSON.stringify({ actions: [ { action: pendingAction.action, params: pendingAction.params } ] })
+                                body: JSON.stringify({ actions: [{ action: pendingAction.action, params: pendingAction.params }] })
                               });
-                            } catch {}
+                            } catch { }
                           }, backoff);
-                        } catch {}
+                        } catch { }
                         continue; // Skip this action for now
                       } else {
                         console.log('✅ MCP Bridge: Successfully synced missing data, proceeding with instance creation');
                       }
                     }
                   }
-                  
+
                   // Execute the action and get result
                   let result;
                   if (pendingAction.action === 'chat') {
@@ -1350,8 +1354,11 @@ const BridgeClient = () => {
                   console.log('✅ MCP Bridge: Action completed successfully:', pendingAction.action, result);
                   try {
                     window.dispatchEvent(new CustomEvent('rs-telemetry', { detail: [{ ts: Date.now(), type: 'tool_call', name: pendingAction.action, args: pendingAction.params, status: 'completed', id: pendingAction.id }] }));
-                  } catch {}
+                  } catch { }
                   // Emit a brief chat update after executing
+                  // DISABLED: This creates duplicate status messages
+                  // The tool_call telemetry above already shows completion
+                  /*
                   try {
                     const postText = (() => {
                       if (pendingAction.action === 'applyMutations' && Array.isArray(pendingAction.params?.[0])) {
@@ -1370,6 +1377,7 @@ const BridgeClient = () => {
                     })();
                     window.dispatchEvent(new CustomEvent('rs-telemetry', { detail: [{ ts: Date.now(), type: 'agent_answer', text: postText, cid: pendingAction.meta?.cid, id: pendingAction.id }] }));
                   } catch {}
+                  */
 
                   // Acknowledge completion to bridge server if id exists
                   try {
@@ -1397,7 +1405,7 @@ const BridgeClient = () => {
                   });
                   try {
                     window.dispatchEvent(new CustomEvent('rs-telemetry', { detail: [{ ts: Date.now(), type: 'tool_call', name: pendingAction.action, args: pendingAction.params, status: 'failed', id: pendingAction.id }] }));
-                  } catch {}
+                  } catch { }
                 }
               } catch (error) {
                 console.error('❌ MCP Bridge: Failed to execute action:', pendingAction.action, error);
@@ -1418,7 +1426,7 @@ const BridgeClient = () => {
                 }
                 try {
                   window.dispatchEvent(new CustomEvent('rs-telemetry', { detail: [{ ts: Date.now(), type: 'tool_call', name: pendingAction.action, args: pendingAction.params, status: 'failed', id: pendingAction.id }] }));
-                } catch {}
+                } catch { }
               }
             }
           }
@@ -1443,12 +1451,12 @@ const BridgeClient = () => {
               }
             }
           }
-        } catch {}
+        } catch { }
       } catch (error) {
         // Ignore errors - this is just a polling mechanism
       }
     };
-    
+
     // Check for bridge updates every 1s; guard with mountedRef to auto-resume after remounts
     bridgeIntervalRef.current = setInterval(() => {
       if (mountedRef.current) checkForBridgeUpdates();
@@ -1464,7 +1472,7 @@ const BridgeClient = () => {
         clearInterval(bridgeIntervalRef.current);
         bridgeIntervalRef.current = null;
       }
-      
+
       // Clean up reconnection interval
       if (reconnectIntervalRef.current) {
         clearInterval(reconnectIntervalRef.current);

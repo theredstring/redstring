@@ -61,7 +61,7 @@ class CommitterService {
     if (this.running) return;
     this.running = true;
     // Poll approved reviews periodically
-    this.interval = setInterval(() => this._tick().catch(() => {}), 100);
+    this.interval = setInterval(() => this._tick().catch(() => { }), 100);
   }
 
   stop() {
@@ -97,7 +97,7 @@ class CommitterService {
           return;
         }
         const ops = coalesceOps(unseen);
-        
+
         // Resolve NEW_GRAPH:name placeholders to actual graph IDs
         const graphIdMap = new Map();
         ops.forEach(op => {
@@ -107,7 +107,7 @@ class CommitterService {
             graphIdMap.set(`NEW_GRAPH:${name}`, realId);
           }
         });
-        
+
         // Replace placeholders in all ops
         ops.forEach(op => {
           if (op.graphId && op.graphId.startsWith('NEW_GRAPH:')) {
@@ -118,11 +118,11 @@ class CommitterService {
             }
           }
         });
-        
+
         // Handle read responses (send data to chat instead of UI mutations)
         const readResponses = ops.filter(o => o.type === 'readResponse');
         const mutationOps = ops.filter(o => o.type !== 'readResponse');
-        
+
         if (readResponses.length > 0) {
           try {
             const { bridgeFetch } = await import('./bridgeConfig.js');
@@ -136,35 +136,35 @@ class CommitterService {
                       method: 'POST',
                       headers: { 'Content-Type': 'application/json' },
                       body: JSON.stringify({ role: 'system', text: `Error: ${data.error}`, cid: threadId, channel: 'agent' })
-                    }).catch(() => {});
+                    }).catch(() => { });
                   } else {
-                  // Cursor-style brief system message
-                  const nodeNames = (data.nodes || []).slice(0, 5).map(n => n.name);
-                  const nodePreview = nodeNames.length > 0 
-                    ? nodeNames.join(', ') + (data.nodeCount > 5 ? '...' : '')
-                    : 'empty';
-                  const msg = `Read **${data.name}**: ${data.nodeCount} node${data.nodeCount !== 1 ? 's' : ''} (${nodePreview}), ${data.edgeCount} connection${data.edgeCount !== 1 ? 's' : ''}`;
+                    // Cursor-style brief system message
+                    const nodeNames = (data.nodes || []).slice(0, 5).map(n => n.name);
+                    const nodePreview = nodeNames.length > 0
+                      ? nodeNames.join(', ') + (data.nodeCount > 5 ? '...' : '')
+                      : 'empty';
+                    const msg = `Read **${data.name}**: ${data.nodeCount} node${data.nodeCount !== 1 ? 's' : ''} (${nodePreview}), ${data.edgeCount} connection${data.edgeCount !== 1 ? 's' : ''}`;
                     await bridgeFetch('/api/bridge/chat/append', {
                       method: 'POST',
                       headers: { 'Content-Type': 'application/json' },
                       body: JSON.stringify({ role: 'system', text: msg, cid: threadId, channel: 'agent' })
-                    }).catch(() => {});
-                    
+                    }).catch(() => { });
+
                     // AUTO-CHAIN: Trigger next planning step with read results
                     // This enables agentic behavior: read → reason → act
                     console.log('[Committer] Auto-chaining: triggering follow-up planning with read results');
-                    
+
                     // Get API credentials from patch metadata (passed from bridge)
                     const apiKey = unseen[0]?.meta?.apiKey;
                     const apiConfig = unseen[0]?.meta?.apiConfig;
-                    
-                    console.log('[Committer] Auto-chain API key check:', { 
-                      hasApiKey: !!apiKey, 
+
+                    console.log('[Committer] Auto-chain API key check:', {
+                      hasApiKey: !!apiKey,
                       hasApiConfig: !!apiConfig,
                       provider: apiConfig?.provider,
                       source: 'patch.meta'
                     });
-                    
+
                     if (apiKey) {
                       // CRITICAL: Construct graphState from readResult for /api/ai/agent/continue
                       // The continue endpoint expects graphState.graphId to create tasks
@@ -174,15 +174,15 @@ class CommitterService {
                         nodeCount: data.nodeCount || 0,
                         edgeCount: data.edgeCount || 0
                       };
-                      
+
                       await bridgeFetch('/api/ai/agent/continue', {
                         method: 'POST',
-                        headers: { 
+                        headers: {
                           'Content-Type': 'application/json',
                           'Authorization': `Bearer ${apiKey}`
                         },
-                        body: JSON.stringify({ 
-                          cid: threadId, 
+                        body: JSON.stringify({
+                          cid: threadId,
                           readResult: data,
                           graphState: graphState,  // Pass graphState for task creation
                           context: { graphId: data.graphId },
@@ -200,33 +200,33 @@ class CommitterService {
             console.warn('[Committer] Failed to send read response to chat:', e.message);
           }
         }
-        
+
         // Emit to UI; UI will apply and persist via its Git engines
         if (mutationOps.length > 0) {
           await emitApplyMutations(mutationOps);
-          
+
           // If layout operations occurred (nodes added/repositioned), trigger auto-layout
-          const hasLayoutOps = mutationOps.some(op => 
-            op.type === 'addNodeInstance' || 
+          const hasLayoutOps = mutationOps.some(op =>
+            op.type === 'addNodeInstance' ||
             op.type === 'updateNodeInstance' ||
             (op.type === 'createNewGraph' && op.initialData?.nodes?.length > 0)
           );
-          
+
           if (hasLayoutOps && typeof window !== 'undefined') {
             const graphId = mutationOps.find(o => o.graphId)?.graphId;
             const nodeCount = mutationOps.filter(o => o.type === 'addNodeInstance').length;
-            
+
             // Dispatch event to trigger auto-layout (like clicking Edit > Auto-Layout)
             // The layout function will dispatch rs-auto-layout-complete when done
             window.dispatchEvent(new CustomEvent('rs-trigger-auto-layout', {
-              detail: { 
+              detail: {
                 graphId,
                 nodeCount
               }
             }));
           }
         }
-        
+
         // If we created any graphs, enqueue openGraph to ensure UI switches to them
         try {
           const created = Array.isArray(mutationOps) ? mutationOps.filter(o => o && o.type === 'createNewGraph' && o.initialData && o.initialData.id) : [];
@@ -239,26 +239,26 @@ class CommitterService {
               body: JSON.stringify({ actions })
             });
           }
-        } catch {}
-        
+        } catch { }
+
         // Send completion notification to agent chat
         try {
           const threadIds = new Set(unseen.map(p => p.threadId).filter(Boolean));
           const nodeCount = ops.filter(o => o.type === 'addNodeInstance').length;
           const edgeCount = ops.filter(o => o.type === 'addEdge').length;
-          
+
           if (threadIds.size > 0 && (nodeCount > 0 || edgeCount > 0)) {
             for (const threadId of threadIds) {
               // CRITICAL: Get node names from the PATCH OPERATIONS, not the store
               // The prototypes were just added in this patch, so they might not be in the store yet
               const addedProtoOps = ops.filter(o => o.type === 'addNodePrototype');
               const protoById = new Map(addedProtoOps.map(o => [o.prototypeData.id, o.prototypeData.name]));
-              
+
               const addedNodeOps = ops.filter(o => o.type === 'addNodeInstance');
               const nodeNames = addedNodeOps.slice(0, 3).map(o => {
                 return protoById.get(o.prototypeId) || 'Unknown';
               });
-              
+
               let msg = `Added ${nodeCount} node${nodeCount !== 1 ? 's' : ''}`;
               if (nodeNames.length > 0) {
                 msg += `: ${nodeNames.join(', ')}${nodeCount > 3 ? '...' : ''}`;
@@ -266,16 +266,16 @@ class CommitterService {
               if (edgeCount > 0) {
                 msg += ` and ${edgeCount} connection${edgeCount !== 1 ? 's' : ''}`;
               }
-              
+
               const { bridgeFetch } = await import('./bridgeConfig.js');
-              
+
               // Send completion message to chat
               await bridgeFetch('/api/bridge/chat/append', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ role: 'system', text: msg, cid: threadId, channel: 'agent' })
-              }).catch(() => {});
-              
+              }).catch(() => { });
+
               // Report tool call completion status updates to chat
               // Determine which tool completed based on operation types
               const hasNewGraph = ops.some(o => o.type === 'createNewGraph');
@@ -283,9 +283,9 @@ class CommitterService {
               const hasInstances = ops.some(o => o.type === 'addNodeInstance');
               const hasEdges = ops.some(o => o.type === 'addEdge');
               const hasEdgeUpdates = ops.some(o => o.type === 'updateEdgeDefinition');
-              
+
               const completedTools = [];
-              
+
               // create_populated_graph: creates new graph + nodes + edges in one operation
               if (hasNewGraph && hasPrototypes && hasInstances && hasEdges) {
                 const newGraphOp = ops.find(o => o.type === 'createNewGraph');
@@ -304,7 +304,7 @@ class CommitterService {
                   args: { graphId, nodeCount, edgeCount }
                 });
               }
-              
+
               // define_connections: updates edge definitions (can happen standalone or after create)
               if (hasEdgeUpdates || (hasEdges && !hasInstances && !hasNewGraph)) {
                 completedTools.push({
@@ -313,7 +313,7 @@ class CommitterService {
                   args: { graphId, edgeCount }
                 });
               }
-              
+
               // Send tool call status updates if any tools completed
               if (completedTools.length > 0) {
                 await bridgeFetch('/api/bridge/tool-status', {
@@ -325,61 +325,61 @@ class CommitterService {
                   })
                 }).catch(err => console.warn('[Committer] Tool status update failed:', err.message));
               }
-              
+
               // AGENTIC LOOP: Check if we should continue building
               // Look for meta.agenticLoop flag to determine if this is part of an iterative build
               const isAgenticBatch = unseen.some(p => p.meta?.agenticLoop);
               const currentIteration = unseen[0]?.meta?.iteration || 0;
-              
+
               if (isAgenticBatch || (nodeCount >= 3 && !isAgenticBatch)) {
                 console.log(`[Committer] AGENTIC LOOP: Checking if more work needed (iteration ${currentIteration})`);
-                
+
                 // Get current graph state for LLM context
                 const store = await import('./bridgeStoreAccessor.js').then(m => m.getBridgeStore());
-                const graph = store.graphs instanceof Map 
+                const graph = store.graphs instanceof Map
                   ? store.graphs.get(graphId)
-                  : Array.isArray(store.graphs) 
+                  : Array.isArray(store.graphs)
                     ? store.graphs.find(g => g.id === graphId)
                     : null;
-                
+
                 const graphState = graph ? {
                   graphId,
                   name: graph.name || 'Unnamed graph',
                   nodeCount: graph.instances ? Object.keys(graph.instances).length : 0,
                   edgeCount: Array.isArray(graph.edgeIds) ? graph.edgeIds.length : 0,
-                  nodes: Array.isArray(store.nodePrototypes) 
+                  nodes: Array.isArray(store.nodePrototypes)
                     ? store.nodePrototypes.slice(0, 10).map(p => ({ name: p.name }))
                     : []
                 } : null;
-                
+
                 // Get API credentials from patch metadata (passed from bridge)
                 // CRITICAL: apiKeyManager uses localStorage (browser-only), so we get credentials from patch.meta
                 const apiKey = unseen[0]?.meta?.apiKey;
                 const apiConfig = unseen[0]?.meta?.apiConfig;
-                
-                console.log('[Committer] Agentic loop API key check:', { 
-                  hasApiKey: !!apiKey, 
+
+                console.log('[Committer] Agentic loop API key check:', {
+                  hasApiKey: !!apiKey,
                   hasApiConfig: !!apiConfig,
                   provider: apiConfig?.provider,
                   source: 'patch.meta'
                 });
-                
+
                 if (graphState && apiKey) {
                   // Send "Working..." status before continuing
                   await bridgeFetch('/api/bridge/chat/append', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ 
-                      role: 'system', 
-                      text: `Continuing... (iteration ${currentIteration + 1}/5)`, 
-                      cid: threadId, 
-                      channel: 'agent' 
+                    body: JSON.stringify({
+                      role: 'system',
+                      text: `Continuing... (iteration ${currentIteration + 1}/5)`,
+                      cid: threadId,
+                      channel: 'agent'
                     })
-                  }).catch(() => {});
-                  
+                  }).catch(() => { });
+
                   await bridgeFetch('/api/ai/agent/continue', {
                     method: 'POST',
-                    headers: { 
+                    headers: {
                       'Content-Type': 'application/json',
                       'Authorization': `Bearer ${apiKey}`
                     },
@@ -392,7 +392,8 @@ class CommitterService {
                         provider: apiConfig.provider,
                         endpoint: apiConfig.endpoint,
                         model: apiConfig.model
-                      } : null
+                      } : null,
+                      meta: unseen[0]?.meta // Pass full metadata (including remainingSubgoals) for chain state
                     })
                   }).catch(err => console.warn('[Committer] Agentic loop continuation failed:', err.message));
                 } else {
@@ -405,13 +406,13 @@ class CommitterService {
                   await bridgeFetch('/api/bridge/chat/append', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ 
-                      role: 'ai', 
-                      text: `Done! The graph now has ${totalNodes} node${totalNodes !== 1 ? 's' : ''} and ${totalEdges} connection${totalEdges !== 1 ? 's' : ''}.`, 
-                      cid: threadId, 
-                      channel: 'agent' 
+                    body: JSON.stringify({
+                      role: 'ai',
+                      text: `Done! The graph now has ${totalNodes} node${totalNodes !== 1 ? 's' : ''} and ${totalEdges} connection${totalEdges !== 1 ? 's' : ''}.`,
+                      cid: threadId,
+                      channel: 'agent'
                     })
-                  }).catch(() => {});
+                  }).catch(() => { });
                 }
               }
             }
