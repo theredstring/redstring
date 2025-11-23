@@ -335,10 +335,13 @@ CLARIFICATION & QUESTIONS:
 - "qa" intent is also for chat, explanations, and search results without modification.
 - Example: {"intent":"qa", "response":"Should I focus on political borders or physical geography?", "questions":["Focus on politics?", "Focus on geography?"]}
 
-AGENTIC LOOP & BATCHING:
-- You have a 5-iteration budget. Start strong with core concepts (5-8 nodes).
-- The system will loop back to you with the new state so you can add more.
-- Don't try to do everything in one shot if it's complex; build the foundation first.
+GRAPH SIZE GUIDELINES:
+- Simple topics (e.g., "solar system"): 8-12 nodes
+- Medium topics (e.g., "Greek mythology"): 12-20 nodes  
+- Complex topics (e.g., "World War II"): 20-30 nodes
+- CRITICAL: Generate the COMPLETE graph in ONE response. Do NOT hold back nodes for future iterations.
+- The system will NOT loop back to you - this is your only chance to create a comprehensive graph.
+- If the topic is too broad, ask a clarifying question to narrow the scope, then generate the full graph.
 
 EXAMPLES BY DOMAIN:
 Family: "Parent-Child Bond", "Sibling Rivalry", "Extended Family"
@@ -420,8 +423,11 @@ Choose the layout that best fits the graph structure you're creating:
 - "grid": Good for structured data, matrices, or when spatial arrangement matters
 Feel free to choose creatively based on what will best reveal the relationships in your specific graph.
 
-CRITICAL: You MUST always return a populated graphSpec with 8-15 nodes. Never return an empty graph.
-If the user doesn't specify details, make reasonable assumptions based on the topic.
+CRITICAL: You MUST always return a populated graphSpec. Never return an empty graph.
+- Simple topics: 8-12 nodes minimum
+- Medium topics: 12-20 nodes minimum
+- Complex topics: 20-30 nodes minimum
+If the user doesn't specify details, make reasonable assumptions based on the topic and generate a COMPLETE, comprehensive graph.
 Example response: {"intent":"create_graph","response":"I'll create a Solar System graph with 8 planets (inner/outer groups) orbiting the Sun, plus planetary neighbor connections.","graph":{"name":"Solar System"},"graphSpec":{"nodes":[{"name":"Sun","color":"#FDB813","description":"Central star"},{"name":"Mercury","color":"#8C7853","description":"Innermost planet"},{"name":"Venus","color":"#FFC649"},{"name":"Earth","color":"#4A90E2"},{"name":"Mars","color":"#E27B58"},{"name":"Jupiter","color":"#C88B3A","description":"Largest planet"},{"name":"Saturn","color":"#FAD5A5"},{"name":"Uranus","color":"#4FD0E7"},{"name":"Neptune","color":"#4166F5","description":"Outermost planet"}],"edges":[{"source":"Sun","target":"Mercury","directionality":"unidirectional","definitionNode":{"name":"Orbits","description":"Gravitational orbit"}},{"source":"Sun","target":"Venus","directionality":"unidirectional","definitionNode":{"name":"Orbits","description":"Gravitational orbit"}},{"source":"Sun","target":"Earth","directionality":"unidirectional","definitionNode":{"name":"Orbits","description":"Gravitational orbit"}},{"source":"Sun","target":"Mars","directionality":"unidirectional","definitionNode":{"name":"Orbits","description":"Gravitational orbit"}},{"source":"Sun","target":"Jupiter","directionality":"unidirectional","definitionNode":{"name":"Orbits","description":"Gravitational orbit"}},{"source":"Sun","target":"Saturn","directionality":"unidirectional","definitionNode":{"name":"Orbits","description":"Gravitational orbit"}},{"source":"Sun","target":"Uranus","directionality":"unidirectional","definitionNode":{"name":"Orbits","description":"Gravitational orbit"}},{"source":"Sun","target":"Neptune","directionality":"unidirectional","definitionNode":{"name":"Orbits","description":"Gravitational orbit"}},{"source":"Mercury","target":"Venus","directionality":"none","definitionNode":{"name":"Planetary Neighbor","description":"Adjacent in orbit"}},{"source":"Venus","target":"Earth","directionality":"none","definitionNode":{"name":"Planetary Neighbor","description":"Adjacent in orbit"}},{"source":"Earth","target":"Mars","directionality":"none","definitionNode":{"name":"Planetary Neighbor","description":"Adjacent in orbit"}},{"source":"Jupiter","target":"Saturn","directionality":"none","definitionNode":{"name":"Planetary Neighbor","description":"Adjacent in orbit"}}],"layoutAlgorithm":"radial"}}
 
 Intent: "create_node" (ADD TO EXISTING GRAPH)

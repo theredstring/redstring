@@ -326,96 +326,24 @@ class CommitterService {
                 }).catch(err => console.warn('[Committer] Tool status update failed:', err.message));
               }
 
-              // AGENTIC LOOP: Check if we should continue building
-              // Look for meta.agenticLoop flag to determine if this is part of an iterative build
-              const isAgenticBatch = unseen.some(p => p.meta?.agenticLoop);
-              const currentIteration = unseen[0]?.meta?.iteration || 0;
 
-              if (isAgenticBatch || (nodeCount >= 3 && !isAgenticBatch)) {
-                console.log(`[Committer] AGENTIC LOOP: Checking if more work needed (iteration ${currentIteration})`);
+              // SINGLE-SHOT GENERATION: No more iterative loops
+              // The AI generates the complete graph in one response, so we just send a completion message
+              if (threadIds.size > 0 && (nodeCount > 0 || edgeCount > 0)) {
+                // Calculate final counts
+                const mutationsNodeCount = ops.filter(o => o.type === 'addNodeInstance').length;
+                const mutationsEdgeCount = ops.filter(o => o.type === 'addEdge').length;
 
-                // Get current graph state for LLM context
-                const store = await import('./bridgeStoreAccessor.js').then(m => m.getBridgeStore());
-                const graph = store.graphs instanceof Map
-                  ? store.graphs.get(graphId)
-                  : Array.isArray(store.graphs)
-                    ? store.graphs.find(g => g.id === graphId)
-                    : null;
-
-                const graphState = graph ? {
-                  graphId,
-                  name: graph.name || 'Unnamed graph',
-                  nodeCount: graph.instances ? Object.keys(graph.instances).length : 0,
-                  edgeCount: Array.isArray(graph.edgeIds) ? graph.edgeIds.length : 0,
-                  nodes: Array.isArray(store.nodePrototypes)
-                    ? store.nodePrototypes.slice(0, 10).map(p => ({ name: p.name }))
-                    : []
-                } : null;
-
-                // Get API credentials from patch metadata (passed from bridge)
-                // CRITICAL: apiKeyManager uses localStorage (browser-only), so we get credentials from patch.meta
-                const apiKey = unseen[0]?.meta?.apiKey;
-                const apiConfig = unseen[0]?.meta?.apiConfig;
-
-                console.log('[Committer] Agentic loop API key check:', {
-                  hasApiKey: !!apiKey,
-                  hasApiConfig: !!apiConfig,
-                  provider: apiConfig?.provider,
-                  source: 'patch.meta'
-                });
-
-                if (graphState && apiKey) {
-                  // Send "Working..." status before continuing
-                  await bridgeFetch('/api/bridge/chat/append', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                      role: 'system',
-                      text: `Continuing... (iteration ${currentIteration + 1}/5)`,
-                      cid: threadId,
-                      channel: 'agent'
-                    })
-                  }).catch(() => { });
-
-                  await bridgeFetch('/api/ai/agent/continue', {
-                    method: 'POST',
-                    headers: {
-                      'Content-Type': 'application/json',
-                      'Authorization': `Bearer ${apiKey}`
-                    },
-                    body: JSON.stringify({
-                      cid: threadId,
-                      lastAction: { type: 'create_subgraph', nodeCount, edgeCount },
-                      graphState,
-                      iteration: currentIteration,
-                      originalMessage: unseen[0]?.meta?.originalMessage || unseen[0]?.meta?.message || 'expand the graph',  // CRITICAL: Pass original user request
-                      conversationHistory: unseen[0]?.meta?.conversationHistory || [],  // CRITICAL: Pass conversation context
-                      apiConfig: apiConfig ? {
-                        provider: apiConfig.provider,
-                        endpoint: apiConfig.endpoint,
-                        model: apiConfig.model
-                      } : null,
-                      meta: unseen[0]?.meta // Pass full metadata (including remainingSubgoals) for chain state
-                    })
-                  }).catch(err => console.warn('[Committer] Agentic loop continuation failed:', err.message));
-                } else {
-                  // No more work - send final summary
-                  // Calculate final counts: current state + mutations just applied
-                  const mutationsNodeCount = ops.filter(o => o.type === 'addNodeInstance').length;
-                  const mutationsEdgeCount = ops.filter(o => o.type === 'addEdge').length;
-                  const totalNodes = (graphState?.nodeCount || 0) + mutationsNodeCount;
-                  const totalEdges = (graphState?.edgeCount || 0) + mutationsEdgeCount;
-                  await bridgeFetch('/api/bridge/chat/append', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                      role: 'ai',
-                      text: `Done! The graph now has ${totalNodes} node${totalNodes !== 1 ? 's' : ''} and ${totalEdges} connection${totalEdges !== 1 ? 's' : ''}.`,
-                      cid: threadId,
-                      channel: 'agent'
-                    })
-                  }).catch(() => { });
-                }
+                await bridgeFetch('/api/bridge/chat/append', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({
+                    role: 'ai',
+                    text: `✅ Complete! Added ${mutationsNodeCount} node${mutationsNodeCount !== 1 ? 's' : ''} and ${mutationsEdgeCount} connection${mutationsEdgeCount !== 1 ? 's' : ''}.`,
+                    cid: threadId,
+                    channel: 'agent'
+                  })
+                }).catch(() => { });
               }
             }
           }
