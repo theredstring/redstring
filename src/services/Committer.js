@@ -388,6 +388,8 @@ class CommitterService {
                       lastAction: { type: 'create_subgraph', nodeCount, edgeCount },
                       graphState,
                       iteration: currentIteration,
+                      originalMessage: unseen[0]?.meta?.originalMessage || unseen[0]?.meta?.message || 'expand the graph',  // CRITICAL: Pass original user request
+                      conversationHistory: unseen[0]?.meta?.conversationHistory || [],  // CRITICAL: Pass conversation context
                       apiConfig: apiConfig ? {
                         provider: apiConfig.provider,
                         endpoint: apiConfig.endpoint,

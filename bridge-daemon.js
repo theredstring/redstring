@@ -921,13 +921,23 @@ app.post('/api/ai/agent/continue', async (req, res) => {
       }
     }
 
-    const MAX_ITERATIONS = 5; // Prevent infinite loops
+    const MAX_ITERATIONS = 2; // Reduced from 5: initial creation + 1 refinement pass
+
+    // Smart stopping conditions
+    const nodeCount = graphState?.nodeCount || 0;
+    const REASONABLE_NODE_COUNT = 15; // Most graphs don't need more than this
 
     if (iteration >= MAX_ITERATIONS) {
-      logger.warn(`[Agent/Continue] Max iterations (${MAX_ITERATIONS}) reached for cid=${cid}`);
-      const responseText = `✅ Reached maximum iteration limit. The graph has been populated with ${graphState?.nodeCount || 0} nodes and ${graphState?.edgeCount || 0} connections.`;
-      // NOTE: Don't appendChat here - UI displays from JSON response to avoid duplicates
+      logger.info(`[Agent/Continue] Max iterations (${MAX_ITERATIONS}) reached for cid=${cid}`);
+      const responseText = `✅ Graph complete with ${nodeCount} nodes and ${graphState?.edgeCount || 0} connections.`;
       return res.json({ success: true, completed: true, response: responseText, reason: 'max_iterations' });
+    }
+
+    // Stop if graph is already well-populated (prevents endless iteration)
+    if (nodeCount >= REASONABLE_NODE_COUNT) {
+      logger.info(`[Agent/Continue] Graph has ${nodeCount} nodes (>= ${REASONABLE_NODE_COUNT}), stopping iteration`);
+      const responseText = `✅ Graph complete with ${nodeCount} nodes and ${graphState?.edgeCount || 0} connections.`;
+      return res.json({ success: true, completed: true, response: responseText, reason: 'sufficient_nodes' });
     }
 
     logger.debug(`[Agent/Continue] Iteration ${iteration + 1} for cid=${cid}, graph has ${graphState?.nodeCount || 0} nodes`);
@@ -948,6 +958,7 @@ app.post('/api/ai/agent/continue', async (req, res) => {
     const readResult = body.readResult;
     const isReadThenCreate = readResult && readResult.nodeCount > 0;
 
+
     // Extract user's color palette for consistent styling
     const extractColorPalette = () => {
       const allColors = [];
@@ -959,13 +970,88 @@ app.post('/api/ai/agent/continue', async (req, res) => {
         }
       }
       if (allColors.length === 0) return null;
+
       const uniqueColors = [...new Set(allColors)];
-      return { colors: uniqueColors.slice(0, 10) };  // Top 10 user colors
+
+      // Calculate average hue for color generation (same as initial request)
+      const hues = uniqueColors.map(color => {
+        const r = parseInt(color.slice(1, 3), 16) / 255;
+        const g = parseInt(color.slice(3, 5), 16) / 255;
+        const b = parseInt(color.slice(5, 7), 16) / 255;
+        const max = Math.max(r, g, b);
+        const min = Math.min(r, g, b);
+        const diff = max - min;
+        let h = 0;
+        if (diff !== 0) {
+          if (max === r) h = ((g - b) / diff) % 6;
+          else if (max === g) h = (b - r) / diff + 2;
+          else h = (r - g) / diff + 4;
+        }
+        h = Math.round(h * 60);
+        if (h < 0) h += 360;
+        return h;
+      });
+
+      const avgHue = Math.round(hues.reduce((a, b) => a + b, 0) / hues.length);
+      return { colors: uniqueColors.slice(0, 5), avgHue, count: uniqueColors.length };
     };
+
     const userPalette = extractColorPalette();
+
+    // Generate spectrum colors (same logic as initial request)
+    const generateSpectrumColors = (basePalette) => {
+      const userColors = basePalette?.colors || [];
+      if (userColors.length >= 8) {
+        return userColors;
+      }
+
+      const saturation = 1.0;
+      const value = 0.5451;
+
+      let hueSteps;
+      if (basePalette && basePalette.avgHue !== undefined) {
+        const baseHue = basePalette.avgHue;
+        hueSteps = [
+          (baseHue - 90 + 360) % 360,
+          (baseHue - 60 + 360) % 360,
+          (baseHue - 30 + 360) % 360,
+          baseHue,
+          (baseHue + 30) % 360,
+          (baseHue + 60) % 360,
+          (baseHue + 90) % 360,
+          (baseHue + 120) % 360,
+          (baseHue + 180) % 360,
+          (baseHue + 240) % 360
+        ];
+      } else {
+        hueSteps = [0, 30, 60, 90, 120, 150, 180, 210, 240, 270, 300, 330];
+      }
+
+      const generatedColors = hueSteps.map(h => {
+        const c = value * saturation;
+        const x = c * (1 - Math.abs(((h / 60) % 2) - 1));
+        const m = value - c;
+        let r, g, b;
+        if (h >= 0 && h < 60) { r = c; g = x; b = 0; }
+        else if (h >= 60 && h < 120) { r = x; g = c; b = 0; }
+        else if (h >= 120 && h < 180) { r = 0; g = c; b = x; }
+        else if (h >= 180 && h < 240) { r = 0; g = x; b = c; }
+        else if (h >= 240 && h < 300) { r = x; g = 0; b = c; }
+        else { r = c; g = 0; b = x; }
+        r = Math.round((r + m) * 255);
+        g = Math.round((g + m) * 255);
+        b = Math.round((b + m) * 255);
+        return `#${r.toString(16).padStart(2, '0')}${g.toString(16).padStart(2, '0')}${b.toString(16).padStart(2, '0')}`;
+      });
+
+      return [...userColors, ...generatedColors].slice(0, 12);
+    };
+
+    const paletteColors = generateSpectrumColors(userPalette);
     const paletteContext = userPalette
-      ? `\n\n🎨 USER'S COLOR PALETTE:\nUSE THESE COLORS: ${userPalette.colors.join(', ')}\n⚠️ Match the existing graph's color style. Use colors from the list above or similar muted/dark tones.`
-      : '';
+      ? `\n\n🎨 USER'S COLOR PALETTE:\nUSE THESE COLORS: ${paletteColors.join(', ')}\n⚠️ Match the existing graph's color style. Use colors from the list above or similar muted/dark tones.`
+      : `\n\n🎨 AVAILABLE COLORS: ${paletteColors.join(', ')}\n⚠️ ONLY use colors from the list above.`;
+
 
     // Build continuation prompt
     let continuePrompt;
@@ -1058,17 +1144,35 @@ NOTE:
 `;
     } else {
       // AGENTIC BATCHING: Iterative building, simple continuation decision
+      // CRITICAL: Include original user request and graph name to prevent hallucination
+      const originalMessage = body.originalMessage || body.message || 'expand the graph';
+      const graphName = graphState?.name || 'the graph';
+      const conversationContext = Array.isArray(body.conversationHistory) && body.conversationHistory.length > 0
+        ? '\n\n📝 CONVERSATION CONTEXT:\n' + body.conversationHistory.slice(-3).map(msg => `${msg.role === 'user' ? 'User' : 'You'}: ${msg.content}`).join('\n')
+        : '';
+
       continuePrompt = `
-AGENTIC LOOP ITERATION ${iteration + 1}/${MAX_ITERATIONS}
+AGENTIC LOOP - REFINEMENT PASS ${iteration + 1}/${MAX_ITERATIONS}
+
+🎯 ORIGINAL USER REQUEST: "${originalMessage}"
+📊 GRAPH NAME: "${graphName}"
+${conversationContext}
 
 Previous action: ${lastAction?.type || 'unknown'}
 Current graph state:
 - Nodes: ${graphState?.nodeCount || 0}
 - Edges: ${graphState?.edgeCount || 0}
-- Example nodes: ${(graphState?.nodes || []).slice(0, 5).map(n => n.name).join(', ')}
+- Example nodes: ${(graphState?.nodes || []).slice(0, 10).map(n => n.name).join(', ')}
+${paletteContext}
+
+CRITICAL INSTRUCTIONS:
+1. STAY ON TOPIC: You are building "${graphName}" based on the user's request: "${originalMessage}"
+2. DO NOT HALLUCINATE: Only add nodes that are directly relevant to the user's request
+3. CHECK EXISTING NODES: Review the "Example nodes" list above to avoid duplicates
+4. SEMANTIC RELEVANCE: Every new node should help answer "What is ${graphName}?" or fulfill the user's request
 
 Your options:
-1. "continue" - Add more nodes/edges (provide graphSpec)
+1. "continue" - Add more nodes/edges that are RELEVANT to "${originalMessage}" (provide graphSpec)
 2. "refine" - Define connections or update existing nodes
 3. "complete" - Task is complete, provide summary
 
@@ -1077,7 +1181,7 @@ CRITICAL: Every edge MUST include definitionNode with {name, color, description}
 Respond with JSON:
 {
   "decision": "continue" | "refine" | "complete",
-  "reasoning": "why you chose this",
+  "reasoning": "why you chose this (must reference the user's original request)",
   "response": "brief message about what you're doing",
   "graphSpec": { 
     "nodes": [{name:"X",color:"#HEX",description:"..."}],
@@ -2310,7 +2414,9 @@ app.post('/api/ai/agent', async (req, res) => {
             agenticLoop: true,  // Flag to trigger continuation after commit
             chainState: body.context?.chainState,
             apiKey: req.headers.authorization?.replace(/^Bearer\s+/i, ''),
-            apiConfig: body.context?.apiConfig
+            apiConfig: body.context?.apiConfig,
+            originalMessage: body.message,  // CRITICAL: Store original user request for continuation
+            conversationHistory: body.conversationHistory || []  // CRITICAL: Store conversation context
           }
         });
 
