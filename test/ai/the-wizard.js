@@ -13,22 +13,52 @@ const __dirname = dirname(__filename);
 async function main() {
     console.log("🧙‍♂️ The Wizard: Initializing...");
 
-    // 1. Check Bridge Server
+    // 1. Ensure Bridge is running on 3001
+    console.log("🌉 Checking Bridge Server (port 3001)...");
+    let bridgeProcess = null;
     try {
         const bridgeHealth = await fetch("http://localhost:3001/health");
-        if (!bridgeHealth.ok) throw new Error("Bridge not healthy");
-        console.log("✅ Bridge server is running.");
+        if (bridgeHealth.ok) {
+            console.log("✅ Bridge server is already running.");
+        } else {
+            throw new Error("Bridge not healthy");
+        }
     } catch (error) {
-        console.error("❌ Bridge server is NOT running. Please run 'npm run bridge' in another terminal.");
-        process.exit(1);
+        console.log("🔸 Bridge not running. Starting it...");
+        bridgeProcess = spawn("npm", ["run", "bridge"], {
+            cwd: join(__dirname, "../../"),
+            stdio: "ignore", // Detached or ignore to not clutter
+            detached: true
+        });
+        bridgeProcess.unref(); // Let it run independently
+
+        // Wait for it to come up
+        console.log("⏳ Waiting for Bridge to initialize...");
+        let retries = 10;
+        while (retries > 0) {
+            await new Promise(r => setTimeout(r, 1000));
+            try {
+                const res = await fetch("http://localhost:3001/health");
+                if (res.ok) {
+                    console.log("✅ Bridge server started.");
+                    break;
+                }
+            } catch (e) { }
+            retries--;
+        }
+        if (retries === 0) {
+            console.error("❌ Failed to start Bridge server.");
+            process.exit(1);
+        }
     }
 
-    // 2. Start MCP Server
-    console.log("🔌 Starting MCP Server...");
+    // 2. Start MCP Server on 3002 (to avoid conflict with Bridge on 3001)
+    console.log("🔌 Starting MCP Server (port 3002)...");
 
     const transport = new StdioClientTransport({
         command: "node",
-        args: [join(__dirname, "../../redstring-mcp-server.js")]
+        args: [join(__dirname, "../../redstring-mcp-server.js")],
+        env: { ...process.env, PORT: "3002" } // Explicitly set PORT to 3002
     });
 
     const client = new Client({
@@ -80,9 +110,24 @@ async function runScenario1(client) {
     const graphIdMatch = graphOutput.match(/\((graph-[^)]+)\)/);
     if (!graphIdMatch) throw new Error("Could not extract graph ID");
     const graphId = graphIdMatch[1];
-    global.wizardGraphId = graphId; // Store for later
+    // Verify action was queued
+    console.log("   Verifying action queue...");
+    try {
+        const pendingRes = await fetch("http://localhost:3002/api/bridge/pending-actions");
+        const pendingData = await pendingRes.json();
+        const actions = pendingData.pendingActions || [];
+        const createAction = actions.find(a => a.action === 'createNewGraph');
+        if (createAction) {
+            console.log("   ✅ Action queued: createNewGraph");
+        } else {
+            console.log("   ⚠️ Action NOT found in queue (might have been consumed or failed)");
+        }
+    } catch (e) {
+        console.log("   ⚠️ Could not verify queue:", e.message);
+    }
 
-    // Create Nodes
+    // Create Nodes using create_subgraph (modern approach)
+    console.log("   Creating nodes via create_subgraph...");
     const nodes = [
         { name: "Thing", type: "Root" },
         { name: "Vehicle", type: "General" },
@@ -90,37 +135,15 @@ async function runScenario1(client) {
         { name: "Toyota Camry", type: "Instance" }
     ];
 
-    global.nodeIds = {};
-
-    for (const node of nodes) {
-        console.log(`   Creating node '${node.name}'...`);
-        // We use add_node_prototype because we want to define concepts first
-        // But wait, add_node_prototype just adds a prototype.
-        // To add to the graph, we need add_node_instance.
-        // Or create_subgraph does both.
-        // Let's use add_node_prototype then add_node_instance.
-
-        // Check if prototype exists first? No, just add.
-        const protoRes = await client.callTool({
-            name: "add_node_prototype",
-            arguments: {
-                name: node.name,
-                description: `A ${node.type} concept`
-            }
-        });
-        // Extract prototype ID
-        const protoOutput = protoRes.content[0].text;
-        const protoIdMatch = protoOutput.match(/ID: (prototype-[^\s]+)/) || protoOutput.match(/prototype ([^\s]+)/);
-        // The output format of add_node_prototype might vary.
-        // Let's check redstring-mcp-server.js implementation of add_node_prototype.
-        // It returns "Successfully added prototype ... (ID: ...)"
-
-        // Actually, let's just use create_subgraph for the whole thing?
-        // No, Scenario 1 asks for individual steps.
-
-        // Let's assume we can get the ID.
-        // If not, we can search for it.
-    }
+    const subgraphResult = await client.callTool({
+        name: "create_subgraph",
+        arguments: {
+            name: "Wizard's Playground Content",
+            nodes: nodes.map(n => ({ name: n.name, description: n.type })),
+            edges: []
+        }
+    });
+    console.log("   ✅ Success:", subgraphResult.content[0].text);
 
     // Since extracting IDs from text is fragile, let's use search_nodes to get them.
     console.log("   Verifying nodes...");

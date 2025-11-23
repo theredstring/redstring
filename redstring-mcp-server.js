@@ -33,11 +33,9 @@ const server = new McpServer({
 // Create Express app for HTTP endpoints
 const app = express();
 // Force 3001 for internal chat/wizard compatibility regardless of .env PORT
-const ENV_PORT = process.env.PORT;
-const PORT = 3001;
-if (ENV_PORT && String(ENV_PORT) !== String(PORT)) {
-  console.warn(`⚠️ Ignoring PORT=${ENV_PORT} from environment; using ${PORT} for internal bridge compatibility.`);
-}
+// Allow PORT override from environment, default to 3001
+const PORT = process.env.PORT || 3001;
+console.log(`[MCP] Configured to run on port ${PORT}`);
 
 // Respect proxy headers when running behind Cloudflare/NGINX
 const TRUST_PROXY = process.env.TRUST_PROXY;
@@ -1384,47 +1382,6 @@ try {
     res.json({ telemetry: global.__rsTelemetry || [] });
   });
 } catch { }
-server.tool(
-  "update_node_prototype",
-  "Update a node prototype's properties (e.g., abstraction chains, definition graphs)",
-  {
-    prototypeId: z.string().describe("The ID of the prototype to update"),
-    updates: z.object({
-      abstractionChains: z.record(z.array(z.string())).optional().describe("Map of dimension names to lists of prototype IDs (ordered general to specific)"),
-      definitionGraphIds: z.array(z.string()).optional().describe("List of graph IDs that define this node"),
-      description: z.string().optional(),
-      color: z.string().optional()
-    }).describe("Properties to update")
-  },
-  async ({ prototypeId, updates }) => {
-    try {
-      if (!global.__rsTelemetry) global.__rsTelemetry = [];
-      global.__rsTelemetry.push({ ts: Date.now(), type: 'tool_call', name: 'update_node_prototype', args: { prototypeId, updates }, status: 'started' });
-
-      const bridge = getRealRedstringActions();
-      await bridge.updateNodePrototype(prototypeId, updates);
-
-      global.__rsTelemetry.push({ ts: Date.now(), type: 'tool_call', name: 'update_node_prototype', status: 'completed' });
-      return {
-        content: [{
-          type: "text",
-          text: `Successfully updated prototype ${prototypeId}`
-        }]
-      };
-    } catch (error) {
-      if (!global.__rsTelemetry) global.__rsTelemetry = [];
-      global.__rsTelemetry.push({ ts: Date.now(), type: 'tool_call', name: 'update_node_prototype', status: 'error', error: String(error?.message || error) });
-      return {
-        content: [{
-          type: "text",
-          text: `Error updating prototype: ${error.message}`
-        }],
-        isError: true
-      };
-    }
-  }
-);
-
 
 server.tool(
   "create_graph",
@@ -1911,132 +1868,7 @@ ${graphData.nodePrototypes && graphData.nodePrototypes instanceof Map ?
   }
 );
 
-server.tool(
-  "add_node_prototype",
-  "⚠️ LEGACY: Add a new node prototype to the real Redstring store (use addNodeToGraph instead)",
-  {
-    name: z.string().describe("Name of the prototype"),
-    description: z.string().describe("Description of the prototype"),
-    color: z.string().optional().describe("Color for the prototype (hex code)"),
-    typeNodeId: z.string().optional().describe("Parent type node ID (optional)")
-  },
-  async ({ name, description, color = "#4A90E2", typeNodeId = null }) => {
-    try {
-      console.warn('⚠️ DEPRECATED: add_node_prototype is deprecated. Use addNodeToGraph instead.');
 
-      const actions = getRealRedstringActions();
-
-      // Create prototype data
-      const prototypeData = {
-        name,
-        description,
-        color,
-        typeNodeId
-      };
-
-      // Get initial state to compare
-      const initialState = await getRealRedstringState();
-      const initialPrototypeCount = initialState.nodePrototypes.size;
-
-      // Add to real Redstring store
-      await actions.addNodePrototype(prototypeData);
-
-      // CRITICAL: Verify the action actually succeeded by checking the updated state
-      const updatedState = await getRealRedstringState();
-      const newPrototypeCount = updatedState.nodePrototypes.size;
-
-      if (newPrototypeCount <= initialPrototypeCount) {
-        return {
-          content: [
-            {
-              type: "text",
-              text: `❌ **VERIFICATION FAILED**: Prototype count did not increase. Expected: ${initialPrototypeCount + 1}, Actual: ${newPrototypeCount}
-
-**Debug Information:**
-- Prototype Name: ${name}
-- Description: ${description}
-- Color: ${color}
-- Parent Type: ${typeNodeId || 'None'}
-
-**Troubleshooting:**
-- The action was queued but may not have executed successfully
-- Check if the MCPBridge is properly connected to Redstring
-- Try using \`list_available_graphs\` to see current state`
-            }
-          ]
-        };
-      }
-
-      // Find the newly created prototype to get its ID
-      const newPrototype = Array.from(updatedState.nodePrototypes.values()).find(p =>
-        p.name === name && p.description === description
-      );
-
-      if (!newPrototype) {
-        return {
-          content: [
-            {
-              type: "text",
-              text: `❌ **VERIFICATION FAILED**: New prototype not found in store after creation.
-
-**Debug Information:**
-- Prototype Name: ${name}
-- Description: ${description}
-- Expected Count: ${initialPrototypeCount + 1}
-- Actual Count: ${newPrototypeCount}
-
-**Troubleshooting:**
-- The prototype may have been created with different data
-- Check if there are duplicate names or descriptions
-- Try using \`list_available_graphs\` to see current state`
-            }
-          ]
-        };
-      }
-
-      const response = `✅ **Node Prototype Added Successfully (VERIFIED)**
-
-**New Prototype:**
-- **Name:** ${name}
-- **ID:** ${newPrototype.id}
-- **Description:** ${description}
-- **Color:** ${color}
-- **Parent Type:** ${typeNodeId || 'None (base type)'}
-- **Prototype Count:** ${initialPrototypeCount} → ${newPrototypeCount} ✅
-
-**Verification:**
-- ✅ Action executed successfully
-- ✅ Prototype count increased
-- ✅ Prototype found in store
-- ✅ Available for creating instances in any graph
-- ✅ Will appear in type selection lists
-- ✅ Persists to .redstring file
-
-**Next Steps:**
-- Use \`add_node_instance\` to create instances of this prototype
-- Use \`list_available_graphs\` to see all graphs
-- Use \`open_graph\` to open a graph for adding instances`;
-
-      return {
-        content: [
-          {
-            type: "text",
-            text: response
-          }
-        ]
-      };
-    } catch (error) {
-      return {
-        content: [
-          {
-            type: "text",
-            text: `❌ Error adding prototype to Redstring store: ${error.message}`
-          }
-        ]
-      };
-    }
-  }
-);
 
 server.tool(
   "get_spatial_map",
@@ -2657,192 +2489,7 @@ ${instanceList}
   }
 );
 
-server.tool(
-  "add_node_instance",
-  "⚠️ LEGACY: Add a new instance of a prototype to the active graph in the real Redstring store (use addNodeToGraph instead)",
-  {
-    prototypeName: z.string().describe("Name of the prototype to create an instance of"),
-    position: z.object({
-      x: z.number().describe("X coordinate for the instance"),
-      y: z.number().describe("Y coordinate for the instance")
-    }).describe("Position coordinates for the instance"),
-    graphId: z.string().optional().describe("Specific graph to add to (default: active graph)")
-  },
-  async ({ prototypeName, position, graphId }) => {
-    try {
-      console.warn('⚠️ DEPRECATED: add_node_instance is deprecated. Use addNodeToGraph instead.');
 
-      const state = await getRealRedstringState();
-      const actions = getRealRedstringActions();
-
-      const targetGraphId = graphId || state.activeGraphId;
-
-      if (!targetGraphId) {
-        return {
-          content: [
-            {
-              type: "text",
-              text: `❌ No active graph found. Use \`open_graph\` to open a graph first.`
-            }
-          ]
-        };
-      }
-
-      // Validate that the target graph exists
-      if (!state.graphs.has(targetGraphId)) {
-        return {
-          content: [
-            {
-              type: "text",
-              text: `❌ Graph "${targetGraphId}" not found. Use \`list_available_graphs\` to see available graphs.`
-            }
-          ]
-        };
-      }
-
-      // Find the prototype by name or ID
-      let prototype = null;
-
-      // First try exact name match
-      prototype = Array.from(state.nodePrototypes.values()).find(p =>
-        p.name.toLowerCase() === prototypeName.toLowerCase()
-      );
-
-      if (!prototype) {
-        // Try ID match
-        prototype = Array.from(state.nodePrototypes.values()).find(p =>
-          p.id === prototypeName
-        );
-      }
-
-      if (!prototype) {
-        // Try partial name match
-        prototype = Array.from(state.nodePrototypes.values()).find(p =>
-          p.name.toLowerCase().includes(prototypeName.toLowerCase())
-        );
-      }
-
-      if (!prototype) {
-        return {
-          content: [
-            {
-              type: "text",
-              text: `❌ Prototype "${prototypeName}" not found. 
-
-**Available prototypes:**
-${Array.from(state.nodePrototypes.values()).map(p => `- ${p.name} (${p.id})`).join('\n')}
-
-**Troubleshooting:**
-- Use the prototype **name** (e.g., "Charles McGill") or **ID** (e.g., "33b579d9-9d19-4c03-b802-44de24055f23")
-- Make sure the prototype exists first using \`add_node_prototype\`
-- Or use \`ai_guided_workflow\` with \`full_workflow\` which creates prototypes automatically`
-            }
-          ]
-        };
-      }
-
-      // CRITICAL: Ensure prototype exists before creating instance
-      if (!state.nodePrototypes.has(prototype.id)) {
-        return {
-          content: [
-            {
-              type: "text",
-              text: `❌ Prototype "${prototype.name}" (${prototype.id}) not found in store. This should not happen - the prototype may have been deleted.`
-            }
-          ]
-        };
-      }
-
-      // Add instance to real Redstring store
-      await actions.addNodeInstance(targetGraphId, prototype.id, position);
-
-      // CRITICAL: Verify the action actually succeeded by checking the updated state
-      const updatedState = await getRealRedstringState();
-      const updatedGraph = updatedState.graphs.get(targetGraphId);
-
-      if (!updatedGraph) {
-        return {
-          content: [
-            {
-              type: "text",
-              text: `❌ **VERIFICATION FAILED**: Graph "${targetGraphId}" not found after adding instance. The action may have failed.`
-            }
-          ]
-        };
-      }
-
-      // Check if the instance was actually added by comparing instance counts
-      const originalInstanceCount = state.graphs.get(targetGraphId)?.instances?.size || 0;
-      const newInstanceCount = updatedGraph.instances?.size || 0;
-
-      if (newInstanceCount <= originalInstanceCount) {
-        return {
-          content: [
-            {
-              type: "text",
-              text: `❌ **VERIFICATION FAILED**: Instance count did not increase. Expected: ${originalInstanceCount + 1}, Actual: ${newInstanceCount}
-
-**Debug Information:**
-- Prototype: ${prototype.name} (${prototype.id})
-- Target Graph: ${state.graphs.get(targetGraphId)?.name} (${targetGraphId})
-- Position: (${position.x}, ${position.y})
-
-**Troubleshooting:**
-- The action was queued but may not have executed successfully
-- Check if the MCPBridge is properly connected to Redstring
-- Try using \`get_active_graph\` to see current state`
-            }
-          ]
-        };
-      }
-
-      const response = `✅ **Node Instance Added Successfully (VERIFIED)**
-
-**New Instance:**
-- **Prototype:** ${prototype.name} (${prototype.id})
-- **Position:** (${position.x}, ${position.y})
-- **Graph:** ${state.graphs.get(targetGraphId)?.name} (${targetGraphId})
-- **Instance Count:** ${originalInstanceCount} → ${newInstanceCount} ✅
-
-**Verification:**
-- ✅ Action executed successfully
-- ✅ Instance count increased
-- ✅ Instance added to real graph
-- ✅ Visible in Redstring UI immediately
-- ✅ Persists to .redstring file
-
-**Debug Information:**
-- **Graph ID:** ${targetGraphId}
-- **Prototype ID:** ${prototype.id}
-- **Expected Count Increase:** +1
-- **Actual Count Increase:** +${newInstanceCount - originalInstanceCount}
-
-**Next Steps:**
-- Use \`get_graph_instances\` to see detailed instance information
-- Use \`get_active_graph\` to see all instances in the graph
-- Use \`add_edge\` to connect this instance to others
-- Use \`move_node_instance\` to reposition the instance`;
-
-      return {
-        content: [
-          {
-            type: "text",
-            text: response
-          }
-        ]
-      };
-    } catch (error) {
-      return {
-        content: [
-          {
-            type: "text",
-            text: `❌ Error adding instance to Redstring store: ${error.message}`
-          }
-        ]
-      };
-    }
-  }
-);
 
 server.tool(
   "set_active_graph",
@@ -3330,13 +2977,15 @@ server.tool(
 // Tool: Update node prototype (rename / recolor / description)
 server.tool(
   "update_node_prototype",
-  "Update a node prototype's name/color/description",
+  "Update a node prototype's name/color/description/abstraction chains",
   {
     prototypeId: z.string().describe("Prototype ID"),
     updates: z.object({
       name: z.string().optional(),
       color: z.string().optional(),
-      description: z.string().optional()
+      description: z.string().optional(),
+      abstractionChains: z.record(z.array(z.string())).optional().describe("Map of dimension names to lists of prototype IDs"),
+      definitionGraphIds: z.array(z.string()).optional().describe("List of graph IDs that define this node")
     }).describe("Updates to apply")
   },
   async ({ prototypeId, updates }) => {

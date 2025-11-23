@@ -5,10 +5,11 @@ This document outlines the test scenarios for "The Wizard" - a robust AI agent s
 ## Scenario 1: The Creator (Graph & Node Creation)
 **Goal**: Verify the ability to create a new graph and populate it with nodes.
 1.  **Action**: Create a new graph named "Wizard's Playground".
-2.  **Action**: Create a "Thing" node (Root concept).
-3.  **Action**: Create a "Vehicle" node (General concept).
-4.  **Action**: Create a "Car" node (Specific concept).
-5.  **Action**: Create a "Toyota Camry" node (Instance).
+2.  **Populate Graph**:
+    *   **Action**: Use `create_subgraph` to add multiple nodes at once.
+    *   **Input**:
+        *   Nodes: "Thing" (Root), "Vehicle" (General), "Car" (Specific), "Toyota Camry" (Instance)
+    *   **Expected Output**: Success message confirming creation of nodes.
 6.  **Verification**: Ensure all nodes exist in the graph.
 
 ## Scenario 2: The Abstractor (Abstraction Chains)
