@@ -32,22 +32,22 @@ class TestAIWizard {
     try {
       // Step 1: Check if services are already running
       await this.checkExistingServices();
-      
+
       // Step 2: Start bridge server if needed
-      await this.startBridgeServer();
-      
+      // await this.startBridgeServer();
+
       // Step 3: Start MCP server
       await this.startMCPServer();
-      
+
       // Step 4: Test the complete integration
       await this.testCompleteIntegration();
-      
+
       // Step 5: Generate comprehensive report
       this.generateReport();
-      
+
       // Step 6: Keep running for manual testing
       await this.keepRunning();
-      
+
     } catch (error) {
       console.error('❌ Test wizard failed:', error.message);
       this.cleanup();
@@ -57,7 +57,7 @@ class TestAIWizard {
 
   async checkExistingServices() {
     console.log('🔍 Step 1: Checking existing services...');
-    
+
     const services = {
       bridge: false,
       redstring: false,
@@ -97,7 +97,7 @@ class TestAIWizard {
 
   async startBridgeServer() {
     console.log('\n🔌 Step 2: Starting Bridge Server...');
-    
+
     // Check if bridge is already running
     try {
       const response = await fetch(`${this.bridgeUrl}/health`);
@@ -115,8 +115,8 @@ class TestAIWizard {
     }
 
     return new Promise((resolve, reject) => {
-      this.bridgeProcess = spawn('node', [join(__dirname, 'server.js')], {
-        cwd: __dirname,
+      this.bridgeProcess = spawn('node', [join(__dirname, '../../bridge-daemon.js')], {
+        cwd: join(__dirname, '../../'),
         stdio: ['pipe', 'pipe', 'pipe']
       });
 
@@ -127,8 +127,8 @@ class TestAIWizard {
       this.bridgeProcess.stdout.on('data', (data) => {
         const output = data.toString();
         console.log(`   📤 Bridge STDOUT: ${output.trim()}`);
-        
-        if (output.includes('server running') || output.includes('Server running')) {
+
+        if (output.includes('server running') || output.includes('Server running') || output.includes('Bridge daemon listening')) {
           clearTimeout(startupTimeout);
           console.log('✅ Bridge server started');
           this.testResults.push({
@@ -160,10 +160,10 @@ class TestAIWizard {
 
   async startMCPServer() {
     console.log('\n🔌 Step 3: Starting MCP Server...');
-    
+
     return new Promise((resolve, reject) => {
-      this.mcpProcess = spawn('node', [join(__dirname, 'redstring-mcp-server.js')], {
-        cwd: __dirname,
+      this.mcpProcess = spawn('node', [join(__dirname, '../../redstring-mcp-server.js')], {
+        cwd: join(__dirname, '../../'),
         stdio: ['pipe', 'pipe', 'pipe']
       });
 
@@ -174,7 +174,7 @@ class TestAIWizard {
       this.mcpProcess.stderr.on('data', (data) => {
         const output = data.toString();
         console.log(`   📤 MCP STDERR: ${output.trim()}`);
-        
+
         if (output.includes('Redstring MCP Server running')) {
           clearTimeout(startupTimeout);
           console.log('✅ MCP server started');
@@ -202,41 +202,41 @@ class TestAIWizard {
 
   async testCompleteIntegration() {
     console.log('\n🧪 Step 4: Testing Complete Integration...');
-    
+
     // Wait for servers to fully initialize
     console.log('   ⏳ Waiting for servers to initialize...');
     await new Promise(resolve => setTimeout(resolve, 3000));
-    
+
     // Test bridge connectivity
     await this.testBridgeConnectivity();
-    
+
     // Test MCP connectivity
     await this.testMCPConnectivity();
-    
+
     // Test individual tools
     await this.testIndividualTools();
   }
 
   async testBridgeConnectivity() {
     console.log('\n🔗 Testing Bridge Connectivity...');
-    
+
     try {
       const response = await fetch(`${this.bridgeUrl}/health`);
       if (!response.ok) {
         throw new Error(`Health check failed: ${response.status}`);
       }
-      
+
       const health = await response.json();
       console.log('   ✅ Bridge health check passed');
-      
+
       const stateResponse = await fetch(`${this.bridgeUrl}/api/bridge/state`);
       if (!stateResponse.ok) {
         throw new Error(`State endpoint failed: ${stateResponse.status}`);
       }
-      
+
       const state = await stateResponse.json();
       console.log(`   ✅ Bridge state accessible: ${state.graphs?.length || 0} graphs, ${state.nodePrototypes?.length || 0} prototypes`);
-      
+
       this.testResults.push({
         step: 'bridge_connectivity',
         success: true,
@@ -246,7 +246,7 @@ class TestAIWizard {
           prototypes: state.nodePrototypes?.length || 0
         }
       });
-      
+
     } catch (error) {
       console.log(`   ❌ Bridge connectivity failed: ${error.message}`);
       this.testResults.push({
@@ -259,7 +259,7 @@ class TestAIWizard {
 
   async testMCPConnectivity() {
     console.log('\n🔗 Testing MCP Connectivity...');
-    
+
     const initRequest = {
       jsonrpc: '2.0',
       id: this.requestId++,
@@ -273,11 +273,11 @@ class TestAIWizard {
 
     try {
       const response = await this.sendRequest(initRequest);
-      
+
       if (response.result) {
         console.log('   ✅ MCP initialization succeeded');
         console.log(`   📄 Server: ${response.result.serverInfo?.name || 'Unknown'} v${response.result.serverInfo?.version || 'Unknown'}`);
-        
+
         this.testResults.push({
           step: 'mcp_connectivity',
           success: true,
@@ -301,7 +301,7 @@ class TestAIWizard {
 
   async testIndividualTools() {
     console.log('\n🔧 Testing Individual Tools...\n');
-    
+
     const toolsToTest = [
       { name: 'verify_state', params: {}, description: 'Verify Redstring store state' },
       { name: 'list_available_graphs', params: {}, description: 'List all available graphs' },
@@ -317,7 +317,7 @@ class TestAIWizard {
 
   async testSingleTool(toolName, params, description) {
     console.log(`🔧 Testing: ${description}`);
-    
+
     const toolRequest = {
       jsonrpc: '2.0',
       id: this.requestId++,
@@ -330,10 +330,10 @@ class TestAIWizard {
 
     try {
       const response = await this.sendRequest(toolRequest);
-      
+
       if (response.result && response.result.content && response.result.content[0]) {
         console.log(`   ✅ ${toolName} succeeded`);
-        
+
         // Check if response contains real data
         const content = response.result.content[0].text;
         if (content.includes('❌') || content.includes('Error') || content.includes('Failed')) {
@@ -356,25 +356,25 @@ class TestAIWizard {
   async sendRequest(request) {
     return new Promise((resolve, reject) => {
       const requestStr = JSON.stringify(request) + '\n';
-      
+
       this.mcpProcess.stdin.write(requestStr);
-      
+
       let responseData = '';
       let responseComplete = false;
       let timeoutId = null;
-      
+
       const responseHandler = (data) => {
         responseData += data.toString();
-        
+
         const lines = responseData.split('\n');
-        
+
         for (let i = 0; i < lines.length - 1; i++) {
           const line = lines[i].trim();
-          
+
           if (line) {
             try {
               const response = JSON.parse(line);
-              
+
               if (response.id === request.id) {
                 this.mcpProcess.stdout.removeListener('data', responseHandler);
                 responseComplete = true;
@@ -387,12 +387,12 @@ class TestAIWizard {
             }
           }
         }
-        
+
         responseData = lines[lines.length - 1];
       };
-      
+
       this.mcpProcess.stdout.on('data', responseHandler);
-      
+
       timeoutId = setTimeout(() => {
         if (!responseComplete) {
           this.mcpProcess.stdout.removeListener('data', responseHandler);
@@ -425,23 +425,23 @@ class TestAIWizard {
     });
 
     console.log('\n🚀 Integration Status:');
-    
+
     const bridgeTest = this.testResults.find(r => r.step === 'bridge_server');
     const mcpTest = this.testResults.find(r => r.step === 'mcp_server');
     const connectivityTest = this.testResults.find(r => r.step === 'bridge_connectivity');
-    
+
     if (bridgeTest?.success) {
       console.log('   ✅ Bridge Server: Running');
     } else {
       console.log('   ❌ Bridge Server: Failed');
     }
-    
+
     if (mcpTest?.success) {
       console.log('   ✅ MCP Server: Running');
     } else {
       console.log('   ❌ MCP Server: Failed');
     }
-    
+
     if (connectivityTest?.success) {
       console.log('   ✅ Bridge Connectivity: Working');
       if (connectivityTest.details) {
@@ -472,26 +472,26 @@ class TestAIWizard {
     console.log('   Bridge server: http://localhost:3001');
     console.log('   MCP server: Running on stdio');
     console.log('   Redstring app: http://localhost:4000');
-    
+
     // Keep the process alive
     process.on('SIGINT', () => {
       console.log('\n🛑 Received SIGINT, shutting down...');
       this.cleanup();
       process.exit(0);
     });
-    
+
     // Keep running indefinitely
-    await new Promise(() => {});
+    await new Promise(() => { });
   }
 
   cleanup() {
     console.log('\n🧹 Cleaning up...');
-    
+
     if (this.bridgeProcess) {
       this.bridgeProcess.kill();
       console.log('✅ Bridge server stopped');
     }
-    
+
     if (this.mcpProcess) {
       this.mcpProcess.kill();
       console.log('✅ MCP server stopped');
