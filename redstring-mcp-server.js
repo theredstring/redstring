@@ -15,6 +15,7 @@ import dotenv from 'dotenv';
 import fs from 'fs';
 import http from 'http';
 import https from 'https';
+import { applyLayout } from './src/services/graphLayoutService.js';
 
 // Load environment variables (debug off to avoid noisy logs)
 dotenv.config({});
@@ -62,12 +63,12 @@ process.title = process.title || 'redstring-mcp-server';
 process.on('uncaughtException', (err) => {
   try {
     console.error('❌ Uncaught exception:', err?.stack || err);
-  } catch {}
+  } catch { }
 });
 process.on('unhandledRejection', (reason) => {
   try {
     console.error('❌ Unhandled rejection:', reason);
-  } catch {}
+  } catch { }
 });
 
 // Early health check (so the wizard sees us even if later code fails)
@@ -247,14 +248,14 @@ let mcpConnected = true;
 function analyzeClusters(nodes) {
   const clusters = {};
   const clusterRadius = 150; // pixels
-  
+
   // Group nodes by proximity
   const processed = new Set();
   let clusterIndex = 0;
-  
+
   for (const node of nodes) {
     if (processed.has(node.id)) continue;
-    
+
     const clusterId = `cluster_${clusterIndex++}`;
     const cluster = {
       center: [node.x, node.y],
@@ -262,15 +263,15 @@ function analyzeClusters(nodes) {
       density: 1,
       bounds: { minX: node.x, maxX: node.x, minY: node.y, maxY: node.y }
     };
-    
+
     // Find nearby nodes
     for (const otherNode of nodes) {
       if (otherNode.id === node.id || processed.has(otherNode.id)) continue;
-      
+
       const distance = Math.sqrt(
         Math.pow(node.x - otherNode.x, 2) + Math.pow(node.y - otherNode.y, 2)
       );
-      
+
       if (distance <= clusterRadius) {
         cluster.nodes.push(otherNode.id);
         cluster.bounds.minX = Math.min(cluster.bounds.minX, otherNode.x);
@@ -280,20 +281,20 @@ function analyzeClusters(nodes) {
         processed.add(otherNode.id);
       }
     }
-    
+
     // Calculate cluster center and density
     if (cluster.nodes.length > 1) {
       const centerX = (cluster.bounds.minX + cluster.bounds.maxX) / 2;
       const centerY = (cluster.bounds.minY + cluster.bounds.maxY) / 2;
       cluster.center = [centerX, centerY];
       cluster.density = cluster.nodes.length / (clusterRadius * clusterRadius / 10000);
-      
+
       clusters[clusterId] = cluster;
     }
-    
+
     processed.add(node.id);
   }
-  
+
   return clusters;
 }
 
@@ -301,12 +302,12 @@ function findEmptyRegions(nodes, canvasSize) {
   const regions = [];
   const gridSize = 100;
   const nodeRadius = 50; // Minimum distance from nodes
-  
+
   // Create a grid and check for empty areas
   for (let x = 350; x < canvasSize.width - 100; x += gridSize) {
     for (let y = 100; y < canvasSize.height - 100; y += gridSize) {
       let isEmpty = true;
-      
+
       // Check if this grid cell is far enough from all nodes
       for (const node of nodes) {
         const distance = Math.sqrt(
@@ -317,7 +318,7 @@ function findEmptyRegions(nodes, canvasSize) {
           break;
         }
       }
-      
+
       if (isEmpty) {
         regions.push({
           x: x,
@@ -329,7 +330,7 @@ function findEmptyRegions(nodes, canvasSize) {
       }
     }
   }
-  
+
   return regions;
 }
 
@@ -339,7 +340,7 @@ function generateLayoutSuggestions(nodes, clusters) {
     clusterExpansion: [],
     layoutImprovements: []
   };
-  
+
   // Find best placement for next node
   if (Object.keys(clusters).length > 0) {
     // Suggest placement near existing clusters but not overlapping
@@ -357,7 +358,7 @@ function generateLayoutSuggestions(nodes, clusters) {
       reasoning: "Central placement for first node"
     };
   }
-  
+
   // Suggest cluster expansion directions
   for (const [clusterId, cluster] of Object.entries(clusters)) {
     if (cluster.density > 0.5) {
@@ -368,7 +369,7 @@ function generateLayoutSuggestions(nodes, clusters) {
       });
     }
   }
-  
+
   return suggestions;
 }
 
@@ -383,12 +384,12 @@ function calculateNodeDimensions(conceptName, hasImage = false) {
   // Basic dimension calculation
   const baseWidth = hasImage ? EXPANDED_NODE_WIDTH : NODE_WIDTH;
   const baseHeight = NODE_HEIGHT;
-  
+
   // Text width estimation (rough approximation)
   const avgCharWidth = 9;
   const textWidth = conceptName.length * avgCharWidth;
   const needsWrap = textWidth > (baseWidth - 2 * NODE_PADDING);
-  
+
   return {
     width: baseWidth,
     height: needsWrap ? baseHeight + 20 : baseHeight, // Add height if text wraps
@@ -403,24 +404,24 @@ function calculateNodeDimensions(conceptName, hasImage = false) {
 function generateBatchLayout(clusters, spatialMap, layout, nodeSpacing) {
   const positions = {};
   const clusterNames = Object.keys(clusters);
-  
+
   // Find starting position (avoid existing nodes and panels)
   let startX = 400; // Past left panel
   let startY = 150; // Below header
-  
+
   // If there are existing nodes, find good placement area
   if (spatialMap.nodes && spatialMap.nodes.length > 0) {
     const existingBounds = calculateExistingBounds(spatialMap.nodes);
     startX = Math.max(startX, existingBounds.maxX + nodeSpacing.clusterGap);
   }
-  
+
   // Use empty regions if available
   if (spatialMap.emptyRegions && spatialMap.emptyRegions.length > 0) {
     const bestRegion = spatialMap.emptyRegions.find(r => r.suitability === "high") || spatialMap.emptyRegions[0];
     startX = bestRegion.x;
     startY = bestRegion.y;
   }
-  
+
   switch (layout) {
     case "hierarchical":
       return generateHierarchicalLayout(clusters, startX, startY, nodeSpacing);
@@ -439,7 +440,7 @@ function generateClusteredLayout(clusters, startX, startY, nodeSpacing) {
   const positions = {};
   const clusterNames = Object.keys(clusters);
   let currentClusterX = startX;
-  
+
   clusterNames.forEach((clusterName, clusterIndex) => {
     const concepts = clusters[clusterName];
     let maxClusterWidth = 0;
@@ -447,13 +448,13 @@ function generateClusteredLayout(clusters, startX, startY, nodeSpacing) {
     let currentX = currentClusterX;
     let rowWidth = 0;
     let maxRowHeight = 0;
-    
+
     // Calculate optimal grid layout for this cluster
     const conceptsPerRow = Math.ceil(Math.sqrt(concepts.length));
-    
+
     concepts.forEach((concept, index) => {
       const dimensions = calculateNodeDimensions(concept.name);
-      
+
       // Check if we need to start a new row
       if (index > 0 && index % conceptsPerRow === 0) {
         currentY += maxRowHeight + nodeSpacing.vertical;
@@ -461,25 +462,25 @@ function generateClusteredLayout(clusters, startX, startY, nodeSpacing) {
         rowWidth = 0;
         maxRowHeight = 0;
       }
-      
+
       positions[concept.name] = {
         x: currentX,
         y: currentY,
         cluster: clusterName,
         dimensions: dimensions
       };
-      
+
       // Update positioning for next node
       currentX += dimensions.width + nodeSpacing.horizontal;
       rowWidth += dimensions.width + nodeSpacing.horizontal;
       maxRowHeight = Math.max(maxRowHeight, dimensions.height);
       maxClusterWidth = Math.max(maxClusterWidth, rowWidth);
     });
-    
+
     // Move to next cluster position
     currentClusterX += maxClusterWidth + nodeSpacing.clusterGap;
   });
-  
+
   return positions;
 }
 
@@ -488,14 +489,14 @@ function generateHierarchicalLayout(clusters, startX, startY, nodeSpacing) {
   const positions = {};
   const clusterNames = Object.keys(clusters);
   let currentY = startY;
-  
+
   clusterNames.forEach((clusterName, clusterIndex) => {
     const concepts = clusters[clusterName];
     let currentX = startX;
-    
+
     concepts.forEach((concept, index) => {
       const dimensions = calculateNodeDimensions(concept.name);
-      
+
       positions[concept.name] = {
         x: currentX,
         y: currentY,
@@ -503,13 +504,13 @@ function generateHierarchicalLayout(clusters, startX, startY, nodeSpacing) {
         level: clusterIndex, // Hierarchical level
         dimensions: dimensions
       };
-      
+
       currentX += dimensions.width + nodeSpacing.horizontal;
     });
-    
+
     currentY += NODE_HEIGHT + nodeSpacing.vertical * 1.5; // Extra spacing between levels
   });
-  
+
   return positions;
 }
 
@@ -519,18 +520,18 @@ function generateRadialLayout(clusters, startX, startY, nodeSpacing) {
   const centerX = startX + 200;
   const centerY = startY + 200;
   const clusterNames = Object.keys(clusters);
-  
+
   clusterNames.forEach((clusterName, clusterIndex) => {
     const concepts = clusters[clusterName];
     const radius = 150 + (clusterIndex * 100); // Expanding circles
     const angleStep = (2 * Math.PI) / concepts.length;
-    
+
     concepts.forEach((concept, index) => {
       const angle = index * angleStep;
       const x = centerX + radius * Math.cos(angle);
       const y = centerY + radius * Math.sin(angle);
       const dimensions = calculateNodeDimensions(concept.name);
-      
+
       positions[concept.name] = {
         x: x - dimensions.width / 2, // Center the node
         y: y - dimensions.height / 2,
@@ -541,7 +542,7 @@ function generateRadialLayout(clusters, startX, startY, nodeSpacing) {
       };
     });
   });
-  
+
   return positions;
 }
 
@@ -550,7 +551,7 @@ function generateLinearLayout(clusters, startX, startY, nodeSpacing) {
   const positions = {};
   let currentX = startX;
   let currentY = startY;
-  
+
   // Flatten all concepts into a single sequence
   const allConcepts = [];
   Object.keys(clusters).forEach(clusterName => {
@@ -558,17 +559,17 @@ function generateLinearLayout(clusters, startX, startY, nodeSpacing) {
       allConcepts.push({ ...concept, cluster: clusterName });
     });
   });
-  
+
   const conceptsPerRow = 4; // Fixed row width
-  
+
   allConcepts.forEach((concept, index) => {
     if (index > 0 && index % conceptsPerRow === 0) {
       currentY += NODE_HEIGHT + nodeSpacing.vertical;
       currentX = startX;
     }
-    
+
     const dimensions = calculateNodeDimensions(concept.name);
-    
+
     positions[concept.name] = {
       x: currentX,
       y: currentY,
@@ -576,30 +577,30 @@ function generateLinearLayout(clusters, startX, startY, nodeSpacing) {
       row: Math.floor(index / conceptsPerRow),
       dimensions: dimensions
     };
-    
+
     currentX += dimensions.width + nodeSpacing.horizontal;
   });
-  
+
   return positions;
 }
 
 // Helper function to calculate bounds of existing nodes
 function calculateExistingBounds(nodes) {
   if (!nodes.length) return { minX: 0, minY: 0, maxX: 0, maxY: 0 };
-  
+
   let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
-  
+
   nodes.forEach(node => {
     // Estimate node dimensions (we don't have access to getNodeDimensions here)
     const width = node.hasImage ? EXPANDED_NODE_WIDTH : NODE_WIDTH;
     const height = NODE_HEIGHT;
-    
+
     minX = Math.min(minX, node.x);
     minY = Math.min(minY, node.y);
     maxX = Math.max(maxX, node.x + width);
     maxY = Math.max(maxY, node.y + height);
   });
-  
+
   return { minX, minY, maxX, maxY };
 }
 
@@ -629,7 +630,7 @@ async function buildSpatialMapFromState(state) {
     spatialMap.emptyRegions = [{ x: 400, y: 150, width: 400, height: 300, suitability: "high" }];
     return spatialMap;
   }
-  
+
   console.log('🔍 buildSpatialMapFromState: Found graph with instances:', {
     graphId: state.activeGraphId,
     hasInstances: !!graph.instances,
@@ -647,7 +648,7 @@ async function buildSpatialMapFromState(state) {
       instancesCount: nodeInstances.length,
       firstInstance: nodeInstances[0]
     });
-    
+
     for (const instance of nodeInstances) {
       if (instance && instance.prototypeId) {
         const prototype = state.nodePrototypes?.get ? state.nodePrototypes.get(instance.prototypeId) : null;
@@ -664,7 +665,7 @@ async function buildSpatialMapFromState(state) {
         }
       }
     }
-    
+
     console.log('🔍 buildSpatialMapFromState: Final spatial nodes:', spatialMap.nodes.length);
   } else {
     console.log('🔍 buildSpatialMapFromState: No valid instances found:', {
@@ -723,18 +724,18 @@ async function createConceptWithPosition(targetGraphId, concept, positionData) {
     x: positionData.x,
     y: positionData.y
   };
-  
+
   console.log(`📍 Creating "${concept.name}" at (${position.x}, ${position.y}) in cluster "${positionData.cluster}"`);
-  
+
   // Use the existing addNodeToGraph logic
   const prototypeId = `prototype-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
-  
+
   await actions.addNodePrototype(prototypeId, concept.name, concept.description || '', '#4A90E2');
   await new Promise(resolve => setTimeout(resolve, 2500)); // Wait for prototype sync
-  
+
   await actions.addNodeInstance(targetGraphId, prototypeId, position);
   await new Promise(resolve => setTimeout(resolve, 1000)); // Wait for instance sync
-  
+
   return {
     name: concept.name,
     success: true,
@@ -759,7 +760,7 @@ async function getRealRedstringState(retryCount = 0) {
   const maxRetries = 3;
   const baseRetryDelay = 1000; // Base delay of 1 second
   const retryDelay = baseRetryDelay * Math.pow(2, retryCount); // Exponential backoff
-  
+
   try {
     // Try to fetch from the bridge endpoint
     const response = await fetch('http://localhost:3001/api/bridge/state');
@@ -767,24 +768,24 @@ async function getRealRedstringState(retryCount = 0) {
       throw new Error(`HTTP ${response.status}: ${response.statusText}`);
     }
     const data = await response.json();
-    
+
     // Debug: Check what bridge is sending
     console.log('🔍 Bridge data received:', {
       totalGraphs: data.graphs?.length,
       activeGraphId: data.activeGraphId,
       activeGraphData: data.graphs?.find(g => g.id === data.activeGraphId)
     });
-    
+
     // Validate we got valid data
     if (!data || typeof data !== 'object') {
       throw new Error('Invalid data structure received from bridge');
     }
-    
+
     // Convert the minimal data format back to the expected structure
     const state = {
       graphs: new Map((data.graphs || []).map(graph => {
         const instancesMap = graph.instances ? new Map(Object.entries(graph.instances)) : new Map();
-        
+
         // Debug instances conversion for active graph
         if (graph.id === data.activeGraphId) {
           console.log(`🔍 Converting instances for active graph ${graph.id}:`, {
@@ -794,7 +795,7 @@ async function getRealRedstringState(retryCount = 0) {
             convertedMapSize: instancesMap.size
           });
         }
-        
+
         return [graph.id, {
           ...graph,
           instances: instancesMap
@@ -809,34 +810,34 @@ async function getRealRedstringState(retryCount = 0) {
       savedGraphIds: new Set(), // Not included in minimal format
       summary: data.summary
     };
-    
+
     // If we get here, the fetch succeeded
     if (retryCount > 0) {
       console.log(`✅ Bridge state fetch succeeded after ${retryCount} retries`);
     }
-    
+
     return state;
   } catch (error) {
-    const isNetworkError = error.message.includes('fetch') || 
-                          error.message.includes('ECONNREFUSED') ||
-                          error.message.includes('500') ||
-                          error.message.includes('503') ||
-                          error.message.includes('Invalid data structure');
-    
+    const isNetworkError = error.message.includes('fetch') ||
+      error.message.includes('ECONNREFUSED') ||
+      error.message.includes('500') ||
+      error.message.includes('503') ||
+      error.message.includes('Invalid data structure');
+
     // Only retry on network/temporary errors, not on fundamental connection issues
     if (isNetworkError && retryCount < maxRetries) {
       console.log(`🔄 Bridge state fetch failed (attempt ${retryCount + 1}/${maxRetries + 1}): ${error.message}`);
       console.log(`   Retrying in ${retryDelay}ms...`);
-      
+
       await new Promise(resolve => setTimeout(resolve, retryDelay));
       return getRealRedstringState(retryCount + 1);
     }
-    
+
     // If we've exhausted retries or it's a fundamental error, throw
-    const errorPrefix = retryCount > 0 ? 
-      `After ${retryCount + 1} attempts, bridge` : 
+    const errorPrefix = retryCount > 0 ?
+      `After ${retryCount + 1} attempts, bridge` :
       'Redstring store bridge';
-      
+
     throw new Error(`${errorPrefix} not available: ${error.message}. Make sure Redstring is running on localhost:4000 and the MCPBridge component is loaded.`);
   }
 }
@@ -848,7 +849,7 @@ function getRealRedstringActions() {
     createNewGraph: async (initialData = {}) => {
       try {
         const pendingAction = {
-          id: `pa-${Date.now()}-${Math.random().toString(36).slice(2,8)}`,
+          id: `pa-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
           action: 'createNewGraph',
           params: [initialData],
           timestamp: Date.now()
@@ -867,7 +868,7 @@ function getRealRedstringActions() {
     createAndAssignGraphDefinition: async (prototypeId) => {
       try {
         const pendingAction = {
-          id: `pa-${Date.now()}-${Math.random().toString(36).slice(2,8)}`,
+          id: `pa-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
           action: 'createAndAssignGraphDefinition',
           params: [prototypeId],
           timestamp: Date.now()
@@ -886,7 +887,7 @@ function getRealRedstringActions() {
     openRightPanelNodeTab: async (nodeId) => {
       try {
         const pendingAction = {
-          id: `pa-${Date.now()}-${Math.random().toString(36).slice(2,8)}`,
+          id: `pa-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
           action: 'openRightPanelNodeTab',
           params: [nodeId],
           timestamp: Date.now()
@@ -905,7 +906,7 @@ function getRealRedstringActions() {
     addEdge: async (graphId, edgeData) => {
       try {
         const pendingAction = {
-          id: `pa-${Date.now()}-${Math.random().toString(36).slice(2,8)}`,
+          id: `pa-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
           action: 'addEdge',
           params: [graphId, edgeData],
           timestamp: Date.now()
@@ -924,7 +925,7 @@ function getRealRedstringActions() {
     updateEdgeDirectionality: async (edgeId, arrowsToward) => {
       try {
         const pendingAction = {
-          id: `pa-${Date.now()}-${Math.random().toString(36).slice(2,8)}`,
+          id: `pa-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
           action: 'updateEdgeDirectionality',
           params: [edgeId, arrowsToward],
           timestamp: Date.now()
@@ -943,7 +944,7 @@ function getRealRedstringActions() {
     applyMutations: async (operations = []) => {
       try {
         const pendingAction = {
-          id: `pa-${Date.now()}-${Math.random().toString(36).slice(2,8)}`,
+          id: `pa-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
           action: 'applyMutations',
           params: [operations],
           timestamp: Date.now()
@@ -962,18 +963,18 @@ function getRealRedstringActions() {
         // Use pending actions system instead of HTTP endpoints
         const prototypeId = `prototype-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
         const pendingAction = {
-          id: `pa-${Date.now()}-${Math.random().toString(36).slice(2,8)}`,
+          id: `pa-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
           action: 'addNodePrototype',
           params: [prototypeId, prototypeData],
           timestamp: Date.now()
         };
-        
+
         pendingActions.push(pendingAction);
         console.log(`✅ Bridge: Queued addNodePrototype action for ${prototypeData.name}`);
-        
+
         // Wait a moment for the action to be processed
         await new Promise(resolve => setTimeout(resolve, 500));
-        
+
         return { success: true, prototypeId };
       } catch (error) {
         console.error('❌ Bridge: Failed to queue add prototype action:', error.message);
@@ -984,18 +985,18 @@ function getRealRedstringActions() {
       try {
         // Use pending actions system instead of HTTP endpoints
         const pendingAction = {
-          id: `pa-${Date.now()}-${Math.random().toString(36).slice(2,8)}`,
+          id: `pa-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
           action: 'addNodeInstance',
           params: [graphId, prototypeId, position],
           timestamp: Date.now()
         };
-        
+
         pendingActions.push(pendingAction);
         console.log(`✅ Bridge: Queued addNodeInstance action for graph ${graphId}, prototype ${prototypeId}`);
-        
+
         // Wait a moment for the action to be processed
         await new Promise(resolve => setTimeout(resolve, 1000));
-        
+
         return { success: true, instanceId: `pending-${Date.now()}` };
       } catch (error) {
         console.error('❌ Bridge: Failed to queue add instance action:', error.message);
@@ -1006,71 +1007,71 @@ function getRealRedstringActions() {
       try {
         // Use pending actions system instead of HTTP endpoints
         const pendingAction = {
-          id: `pa-${Date.now()}-${Math.random().toString(36).slice(2,8)}`,
+          id: `pa-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
           action: 'setActiveGraph',
           params: [graphId],
           timestamp: Date.now()
         };
-        
+
         pendingActions.push(pendingAction);
         console.log(`✅ Bridge: Queued setActiveGraph action for ${graphId}`);
-        
+
         // Wait a moment for the action to be processed
         await new Promise(resolve => setTimeout(resolve, 500));
-        
+
         return { success: true, graphId };
       } catch (error) {
         console.error('❌ Bridge: Failed to queue set active graph action:', error.message);
         throw error;
       }
     },
-    
+
     openGraphTabAndBringToTop: async (graphId) => {
       try {
         // Use pending actions system instead of HTTP endpoints
         const pendingAction = {
-          id: `pa-${Date.now()}-${Math.random().toString(36).slice(2,8)}`,
+          id: `pa-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
           action: 'openGraph',
           params: [graphId],
           timestamp: Date.now()
         };
-        
+
         pendingActions.push(pendingAction);
         console.log(`✅ Bridge: Queued openGraph action for ${graphId}`);
-        
+
         // Wait a moment for the action to be processed
         await new Promise(resolve => setTimeout(resolve, 500));
-        
+
         return { success: true, graphId };
       } catch (error) {
         console.error('❌ Bridge: Failed to queue open graph action:', error.message);
         throw error;
       }
     },
-    
+
     openGraphTab: async (graphId) => {
       try {
         // Use pending actions system instead of HTTP endpoints
         const pendingAction = {
-          id: `pa-${Date.now()}-${Math.random().toString(36).slice(2,8)}`,
+          id: `pa-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
           action: 'openGraph',
           params: [graphId],
           timestamp: Date.now()
         };
-        
+
         pendingActions.push(pendingAction);
         console.log(`✅ Bridge: Queued openGraph action for ${graphId}`);
-        
+
         // Wait a moment for the action to be processed
         await new Promise(resolve => setTimeout(resolve, 500));
-        
+
         return { success: true, graphId };
       } catch (error) {
         console.error('❌ Bridge: Failed to queue open graph action:', error.message);
         throw error;
       }
     },
-    
+
     createAndAssignGraphDefinitionWithoutActivation: async (prototypeId) => {
       try {
         const response = await fetch('http://localhost:3001/api/bridge/actions/create-graph-definition', {
@@ -1080,11 +1081,11 @@ function getRealRedstringActions() {
           },
           body: JSON.stringify({ prototypeId, activate: false })
         });
-        
+
         if (!response.ok) {
           throw new Error(`HTTP ${response.status}: ${response.statusText}`);
         }
-        
+
         const result = await response.json();
         console.error('✅ Bridge: Graph definition created successfully');
         return result.graphId;
@@ -1093,53 +1094,53 @@ function getRealRedstringActions() {
         throw error;
       }
     },
-    
+
     updateNodePrototype: async (prototypeId, updates) => {
       try {
         // Use pending actions system instead of HTTP endpoints
         const pendingAction = {
-          id: `pa-${Date.now()}-${Math.random().toString(36).slice(2,8)}`,
+          id: `pa-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
           action: 'updateNodePrototype',
           params: [prototypeId, updates],
           timestamp: Date.now()
         };
-        
+
         pendingActions.push(pendingAction);
         console.log(`✅ Bridge: Queued updateNodePrototype action for prototype ${prototypeId}`);
-        
+
         // Wait a moment for the action to be processed
         await new Promise(resolve => setTimeout(resolve, 500));
-        
+
         return { success: true, prototypeId };
       } catch (error) {
         console.error('❌ Bridge: Failed to queue update prototype action:', error.message);
         throw error;
       }
     },
-    
+
     deleteNodeInstance: async (graphId, instanceId) => {
       try {
         // Use pending actions system instead of HTTP endpoints
         const pendingAction = {
-          id: `pa-${Date.now()}-${Math.random().toString(36).slice(2,8)}`,
+          id: `pa-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
           action: 'removeNodeInstance',
           params: [graphId, instanceId],
           timestamp: Date.now()
         };
-        
+
         pendingActions.push(pendingAction);
         console.log(`✅ Bridge: Queued removeNodeInstance action for graph ${graphId}, instance ${instanceId}`);
-        
+
         // Wait a moment for the action to be processed
         await new Promise(resolve => setTimeout(resolve, 500));
-        
+
         return { success: true, instanceId };
       } catch (error) {
         console.error('❌ Bridge: Failed to queue remove instance action:', error.message);
         throw error;
       }
     },
-    
+
     createEdge: async (graphId, sourceId, targetId, edgeType, weight) => {
       try {
         const response = await fetch('http://localhost:3001/api/bridge/actions/create-edge', {
@@ -1149,11 +1150,11 @@ function getRealRedstringActions() {
           },
           body: JSON.stringify({ graphId, sourceId, targetId, edgeType, weight })
         });
-        
+
         if (!response.ok) {
           throw new Error(`HTTP ${response.status}: ${response.statusText}`);
         }
-        
+
         const result = await response.json();
         console.error('✅ Bridge: Edge created successfully');
         return result;
@@ -1162,7 +1163,7 @@ function getRealRedstringActions() {
         throw error;
       }
     },
-    
+
     createEdgeDefinition: async (edgeDefinitionData) => {
       try {
         const response = await fetch('http://localhost:3001/api/bridge/actions/create-edge-definition', {
@@ -1172,11 +1173,11 @@ function getRealRedstringActions() {
           },
           body: JSON.stringify(edgeDefinitionData)
         });
-        
+
         if (!response.ok) {
           throw new Error(`HTTP ${response.status}: ${response.statusText}`);
         }
-        
+
         const result = await response.json();
         console.error('✅ Bridge: Edge definition created successfully');
         return result;
@@ -1185,7 +1186,7 @@ function getRealRedstringActions() {
         throw error;
       }
     },
-    
+
     moveNodeInstance: async (graphId, instanceId, position) => {
       try {
         const response = await fetch('http://localhost:3001/api/bridge/actions/move-node-instance', {
@@ -1195,11 +1196,11 @@ function getRealRedstringActions() {
           },
           body: JSON.stringify({ graphId, instanceId, position })
         });
-        
+
         if (!response.ok) {
           throw new Error(`HTTP ${response.status}: ${response.statusText}`);
         }
-        
+
         const result = await response.json();
         console.error('✅ Bridge: Node instance moved successfully');
         return result;
@@ -1208,7 +1209,7 @@ function getRealRedstringActions() {
         throw error;
       }
     },
-    
+
     searchNodes: async (query, graphId) => {
       try {
         const response = await fetch('http://localhost:3001/api/bridge/actions/search-nodes', {
@@ -1218,11 +1219,11 @@ function getRealRedstringActions() {
           },
           body: JSON.stringify({ query, graphId })
         });
-        
+
         if (!response.ok) {
           throw new Error(`HTTP ${response.status}: ${response.statusText}`);
         }
-        
+
         const result = await response.json();
         console.error('✅ Bridge: Node search completed successfully');
         return result;
@@ -1238,17 +1239,17 @@ function getRealRedstringActions() {
 async function getGraphData() {
   try {
     const state = await getRealRedstringState();
-    
+
     console.error('DEBUG: State received:', {
       hasGraphs: !!state.graphs,
       graphsType: typeof state.graphs,
       graphsSize: state.graphs?.size,
       graphsKeys: state.graphs ? Array.from(state.graphs.keys()).slice(0, 3) : []
     });
-    
+
     // Convert the real Redstring store structure to a format suitable for MCP tools
     const graphs = {};
-    
+
     // Safely iterate over the Map
     if (state.graphs && state.graphs instanceof Map && state.graphs.size > 0) {
       state.graphs.forEach((graph, graphId) => {
@@ -1266,18 +1267,18 @@ async function getGraphData() {
         };
       });
     }
-    
+
     return {
-    graphs: graphs,
-    activeGraphId: state.activeGraphId,
-    graphCount: Object.keys(graphs).length,
-    nodePrototypes: state.nodePrototypes,
-    edges: state.edges,
-    openGraphIds: state.openGraphIds,
-    expandedGraphIds: state.expandedGraphIds,
-    savedNodeIds: state.savedNodeIds,
-    savedGraphIds: state.savedGraphIds
-  };
+      graphs: graphs,
+      activeGraphId: state.activeGraphId,
+      graphCount: Object.keys(graphs).length,
+      nodePrototypes: state.nodePrototypes,
+      edges: state.edges,
+      openGraphIds: state.openGraphIds,
+      expandedGraphIds: state.expandedGraphIds,
+      savedNodeIds: state.savedNodeIds,
+      savedGraphIds: state.savedGraphIds
+    };
   } catch (error) {
     console.error('Error in getGraphData:', error);
     return {
@@ -1311,7 +1312,7 @@ server.tool(
       if (!global.__rsTelemetry) global.__rsTelemetry = [];
       global.__rsTelemetry.push({ ts: Date.now(), type: 'tool_call', name: 'chat', args: { message }, status: 'started' });
       const state = await getRealRedstringState();
-      
+
       // Format the current state for the AI
       const stateContext = {
         activeGraph: state.activeGraphId ? {
@@ -1382,7 +1383,217 @@ try {
   app.get('/api/bridge/telemetry', (req, res) => {
     res.json({ telemetry: global.__rsTelemetry || [] });
   });
-} catch {}
+} catch { }
+server.tool(
+  "update_node_prototype",
+  "Update a node prototype's properties (e.g., abstraction chains, definition graphs)",
+  {
+    prototypeId: z.string().describe("The ID of the prototype to update"),
+    updates: z.object({
+      abstractionChains: z.record(z.array(z.string())).optional().describe("Map of dimension names to lists of prototype IDs (ordered general to specific)"),
+      definitionGraphIds: z.array(z.string()).optional().describe("List of graph IDs that define this node"),
+      description: z.string().optional(),
+      color: z.string().optional()
+    }).describe("Properties to update")
+  },
+  async ({ prototypeId, updates }) => {
+    try {
+      if (!global.__rsTelemetry) global.__rsTelemetry = [];
+      global.__rsTelemetry.push({ ts: Date.now(), type: 'tool_call', name: 'update_node_prototype', args: { prototypeId, updates }, status: 'started' });
+
+      const bridge = getRealRedstringActions();
+      await bridge.updateNodePrototype(prototypeId, updates);
+
+      global.__rsTelemetry.push({ ts: Date.now(), type: 'tool_call', name: 'update_node_prototype', status: 'completed' });
+      return {
+        content: [{
+          type: "text",
+          text: `Successfully updated prototype ${prototypeId}`
+        }]
+      };
+    } catch (error) {
+      if (!global.__rsTelemetry) global.__rsTelemetry = [];
+      global.__rsTelemetry.push({ ts: Date.now(), type: 'tool_call', name: 'update_node_prototype', status: 'error', error: String(error?.message || error) });
+      return {
+        content: [{
+          type: "text",
+          text: `Error updating prototype: ${error.message}`
+        }],
+        isError: true
+      };
+    }
+  }
+);
+
+
+server.tool(
+  "create_graph",
+  "Create a new empty graph",
+  {
+    name: z.string().describe("Name of the new graph"),
+    description: z.string().optional().describe("Description of the graph"),
+    color: z.string().optional().describe("Color of the graph")
+  },
+  async ({ name, description, color }) => {
+    try {
+      const bridge = getRealRedstringActions();
+      const graphId = `graph-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+      await bridge.createNewGraph({ id: graphId, name, description, color });
+      return {
+        content: [{
+          type: "text",
+          text: `Successfully created graph "${name}" (${graphId})`
+        }]
+      };
+    } catch (error) {
+      return {
+        content: [{
+          type: "text",
+          text: `Error creating graph: ${error.message}`
+        }],
+        isError: true
+      };
+    }
+  }
+);
+
+server.tool(
+  "create_subgraph",
+  "Create a new populated graph (subgraph) with auto-layout",
+  {
+    name: z.string().describe("Name of the new graph"),
+    description: z.string().optional().describe("Description of the graph"),
+    nodes: z.array(z.object({
+      name: z.string(),
+      description: z.string().optional(),
+      color: z.string().optional()
+    })).describe("List of nodes to create"),
+    edges: z.array(z.object({
+      source: z.string(),
+      target: z.string(),
+      relation: z.string().optional(),
+      directionality: z.enum(['directed', 'bidirectional', 'undirected', 'reverse']).optional()
+    })).optional().describe("List of edges to create")
+  },
+  async ({ name, description, nodes, edges = [] }) => {
+    try {
+      const bridge = getRealRedstringActions();
+      const state = await getRealRedstringState();
+
+      // 1. Create the graph
+      const graphId = `graph-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+      await bridge.createNewGraph({ id: graphId, name, description });
+
+      // 2. Prepare nodes and prototypes
+      const ops = [];
+      const tempInstances = [];
+      const instanceIdByName = new Map();
+
+      for (const node of nodes) {
+        const nodeName = node.name;
+        let prototypeId;
+
+        // Check for existing prototype (exact match)
+        const existingProto = Array.from(state.nodePrototypes.values()).find(p => p.name.toLowerCase() === nodeName.toLowerCase());
+
+        if (existingProto) {
+          prototypeId = existingProto.id;
+        } else {
+          prototypeId = `prototype-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+          ops.push({
+            type: 'addNodePrototype',
+            prototypeData: {
+              id: prototypeId,
+              name: nodeName,
+              description: node.description || '',
+              color: node.color || '#5B6CFF',
+              typeNodeId: null,
+              definitionGraphIds: []
+            }
+          });
+        }
+
+        const instanceId = `inst-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+        instanceIdByName.set(nodeName, instanceId);
+        tempInstances.push({
+          id: instanceId,
+          prototypeId,
+          name: nodeName,
+          width: 200, height: 100, x: 0, y: 0 // Initial dims
+        });
+      }
+
+      // 3. Layout
+      const layoutEdges = edges.map(e => ({
+        sourceId: instanceIdByName.get(e.source),
+        destinationId: instanceIdByName.get(e.target)
+      })).filter(e => e.sourceId && e.destinationId);
+
+      const positions = applyLayout(tempInstances, layoutEdges, 'force-directed', {
+        width: 1000, height: 1000, padding: 100
+      });
+
+      // Center layout
+      let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+      positions.forEach(p => {
+        minX = Math.min(minX, p.x);
+        minY = Math.min(minY, p.y);
+        maxX = Math.max(maxX, p.x);
+        maxY = Math.max(maxY, p.y);
+      });
+      const cx = (minX + maxX) / 2;
+      const cy = (minY + maxY) / 2;
+
+      // 4. Add instances
+      positions.forEach(p => {
+        ops.push({
+          type: 'addNodeInstance',
+          graphId,
+          prototypeId: tempInstances.find(i => i.id === p.instanceId).prototypeId,
+          position: { x: p.x - cx, y: p.y - cy },
+          instanceId: p.instanceId
+        });
+      });
+
+      // 5. Add edges
+      edges.forEach(edge => {
+        const sourceId = instanceIdByName.get(edge.source);
+        const targetId = instanceIdByName.get(edge.target);
+        if (sourceId && targetId) {
+          ops.push({
+            type: 'addEdge',
+            graphId,
+            edgeData: {
+              id: `edge-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+              sourceId,
+              destinationId: targetId,
+              name: edge.relation || '',
+              directionality: { arrowsToward: [targetId] } // Default directed
+            }
+          });
+        }
+      });
+
+      await bridge.applyMutations(ops);
+
+      return {
+        content: [{
+          type: "text",
+          text: `Successfully created subgraph "${name}" (${graphId}) with ${nodes.length} nodes`
+        }]
+      };
+    } catch (error) {
+      return {
+        content: [{
+          type: "text",
+          text: `Error creating subgraph: ${error.message}`
+        }],
+        isError: true
+      };
+    }
+  }
+);
+
 
 server.tool(
   "get_graph_instances",
@@ -1393,9 +1604,9 @@ server.tool(
   async ({ graphId }) => {
     try {
       const state = await getRealRedstringState();
-      
+
       const targetGraphId = graphId || state.activeGraphId;
-      
+
       if (!targetGraphId) {
         return {
           content: [
@@ -1406,9 +1617,9 @@ server.tool(
           ]
         };
       }
-      
+
       const graph = state.graphs.get(targetGraphId);
-      
+
       if (!graph) {
         return {
           content: [
@@ -1419,7 +1630,7 @@ server.tool(
           ]
         };
       }
-      
+
       const instances = graph.instances || new Map();
       const instanceList = Array.from(instances.values()).map(instance => {
         const prototype = state.nodePrototypes.get(instance.prototypeId);
@@ -1431,7 +1642,7 @@ server.tool(
           scale: instance.scale
         };
       });
-      
+
       const response = `**Graph Instances: ${graph.name}**
 
 **Graph Details:**
@@ -1441,19 +1652,19 @@ server.tool(
 - **Total Instances:** ${instances.size}
 
 **Instance Details:**
-${instanceList.length > 0 ? 
-  instanceList.map((inst, index) => 
-    `${index + 1}. **${inst.prototypeName}** (${inst.id})
+${instanceList.length > 0 ?
+          instanceList.map((inst, index) =>
+            `${index + 1}. **${inst.prototypeName}** (${inst.id})
    - Prototype ID: ${inst.prototypeId}
    - Position: (${inst.position.x}, ${inst.position.y})
    - Scale: ${inst.scale}`
-  ).join('\n\n') : 
-  'No instances in this graph'}
+          ).join('\n\n') :
+          'No instances in this graph'}
 
 **Available Prototypes for This Graph:**
-${Array.from(state.nodePrototypes.values()).slice(0, 10).map(p => 
-  `- ${p.name} (${p.id})`
-).join('\n')}
+${Array.from(state.nodePrototypes.values()).slice(0, 10).map(p =>
+            `- ${p.name} (${p.id})`
+          ).join('\n')}
 
 **Usage:**
 - Use this to verify instances were actually added
@@ -1469,14 +1680,14 @@ ${Array.from(state.nodePrototypes.values()).slice(0, 10).map(p =>
         ]
       };
     } catch (error) {
-              return {
-          content: [
-            {
-              type: "text",
-              text: `Error getting graph instances: ${error.message}`
-            }
-          ]
-        };
+      return {
+        content: [
+          {
+            type: "text",
+            text: `Error getting graph instances: ${error.message}`
+          }
+        ]
+      };
     }
   }
 );
@@ -1488,7 +1699,7 @@ server.tool(
   async () => {
     try {
       const state = await getRealRedstringState();
-      
+
       const response = `**Redstring Store State Verification**
 
 **Store Statistics:**
@@ -1500,28 +1711,28 @@ server.tool(
 
 **Active Graph Details:**
 ${state.activeGraphId ? (() => {
-  const activeGraph = state.graphs.get(state.activeGraphId);
-  if (!activeGraph) return 'Active graph ID exists but graph not found in store';
-  
-  return `- **Name:** ${activeGraph.name}
+          const activeGraph = state.graphs.get(state.activeGraphId);
+          if (!activeGraph) return 'Active graph ID exists but graph not found in store';
+
+          return `- **Name:** ${activeGraph.name}
 - **ID:** ${state.activeGraphId}
 - **Description:** ${activeGraph.description || 'No description'}
 - **Instance Count:** ${activeGraph.instances?.size || 0}
 - **Open Status:** Open in UI
 - **Expanded:** ${state.expandedGraphIds.has(state.activeGraphId) ? 'Yes' : 'No'}`;
-})() : 'No active graph set'}
+        })() : 'No active graph set'}
 
 **Available Prototypes (Last 10):**
-${Array.from(state.nodePrototypes.values()).slice(-10).map(p => 
-  `- ${p.name} (${p.id}) - ${p.description || 'No description'}`
-).join('\n')}
+${Array.from(state.nodePrototypes.values()).slice(-10).map(p =>
+          `- ${p.name} (${p.id}) - ${p.description || 'No description'}`
+        ).join('\n')}
 
 **Open Graphs:**
 ${state.openGraphIds.map((id, index) => {
-  const g = state.graphs.get(id);
-  const isActive = id === state.activeGraphId;
-  return `${index + 1}. ${g?.name || 'Unknown'} (${id})${isActive ? ' ACTIVE' : ''}`;
-}).join('\n')}
+          const g = state.graphs.get(id);
+          const isActive = id === state.activeGraphId;
+          return `${index + 1}. ${g?.name || 'Unknown'} (${id})${isActive ? ' ACTIVE' : ''}`;
+        }).join('\n')}
 
 **Bridge Status:**
 - **Bridge Server:** Running on localhost:3001
@@ -1544,14 +1755,14 @@ ${state.openGraphIds.map((id, index) => {
         ]
       };
     } catch (error) {
-              return {
-          content: [
-            {
-              type: "text",
-              text: `Error verifying Redstring store state: ${error.message}`
-            }
-          ]
-        };
+      return {
+        content: [
+          {
+            type: "text",
+            text: `Error verifying Redstring store state: ${error.message}`
+          }
+        ]
+      };
     }
   }
 );
@@ -1564,7 +1775,7 @@ server.tool(
     try {
       const graphData = await getGraphData();
       const activeGraphId = graphData.activeGraphId;
-      
+
       if (!activeGraphId || !graphData.graphs[activeGraphId]) {
         return {
           content: [
@@ -1575,9 +1786,9 @@ server.tool(
           ]
         };
       }
-      
+
       const activeGraph = graphData.graphs[activeGraphId];
-      
+
       const response = `**Active Graph Information (Real Redstring Data)**
 
 **Graph Details:**
@@ -1596,25 +1807,25 @@ server.tool(
 - **Saved:** ${graphData.savedGraphIds.has(activeGraphId) ? 'Yes' : 'No'} in "Saved Things" list
 
 **Available Instances:**
-${activeGraph.nodes.length > 0 ? 
-  activeGraph.nodes.map(node => `- ${node.name} (${node.prototypeId}) - ${node.description} at (${node.x}, ${node.y})`).join('\n') : 
-  'No instances in this graph'}
+${activeGraph.nodes.length > 0 ?
+          activeGraph.nodes.map(node => `- ${node.name} (${node.prototypeId}) - ${node.description} at (${node.x}, ${node.y})`).join('\n') :
+          'No instances in this graph'}
 
 **Available Relationships:**
-${activeGraph.edges.length > 0 ? 
-  activeGraph.edges.slice(0, 5).map(edge => {
-    const source = activeGraph.nodes.find(n => n.id === edge.sourceId);
-    const target = activeGraph.nodes.find(n => n.id === edge.targetId);
-    return `- ${source?.name || 'Unknown'} → ${target?.name || 'Unknown'} (${edge.type})`;
-  }).join('\n') + (activeGraph.edges.length > 5 ? `\n... and ${activeGraph.edges.length - 5} more relationships` : '') : 
-  'No relationships in this graph'}
+${activeGraph.edges.length > 0 ?
+          activeGraph.edges.slice(0, 5).map(edge => {
+            const source = activeGraph.nodes.find(n => n.id === edge.sourceId);
+            const target = activeGraph.nodes.find(n => n.id === edge.targetId);
+            return `- ${source?.name || 'Unknown'} → ${target?.name || 'Unknown'} (${edge.type})`;
+          }).join('\n') + (activeGraph.edges.length > 5 ? `\n... and ${activeGraph.edges.length - 5} more relationships` : '') :
+          'No relationships in this graph'}
 
 **Open Graph Tabs:**
 ${graphData.openGraphIds.map((id, index) => {
-  const g = graphData.graphs[id];
-  const isActive = id === activeGraphId;
-  return `${index + 1}. ${g.name} (${id})${isActive ? ' ACTIVE' : ''}`;
-}).join('\n')}
+            const g = graphData.graphs[id];
+            const isActive = id === activeGraphId;
+            return `${index + 1}. ${g.name} (${id})${isActive ? ' ACTIVE' : ''}`;
+          }).join('\n')}
 
 **Next Steps:**
 - Use \`add_node_instance\` to add instances to this active graph
@@ -1650,13 +1861,13 @@ server.tool(
   async () => {
     try {
       const graphData = await getGraphData();
-      
+
       const response = `**Available Knowledge Graphs (Real Redstring Data):**
 
 **Graph IDs for Reference:**
-${Object.values(graphData.graphs).map(graph => 
-  `- **${graph.name}**: \`${graph.id}\``
-).join('\n')}
+${Object.values(graphData.graphs).map(graph =>
+        `- **${graph.name}**: \`${graph.id}\``
+      ).join('\n')}
 
 **Detailed Graph Information:**
 ${Object.values(graphData.graphs).map(graph => `
@@ -1671,11 +1882,11 @@ ${Object.values(graphData.graphs).map(graph => `
 **Current Active Graph:** ${graphData.activeGraphId || 'None'}
 
 **Available Prototypes:**
-${graphData.nodePrototypes && graphData.nodePrototypes instanceof Map ? 
-  Array.from(graphData.nodePrototypes.values()).map(prototype => 
-    `- ${prototype.name} (${prototype.id}) - ${prototype.description}`
-  ).join('\n') : 
-  'No prototypes available'}
+${graphData.nodePrototypes && graphData.nodePrototypes instanceof Map ?
+          Array.from(graphData.nodePrototypes.values()).map(prototype =>
+            `- ${prototype.name} (${prototype.id}) - ${prototype.description}`
+          ).join('\n') :
+          'No prototypes available'}
 
 **To open a graph, use:** \`open_graph\` with any of the graph IDs above.`;
 
@@ -1712,9 +1923,9 @@ server.tool(
   async ({ name, description, color = "#4A90E2", typeNodeId = null }) => {
     try {
       console.warn('⚠️ DEPRECATED: add_node_prototype is deprecated. Use addNodeToGraph instead.');
-      
+
       const actions = getRealRedstringActions();
-      
+
       // Create prototype data
       const prototypeData = {
         name,
@@ -1722,18 +1933,18 @@ server.tool(
         color,
         typeNodeId
       };
-      
+
       // Get initial state to compare
       const initialState = await getRealRedstringState();
       const initialPrototypeCount = initialState.nodePrototypes.size;
-      
+
       // Add to real Redstring store
       await actions.addNodePrototype(prototypeData);
-      
+
       // CRITICAL: Verify the action actually succeeded by checking the updated state
       const updatedState = await getRealRedstringState();
       const newPrototypeCount = updatedState.nodePrototypes.size;
-      
+
       if (newPrototypeCount <= initialPrototypeCount) {
         return {
           content: [
@@ -1755,12 +1966,12 @@ server.tool(
           ]
         };
       }
-      
+
       // Find the newly created prototype to get its ID
-      const newPrototype = Array.from(updatedState.nodePrototypes.values()).find(p => 
+      const newPrototype = Array.from(updatedState.nodePrototypes.values()).find(p =>
         p.name === name && p.description === description
       );
-      
+
       if (!newPrototype) {
         return {
           content: [
@@ -1782,7 +1993,7 @@ server.tool(
           ]
         };
       }
-      
+
       const response = `✅ **Node Prototype Added Successfully (VERIFIED)**
 
 **New Prototype:**
@@ -1836,7 +2047,7 @@ server.tool(
   async ({ includeMetadata = true }) => {
     try {
       const state = await getRealRedstringState();
-      
+
       // Debug: Check what we got from the bridge
       console.log('🔍 get_spatial_map: Bridge state received:', {
         hasState: !!state,
@@ -1848,7 +2059,7 @@ server.tool(
         graphsSize: state?.graphs?.size,
         activeGraphExists: state?.activeGraphId ? !!state?.graphs?.get(state.activeGraphId) : false
       });
-      
+
       // Ensure we have a valid state with graphs
       if (!state || !state.graphs) {
         return JSON.stringify({
@@ -1859,15 +2070,15 @@ server.tool(
           emptyRegions: [{ x: 400, y: 150, width: 400, height: 300, suitability: "high" }]
         });
       }
-      
+
       let targetGraphId = state.activeGraphId;
-      
+
       // Use the same fallback logic as generate_knowledge_graph
       if (!targetGraphId && state.openGraphIds && state.openGraphIds.length > 0) {
         targetGraphId = state.openGraphIds[0];
         console.log(`🗺️ get_spatial_map: Using first open graph as fallback: ${targetGraphId}`);
       }
-      
+
       if (!targetGraphId) {
         return JSON.stringify({
           error: "No active graph",
@@ -1922,10 +2133,10 @@ server.tool(
       if (includeMetadata) {
         // Cluster analysis
         spatialMap.clusters = analyzeClusters(spatialMap.nodes);
-        
+
         // Find empty regions
         spatialMap.emptyRegions = findEmptyRegions(spatialMap.nodes, spatialMap.canvasSize);
-        
+
         // Layout suggestions
         spatialMap.layoutSuggestions = generateLayoutSuggestions(spatialMap.nodes, spatialMap.clusters);
       }
@@ -1955,9 +2166,9 @@ server.tool(
   async ({ topic, concepts, layout = "clustered", spacing = "normal" }) => {
     try {
       console.log(`🚀 Generating knowledge graph: "${topic}" with ${concepts.length} concepts`);
-      
+
       const state = await getRealRedstringState();
-      
+
       // Debug: Check what we got from the bridge
       console.log('🔍 generate_knowledge_graph: Bridge state received:', {
         hasState: !!state,
@@ -1969,7 +2180,7 @@ server.tool(
         graphsSize: state?.graphs?.size,
         activeGraphExists: state?.activeGraphId ? !!state?.graphs?.get(state.activeGraphId) : false
       });
-      
+
       // Ensure we have a valid state with graphs
       if (!state || !state.graphs) {
         return JSON.stringify({
@@ -1981,16 +2192,16 @@ server.tool(
           }
         });
       }
-      
+
       let targetGraphId = state.activeGraphId;
-      
+
       console.log('🔍 State debug:', {
         activeGraphId: state.activeGraphId,
         totalGraphs: state.graphs.size,
         openGraphIds: state.openGraphIds,
         graphIds: Array.from(state.graphs.keys())
       });
-      
+
       // If no active graph but there are open graphs, use the first open one
       // This handles the case where a graph is open in NodeCanvas but activeGraphId isn't set
       if (!targetGraphId && state.openGraphIds && state.openGraphIds.length > 0) {
@@ -1998,9 +2209,9 @@ server.tool(
         console.log(`🔄 No active graph set, using first open graph as fallback: ${targetGraphId}`);
         console.log(`   This suggests the graph is open in NodeCanvas but activeGraphId wasn't set properly`);
       }
-      
+
       if (!targetGraphId) {
-        return JSON.stringify({ 
+        return JSON.stringify({
           error: "No active graph. Please create or open a graph first.",
           success: false,
           debug: {
@@ -2013,7 +2224,7 @@ server.tool(
 
       // Build spatial map directly from current state
       const spatialMap = await buildSpatialMapFromState(state);
-      
+
       // Calculate node dimensions and spacing
       const nodeSpacing = {
         compact: { horizontal: 180, vertical: 120, clusterGap: 250 },
@@ -2031,7 +2242,7 @@ server.tool(
 
       // Generate positions using intelligent layout algorithms
       const nodePositions = generateBatchLayout(clusters, spatialMap, layout, nodeSpacing);
-      
+
       // Create all prototypes and instances
       const results = [];
       for (const concept of concepts) {
@@ -2039,7 +2250,7 @@ server.tool(
           const position = nodePositions[concept.name];
           const result = await createConceptWithPosition(targetGraphId, concept, position);
           results.push(result);
-          
+
           // Wait briefly between creations to avoid overwhelming the bridge
           await new Promise(resolve => setTimeout(resolve, 500));
         } catch (error) {
@@ -2053,7 +2264,7 @@ server.tool(
       // This would iterate through relationships and create edges
 
       const successCount = results.filter(r => r.success).length;
-      
+
       // Safely clean results to prevent JSON issues
       const safeResults = results.map(result => ({
         name: result.name ? String(result.name).replace(/["\n\r\t]/g, ' ').substring(0, 100) : 'Unknown',
@@ -2063,7 +2274,7 @@ server.tool(
         instanceId: result.instanceId,
         position: result.position
       }));
-      
+
       try {
         return JSON.stringify({
           success: true,
@@ -2084,11 +2295,11 @@ server.tool(
           message: `Knowledge graph created but response formatting failed. ${successCount}/${concepts.length} concepts added.`
         });
       }
-      
+
     } catch (error) {
       console.error('[Generate Knowledge Graph] Error:', error);
-      return JSON.stringify({ 
-        success: false, 
+      return JSON.stringify({
+        success: false,
         error: String(error.message || error).replace(/["\n\r\t]/g, ' ').substring(0, 200),
         topic: String(topic || 'Unknown').replace(/["\n\r\t]/g, ' ').substring(0, 100)
       });
@@ -2112,7 +2323,7 @@ server.tool(
     try {
       const state = await getRealRedstringState();
       const actions = await getRealRedstringActions();
-      
+
       if (!state.activeGraphId) {
         return {
           content: [
@@ -2123,10 +2334,10 @@ server.tool(
           ]
         };
       }
-      
+
       const targetGraphId = state.activeGraphId;
       const graph = state.graphs.get(targetGraphId);
-      
+
       if (!graph) {
         return {
           content: [
@@ -2137,11 +2348,11 @@ server.tool(
           ]
         };
       }
-      
+
       // Capture initial state for verification
       const originalInstanceCount = graph.instances?.size || 0;
       const originalPrototypeCount = state.nodePrototypes.size;
-      
+
       // Search for existing prototype with this name
       let existingPrototype = null;
       for (const [loopPrototypeId, prototype] of state.nodePrototypes.entries()) {
@@ -2150,10 +2361,10 @@ server.tool(
           break;
         }
       }
-      
+
       let prototypeId;
       let prototypeCreated = false;
-      
+
       if (existingPrototype) {
         // Use existing prototype
         prototypeId = existingPrototype.id;
@@ -2168,38 +2379,38 @@ server.tool(
           color: color || '#3498db',
           typeNodeId: null
         };
-        
+
         console.log(`Creating new prototype: ${conceptName} (${prototypeId})`);
         await actions.addNodePrototype(prototypeData);
         prototypeCreated = true;
-        
+
         // Wait for prototype to be processed by MCPBridge (polls every 2 seconds)
         console.log(`Waiting for prototype ${prototypeId} to be synced to store...`);
         await new Promise(resolve => setTimeout(resolve, 2500)); // 2.5 seconds to ensure MCPBridge processes it
       }
-      
+
       // Add instance to graph with retry mechanism
       const instanceId = `instance-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
       console.log(`Adding instance to graph: ${conceptName} at (${position.x}, ${position.y}) using prototype: ${prototypeId}`);
-      
+
       // Retry mechanism to ensure prototype is synced
       let instanceAdded = false;
       let retryCount = 0;
       const maxRetries = 5; // Increased retries
-      
+
       while (!instanceAdded && retryCount < maxRetries) {
         try {
           // Verify prototype exists before attempting to add instance
           const currentState = await getRealRedstringState();
           const prototypeExists = currentState.nodePrototypes.has(prototypeId);
-          
+
           if (!prototypeExists) {
             console.log(`Prototype ${prototypeId} not found in store, waiting for sync...`);
             await new Promise(resolve => setTimeout(resolve, 1000)); // Longer wait
             retryCount++;
             continue;
           }
-          
+
           await actions.addNodeInstance(targetGraphId, prototypeId, position);
           instanceAdded = true;
           console.log(`✅ Instance added successfully on attempt ${retryCount + 1}`);
@@ -2212,20 +2423,20 @@ server.tool(
           }
         }
       }
-      
+
       if (!instanceAdded) {
         throw new Error(`Failed to add instance after ${maxRetries} attempts. Prototype ${prototypeId} may not be synced.`);
       }
-      
+
       // Verify the changes
       const updatedState = await getRealRedstringState();
       const updatedGraph = updatedState.graphs.get(targetGraphId);
       const newInstanceCount = updatedGraph?.instances?.size || 0;
       const newPrototypeCount = updatedState.nodePrototypes.size;
-      
+
       // Get the final prototype info
       const finalPrototype = updatedState.nodePrototypes.get(prototypeId);
-      
+
       const response = `**Concept Added Successfully (VERIFIED)**
 
 **Added Concept:**
@@ -2235,12 +2446,12 @@ server.tool(
 - **Instance Count:** ${originalInstanceCount} → ${newInstanceCount}
 
 **Prototype Handling:**
-${existingPrototype ? 
-  `- **Used Existing:** ${existingPrototype.name} (${prototypeId})` :
-  `- **Created New:** ${conceptName} (${prototypeId})
+${existingPrototype ?
+          `- **Used Existing:** ${existingPrototype.name} (${prototypeId})` :
+          `- **Created New:** ${conceptName} (${prototypeId})
 - **Description:** ${description || `A ${conceptName.toLowerCase()}`}
 - **Color:** ${color || '#3498db'}`
-}
+        }
 - **Prototype Count:** ${originalPrototypeCount} → ${newPrototypeCount} ${prototypeCreated ? '' : '(unchanged)'}
 
 **Verification:**
@@ -2271,14 +2482,14 @@ ${existingPrototype ?
         ]
       };
     } catch (error) {
-              return {
-          content: [
-            {
-              type: "text",
-              text: `Error adding concept to graph: ${error.message}`
-            }
-          ]
-        };
+      return {
+        content: [
+          {
+            type: "text",
+            text: `Error adding concept to graph: ${error.message}`
+          }
+        ]
+      };
     }
   }
 );
@@ -2294,7 +2505,7 @@ server.tool(
     try {
       const state = await getRealRedstringState();
       const actions = await getRealRedstringActions();
-      
+
       if (!state.activeGraphId) {
         return {
           content: [
@@ -2305,10 +2516,10 @@ server.tool(
           ]
         };
       }
-      
+
       const targetGraphId = state.activeGraphId;
       const graph = state.graphs.get(targetGraphId);
-      
+
       if (!graph) {
         return {
           content: [
@@ -2319,11 +2530,11 @@ server.tool(
           ]
         };
       }
-      
+
       // Find instances of this concept
       const instances = graph.instances || new Map();
       const matchingInstances = [];
-      
+
       for (const [instId, instance] of instances.entries()) {
         const prototype = state.nodePrototypes.get(instance.prototypeId);
         if (prototype && prototype.name.toLowerCase() === conceptName.toLowerCase()) {
@@ -2334,7 +2545,7 @@ server.tool(
           });
         }
       }
-      
+
       if (matchingInstances.length === 0) {
         return {
           content: [
@@ -2345,9 +2556,9 @@ server.tool(
           ]
         };
       }
-      
+
       let instanceToRemove;
-      
+
       if (instanceId) {
         // Remove specific instance
         instanceToRemove = matchingInstances.find(inst => inst.id === instanceId);
@@ -2366,10 +2577,10 @@ server.tool(
         instanceToRemove = matchingInstances[0];
       } else {
         // Multiple instances - list them for user to choose
-        const instanceList = matchingInstances.map((inst, index) => 
+        const instanceList = matchingInstances.map((inst, index) =>
           `${index + 1}. ${inst.prototype.name} at (${inst.position.x}, ${inst.position.y}) [${inst.id}]`
         ).join('\n');
-        
+
         return {
           content: [
             {
@@ -2386,19 +2597,19 @@ ${instanceList}
           ]
         };
       }
-      
+
       // Capture initial state
       const originalInstanceCount = instances.size;
-      
+
       // Remove the instance
       console.log(`🗑️ Removing instance: ${instanceToRemove.prototype.name} (${instanceToRemove.id})`);
       await actions.removeNodeInstance(targetGraphId, instanceToRemove.id);
-      
+
       // Verify the changes
       const updatedState = await getRealRedstringState();
       const updatedGraph = updatedState.graphs.get(targetGraphId);
       const newInstanceCount = updatedGraph?.instances?.size || 0;
-      
+
       const response = `✅ **Concept Removed Successfully (VERIFIED)**
 
 **Removed Concept:**
@@ -2460,12 +2671,12 @@ server.tool(
   async ({ prototypeName, position, graphId }) => {
     try {
       console.warn('⚠️ DEPRECATED: add_node_instance is deprecated. Use addNodeToGraph instead.');
-      
+
       const state = await getRealRedstringState();
       const actions = getRealRedstringActions();
-      
+
       const targetGraphId = graphId || state.activeGraphId;
-      
+
       if (!targetGraphId) {
         return {
           content: [
@@ -2476,7 +2687,7 @@ server.tool(
           ]
         };
       }
-      
+
       // Validate that the target graph exists
       if (!state.graphs.has(targetGraphId)) {
         return {
@@ -2488,29 +2699,29 @@ server.tool(
           ]
         };
       }
-      
+
       // Find the prototype by name or ID
       let prototype = null;
-      
+
       // First try exact name match
-      prototype = Array.from(state.nodePrototypes.values()).find(p => 
+      prototype = Array.from(state.nodePrototypes.values()).find(p =>
         p.name.toLowerCase() === prototypeName.toLowerCase()
       );
-      
+
       if (!prototype) {
         // Try ID match
-        prototype = Array.from(state.nodePrototypes.values()).find(p => 
+        prototype = Array.from(state.nodePrototypes.values()).find(p =>
           p.id === prototypeName
         );
       }
-      
+
       if (!prototype) {
         // Try partial name match
-        prototype = Array.from(state.nodePrototypes.values()).find(p => 
+        prototype = Array.from(state.nodePrototypes.values()).find(p =>
           p.name.toLowerCase().includes(prototypeName.toLowerCase())
         );
       }
-      
+
       if (!prototype) {
         return {
           content: [
@@ -2529,7 +2740,7 @@ ${Array.from(state.nodePrototypes.values()).map(p => `- ${p.name} (${p.id})`).jo
           ]
         };
       }
-      
+
       // CRITICAL: Ensure prototype exists before creating instance
       if (!state.nodePrototypes.has(prototype.id)) {
         return {
@@ -2541,14 +2752,14 @@ ${Array.from(state.nodePrototypes.values()).map(p => `- ${p.name} (${p.id})`).jo
           ]
         };
       }
-      
+
       // Add instance to real Redstring store
       await actions.addNodeInstance(targetGraphId, prototype.id, position);
-      
+
       // CRITICAL: Verify the action actually succeeded by checking the updated state
       const updatedState = await getRealRedstringState();
       const updatedGraph = updatedState.graphs.get(targetGraphId);
-      
+
       if (!updatedGraph) {
         return {
           content: [
@@ -2559,11 +2770,11 @@ ${Array.from(state.nodePrototypes.values()).map(p => `- ${p.name} (${p.id})`).jo
           ]
         };
       }
-      
+
       // Check if the instance was actually added by comparing instance counts
       const originalInstanceCount = state.graphs.get(targetGraphId)?.instances?.size || 0;
       const newInstanceCount = updatedGraph.instances?.size || 0;
-      
+
       if (newInstanceCount <= originalInstanceCount) {
         return {
           content: [
@@ -2584,7 +2795,7 @@ ${Array.from(state.nodePrototypes.values()).map(p => `- ${p.name} (${p.id})`).jo
           ]
         };
       }
-      
+
       const response = `✅ **Node Instance Added Successfully (VERIFIED)**
 
 **New Instance:**
@@ -2643,7 +2854,7 @@ server.tool(
     try {
       const state = await getRealRedstringState();
       const actions = getRealRedstringActions();
-      
+
       if (!state.graphs.has(graphId)) {
         return {
           content: [
@@ -2654,7 +2865,7 @@ server.tool(
           ]
         };
       }
-      
+
       if (!state.openGraphIds.includes(graphId)) {
         return {
           content: [
@@ -2665,12 +2876,12 @@ server.tool(
           ]
         };
       }
-      
+
       const graph = state.graphs.get(graphId);
-      
+
       // Set as active graph using real Redstring actions
       await actions.setActiveGraphId(graphId);
-      
+
       const response = `🎯 **Active Graph Set Successfully (Real Redstring UI)**
 
 **Graph Details:**
@@ -2685,10 +2896,10 @@ server.tool(
 
 **Current Open Graphs:**
 ${state.openGraphIds.map((id, index) => {
-  const g = state.graphs.get(id);
-  const isActive = id === graphId;
-  return `${index + 1}. ${g.name} (${id})${isActive ? ' 🟢 ACTIVE' : ''}`;
-}).join('\n')}
+        const g = state.graphs.get(id);
+        const isActive = id === graphId;
+        return `${index + 1}. ${g.name} (${id})${isActive ? ' 🟢 ACTIVE' : ''}`;
+      }).join('\n')}
 
 **Next Steps:**
 - Use \`add_node_instance\` to add instances to this active graph
@@ -2728,7 +2939,7 @@ server.tool(
     try {
       const state = await getRealRedstringState();
       const actions = getRealRedstringActions();
-      
+
       if (!state.graphs.has(graphId)) {
         return {
           content: [
@@ -2739,16 +2950,16 @@ server.tool(
           ]
         };
       }
-      
+
       const graph = state.graphs.get(graphId);
-      
+
       // Use real Redstring actions to open the graph
       if (bringToFront) {
         await actions.openGraphTabAndBringToTop(graphId);
       } else {
         await actions.openGraphTab(graphId);
       }
-      
+
       const response = `📂 **Graph Opened Successfully (Real Redstring UI)**
 
 **Graph Details:**
@@ -2764,10 +2975,10 @@ server.tool(
 
 **Current Open Graphs:**
 ${state.openGraphIds.map((id, index) => {
-  const g = state.graphs.get(id);
-  const isActive = id === graphId;
-  return `${index + 1}. ${g.name} (${id})${isActive ? ' 🟢 ACTIVE' : ''}`;
-}).join('\n')}
+        const g = state.graphs.get(id);
+        const isActive = id === graphId;
+        return `${index + 1}. ${g.name} (${id})${isActive ? ' 🟢 ACTIVE' : ''}`;
+      }).join('\n')}
 
 **Header Tab Position:**
 - The graph is now visible in the header tabs
@@ -2808,14 +3019,34 @@ server.tool(
     graphId: z.string().describe("The ID of the graph to add the edge to"),
     sourceId: z.string().describe("The ID of the source node"),
     targetId: z.string().describe("The ID of the target node"),
-    edgeType: z.string().optional().describe("Type of the edge (optional)"),
-    weight: z.number().optional().describe("Weight of the edge (optional, default 1)")
+    edgeType: z.string().optional().describe("Type of the edge (optional)"), // Kept for backward compat, mapped to relation/name
+    relation: z.string().optional().describe("Name of the relationship (e.g., 'has part')"),
+    weight: z.number().optional().describe("Weight of the edge (optional, default 1)"),
+    directionality: z.enum(['directed', 'bidirectional', 'undirected', 'reverse']).optional().describe("Direction of the edge"),
+    definitionNodeIds: z.array(z.string()).optional().describe("List of prototype IDs that define this relationship")
   },
-  async ({ graphId, sourceId, targetId, edgeType, weight }) => {
+  async ({ graphId, sourceId, targetId, edgeType, relation, weight, directionality = 'directed', definitionNodeIds = [] }) => {
     try {
       const actions = getRealRedstringActions();
-      const result = await actions.createEdge(graphId, sourceId, targetId, edgeType, weight);
-      
+
+      let arrowsToward = [targetId];
+      if (directionality === 'bidirectional') arrowsToward = [sourceId, targetId];
+      else if (directionality === 'undirected') arrowsToward = [];
+      else if (directionality === 'reverse') arrowsToward = [sourceId];
+
+      const edgeId = `edge-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+      const name = relation || edgeType || '';
+
+      const result = await actions.addEdge(graphId, {
+        id: edgeId,
+        sourceId,
+        destinationId: targetId,
+        name,
+        directionality: { arrowsToward },
+        definitionNodeIds,
+        weight
+      });
+
       if (result.success) {
         return {
           content: [{
@@ -2857,7 +3088,7 @@ server.tool(
     try {
       const actions = getRealRedstringActions();
       const result = await actions.createEdgeDefinition({ name, description, color, typeNodeId });
-      
+
       if (result.success) {
         return {
           content: [{
@@ -2901,7 +3132,7 @@ server.tool(
     try {
       const actions = getRealRedstringActions();
       const result = await actions.moveNodeInstance(graphId, instanceId, position);
-      
+
       if (result.success) {
         return {
           content: [{
@@ -2941,14 +3172,14 @@ server.tool(
     try {
       const actions = getRealRedstringActions();
       const result = await actions.searchNodes(query, graphId);
-      
+
       if (result.success) {
-        const resultText = result.results.length > 0 
-          ? `Found ${result.results.length} matches:\n` + result.results.map(r => 
-              `- ${r.name} (${r.type}): ${r.description || 'No description'}`
-            ).join('\n')
+        const resultText = result.results.length > 0
+          ? `Found ${result.results.length} matches:\n` + result.results.map(r =>
+            `- ${r.name} (${r.type}): ${r.description || 'No description'}`
+          ).join('\n')
           : `No nodes found matching "${query}"`;
-          
+
         return {
           content: [{
             type: "text",
@@ -3043,7 +3274,7 @@ server.tool(
   async ({ graphId, sourceId, targetId, typeNodeId, arrowsToward }) => {
     try {
       const actions = getRealRedstringActions();
-      const edgeId = `edge-${Date.now()}-${Math.random().toString(36).slice(2,8)}`;
+      const edgeId = `edge-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
       const edgeData = {
         id: edgeId,
         sourceId,
@@ -3130,7 +3361,7 @@ server.tool(
   {
     nodeId: z.string(),
     dimension: z.string().default('default'),
-    direction: z.enum(['above','below']).describe('above=more generic, below=more specific'),
+    direction: z.enum(['above', 'below']).describe('above=more generic, below=more specific'),
     newNodeId: z.string().describe('ID of the node to insert'),
     insertRelativeToNodeId: z.string().optional()
   },
@@ -3248,7 +3479,7 @@ server.tool(
         type: 'addEdge',
         graphId,
         edgeData: {
-          id: e.edgeId || `edge-${Date.now()}-${Math.random().toString(36).slice(2,8)}`,
+          id: e.edgeId || `edge-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
           sourceId: e.sourceId,
           destinationId: e.targetId,
           typeNodeId: e.typeNodeId || 'base-connection-prototype',
@@ -3310,10 +3541,10 @@ server.tool(
     try {
       const state = await getRealRedstringState();
       const actions = getRealRedstringActions();
-      
+
       let workflowSteps = [];
       let currentStep = 0;
-      
+
       switch (workflowType) {
         case 'create_prototype_and_definition':
           workflowSteps = [
@@ -3340,7 +3571,7 @@ server.tool(
             }
           ];
           break;
-          
+
         case 'add_instance_to_graph':
           workflowSteps = [
             {
@@ -3359,7 +3590,7 @@ server.tool(
             }
           ];
           break;
-          
+
         case 'create_connections':
           workflowSteps = [
             {
@@ -3378,7 +3609,7 @@ server.tool(
             }
           ];
           break;
-          
+
         case 'full_workflow':
           workflowSteps = [
             {
@@ -3419,15 +3650,15 @@ server.tool(
           ];
           break;
       }
-      
+
       let results = [];
       let currentGraphId = null;
-      
+
       for (const step of workflowSteps) {
         if (enableUserGuidance) {
           results.push(`**Step ${step.step}:** ${step.description}\n${step.instruction}`);
         }
-        
+
         try {
           switch (step.action) {
             case 'create_prototype':
@@ -3438,38 +3669,38 @@ server.tool(
               });
               results.push(`✅ Created prototype: ${prototypeName}`);
               break;
-              
+
             case 'create_definition':
               // Find the prototype we just created
-              const prototype = Array.from(state.nodePrototypes.values()).find(p => 
+              const prototype = Array.from(state.nodePrototypes.values()).find(p =>
                 p.name.toLowerCase() === (step.prototypeName || prototypeName).toLowerCase()
               );
               if (!prototype) {
                 throw new Error(`Prototype "${step.prototypeName || prototypeName}" not found`);
               }
-              
+
               // Create definition graph
               const definitionGraphId = await actions.createAndAssignGraphDefinitionWithoutActivation(prototype.id);
               currentGraphId = definitionGraphId;
               results.push(`✅ Created definition graph: ${definitionGraphId} for prototype "${prototype.name}"`);
               break;
-              
+
             case 'open_definition':
               // Find the prototype and its definition
-              const prototypeForOpen = Array.from(state.nodePrototypes.values()).find(p => 
+              const prototypeForOpen = Array.from(state.nodePrototypes.values()).find(p =>
                 p.name.toLowerCase() === (step.prototypeName || prototypeName).toLowerCase()
               );
               if (!prototypeForOpen || !prototypeForOpen.definitionGraphIds?.length) {
                 throw new Error(`No definition graph found for prototype "${step.prototypeName || prototypeName}"`);
               }
-              
+
               const definitionId = prototypeForOpen.definitionGraphIds[prototypeForOpen.definitionGraphIds.length - 1];
               await actions.openGraphTab(definitionId);
               await actions.setActiveGraphId(definitionId);
               currentGraphId = definitionId;
               results.push(`✅ Opened definition graph as active: ${definitionId}`);
               break;
-              
+
             case 'ensure_active_graph':
               if (step.targetGraphId) {
                 await actions.openGraphTab(step.targetGraphId);
@@ -3483,26 +3714,26 @@ server.tool(
                 throw new Error('No active graph and no target graph specified');
               }
               break;
-              
+
             case 'add_instances':
               if (step.instancePositions?.length) {
                 for (const instance of step.instancePositions) {
                   // Find the prototype by name to get its ID
-                  const prototype = Array.from(state.nodePrototypes.values()).find(p => 
+                  const prototype = Array.from(state.nodePrototypes.values()).find(p =>
                     p.name.toLowerCase() === instance.prototypeName.toLowerCase()
                   );
-                  
+
                   if (!prototype) {
                     results.push(`❌ Prototype "${instance.prototypeName}" not found, skipping instance`);
                     continue;
                   }
-                  
+
                   await actions.addNodeInstance(currentGraphId, prototype.id, { x: instance.x, y: instance.y });
                   results.push(`✅ Added instance: ${instance.prototypeName} at (${instance.x}, ${instance.y})`);
                 }
               }
               break;
-              
+
             case 'create_connections':
               if (step.connections?.length) {
                 for (const connection of step.connections) {
@@ -3517,7 +3748,7 @@ server.tool(
           break;
         }
       }
-      
+
       const response = `🤖 **AI-Guided Workflow Completed**
 
 **Workflow Type:** ${workflowType}
@@ -3587,21 +3818,21 @@ app.get('/health', (req, res) => {
 // GitHub OAuth token exchange endpoint
 app.post('/api/github/oauth/token', async (req, res) => {
   console.log('[OAuth Server] Token exchange request received');
-  
+
   try {
     const { code, state, redirect_uri } = req.body;
-    
+
     if (!code || !state) {
       return res.status(400).json({ error: 'Missing code or state parameter' });
     }
-    
+
     const clientId = process.env.GITHUB_CLIENT_ID;
     const clientSecret = process.env.GITHUB_CLIENT_SECRET;
-    
+
     if (!clientId || !clientSecret) {
       return res.status(500).json({ error: 'GitHub OAuth not configured' });
     }
-    
+
     // Exchange authorization code for access token
     const tokenResponse = await fetch('https://github.com/login/oauth/access_token', {
       method: 'POST',
@@ -3616,19 +3847,19 @@ app.post('/api/github/oauth/token', async (req, res) => {
         redirect_uri: redirect_uri
       })
     });
-    
+
     const tokenData = await tokenResponse.json();
-    
+
     if (tokenData.error) {
       return res.status(400).json({ error: tokenData.error_description || tokenData.error });
     }
-    
+
     res.json({
       access_token: tokenData.access_token,
       token_type: tokenData.token_type,
       scope: tokenData.scope
     });
-    
+
   } catch (error) {
     console.error('OAuth token exchange error:', error);
     res.status(500).json({ error: 'Failed to exchange token' });
@@ -3795,29 +4026,29 @@ app.post('/api/bridge/actions/set-active-graph', async (req, res) => {
   const { graphId } = req.body;
   console.log(`[HTTP][POST] /api/bridge/actions/set-active-graph - Request received for graphId: ${graphId}`);
   try {
-    
+
     const bridgeData = await fetch('http://localhost:3001/api/bridge/state').then(r => r.json());
-    
+
     // Check if graph exists and is open
     const targetGraph = bridgeData.graphs.find(g => g.id === graphId);
     if (!targetGraph) {
       return res.status(404).json({ error: `Graph with ID ${graphId} not found` });
     }
-    
+
     if (!bridgeData.openGraphIds.includes(graphId)) {
       return res.status(400).json({ error: `Graph ${graphId} is not open` });
     }
-    
+
     // Set as active
     bridgeData.activeGraphId = graphId;
-    
+
     // Update bridge state
     await fetch('http://localhost:3001/api/bridge/state', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(bridgeData)
     });
-    
+
     console.log(`✅ Bridge: Set active graph to ${graphId}`);
     res.json({ success: true, activeGraphId: graphId });
   } catch (error) {
@@ -3831,30 +4062,30 @@ app.post('/api/bridge/actions/open-graph-tab', async (req, res) => {
   const { graphId } = req.body;
   console.log(`[HTTP][POST] /api/bridge/actions/open-graph-tab - Request received for graphId: ${graphId}`);
   try {
-    
+
     const bridgeData = await fetch('http://localhost:3001/api/bridge/state').then(r => r.json());
-    
+
     // Check if graph exists
     const targetGraph = bridgeData.graphs.find(g => g.id === graphId);
     if (!targetGraph) {
       return res.status(404).json({ error: `Graph with ID ${graphId} not found` });
     }
-    
+
     // Add to open list if not already there
     if (!bridgeData.openGraphIds.includes(graphId)) {
       bridgeData.openGraphIds.unshift(graphId);
     }
-    
+
     // Set as active
     bridgeData.activeGraphId = graphId;
-    
+
     // Update bridge state
     await fetch('http://localhost:3001/api/bridge/state', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(bridgeData)
     });
-    
+
     console.log(`✅ Bridge: Opened graph tab for ${graphId}`);
     res.json({ success: true, graphId, opened: true, active: true });
   } catch (error) {
@@ -3868,12 +4099,12 @@ app.post('/api/bridge/actions/add-node-prototype', async (req, res) => {
   const { name, description, color, typeNodeId } = req.body;
   console.log(`[HTTP][POST] /api/bridge/actions/add-node-prototype - Request received for name: ${name}`);
   try {
-    
+
     const bridgeData = await fetch('http://localhost:3001/api/bridge/state').then(r => r.json());
-    
+
     // Generate new prototype ID
     const prototypeId = `prototype-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
-    
+
     // Create new prototype
     const newPrototype = {
       id: prototypeId,
@@ -3885,17 +4116,17 @@ app.post('/api/bridge/actions/add-node-prototype', async (req, res) => {
       isSpecificityChainNode: false,
       hasSpecificityChain: false
     };
-    
+
     // Add to bridge data
     bridgeData.nodePrototypes.push(newPrototype);
-    
+
     // Update bridge state
     await fetch('http://localhost:3001/api/bridge/state', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(bridgeData)
     });
-    
+
     console.log(`✅ Bridge: Added node prototype ${name} with ID ${prototypeId}`);
     res.json({ success: true, prototypeId, prototype: newPrototype });
   } catch (error) {
@@ -3909,24 +4140,24 @@ app.post('/api/bridge/actions/add-node-instance', async (req, res) => {
   const { graphId, prototypeId, position } = req.body;
   console.log(`[HTTP][POST] /api/bridge/actions/add-node-instance - Request received for graphId: ${graphId}, prototypeId: ${prototypeId}`);
   try {
-    
+
     const bridgeData = await fetch('http://localhost:3001/api/bridge/state').then(r => r.json());
-    
+
     // Find the graph
     const targetGraph = bridgeData.graphs.find(g => g.id === graphId);
     if (!targetGraph) {
       return res.status(404).json({ error: `Graph with ID ${graphId} not found` });
     }
-    
+
     // Find the prototype
     const prototype = bridgeData.nodePrototypes.find(p => p.id === prototypeId);
     if (!prototype) {
       return res.status(404).json({ error: `Prototype with ID ${prototypeId} not found` });
     }
-    
+
     // Generate new instance ID
     const instanceId = `instance-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
-    
+
     // Create new instance
     const newInstance = {
       id: instanceId,
@@ -3934,20 +4165,20 @@ app.post('/api/bridge/actions/add-node-instance', async (req, res) => {
       position: position || { x: Math.random() * 400, y: Math.random() * 400 },
       scale: 1.0
     };
-    
+
     // Add instance to graph
     if (!targetGraph.instances) {
       targetGraph.instances = {};
     }
     targetGraph.instances[instanceId] = newInstance;
-    
+
     // Update bridge state
     await fetch('http://localhost:3001/api/bridge/state', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(bridgeData)
     });
-    
+
     console.log(`✅ Bridge: Added node instance ${instanceId} to graph ${graphId}`);
     res.json({ success: true, instanceId, instance: newInstance });
   } catch (error) {
@@ -3961,28 +4192,28 @@ app.post('/api/bridge/actions/update-node-prototype', async (req, res) => {
   const { prototypeId, updates } = req.body;
   console.log(`[HTTP][POST] /api/bridge/actions/update-node-prototype - Request received for prototypeId: ${prototypeId}`);
   try {
-    
+
     const bridgeData = await fetch('http://localhost:3001/api/bridge/state').then(r => r.json());
-    
+
     // Find the prototype
     const prototypeIndex = bridgeData.nodePrototypes.findIndex(p => p.id === prototypeId);
     if (prototypeIndex === -1) {
       return res.status(404).json({ error: `Prototype with ID ${prototypeId} not found` });
     }
-    
+
     // Update prototype
     bridgeData.nodePrototypes[prototypeIndex] = {
       ...bridgeData.nodePrototypes[prototypeIndex],
       ...updates
     };
-    
+
     // Update bridge state
     await fetch('http://localhost:3001/api/bridge/state', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(bridgeData)
     });
-    
+
     console.log(`✅ Bridge: Updated node prototype ${prototypeId}`);
     res.json({ success: true, prototypeId, prototype: bridgeData.nodePrototypes[prototypeIndex] });
   } catch (error) {
@@ -3996,30 +4227,30 @@ app.post('/api/bridge/actions/delete-node-instance', async (req, res) => {
   const { graphId, instanceId } = req.body;
   console.log(`[HTTP][POST] /api/bridge/actions/delete-node-instance - Request received for graphId: ${graphId}, instanceId: ${instanceId}`);
   try {
-    
+
     const bridgeData = await fetch('http://localhost:3001/api/bridge/state').then(r => r.json());
-    
+
     // Find the graph
     const targetGraph = bridgeData.graphs.find(g => g.id === graphId);
     if (!targetGraph) {
       return res.status(404).json({ error: `Graph with ID ${graphId} not found` });
     }
-    
+
     // Check if instance exists
     if (!targetGraph.instances || !targetGraph.instances[instanceId]) {
       return res.status(404).json({ error: `Instance with ID ${instanceId} not found in graph ${graphId}` });
     }
-    
+
     // Delete the instance
     delete targetGraph.instances[instanceId];
-    
+
     // Update bridge state
     await fetch('http://localhost:3001/api/bridge/state', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(bridgeData)
     });
-    
+
     console.log(`✅ Bridge: Deleted node instance ${instanceId} from graph ${graphId}`);
     res.json({ success: true, deletedInstanceId: instanceId });
   } catch (error) {
@@ -4033,18 +4264,18 @@ app.post('/api/bridge/actions/create-edge', async (req, res) => {
   const { graphId, sourceId, targetId, edgeType, weight } = req.body;
   console.log(`[HTTP][POST] /api/bridge/actions/create-edge - Request received for graphId: ${graphId}, sourceId: ${sourceId}, targetId: ${targetId}`);
   try {
-    
+
     const bridgeData = await fetch('http://localhost:3001/api/bridge/state').then(r => r.json());
-    
+
     // Find the graph
     const targetGraph = bridgeData.graphs.find(g => g.id === graphId);
     if (!targetGraph) {
       return res.status(404).json({ error: `Graph with ID ${graphId} not found` });
     }
-    
+
     // Generate new edge ID
     const edgeId = `edge-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
-    
+
     // Create new edge
     const newEdge = {
       id: edgeId,
@@ -4054,20 +4285,20 @@ app.post('/api/bridge/actions/create-edge', async (req, res) => {
       prototypeId: edgeType || 'base-connection-prototype',
       weight: weight || 1.0
     };
-    
+
     // Add edge to graph
     if (!targetGraph.edges) {
       targetGraph.edges = {};
     }
     targetGraph.edges[edgeId] = newEdge;
-    
+
     // Update bridge state
     await fetch('http://localhost:3001/api/bridge/state', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(bridgeData)
     });
-    
+
     console.log(`✅ Bridge: Created edge ${edgeId} in graph ${graphId}`);
     res.json({ success: true, edgeId, edge: newEdge });
   } catch (error) {
@@ -4081,12 +4312,12 @@ app.post('/api/bridge/actions/create-edge-definition', async (req, res) => {
   const { name, description, color, typeNodeId } = req.body;
   console.log(`[HTTP][POST] /api/bridge/actions/create-edge-definition - Request received for name: ${name}`);
   try {
-    
+
     const bridgeData = await fetch('http://localhost:3001/api/bridge/state').then(r => r.json());
-    
+
     // Generate new edge prototype ID
     const prototypeId = `edge-prototype-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
-    
+
     // Create new edge prototype
     const newEdgePrototype = {
       id: prototypeId,
@@ -4098,17 +4329,17 @@ app.post('/api/bridge/actions/create-edge-definition', async (req, res) => {
       isSpecificityChainNode: false,
       hasSpecificityChain: false
     };
-    
+
     // Add to bridge data
     bridgeData.edgePrototypes.push(newEdgePrototype);
-    
+
     // Update bridge state
     await fetch('http://localhost:3001/api/bridge/state', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(bridgeData)
     });
-    
+
     console.log(`✅ Bridge: Added edge prototype ${name} with ID ${prototypeId}`);
     res.json({ success: true, prototypeId, prototype: newEdgePrototype });
   } catch (error) {
@@ -4122,30 +4353,30 @@ app.post('/api/bridge/actions/move-node-instance', async (req, res) => {
   const { graphId, instanceId, position } = req.body;
   console.log(`[HTTP][POST] /api/bridge/actions/move-node-instance - Request received for graphId: ${graphId}, instanceId: ${instanceId}`);
   try {
-    
+
     const bridgeData = await fetch('http://localhost:3001/api/bridge/state').then(r => r.json());
-    
+
     // Find the graph
     const targetGraph = bridgeData.graphs.find(g => g.id === graphId);
     if (!targetGraph) {
       return res.status(404).json({ error: `Graph with ID ${graphId} not found` });
     }
-    
+
     // Check if instance exists
     if (!targetGraph.instances || !targetGraph.instances[instanceId]) {
       return res.status(404).json({ error: `Instance with ID ${instanceId} not found in graph ${graphId}` });
     }
-    
+
     // Update position
     targetGraph.instances[instanceId].position = position;
-    
+
     // Update bridge state
     await fetch('http://localhost:3001/api/bridge/state', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(bridgeData)
     });
-    
+
     console.log(`✅ Bridge: Moved node instance ${instanceId} in graph ${graphId}`);
     res.json({ success: true, instanceId, position });
   } catch (error) {
@@ -4158,20 +4389,20 @@ app.post('/api/bridge/actions/move-node-instance', async (req, res) => {
 app.post('/api/ai/agent', async (req, res) => {
   try {
     const { message, systemPrompt, context, model: requestedModel } = req.body;
-    
+
     if (!message) {
       return res.status(400).json({ error: 'Message is required' });
     }
 
     if (!req.headers.authorization) {
-      return res.status(401).json({ 
-        error: 'API key required', 
-        response: 'I need access to your AI API key to provide responses. The API key should be passed in the Authorization header.' 
+      return res.status(401).json({
+        error: 'API key required',
+        response: 'I need access to your AI API key to provide responses. The API key should be passed in the Authorization header.'
       });
     }
 
     const apiKey = req.headers.authorization.replace('Bearer ', '');
-    
+
     // Initialize agent state
     const agentState = {
       maxIterations: 30, // generous, Cursor-like
@@ -4195,7 +4426,7 @@ app.post('/api/ai/agent', async (req, res) => {
 
   } catch (error) {
     console.error('[Agent] Error:', error);
-    res.status(500).json({ 
+    res.status(500).json({
       error: error.message,
       details: 'Failed to process autonomous agent request'
     });
@@ -4208,7 +4439,7 @@ async function runAutonomousAgent({ message, systemPrompt, context, requestedMod
   let provider = 'openrouter';
   let endpoint = 'https://openrouter.ai/api/v1/chat/completions';
   let model = 'anthropic/claude-3-sonnet';
-  
+
   const validOpenRouterModels = [
     'anthropic/claude-3-sonnet-20240229',
     'anthropic/claude-3-sonnet',
@@ -4219,11 +4450,11 @@ async function runAutonomousAgent({ message, systemPrompt, context, requestedMod
     'openai/gpt-4-turbo',
     'openai/gpt-3.5-turbo'
   ];
-  
+
   if (!validOpenRouterModels.includes(model)) {
     model = 'anthropic/claude-3-sonnet';
   }
-  
+
   if (context?.apiConfig) {
     provider = context.apiConfig.provider || provider;
     endpoint = context.apiConfig.endpoint || endpoint;
@@ -4314,14 +4545,14 @@ Transform the user's request into a beautifully organized, spatially intelligent
 
       const data = await response.json();
       const assistantMessage = data.choices[0].message;
-      
+
       // Add assistant message to conversation
       agentState.conversationHistory.push(assistantMessage);
-      
+
       // Check if AI wants to make tool calls
       if (assistantMessage.tool_calls && assistantMessage.tool_calls.length > 0) {
         console.log(`[Agent] AI wants to make ${assistantMessage.tool_calls.length} tool calls`);
-        
+
         // Process each tool call
         for (const toolCall of assistantMessage.tool_calls) {
           if (agentState.toolCallBudget <= 0) {
@@ -4342,9 +4573,9 @@ Transform the user's request into a beautifully organized, spatially intelligent
             console.warn('[Agent] Non-JSON tool args, falling back to empty object:', toolCall.function?.arguments);
             toolArgs = {};
           }
-          
+
           console.log(`[Agent] Calling tool: ${toolName}`, toolArgs);
-          
+
           let toolResult;
           let succeeded = false;
           let attempt = 0;
@@ -4383,14 +4614,14 @@ Transform the user's request into a beautifully organized, spatially intelligent
             }
           }
         }
-        
+
       } else {
         // No more tool calls, AI is providing final response
         finalResponse = assistantMessage.content || '';
         console.log(`[Agent] Final response: ${finalResponse}`);
         isComplete = true;
       }
-      
+
     } catch (error) {
       console.error(`[Agent] Error in iteration ${agentState.currentIteration}:`, error);
       finalResponse = `Error in autonomous agent: ${error.message}`;
@@ -4448,28 +4679,28 @@ async function executeToolFromChatEndpoint(toolName, toolArgs) {
 
 **Active Graph Details:**
 ${state.activeGraphId ? (() => {
-  const activeGraph = state.graphs.get(state.activeGraphId);
-  if (!activeGraph) return 'Active graph ID exists but graph not found in store';
-  
-  return `- **Name:** ${activeGraph.name}
+            const activeGraph = state.graphs.get(state.activeGraphId);
+            if (!activeGraph) return 'Active graph ID exists but graph not found in store';
+
+            return `- **Name:** ${activeGraph.name}
 - **ID:** ${state.activeGraphId}
 - **Description:** ${activeGraph.description || 'No description'}
 - **Instance Count:** ${activeGraph.instances?.size || 0}
 - **Open Status:** Open in UI
 - **Expanded:** ${state.expandedGraphIds.has(state.activeGraphId) ? 'Yes' : 'No'}`;
-})() : 'No active graph set'}
+          })() : 'No active graph set'}
 
 **Available Prototypes (Last 10):**
-${Array.from(state.nodePrototypes.values()).slice(-10).map(p => 
-  `- ${p.name} (${p.id}) - ${p.description || 'No description'}`
-).join('\n')}
+${Array.from(state.nodePrototypes.values()).slice(-10).map(p =>
+            `- ${p.name} (${p.id}) - ${p.description || 'No description'}`
+          ).join('\n')}
 
 **Open Graphs:**
 ${state.openGraphIds.map((id, index) => {
-  const g = state.graphs.get(id);
-  const isActive = id === state.activeGraphId;
-  return `${index + 1}. ${g?.name || 'Unknown'} (${id})${isActive ? ' ACTIVE' : ''}`;
-}).join('\n')}
+            const g = state.graphs.get(id);
+            const isActive = id === state.activeGraphId;
+            return `${index + 1}. ${g?.name || 'Unknown'} (${id})${isActive ? ' ACTIVE' : ''}`;
+          }).join('\n')}
 
 **Bridge Status:**
 - **Bridge Server:** Running on localhost:3001
@@ -4485,9 +4716,9 @@ ${state.openGraphIds.map((id, index) => {
         return `**Available Knowledge Graphs (Real Redstring Data):**
 
 **Graph IDs for Reference:**
-${Object.values(graphData.graphs).map(graph => 
-  `- **${graph.name}**: \`${graph.id}\``
-).join('\n')}
+${Object.values(graphData.graphs).map(graph =>
+          `- **${graph.name}**: \`${graph.id}\``
+        ).join('\n')}
 
 **Detailed Graph Information:**
 ${Object.values(graphData.graphs).map(graph => `
@@ -4502,11 +4733,11 @@ ${Object.values(graphData.graphs).map(graph => `
 **Current Active Graph:** ${graphData.activeGraphId || 'None'}
 
 **Available Prototypes:**
-${graphData.nodePrototypes && graphData.nodePrototypes instanceof Map ? 
-  Array.from(graphData.nodePrototypes.values()).map(prototype => 
-    `- ${prototype.name} (${prototype.id}) - ${prototype.description}`
-  ).join('\n') : 
-  'No prototypes available'}
+${graphData.nodePrototypes && graphData.nodePrototypes instanceof Map ?
+            Array.from(graphData.nodePrototypes.values()).map(prototype =>
+              `- ${prototype.name} (${prototype.id}) - ${prototype.description}`
+            ).join('\n') :
+            'No prototypes available'}
 
 **To open a graph, use:** \`open_graph\` with any of the graph IDs above.`;
       } catch (error) {
@@ -4517,7 +4748,7 @@ ${graphData.nodePrototypes && graphData.nodePrototypes instanceof Map ?
       try {
         const graphData = await getGraphData();
         const activeGraphId = graphData.activeGraphId;
-        
+
         if (!activeGraphId || !graphData.graphs[activeGraphId]) {
           return `No active graph found in Redstring. Use \`open_graph\` to open a graph first.`;
         } else {
@@ -4540,25 +4771,25 @@ ${graphData.nodePrototypes && graphData.nodePrototypes instanceof Map ?
 - **Saved:** ${graphData.savedGraphIds.has(activeGraphId) ? 'Yes' : 'No'} in "Saved Things" list
 
 **Available Instances:**
-${activeGraph.nodes.length > 0 ? 
-  activeGraph.nodes.map(node => `- ${node.name} (${node.prototypeId}) - ${node.description} at (${node.x}, ${node.y})`).join('\n') : 
-  'No instances in this graph'}
+${activeGraph.nodes.length > 0 ?
+              activeGraph.nodes.map(node => `- ${node.name} (${node.prototypeId}) - ${node.description} at (${node.x}, ${node.y})`).join('\n') :
+              'No instances in this graph'}
 
 **Available Relationships:**
-${activeGraph.edges.length > 0 ? 
-  activeGraph.edges.slice(0, 5).map(edge => {
-    const source = activeGraph.nodes.find(n => n.id === edge.sourceId);
-    const target = activeGraph.nodes.find(n => n.id === edge.targetId);
-    return `- ${source?.name || 'Unknown'} → ${target?.name || 'Unknown'} (${edge.type})`;
-  }).join('\n') + (activeGraph.edges.length > 5 ? `\n... and ${activeGraph.edges.length - 5} more relationships` : '') : 
-  'No relationships in this graph'}
+${activeGraph.edges.length > 0 ?
+              activeGraph.edges.slice(0, 5).map(edge => {
+                const source = activeGraph.nodes.find(n => n.id === edge.sourceId);
+                const target = activeGraph.nodes.find(n => n.id === edge.targetId);
+                return `- ${source?.name || 'Unknown'} → ${target?.name || 'Unknown'} (${edge.type})`;
+              }).join('\n') + (activeGraph.edges.length > 5 ? `\n... and ${activeGraph.edges.length - 5} more relationships` : '') :
+              'No relationships in this graph'}
 
 **Open Graph Tabs:**
 ${graphData.openGraphIds.map((id, index) => {
-  const g = graphData.graphs[id];
-  const isActive = id === activeGraphId;
-  return `${index + 1}. ${g.name} (${id})${isActive ? ' ACTIVE' : ''}`;
-}).join('\n')}
+                const g = graphData.graphs[id];
+                const isActive = id === activeGraphId;
+                return `${index + 1}. ${g.name} (${id})${isActive ? ' ACTIVE' : ''}`;
+              }).join('\n')}
 
 **Next Steps:**
 - Use \`add_node_instance\` to add instances to this active graph
@@ -4569,7 +4800,7 @@ ${graphData.openGraphIds.map((id, index) => {
       } catch (error) {
         return `❌ Error accessing Redstring store: ${error.message}`;
       }
-      
+
     case 'addNodeToGraph':
       try {
         const { conceptName, description, position, color } = toolArgs || {};
@@ -4579,27 +4810,27 @@ ${graphData.openGraphIds.map((id, index) => {
         }
         const state = await getRealRedstringState();
         const actions = getRealRedstringActions();
-        
+
         if (!state.activeGraphId) {
           return `❌ No active graph. Use \`open_graph\` or \`set_active_graph\` to select a graph first.`;
         }
-        
+
         const targetGraphId = state.activeGraphId;
         const graph = state.graphs.get(targetGraphId);
-        
+
         if (!graph) {
           return `❌ Active graph not found. Use \`list_available_graphs\` to see available graphs.`;
         }
-        
+
         const originalInstanceCount = graph.instances?.size || 0;
         const originalPrototypeCount = state.nodePrototypes.size;
-        
+
         const safeLower = (v) => (typeof v === 'string' ? v.toLowerCase() : '');
         let existingPrototype = Array.from(state.nodePrototypes.values()).find(p => safeLower(p?.name) === safeLower(conceptName));
-        
+
         let prototypeId;
         let prototypeCreated = false;
-        
+
         if (existingPrototype) {
           prototypeId = existingPrototype.id;
         } else {
@@ -4607,15 +4838,15 @@ ${graphData.openGraphIds.map((id, index) => {
           const result = await actions.addNodePrototype(newPrototypeData);
           prototypeId = result.prototypeId;
           prototypeCreated = true;
-          
+
           // Wait for prototype to be processed by MCPBridge (polls every 2 seconds)
           console.log(`⏳ Waiting for prototype ${prototypeId} to be synced to store...`);
           await new Promise(resolve => setTimeout(resolve, 2500)); // 2.5 seconds to ensure MCPBridge processes it
         }
-        
+
         // Intelligent positioning using spatial analysis
         let instancePosition = position;
-        
+
         if (!instancePosition) {
           // Get spatial map to determine best placement
           const spatialMapJson = await server.request({
@@ -4625,10 +4856,10 @@ ${graphData.openGraphIds.map((id, index) => {
               arguments: { includeMetadata: true }
             }
           });
-          
+
           try {
             const spatialMap = JSON.parse(spatialMapJson.content[0].text);
-            
+
             if (spatialMap.layoutSuggestions?.nextPlacement) {
               instancePosition = {
                 x: spatialMap.layoutSuggestions.nextPlacement.x,
@@ -4645,7 +4876,7 @@ ${graphData.openGraphIds.map((id, index) => {
               console.log(`🎯 Empty region placement: (${instancePosition.x}, ${instancePosition.y})`);
             } else {
               // Fallback to smart random placement
-              instancePosition = { 
+              instancePosition = {
                 x: 400 + Math.random() * 300,
                 y: 150 + Math.random() * 200
               };
@@ -4653,7 +4884,7 @@ ${graphData.openGraphIds.map((id, index) => {
             }
           } catch (error) {
             console.error('❌ Spatial analysis failed, using fallback:', error);
-            instancePosition = { 
+            instancePosition = {
               x: 400 + Math.random() * 300,
               y: 150 + Math.random() * 200
             };
@@ -4662,25 +4893,25 @@ ${graphData.openGraphIds.map((id, index) => {
         // Force instance creation via pending action and batch mutation fallback
         await actions.addNodeInstance(targetGraphId, prototypeId, instancePosition);
         try {
-          const instanceId = `inst-${Date.now()}-${Math.random().toString(36).slice(2,8)}`;
+          const instanceId = `inst-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
           await fetch('http://localhost:3001/api/bridge/action-feedback', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'debug-note', status: 'info', params: { forcingBatch: true } }) });
           // Apply batch mutation path (UI will accept and write directly to store)
           await fetch('http://localhost:3001/api/bridge/pending-actions', { method: 'GET' }); // nudge
           // No dedicated batch endpoint available; rely on MCPBridge.applyMutations polling path by queueing an explicit op
           // IMPORTANT: params must be an array containing ONE element (the operations array),
           // because the runner spreads params into arguments.
-          pendingActions.push({ id: `pa-${Date.now()}-${Math.random().toString(36).slice(2,8)}`, action: 'applyMutations', params: [[{ type: 'addNodeInstance', graphId: targetGraphId, prototypeId, position: instancePosition, instanceId }]] });
-        } catch {}
-        
+          pendingActions.push({ id: `pa-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`, action: 'applyMutations', params: [[{ type: 'addNodeInstance', graphId: targetGraphId, prototypeId, position: instancePosition, instanceId }]] });
+        } catch { }
+
         // Wait for the instance to be processed
         console.log(`⏳ Waiting for instance to be created...`);
         await new Promise(resolve => setTimeout(resolve, 3500));
-        
+
         const updatedState = await getRealRedstringState();
         const updatedGraph = updatedState.graphs.get(targetGraphId);
         const newInstanceCount = updatedGraph?.instances?.size || 0;
         const newPrototypeCount = updatedState.nodePrototypes.size;
-        
+
         console.log('[addNodeToGraph] done', { newInstanceCount, newPrototypeCount });
         return `**Concept Added Successfully (VERIFIED)**
 - **Name:** ${conceptName}
@@ -4691,29 +4922,29 @@ ${graphData.openGraphIds.map((id, index) => {
       } catch (error) {
         return `Error adding concept to graph: ${error.message}`;
       }
-      
+
     case 'open_graph':
       try {
         const state = await getRealRedstringState();
         const { graphId } = toolArgs;
-        
+
         // Check if graphId is actually a name - search for it
         let targetGraphId = graphId;
         if (!state.graphs.has(graphId)) {
           // Search for exact graph name match
-          const exactMatch = Array.from(state.graphs.values()).find(g => 
+          const exactMatch = Array.from(state.graphs.values()).find(g =>
             g.name.toLowerCase() === graphId.toLowerCase()
           );
-          
+
           if (exactMatch) {
             targetGraphId = exactMatch.id;
           } else {
             // No exact match - search for partial matches (agentic behavior)
             const searchQuery = graphId.toLowerCase();
-            const partialMatches = Array.from(state.graphs.values()).filter(g => 
+            const partialMatches = Array.from(state.graphs.values()).filter(g =>
               g.name.toLowerCase().includes(searchQuery) || searchQuery.includes(g.name.toLowerCase())
             );
-            
+
             if (partialMatches.length === 1) {
               // Single partial match - use it
               targetGraphId = partialMatches[0].id;
@@ -4737,25 +4968,25 @@ ${allGraphs.join(', ')}
             }
           }
         }
-        
+
         const graph = state.graphs.get(targetGraphId);
         if (!graph) {
           return `❌ Graph with ID "${targetGraphId}" not found.`;
         }
-        
+
         // Use the pending actions system to open the graph in Redstring UI
         try {
           // Queue a pending action for the bridge to execute
           const pendingAction = {
-            id: `pa-${Date.now()}-${Math.random().toString(36).slice(2,8)}`,
+            id: `pa-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
             action: 'openGraph',
             params: [targetGraphId],
             timestamp: Date.now()
           };
-          
+
           // Add to the server's pending actions queue
           pendingActions.push(pendingAction);
-          
+
           console.log(`✅ Bridge: Queued openGraph action for ${targetGraphId}`);
           return `✅ Successfully queued opening of graph "${graph.name}". It should appear in the UI within 2 seconds.`;
         } catch (updateError) {
@@ -4765,33 +4996,33 @@ ${allGraphs.join(', ')}
       } catch (error) {
         return `❌ Failed to open graph: ${error.message}`;
       }
-      
+
     case 'search_nodes':
       try {
         const state = await getRealRedstringState();
         const { query, graphId } = toolArgs;
-        
+
         if (!query || query.trim() === '') {
           return `❌ Search query is required.`;
         }
-        
+
         const searchQuery = query.toLowerCase();
         let results = [];
-        
+
         // Search in specific graph or all graphs
         const graphsToSearch = graphId ? [state.graphs.get(graphId)] : Array.from(state.graphs.values());
-        
+
         for (const graph of graphsToSearch) {
           if (!graph) continue;
-          
+
           // Search node instances
           if (graph.instances) {
             for (const instance of graph.instances.values()) {
               const prototype = state.nodePrototypes.get(instance.prototypeId);
               const prototypeName = prototype?.name || 'Unknown Type';
-              
-              if (prototypeName.toLowerCase().includes(searchQuery) || 
-                  (instance.description && instance.description.toLowerCase().includes(searchQuery))) {
+
+              if (prototypeName.toLowerCase().includes(searchQuery) ||
+                (instance.description && instance.description.toLowerCase().includes(searchQuery))) {
                 results.push({
                   type: 'instance',
                   name: prototypeName,
@@ -4805,11 +5036,11 @@ ${allGraphs.join(', ')}
             }
           }
         }
-        
+
         if (results.length === 0) {
           return `No nodes found matching "${query}". Try a different search term or use \`list_available_graphs\` to see what's available.`;
         }
-        
+
         return `**Search Results for "${query}" (${results.length} found):**
 
 ${results.map((result, index) => `
@@ -4826,7 +5057,7 @@ ${index + 1}. **${result.name}** in "${result.graphName}"
       } catch (error) {
         return `❌ Error searching nodes: ${error.message}`;
       }
-      
+
     default:
       return `Unknown tool: ${toolName}`;
   }
@@ -4842,8 +5073,8 @@ function getAllToolDefinitions() {
         parameters: {
           type: "object",
           properties: {
-            includeMetadata: { 
-              type: "boolean", 
+            includeMetadata: {
+              type: "boolean",
               description: "Include detailed clustering and layout analysis",
               default: true
             }
@@ -4871,10 +5102,10 @@ function getAllToolDefinitions() {
                   name: { type: "string", description: "Name of the concept" },
                   description: { type: "string", description: "Optional description" },
                   cluster: { type: "string", description: "Semantic cluster/group this belongs to" },
-                  relationships: { 
-                    type: "array", 
+                  relationships: {
+                    type: "array",
                     items: { type: "string" },
-                    description: "Names of concepts this should connect to" 
+                    description: "Names of concepts this should connect to"
                   }
                 },
                 required: ["name"]
@@ -4888,7 +5119,7 @@ function getAllToolDefinitions() {
               default: "clustered"
             },
             spacing: {
-              type: "string", 
+              type: "string",
               enum: ["compact", "normal", "spacious"],
               description: "Spacing between nodes",
               default: "normal"
@@ -4907,7 +5138,7 @@ function getAllToolDefinitions() {
       }
     },
     {
-      type: "function", 
+      type: "function",
       function: {
         name: "list_available_graphs",
         description: "List all available knowledge graphs",
@@ -4917,7 +5148,7 @@ function getAllToolDefinitions() {
     {
       type: "function",
       function: {
-        name: "get_active_graph", 
+        name: "get_active_graph",
         description: "Get currently active graph information",
         parameters: { type: "object", properties: {}, additionalProperties: false }
       }
@@ -5002,7 +5233,7 @@ Safety & quality
 app.post('/api/ai/chat', async (req, res) => {
   try {
     const { message, systemPrompt, context, model: requestedModel, role } = req.body;
-    
+
     if (!message) {
       return res.status(400).json({ error: 'Message is required' });
     }
@@ -5010,19 +5241,19 @@ app.post('/api/ai/chat', async (req, res) => {
     // Get API key from client-side storage (we'll need to receive it in the request)
     // For now, return a helpful message asking them to implement the API key passing
     if (!req.headers.authorization) {
-      return res.status(401).json({ 
-        error: 'API key required', 
-        response: 'I need access to your AI API key to provide responses. The API key should be passed in the Authorization header.' 
+      return res.status(401).json({
+        error: 'API key required',
+        response: 'I need access to your AI API key to provide responses. The API key should be passed in the Authorization header.'
       });
     }
 
     const apiKey = req.headers.authorization.replace('Bearer ', '');
-    
+
     // Use custom configuration from client if provided, otherwise use defaults
     let provider = 'openrouter'; // default
     let endpoint = 'https://openrouter.ai/api/v1/chat/completions'; // default  
     let model = 'anthropic/claude-3-sonnet-20240229'; // default
-    
+
     // Check if the model exists on OpenRouter, fallback to a known working model
     const validOpenRouterModels = [
       'anthropic/claude-3-sonnet-20240229',
@@ -5034,12 +5265,12 @@ app.post('/api/ai/chat', async (req, res) => {
       'openai/gpt-4-turbo',
       'openai/gpt-3.5-turbo'
     ];
-    
+
     // If the requested model is not in our valid list, use a fallback
     if (!validOpenRouterModels.includes(model)) {
       model = 'anthropic/claude-3-sonnet'; // Fallback to a known working model
     }
-    
+
     // Check if client provided API configuration
     if (context?.apiConfig) {
       provider = context.apiConfig.provider || provider;
@@ -5065,7 +5296,7 @@ app.post('/api/ai/chat', async (req, res) => {
     const effectiveSystemPrompt = [HIDDEN_SYSTEM_PROMPT, rolePrompt, systemPrompt].filter(Boolean).join('\n\n') + policyBlock;
 
     let aiResponse;
-    
+
     if (provider === 'anthropic') {
       // Call Anthropic Claude API directly
       const response = await fetch(endpoint, {
@@ -5095,7 +5326,7 @@ app.post('/api/ai/chat', async (req, res) => {
 
       const data = await response.json();
       aiResponse = data.content[0].text;
-      
+
     } else {
       // Use OpenRouter (supports OpenAI, Anthropic, and many other models)
       const response = await fetch(endpoint, {
@@ -5130,7 +5361,7 @@ app.post('/api/ai/chat', async (req, res) => {
               }
             },
             {
-              type: "function", 
+              type: "function",
               function: {
                 name: "list_available_graphs",
                 description: "List all available knowledge graphs",
@@ -5140,7 +5371,7 @@ app.post('/api/ai/chat', async (req, res) => {
             {
               type: "function",
               function: {
-                name: "get_active_graph", 
+                name: "get_active_graph",
                 description: "Get currently active graph information",
                 parameters: { type: "object", properties: {}, additionalProperties: false }
               }
@@ -5174,7 +5405,7 @@ app.post('/api/ai/chat', async (req, res) => {
                 name: "open_graph",
                 description: "Open a graph and make it active",
                 parameters: {
-                  type: "object", 
+                  type: "object",
                   properties: {
                     graphId: { type: "string", description: "ID of the graph to open" }
                   },
@@ -5204,7 +5435,7 @@ app.post('/api/ai/chat', async (req, res) => {
       if (!response.ok) {
         const errorData = await response.text();
         let errorMessage = `OpenRouter API error: ${response.status} - ${errorData}`;
-        
+
         // Provide more helpful error messages
         if (response.status === 404 && errorData.includes('No endpoints found')) {
           errorMessage = `Model "${model}" not found on OpenRouter. Available models include: anthropic/claude-3-sonnet, anthropic/claude-3-haiku, openai/gpt-4o, openai/gpt-4o-mini. Please update your API configuration.`;
@@ -5213,19 +5444,19 @@ app.post('/api/ai/chat', async (req, res) => {
         } else if (response.status === 429) {
           errorMessage = `Rate limit exceeded. Please wait a moment and try again.`;
         }
-        
+
         throw new Error(errorMessage);
       }
 
       const data = await response.json();
       const choice = data.choices[0];
       const assistantMessage = choice.message;
-      
+
       // Handle tool calls if the AI wants to use tools
       if (assistantMessage.tool_calls && assistantMessage.tool_calls.length > 0) {
         let toolResults = [];
         const toolCallsAgg = [];
-        
+
         for (const toolCall of assistantMessage.tool_calls) {
           const toolName = toolCall.function.name;
           let toolArgs = {};
@@ -5239,9 +5470,9 @@ app.post('/api/ai/chat', async (req, res) => {
             console.warn('[Chat] Non-JSON tool args, falling back to empty object:', toolCall.function?.arguments);
             toolArgs = {};
           }
-          
+
           console.log(`[AI] Calling tool: ${toolName} with args:`, toolArgs);
-          
+
           try {
             const startedAt = Date.now();
             let toolResult;
@@ -5260,28 +5491,28 @@ app.post('/api/ai/chat', async (req, res) => {
 
 **Active Graph Details:**
 ${state.activeGraphId ? (() => {
-  const activeGraph = state.graphs.get(state.activeGraphId);
-  if (!activeGraph) return 'Active graph ID exists but graph not found in store';
-  
-  return `- **Name:** ${activeGraph.name}
+                      const activeGraph = state.graphs.get(state.activeGraphId);
+                      if (!activeGraph) return 'Active graph ID exists but graph not found in store';
+
+                      return `- **Name:** ${activeGraph.name}
 - **ID:** ${state.activeGraphId}
 - **Description:** ${activeGraph.description || 'No description'}
 - **Instance Count:** ${activeGraph.instances?.size || 0}
 - **Open Status:** Open in UI
 - **Expanded:** ${state.expandedGraphIds.has(state.activeGraphId) ? 'Yes' : 'No'}`;
-})() : 'No active graph set'}
+                    })() : 'No active graph set'}
 
 **Available Prototypes (Last 10):**
-${Array.from(state.nodePrototypes.values()).slice(-10).map(p => 
-  `- ${p.name} (${p.id}) - ${p.description || 'No description'}`
-).join('\n')}
+${Array.from(state.nodePrototypes.values()).slice(-10).map(p =>
+                      `- ${p.name} (${p.id}) - ${p.description || 'No description'}`
+                    ).join('\n')}
 
 **Open Graphs:**
 ${state.openGraphIds.map((id, index) => {
-  const g = state.graphs.get(id);
-  const isActive = id === state.activeGraphId;
-  return `${index + 1}. ${g?.name || 'Unknown'} (${id})${isActive ? ' ACTIVE' : ''}`;
-}).join('\n')}
+                      const g = state.graphs.get(id);
+                      const isActive = id === state.activeGraphId;
+                      return `${index + 1}. ${g?.name || 'Unknown'} (${id})${isActive ? ' ACTIVE' : ''}`;
+                    }).join('\n')}
 
 **Bridge Status:**
 - **Bridge Server:** Running on localhost:3001
@@ -5299,9 +5530,9 @@ ${state.openGraphIds.map((id, index) => {
                   toolResult = `**Available Knowledge Graphs (Real Redstring Data):**
 
 **Graph IDs for Reference:**
-${Object.values(graphData.graphs).map(graph => 
-  `- **${graph.name}**: \`${graph.id}\``
-).join('\n')}
+${Object.values(graphData.graphs).map(graph =>
+                    `- **${graph.name}**: \`${graph.id}\``
+                  ).join('\n')}
 
 **Detailed Graph Information:**
 ${Object.values(graphData.graphs).map(graph => `
@@ -5316,11 +5547,11 @@ ${Object.values(graphData.graphs).map(graph => `
 **Current Active Graph:** ${graphData.activeGraphId || 'None'}
 
 **Available Prototypes:**
-${graphData.nodePrototypes && graphData.nodePrototypes instanceof Map ? 
-  Array.from(graphData.nodePrototypes.values()).map(prototype => 
-    `- ${prototype.name} (${prototype.id}) - ${prototype.description}`
-  ).join('\n') : 
-  'No prototypes available'}
+${graphData.nodePrototypes && graphData.nodePrototypes instanceof Map ?
+                      Array.from(graphData.nodePrototypes.values()).map(prototype =>
+                        `- ${prototype.name} (${prototype.id}) - ${prototype.description}`
+                      ).join('\n') :
+                      'No prototypes available'}
 
 **To open a graph, use:** \`open_graph\` with any of the graph IDs above.`;
                 } catch (error) {
@@ -5332,7 +5563,7 @@ ${graphData.nodePrototypes && graphData.nodePrototypes instanceof Map ?
                 try {
                   const graphData = await getGraphData();
                   const activeGraphId = graphData.activeGraphId;
-                  
+
                   if (!activeGraphId || !graphData.graphs[activeGraphId]) {
                     toolResult = `No active graph found in Redstring. Use \`open_graph\` to open a graph first.`;
                   } else {
@@ -5355,25 +5586,25 @@ ${graphData.nodePrototypes && graphData.nodePrototypes instanceof Map ?
 - **Saved:** ${graphData.savedGraphIds.has(activeGraphId) ? 'Yes' : 'No'} in "Saved Things" list
 
 **Available Instances:**
-${activeGraph.nodes.length > 0 ? 
-  activeGraph.nodes.map(node => `- ${node.name} (${node.prototypeId}) - ${node.description} at (${node.x}, ${node.y})`).join('\n') : 
-  'No instances in this graph'}
+${activeGraph.nodes.length > 0 ?
+                        activeGraph.nodes.map(node => `- ${node.name} (${node.prototypeId}) - ${node.description} at (${node.x}, ${node.y})`).join('\n') :
+                        'No instances in this graph'}
 
 **Available Relationships:**
-${activeGraph.edges.length > 0 ? 
-  activeGraph.edges.slice(0, 5).map(edge => {
-    const source = activeGraph.nodes.find(n => n.id === edge.sourceId);
-    const target = activeGraph.nodes.find(n => n.id === edge.targetId);
-    return `- ${source?.name || 'Unknown'} → ${target?.name || 'Unknown'} (${edge.type})`;
-  }).join('\n') + (activeGraph.edges.length > 5 ? `\n... and ${activeGraph.edges.length - 5} more relationships` : '') : 
-  'No relationships in this graph'}
+${activeGraph.edges.length > 0 ?
+                        activeGraph.edges.slice(0, 5).map(edge => {
+                          const source = activeGraph.nodes.find(n => n.id === edge.sourceId);
+                          const target = activeGraph.nodes.find(n => n.id === edge.targetId);
+                          return `- ${source?.name || 'Unknown'} → ${target?.name || 'Unknown'} (${edge.type})`;
+                        }).join('\n') + (activeGraph.edges.length > 5 ? `\n... and ${activeGraph.edges.length - 5} more relationships` : '') :
+                        'No relationships in this graph'}
 
 **Open Graph Tabs:**
 ${graphData.openGraphIds.map((id, index) => {
-  const g = graphData.graphs[id];
-  const isActive = id === activeGraphId;
-  return `${index + 1}. ${g.name} (${id})${isActive ? ' ACTIVE' : ''}`;
-}).join('\n')}
+                          const g = graphData.graphs[id];
+                          const isActive = id === activeGraphId;
+                          return `${index + 1}. ${g.name} (${id})${isActive ? ' ACTIVE' : ''}`;
+                        }).join('\n')}
 
 **Next Steps:**
 - Use \`add_node_instance\` to add instances to this active graph
@@ -5385,34 +5616,34 @@ ${graphData.openGraphIds.map((id, index) => {
                   toolResult = `❌ Error accessing Redstring store: ${error.message}`;
                 }
                 break;
-                
+
               case 'addNodeToGraph':
                 try {
                   const { conceptName, description, position, color } = toolArgs;
                   const state = await getRealRedstringState();
                   const actions = getRealRedstringActions();
-                  
+
                   if (!state.activeGraphId) {
                     toolResult = `❌ No active graph. Use \`open_graph\` or \`set_active_graph\` to select a graph first.`;
                     break;
                   }
-                  
+
                   const targetGraphId = state.activeGraphId;
                   const graph = state.graphs.get(targetGraphId);
-                  
+
                   if (!graph) {
                     toolResult = `❌ Active graph not found. Use \`list_available_graphs\` to see available graphs.`;
                     break;
                   }
-                  
+
                   const originalInstanceCount = graph.instances?.size || 0;
                   const originalPrototypeCount = state.nodePrototypes.size;
-                  
+
                   let existingPrototype = Array.from(state.nodePrototypes.values()).find(p => p.name.toLowerCase() === conceptName.toLowerCase());
-                  
+
                   let prototypeId;
                   let prototypeCreated = false;
-                  
+
                   if (existingPrototype) {
                     prototypeId = existingPrototype.id;
                   } else {
@@ -5420,19 +5651,19 @@ ${graphData.openGraphIds.map((id, index) => {
                     const result = await actions.addNodePrototype(newPrototypeData);
                     prototypeId = result.prototypeId;
                     prototypeCreated = true;
-                    
+
                     // Wait for prototype to be processed by MCPBridge (polls every 2 seconds)
                     console.log(`⏳ Waiting for prototype ${prototypeId} to be synced to store...`);
                     await new Promise(resolve => setTimeout(resolve, 2500)); // 2.5 seconds to ensure MCPBridge processes it
                   }
-                  
+
                   await actions.addNodeInstance(targetGraphId, prototypeId, position);
-                  
+
                   const updatedState = await getRealRedstringState();
                   const updatedGraph = updatedState.graphs.get(targetGraphId);
                   const newInstanceCount = updatedGraph?.instances?.size || 0;
                   const newPrototypeCount = updatedState.nodePrototypes.size;
-                  
+
                   toolResult = `**Concept Added Successfully (VERIFIED)**
 - **Name:** ${conceptName}
 - **Graph:** ${graph.name}
@@ -5448,24 +5679,24 @@ ${graphData.openGraphIds.map((id, index) => {
                   const state = await getRealRedstringState();
                   const actions = getRealRedstringActions();
                   const { graphId } = toolArgs;
-                  
+
                   // Check if graphId is actually a name - search for it
                   let targetGraphId = graphId;
                   if (!state.graphs.has(graphId)) {
                     // Search for exact graph name match
-                    const exactMatch = Array.from(state.graphs.values()).find(g => 
+                    const exactMatch = Array.from(state.graphs.values()).find(g =>
                       g.name.toLowerCase() === graphId.toLowerCase()
                     );
-                    
+
                     if (exactMatch) {
                       targetGraphId = exactMatch.id;
                     } else {
                       // No exact match - search for partial matches (agentic behavior)
                       const searchQuery = graphId.toLowerCase();
-                      const partialMatches = Array.from(state.graphs.values()).filter(g => 
+                      const partialMatches = Array.from(state.graphs.values()).filter(g =>
                         g.name.toLowerCase().includes(searchQuery) || searchQuery.includes(g.name.toLowerCase())
                       );
-                      
+
                       if (partialMatches.length === 1) {
                         // Single partial match - use it
                         targetGraphId = partialMatches[0].id;
@@ -5491,13 +5722,13 @@ ${allGraphs.join(', ')}
                       }
                     }
                   }
-                  
+
                   const graph = state.graphs.get(targetGraphId);
                   if (!graph) {
                     toolResult = `❌ Graph with ID "${targetGraphId}" not found.`;
                     break;
                   }
-                  
+
                   // Use the pending actions system to open the graph in Redstring UI
                   try {
                     // Queue a pending action for the bridge to execute
@@ -5506,10 +5737,10 @@ ${allGraphs.join(', ')}
                       params: [targetGraphId],
                       timestamp: Date.now()
                     };
-                    
+
                     // Add to the server's pending actions queue
                     pendingActions.push(pendingAction);
-                    
+
                     console.log(`✅ Bridge: Queued openGraph action for ${targetGraphId}`);
                     toolResult = `✅ Successfully queued opening of graph "${graph.name}". It should appear in the UI within 2 seconds.`;
                   } catch (updateError) {
@@ -5524,21 +5755,21 @@ ${allGraphs.join(', ')}
                 try {
                   const state = await getRealRedstringState();
                   const { query, graphId } = toolArgs;
-                  
+
                   if (!query || query.trim() === '') {
                     toolResult = `❌ Search query is required.`;
                     break;
                   }
-                  
+
                   const searchQuery = query.toLowerCase();
                   let results = [];
-                  
+
                   // Search in specific graph or all graphs
                   const graphsToSearch = graphId ? [state.graphs.get(graphId)] : Array.from(state.graphs.values());
-                  
+
                   for (const graph of graphsToSearch) {
                     if (!graph) continue;
-                    
+
                     // Search in graph instances
                     if (graph.instances) {
                       for (const [instanceId, instance] of graph.instances) {
@@ -5546,7 +5777,7 @@ ${allGraphs.join(', ')}
                         if (prototype) {
                           const name = prototype.name.toLowerCase();
                           const desc = (prototype.description || '').toLowerCase();
-                          
+
                           if (name.includes(searchQuery) || desc.includes(searchQuery)) {
                             results.push({
                               type: 'instance',
@@ -5562,12 +5793,12 @@ ${allGraphs.join(', ')}
                       }
                     }
                   }
-                  
+
                   // Search in prototypes
                   for (const [prototypeId, prototype] of state.nodePrototypes) {
                     const name = prototype.name.toLowerCase();
                     const desc = (prototype.description || '').toLowerCase();
-                    
+
                     if (name.includes(searchQuery) || desc.includes(searchQuery)) {
                       results.push({
                         type: 'prototype',
@@ -5577,15 +5808,15 @@ ${allGraphs.join(', ')}
                       });
                     }
                   }
-                  
+
                   if (results.length === 0) {
                     toolResult = `🔍 No results found for "${query}". Try different keywords or check available graphs.`;
                   } else {
                     const instanceResults = results.filter(r => r.type === 'instance');
                     const prototypeResults = results.filter(r => r.type === 'prototype');
-                    
+
                     let resultText = `🔍 Found ${results.length} results for "${query}":`;
-                    
+
                     if (instanceResults.length > 0) {
                       resultText += `\n\n**Graph Instances (${instanceResults.length}):**`;
                       instanceResults.forEach((result, i) => {
@@ -5595,7 +5826,7 @@ ${allGraphs.join(', ')}
                         }
                       });
                     }
-                    
+
                     if (prototypeResults.length > 0) {
                       resultText += `\n\n**Available Prototypes (${prototypeResults.length}):**`;
                       prototypeResults.forEach((result, i) => {
@@ -5605,7 +5836,7 @@ ${allGraphs.join(', ')}
                         }
                       });
                     }
-                    
+
                     toolResult = resultText;
                   }
                 } catch (error) {
@@ -5615,21 +5846,21 @@ ${allGraphs.join(', ')}
               default:
                 toolResult = `Tool ${toolName} not implemented`;
             }
-            
+
             const durationMs = Date.now() - startedAt;
             toolResults.push(`**${toolName}**: ${toolResult}`);
             toolCallsAgg.push({ name: toolName, args: toolArgs, result: toolResult, status: 'completed', durationMs });
           } catch (error) {
             console.error(`Error calling tool ${toolName}:`, error);
-            toolCallsAgg.push({ name: toolName, args: toolArgs, result: `Error: ${error.message}` , status: 'failed' });
+            toolCallsAgg.push({ name: toolName, args: toolArgs, result: `Error: ${error.message}`, status: 'failed' });
             toolResults.push(`**${toolName}**: Error - ${error.message}`);
           }
         }
-        
+
         // Combine AI response with tool results
         const baseResponse = assistantMessage.content || "I've called some tools for you:";
         aiResponse = `${baseResponse}\n\n${toolResults.join('\n\n')}`;
-        
+
         // Return structured tool calls for the UI
         return res.json({ response: aiResponse, provider: provider, toolCalls: toolCallsAgg });
       } else {
@@ -5641,8 +5872,8 @@ ${allGraphs.join(', ')}
 
   } catch (error) {
     console.error('[AI Chat API] Error:', error);
-    res.status(500).json({ 
-      error: 'AI chat failed', 
+    res.status(500).json({
+      error: 'AI chat failed',
       message: error.message,
       response: `I encountered an error while processing your request: ${error.message}. Please check your API key and try again.`
     });
@@ -5654,11 +5885,11 @@ app.post('/api/mcp/request', async (req, res) => {
   try {
     const { method, params, id } = req.body;
     const authHeader = req.headers.authorization;
-    
+
     console.log('[MCP] Request received:', { method, id });
-    
+
     let response;
-    
+
     switch (method) {
       case 'initialize':
         response = {
@@ -5675,7 +5906,7 @@ app.post('/api/mcp/request', async (req, res) => {
           }
         };
         break;
-        
+
       case 'tools/list':
         response = {
           jsonrpc: '2.0',
@@ -5963,35 +6194,35 @@ app.post('/api/mcp/request', async (req, res) => {
           }
         };
         break;
-        
+
       case 'tools/call':
         const toolName = params.name;
         const toolArgs = params.arguments || {};
-        
+
         console.log('[MCP] Tool call:', toolName, toolArgs);
-        
+
         // Execute the tool directly since we have access to everything
         let toolResult;
-        
+
         try {
-        switch (toolName) {
-          case 'chat':
-            // Handle chat directly - make actual AI API calls
+          switch (toolName) {
+            case 'chat':
+              // Handle chat directly - make actual AI API calls
               const { message, context } = toolArgs;
-              
+
               // Check if user has API key
               if (!context.hasAPIKey) {
                 toolResult = `Please set up your AI API key first. Click the key icon in the AI panel to configure your API credentials.`;
                 break;
               }
-              
+
               // Get the current state to provide context
               const state = await getRealRedstringState();
-              
+
               // Prepare context for AI
               const activeGraph = state.activeGraphId ? state.graphs.get(state.activeGraphId) : null;
               const graphInfo = activeGraph ? `${activeGraph.name} (${activeGraph.instances?.size || 0} instances)` : 'No active graph';
-              
+
               // Prepare conversation history
               const conversationHistory = toolArgs.conversationHistory || [];
               const messages = [
@@ -6040,12 +6271,12 @@ Be helpful, concise, and focused on graph-related tasks. Always try to use tools
               const headers = {
                 'Content-Type': 'application/json',
               };
-              
+
               // Pass through authorization header if available
               if (authHeader) {
                 headers['Authorization'] = authHeader;
               }
-              
+
               const aiResponse = await fetch('http://localhost:3001/api/ai/chat', {
                 method: 'POST',
                 headers: headers,
@@ -6063,7 +6294,7 @@ Be helpful, concise, and focused on graph-related tasks. Always try to use tools
 
               const aiResult = await aiResponse.json();
               let aiResponseText = aiResult.response || "I'm having trouble generating a response. Please try again.";
-              
+
               // Check if the AI response indicates it wants to call a tool
               if (aiResponseText.includes('I should call') || aiResponseText.includes('Let me call') || aiResponseText.includes('I need to call')) {
                 // The AI wants to call a tool, so let's help it
@@ -6079,7 +6310,7 @@ Be helpful, concise, and focused on graph-related tasks. Always try to use tools
                         description: `A ${conceptName.toLowerCase()} added by AI`
                       });
                       toolResult = `I've added "${conceptName}" to your active graph! ${addResult.content[0].text}`;
-            } catch (error) {
+                    } catch (error) {
                       toolResult = `I tried to add "${conceptName}" but encountered an error: ${error.message}`;
                     }
                   } else {
@@ -6104,57 +6335,57 @@ Be helpful, concise, and focused on graph-related tasks. Always try to use tools
                 }
               } else {
                 toolResult = aiResponseText;
-            }
-            break;
-            
+              }
+              break;
+
             case 'verify_state':
               const verifyResult = await server.tools.get('verify_state').handler({});
               toolResult = verifyResult.content[0].text;
               break;
-              
+
             case 'list_available_graphs':
               const listResult = await server.tools.get('list_available_graphs').handler({});
               toolResult = listResult.content[0].text;
               break;
-              
+
             case 'get_active_graph':
               const activeResult = await server.tools.get('get_active_graph').handler({});
               toolResult = activeResult.content[0].text;
               break;
-              
+
             case 'addNodeToGraph':
               const addResult = await server.tools.get('addNodeToGraph').handler(toolArgs);
               toolResult = addResult.content[0].text;
               break;
-              
+
             case 'removeNodeFromGraph':
               const removeResult = await server.tools.get('removeNodeFromGraph').handler(toolArgs);
               toolResult = removeResult.content[0].text;
               break;
-              
+
             case 'open_graph':
               try {
                 const state = await getRealRedstringState();
                 const actions = getRealRedstringActions();
                 const { graphId } = toolArgs;
-                
+
                 // Check if graphId is actually a name - search for it
                 let targetGraphId = graphId;
                 if (!state.graphs.has(graphId)) {
                   // Search for exact graph name match
-                  const exactMatch = Array.from(state.graphs.values()).find(g => 
+                  const exactMatch = Array.from(state.graphs.values()).find(g =>
                     g.name.toLowerCase() === graphId.toLowerCase()
                   );
-                  
+
                   if (exactMatch) {
                     targetGraphId = exactMatch.id;
                   } else {
                     // No exact match - search for partial matches (agentic behavior)
                     const searchQuery = graphId.toLowerCase();
-                    const partialMatches = Array.from(state.graphs.values()).filter(g => 
+                    const partialMatches = Array.from(state.graphs.values()).filter(g =>
                       g.name.toLowerCase().includes(searchQuery) || searchQuery.includes(g.name.toLowerCase())
                     );
-                    
+
                     if (partialMatches.length === 1) {
                       // Single partial match - use it
                       targetGraphId = partialMatches[0].id;
@@ -6180,32 +6411,32 @@ ${allGraphs.join(', ')}
                     }
                   }
                 }
-                
+
                 const graph = state.graphs.get(targetGraphId);
                 if (!graph) {
                   toolResult = `❌ Graph with ID "${targetGraphId}" not found.`;
                   break;
                 }
-                
+
                 // Use the pending actions system to open the graph in Redstring UI
                 try {
                   // Queue pending actions for the bridge to execute
                   const openAction = {
                     action: 'openGraph',
                     params: [targetGraphId],
-              timestamp: Date.now()
+                    timestamp: Date.now()
                   };
-                  
+
                   const setActiveAction = {
                     action: 'setActiveGraph',
                     params: [targetGraphId],
                     timestamp: Date.now() + 100 // Slight delay to ensure open happens first
                   };
-                  
+
                   // Add both actions to the server's pending actions queue
                   pendingActions.push(openAction);
                   pendingActions.push(setActiveAction);
-                  
+
                   console.log(`✅ Bridge: Queued openGraph and setActiveGraph actions for ${targetGraphId}`);
                   toolResult = `✅ Successfully queued opening and activating graph "${graph.name}". It should appear and become active in the UI within 2 seconds.`;
                 } catch (updateError) {
@@ -6216,31 +6447,31 @@ ${allGraphs.join(', ')}
                 toolResult = `❌ Failed to open graph: ${error.message}`;
               }
               break;
-              
+
             case 'set_active_graph':
               const setActiveResult = await server.tools.get('set_active_graph').handler(toolArgs);
               toolResult = setActiveResult.content[0].text;
               break;
-              
+
             case 'search_nodes':
               try {
                 const state = await getRealRedstringState();
                 const { query, graphId } = toolArgs;
-                
+
                 if (!query || query.trim() === '') {
                   toolResult = `❌ Search query is required.`;
                   break;
                 }
-                
+
                 const searchQuery = query.toLowerCase();
                 let results = [];
-                
+
                 // Search in specific graph or all graphs
                 const graphsToSearch = graphId ? [state.graphs.get(graphId)] : Array.from(state.graphs.values());
-                
+
                 for (const graph of graphsToSearch) {
                   if (!graph) continue;
-                  
+
                   // Search in graph instances
                   if (graph.instances) {
                     for (const [instanceId, instance] of graph.instances) {
@@ -6248,7 +6479,7 @@ ${allGraphs.join(', ')}
                       if (prototype) {
                         const name = prototype.name.toLowerCase();
                         const desc = (prototype.description || '').toLowerCase();
-                        
+
                         if (name.includes(searchQuery) || desc.includes(searchQuery)) {
                           results.push({
                             type: 'instance',
@@ -6264,12 +6495,12 @@ ${allGraphs.join(', ')}
                     }
                   }
                 }
-                
+
                 // Search in prototypes
                 for (const [prototypeId, prototype] of state.nodePrototypes) {
                   const name = prototype.name.toLowerCase();
                   const desc = (prototype.description || '').toLowerCase();
-                  
+
                   if (name.includes(searchQuery) || desc.includes(searchQuery)) {
                     results.push({
                       type: 'prototype',
@@ -6279,15 +6510,15 @@ ${allGraphs.join(', ')}
                     });
                   }
                 }
-                
+
                 if (results.length === 0) {
                   toolResult = `🔍 No results found for "${query}". Try different keywords or check available graphs.`;
                 } else {
                   const instanceResults = results.filter(r => r.type === 'instance');
                   const prototypeResults = results.filter(r => r.type === 'prototype');
-                  
+
                   let resultText = `🔍 Found ${results.length} results for "${query}":`;
-                  
+
                   if (instanceResults.length > 0) {
                     resultText += `\n\n**Graph Instances (${instanceResults.length}):**`;
                     instanceResults.forEach((result, i) => {
@@ -6297,7 +6528,7 @@ ${allGraphs.join(', ')}
                       }
                     });
                   }
-                  
+
                   if (prototypeResults.length > 0) {
                     resultText += `\n\n**Available Prototypes (${prototypeResults.length}):**`;
                     prototypeResults.forEach((result, i) => {
@@ -6307,69 +6538,69 @@ ${allGraphs.join(', ')}
                       }
                     });
                   }
-                  
+
                   toolResult = resultText;
                 }
               } catch (error) {
                 toolResult = `❌ Search failed: ${error.message}`;
               }
               break;
-              
+
             case 'get_graph_instances':
               const instancesResult = await server.tools.get('get_graph_instances').handler(toolArgs);
               toolResult = instancesResult.content[0].text;
               break;
-              
+
             case 'add_node_prototype':
               const prototypeResult = await server.tools.get('add_node_prototype').handler(toolArgs);
               toolResult = prototypeResult.content[0].text;
               break;
-              
+
             case 'add_node_instance':
               const instanceResult = await server.tools.get('add_node_instance').handler(toolArgs);
               toolResult = instanceResult.content[0].text;
               break;
-              
+
             case 'update_node_prototype':
               const updateResult = await server.tools.get('update_node_prototype').handler(toolArgs);
               toolResult = updateResult.content[0].text;
               break;
-              
+
             case 'delete_node_instance':
               const deleteResult = await server.tools.get('delete_node_instance').handler(toolArgs);
               toolResult = deleteResult.content[0].text;
               break;
-              
+
             case 'create_edge':
               const edgeResult = await server.tools.get('create_edge').handler(toolArgs);
               toolResult = edgeResult.content[0].text;
               break;
-              
+
             case 'create_edge_definition':
               const edgeDefResult = await server.tools.get('create_edge_definition').handler(toolArgs);
               toolResult = edgeDefResult.content[0].text;
               break;
-              
+
             case 'move_node_instance':
               const moveResult = await server.tools.get('move_node_instance').handler(toolArgs);
               toolResult = moveResult.content[0].text;
               break;
-              
+
             case 'ai_guided_workflow':
               const workflowResult = await server.tools.get('ai_guided_workflow').handler(toolArgs);
               toolResult = workflowResult.content[0].text;
               break;
-              
+
             default:
               toolResult = `Tool "${toolName}" not found or not implemented. Available tools: verify_state, list_available_graphs, get_active_graph, addNodeToGraph, removeNodeFromGraph, open_graph, set_active_graph, search_nodes, get_graph_instances, add_node_prototype, add_node_instance, update_node_prototype, delete_node_instance, create_edge, create_edge_definition, move_node_instance, ai_guided_workflow`;
           }
         } catch (error) {
           console.error(`[MCP] Tool ${toolName} error:`, error);
-          
+
           // Provide more detailed error messages for chat tool
           if (toolName === 'chat') {
             let errorMessage = error.message;
-            
+
             if (error.message.includes('Rate limit exceeded')) {
               errorMessage = 'Rate limit exceeded. Please wait a moment and try again, or try a different model.';
             } else if (error.message.includes('No endpoints found')) {
@@ -6381,7 +6612,7 @@ ${allGraphs.join(', ')}
             } else if (error.message.includes('AI API call failed: 404')) {
               errorMessage = 'Model not found. Please check your model ID and try again.';
             }
-            
+
             toolResult = `I encountered an error: ${errorMessage}
 
 **Troubleshooting:**
@@ -6393,7 +6624,7 @@ ${allGraphs.join(', ')}
             toolResult = `Error executing tool "${toolName}": ${error.message}`;
           }
         }
-        
+
         response = {
           jsonrpc: '2.0',
           id,
@@ -6405,7 +6636,7 @@ ${allGraphs.join(', ')}
           }
         };
         break;
-        
+
       default:
         response = {
           jsonrpc: '2.0',
@@ -6416,9 +6647,9 @@ ${allGraphs.join(', ')}
           }
         };
     }
-    
+
     res.json(response);
-    
+
   } catch (error) {
     console.error('[MCP] Request error:', error);
     res.status(500).json({
@@ -6439,12 +6670,12 @@ async function main() {
     console.error('Uncaught Exception:', error);
     // Don't exit the process, just log the error
   });
-  
+
   process.on('unhandledRejection', (reason, promise) => {
     console.error('Unhandled Rejection at:', promise, 'reason:', reason);
     // Don't exit the process, just log the error
   });
-  
+
   // Try to start MCP stdio server for AI model communication without blocking HTTP
   (async () => {
     try {
@@ -6459,7 +6690,7 @@ async function main() {
       console.error('⚠️ MCP stdio unavailable, continuing HTTP-only mode:', e?.message || e);
     }
   })();
-  
+
   // The bridge will be set up when Redstring connects
   global.setupRedstringBridge = setupRedstringBridge;
 }
