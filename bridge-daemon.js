@@ -335,13 +335,21 @@ CLARIFICATION & QUESTIONS:
 - "qa" intent is also for chat, explanations, and search results without modification.
 - Example: {"intent":"qa", "response":"Should I focus on political borders or physical geography?", "questions":["Focus on politics?", "Focus on geography?"]}
 
-GRAPH SIZE GUIDELINES:
-- Simple topics (e.g., "solar system"): 8-12 nodes
-- Medium topics (e.g., "Greek mythology"): 12-20 nodes  
-- Complex topics (e.g., "World War II"): 20-30 nodes
-- CRITICAL: Generate the COMPLETE graph in ONE response. Do NOT hold back nodes for future iterations.
-- The system will NOT loop back to you - this is your only chance to create a comprehensive graph.
-- If the topic is too broad, ask a clarifying question to narrow the scope, then generate the full graph.
+SELF-DIRECTED EXECUTION (How You Work):
+- You create graphs in autonomous phases - YOU decide how many phases are needed
+- After EACH phase completes, the system shows you the current graph state
+- You evaluate: "Is this comprehensive?" → Continue with next phase OR Complete
+- NO iteration limits - you work until the graph is truly comprehensive
+- Examples:
+  * "Solar system" → Phase 1: 9 planets → Evaluate: "Complete!" (1 phase total)
+  * "Greek mythology" → Phase 1: 12 Olympians → Evaluate: "Need Titans" → Phase 2: 8 Titans → Evaluate: "Complete!" (2 phases total)
+  * "World War II" → Multiple phases for countries, leaders, battles, outcomes (4-6 phases)
+
+INITIAL PHASE SIZING:
+- Start with a substantial first phase (10-15 nodes for most topics)
+- Don't hold back - the system will let you add more phases if needed
+- Simple topics: May complete in 1 phase
+- Complex topics: You'll be able to continue in subsequent phases
 
 EXAMPLES BY DOMAIN:
 Family: "Parent-Child Bond", "Sibling Rivalry", "Extended Family"
@@ -423,11 +431,13 @@ Choose the layout that best fits the graph structure you're creating:
 - "grid": Good for structured data, matrices, or when spatial arrangement matters
 Feel free to choose creatively based on what will best reveal the relationships in your specific graph.
 
-CRITICAL: You MUST always return a populated graphSpec. Never return an empty graph.
-- Simple topics: 8-12 nodes minimum
-- Medium topics: 12-20 nodes minimum
-- Complex topics: 20-30 nodes minimum
-If the user doesn't specify details, make reasonable assumptions based on the topic and generate a COMPLETE, comprehensive graph.
+INITIAL PHASE REQUIREMENTS:
+- Start with a solid foundation (10-15 nodes for most topics)
+- Include key relationships between these nodes
+- The system will evaluate and give you a chance to add more phases if needed
+- Don't try to be exhaustive in Phase 1 - focus on core concepts
+
+If the user doesn't specify details, make reasonable assumptions based on the topic.
 Example response: {"intent":"create_graph","response":"I'll create a Solar System graph with 8 planets (inner/outer groups) orbiting the Sun, plus planetary neighbor connections.","graph":{"name":"Solar System"},"graphSpec":{"nodes":[{"name":"Sun","color":"#FDB813","description":"Central star"},{"name":"Mercury","color":"#8C7853","description":"Innermost planet"},{"name":"Venus","color":"#FFC649"},{"name":"Earth","color":"#4A90E2"},{"name":"Mars","color":"#E27B58"},{"name":"Jupiter","color":"#C88B3A","description":"Largest planet"},{"name":"Saturn","color":"#FAD5A5"},{"name":"Uranus","color":"#4FD0E7"},{"name":"Neptune","color":"#4166F5","description":"Outermost planet"}],"edges":[{"source":"Sun","target":"Mercury","directionality":"unidirectional","definitionNode":{"name":"Orbits","description":"Gravitational orbit"}},{"source":"Sun","target":"Venus","directionality":"unidirectional","definitionNode":{"name":"Orbits","description":"Gravitational orbit"}},{"source":"Sun","target":"Earth","directionality":"unidirectional","definitionNode":{"name":"Orbits","description":"Gravitational orbit"}},{"source":"Sun","target":"Mars","directionality":"unidirectional","definitionNode":{"name":"Orbits","description":"Gravitational orbit"}},{"source":"Sun","target":"Jupiter","directionality":"unidirectional","definitionNode":{"name":"Orbits","description":"Gravitational orbit"}},{"source":"Sun","target":"Saturn","directionality":"unidirectional","definitionNode":{"name":"Orbits","description":"Gravitational orbit"}},{"source":"Sun","target":"Uranus","directionality":"unidirectional","definitionNode":{"name":"Orbits","description":"Gravitational orbit"}},{"source":"Sun","target":"Neptune","directionality":"unidirectional","definitionNode":{"name":"Orbits","description":"Gravitational orbit"}},{"source":"Mercury","target":"Venus","directionality":"none","definitionNode":{"name":"Planetary Neighbor","description":"Adjacent in orbit"}},{"source":"Venus","target":"Earth","directionality":"none","definitionNode":{"name":"Planetary Neighbor","description":"Adjacent in orbit"}},{"source":"Earth","target":"Mars","directionality":"none","definitionNode":{"name":"Planetary Neighbor","description":"Adjacent in orbit"}},{"source":"Jupiter","target":"Saturn","directionality":"none","definitionNode":{"name":"Planetary Neighbor","description":"Adjacent in orbit"}}],"layoutAlgorithm":"radial"}}
 
 Intent: "create_node" (ADD TO EXISTING GRAPH)
@@ -927,26 +937,30 @@ app.post('/api/ai/agent/continue', async (req, res) => {
       }
     }
 
-    const MAX_ITERATIONS = 2; // Reduced from 5: initial creation + 1 refinement pass
+    // SELF-DIRECTED AGENT: No hardcoded iteration limits
+    // AI decides when the graph is complete based on topic complexity
+    // Safety limits only for extreme edge cases
+    const phaseNumber = (graphState?.nodeCount || 0) > 0 ? 'continuation' : 'initial';
+    const MAX_PHASES = 50; // Safety limit for extreme edge cases
+    const MAX_TOTAL_NODES = 200; // Sanity check
 
-    // Smart stopping conditions
+    const currentPhase = iteration || 0;
     const nodeCount = graphState?.nodeCount || 0;
-    const REASONABLE_NODE_COUNT = 15; // Most graphs don't need more than this
 
-    if (iteration >= MAX_ITERATIONS) {
-      logger.info(`[Agent/Continue] Max iterations (${MAX_ITERATIONS}) reached for cid=${cid}`);
-      const responseText = `✅ Graph complete with ${nodeCount} nodes and ${graphState?.edgeCount || 0} connections.`;
-      return res.json({ success: true, completed: true, response: responseText, reason: 'max_iterations' });
+    // Safety check: extreme edge cases only
+    if (currentPhase >= MAX_PHASES) {
+      logger.warn(`[Agent/Continue] Safety limit reached: ${MAX_PHASES} phases for cid=${cid}`);
+      const responseText = `⚠️ Safety limit reached after ${MAX_PHASES} phases. Graph has ${nodeCount} nodes.`;
+      return res.json({ success: true, completed: true, response: responseText, reason: 'safety_limit' });
     }
 
-    // Stop if graph is already well-populated (prevents endless iteration)
-    if (nodeCount >= REASONABLE_NODE_COUNT) {
-      logger.info(`[Agent/Continue] Graph has ${nodeCount} nodes (>= ${REASONABLE_NODE_COUNT}), stopping iteration`);
-      const responseText = `✅ Graph complete with ${nodeCount} nodes and ${graphState?.edgeCount || 0} connections.`;
-      return res.json({ success: true, completed: true, response: responseText, reason: 'sufficient_nodes' });
+    if (nodeCount >= MAX_TOTAL_NODES) {
+      logger.warn(`[Agent/Continue] Safety limit reached: ${MAX_TOTAL_NODES} nodes for cid=${cid}`);
+      const responseText = `⚠️ Graph has reached ${MAX_TOTAL_NODES} nodes (safety limit).`;
+      return res.json({ success: true, completed: true, response: responseText, reason: 'node_limit' });
     }
 
-    logger.debug(`[Agent/Continue] Iteration ${iteration + 1} for cid=${cid}, graph has ${graphState?.nodeCount || 0} nodes`);
+    logger.debug(`[Agent/Continue] Phase ${currentPhase + 1} evaluation for cid=${cid}, graph has ${nodeCount} nodes`);
 
     // Call LLM to decide next action: continue | refine | complete
     const apiKey = req.headers.authorization?.replace(/^Bearer\s+/i, '');
@@ -1149,7 +1163,7 @@ NOTE:
 - Edge 4: Connects EXISTING→EXISTING (fill gaps in the graph)
 `;
     } else {
-      // AGENTIC BATCHING: Iterative building, simple continuation decision
+      // SELF-DIRECTED PHASE EVALUATION: AI decides to continue or complete
       // CRITICAL: Include original user request and graph name to prevent hallucination
       const originalMessage = body.originalMessage || body.message || 'expand the graph';
       const graphName = graphState?.name || 'the graph';
@@ -1157,48 +1171,72 @@ NOTE:
         ? '\n\n📝 CONVERSATION CONTEXT:\n' + body.conversationHistory.slice(-3).map(msg => `${msg.role === 'user' ? 'User' : 'You'}: ${msg.content}`).join('\n')
         : '';
 
+      // ALL nodes (not truncated) for comprehensive evaluation
+      const allNodeNames = (graphState?.nodes || []).map(n => n.name).join(', ');
+
       continuePrompt = `
-AGENTIC LOOP - REFINEMENT PASS ${iteration + 1}/${MAX_ITERATIONS}
+SELF-DIRECTED PHASE EVALUATION
 
 🎯 ORIGINAL USER REQUEST: "${originalMessage}"
 📊 GRAPH NAME: "${graphName}"
 ${conversationContext}
 
-Previous action: ${lastAction?.type || 'unknown'}
-Current graph state:
-- Nodes: ${graphState?.nodeCount || 0}
-- Edges: ${graphState?.edgeCount || 0}
-- Example nodes: ${(graphState?.nodes || []).slice(0, 10).map(n => n.name).join(', ')}
+CURRENT GRAPH STATE:
+- Node count: ${graphState?.nodeCount || 0}
+- Edge count: ${graphState?.edgeCount || 0}
+- All nodes: ${allNodeNames || '(none yet)'}
 ${paletteContext}
 
+YOUR DECISION:
+Review the current graph. Is it comprehensive for the topic "${originalMessage}"?
+
+✅ If COMPLETE (graph is comprehensive):
+- Respond with "decision": "complete"
+- Explain why the graph is complete
+- Example reasoning: "Added 30 Greek deities from Olympians to Titans to Heroes. All major figures and relationships covered."
+
+🔄 If NEEDS MORE (graph needs expansion):
+- Respond with "decision": "continue"
+- Generate graphSpec with next batch of nodes/edges
+- Explain what you're adding and why
+- Example reasoning: "Main Olympians complete (12 nodes). Now adding 8 Titans to show generational hierarchy."
+
+EVALUATION GUIDELINES:
+- Simple topics (e.g., "solar system"): 8-12 nodes usually sufficient → COMPLETE
+- Medium topics (e.g., "Greek mythology"): 20-30 nodes typical → 2-3 phases
+- Complex topics (e.g., "World War II"): 40-60 nodes needed → 4-6 phases
+- Be comprehensive but not exhaustive - cover key concepts, not every detail
+
 CRITICAL INSTRUCTIONS:
-1. STAY ON TOPIC: You are building "${graphName}" based on the user's request: "${originalMessage}"
-2. DO NOT HALLUCINATE: Only add nodes that are directly relevant to the user's request
-3. CHECK EXISTING NODES: Review the "Example nodes" list above to avoid duplicates
-4. SEMANTIC RELEVANCE: Every new node should help answer "What is ${graphName}?" or fulfill the user's request
-
-Your options:
-1. "continue" - Add more nodes/edges that are RELEVANT to "${originalMessage}" (provide graphSpec)
-2. "refine" - Define connections or update existing nodes
-3. "complete" - Task is complete, provide summary
-
-CRITICAL: Every edge MUST include definitionNode with {name, color, description}
+1. STAY ON TOPIC: Only add nodes relevant to "${originalMessage}"
+2. AVOID DUPLICATES: Check the node list above before adding
+3. BE DECISIVE: Don't continue indefinitely - know when to stop
+4. QUALITY OVER QUANTITY: Better to complete with 20 good nodes than 50 mediocre ones
 
 Respond with JSON:
 {
-  "decision": "continue" | "refine" | "complete",
-  "reasoning": "why you chose this (must reference the user's original request)",
-  "response": "brief message about what you're doing",
-  "graphSpec": { 
+  "decision": "continue" | "complete",
+  "reasoning": "Detailed explanation of your decision",
+  "response": "User-facing message about what you're doing or completing",
+  "nextSteps": ["Optional: Array of logical next progressions IF completing"],  // Only if decision is "complete" AND there are natural extensions
+  "graphSpec": {  // Only if decision is "continue"
     "nodes": [{name:"X",color:"#HEX",description:"..."}],
     "edges": [{
       source:"NodeA",
       target:"NodeB",
       directionality:"unidirectional"|"bidirectional"|"none",
-      definitionNode:{name:"Relationship",color:"#E74C3C",description:"what this means"}
+      definitionNode:{name:"Relationship",color:"#HEX",description:"what this means"}
     }]
   }
 }
+
+NEXT STEPS GUIDANCE (when decision is "complete"):
+- If there are natural extensions or related topics, suggest 2-3 as "nextSteps"
+- Examples:
+  * ADHD mechanisms graph → ["Add treatment approaches", "Add behavioral symptoms", "Add environmental factors"]
+  * Greek mythology graph → ["Add Roman equivalents", "Add mythological creatures", "Add famous myths/stories"]
+  * Solar system graph → ["Add moons for each planet", "Add asteroid belt objects", "Add orbital mechanics"]
+- If the topic is self-contained with no obvious extensions, omit "nextSteps"
 `;
     }
 
@@ -1295,10 +1333,21 @@ Respond with JSON:
     }
 
     if (decision.decision === 'complete') {
-      const summary = decision.reasoning || `Populated graph with ${graphState?.nodeCount || 0} nodes and ${graphState?.edgeCount || 0} connections.`;
-      const responseText = `✅ ${summary}`;
-      // NOTE: Don't appendChat here - UI displays from JSON response to avoid duplicates
-      return res.json({ success: true, completed: true, response: responseText, reason: 'llm_complete' });
+      const summary = decision.reasoning || decision.response || `Populated graph with ${graphState?.nodeCount || 0} nodes and ${graphState?.edgeCount || 0} connections.`;
+      const nextSteps = decision.nextSteps || decision.suggestions || null;
+
+      // Build completion message
+      let completionMessage = `✅ ${summary}`;
+      if (nextSteps && Array.isArray(nextSteps) && nextSteps.length > 0) {
+        completionMessage += `\n\n💡 Possible next steps:\n${nextSteps.map((s, i) => `${i + 1}. ${s}`).join('\n')}`;
+      } else if (nextSteps && typeof nextSteps === 'string') {
+        completionMessage += `\n\n💡 ${nextSteps}`;
+      }
+
+      // CRITICAL: Send to chat so user sees the completion
+      appendChat('ai', completionMessage, { cid, channel: 'agent' });
+
+      return res.json({ success: true, completed: true, response: completionMessage, reason: 'llm_complete' });
     }
 
     if (decision.decision === 'continue' && decision.graphSpec) {

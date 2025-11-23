@@ -327,23 +327,70 @@ class CommitterService {
               }
 
 
-              // SINGLE-SHOT GENERATION: No more iterative loops
-              // The AI generates the complete graph in one response, so we just send a completion message
+              // SELF-DIRECTED AGENT LOOP: AI decides when to continue or stop
+              // No hardcoded iteration limits - agent evaluates and decides autonomously
               if (threadIds.size > 0 && (nodeCount > 0 || edgeCount > 0)) {
-                // Calculate final counts
                 const mutationsNodeCount = ops.filter(o => o.type === 'addNodeInstance').length;
                 const mutationsEdgeCount = ops.filter(o => o.type === 'addEdge').length;
 
+                // Send phase completion status
                 await bridgeFetch('/api/bridge/chat/append', {
                   method: 'POST',
                   headers: { 'Content-Type': 'application/json' },
                   body: JSON.stringify({
-                    role: 'ai',
-                    text: `✅ Complete! Added ${mutationsNodeCount} node${mutationsNodeCount !== 1 ? 's' : ''} and ${mutationsEdgeCount} connection${mutationsEdgeCount !== 1 ? 's' : ''}.`,
+                    role: 'system',
+                    text: `Phase complete: Added ${mutationsNodeCount} node${mutationsNodeCount !== 1 ? 's' : ''}, ${mutationsEdgeCount} connection${mutationsEdgeCount !== 1 ? 's' : ''}. Evaluating next phase...`,
                     cid: threadId,
                     channel: 'agent'
                   })
                 }).catch(() => { });
+
+                // Get FULL graph state for AI evaluation (not truncated)
+                const store = await import('./bridgeStoreAccessor.js').then(m => m.getBridgeStore());
+                const graph = store.graphs instanceof Map
+                  ? store.graphs.get(graphId)
+                  : Array.isArray(store.graphs)
+                    ? store.graphs.find(g => g.id === graphId)
+                    : null;
+
+                if (graph) {
+                  const fullGraphState = {
+                    graphId,
+                    name: graph.name || 'Unnamed graph',
+                    nodeCount: graph.instances ? Object.keys(graph.instances).length : 0,
+                    edgeCount: Array.isArray(graph.edgeIds) ? graph.edgeIds.length : 0,
+                    // CRITICAL: Send ALL nodes (not truncated) so AI can make informed decisions
+                    nodes: Array.isArray(store.nodePrototypes)
+                      ? store.nodePrototypes.map(p => ({ name: p.name, description: p.description }))
+                      : []
+                  };
+
+                  // Get API credentials
+                  const apiKey = unseen[0]?.meta?.apiKey;
+                  const apiConfig = unseen[0]?.meta?.apiConfig;
+
+                  if (apiKey) {
+                    // Ask AI: Should we continue or is the graph complete?
+                    await bridgeFetch('/api/ai/agent/continue', {
+                      method: 'POST',
+                      headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${apiKey}`
+                      },
+                      body: JSON.stringify({
+                        cid: threadId,
+                        graphState: fullGraphState,
+                        originalMessage: unseen[0]?.meta?.originalMessage || unseen[0]?.meta?.message || 'expand the graph',
+                        conversationHistory: unseen[0]?.meta?.conversationHistory || [],
+                        apiConfig: apiConfig ? {
+                          provider: apiConfig.provider,
+                          endpoint: apiConfig.endpoint,
+                          model: apiConfig.model
+                        } : null
+                      })
+                    }).catch(err => console.warn('[Committer] Agent continuation failed:', err.message));
+                  }
+                }
               }
             }
           }
