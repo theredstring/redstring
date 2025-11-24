@@ -14,6 +14,7 @@ import fs from 'fs';
 import http from 'http';
 import https from 'https';
 import apiKeyManager from './src/services/apiKeyManager.js';
+import executionTracer from './src/services/ExecutionTracer.js';
 // Lazily import the scheduler to avoid pulling UI store modules at startup
 let scheduler = null;
 
@@ -64,6 +65,9 @@ if (TRUST_PROXY) {
 // Broaden CORS in development so devices on the LAN can access the bridge via the UI origin
 app.use(cors({ origin: true }));
 app.use(express.json({ limit: '2mb' }));
+
+// Serve static files from public directory (for debug viewer)
+app.use(express.static('public'));
 
 let bridgeStoreData = {
   graphs: [],
@@ -765,11 +769,14 @@ app.post('/api/bridge/tool-status', (req, res) => {
     // Push telemetry events for each completed tool
     for (const tool of toolCalls) {
       telemetry.push({
-        ts: Date.now(),
+        ts: tool.timestamp || Date.now(),
         type: 'tool_call',
         name: tool.name,
         args: tool.args || {},
         status: tool.status || 'completed',
+        result: tool.result,
+        error: tool.error,
+        executionTime: tool.executionTime,
         cid
       });
     }
@@ -795,6 +802,79 @@ app.post('/api/bridge/chat/append', (req, res) => {
 
 app.get('/api/bridge/telemetry', (_req, res) => {
   res.json({ telemetry, chat: chatLog.slice(-200) });
+});
+
+// Debug endpoints for execution tracing
+app.get('/api/bridge/debug/trace/:cid', (req, res) => {
+  try {
+    const { cid } = req.params;
+    const trace = executionTracer.getTrace(cid);
+
+    if (!trace) {
+      return res.status(404).json({
+        error: 'Trace not found',
+        message: `No trace found for conversation ID: ${cid}`
+      });
+    }
+
+    res.json(trace);
+  } catch (err) {
+    res.status(500).json({ error: String(err?.message || err) });
+  }
+});
+
+app.get('/api/bridge/debug/traces', (req, res) => {
+  try {
+    const limit = parseInt(req.query.limit) || 20;
+    const traces = executionTracer.getRecentTraces(limit);
+
+    // Return summaries for list view
+    const summaries = traces.map(t => executionTracer.getTraceSummary(t.cid));
+
+    res.json({
+      traces: summaries,
+      total: executionTracer.getAllTraces().length
+    });
+  } catch (err) {
+    res.status(500).json({ error: String(err?.message || err) });
+  }
+});
+
+app.get('/api/bridge/debug/trace/:cid/stage/:stageName', (req, res) => {
+  try {
+    const { cid, stageName } = req.params;
+    const trace = executionTracer.getTrace(cid);
+
+    if (!trace) {
+      return res.status(404).json({
+        error: 'Trace not found',
+        message: `No trace found for conversation ID: ${cid}`
+      });
+    }
+
+    const stage = trace.stages.find(s => s.stage === stageName);
+
+    if (!stage) {
+      return res.status(404).json({
+        error: 'Stage not found',
+        message: `No stage "${stageName}" found in trace for ${cid}`,
+        availableStages: trace.stages.map(s => s.stage)
+      });
+    }
+
+    res.json(stage);
+  } catch (err) {
+    res.status(500).json({ error: String(err?.message || err) });
+  }
+});
+
+app.get('/api/bridge/debug/stats', (req, res) => {
+  try {
+    const stats = executionTracer.getStats();
+    res.json(stats);
+  } catch (err) {
+    res.status(500).json({ error: String(err?.message || err) });
+  }
 });
 
 // Satisfy MCP client probe to avoid 404 noise
@@ -1630,7 +1710,7 @@ app.post('/api/ai/chat', async (req, res) => {
 app.post('/api/ai/agent', async (req, res) => {
   try {
     const body = req.body || {};
-    const cid = `cid-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    const cid = body.cid || `cid-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
     logger.debug(`[Agent] Request received: ${JSON.stringify({ message: body.message, cid, conversationHistory: body.conversationHistory?.length || 0 })}`);
     const isChainContinuation = body.context?.chainState?.remainingSubgoals;
     if (body.message && !isChainContinuation) {
@@ -1686,6 +1766,13 @@ app.post('/api/ai/agent', async (req, res) => {
     const opsQueued = [];
     const actionId = id => `pa-${Date.now()}-${Math.random().toString(36).slice(2, 8)}-${id}`;
     let ensuredPrototypeId = proto?.id;
+
+    // Start execution trace
+    executionTracer.startTrace(cid, msgText, {
+      activeGraphId: targetGraphId,
+      activeGraphName: activeGraphFromUI?.name || bridgeStoreData.activeGraphName,
+      hasAuth: !!req.headers.authorization
+    });
 
     // Detect intent
     const msgText = String(body.message || '');
@@ -1982,6 +2069,17 @@ app.post('/api/ai/agent', async (req, res) => {
         let lastError = null;
         let usedModel = null;
 
+        // Record planner stage start
+        executionTracer.recordStage(cid, 'planner', {
+          provider,
+          requestedModel,
+          candidateModels,
+          systemPromptLength: systemPrompt.length,
+          userPromptLength: userPrompt.length,
+          estimatedInputTokens,
+          maxTokens: PLANNER_MAX_TOKENS
+        });
+
         for (const candidate of candidateModels) {
           const maxAttempts = provider === 'openrouter' ? 2 : 1;
           for (let attempt = 1; attempt <= maxAttempts; attempt++) {
@@ -2009,6 +2107,14 @@ app.post('/api/ai/agent', async (req, res) => {
 
         if (!text && lastError) {
           logger.error('[Agent] LLM request failed after retries:', lastError.status || '', lastError.body || lastError.message);
+
+          // Record planner failure
+          executionTracer.completeStage(cid, 'planner', 'error', {
+            error: lastError.message || String(lastError),
+            status: lastError.status,
+            allModelsFailed: true
+          });
+
           const friendly = lastError.status === 402
             ? "My spell fizzled because this model needs more OpenRouter credits (or a smaller max_tokens). Please adjust your API key's limits or pick a lighter model, then try again."
             : `I couldn't reach the ${provider} model (status ${lastError.status || 'unknown'}). Please try again or switch models.`;
@@ -2120,6 +2226,16 @@ app.post('/api/ai/agent', async (req, res) => {
 
         if (planned) {
           logger.debug('[Agent] Parsed plan:', JSON.stringify(planned, null, 2));
+
+          // Record planner success
+          executionTracer.completeStage(cid, 'planner', 'success', {
+            intent: planned.intent,
+            usedModel,
+            hasGraphSpec: !!planned.graphSpec,
+            nodeCount: planned.graphSpec?.nodes?.length || 0,
+            edgeCount: planned.graphSpec?.edges?.length || 0,
+            hasResponse: !!planned.response
+          });
         }
       } else {
         // No authorization header - reject the request

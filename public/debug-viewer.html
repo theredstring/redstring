@@ -1,0 +1,389 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Wizard Debug Viewer</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { 
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+      background: #0d1117;
+      color: #c9d1d9;
+      padding: 20px;
+      max-width: 1400px;
+      margin: 0 auto;
+    }
+    h1 { 
+      color: #58a6ff;
+      margin-bottom: 10px;
+      font-size: 2em;
+    }
+    h2 { 
+      color: #8b949e;
+      margin: 30px 0 15px;
+      font-size: 1.5em;
+    }
+    h3 { 
+      color: #58a6ff;
+      margin: 20px 0 10px;
+      font-size: 1.2em;
+    }
+    .stats {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+      gap: 15px;
+      margin-bottom: 30px;
+    }
+    .stat-card {
+      background: #161b22;
+      border: 1px solid #30363d;
+      border-radius: 6px;
+      padding: 15px;
+    }
+    .stat-value {
+      font-size: 2em;
+      color: #58a6ff;
+      font-weight: bold;
+    }
+    .stat-label {
+      color: #8b949e;
+      font-size: 0.9em;
+      margin-top: 5px;
+    }
+    .trace-list {
+      list-style: none;
+    }
+    .trace-item {
+      background: #161b22;
+      border: 1px solid #30363d;
+      border-radius: 6px;
+      margin-bottom: 15px;
+      overflow: hidden;
+    }
+    .trace-header {
+      padding: 15px;
+      cursor: pointer;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      transition: background 0.2s;
+    }
+    .trace-header:hover {
+      background: #1c2128;
+    }
+    .trace-info {
+      flex: 1;
+    }
+    .trace-cid {
+      font-family: 'Monaco', 'Consolas', monospace;
+      font-size: 0.9em;
+      color: #8b949e;
+    }
+    .trace-message {
+      margin: 5px 0;
+      font-size: 1.1em;
+      color: #c9d1d9;
+    }
+    .trace-meta {
+      font-size: 0.85em;
+      color: #8b949e;
+      margin-top: 5px;
+    }
+    .trace-status {
+      padding: 4px 12px;
+      border-radius: 12px;
+      font-size: 0.85em;
+      font-weight: 600;
+    }
+    .trace-status.success {
+      background: #2ea043;
+      color: white;
+    }
+    .trace-status.error {
+      background: #da3633;
+      color: white;
+    }
+    .trace-status.running {
+      background: #f0883e;
+      color: white;
+    }
+    .trace-details {
+      padding: 0 15px 15px;
+      border-top: 1px solid #30363d;
+      display: none;
+    }
+    .trace-details.expanded {
+      display: block;
+    }
+    .stage {
+      background: #0d1117;
+      border: 1px solid #30363d;
+      border-left: 3px solid #58a6ff;
+      border-radius: 4px;
+      padding: 15px;
+      margin: 10px 0;
+    }
+    .stage.error {
+      border-left-color: #da3633;
+    }
+    .stage-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 10px;
+    }
+    .stage-name {
+      font-size: 1.1em;
+      font-weight: 600;
+      color: #c9d1d9;
+    }
+    .stage-duration {
+      font-family: 'Monaco', 'Consolas', monospace;
+      font-size: 0.9em;
+      color: #8b949e;
+    }
+    details {
+      margin: 10px 0;
+      background: #0d1117;
+      border: 1px solid #30363d;
+      border-radius: 4px;
+      padding: 10px;
+    }
+    summary {
+      cursor: pointer;
+      font-weight: 600;
+      color: #58a6ff;
+      padding: 5px;
+      user-select: none;
+    }
+    summary:hover {
+      color: #79c0ff;
+    }
+    pre {
+      background: #010409;
+      border: 1px solid #30363d;
+      border-radius: 4px;
+      padding: 12px;
+      overflow-x: auto;
+      font-size: 0.85em;
+      line-height: 1.5;
+      margin: 10px 0;
+    }
+    .refresh-btn {
+      background: #238636;
+      color: white;
+      border: none;
+      padding: 10px 20px;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 1em;
+      font-weight: 600;
+      transition: background 0.2s;
+    }
+    .refresh-btn:hover {
+      background: #2ea043;
+    }
+    .auto-refresh {
+      margin-left: 15px;
+      color: #8b949e;
+    }
+    .controls {
+      display: flex;
+      align-items: center;
+      margin-bottom: 20px;
+    }
+    .empty-state {
+      text-align: center;
+      padding: 60px 20px;
+      color: #8b949e;
+    }
+    .empty-state-icon {
+      font-size: 4em;
+      margin-bottom: 20px;
+    }
+  </style>
+</head>
+<body>
+  <h1>🧙 Wizard Debug Viewer</h1>
+  <p style="color: #8b949e; margin-bottom: 30px;">Execution traces for The Wizard AI agent pipeline</p>
+  
+  <div class="controls">
+    <button class="refresh-btn" onclick="loadData()">Refresh</button>
+    <label class="auto-refresh">
+      <input type="checkbox" id="autoRefresh" checked> Auto-refresh (5s)
+    </label>
+  </div>
+  
+  <h2>Statistics</h2>
+  <div id="stats" class="stats"></div>
+  
+  <h2>Recent Traces</h2>
+  <ul id="traces" class="trace-list"></ul>
+  
+  <script>
+    let autoRefreshInterval = null;
+    
+    async function loadStats() {
+      try {
+        const res = await fetch('/api/bridge/debug/stats');
+        const stats = await res.json();
+        
+        document.getElementById('stats').innerHTML = `
+          <div class="stat-card">
+            <div class="stat-value">${stats.totalTraces}</div>
+            <div class="stat-label">Total Traces</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-value">${stats.successTraces}</div>
+            <div class="stat-label">Successful</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-value">${stats.errorTraces}</div>
+            <div class="stat-label">Errors</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-value">${stats.runningTraces}</div>
+            <div class="stat-label">Running</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-value">${stats.avgStagesPerTrace.toFixed(1)}</div>
+            <div class="stat-label">Avg Stages/Trace</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-value">${(stats.avgDuration / 1000).toFixed(2)}s</div>
+            <div class="stat-label">Avg Duration</div>
+          </div>
+        `;
+      } catch (err) {
+        document.getElementById('stats').innerHTML = `<p style="color: #da3633;">Error loading stats: ${err.message}</p>`;
+      }
+    }
+    
+    async function loadTrace(cid) {
+      try {
+        const res = await fetch(`/api/bridge/debug/trace/${cid}`);
+        const trace = await res.json();
+        return trace;
+      } catch (err) {
+        console.error('Error loading trace:', err);
+        return null;
+      }
+    }
+    
+    function formatTimestamp(ts) {
+      const date = new Date(ts);
+      return date.toLocaleTimeString();
+    }
+    
+    function formatDuration(ms) {
+      if (!ms) return 'N/A';
+      if (ms < 1000) return `${ms}ms`;
+      return `${(ms / 1000).toFixed(2)}s`;
+    }
+    
+    async function toggleTrace(cid) {
+      const details = document.getElementById(`trace-details-${cid}`);
+      if (details.classList.contains('expanded')) {
+        details.classList.remove('expanded');
+        return;
+      }
+      
+      // Load full trace
+      const trace = await loadTrace(cid);
+      if (!trace) return;
+      
+      let stagesHTML = '';
+      trace.stages.forEach(stage => {
+        const statusClass = stage.status === 'error' ? 'error' : '';
+        stagesHTML += `
+          <div class="stage ${statusClass}">
+            <div class="stage-header">
+              <span class="stage-name">${stage.stage.toUpperCase()}</span>
+              <span class="stage-duration">${formatDuration(stage.duration)} - ${stage.status}</span>
+            </div>
+            <details>
+              <summary>Input Data</summary>
+              <pre>${JSON.stringify(stage.data, null, 2)}</pre>
+            </details>
+            ${stage.result ? `
+              <details>
+                <summary>Result</summary>
+                <pre>${JSON.stringify(stage.result, null, 2)}</pre>
+              </details>
+            ` : ''}
+            ${stage.error ? `
+              <details open>
+                <summary>Error</summary>
+                <pre style="color: #da3633;">${JSON.stringify(stage.error, null, 2)}</pre>
+              </details>
+            ` : ''}
+          </div>
+        `;
+      });
+      
+      details.innerHTML = stagesHTML;
+      details.classList.add('expanded');
+    }
+    
+    async function loadTraces() {
+      try {
+        const res = await fetch('/api/bridge/debug/traces?limit=20');
+        const data = await res.json();
+        
+        if (data.traces.length === 0) {
+          document.getElementById('traces').innerHTML = `
+            <div class="empty-state">
+              <div class="empty-state-icon">🔍</div>
+              <p>No traces yet. Start a conversation with The Wizard to see traces here.</p>
+            </div>
+          `;
+          return;
+        }
+        
+        const tracesHTML = data.traces.map(summary => {
+          const statusClass = summary.status;
+          return `
+            <li class="trace-item">
+              <div class="trace-header" onclick="toggleTrace('${summary.cid}')">
+                <div class="trace-info">
+                  <div class="trace-cid">${summary.cid}</div>
+                  <div class="trace-message">${summary.userMessage}</div>
+                  <div class="trace-meta">
+                    ${summary.stageCount} stages · ${formatDuration(summary.duration)} · 
+                    ${formatTimestamp(summary.startTime)}
+                    ${summary.metadata.activeGraphName ? ` · Graph: ${summary.metadata.activeGraphName}` : ''}
+                  </div>
+                </div>
+                <span class="trace-status ${statusClass}">${statusClass}</span>
+              </div>
+              <div id="trace-details-${summary.cid}" class="trace-details"></div>
+            </li>
+          `;
+        }).join('');
+        
+        document.getElementById('traces').innerHTML = tracesHTML;
+      } catch (err) {
+        document.getElementById('traces').innerHTML = `<p style="color: #da3633;">Error loading traces: ${err.message}</p>`;
+      }
+    }
+    
+    async function loadData() {
+      await Promise.all([loadStats(), loadTraces()]);
+    }
+    
+    // Auto-refresh logic
+    document.getElementById('autoRefresh').addEventListener('change', (e) => {
+      if (e.target.checked) {
+        autoRefreshInterval = setInterval(loadData, 5000);
+      } else {
+        clearInterval(autoRefreshInterval);
+      }
+    });
+    
+    // Initial load
+    loadData();
+    autoRefreshInterval = setInterval(loadData, 5000);
+  </script>
+</body>
+</html>

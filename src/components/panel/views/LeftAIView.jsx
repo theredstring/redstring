@@ -6,6 +6,7 @@ import apiKeyManager from '../../../services/apiKeyManager.js';
 import { bridgeFetch, bridgeEventSource } from '../../../services/bridgeConfig.js';
 import StandardDivider from '../../StandardDivider.jsx';
 import { HEADER_HEIGHT } from '../../../constants.js';
+import ToolCallCard from '../../ToolCallCard.jsx';
 
 // Internal AI Collaboration View component (migrated from src/ai/AICollaborationPanel.jsx)
 const LeftAIView = ({ compact = false, activeGraphId, graphsMap }) => {
@@ -206,7 +207,17 @@ const LeftAIView = ({ compact = false, activeGraphId, graphsMap }) => {
       items.forEach((t) => {
         if (t.type === 'tool_call') {
           const status = t.status || (t.leased ? 'running' : 'running');
-          upsertToolCall({ id: t.id, name: t.name || 'tool', status, args: t.args, cid: t.cid });
+          upsertToolCall({
+            id: t.id,
+            name: t.name || 'tool',
+            status,
+            args: t.args,
+            result: t.result,
+            error: t.error,
+            executionTime: t.executionTime,
+            timestamp: t.ts,
+            cid: t.cid
+          });
           return;
         }
         if (t.type === 'agent_queued') {
@@ -672,24 +683,16 @@ const LeftAIView = ({ compact = false, activeGraphId, graphsMap }) => {
                   {message.toolCalls && message.toolCalls.length > 0 && (
                     <div className="ai-tool-calls">
                       {message.toolCalls.map((toolCall, index) => (
-                        <div key={index} className={`ai-tool-call ai-tool-call-${toolCall.status || 'running'}`}>
-                          <div className="ai-tool-call-header" style={{ cursor: 'pointer' }} onClick={() => {
-                            setMessages(prev => prev.map(m => {
-                              if (m.id !== message.id) return m;
-                              const copy = { ...m };
-                              copy.toolCalls = copy.toolCalls.map((c, ci) => ci === index ? { ...c, expanded: !c.expanded } : c);
-                              return copy;
-                            }));
-                          }}>
-                            <div className="ai-tool-call-icon" aria-hidden>
-                              {toolCall.status === 'completed' ? <Square style={{ transform: 'rotate(45deg)' }} size={12} /> : toolCall.status === 'failed' ? <Square size={12} /> : <RotateCcw size={12} />}
-                            </div>
-                            <span className="ai-tool-call-name">{toolCall.name}</span>
-                            <span className="ai-tool-call-status">{toolCall.status === 'completed' ? 'Completed' : toolCall.status === 'failed' ? 'Failed' : 'Running...'}</span>
-                          </div>
-                          {toolCall.args && toolCall.expanded && (<div className="ai-tool-call-args"><small>{JSON.stringify(toolCall.args, null, 2)}</small></div>)}
-                          {toolCall.result && toolCall.expanded && (<div className="ai-tool-call-result"><div className="ai-tool-call-result-content">{toolCall.result}</div></div>)}
-                        </div>
+                        <ToolCallCard
+                          key={index}
+                          toolName={toolCall.name}
+                          status={toolCall.status || 'running'}
+                          args={toolCall.args}
+                          result={toolCall.result}
+                          error={toolCall.error}
+                          timestamp={toolCall.timestamp}
+                          executionTime={toolCall.executionTime}
+                        />
                       ))}
                     </div>
                   )}

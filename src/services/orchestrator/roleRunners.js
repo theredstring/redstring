@@ -4,6 +4,7 @@ import toolValidator from '../toolValidator.js';
 import { RolePrompts, ToolAllowlists } from '../roles.js';
 import { getBridgeStore, getGraphById, getActiveGraph } from '../bridgeStoreAccessor.js';
 import { getGraphSemanticStructure } from '../graphQueries.js';
+import executionTracer from '../ExecutionTracer.js';
 
 // Helper to normalize string to Title Case
 function toTitleCase(str) {
@@ -177,8 +178,20 @@ export async function runExecutorOnce() {
   const tasks = queueManager.pull('taskQueue', { max: 1 });
   if (tasks.length === 0) return;
   const task = tasks[0];
+
+  // Extract cid from task metadata for tracing
+  const cid = task.meta?.cid || task.threadId || 'unknown';
+
   try {
     console.log(`[Executor] Processing task: ${task.toolName}`, JSON.stringify(task.args || {}));
+
+    // Record executor stage start
+    executionTracer.recordStage(cid, 'executor', {
+      toolName: task.toolName,
+      graphId: task.args?.graphId || task.args?.graph_id,
+      threadId: task.threadId
+    });
+
     const allow = new Set(ToolAllowlists.executor);
     if (!allow.has(task.toolName)) throw new Error(`Tool not allowed for executor: ${task.toolName}`);
     const validation = toolValidator.validateToolArgs(task.toolName, task.args || {});
@@ -1492,10 +1505,22 @@ export async function runExecutorOnce() {
       ops,
       meta: task.meta || {}  // Propagate meta from task to patch
     };
+
+    // Record executor success
+    executionTracer.completeStage(cid, 'executor', 'success', {
+      toolName: task.toolName,
+      operationCount: ops.length,
+      operationTypes: [...new Set(ops.map(o => o.type))],
+      graphId: patch.graphId
+    });
+
     queueManager.enqueue('patchQueue', patch, { partitionKey: patch.threadId || 'default' });
     queueManager.ack('taskQueue', task.leaseId);
   } catch (e) {
     console.error('[Executor] Task execution failed:', e);
+
+    // Record executor error
+    executionTracer.recordError(cid, 'executor', e);
 
     // CRITICAL: Distinguish between permanent and transient errors
     // Validation errors are PERMANENT - retrying won't fix them, so we must ACK (drop) the task

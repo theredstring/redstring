@@ -1,0 +1,205 @@
+.tool-call-card {
+  background: #bdb5b5;
+  border: 1px solid #260000;
+  border-radius: 0;
+  margin: 0;
+  overflow: hidden;
+  transition: all 0.2s ease;
+}
+
+.tool-call-header {
+  padding: 8px 10px;
+  cursor: pointer;
+  display: grid;
+  grid-template-columns: auto 1fr;
+  align-items: start;
+  gap: 8px;
+  user-select: none;
+}
+
+.tool-call-header:hover {
+  background: rgba(38, 0, 0, 0.03);
+}
+
+.tool-icon {
+  width: 14px;
+  height: 14px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  margin-top: 2px;
+}
+
+.tool-header-content {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  width: 100%;
+}
+
+.tool-header-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+}
+
+.tool-name {
+  font-weight: 600;
+  color: #260000;
+  font-size: 12px;
+  font-family: 'EmOne', sans-serif;
+  flex-shrink: 0;
+}
+
+.status-badge {
+  font-size: 11px;
+  color: #260000;
+  opacity: 0.9;
+  font-family: 'EmOne', sans-serif;
+  flex-shrink: 0;
+}
+
+.expand-icon {
+  font-size: 10px;
+  color: rgba(38, 0, 0, 0.6);
+  transition: transform 0.2s ease;
+  margin-left: auto;
+  flex-shrink: 0;
+}
+
+.expand-icon.expanded {
+  transform: rotate(180deg);
+}
+
+.tool-call-summary {
+  color: rgba(38, 0, 0, 0.7);
+  font-size: 11px;
+  font-family: 'EmOne', sans-serif;
+  line-height: 1.4;
+}
+
+.tool-call-details {
+  padding: 8px 10px;
+  border-top: 1px solid rgba(38, 0, 0, 0.1);
+  animation: slideDown 0.2s ease;
+  font-family: 'EmOne', sans-serif;
+}
+
+@keyframes slideDown {
+  from {
+    opacity: 0;
+    max-height: 0;
+  }
+
+  to {
+    opacity: 1;
+    max-height: 500px;
+  }
+}
+
+.detail-section {
+  margin-bottom: 12px;
+}
+
+.detail-section:last-child {
+  margin-bottom: 0;
+}
+
+.detail-section h4 {
+  color: rgba(38, 0, 0, 0.7);
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+  margin: 0 0 6px 0;
+  font-family: 'EmOne', sans-serif;
+}
+
+.node-list,
+.edge-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  color: #260000;
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.node-list li {
+  padding: 2px 0;
+  padding-left: 12px;
+  position: relative;
+}
+
+.node-list li::before {
+  content: '•';
+  position: absolute;
+  left: 0;
+  color: rgba(38, 0, 0, 0.5);
+}
+
+.edge-list li {
+  padding: 2px 0;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.edge-arrow {
+  color: rgba(38, 0, 0, 0.5);
+  font-size: 10px;
+}
+
+.edge-type {
+  color: rgba(38, 0, 0, 0.6);
+  font-size: 11px;
+  font-style: italic;
+}
+
+.more-items {
+  color: rgba(38, 0, 0, 0.6);
+  font-style: italic;
+  padding-left: 12px;
+}
+
+.execution-time {
+  margin-top: 8px;
+  color: rgba(38, 0, 0, 0.6);
+  font-size: 11px;
+  text-align: right;
+  font-family: 'EmOne', sans-serif;
+}
+
+.error-details {
+  margin-top: 8px;
+}
+
+.error-details h4 {
+  color: #f44336;
+}
+
+.error-message {
+  background: rgba(244, 67, 54, 0.05);
+  border: 1px solid rgba(244, 67, 54, 0.2);
+  border-radius: 0;
+  padding: 8px;
+  font-size: 12px;
+  color: #f44336;
+  font-family: 'EmOne', sans-serif;
+  white-space: pre-wrap;
+}
+
+/* Status-specific styling */
+.status-running .tool-call-header {
+  border-left: 2px solid rgba(38, 0, 0, 0.3);
+}
+
+.status-completed .tool-call-header {
+  border-left: 2px solid rgba(76, 175, 80, 0.5);
+}
+
+.status-failed .tool-call-header {
+  border-left: 2px solid rgba(244, 67, 54, 0.5);
+}

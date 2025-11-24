@@ -3,6 +3,7 @@
 
 import queueManager from './queue/Queue.js';
 import eventLog from './EventLog.js';
+import executionTracer from './ExecutionTracer.js';
 
 // Coarse per-graph locks (in-process)
 const graphLocks = new Map();
@@ -97,6 +98,16 @@ class CommitterService {
           return;
         }
         const ops = coalesceOps(unseen);
+
+        // Extract cid from patches for tracing
+        const cid = unseen[0]?.threadId || unseen[0]?.meta?.cid || 'unknown';
+
+        // Record committer stage start
+        executionTracer.recordStage(cid, 'committer', {
+          graphId,
+          patchCount: unseen.length,
+          operationCount: ops.length
+        });
 
         // Resolve NEW_GRAPH:name placeholders to actual graph IDs
         const graphIdMap = new Map();
@@ -286,31 +297,94 @@ class CommitterService {
 
               const completedTools = [];
 
+              // Helper to get node name from prototype ID
+              const getNodeName = (prototypeId) => {
+                const protoOp = ops.find(o => o.type === 'addNodePrototype' && o.prototypeData?.id === prototypeId);
+                return protoOp?.prototypeData?.name || 'Unknown';
+              };
+
+              // Helper to get node name from instance ID
+              const getNodeNameFromInstance = (instanceId) => {
+                const instanceOp = ops.find(o => o.type === 'addNodeInstance' && o.instanceId === instanceId);
+                if (instanceOp) return getNodeName(instanceOp.prototypeId);
+                return 'Unknown';
+              };
+
+              // Extract detailed results for tool cards
+              const extractResults = () => {
+                const nodesAdded = ops
+                  .filter(o => o.type === 'addNodePrototype')
+                  .map(o => o.prototypeData?.name)
+                  .filter(Boolean);
+
+                const edgesAdded = ops
+                  .filter(o => o.type === 'addEdge')
+                  .map(o => ({
+                    source: getNodeNameFromInstance(o.edgeData?.sourceId),
+                    target: getNodeNameFromInstance(o.edgeData?.destinationId),
+                    type: o.edgeData?.name || 'Connection'
+                  }));
+
+                return { nodesAdded, edgesAdded };
+              };
+
               // create_populated_graph: creates new graph + nodes + edges in one operation
               if (hasNewGraph && hasPrototypes && hasInstances && hasEdges) {
                 const newGraphOp = ops.find(o => o.type === 'createNewGraph');
                 const graphName = newGraphOp?.initialData?.name || 'graph';
+                const { nodesAdded, edgesAdded } = extractResults();
+
                 completedTools.push({
                   name: 'create_populated_graph',
                   status: 'completed',
-                  args: { graphId, graphName, nodeCount, edgeCount }
+                  args: { graphId, graphName, nodeCount, edgeCount },
+                  result: {
+                    graphName,
+                    nodesAdded,
+                    edgesAdded,
+                    nodeCount: nodesAdded.length,
+                    edgeCount: edgesAdded.length
+                  },
+                  timestamp: Date.now()
                 });
               }
               // create_subgraph: adds nodes + edges to existing graph
               else if (hasPrototypes && hasInstances && hasEdges) {
+                const { nodesAdded, edgesAdded } = extractResults();
+
                 completedTools.push({
                   name: 'create_subgraph',
                   status: 'completed',
-                  args: { graphId, nodeCount, edgeCount }
+                  args: { graphId, nodeCount, edgeCount },
+                  result: {
+                    nodesAdded,
+                    edgesAdded,
+                    nodeCount: nodesAdded.length,
+                    edgeCount: edgesAdded.length
+                  },
+                  timestamp: Date.now()
                 });
               }
 
               // define_connections: updates edge definitions (can happen standalone or after create)
               if (hasEdgeUpdates || (hasEdges && !hasInstances && !hasNewGraph)) {
+                const edgesAdded = ops
+                  .filter(o => o.type === 'addEdge' || o.type === 'updateEdgeDefinition')
+                  .map(o => ({
+                    source: getNodeNameFromInstance(o.edgeData?.sourceId),
+                    target: getNodeNameFromInstance(o.edgeData?.destinationId),
+                    type: o.edgeData?.name || 'Connection'
+                  }));
+
                 completedTools.push({
                   name: 'define_connections',
                   status: 'completed',
-                  args: { graphId, edgeCount }
+                  args: { graphId, edgeCount },
+                  result: {
+                    edgesAdded,
+                    edgeCount: edgesAdded.length
+                  },
+                  timestamp: Date.now()
                 });
               }
 
@@ -329,7 +403,12 @@ class CommitterService {
 
               // SELF-DIRECTED AGENT LOOP: AI decides when to continue or stop
               // No hardcoded iteration limits - agent evaluates and decides autonomously
-              if (threadIds.size > 0 && (nodeCount > 0 || edgeCount > 0)) {
+              // CRITICAL: Check for agenticLoop flag, not just node/edge count
+              // (define_connections creates 0 nodes/edges but still needs continuation)
+              const hasAgenticLoop = unseen.some(p => p.meta?.agenticLoop);
+              console.log(`[Committer] AGENTIC LOOP: Checking if more work needed (iteration ${unseen[0]?.meta?.iteration || 0})`);
+              console.log(`[Committer] Agentic loop check: threadIds.size=${threadIds.size}, hasAgenticLoop=${hasAgenticLoop}`);
+              if (threadIds.size > 0 && hasAgenticLoop) {
                 const mutationsNodeCount = ops.filter(o => o.type === 'addNodeInstance').length;
                 const mutationsEdgeCount = ops.filter(o => o.type === 'addEdge').length;
 
@@ -366,10 +445,13 @@ class CommitterService {
                   };
 
                   // Get API credentials
+                  console.log(`[Committer] Debug Meta:`, JSON.stringify(unseen[0]?.meta || {}));
                   const apiKey = unseen[0]?.meta?.apiKey;
                   const apiConfig = unseen[0]?.meta?.apiConfig;
 
+                  console.log(`[Committer] API key check: apiKey=${apiKey ? 'present' : 'missing'}, graph=${graph ? 'found' : 'not found'}`);
                   if (apiKey) {
+                    console.log(`[Committer] Calling /api/ai/agent/continue for cid=${threadId}`);
                     // Ask AI: Should we continue or is the graph complete?
                     await bridgeFetch('/api/ai/agent/continue', {
                       method: 'POST',
@@ -397,6 +479,15 @@ class CommitterService {
         } catch (e) {
           console.warn('[Committer] Failed to send completion message:', e.message);
         }
+
+        // Record committer success
+        executionTracer.completeStage(cid, 'committer', 'success', {
+          graphId,
+          operationsApplied: ops.length,
+          nodesAdded: ops.filter(o => o.type === 'addNodeInstance').length,
+          edgesAdded: ops.filter(o => o.type === 'addEdge').length
+        });
+
         // Mark ids
         unseen.forEach(p => this.idempotency.add(p.patchId));
         // Persist via Git engine snapshot if available
