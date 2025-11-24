@@ -1270,12 +1270,12 @@ ${paletteContext}
 YOUR DECISION:
 Review the current graph. Is it comprehensive for the topic "${originalMessage}"?
 
-✅ If COMPLETE (graph is comprehensive):
+If COMPLETE (graph is comprehensive):
 - Respond with "decision": "complete"
 - Explain why the graph is complete
 - Example reasoning: "Added 30 Greek deities from Olympians to Titans to Heroes. All major figures and relationships covered."
 
-🔄 If NEEDS MORE (graph needs expansion):
+If NEEDS MORE (graph needs expansion):
 - Respond with "decision": "continue"
 - Generate graphSpec with next batch of nodes/edges
 - Explain what you're adding and why
@@ -1335,6 +1335,16 @@ NEXT STEPS GUIDANCE (when decision is "complete"):
     }
 
     let decision = null;
+
+    // Record continuation planner stage start
+    executionTracer.recordStage(cid, 'planner', {
+      provider,
+      model,
+      isContinuation: true,
+      phase: currentPhase + 1,
+      nodeCount
+    });
+
     try {
       const llmResponse = await fetch(endpoint, {
         method: 'POST',
@@ -1348,14 +1358,45 @@ NEXT STEPS GUIDANCE (when decision is "complete"):
       });
 
       if (!llmResponse.ok) {
+        const errorText = await llmResponse.text();
+
+        // Record continuation planner failure (HTTP error)
+        executionTracer.completeStage(cid, 'planner', 'error', {
+          error: `LLM request failed: ${llmResponse.status}`,
+          status: llmResponse.status,
+          body: errorText
+        });
+
         throw new Error(`LLM API error: ${llmResponse.status}`);
       }
 
       const data = await llmResponse.json();
       const content = data.choices?.[0]?.message?.content || '';
       logger.debug(`[Agent/Continue] Raw LLM response (first 500 chars): ${content.substring(0, 500)}`);
+
+      try {
+        decision = JSON.parse(content);
+
+        // Record continuation planner success
+        executionTracer.completeStage(cid, 'planner', 'success', {
+          intent: decision.decision === 'complete' ? 'complete' : 'continue',
+          decision: decision.decision,
+          hasGraphSpec: !!decision.graphSpec,
+          nodeCount: decision.graphSpec?.nodes?.length || 0,
+          edgeCount: decision.graphSpec?.edges?.length || 0,
+          reasoning: decision.reasoning
+        });
+      } catch (e) {
+        // Record continuation planner failure (JSON parse error)
+        executionTracer.completeStage(cid, 'planner', 'error', {
+          error: `Failed to parse JSON: ${e.message}`,
+          rawContent: content
+        });
+        throw e;
+      }
+
       logger.debug(`[Agent/Continue] Raw LLM response (last 500 chars): ${content.substring(Math.max(0, content.length - 500))}`);
-      decision = JSON.parse(content);
+      // decision is already parsed above
 
       // Log decision (handle both "decision" and "intent" fields)
       const decisionType = decision.decision || decision.intent;
@@ -1417,11 +1458,11 @@ NEXT STEPS GUIDANCE (when decision is "complete"):
       const nextSteps = decision.nextSteps || decision.suggestions || null;
 
       // Build completion message
-      let completionMessage = `✅ ${summary}`;
+      let completionMessage = `${summary}`;
       if (nextSteps && Array.isArray(nextSteps) && nextSteps.length > 0) {
-        completionMessage += `\n\n💡 Possible next steps:\n${nextSteps.map((s, i) => `${i + 1}. ${s}`).join('\n')}`;
+        completionMessage += `\n\nPossible next steps:\n${nextSteps.map((s, i) => `${i + 1}. ${s}`).join('\n')}`;
       } else if (nextSteps && typeof nextSteps === 'string') {
-        completionMessage += `\n\n💡 ${nextSteps}`;
+        completionMessage += `\n\n${nextSteps}`;
       }
 
       // CRITICAL: Send to chat so user sees the completion
@@ -1445,6 +1486,14 @@ NEXT STEPS GUIDANCE (when decision is "complete"):
               },
               layoutAlgorithm,
               layoutMode: 'full'  // Full re-layout like the Auto Layout menu button
+            },
+            threadId: cid
+          },
+          {
+            toolName: 'define_connections',
+            args: {
+              graphId: graphState?.graphId,
+              includeGeneralTypes: false
             },
             threadId: cid
           }
@@ -1767,6 +1816,9 @@ app.post('/api/ai/agent', async (req, res) => {
     const actionId = id => `pa-${Date.now()}-${Math.random().toString(36).slice(2, 8)}-${id}`;
     let ensuredPrototypeId = proto?.id;
 
+    // Detect intent (moved up before trace to avoid ReferenceError)
+    const msgText = String(body.message || '');
+
     // Start execution trace
     executionTracer.startTrace(cid, msgText, {
       activeGraphId: targetGraphId,
@@ -1774,8 +1826,6 @@ app.post('/api/ai/agent', async (req, res) => {
       hasAuth: !!req.headers.authorization
     });
 
-    // Detect intent
-    const msgText = String(body.message || '');
     const isCreateIntent = /\b(add|create|make|place|insert|spawn|new|fill|populate|expand|flesh|keep going|more detail)\b/i.test(msgText)
       || /\bnew\s+node\b/i.test(msgText)
       || /\bnode\s+(called|named)\b/i.test(msgText)
@@ -2485,11 +2535,26 @@ app.post('/api/ai/agent', async (req, res) => {
           })
         });
 
-        if (!r.ok) {
-          const errorText = await r.text();
-          throw new Error(`Recursive agent call failed: ${r.status} - ${errorText}`);
+        if (!llmResponse.ok) {
+          const errorText = await llmResponse.text();
+
+          // Record continuation planner failure (HTTP error)
+          executionTracer.completeStage(cid, 'planner', 'error', {
+            error: `LLM request failed: ${llmResponse.status}`,
+            status: llmResponse.status,
+            body: errorText
+          });
+
+          throw new Error(`LLM request failed: ${llmResponse.status} ${errorText}`);
         }
-        const result = await r.json();
+        const result = await llmResponse.json();
+
+        // Record continuation planner success
+        executionTracer.completeStage(cid, 'planner', 'success', {
+          intent: 'decompose_goal_step',
+          subgoal: firstGoal,
+          remainingSubgoals: remaining.length
+        });
 
         // Return the result of the first step, but prepend the decomposition plan to the response
         const planText = planned.response || "I've broken this down into steps.";
@@ -2501,6 +2566,10 @@ app.post('/api/ai/agent', async (req, res) => {
         });
       } catch (e) {
         logger.error('[Agent] Decomposition recursion failed:', e);
+        // Ensure stage is completed even on unexpected errors
+        executionTracer.completeStage(cid, 'planner', 'error', {
+          error: `Decomposition recursion failed: ${e.message || e}`
+        });
         return res.status(500).json({ error: 'Failed to execute decomposed plan' });
       }
     }
@@ -3163,29 +3232,82 @@ app.post('/api/ai/agent', async (req, res) => {
           const instruction = 'Return ONLY JSON of the form { "concepts": ["Name1","Name2",...] } with 5-8 concise domain-relevant items.';
           const userPrompt = `Extract key components to populate a knowledge graph about: ${msgText}. ${instruction}`;
           let text = '';
+
+          // Record continuation planner start
+          executionTracer.recordStage(cid, 'planner', 'start', {
+            type: 'concept_extraction',
+            prompt: userPrompt
+          });
+
           if (provider === 'anthropic') {
-            const r = await fetch(endpoint, {
+            const llmResponse = await fetch(endpoint, {
               method: 'POST',
               headers: { 'Content-Type': 'application/json', 'x-api-key': apiKey, 'anthropic-version': '2023-06-01' },
               body: JSON.stringify({ model, max_tokens: 300, temperature: 0.2, messages: [{ role: 'user', content: userPrompt }] })
             });
-            if (r.ok) { const data = await r.json(); text = data?.content?.[0]?.text || ''; }
+            if (llmResponse.ok) { const data = await llmResponse.json(); text = data?.content?.[0]?.text || ''; }
           } else {
-            const r = await fetch(endpoint, {
+            const llmResponse = await fetch(endpoint, {
               method: 'POST',
               headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}`, 'HTTP-Referer': 'https://redstring.io', 'X-Title': 'Redstring Knowledge Graph' },
               body: JSON.stringify({ model, max_tokens: 300, temperature: 0.2, messages: [{ role: 'system', content: 'You extract lists.' }, { role: 'user', content: userPrompt }] })
             });
-            if (r.ok) { const data = await r.json(); text = data?.choices?.[0]?.message?.content || ''; }
-          }
-          try {
-            const json = JSON.parse(text);
-            if (Array.isArray(json?.concepts)) concepts = json.concepts.map(s => String(s)).filter(s => s.trim().length > 0).slice(0, 8);
-          } catch {
-            const m = text.match(/```json\s*([\s\S]*?)```/i); if (m) { try { const json = JSON.parse(m[1]); if (Array.isArray(json?.concepts)) concepts = json.concepts.map(s => String(s)).filter(s => s.trim().length > 0).slice(0, 8); } catch { } }
+            if (llmResponse.ok) {
+              const responseData = await llmResponse.json();
+              const content = responseData.choices?.[0]?.message?.content || '';
+
+              try {
+                const json = JSON.parse(content);
+                if (Array.isArray(json?.concepts)) concepts = json.concepts.map(s => String(s)).filter(s => s.trim().length > 0).slice(0, 8);
+
+                // Record continuation planner success
+                executionTracer.completeStage(cid, 'planner', 'success', {
+                  intent: 'concept_extraction',
+                  extractedConcepts: concepts.length,
+                  rawContent: content
+                });
+              } catch (e) {
+                // Record continuation planner failure (JSON parse error)
+                executionTracer.completeStage(cid, 'planner', 'error', {
+                  error: `Failed to parse JSON: ${e.message}`,
+                  rawContent: content
+                });
+
+                logger.error('[Agent/Continue] Failed to parse JSON response:', content);
+                // Fallback: try to extract JSON from markdown
+                const match = content.match(/```json\s*([\s\S]*?)```/);
+                if (match) {
+                  try {
+                    const json = JSON.parse(match[1]);
+                    if (Array.isArray(json?.concepts)) concepts = json.concepts.map(s => String(s)).filter(s => s.trim().length > 0).slice(0, 8);
+                    // Update trace to success if recovery worked
+                    executionTracer.completeStage(cid, 'planner', 'success', {
+                      intent: 'concept_extraction',
+                      recovered: true,
+                      extractedConcepts: concepts.length,
+                      rawContent: content
+                    });
+                  } catch { }
+                }
+              }
+            } else {
+              // Record continuation planner failure (HTTP error)
+              const errorText = await llmResponse.text();
+              executionTracer.completeStage(cid, 'planner', 'error', {
+                error: `LLM request failed: ${llmResponse.status}`,
+                status: llmResponse.status,
+                body: errorText
+              });
+            }
           }
         }
-      } catch { }
+      } catch (e) {
+        logger.error('[Agent] Concept extraction failed:', e);
+        // Ensure stage is completed even on unexpected errors
+        executionTracer.completeStage(cid, 'planner', 'error', {
+          error: `Concept extraction failed: ${e.message || e}`
+        });
+      }
       if (concepts.length === 0) {
         // Fallback tiny seed list based on hint words
         const hint = msgText.toLowerCase();

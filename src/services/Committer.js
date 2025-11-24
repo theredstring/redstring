@@ -349,7 +349,7 @@ class CommitterService {
                 });
               }
               // create_subgraph: adds nodes + edges to existing graph
-              else if (hasPrototypes && hasInstances && hasEdges) {
+              else if (hasInstances) {
                 const { nodesAdded, edgesAdded } = extractResults();
 
                 completedTools.push({
@@ -412,35 +412,73 @@ class CommitterService {
                 const mutationsNodeCount = ops.filter(o => o.type === 'addNodeInstance').length;
                 const mutationsEdgeCount = ops.filter(o => o.type === 'addEdge').length;
 
-                // Send phase completion status
-                await bridgeFetch('/api/bridge/chat/append', {
-                  method: 'POST',
-                  headers: { 'Content-Type': 'application/json' },
-                  body: JSON.stringify({
-                    role: 'system',
-                    text: `Phase complete: Added ${mutationsNodeCount} node${mutationsNodeCount !== 1 ? 's' : ''}, ${mutationsEdgeCount} connection${mutationsEdgeCount !== 1 ? 's' : ''}. Evaluating next phase...`,
-                    cid: threadId,
-                    channel: 'agent'
-                  })
-                }).catch(() => { });
+                // Removed explicit chat message to reduce UI clutter.
+                // Tool cards now handle status updates.
 
                 // Get FULL graph state for AI evaluation (not truncated)
                 const store = await import('./bridgeStoreAccessor.js').then(m => m.getBridgeStore());
-                const graph = store.graphs instanceof Map
+                let graph = store.graphs instanceof Map
                   ? store.graphs.get(graphId)
                   : Array.isArray(store.graphs)
                     ? store.graphs.find(g => g.id === graphId)
                     : null;
 
+                // RACE CONDITION FIX: If graph is new (just created in this patch), it won't be in the store yet.
+                // Also, even if it exists, the store is stale (doesn't have the nodes we just added).
+                // We must construct a synthetic up-to-date state.
+
+                const createOp = ops.find(o => o.type === 'createNewGraph');
+                if (!graph && createOp) {
+                  graph = {
+                    id: graphId,
+                    name: createOp.initialData?.name || 'New Graph',
+                    instances: {},
+                    edgeIds: []
+                  };
+                }
+
                 if (graph) {
+                  // Calculate up-to-date counts by combining store state with current ops
+                  const storeNodeCount = graph.instances ? Object.keys(graph.instances).length : 0;
+                  const storeEdgeCount = Array.isArray(graph.edgeIds) ? graph.edgeIds.length : 0;
+
+                  const addedNodes = ops.filter(o => o.type === 'addNodeInstance').length;
+                  const addedEdges = ops.filter(o => o.type === 'addEdge').length;
+                  const deletedNodes = ops.filter(o => o.type === 'deleteNodeInstance').length;
+                  // Note: deleteGraph would make graph null, handled by outer check if we wanted
+
+                  const currentNodeCount = Math.max(0, storeNodeCount + addedNodes - deletedNodes);
+                  const currentEdgeCount = Math.max(0, storeEdgeCount + addedEdges);
+
+                  // CONTEXT SCOPING: Only send prototypes relevant to this graph
+                  // 1. Get prototype IDs from existing instances in the graph
+                  const relevantPrototypeIds = new Set();
+                  if (graph.instances) {
+                    Object.values(graph.instances).forEach(inst => {
+                      if (inst.prototypeId) relevantPrototypeIds.add(inst.prototypeId);
+                    });
+                  }
+
+                  // 2. Add prototype IDs from new instance operations
+                  ops.filter(o => o.type === 'addNodeInstance').forEach(o => {
+                    if (o.instanceData?.prototypeId) relevantPrototypeIds.add(o.instanceData.prototypeId);
+                  });
+
+                  // 3. Add IDs of newly created prototypes
+                  ops.filter(o => o.type === 'addNodePrototype').forEach(o => {
+                    if (o.prototypeData?.id) relevantPrototypeIds.add(o.prototypeData.id);
+                  });
+
                   const fullGraphState = {
                     graphId,
                     name: graph.name || 'Unnamed graph',
-                    nodeCount: graph.instances ? Object.keys(graph.instances).length : 0,
-                    edgeCount: Array.isArray(graph.edgeIds) ? graph.edgeIds.length : 0,
-                    // CRITICAL: Send ALL nodes (not truncated) so AI can make informed decisions
+                    nodeCount: currentNodeCount,
+                    edgeCount: currentEdgeCount,
+                    // CRITICAL: Send ONLY relevant nodes to avoid confusing the AI with the entire universe
                     nodes: Array.isArray(store.nodePrototypes)
-                      ? store.nodePrototypes.map(p => ({ name: p.name, description: p.description }))
+                      ? store.nodePrototypes
+                        .filter(p => relevantPrototypeIds.has(p.id))
+                        .map(p => ({ name: p.name, description: p.description }))
                       : []
                   };
 

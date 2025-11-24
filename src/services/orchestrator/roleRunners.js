@@ -496,6 +496,26 @@ export async function runExecutorOnce() {
         }
       });
 
+      // CRITICAL: For full layout, we must also move the existing nodes that were part of the layout context
+      // but NOT part of the new graphSpec (tempInstances).
+      if (isFullLayout) {
+        const tempInstanceIdsSet = new Set(tempInstances.map(i => i.id));
+        layoutNodes.forEach(node => {
+          // Skip if this node is already handled in tempInstances loop above
+          if (tempInstanceIdsSet.has(node.id)) return;
+
+          const position = positionMap.get(node.id);
+          if (position) {
+            ops.push({
+              type: 'moveNodeInstance',
+              graphId,
+              instanceId: node.id,
+              position: { x: position.x, y: position.y }
+            });
+          }
+        });
+      }
+
       // Add edge ops
       // CRITICAL: Look up existing instances for edges that connect to existing nodes
 
