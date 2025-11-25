@@ -39,10 +39,10 @@ const PredicateRail = ({ color = '#4A5568', leftActive, rightActive, onToggleLef
     <div className="predicate-rail" onClick={onClickCenter}>
       <TriangleCap direction="left" color={color} variant={leftActive ? 'solid' : 'ghost'} onClick={(e) => { e.stopPropagation(); onToggleLeft?.(); }} />
       <div className="predicate-rect" style={{ backgroundColor: color }}>
-        <span style={{ 
-          color: '#bdb5b5', 
-          fontWeight: 'bold', 
-          fontSize: '14px', 
+        <span style={{
+          color: '#bdb5b5',
+          fontWeight: 'bold',
+          fontSize: '14px',
           fontFamily: "'EmOne', sans-serif",
           textAlign: 'center',
           whiteSpace: 'nowrap',
@@ -123,7 +123,7 @@ const UnifiedBottomControlPanel = ({
   onAdd,
   onUp,
   onOpenInPanel,
-  
+
   // Additional node action handlers
   onDecompose,
   onAbstraction,
@@ -435,7 +435,7 @@ const UnifiedBottomControlPanel = ({
     <div
       className={`unified-bottom-panel ${typeListOpen ? 'with-typelist' : ''} ${animationState} ${className}`}
       onAnimationEnd={handleAnimationEnd}
-      onTouchStart={(e) => { if (e.cancelable) e.preventDefault(); e.stopPropagation(); }}
+      onTouchStart={(e) => { e.stopPropagation(); }}
     >
       <div className="unified-bottom-content">
         {/* Row 1: Interactive info */}
@@ -501,7 +501,7 @@ const UnifiedBottomControlPanel = ({
             (() => {
               // Get edges from store for preserving definitionNodeIds
               const edges = useGraphStore.getState().edges;
-              
+
               // Extract unique nodes from triples
               const nodesMap = new Map();
               triples.forEach(t => {
@@ -521,14 +521,14 @@ const UnifiedBottomControlPanel = ({
                 }
               });
               const nodes = Array.from(nodesMap.values());
-              
+
               // Transform triples to the format expected by UniversalNodeRenderer
               const connections = triples.map(t => {
                 // Get the original edge to preserve definitionNodeIds
                 const originalEdge = edges.get(t.id);
                 // Don't truncate - let it flow naturally
                 const connectionName = t.predicate?.name || 'Connection';
-                
+
                 return {
                   id: t.id,
                   sourceId: t.subject?.id,
@@ -547,7 +547,7 @@ const UnifiedBottomControlPanel = ({
                   }
                 };
               });
-              
+
               // Dynamic sizing based on actual content needs with reasonable maximum
               const baseSpacing = mobileState.isMobilePortrait ? 220 : 260; // Base width for padding and connection line
               const nodeSpacing = nodes.length * (mobileState.isMobilePortrait ? 90 : 110); // Per-node spacing
@@ -580,7 +580,7 @@ const UnifiedBottomControlPanel = ({
                 )
               );
 
-                return (
+              return (
                 <UniversalNodeRenderer
                   {...RENDERER_PRESETS.CONNECTION_PANEL}
                   nodes={nodes}
@@ -593,7 +593,7 @@ const UnifiedBottomControlPanel = ({
                   onToggleArrow={(connectionId, targetNodeId) => {
                     // Ensure connectionId is a string, not an object
                     const edgeId = typeof connectionId === 'string' ? connectionId : connectionId?.id || connectionId;
-                    
+
                     // Determine if this is left or right arrow based on target
                     const triple = triples.find(t => t.id === edgeId);
                     if (triple && triple.subject?.id === targetNodeId) {

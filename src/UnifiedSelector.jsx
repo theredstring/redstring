@@ -7,7 +7,7 @@ import useViewportBounds from './hooks/useViewportBounds';
 import useMobileDetection from './hooks/useMobileDetection';
 import './UnifiedSelector.css';
 
-const UnifiedSelector = ({ 
+const UnifiedSelector = ({
   mode,
   isVisible,
   onClose,
@@ -137,7 +137,7 @@ const UnifiedSelector = ({
     bounds.width - (isSmallScreen ? outerMargin * 2 : horizontalPadding * 2)
   );
   const overlayHeight = Math.max(260, bounds.height - outerMargin * 2);
-  const containerMaxWidth = isMobilePortrait 
+  const containerMaxWidth = isMobilePortrait
     ? Math.min(mobileState.width - 16, overlayWidth)
     : Math.min(overlayWidth, Math.max(600, Math.floor(bounds.windowWidth * 0.9)));
   const dialogWidth = isSmallScreen
@@ -160,18 +160,18 @@ const UnifiedSelector = ({
   const actionButtonMinHeight = isMobilePortrait ? '52px' : (isSmallScreen ? '48px' : '40px');
   const cardHeight = isMobilePortrait ? (isExtraSmall ? '100px' : '105px') : (isSmallScreen ? '110px' : '75px');
   const gridTemplateColumns = `repeat(${columns}, 1fr)`;
-  
+
   // Touch-friendly sizing on mobile, compact on desktop
   const iconSize = isMobilePortrait ? 22 : 18;
   const closeIconSize = isMobilePortrait ? 22 : 18;
 
   return (
     <>
-      <div 
-        style={{ 
+      <div
+        style={{
           position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.3)',
-          backdropFilter: 'blur(2px)', WebkitBackdropFilter: 'blur(2px)', zIndex: 1000 
-        }} 
+          backdropFilter: 'blur(2px)', WebkitBackdropFilter: 'blur(2px)', zIndex: 1000
+        }}
         onClick={(e) => {
           if (e.target === e.currentTarget) {
             setName('');
@@ -179,6 +179,7 @@ const UnifiedSelector = ({
             onClose?.();
           }
         }}
+        onTouchStart={(e) => e.stopPropagation()}
       />
 
       <div
@@ -194,6 +195,7 @@ const UnifiedSelector = ({
           gap: isSmallScreen ? '12px' : '18px',
           pointerEvents: 'auto'
         }}
+        onTouchStart={(e) => e.stopPropagation()}
       >
         {showDialog && (
           <div
@@ -211,11 +213,11 @@ const UnifiedSelector = ({
             onClick={(e) => e.stopPropagation()}
             onMouseDown={(e) => e.stopPropagation()}
           >
-            <div 
-              style={{ 
-                position: 'absolute', 
-                top: isMobilePortrait ? '8px' : '10px', 
-                right: isMobilePortrait ? '8px' : '10px', 
+            <div
+              style={{
+                position: 'absolute',
+                top: isMobilePortrait ? '8px' : '10px',
+                right: isMobilePortrait ? '8px' : '10px',
                 cursor: 'pointer',
                 padding: isMobilePortrait ? '4px' : '0',
                 touchAction: 'manipulation'
@@ -229,7 +231,7 @@ const UnifiedSelector = ({
               <strong style={{ fontSize: dialogTitleSize, fontFamily: "'EmOne', sans-serif" }}>{title}</strong>
             </div>
             {subtitle && (
-              <div 
+              <div
                 style={{ textAlign: 'left', marginBottom: isSmallScreen ? '15px' : '10px', color: '#666', fontSize: subtitleFontSize, fontFamily: "'EmOne', sans-serif" }}
                 dangerouslySetInnerHTML={{ __html: subtitle }}
               />
@@ -239,8 +241,8 @@ const UnifiedSelector = ({
                 <Palette
                   size={iconSize}
                   color="#260000"
-                  style={{ 
-                    cursor: 'pointer', 
+                  style={{
+                    cursor: 'pointer',
                     flexShrink: 0,
                     touchAction: 'manipulation',
                     padding: isMobilePortrait ? '4px' : '0'
@@ -275,17 +277,17 @@ const UnifiedSelector = ({
               {!searchOnly && (
                 <button
                   onClick={handleSubmit}
-                  style={{ 
-                    padding: inputPadding, 
-                    backgroundColor: color, 
-                    color: '#bdb5b5', 
-                    border: 'none', 
-                    borderRadius: '8px', 
-                    cursor: 'pointer', 
-                    display: 'flex', 
-                    alignItems: 'center', 
-                    justifyContent: 'center', 
-                    minWidth: `${actionButtonMinWidth}px`, 
+                  style={{
+                    padding: inputPadding,
+                    backgroundColor: color,
+                    color: '#bdb5b5',
+                    border: 'none',
+                    borderRadius: '8px',
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    minWidth: `${actionButtonMinWidth}px`,
                     minHeight: `${actionButtonMinHeight}px`,
                     touchAction: 'manipulation'
                   }}
@@ -353,6 +355,7 @@ const UnifiedSelector = ({
                     // Custom scrollbar styling
                     scrollbarWidth: 'thin',
                     scrollbarColor: '#bdb5b5 transparent',
+                    touchAction: 'pan-y'
                   }}
                   className="unified-selector-scroll"
                 >
@@ -365,10 +368,10 @@ const UnifiedSelector = ({
                     }}
                   >
                     {filteredPrototypes.map(prototype => (
-                      <div 
-                        key={prototype.id} 
-                        style={{ 
-                          background: prototype.color || '#8B0000', 
+                      <div
+                        key={prototype.id}
+                        style={{
+                          background: prototype.color || '#8B0000',
                           borderRadius: isMobilePortrait ? '14px' : (isSmallScreen ? '16px' : '14px'),
                           padding: isMobilePortrait ? '10px' : (isSmallScreen ? '12px' : '10px'),
                           cursor: 'pointer',
@@ -396,21 +399,6 @@ const UnifiedSelector = ({
                           }
                         }}
                         onClick={() => onNodeSelect?.(prototype)}
-                        onPointerDown={(e) => { if (e.pointerType !== 'mouse') { e.stopPropagation(); } }}
-                        onPointerUp={(e) => { if (e.pointerType !== 'mouse') { e.stopPropagation(); onNodeSelect?.(prototype); } }}
-                        onTouchStart={(e) => { 
-                          e.stopPropagation(); 
-                          if (mobileState.isTouchDevice) {
-                            e.currentTarget.style.filter = 'brightness(1.15)';
-                          }
-                        }}
-                        onTouchEnd={(e) => { 
-                          e.stopPropagation(); 
-                          if (mobileState.isTouchDevice) {
-                            e.currentTarget.style.filter = 'brightness(1)';
-                          }
-                          onNodeSelect?.(prototype); 
-                        }}
                       >
                         {/* Thumbnail background if available */}
                         {prototype.thumbnailSrc && (
@@ -426,11 +414,11 @@ const UnifiedSelector = ({
                             }}
                           />
                         )}
-                        <span 
-                          style={{ 
-                            color: '#bdb5b5', 
-                            fontWeight: 'bold', 
-                            fontFamily: "'EmOne', sans-serif", 
+                        <span
+                          style={{
+                            color: '#bdb5b5',
+                            fontWeight: 'bold',
+                            fontFamily: "'EmOne', sans-serif",
                             textAlign: 'center',
                             fontSize: isMobilePortrait ? (isExtraSmall ? '11px' : '12px') : (isSmallScreen ? '13px' : '12px'),
                             lineHeight: '1.2',

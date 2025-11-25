@@ -52,10 +52,10 @@ const OAUTH_HOST = process.env.OAUTH_HOST || 'localhost';
 const DEFAULT_UNIVERSE_SLUG = process.env.UNIVERSE_SLUG || 'default';
 
 // Build OAuth server URL
-const oauthBaseUrl = OAUTH_HOST === 'localhost' 
+const oauthBaseUrl = OAUTH_HOST === 'localhost'
   ? `http://localhost:${OAUTH_PORT}`
-  : OAUTH_HOST.startsWith('http') 
-    ? OAUTH_HOST 
+  : OAUTH_HOST.startsWith('http')
+    ? OAUTH_HOST
     : `https://${OAUTH_HOST}`;
 
 // In Docker, we're in /app and dist is at /app/dist 
@@ -69,9 +69,9 @@ app.use(cors());
 // User analytics tracking middleware
 app.use((req, res, next) => {
   // Skip tracking for static assets and health checks
-  if (req.path.startsWith('/assets/') || 
-      req.path === '/health' ||
-      req.path.startsWith('/api/analytics')) {
+  if (req.path.startsWith('/assets/') ||
+    req.path === '/health' ||
+    req.path.startsWith('/api/analytics')) {
     return next();
   }
 
@@ -104,7 +104,7 @@ app.use((req, res, next) => {
 
   // Track response status
   const originalSend = res.send;
-  res.send = function(data) {
+  res.send = function (data) {
     try {
       userAnalytics.trackActivity({
         userId,
@@ -174,10 +174,10 @@ app.get('/api/analytics/activity', (req, res) => {
     const startTime = req.query.start ? parseInt(req.query.start, 10) : Date.now() - (24 * 60 * 60 * 1000);
     const endTime = req.query.end ? parseInt(req.query.end, 10) : Date.now();
     const limit = req.query.limit ? parseInt(req.query.limit, 10) : 1000;
-    
+
     const activities = userAnalytics.getActivity(startTime, endTime);
     const limited = activities.slice(-limit);
-    
+
     res.json({
       count: limited.length,
       total: activities.length,
@@ -218,6 +218,120 @@ app.post('/api/analytics/track', (req, res) => {
     res.status(500).json({ error: error.message });
   }
 });
+
+// Initialize AI bridge service for AI agent functionality
+import { initializeBridgeService } from '../src/services/ai-bridge-service.js';
+
+logger.info('[App] Initializing AI bridge service...');
+initializeBridgeService(app, { logger });
+logger.info('[App] AI bridge service ready');
+
+// =============================================================================
+// AI Agent Proxy Endpoints (for Cloud Run)
+// =============================================================================
+
+// In Cloud Run, the bridge daemon runs on localhost:3001 inside the container
+// We need to proxy AI agent requests from the public port (4000) to the internal bridge
+const BRIDGE_INTERNAL_URL = process.env.BRIDGE_INTERNAL_URL || 'http://localhost:3001';
+
+logger.info(`[App] Setting up AI agent proxy to ${BRIDGE_INTERNAL_URL}`);
+
+// Proxy AI agent endpoints to bridge daemon
+app.post('/api/ai/agent', async (req, res) => {
+  try {
+    const response = await fetch(`${BRIDGE_INTERNAL_URL}/api/ai/agent`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...(req.headers.authorization && { 'Authorization': req.headers.authorization })
+      },
+      body: JSON.stringify(req.body)
+    });
+    const data = await response.json();
+    res.status(response.status).json(data);
+  } catch (error) {
+    logger.error('[AI Agent Proxy] Error:', error);
+    res.status(503).json({ error: 'AI agent service unavailable', details: error.message });
+  }
+});
+
+app.post('/api/ai/agent/continue', async (req, res) => {
+  try {
+    const response = await fetch(`${BRIDGE_INTERNAL_URL}/api/ai/agent/continue`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...(req.headers.authorization && { 'Authorization': req.headers.authorization })
+      },
+      body: JSON.stringify(req.body)
+    });
+    const data = await response.json();
+    res.status(response.status).json(data);
+  } catch (error) {
+    logger.error('[AI Agent Proxy] Error:', error);
+    res.status(503).json({ error: 'AI agent continuation service unavailable', details: error.message });
+  }
+});
+
+app.post('/api/ai/agent/audit', async (req, res) => {
+  try {
+    const response = await fetch(`${BRIDGE_INTERNAL_URL}/api/ai/agent/audit`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...(req.headers.authorization && { 'Authorization': req.headers.authorization })
+      },
+      body: JSON.stringify(req.body)
+    });
+    const data = await response.json();
+    res.status(response.status).json(data);
+  } catch (error) {
+    logger.error('[AI Agent Proxy] Error:', error);
+    res.status(503).json({ error: 'AI agent audit service unavailable', details: error.message });
+  }
+});
+
+app.post('/api/ai/chat', async (req, res) => {
+  try {
+    const response = await fetch(`${BRIDGE_INTERNAL_URL}/api/ai/chat`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...(req.headers.authorization && { 'Authorization': req.headers.authorization })
+      },
+      body: JSON.stringify(req.body)
+    });
+    const data = await response.json();
+    res.status(response.status).json(data);
+  } catch (error) {
+    logger.error('[AI Chat Proxy] Error:', error);
+    res.status(503).json({ error: 'AI chat service unavailable', details: error.message });
+  }
+});
+
+// MCP endpoint proxy (for Claude Desktop compatibility)
+app.post('/api/mcp/request', async (req, res) => {
+  try {
+    const response = await fetch(`${BRIDGE_INTERNAL_URL}/api/mcp/request`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify(req.body)
+    });
+    const data = await response.json();
+    res.status(response.status).json(data);
+  } catch (error) {
+    logger.error('[MCP Proxy] Error:', error);
+    res.status(503).json({ error: 'MCP service unavailable', details: error.message });
+  }
+});
+
+logger.info('[App] AI agent proxy endpoints configured');
+
+// =============================================================================
+// OAuth Proxy Endpoints
+// =============================================================================
 
 // Proxy OAuth requests to internal OAuth server
 app.get('/api/github/oauth/client-id', async (req, res) => {
@@ -562,7 +676,7 @@ function generateCallbackHtml(callbackType) {
 // Called after user installs the GitHub App
 app.get('/api/github/app/setup', (req, res) => {
   const { installation_id, setup_action, state, error, error_description } = req.query;
-  
+
   logger.info('[GitHub App Setup] Installation callback received:', {
     hasInstallationId: !!installation_id,
     setupAction: setup_action,
@@ -570,11 +684,11 @@ app.get('/api/github/app/setup', (req, res) => {
     hasError: !!error,
     state: state ? state.substring(0, 8) + '...' : null
   });
-  
+
   if (error) {
     logger.error('[GitHub App Setup] Setup error:', error, error_description);
   }
-  
+
   res.send(generateCallbackHtml('App Setup'));
 });
 
@@ -582,11 +696,11 @@ app.get('/api/github/app/setup', (req, res) => {
 // Called after user authorizes the app to act on their behalf
 app.get('/api/github/app/callback', (req, res) => {
   const { code, state, error, error_description, installation_id, setup_action } = req.query;
-  
+
   // This can be either OAuth authorization or app installation
   const isOAuth = !!(code && state);
   const isAppInstall = !!installation_id;
-  
+
   logger.info('[GitHub App Callback] Authorization callback received:', {
     type: isOAuth ? 'OAuth' : isAppInstall ? 'Installation' : 'Unknown',
     hasCode: !!code,
@@ -595,11 +709,11 @@ app.get('/api/github/app/callback', (req, res) => {
     hasError: !!error,
     state: state ? state.substring(0, 8) + '...' : null
   });
-  
+
   if (error) {
     logger.error('[GitHub App Callback] Callback error:', error, error_description);
   }
-  
+
   res.send(generateCallbackHtml('App Authorization'));
 });
 
@@ -607,11 +721,11 @@ app.get('/api/github/app/callback', (req, res) => {
 // This was the old "magic" route that auto-detected callback type
 app.get('/oauth/callback', (req, res) => {
   const { code, state, error, error_description, installation_id, setup_action } = req.query;
-  
+
   // Determine callback type
   const isOAuthCallback = !!(code && state);
   const isGitHubAppCallback = !!(installation_id);
-  
+
   logger.info('[Legacy Callback] Received (consider updating to specific routes):', {
     type: isOAuthCallback ? 'OAuth' : isGitHubAppCallback ? 'GitHub App' : 'Unknown',
     hasCode: !!code,
@@ -621,11 +735,11 @@ app.get('/oauth/callback', (req, res) => {
     setupAction: setup_action,
     state: state ? state.substring(0, 8) + '...' : null
   });
-  
+
   if (error) {
     logger.error('[Legacy Callback] error:', error, error_description);
   }
-  
+
   res.send(generateCallbackHtml('OAuth'));
 });
 
@@ -772,7 +886,7 @@ app.post('/api/github/app/webhook', async (req, res) => {
   try {
     const event = req.headers['x-github-event'];
     logger.info('[GitHub App Webhook] Proxying webhook event:', event);
-    
+
     const response = await fetch(`${oauthBaseUrl}/api/github/app/webhook`, {
       method: 'POST',
       headers: {
@@ -938,7 +1052,7 @@ app.post(['/sparql', '/semantic/:slug/sparql'], (req, res) => {
 // GitHub App callback route - log and redirect to frontend with params
 app.get('/github/app/callback', (req, res) => {
   const { installation_id, setup_action, state } = req.query;
-  
+
   logger.debug('[GitHub App Callback] ===== CALLBACK RECEIVED =====');
   logger.debug('[GitHub App Callback] Query params:', req.query);
   logger.debug('[GitHub App Callback] Headers:', {
@@ -949,37 +1063,37 @@ app.get('/github/app/callback', (req, res) => {
   });
   logger.debug('[GitHub App Callback] Full URL:', req.url);
   logger.debug('[GitHub App Callback] =====================================');
-  
+
   // Redirect to the frontend with the parameters preserved
   const params = new URLSearchParams();
   if (installation_id) params.set('installation_id', installation_id);
   if (setup_action) params.set('setup_action', setup_action);
   if (state) params.set('state', state);
-  
+
   const redirectUrl = `/?${params.toString()}`;
   logger.info('[GitHub App Callback] Redirecting to:', redirectUrl);
-  
+
   res.redirect(redirectUrl);
 });
 
 // Handle client-side routing - serve index.html ONLY for non-asset, non-API routes
 app.get('*', (req, res, next) => {
   // Don't serve index.html for static assets (they should be handled by express.static above)
-  const isAssetRequest = req.path.startsWith('/assets/') || 
-                         req.path.endsWith('.js') || 
-                         req.path.endsWith('.css') || 
-                         req.path.endsWith('.map') ||
-                         req.path.endsWith('.svg') ||
-                         req.path.endsWith('.png') ||
-                         req.path.endsWith('.jpg') ||
-                         req.path.endsWith('.ico');
-  
+  const isAssetRequest = req.path.startsWith('/assets/') ||
+    req.path.endsWith('.js') ||
+    req.path.endsWith('.css') ||
+    req.path.endsWith('.map') ||
+    req.path.endsWith('.svg') ||
+    req.path.endsWith('.png') ||
+    req.path.endsWith('.jpg') ||
+    req.path.endsWith('.ico');
+
   if (isAssetRequest) {
     // If we get here, the file doesn't exist - return 404
     logger.warn(`Asset not found: ${req.path}`);
     return res.status(404).send('Asset not found');
   }
-  
+
   // Serve index.html for client-side routing
   res.sendFile(path.join(distPath, 'index.html'));
 });

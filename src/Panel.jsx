@@ -14,11 +14,11 @@ import PanelColorPickerPortal from './components/PanelColorPickerPortal.jsx';
 import NodeSelectionGrid from './NodeSelectionGrid'; // Import NodeSelectionGrid for type selection
 import UnifiedSelector from './UnifiedSelector'; // Import the new UnifiedSelector
 import useGraphStore, {
-    getActiveGraphId,
-    getHydratedNodesForGraph,
-    getActiveGraphData,
-    getEdgesForGraph,
-    getNodePrototypeById,
+  getActiveGraphId,
+  getHydratedNodesForGraph,
+  getActiveGraphData,
+  getEdgesForGraph,
+  getNodePrototypeById,
 } from './store/graphStore.jsx';
 import { shallow } from 'zustand/shallow';
 import GraphListItem from './GraphListItem'; // <<< Import the new component
@@ -58,7 +58,7 @@ import LeftAIView from './components/panel/views/LeftAIView.jsx';
 const generateConceptColor = (name) => {
   // Hue values that create pleasant, readable colors with maroon's saturation/brightness
   const hues = [0, 25, 90, 140, 200, 260, 300]; // Red, Orange-Red, Green, Cyan-Green, Blue, Purple, Magenta
-  
+
   // Convert HSV to hex (same logic as ColorPicker)
   const hsvToHex = (h, s, v) => {
     const c = v * s;
@@ -79,16 +79,16 @@ const generateConceptColor = (name) => {
 
     return `#${r.toString(16).padStart(2, '0')}${g.toString(16).padStart(2, '0')}${b.toString(16).padStart(2, '0')}`;
   };
-  
+
   // Use maroon's saturation (1.0) and brightness (~0.545) for consistency
   const targetSaturation = 1.0;
   const targetBrightness = 0.545;
-  
+
   let hash = 0;
   for (let i = 0; i < name.length; i++) {
     hash = ((hash << 5) - hash + name.charCodeAt(i)) & 0xffffffff;
   }
-  
+
   const selectedHue = hues[Math.abs(hash) % hues.length];
   return hsvToHex(selectedHue, targetSaturation, targetBrightness);
 };
@@ -147,18 +147,18 @@ const ItemTypes = {
 //     console.error = (...args) => {
 //       // Call original console.error
 //       originalConsoleError.apply(console, args);
-      
+
 //       // Check if this is a bridge-related error
 //       const message = args.join(' ');
 //       if (message.includes('MCP Bridge') || 
 //           message.includes('ERR_CONNECTION_REFUSED') ||
 //           message.includes('Failed to fetch') ||
 //           message.includes('bridge_unavailable_cooldown')) {
-        
+
 //         // Extract meaningful status from error messages
 //         let statusText = '';
 //         let statusType = 'info';
-        
+
 //         if (message.includes('ERR_CONNECTION_REFUSED')) {
 //           statusText = 'Bridge server not available';
 //           statusType = 'info';
@@ -211,12 +211,12 @@ const ItemTypes = {
 //     console.log = (...args) => {
 //       // Call original console.log
 //       originalConsoleLog.apply(console, args);
-      
+
 //       // Check if this is a bridge-related success message
 //       const message = args.join(' ');
 //       if (message.includes('MCP Bridge') && 
 //           (message.includes('✅') || message.includes('🎉'))) {
-        
+
 //         let statusText = '';
 //         if (message.includes('Connection fully restored')) {
 //           statusText = 'Bridge connection restored';
@@ -265,7 +265,7 @@ const ItemTypes = {
 //         setStatusMessages(prev => prev.filter(msg => 
 //           Date.now() - msg.timestamp.getTime() < 8000
 //         ));
-        
+
 //         if (statusMessages.length === 0) {
 //           setIsVisible(false);
 //         }
@@ -366,34 +366,34 @@ const getInitialWidth = (side, defaultValue) => {
     if (storedWidth !== null) {
       const parsedWidth = JSON.parse(storedWidth);
       if (typeof parsedWidth === 'number' && parsedWidth >= MIN_PANEL_WIDTH && parsedWidth <= window.innerWidth) {
-         return parsedWidth;
+        return parsedWidth;
       }
     }
   } catch (error) {
     console.error(`Error reading panelWidth_${side} from localStorage:`, error);
   }
-  return defaultValue; 
+  return defaultValue;
 };
 
 // Helper to read the last *non-default* width
 const getInitialLastCustomWidth = (side, defaultValue) => {
-    // Attempt to read specific key first
-    try {
-      const stored = localStorage.getItem(`lastCustomPanelWidth_${side}`);
-      if (stored !== null) {
-        const parsed = JSON.parse(stored);
-        // Ensure it's valid and not the default width itself
-        if (typeof parsed === 'number' && parsed >= MIN_PANEL_WIDTH && parsed <= window.innerWidth && parsed !== INITIAL_PANEL_WIDTH) {
-           return parsed;
-        }
+  // Attempt to read specific key first
+  try {
+    const stored = localStorage.getItem(`lastCustomPanelWidth_${side}`);
+    if (stored !== null) {
+      const parsed = JSON.parse(stored);
+      // Ensure it's valid and not the default width itself
+      if (typeof parsed === 'number' && parsed >= MIN_PANEL_WIDTH && parsed <= window.innerWidth && parsed !== INITIAL_PANEL_WIDTH) {
+        return parsed;
       }
-    } catch (error) {
-      console.error(`Error reading lastCustomPanelWidth_${side} from localStorage:`, error);
     }
-    // Fallback: Read the current width, use if it's not the default
-    const currentWidth = getInitialWidth(side, defaultValue);
-    return currentWidth !== INITIAL_PANEL_WIDTH ? currentWidth : defaultValue;
-  };
+  } catch (error) {
+    console.error(`Error reading lastCustomPanelWidth_${side} from localStorage:`, error);
+  }
+  // Fallback: Read the current width, use if it's not the default
+  const currentWidth = getInitialWidth(side, defaultValue);
+  return currentWidth !== INITIAL_PANEL_WIDTH ? currentWidth : defaultValue;
+};
 
 let panelRenderCount = 0; // Add counter outside component
 
@@ -405,10 +405,10 @@ const Panel = forwardRef(
     onFocusChange,
     side = 'right',
     // Add props for store data/actions
-    activeGraphId, 
+    activeGraphId,
     storeActions,
     renderTrigger,
-    graphName, 
+    graphName,
     graphDescription,
     activeDefinitionNodeId: propActiveDefinitionNodeId,
     nodeDefinitionIndices = new Map(), // Context-specific definition indices 
@@ -472,7 +472,7 @@ const Panel = forwardRef(
     const setActiveDefinitionNode = storeActions?.setActiveDefinitionNode;
     const createAndAssignGraphDefinition = storeActions?.createAndAssignGraphDefinition;
     const cleanupOrphanedData = storeActions?.cleanupOrphanedData;
-    
+
     // activeGraphId is now directly available as a prop
 
     /* // Remove Dummy Values
@@ -488,13 +488,13 @@ const Panel = forwardRef(
     */
 
     // Get openGraphTab explicitly if not already done (ensure it's available)
-    const openGraphTab = storeActions?.openGraphTab; 
+    const openGraphTab = storeActions?.openGraphTab;
 
     // Derive the array needed for the left panel grid (ALL graphs)
     const graphsForGrid = useMemo(() => {
-        // Use getState() inside memo
-        const currentGraphsMap = useGraphStore.getState().graphs;
-        return Array.from(currentGraphsMap.values()).map(g => ({ id: g.id, name: g.name }));
+      // Use getState() inside memo
+      const currentGraphsMap = useGraphStore.getState().graphs;
+      return Array.from(currentGraphsMap.values()).map(g => ({ id: g.id, name: g.name }));
     }, []); // No reactive dependencies needed?
 
     // ⚠️  CRITICAL: PANEL PERFORMANCE SAFEGUARD  ⚠️
@@ -530,11 +530,11 @@ const Panel = forwardRef(
 
     // Reserve bottom space for TypeList footer bar when visible
     const typeListMode = storeState?.typeListMode;
-    
+
     // Add loading state check to prevent accessing store before it's ready
     const isUniverseLoading = storeState?.isUniverseLoading;
     const isUniverseLoaded = storeState?.isUniverseLoaded;
-    
+
     // Debug store subscription
 
     // ✅ END OF STORE SUBSCRIPTIONS - DO NOT ADD MORE INDIVIDUAL SUBSCRIPTIONS BELOW
@@ -546,37 +546,37 @@ const Panel = forwardRef(
     const emptySet = useMemo(() => new Set(), []);
 
     const nodePrototypesMap = useMemo(() => {
-        if (nodePrototypesMapRaw && typeof nodePrototypesMapRaw.get === 'function') {
-            return nodePrototypesMapRaw;
-        }
-        return emptyMap;
+      if (nodePrototypesMapRaw && typeof nodePrototypesMapRaw.get === 'function') {
+        return nodePrototypesMapRaw;
+      }
+      return emptyMap;
     }, [nodePrototypesMapRaw, emptyMap]);
 
     const edgesMap = useMemo(() => {
-        if (edgesMapRaw && typeof edgesMapRaw.get === 'function') {
-            return edgesMapRaw;
-        }
-        return emptyMap;
+      if (edgesMapRaw && typeof edgesMapRaw.get === 'function') {
+        return edgesMapRaw;
+      }
+      return emptyMap;
     }, [edgesMapRaw, emptyMap]);
 
     const graphsMap = useMemo(() => {
-        if (graphsMapRaw && typeof graphsMapRaw.get === 'function') {
-            return graphsMapRaw;
-        }
-        return emptyMap;
+      if (graphsMapRaw && typeof graphsMapRaw.get === 'function') {
+        return graphsMapRaw;
+      }
+      return emptyMap;
     }, [graphsMapRaw, emptyMap]);
 
     const savedNodeIds = useMemo(() => {
-        if (savedNodeIdsRaw instanceof Set) {
-            return savedNodeIdsRaw;
-        }
-        if (Array.isArray(savedNodeIdsRaw)) {
-            return new Set(savedNodeIdsRaw);
-        }
-        if (savedNodeIdsRaw && typeof savedNodeIdsRaw[Symbol.iterator] === 'function') {
-            return new Set(Array.from(savedNodeIdsRaw));
-        }
-        return emptySet;
+      if (savedNodeIdsRaw instanceof Set) {
+        return savedNodeIdsRaw;
+      }
+      if (Array.isArray(savedNodeIdsRaw)) {
+        return new Set(savedNodeIdsRaw);
+      }
+      if (savedNodeIdsRaw && typeof savedNodeIdsRaw[Symbol.iterator] === 'function') {
+        return new Set(Array.from(savedNodeIdsRaw));
+      }
+      return emptySet;
     }, [savedNodeIdsRaw, emptySet]);
 
     const hasNodePrototypes = nodePrototypesMapRaw && typeof nodePrototypesMapRaw.get === 'function';
@@ -588,114 +588,114 @@ const Panel = forwardRef(
 
     // Derive saved nodes array reactively - savedNodeIds contains PROTOTYPE IDs
     const savedNodes = useMemo(() => {
-        return Array.from(savedNodeIds).map(prototypeId => {
-            const prototype = nodePrototypesMap.get(prototypeId);
-            if (prototype) {
-                return {
-                    ...prototype,
-                    name: prototype.name || 'Untitled Node'
-                };
-            }
-            return null;
-        }).filter(Boolean);
+      return Array.from(savedNodeIds).map(prototypeId => {
+        const prototype = nodePrototypesMap.get(prototypeId);
+        if (prototype) {
+          return {
+            ...prototype,
+            name: prototype.name || 'Untitled Node'
+          };
+        }
+        return null;
+      }).filter(Boolean);
     }, [savedNodeIds, nodePrototypesMap]);
 
     // Group saved nodes by their types
     const savedNodesByType = useMemo(() => {
-        const groups = new Map();
-        
-        savedNodes.forEach(node => {
-            // Get the type info for this node
-            let typeId = node.typeNodeId;
-            let typeInfo = null;
-            
-            if (typeId && nodePrototypesMap.has(typeId)) {
-                // Node has a specific type
-                const typeNode = nodePrototypesMap.get(typeId);
-                typeInfo = {
-                    id: typeId,
-                    name: typeNode.name || 'Thing',
-                    color: typeNode.color || '#8B0000'
-                };
-            } else {
-                // Node has no type or invalid type, use base "Thing"
-                typeId = 'base-thing-prototype';
-                typeInfo = {
-                    id: 'base-thing-prototype', 
-                    name: 'Thing',
-                    color: '#8B0000' // Default maroon color for untyped nodes
-                };
-            }
-            
-            if (!groups.has(typeId)) {
-                groups.set(typeId, {
-                    typeInfo,
-                    nodes: []
-                });
-            }
-            
-            groups.get(typeId).nodes.push(node);
-        });
-        
-        return groups;
+      const groups = new Map();
+
+      savedNodes.forEach(node => {
+        // Get the type info for this node
+        let typeId = node.typeNodeId;
+        let typeInfo = null;
+
+        if (typeId && nodePrototypesMap.has(typeId)) {
+          // Node has a specific type
+          const typeNode = nodePrototypesMap.get(typeId);
+          typeInfo = {
+            id: typeId,
+            name: typeNode.name || 'Thing',
+            color: typeNode.color || '#8B0000'
+          };
+        } else {
+          // Node has no type or invalid type, use base "Thing"
+          typeId = 'base-thing-prototype';
+          typeInfo = {
+            id: 'base-thing-prototype',
+            name: 'Thing',
+            color: '#8B0000' // Default maroon color for untyped nodes
+          };
+        }
+
+        if (!groups.has(typeId)) {
+          groups.set(typeId, {
+            typeInfo,
+            nodes: []
+          });
+        }
+
+        groups.get(typeId).nodes.push(node);
+      });
+
+      return groups;
     }, [savedNodes, nodePrototypesMap]);
-    
+
     // Derive all nodes array reactively - all node prototypes
     const allNodes = useMemo(() => {
-        return Array.from(nodePrototypesMap.values()).map(prototype => ({
-            ...prototype,
-            name: prototype.name || 'Untitled Node'
-        }));
+      return Array.from(nodePrototypesMap.values()).map(prototype => ({
+        ...prototype,
+        name: prototype.name || 'Untitled Node'
+      }));
     }, [nodePrototypesMap]);
-    
+
     // Group all nodes by their types
     const allNodesByType = useMemo(() => {
-        const groups = new Map();
-        
-        allNodes.forEach(node => {
-            // Get the type info for this node
-            let typeId = node.typeNodeId;
-            let typeInfo = null;
-            
-            if (typeId && nodePrototypesMap.has(typeId)) {
-                // Node has a specific type
-                const typeNode = nodePrototypesMap.get(typeId);
-                typeInfo = {
-                    id: typeId,
-                    name: typeNode.name || 'Thing',
-                    color: typeNode.color || '#8B0000'
-                };
-            } else {
-                // Node has no type or invalid type, use base "Thing"
-                typeId = 'base-thing-prototype';
-                typeInfo = {
-                    id: 'base-thing-prototype', 
-                    name: 'Thing',
-                    color: '#8B0000' // Default maroon color for untyped nodes
-                };
-            }
-            
-            // Add to appropriate group
-            if (!groups.has(typeId)) {
-                groups.set(typeId, {
-                    typeInfo,
-                    nodes: []
-                });
-            }
-            groups.get(typeId).nodes.push(node);
-        });
-        
-        console.log('[Panel] allNodesByType derived:', {
-            totalGroups: groups.size,
-            groups: Array.from(groups.entries()).map(([typeId, group]) => ({
-                typeId,
-                typeName: group.typeInfo.name,
-                nodeCount: group.nodes.length,
-                nodeIds: group.nodes.map(n => n.id)
-            }))
-        });
-        
-        return groups;
+      const groups = new Map();
+
+      allNodes.forEach(node => {
+        // Get the type info for this node
+        let typeId = node.typeNodeId;
+        let typeInfo = null;
+
+        if (typeId && nodePrototypesMap.has(typeId)) {
+          // Node has a specific type
+          const typeNode = nodePrototypesMap.get(typeId);
+          typeInfo = {
+            id: typeId,
+            name: typeNode.name || 'Thing',
+            color: typeNode.color || '#8B0000'
+          };
+        } else {
+          // Node has no type or invalid type, use base "Thing"
+          typeId = 'base-thing-prototype';
+          typeInfo = {
+            id: 'base-thing-prototype',
+            name: 'Thing',
+            color: '#8B0000' // Default maroon color for untyped nodes
+          };
+        }
+
+        // Add to appropriate group
+        if (!groups.has(typeId)) {
+          groups.set(typeId, {
+            typeInfo,
+            nodes: []
+          });
+        }
+        groups.get(typeId).nodes.push(node);
+      });
+
+      console.log('[Panel] allNodesByType derived:', {
+        totalGroups: groups.size,
+        groups: Array.from(groups.entries()).map(([typeId, group]) => ({
+          typeId,
+          typeName: group.typeInfo.name,
+          nodeCount: group.nodes.length,
+          nodeIds: group.nodes.map(n => n.id)
+        }))
+      });
+
+      return groups;
     }, [allNodes, nodePrototypesMap]);
 
     // <<< ADD Ref for the scrollable list container >>>
@@ -706,32 +706,32 @@ const Panel = forwardRef(
 
     // <<< ADD BACK: Derive data for open graphs for the left panel list view >>>
     const openGraphsForList = useMemo(() => {
-        return openGraphIds.map(id => {
-            const graphData = graphsMap.get(id); // Use reactive graphsMap
-            if (!graphData) return null; // Handle case where graph might not be found
-            
-            // Derive color from the defining node
-            const definingNodeId = graphData.definingNodeIds?.[0];
-            const definingNode = definingNodeId ? nodePrototypesMap.get(definingNodeId) : null;
-            const graphColor = definingNode?.color || graphData.color || NODE_DEFAULT_COLOR;
-            
-            // Fetch nodes and edges using the REACTIVE maps
-            const instances = graphData.instances ? Array.from(graphData.instances.values()) : [];
-            const edgeIds = graphData.edgeIds || [];
-            
-            const nodes = instances.map(instance => {
-                const prototype = nodePrototypesMap.get(instance.prototypeId);
-                return { 
-                    ...prototype, 
-                    ...instance,
-                    // Always use prototype name, with fallback
-                    name: prototype?.name || 'Unnamed'
-                };
-            }).filter(Boolean);
+      return openGraphIds.map(id => {
+        const graphData = graphsMap.get(id); // Use reactive graphsMap
+        if (!graphData) return null; // Handle case where graph might not be found
 
-            const edges = edgeIds.map(edgeId => edgesMap.get(edgeId)).filter(Boolean); // Use edgesMap
-            return { ...graphData, color: graphColor, nodes, edges }; // Combine graph data with its nodes/edges
-        }).filter(Boolean); // Filter out any nulls
+        // Derive color from the defining node
+        const definingNodeId = graphData.definingNodeIds?.[0];
+        const definingNode = definingNodeId ? nodePrototypesMap.get(definingNodeId) : null;
+        const graphColor = definingNode?.color || graphData.color || NODE_DEFAULT_COLOR;
+
+        // Fetch nodes and edges using the REACTIVE maps
+        const instances = graphData.instances ? Array.from(graphData.instances.values()) : [];
+        const edgeIds = graphData.edgeIds || [];
+
+        const nodes = instances.map(instance => {
+          const prototype = nodePrototypesMap.get(instance.prototypeId);
+          return {
+            ...prototype,
+            ...instance,
+            // Always use prototype name, with fallback
+            name: prototype?.name || 'Unnamed'
+          };
+        }).filter(Boolean);
+
+        const edges = edgeIds.map(edgeId => edgesMap.get(edgeId)).filter(Boolean); // Use edgesMap
+        return { ...graphData, color: graphColor, nodes, edges }; // Combine graph data with its nodes/edges
+      }).filter(Boolean); // Filter out any nulls
     }, [openGraphIds, graphsMap, nodePrototypesMap, edgesMap]); // Add nodePrototypesMap
 
     // ALL STATE DECLARATIONS - MOVED TO TOP TO AVOID INITIALIZATION ERRORS
@@ -741,7 +741,7 @@ const Panel = forwardRef(
     const [isWidthInitialized, setIsWidthInitialized] = useState(false);
     const [isAnimatingWidth, setIsAnimatingWidth] = useState(false);
     const [isHandleHover, setIsHandleHover] = useState(false);
-    
+
     // Editing state
     const [editingTitle, setEditingTitle] = useState(false); // Used by right panel node tabs
     const [tempTitle, setTempTitle] = useState(''); // Used by right panel node tabs
@@ -750,16 +750,16 @@ const Panel = forwardRef(
 
     // Left panel view state and collapsed sections
     const [leftViewActive, setLeftViewActive] = useState(
-        side === 'left' && initialViewActive
-            ? initialViewActive
-            : 'library'
+      side === 'left' && initialViewActive
+        ? initialViewActive
+        : 'library'
     ); // 'library', 'all', 'grid', 'federation', 'semantic', or 'ai'
 
     // Allow external control of view when prop changes
     useEffect(() => {
-        if (side === 'left' && initialViewActive && initialViewActive !== leftViewActive) {
-            setLeftViewActive(initialViewActive);
-        }
+      if (side === 'left' && initialViewActive && initialViewActive !== leftViewActive) {
+        setLeftViewActive(initialViewActive);
+      }
     }, [initialViewActive, side]);
     // Apply consistent gap spacing across all views to prevent TypeList overlap
     const [sectionCollapsed, setSectionCollapsed] = useState({});
@@ -772,7 +772,7 @@ const Panel = forwardRef(
 
     // Add new state for type creation dialog
     const [typeNamePrompt, setTypeNamePrompt] = useState({ visible: false, name: '', color: null, targetNodeId: null, targetNodeName: '' });
-    
+
     // Add merge modal state for handling events from canvas/tabs
     const [showMergeModal, setShowMergeModal] = useState(false);
 
@@ -791,87 +791,87 @@ const Panel = forwardRef(
     const sectionContentRefs = useRef(new Map());
 
     const toggleSection = (name) => {
-        // Simply toggle the collapsed state
-        setSectionCollapsed(prev => ({ ...prev, [name]: !prev[name] }));
-        console.log(`[toggleSection] Toggled section '${name}'. New collapsed state: ${!sectionCollapsed[name]}`);
+      // Simply toggle the collapsed state
+      setSectionCollapsed(prev => ({ ...prev, [name]: !prev[name] }));
+      console.log(`[toggleSection] Toggled section '${name}'. New collapsed state: ${!sectionCollapsed[name]}`);
     };
 
     // AI view redirect removed - wizard is re-enabled
 
     // Debug section state
     useEffect(() => {
-        // console.log('[Panel] Section state updated:', {
-        //     sectionCollapsed,
-        //     sectionMaxHeights,
-        //     leftViewActive
-        // });
+      // console.log('[Panel] Section state updated:', {
+      //     sectionCollapsed,
+      //     sectionMaxHeights,
+      //     leftViewActive
+      // });
     }, [sectionCollapsed, sectionMaxHeights, leftViewActive]);
 
     // <<< Effect to scroll to TOP when new item added >>>
     useEffect(() => {
-        // Only scroll if it's the left panel and the ref exists
-        if (side === 'left' && listContainerRef.current) {
-            // Check if the first ID is new compared to the previous render
-            const firstId = openGraphIds.length > 0 ? openGraphIds[0] : null;
-            const prevFirstId = prevOpenGraphIdsRef.current.length > 0 ? prevOpenGraphIdsRef.current[0] : null;
-            
-            // Only scroll if the first ID actually changed (and isn't null)
-            if (firstId && firstId !== prevFirstId) {
-                const container = listContainerRef.current;
-                // Remove requestAnimationFrame to start scroll sooner
-                // requestAnimationFrame(() => {
-                if (container) {
-                    console.log(`[Panel Effect] New item detected at top. Scrolling list container to top. Current scrollTop: ${container.scrollTop}`);
-                    container.scrollTo({ top: 0, behavior: 'smooth' }); // <<< Keep smooth
-                }
-                // });
-            }
-        }
-        
-        // Update the ref for the next render *after* the effect runs
-        prevOpenGraphIdsRef.current = openGraphIds;
+      // Only scroll if it's the left panel and the ref exists
+      if (side === 'left' && listContainerRef.current) {
+        // Check if the first ID is new compared to the previous render
+        const firstId = openGraphIds.length > 0 ? openGraphIds[0] : null;
+        const prevFirstId = prevOpenGraphIdsRef.current.length > 0 ? prevOpenGraphIdsRef.current[0] : null;
 
-    // Run when openGraphIds array reference changes OR side changes
-    }, [openGraphIds, side]); 
+        // Only scroll if the first ID actually changed (and isn't null)
+        if (firstId && firstId !== prevFirstId) {
+          const container = listContainerRef.current;
+          // Remove requestAnimationFrame to start scroll sooner
+          // requestAnimationFrame(() => {
+          if (container) {
+            console.log(`[Panel Effect] New item detected at top. Scrolling list container to top. Current scrollTop: ${container.scrollTop}`);
+            container.scrollTo({ top: 0, behavior: 'smooth' }); // <<< Keep smooth
+          }
+          // });
+        }
+      }
+
+      // Update the ref for the next render *after* the effect runs
+      prevOpenGraphIdsRef.current = openGraphIds;
+
+      // Run when openGraphIds array reference changes OR side changes
+    }, [openGraphIds, side]);
 
     // Effect to update maxHeights for all sections when content changes or visibility toggles
     useEffect(() => {
-        // Don't run if panelWidth hasn't been initialized yet
-        if (!isWidthInitialized) {
-            return;
+      // Don't run if panelWidth hasn't been initialized yet
+      if (!isWidthInitialized) {
+        return;
+      }
+
+      const newMaxHeights = {};
+
+      // Calculate heights for both saved nodes and all nodes (for All Things tab)
+      const allTypeGroups = new Map([...savedNodesByType, ...allNodesByType]);
+
+      allTypeGroups.forEach((group, typeId) => {
+        const sectionRef = sectionContentRefs.current.get(typeId);
+        let maxHeight = '0px'; // Default to collapsed height
+
+        if (sectionRef) {
+          const currentScrollHeight = sectionRef.scrollHeight;
+          const potentialOpenHeight = `${currentScrollHeight}px`;
+
+          // Decide whether to use the calculated height or 0px
+          if (!sectionCollapsed[typeId]) {
+            // Section is OPEN, use the calculated height
+            maxHeight = potentialOpenHeight;
+          } else {
+            // Section is CLOSED, maxHeight remains '0px'
+            maxHeight = '0px';
+          }
+        } else {
+          // Fallback if ref isn't ready (might happen on initial render)
+          maxHeight = sectionCollapsed[typeId] ? '0px' : '500px';
         }
 
-        const newMaxHeights = {};
-        
-        // Calculate heights for both saved nodes and all nodes (for All Things tab)
-        const allTypeGroups = new Map([...savedNodesByType, ...allNodesByType]);
-        
-        allTypeGroups.forEach((group, typeId) => {
-            const sectionRef = sectionContentRefs.current.get(typeId);
-            let maxHeight = '0px'; // Default to collapsed height
+        newMaxHeights[typeId] = maxHeight;
+      });
 
-            if (sectionRef) {
-                const currentScrollHeight = sectionRef.scrollHeight;
-                const potentialOpenHeight = `${currentScrollHeight}px`; 
-
-                // Decide whether to use the calculated height or 0px
-                if (!sectionCollapsed[typeId]) {
-                    // Section is OPEN, use the calculated height
-                    maxHeight = potentialOpenHeight;
-                } else {
-                    // Section is CLOSED, maxHeight remains '0px'
-                    maxHeight = '0px';
-                }
-            } else {
-                // Fallback if ref isn't ready (might happen on initial render)
-                maxHeight = sectionCollapsed[typeId] ? '0px' : '500px';
-            }
-
-            newMaxHeights[typeId] = maxHeight;
-        });
-
-        // Set the state
-        setSectionMaxHeights(newMaxHeights);
+      // Set the state
+      setSectionMaxHeights(newMaxHeights);
 
     }, [savedNodesByType, allNodesByType, sectionCollapsed, panelWidth, isWidthInitialized]); // Rerun when savedNodesByType, allNodesByType, collapsed state, or panel width changes
 
@@ -879,89 +879,89 @@ const Panel = forwardRef(
 
     // Effect to close color pickers when switching between views/contexts
     useEffect(() => {
-        // Close any open color pickers when panel side or context changes
-        setColorPickerVisible(false);
-        setColorPickerNodeId(null);
+      // Close any open color pickers when panel side or context changes
+      setColorPickerVisible(false);
+      setColorPickerNodeId(null);
     }, [leftViewActive]); // Close when switching left panel views
 
     // Event listener for opening merge modal from canvas/tabs
     useEffect(() => {
-        const handleOpenMergeModal = () => {
-            console.log('[Panel] Opening merge modal from external trigger');
-            // Switch to saved tab and open merge modal
-            if (side === 'right') {
-                storeActions.setActiveTab('saved');
-                setShowMergeModal(true);
-            } else if (side === 'left') {
-                setLeftViewActive('library');
-                // For left panel, we'll use the showDuplicateManager from LeftLibraryView
-                // We need to trigger it somehow - for now we'll just console log
-                console.log('[Panel] Left panel merge modal triggered - switching to library view');
-            }
-        };
+      const handleOpenMergeModal = () => {
+        console.log('[Panel] Opening merge modal from external trigger');
+        // Switch to saved tab and open merge modal
+        if (side === 'right') {
+          storeActions.setActiveTab('saved');
+          setShowMergeModal(true);
+        } else if (side === 'left') {
+          setLeftViewActive('library');
+          // For left panel, we'll use the showDuplicateManager from LeftLibraryView
+          // We need to trigger it somehow - for now we'll just console log
+          console.log('[Panel] Left panel merge modal triggered - switching to library view');
+        }
+      };
 
-        window.addEventListener('openMergeModal', handleOpenMergeModal);
-        return () => window.removeEventListener('openMergeModal', handleOpenMergeModal);
+      window.addEventListener('openMergeModal', handleOpenMergeModal);
+      return () => window.removeEventListener('openMergeModal', handleOpenMergeModal);
     }, [side, storeActions]);
 
     // Event listener: open Semantic Discovery (triggered by text-search icon)
     useEffect(() => {
-        const handler = (e) => {
-            try {
-                const query = e?.detail?.query;
-                if (side === 'left') {
-                    setLeftViewActive('semantic');
-                    if (query) {
-                        // Retry until the view registers triggerSemanticSearch
-                        let attempts = 0;
-                        const maxAttempts = 20; // ~1s at 50ms intervals
-                        const intervalId = setInterval(() => {
-                            attempts += 1;
-                            if (typeof window !== 'undefined' && typeof window.triggerSemanticSearch === 'function') {
-                                try { window.triggerSemanticSearch(query); } catch {}
-                                clearInterval(intervalId);
-                            } else if (attempts >= maxAttempts) {
-                                clearInterval(intervalId);
-                            }
-                        }, 50);
-                    }
-                } else if (side === 'right') {
-                    window.dispatchEvent(new CustomEvent('openSemanticDiscovery', { detail: { query } }));
+      const handler = (e) => {
+        try {
+          const query = e?.detail?.query;
+          if (side === 'left') {
+            setLeftViewActive('semantic');
+            if (query) {
+              // Retry until the view registers triggerSemanticSearch
+              let attempts = 0;
+              const maxAttempts = 20; // ~1s at 50ms intervals
+              const intervalId = setInterval(() => {
+                attempts += 1;
+                if (typeof window !== 'undefined' && typeof window.triggerSemanticSearch === 'function') {
+                  try { window.triggerSemanticSearch(query); } catch { }
+                  clearInterval(intervalId);
+                } else if (attempts >= maxAttempts) {
+                  clearInterval(intervalId);
                 }
-            } catch {}
-        };
-        window.addEventListener('openSemanticDiscovery', handler);
-        return () => window.removeEventListener('openSemanticDiscovery', handler);
+              }, 50);
+            }
+          } else if (side === 'right') {
+            window.dispatchEvent(new CustomEvent('openSemanticDiscovery', { detail: { query } }));
+          }
+        } catch { }
+      };
+      window.addEventListener('openSemanticDiscovery', handler);
+      return () => window.removeEventListener('openSemanticDiscovery', handler);
     }, [side]);
 
     useEffect(() => {
       // Load initial widths from localStorage ONCE on mount
       if (!initialWidthsSet.current) {
-          // Check if NodeCanvas has already set a width for this panel
-          const checkNodeCanvasWidth = () => {
-              // Try to get the width that NodeCanvas might have already set
-              const nodeCanvasWidth = side === 'left' ? 
-                  JSON.parse(localStorage.getItem('panelWidth_left') || 'null') :
-                  JSON.parse(localStorage.getItem('panelWidth_right') || 'null');
-              
-              if (nodeCanvasWidth && typeof nodeCanvasWidth === 'number' && nodeCanvasWidth >= MIN_PANEL_WIDTH) {
-                  // Use NodeCanvas width if available
-                  setPanelWidth(nodeCanvasWidth);
-                  setLastCustomWidth(nodeCanvasWidth);
-              } else {
-                  // Fall back to our own localStorage or default
-                  const initialWidth = getInitialWidth(side, INITIAL_PANEL_WIDTH);
-                  const initialLastCustom = getInitialLastCustomWidth(side, INITIAL_PANEL_WIDTH);
-                  setPanelWidth(initialWidth);
-                  setLastCustomWidth(initialLastCustom);
-              }
-              setIsWidthInitialized(true);
-              initialWidthsSet.current = true; // Mark as set
-          };
-          
-          // Small delay to ensure NodeCanvas has initialized first
-          const timer = setTimeout(checkNodeCanvasWidth, 50);
-          return () => clearTimeout(timer);
+        // Check if NodeCanvas has already set a width for this panel
+        const checkNodeCanvasWidth = () => {
+          // Try to get the width that NodeCanvas might have already set
+          const nodeCanvasWidth = side === 'left' ?
+            JSON.parse(localStorage.getItem('panelWidth_left') || 'null') :
+            JSON.parse(localStorage.getItem('panelWidth_right') || 'null');
+
+          if (nodeCanvasWidth && typeof nodeCanvasWidth === 'number' && nodeCanvasWidth >= MIN_PANEL_WIDTH) {
+            // Use NodeCanvas width if available
+            setPanelWidth(nodeCanvasWidth);
+            setLastCustomWidth(nodeCanvasWidth);
+          } else {
+            // Fall back to our own localStorage or default
+            const initialWidth = getInitialWidth(side, INITIAL_PANEL_WIDTH);
+            const initialLastCustom = getInitialLastCustomWidth(side, INITIAL_PANEL_WIDTH);
+            setPanelWidth(initialWidth);
+            setLastCustomWidth(initialLastCustom);
+          }
+          setIsWidthInitialized(true);
+          initialWidthsSet.current = true; // Mark as set
+        };
+
+        // Small delay to ensure NodeCanvas has initialized first
+        const timer = setTimeout(checkNodeCanvasWidth, 50);
+        return () => clearTimeout(timer);
       }
     }, [side]); // Run once on mount (and if side changes, though unlikely)
 
@@ -983,7 +983,7 @@ const Panel = forwardRef(
 
           // Use a non-empty string for measurement if text is empty
           tempSpan.innerText = text || ' '; // Measure at least a space to get padding/border accounted for by font style
-          
+
           document.body.appendChild(tempSpan);
           const textWidth = tempSpan.offsetWidth;
           document.body.removeChild(tempSpan);
@@ -1017,9 +1017,9 @@ const Panel = forwardRef(
           inputElement.removeEventListener('input', updateInputWidth);
           // Optionally reset width if the component is re-rendered without editingTitle
           // This might be needed if the style.width persists undesirably
-           if (inputElement) { // Check if still mounted
+          if (inputElement) { // Check if still mounted
             inputElement.style.width = 'auto'; // Or initial fixed width if it had one
-           }
+          }
         };
       } else if (titleInputRef.current) {
         // If editingTitle becomes false, reset width for the next time it's opened
@@ -1076,10 +1076,10 @@ const Panel = forwardRef(
 
     // Exposed so NodeCanvas can open tabs
     const openNodeTab = (nodeId) => {
-       if (side !== 'right') return;
-       // console.log(`[Panel ${side}] Imperative openNodeTab called for ${nodeId}`);
-       openRightPanelNodeTab(nodeId);
-       setEditingTitle(false);
+      if (side !== 'right') return;
+      // console.log(`[Panel ${side}] Imperative openNodeTab called for ${nodeId}`);
+      openRightPanelNodeTab(nodeId);
+      setEditingTitle(false);
     };
 
     useImperativeHandle(ref, () => ({
@@ -1119,29 +1119,29 @@ const Panel = forwardRef(
         window.removeEventListener('touchmove', handleResizeTouchMove);
         window.removeEventListener('mouseup', handleResizeMouseUp);
         window.removeEventListener('touchend', handleResizeMouseUp);
-        document.body.style.userSelect = ''; 
-        document.body.style.cursor = ''; 
+        document.body.style.userSelect = '';
+        document.body.style.cursor = '';
 
         // Wrap state update and localStorage access in requestAnimationFrame
-        requestAnimationFrame(() => { 
-            try {
-                const finalWidth = panelRef.current?.offsetWidth; // Get final width
-                if (finalWidth) {
-                    // Save current width
-                    localStorage.setItem(`panelWidth_${side}`, JSON.stringify(finalWidth));
-                    // If it's not the default AND different from the current lastCustomWidth, save as last custom width
-                    if (finalWidth !== INITIAL_PANEL_WIDTH && finalWidth !== lastCustomWidth) {
-                      setLastCustomWidth(finalWidth); // Update state inside RAF only if different
-                      localStorage.setItem(`lastCustomPanelWidth_${side}`, JSON.stringify(finalWidth));
-                    }
-                    // Notify global listeners (e.g., NodeCanvas overlay resizers)
-                    try {
-                      window.dispatchEvent(new CustomEvent('panelWidthChanged', { detail: { side, width: finalWidth } }));
-                    } catch {}
-                }
-            } catch (error) {
-                console.error(`Error saving panelWidth_${side} to localStorage:`, error);
+        requestAnimationFrame(() => {
+          try {
+            const finalWidth = panelRef.current?.offsetWidth; // Get final width
+            if (finalWidth) {
+              // Save current width
+              localStorage.setItem(`panelWidth_${side}`, JSON.stringify(finalWidth));
+              // If it's not the default AND different from the current lastCustomWidth, save as last custom width
+              if (finalWidth !== INITIAL_PANEL_WIDTH && finalWidth !== lastCustomWidth) {
+                setLastCustomWidth(finalWidth); // Update state inside RAF only if different
+                localStorage.setItem(`lastCustomPanelWidth_${side}`, JSON.stringify(finalWidth));
+              }
+              // Notify global listeners (e.g., NodeCanvas overlay resizers)
+              try {
+                window.dispatchEvent(new CustomEvent('panelWidthChanged', { detail: { side, width: finalWidth } }));
+              } catch { }
             }
+          } catch (error) {
+            console.error(`Error saving panelWidth_${side} to localStorage:`, error);
+          }
         });
       }
     }, [side, handleResizeMouseMove, handleResizeTouchMove, lastCustomWidth]); // <<< Added lastCustomWidth to dependencies
@@ -1179,20 +1179,20 @@ const Panel = forwardRef(
       const target = e.target;
 
       // Check if the click originated within a draggable tab element
-      if (target.closest('.panel-tab')) { 
+      if (target.closest('.panel-tab')) {
         // console.log('[Panel DblClick] Click originated inside a .panel-tab, exiting.');
         return;
       }
-      
+
       // If we reach here, the click was on the header bar itself or empty space within it.
       // console.log('[Panel DblClick] Click target OK (not inside a tab).');
 
       let newWidth;
       // console.log('[Panel DblClick] Before toggle:', { currentWidth: panelWidth, lastCustom: lastCustomWidth });
-      
+
       if (panelWidth === INITIAL_PANEL_WIDTH) {
         // Toggle to last custom width (if it's different)
-        newWidth = (lastCustomWidth !== INITIAL_PANEL_WIDTH) ? lastCustomWidth : panelWidth; 
+        newWidth = (lastCustomWidth !== INITIAL_PANEL_WIDTH) ? lastCustomWidth : panelWidth;
         // console.log('[Panel DblClick] Was default, toggling to last custom (or current if same):', newWidth);
       } else {
         // Current width is custom, save it as last custom and toggle to default
@@ -1215,7 +1215,7 @@ const Panel = forwardRef(
           // Broadcast change so external overlays can sync
           try {
             window.dispatchEvent(new CustomEvent('panelWidthChanged', { detail: { side, width: newWidth } }));
-          } catch {}
+          } catch { }
         } catch (error) {
           console.error(`Error saving panelWidth_${side} after double click:`, error);
         }
@@ -1240,7 +1240,7 @@ const Panel = forwardRef(
           setPanelWidth(width);
           try {
             localStorage.setItem(`panelWidth_${side}`, JSON.stringify(width));
-          } catch {}
+          } catch { }
         }
       };
       window.addEventListener('panelWidthChanging', onChanging);
@@ -1258,91 +1258,91 @@ const Panel = forwardRef(
         if (isResizing.current) {
           window.removeEventListener('mousemove', handleResizeMouseMove);
           window.removeEventListener('mouseup', handleResizeMouseUp);
-          document.body.style.userSelect = ''; 
-          document.body.style.cursor = ''; 
+          document.body.style.userSelect = '';
+          document.body.style.cursor = '';
         }
       };
     }, [handleResizeMouseMove, handleResizeMouseUp]);
 
     // Scrollbar hover detection
     const handleScrollbarMouseEnter = useCallback((e) => {
-        // Check if mouse is over the scrollbar area (right edge of the element)
-        const rect = e.currentTarget.getBoundingClientRect();
-        const mouseX = e.clientX - rect.left;
-        const scrollbarWidth = 20; // Should match CSS scrollbar width
-        
-        if (mouseX >= rect.width - scrollbarWidth) {
-            setIsHoveringScrollbar(true);
-            if (scrollbarHoverTimeoutRef.current) {
-                clearTimeout(scrollbarHoverTimeoutRef.current);
-            }
+      // Check if mouse is over the scrollbar area (right edge of the element)
+      const rect = e.currentTarget.getBoundingClientRect();
+      const mouseX = e.clientX - rect.left;
+      const scrollbarWidth = 20; // Should match CSS scrollbar width
+
+      if (mouseX >= rect.width - scrollbarWidth) {
+        setIsHoveringScrollbar(true);
+        if (scrollbarHoverTimeoutRef.current) {
+          clearTimeout(scrollbarHoverTimeoutRef.current);
         }
+      }
     }, []);
 
     const handleScrollbarMouseMove = useCallback((e) => {
-        // Check if mouse is still over the scrollbar area
-        const rect = e.currentTarget.getBoundingClientRect();
-        const mouseX = e.clientX - rect.left;
-        const scrollbarWidth = 20; // Should match CSS scrollbar width
-        
-        const isOverScrollbar = mouseX >= rect.width - scrollbarWidth;
-        
-        if (isOverScrollbar && !isHoveringScrollbar) {
-            setIsHoveringScrollbar(true);
-            if (scrollbarHoverTimeoutRef.current) {
-                clearTimeout(scrollbarHoverTimeoutRef.current);
-            }
-        } else if (!isOverScrollbar && isHoveringScrollbar) {
-            // Start timeout to fade scrollbar after leaving
-            scrollbarHoverTimeoutRef.current = setTimeout(() => {
-                setIsHoveringScrollbar(false);
-            }, 300); // 300ms delay before fading
+      // Check if mouse is still over the scrollbar area
+      const rect = e.currentTarget.getBoundingClientRect();
+      const mouseX = e.clientX - rect.left;
+      const scrollbarWidth = 20; // Should match CSS scrollbar width
+
+      const isOverScrollbar = mouseX >= rect.width - scrollbarWidth;
+
+      if (isOverScrollbar && !isHoveringScrollbar) {
+        setIsHoveringScrollbar(true);
+        if (scrollbarHoverTimeoutRef.current) {
+          clearTimeout(scrollbarHoverTimeoutRef.current);
         }
+      } else if (!isOverScrollbar && isHoveringScrollbar) {
+        // Start timeout to fade scrollbar after leaving
+        scrollbarHoverTimeoutRef.current = setTimeout(() => {
+          setIsHoveringScrollbar(false);
+        }, 300); // 300ms delay before fading
+      }
     }, [isHoveringScrollbar]);
 
     const handleScrollbarMouseLeave = useCallback(() => {
-        // Start timeout to fade scrollbar after leaving the element
-        scrollbarHoverTimeoutRef.current = setTimeout(() => {
-            setIsHoveringScrollbar(false);
-        }, 300); // 300ms delay before fading
+      // Start timeout to fade scrollbar after leaving the element
+      scrollbarHoverTimeoutRef.current = setTimeout(() => {
+        setIsHoveringScrollbar(false);
+      }, 300); // 300ms delay before fading
     }, []);
 
     // Cleanup scrollbar hover timeout on unmount
     useEffect(() => {
-        return () => {
-            if (scrollbarHoverTimeoutRef.current) {
-                clearTimeout(scrollbarHoverTimeoutRef.current);
-            }
-        };
+      return () => {
+        if (scrollbarHoverTimeoutRef.current) {
+          clearTimeout(scrollbarHoverTimeoutRef.current);
+        }
+      };
     }, []);
 
     // <<< Add Effect to reset animation state after transition >>>
     useEffect(() => {
-        let timeoutId = null;
-        if (isAnimatingWidth) {
-          // Set timeout matching the transition duration
-          timeoutId = setTimeout(() => {
-            setIsAnimatingWidth(false);
-          }, 200); // Duration of width transition
-        }
-        // Cleanup the timeout if the component unmounts or state changes again
-        return () => clearTimeout(timeoutId);
-      }, [isAnimatingWidth]);
+      let timeoutId = null;
+      if (isAnimatingWidth) {
+        // Set timeout matching the transition duration
+        timeoutId = setTimeout(() => {
+          setIsAnimatingWidth(false);
+        }, 200); // Duration of width transition
+      }
+      // Cleanup the timeout if the component unmounts or state changes again
+      return () => clearTimeout(timeoutId);
+    }, [isAnimatingWidth]);
     // --- End Resize Handlers & related effects ---
 
     // --- Determine Active View/Tab --- 
     const isUltraSlim = panelWidth <= 275;
     // Get tabs reactively if side is 'right'
     const activeRightPanelTab = useMemo(() => {
-        if (side !== 'right') return null;
-        return rightPanelTabs.find((t) => t.isActive);
+      if (side !== 'right') return null;
+      return rightPanelTabs.find((t) => t.isActive);
     }, [side, rightPanelTabs]); // Depend on side and the reactive tabs
 
     // Derive nodes for active graph on right side (Calculate on every render)
     const activeGraphNodes = useMemo(() => {
-        if (side !== 'right' || !activeGraphId) return [];
-        // Use the new hydrated selector which is more efficient
-        return getHydratedNodesForGraph(activeGraphId)(useGraphStore.getState());
+      if (side !== 'right' || !activeGraphId) return [];
+      // Use the new hydrated selector which is more efficient
+      return getHydratedNodesForGraph(activeGraphId)(useGraphStore.getState());
     }, [activeGraphId, side]); // Removed unnecessary dependencies
 
     // Auto-resize project bio textarea when content changes or tab becomes active
@@ -1386,10 +1386,10 @@ const Panel = forwardRef(
               // Handle error appropriately, e.g., show a message to the user
             }
           };
-          img.onerror = (error) => { 
-             // console.error('Image load failed:', error);
-             // Handle error appropriately
-           };
+          img.onerror = (error) => {
+            // console.error('Image load failed:', error);
+            // Handle error appropriately
+          };
           img.src = fullImageSrc;
         };
         reader.onerror = (error) => {
@@ -1402,29 +1402,29 @@ const Panel = forwardRef(
     };
 
     const handleBioChange = (nodeId, newBio) => {
-        if (!activeGraphId) return;
-        
-        // Get the node data to check if it has definitions
-        const nodeData = nodePrototypesMap.get(nodeId);
-        
-        // If node has definitions, update the current definition graph's description
-        if (nodeData && nodeData.definitionGraphIds && nodeData.definitionGraphIds.length > 0) {
-            // Get the context-specific definition index
-            const contextKey = `${nodeId}-${activeGraphId}`;
-            const currentIndex = nodeDefinitionIndices.get(contextKey) || 0;
-            
-            // Get the graph ID for the current definition
-            const currentDefinitionGraphId = nodeData.definitionGraphIds[currentIndex] || nodeData.definitionGraphIds[0];
-            
-            // Update the definition graph's description
-            if (currentDefinitionGraphId) {
-                updateGraph(currentDefinitionGraphId, draft => { draft.description = newBio; });
-                return;
-            }
+      if (!activeGraphId) return;
+
+      // Get the node data to check if it has definitions
+      const nodeData = nodePrototypesMap.get(nodeId);
+
+      // If node has definitions, update the current definition graph's description
+      if (nodeData && nodeData.definitionGraphIds && nodeData.definitionGraphIds.length > 0) {
+        // Get the context-specific definition index
+        const contextKey = `${nodeId}-${activeGraphId}`;
+        const currentIndex = nodeDefinitionIndices.get(contextKey) || 0;
+
+        // Get the graph ID for the current definition
+        const currentDefinitionGraphId = nodeData.definitionGraphIds[currentIndex] || nodeData.definitionGraphIds[0];
+
+        // Update the definition graph's description
+        if (currentDefinitionGraphId) {
+          updateGraph(currentDefinitionGraphId, draft => { draft.description = newBio; });
+          return;
         }
-        
-        // Fallback: update the node's own description
-        storeActions.updateNodePrototype(nodeId, draft => { draft.description = newBio; });
+      }
+
+      // Fallback: update the node's own description
+      storeActions.updateNodePrototype(nodeId, draft => { draft.description = newBio; });
     };
 
     const commitProjectTitleChange = () => {
@@ -1453,14 +1453,14 @@ const Panel = forwardRef(
     // Handle opening color picker with toggle behavior
     const handleOpenColorPicker = (nodeId, iconElement, event) => {
       event.stopPropagation();
-      
+
       // If already open for the same node, close it (toggle behavior)
       if (colorPickerVisible && colorPickerNodeId === nodeId) {
         setColorPickerVisible(false);
         setColorPickerNodeId(null);
         return;
       }
-      
+
       // Open color picker - align right edges
       const rect = iconElement.getBoundingClientRect();
       setColorPickerPosition({ x: rect.right, y: rect.bottom });
@@ -1495,15 +1495,15 @@ const Panel = forwardRef(
         console.log(`Cannot change type of base "Thing" - it must remain the fundamental type.`);
         return;
       }
-      
+
       const nodeName = nodePrototypesMap.get(nodeId)?.name || 'this thing';
       // Truncate long node names to keep dialog manageable
       const truncatedNodeName = nodeName.length > 20 ? nodeName.substring(0, 20) + '...' : nodeName;
-      
-      setTypeNamePrompt({ 
-        visible: true, 
-        name: '', 
-        color: null, 
+
+      setTypeNamePrompt({
+        visible: true,
+        name: '',
+        color: null,
         targetNodeId: nodeId,
         targetNodeName: truncatedNodeName
       });
@@ -1521,132 +1521,132 @@ const Panel = forwardRef(
     // --- Generate Content based on Side ---
     let panelContent = null;
     if (side === 'left') {
-        if (ENABLE_ALL_THINGS_TAB && leftViewActive === 'all') {
-            panelContent = (
-              <LeftAllThingsView
-                allNodesByType={allNodesByType}
-                sectionCollapsed={sectionCollapsed}
-                sectionMaxHeights={sectionMaxHeights}
-                toggleSection={toggleSection}
-                panelWidth={panelWidth}
-                sectionContentRefs={sectionContentRefs}
-                activeDefinitionNodeId={activeDefinitionNodeId}
-                openGraphTab={openGraphTab}
-                createAndAssignGraphDefinition={createAndAssignGraphDefinition}
-                openRightPanelNodeTab={openRightPanelNodeTab}
-                storeActions={storeActions}
-              />
-            );
-        } else if (leftViewActive === 'library') {
-            panelContent = (
-              <LeftLibraryView
-                savedNodesByType={savedNodesByType}
-                sectionCollapsed={sectionCollapsed}
-                sectionMaxHeights={sectionMaxHeights}
-                toggleSection={toggleSection}
-                panelWidth={panelWidth}
-                sectionContentRefs={sectionContentRefs}
-                activeDefinitionNodeId={activeDefinitionNodeId}
-                openGraphTab={openGraphTab}
-                createAndAssignGraphDefinition={createAndAssignGraphDefinition}
-                toggleSavedNode={toggleSavedNode}
-                openRightPanelNodeTab={openRightPanelNodeTab}
-              />
-            );
-        } else if (leftViewActive === 'grid') {
-            const handleGridItemClick = (graphId) => { if (leftViewActive === 'grid') setActiveGraph(graphId); };
-            panelContent = (
-              <LeftGridView
-                openGraphsForList={openGraphsForList}
-                panelWidth={panelWidth}
-                listContainerRef={listContainerRef}
-                activeGraphId={activeGraphId}
-                expandedGraphIds={expandedGraphIds}
-                handleGridItemClick={handleGridItemClick}
-                closeGraph={closeGraph}
-                toggleGraphExpanded={toggleGraphExpanded}
-                createNewGraph={createNewGraph}
-              />
-            );
-        } else if (leftViewActive === 'federation') {
-            // Git-Native Federation view
-            panelContent = (
-                <div className="panel-content-inner" style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
-                    <GitNativeFederation />
-                </div>
-            );
-        } else if (leftViewActive === 'semantic') {
-            // Semantic Discovery view - concept discovery engine
-            console.log('[Panel] Rendering semantic discovery view');
-            panelContent = (
-                <LeftSemanticDiscoveryView
-                    storeActions={storeActions}
-                    nodePrototypesMap={nodePrototypesMap}
-                    openRightPanelNodeTab={openRightPanelNodeTab}
-                    rightPanelTabs={rightPanelTabs}
-                    activeDefinitionNodeId={activeDefinitionNodeId}
-                    selectedInstanceIds={selectedInstanceIds}
-                    hydratedNodes={hydratedNodes}
-                />
-            );
-        } else if (leftViewActive === 'ai') {
-            panelContent = (
-                <LeftAIView
-                    compact={panelWidth < 300}
-                    activeGraphId={activeGraphId}
-                    graphsMap={graphsMap}
-                />
-            );
-        }
+      if (ENABLE_ALL_THINGS_TAB && leftViewActive === 'all') {
+        panelContent = (
+          <LeftAllThingsView
+            allNodesByType={allNodesByType}
+            sectionCollapsed={sectionCollapsed}
+            sectionMaxHeights={sectionMaxHeights}
+            toggleSection={toggleSection}
+            panelWidth={panelWidth}
+            sectionContentRefs={sectionContentRefs}
+            activeDefinitionNodeId={activeDefinitionNodeId}
+            openGraphTab={openGraphTab}
+            createAndAssignGraphDefinition={createAndAssignGraphDefinition}
+            openRightPanelNodeTab={openRightPanelNodeTab}
+            storeActions={storeActions}
+          />
+        );
+      } else if (leftViewActive === 'library') {
+        panelContent = (
+          <LeftLibraryView
+            savedNodesByType={savedNodesByType}
+            sectionCollapsed={sectionCollapsed}
+            sectionMaxHeights={sectionMaxHeights}
+            toggleSection={toggleSection}
+            panelWidth={panelWidth}
+            sectionContentRefs={sectionContentRefs}
+            activeDefinitionNodeId={activeDefinitionNodeId}
+            openGraphTab={openGraphTab}
+            createAndAssignGraphDefinition={createAndAssignGraphDefinition}
+            toggleSavedNode={toggleSavedNode}
+            openRightPanelNodeTab={openRightPanelNodeTab}
+          />
+        );
+      } else if (leftViewActive === 'grid') {
+        const handleGridItemClick = (graphId) => { if (leftViewActive === 'grid') setActiveGraph(graphId); };
+        panelContent = (
+          <LeftGridView
+            openGraphsForList={openGraphsForList}
+            panelWidth={panelWidth}
+            listContainerRef={listContainerRef}
+            activeGraphId={activeGraphId}
+            expandedGraphIds={expandedGraphIds}
+            handleGridItemClick={handleGridItemClick}
+            closeGraph={closeGraph}
+            toggleGraphExpanded={toggleGraphExpanded}
+            createNewGraph={createNewGraph}
+          />
+        );
+      } else if (leftViewActive === 'federation') {
+        // Git-Native Federation view
+        panelContent = (
+          <div className="panel-content-inner" style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
+            <GitNativeFederation />
+          </div>
+        );
+      } else if (leftViewActive === 'semantic') {
+        // Semantic Discovery view - concept discovery engine
+        console.log('[Panel] Rendering semantic discovery view');
+        panelContent = (
+          <LeftSemanticDiscoveryView
+            storeActions={storeActions}
+            nodePrototypesMap={nodePrototypesMap}
+            openRightPanelNodeTab={openRightPanelNodeTab}
+            rightPanelTabs={rightPanelTabs}
+            activeDefinitionNodeId={activeDefinitionNodeId}
+            selectedInstanceIds={selectedInstanceIds}
+            hydratedNodes={hydratedNodes}
+          />
+        );
+      } else if (leftViewActive === 'ai') {
+        panelContent = (
+          <LeftAIView
+            compact={panelWidth < 300}
+            activeGraphId={activeGraphId}
+            graphsMap={graphsMap}
+          />
+        );
+      }
     } else { // side === 'right'
-        if (!activeRightPanelTab) {
-            panelContent = <div className="panel-content-inner">No tab selected...</div>;
-        } else if (activeRightPanelTab.type === 'home') {
-            panelContent = (
-                <div className="panel-content-inner">
-                    <PanelContentWrapper
-                        tabType="home"
-                        storeActions={storeActions}
-                        onFocusChange={onFocusChange}
-                        onTypeSelect={handleTypeNodeSelection}
-                        onStartHurtleAnimationFromPanel={onStartHurtleAnimationFromPanel}
-                        isUltraSlim={isUltraSlim}
-                    />
-                </div>
-            );
-        } else if (activeRightPanelTab.type === 'node') {
-            const nodeId = activeRightPanelTab.nodeId;
-            // --- Fetch node data globally using the tab's nodeId ---
-            const nodeData = useGraphStore.getState().nodePrototypes.get(nodeId);
+      if (!activeRightPanelTab) {
+        panelContent = <div className="panel-content-inner">No tab selected...</div>;
+      } else if (activeRightPanelTab.type === 'home') {
+        panelContent = (
+          <div className="panel-content-inner">
+            <PanelContentWrapper
+              tabType="home"
+              storeActions={storeActions}
+              onFocusChange={onFocusChange}
+              onTypeSelect={handleTypeNodeSelection}
+              onStartHurtleAnimationFromPanel={onStartHurtleAnimationFromPanel}
+              isUltraSlim={isUltraSlim}
+            />
+          </div>
+        );
+      } else if (activeRightPanelTab.type === 'node') {
+        const nodeId = activeRightPanelTab.nodeId;
+        // --- Fetch node data globally using the tab's nodeId ---
+        const nodeData = useGraphStore.getState().nodePrototypes.get(nodeId);
 
-            if (!nodeData) {
-                // Node data doesn't exist globally - error case
-                panelContent = (
-                    <div style={{ padding: '10px', color: '#aaa', fontFamily: "'EmOne', sans-serif" }}>Node data not found globally...</div>
-                );
-            } else {
-                panelContent = (
-                    <div className="panel-content-inner">
-                        <PanelContentWrapper
-                            tabType="node"
-                            nodeId={nodeId}
-                            storeActions={storeActions}
-                            onFocusChange={onFocusChange}
-                            onTypeSelect={handleTypeNodeSelection}
-                            onStartHurtleAnimationFromPanel={onStartHurtleAnimationFromPanel}
-                            isUltraSlim={isUltraSlim}
-                        />
-                    </div>
-                );
-            }
+        if (!nodeData) {
+          // Node data doesn't exist globally - error case
+          panelContent = (
+            <div style={{ padding: '10px', color: '#aaa', fontFamily: "'EmOne', sans-serif" }}>Node data not found globally...</div>
+          );
+        } else {
+          panelContent = (
+            <div className="panel-content-inner">
+              <PanelContentWrapper
+                tabType="node"
+                nodeId={nodeId}
+                storeActions={storeActions}
+                onFocusChange={onFocusChange}
+                onTypeSelect={handleTypeNodeSelection}
+                onStartHurtleAnimationFromPanel={onStartHurtleAnimationFromPanel}
+                isUltraSlim={isUltraSlim}
+              />
+            </div>
+          );
         }
+      }
     }
 
     // --- Positioning and Animation Styles based on side ---
     const positionStyle = side === 'left' ? { left: 0 } : { right: 0 };
     const transformStyle = side === 'left'
-        ? (isExpanded ? 'translateX(0%)' : 'translateX(-100%)')
-        : (isExpanded ? 'translateX(0%)' : 'translateX(100%)');
+      ? (isExpanded ? 'translateX(0%)' : 'translateX(-100%)')
+      : (isExpanded ? 'translateX(0%)' : 'translateX(100%)');
 
     // Dynamically build transition string, removing backgroundColor
     const transitionStyle = `transform 0.2s ease${isAnimatingWidth ? ', width 0.2s ease' : ''}`;
@@ -1654,32 +1654,32 @@ const Panel = forwardRef(
     const handleBaseColor = '#260000'; // header maroon
     const handleOpacity = isResizing.current ? 1 : (isHandleHover ? 0.18 : 0.08);
     const handleStyle = {
-        position: 'absolute',
-        top: 0,
-        bottom: 0,
-        width: '14px',
-        cursor: 'col-resize',
-        zIndex: 10001,
-        backgroundColor: `rgba(38,0,0,${handleOpacity})`,
-        transition: 'background-color 0.15s ease, opacity 0.15s ease',
-        borderRadius: '2px',
-        touchAction: 'none'
+      position: 'absolute',
+      top: 0,
+      bottom: 0,
+      width: '14px',
+      cursor: 'col-resize',
+      zIndex: 10001,
+      backgroundColor: `rgba(38,0,0,${handleOpacity})`,
+      transition: 'background-color 0.15s ease, opacity 0.15s ease',
+      borderRadius: '2px',
+      touchAction: 'none'
     };
     if (side === 'left') {
-        handleStyle.right = '-6px';
+      handleStyle.right = '-6px';
     } else { // side === 'right'
-        handleStyle.left = '-6px';
+      handleStyle.left = '-6px';
     }
 
     // --- Tab Bar Scroll Handler ---
     const handleTabBarWheel = useCallback((e) => {
-          
+
       if (tabBarRef.current) {
         e.preventDefault();
         e.stopPropagation();
 
         const element = tabBarRef.current;
-        
+
 
         let scrollAmount = 0;
         // Prioritize axis with larger absolute delta
@@ -1689,7 +1689,7 @@ const Panel = forwardRef(
           scrollAmount = e.deltaX;
         }
 
-        const sensitivity = 0.5; 
+        const sensitivity = 0.5;
         const scrollChange = scrollAmount * sensitivity;
 
         // Only try to scroll if there's actually scrollable content
@@ -1708,14 +1708,14 @@ const Panel = forwardRef(
     // --- Effect to manually add non-passive wheel listener ---
     useEffect(() => {
       const tabBarNode = tabBarRef.current;
-      console.log('[Tab Wheel Effect] Running with:', { 
-        hasNode: !!tabBarNode, 
-        side, 
+      console.log('[Tab Wheel Effect] Running with:', {
+        hasNode: !!tabBarNode,
+        side,
         isExpanded,
         nodeTagName: tabBarNode?.tagName,
         nodeClassList: tabBarNode?.classList.toString()
       });
-      
+
       if (tabBarNode && side === 'right' && isExpanded) {
         console.log('[Tab Wheel Effect] Adding wheel listener to:', tabBarNode);
         // Add listener with passive: false to allow preventDefault
@@ -1731,315 +1731,316 @@ const Panel = forwardRef(
 
     // Drop zone for creating tabs from dragged nodes
     const [{ isOver }, tabDropZone] = useDrop({
-        accept: 'SPAWNABLE_NODE',
-        drop: (item) => {
-            const nodeId = item.nodeId || item.prototypeId;
-            if (nodeId && side === 'right') {
-                // Create a new tab for the dropped node
-                storeActions.openRightPanelNodeTab(nodeId);
-            }
-        },
-        collect: (monitor) => ({
-            isOver: !!monitor.isOver(),
-        }),
+      accept: 'SPAWNABLE_NODE',
+      drop: (item) => {
+        const nodeId = item.nodeId || item.prototypeId;
+        if (nodeId && side === 'right') {
+          // Create a new tab for the dropped node
+          storeActions.openRightPanelNodeTab(nodeId);
+        }
+      },
+      collect: (monitor) => ({
+        isOver: !!monitor.isOver(),
+      }),
     });
 
     // Update hover state for visual feedback
     useEffect(() => {
-        setIsNodeHoveringTabBar(isOver);
+      setIsNodeHoveringTabBar(isOver);
     }, [isOver]);
 
     // Show loading state if store is not ready
     return (
-        <>
-            {/* Pass side prop to ToggleButton */}
-            <ToggleButton isExpanded={isExpanded} onClick={onToggleExpand} side={side} />
+      <>
+        {/* Pass side prop to ToggleButton */}
+        <ToggleButton isExpanded={isExpanded} onClick={onToggleExpand} side={side} />
 
-            {/* Main Sliding Panel Container */}
-            <div
-                ref={panelRef} // Assign ref here
-                data-panel-ready={isStoreReady ? 'ready' : 'loading'}
-                style={{
-                    position: 'fixed',
-                    top: HEADER_HEIGHT, 
-                    ...positionStyle, 
-                    bottom: 0, 
-                    width: `${panelWidth}px`, // Use state variable for width
-                    backgroundColor: '#bdb5b5', // <<< Set back to static color
-                    boxShadow: '0 2px 5px rgba(0, 0, 0, 0.2)',
-                    zIndex: 10000,
-                    overflow: 'hidden', // Keep hidden to clip content
-                    display: 'flex',
-                    flexDirection: 'column',
-                    transform: transformStyle, 
-                    transition: transitionStyle, // Animate transform and width
-                }}
-            >
-                {/* Resize Handle disabled; handled by NodeCanvas overlay */}
+        {/* Main Sliding Panel Container */}
+        <div
+          ref={panelRef} // Assign ref here
+          data-panel-ready={isStoreReady ? 'ready' : 'loading'}
+          style={{
+            position: 'fixed',
+            top: HEADER_HEIGHT,
+            ...positionStyle,
+            bottom: 0,
+            width: `${panelWidth}px`, // Use state variable for width
+            backgroundColor: '#bdb5b5', // <<< Set back to static color
+            boxShadow: '0 2px 5px rgba(0, 0, 0, 0.2)',
+            zIndex: 10000,
+            overflow: 'hidden', // Keep hidden to clip content
+            display: 'flex',
+            flexDirection: 'column',
+            transform: transformStyle,
+            transition: transitionStyle, // Animate transform and width
+          }}
+          onTouchStart={(e) => e.stopPropagation()}
+        >
+          {/* Resize Handle disabled; handled by NodeCanvas overlay */}
 
-                {/* Main Header Row Container */}
-                <div 
-                    style={{
+          {/* Main Header Row Container */}
+          <div
+            style={{
+              height: 40,
+              backgroundColor: '#716C6C',
+              display: 'flex',
+              alignItems: 'stretch',
+              position: 'relative',
+            }}
+            onDoubleClick={handleHeaderDoubleClick} // Uncommented
+          >
+            {/* === Conditional Header Content === */}
+            {side === 'left' ? (
+              // --- Left Panel Header --- 
+              <div style={{ flexGrow: 1, display: 'flex', justifyContent: 'flex-end', alignItems: 'stretch' }}>
+                {/* All Things Button -> All Nodes */}
+                {ENABLE_ALL_THINGS_TAB && (
+                  <div
+                    title="All Things"
+                    style={{ /* Common Button Styles */ width: 40, height: 40, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', backgroundColor: leftViewActive === 'all' ? '#bdb5b5' : '#979090', zIndex: 2 }}
+                    onClick={() => setLeftViewActive('all')}
+                  >
+                    <LayoutGrid size={20} color="#260000" />
+                  </div>
+                )}
+                {/* Library Button -> Saved Things */}
+                <div
+                  title="Saved Things"
+                  style={{ /* Common Button Styles */ width: 40, height: 40, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', backgroundColor: leftViewActive === 'library' ? '#bdb5b5' : '#979090', zIndex: 2 }}
+                  onClick={() => setLeftViewActive('library')}
+                >
+                  <Bookmark size={20} color="#260000" />
+                </div>
+                {/* Grid Button -> Open Things */}
+                <div
+                  title="Open Things"
+                  style={{ /* Common Button Styles */ width: 40, height: 40, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', backgroundColor: leftViewActive === 'grid' ? '#bdb5b5' : '#979090', zIndex: 2 }}
+                  onClick={() => setLeftViewActive('grid')}
+                >
+                  <BookOpen size={20} color="#260000" />
+                </div>
+                {/* Federation Button -> Solid Pods */}
+                <div
+                  title="Federation"
+                  style={{ /* Common Button Styles */ width: 40, height: 40, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', backgroundColor: leftViewActive === 'federation' ? '#bdb5b5' : '#979090', zIndex: 2 }}
+                  onClick={() => setLeftViewActive('federation')}
+                >
+                  <Globe size={20} color="#260000" />
+                </div>
+
+                {/* Semantic Discovery Button */}
+                <div
+                  title="Semantic Discovery"
+                  style={{ /* Common Button Styles */ width: 40, height: 40, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', backgroundColor: leftViewActive === 'semantic' ? '#bdb5b5' : '#979090', zIndex: 2 }}
+                  onClick={() => setLeftViewActive('semantic')}
+                >
+                  <TextSearch size={20} color="#260000" />
+                </div>
+
+                {/* AI Wizard Button */}
+                <div
+                  title="AI Wizard"
+                  style={{ /* Common Button Styles */ width: 40, height: 40, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', backgroundColor: leftViewActive === 'ai' ? '#bdb5b5' : '#979090', zIndex: 2 }}
+                  onClick={() => setLeftViewActive('ai')}
+                >
+                  <Sparkles size={20} color="#260000" />
+                </div>
+              </div>
+            ) : (
+              // --- Right Panel Header (Uses store state `rightPanelTabs`) ---
+              <>
+                {/* Home Button (checks store state) */}
+                {isExpanded && (() => {
+                  const tabs = rightPanelTabs;
+                  const isActive = tabs[0]?.isActive;
+                  const bg = isActive ? '#bdb5b5' : '#979090';
+                  return (
+                    <div
+                      title="Home"
+                      key="home"
+                      style={{
+                        width: 40,
                         height: 40,
-                        backgroundColor: '#716C6C',
+                        borderTopRightRadius: 0,
+                        borderBottomLeftRadius: 0,
+                        borderBottomRightRadius: 0,
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        cursor: 'pointer',
+                        backgroundColor: bg,
+                        flexShrink: 0,
+                        zIndex: 2
+                      }}
+                      onClick={() => activateRightPanelTab(0)}
+                    >
+                      <Info size={22} color="#260000" />
+                    </div>
+                  );
+                })()}
+
+
+                {/* Scrollable Tab Area (uses store state) */}
+                {isExpanded && (
+                  <div style={{ flex: '1 1 0', position: 'relative', height: '100%', minWidth: 0 }}>
+                    <div
+                      ref={(el) => {
+                        tabBarRef.current = el;
+                        tabDropZone(el);
+                      }}
+                      className="hide-scrollbar"
+                      data-panel-tabs="true"
+                      style={{
+                        position: 'relative',
+                        height: '100%',
                         display: 'flex',
                         alignItems: 'stretch',
-                        position: 'relative',
-                    }}
-                    onDoubleClick={handleHeaderDoubleClick} // Uncommented
-                >
-                    {/* === Conditional Header Content === */}
-                    {side === 'left' ? (
-                        // --- Left Panel Header --- 
-                        <div style={{ flexGrow: 1, display: 'flex', justifyContent: 'flex-end', alignItems: 'stretch' }}>
-                            {/* All Things Button -> All Nodes */}
-                            {ENABLE_ALL_THINGS_TAB && (
-                                <div 
-                                    title="All Things" 
-                                    style={{ /* Common Button Styles */ width: 40, height: 40, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', backgroundColor: leftViewActive === 'all' ? '#bdb5b5' : '#979090', zIndex: 2 }}
-                                    onClick={() => setLeftViewActive('all')}
-                                >
-                                    <LayoutGrid size={20} color="#260000" />
-                                </div>
-                            )}
-                            {/* Library Button -> Saved Things */} 
-                            <div 
-                                title="Saved Things" 
-                                style={{ /* Common Button Styles */ width: 40, height: 40, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', backgroundColor: leftViewActive === 'library' ? '#bdb5b5' : '#979090', zIndex: 2 }}
-                                onClick={() => setLeftViewActive('library')}
-                            >
-                                <Bookmark size={20} color="#260000" />
-                            </div>
-                            {/* Grid Button -> Open Things */} 
-                            <div 
-                                title="Open Things" 
-                                style={{ /* Common Button Styles */ width: 40, height: 40, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', backgroundColor: leftViewActive === 'grid' ? '#bdb5b5' : '#979090', zIndex: 2 }}
-                                onClick={() => setLeftViewActive('grid')}
-                            >
-                                <BookOpen size={20} color="#260000" />
-                            </div>
-                            {/* Federation Button -> Solid Pods */} 
-                            <div 
-                                title="Federation" 
-                                style={{ /* Common Button Styles */ width: 40, height: 40, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', backgroundColor: leftViewActive === 'federation' ? '#bdb5b5' : '#979090', zIndex: 2 }}
-                                onClick={() => setLeftViewActive('federation')}
-                            >
-                                <Globe size={20} color="#260000" />
-                            </div>
-
-                            {/* Semantic Discovery Button */}
-                            <div 
-                                title="Semantic Discovery" 
-                                style={{ /* Common Button Styles */ width: 40, height: 40, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', backgroundColor: leftViewActive === 'semantic' ? '#bdb5b5' : '#979090', zIndex: 2 }}
-                                onClick={() => setLeftViewActive('semantic')}
-                            >
-                                <TextSearch size={20} color="#260000" />
-                            </div>
-
-                            {/* AI Wizard Button */}
-                            <div 
-                                title="AI Wizard" 
-                                style={{ /* Common Button Styles */ width: 40, height: 40, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', backgroundColor: leftViewActive === 'ai' ? '#bdb5b5' : '#979090', zIndex: 2 }}
-                                onClick={() => setLeftViewActive('ai')}
-                            >
-                                <Sparkles size={20} color="#260000" />
-                            </div>
+                        paddingLeft: '8px',
+                        paddingRight: '42px',
+                        overflowX: 'auto',
+                        overflowY: 'hidden',
+                        backgroundColor: isNodeHoveringTabBar ? 'rgba(139, 0, 0, 0.1)' : 'transparent',
+                        transition: 'background-color 0.2s ease'
+                      }}
+                    >
+                      {/* Map ONLY node tabs (index > 0) - get tabs non-reactively */}
+                      {rightPanelTabs.slice(1).map((tab, i) => { // Use different index variable like `i`
+                        const nodeCurrentName = nodePrototypesMap.get(tab.nodeId)?.name || tab.title; // Get current name for display and drag
+                        return (
+                          <DraggableTab
+                            key={tab.nodeId} // Use nodeId as key
+                            tab={tab} // Pass tab data from store
+                            index={i + 1} // Pass absolute index (1..N) based on map index `i`
+                            displayTitle={nodeCurrentName} // Pass live name for display
+                            dragItemTitle={nodeCurrentName} // Pass live name for drag item
+                            moveTabAction={moveRightPanelTab}
+                            activateTabAction={activateRightPanelTab}
+                            closeTabAction={closeRightPanelTab}
+                          />
+                        );
+                      })}
+                      {/* Plus icon indicator when hovering */}
+                      {isNodeHoveringTabBar && (
+                        <div style={{
+                          position: 'absolute',
+                          right: '20px',
+                          top: '50%',
+                          transform: 'translateY(-50%)',
+                          backgroundColor: '#8B0000',
+                          color: '#EFE8E5',
+                          borderRadius: '50%',
+                          width: '24px',
+                          height: '24px',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          fontSize: '16px',
+                          fontWeight: 'bold',
+                          zIndex: 1000,
+                          pointerEvents: 'none'
+                        }}>
+                          +
                         </div>
-                    ) : (
-                        // --- Right Panel Header (Uses store state `rightPanelTabs`) ---
-                        <> 
-                            {/* Home Button (checks store state) */}
-                            {isExpanded && (() => {
-                                const tabs = rightPanelTabs;
-                                const isActive = tabs[0]?.isActive;
-                                const bg = isActive ? '#bdb5b5' : '#979090';
-                                return (
-                                    <div
-                                        title="Home"
-                                        key="home"
-                                        style={{
-                                            width: 40,
-                                            height: 40,
-                                            borderTopRightRadius: 0,
-                                            borderBottomLeftRadius: 0,
-                                            borderBottomRightRadius: 0,
-                                            display: 'flex',
-                                            alignItems: 'center',
-                                            justifyContent: 'center',
-                                            cursor: 'pointer',
-                                            backgroundColor: bg,
-                                            flexShrink: 0,
-                                            zIndex: 2
-                                        }}
-                                        onClick={() => activateRightPanelTab(0)}
-                                    >
-                                        <Info size={22} color="#260000" />
-                                    </div>
-                                );
-                            })()}
-
-
-                            {/* Scrollable Tab Area (uses store state) */}
-                            {isExpanded && (
-                                <div style={{ flex: '1 1 0', position: 'relative', height: '100%', minWidth: 0 }}>
-                                    <div 
-                                        ref={(el) => {
-                                            tabBarRef.current = el;
-                                            tabDropZone(el);
-                                        }}
-                                        className="hide-scrollbar"
-                                        data-panel-tabs="true"
-                                        style={{ 
-                                            position: 'relative',
-                                            height: '100%', 
-                                            display: 'flex', 
-                                            alignItems: 'stretch', 
-                                            paddingLeft: '8px', 
-                                            paddingRight: '42px',
-                                            overflowX: 'auto',
-                                            overflowY: 'hidden',
-                                            backgroundColor: isNodeHoveringTabBar ? 'rgba(139, 0, 0, 0.1)' : 'transparent',
-                                            transition: 'background-color 0.2s ease'
-                                        }}
-                                    >
-                                        {/* Map ONLY node tabs (index > 0) - get tabs non-reactively */}
-                                        {rightPanelTabs.slice(1).map((tab, i) => { // Use different index variable like `i`
-                                            const nodeCurrentName = nodePrototypesMap.get(tab.nodeId)?.name || tab.title; // Get current name for display and drag
-                                            return (
-                                                <DraggableTab
-                                                    key={tab.nodeId} // Use nodeId as key
-                                                    tab={tab} // Pass tab data from store
-                                                    index={i + 1} // Pass absolute index (1..N) based on map index `i`
-                                                    displayTitle={nodeCurrentName} // Pass live name for display
-                                                    dragItemTitle={nodeCurrentName} // Pass live name for drag item
-                                                    moveTabAction={moveRightPanelTab}
-                                                    activateTabAction={activateRightPanelTab}
-                                                    closeTabAction={closeRightPanelTab}
-                                                />
-                                            );
-                                        })}
-                                        {/* Plus icon indicator when hovering */}
-                                        {isNodeHoveringTabBar && (
-                                            <div style={{
-                                                position: 'absolute',
-                                                right: '20px',
-                                                top: '50%',
-                                                transform: 'translateY(-50%)',
-                                                backgroundColor: '#8B0000',
-                                                color: '#EFE8E5',
-                                                borderRadius: '50%',
-                                                width: '24px',
-                                                height: '24px',
-                                                display: 'flex',
-                                                alignItems: 'center',
-                                                justifyContent: 'center',
-                                                fontSize: '16px',
-                                                fontWeight: 'bold',
-                                                zIndex: 1000,
-                                                pointerEvents: 'none'
-                                            }}>
-                                                +
-                                            </div>
-                                        )}
-                                    </div>
-                                </div>
-                            )}
-                        </>
-                    )}
-                    {/* === End Conditional Header Content === */}
-                </div>
-
-                {/* Content Area */} 
-                <div 
-                    className={`panel-content ${isScrolling ? 'scrolling' : ''} ${isHoveringScrollbar ? 'hovering-scrollbar' : ''}`}
-                    style={{ flex: 1, paddingBottom: effectiveBottomPadding }}
-                    onScroll={() => {
-                        setIsScrolling(true);
-                        if (scrollTimeoutRef.current) {
-                            clearTimeout(scrollTimeoutRef.current);
-                        }
-                        scrollTimeoutRef.current = setTimeout(() => {
-                            setIsScrolling(false);
-                        }, 1500);
-                    }}
-                    onMouseEnter={handleScrollbarMouseEnter}
-                    onMouseMove={handleScrollbarMouseMove}
-                    onMouseLeave={handleScrollbarMouseLeave}
-                >
-                    {panelContent}
-                </div>
-            </div>
-
-            {/* Color Picker Component - Rendered in Portal to prevent clipping */}
-            <PanelColorPickerPortal
-                isVisible={colorPickerVisible}
-                onClose={handleCloseColorPicker}
-                onColorChange={handleColorChange}
-                currentColor={colorPickerNodeId ? nodePrototypesMap.get(colorPickerNodeId)?.color || '#8B0000' : '#8B0000'}
-                position={colorPickerPosition}
-                direction="down-left"
-            />
-
-            
-
-            {/* UnifiedSelector for type creation */}
-            {typeNamePrompt.visible && (
-              <UnifiedSelector
-                mode="node-typing"
-                isVisible={true}
-                leftPanelExpanded={leftPanelExpanded}
-                rightPanelExpanded={rightPanelExpanded}
-                onClose={handleCloseTypePrompt}
-                onSubmit={({ name, color }) => {
-                  const targetNodeId = typeNamePrompt.targetNodeId;
-                  if (name.trim() && targetNodeId) {
-                    // Create new type prototype
-                    const newTypeId = uuidv4();
-                    const newTypeData = {
-                      id: newTypeId,
-                      name: name.trim(),
-                      description: '',
-                      color: color || '#8B0000',
-                      definitionGraphIds: [],
-                      typeNodeId: null,
-                    };
-                    storeActions.addNodePrototype(newTypeData);
-                    storeActions.setNodeType(targetNodeId, newTypeId);
-                    console.log(`Created new type "${name.trim()}" and assigned to node ${targetNodeId}`);
-                  }
-                  handleCloseTypePrompt();
-                }}
-                onNodeSelect={(selectedPrototype) => {
-                  const targetNodeId = typeNamePrompt.targetNodeId;
-                  if (targetNodeId && selectedPrototype) {
-                    storeActions.setNodeType(targetNodeId, selectedPrototype.id);
-                    console.log(`Set type of node ${targetNodeId} to existing type: ${selectedPrototype.name}`);
-                  }
-                  handleCloseTypePrompt();
-                }}
-                initialName={typeNamePrompt.name}
-                initialColor={typeNamePrompt.color}
-                title="Name Your Thing"
-                subtitle={`a more generic way to refer to ${typeNamePrompt.targetNodeName},<br/>also known as a superclass or a type.`}
-                searchTerm={typeNamePrompt.name}
-                showCreateNewOption={true}
-              />
+                      )}
+                    </div>
+                  </div>
+                )}
+              </>
             )}
+            {/* === End Conditional Header Content === */}
+          </div>
 
-            {/* Merge Modal */}
-            {showMergeModal && (
-              <DuplicateManager
-                onClose={() => setShowMergeModal(false)}
-                nodePrototypes={nodePrototypes}
-                storeActions={storeActions}
-                instances={instances}
-              />
-            )}
+          {/* Content Area */}
+          <div
+            className={`panel-content ${isScrolling ? 'scrolling' : ''} ${isHoveringScrollbar ? 'hovering-scrollbar' : ''}`}
+            style={{ flex: 1, paddingBottom: effectiveBottomPadding, touchAction: 'pan-y' }}
+            onScroll={() => {
+              setIsScrolling(true);
+              if (scrollTimeoutRef.current) {
+                clearTimeout(scrollTimeoutRef.current);
+              }
+              scrollTimeoutRef.current = setTimeout(() => {
+                setIsScrolling(false);
+              }, 1500);
+            }}
+            onMouseEnter={handleScrollbarMouseEnter}
+            onMouseMove={handleScrollbarMouseMove}
+            onMouseLeave={handleScrollbarMouseLeave}
+          >
+            {panelContent}
+          </div>
+        </div>
+
+        {/* Color Picker Component - Rendered in Portal to prevent clipping */}
+        <PanelColorPickerPortal
+          isVisible={colorPickerVisible}
+          onClose={handleCloseColorPicker}
+          onColorChange={handleColorChange}
+          currentColor={colorPickerNodeId ? nodePrototypesMap.get(colorPickerNodeId)?.color || '#8B0000' : '#8B0000'}
+          position={colorPickerPosition}
+          direction="down-left"
+        />
 
 
-        </>
+
+        {/* UnifiedSelector for type creation */}
+        {typeNamePrompt.visible && (
+          <UnifiedSelector
+            mode="node-typing"
+            isVisible={true}
+            leftPanelExpanded={leftPanelExpanded}
+            rightPanelExpanded={rightPanelExpanded}
+            onClose={handleCloseTypePrompt}
+            onSubmit={({ name, color }) => {
+              const targetNodeId = typeNamePrompt.targetNodeId;
+              if (name.trim() && targetNodeId) {
+                // Create new type prototype
+                const newTypeId = uuidv4();
+                const newTypeData = {
+                  id: newTypeId,
+                  name: name.trim(),
+                  description: '',
+                  color: color || '#8B0000',
+                  definitionGraphIds: [],
+                  typeNodeId: null,
+                };
+                storeActions.addNodePrototype(newTypeData);
+                storeActions.setNodeType(targetNodeId, newTypeId);
+                console.log(`Created new type "${name.trim()}" and assigned to node ${targetNodeId}`);
+              }
+              handleCloseTypePrompt();
+            }}
+            onNodeSelect={(selectedPrototype) => {
+              const targetNodeId = typeNamePrompt.targetNodeId;
+              if (targetNodeId && selectedPrototype) {
+                storeActions.setNodeType(targetNodeId, selectedPrototype.id);
+                console.log(`Set type of node ${targetNodeId} to existing type: ${selectedPrototype.name}`);
+              }
+              handleCloseTypePrompt();
+            }}
+            initialName={typeNamePrompt.name}
+            initialColor={typeNamePrompt.color}
+            title="Name Your Thing"
+            subtitle={`a more generic way to refer to ${typeNamePrompt.targetNodeName},<br/>also known as a superclass or a type.`}
+            searchTerm={typeNamePrompt.name}
+            showCreateNewOption={true}
+          />
+        )}
+
+        {/* Merge Modal */}
+        {showMergeModal && (
+          <DuplicateManager
+            onClose={() => setShowMergeModal(false)}
+            nodePrototypes={nodePrototypes}
+            storeActions={storeActions}
+            instances={instances}
+          />
+        )}
+
+
+      </>
     );
-}
+  }
 );
 
 export default Panel;
