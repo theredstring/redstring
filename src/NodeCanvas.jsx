@@ -104,11 +104,11 @@ const TOUCH_PINCH_SENSITIVITY = isIOS ? 0.11 : 0.24;           // approach facto
 const TOUCH_PINCH_MAX_RATIO_STEP = isIOS ? 0.28 : 0.6;         // overall clamp when deriving target zoom from initial distance
 const TOUCH_PINCH_CENTER_SMOOTHING = isIOS ? 0.05 : 0.03;      // low-pass filter for pinch midpoint movement
 const TOUCH_PAN_DRAG_SENSITIVITY = isIOS ? 0.75 : 1.05;        // per-move multiplier for single-finger touch panning
-const PAN_MOMENTUM_MIN_SPEED = 0.015;           // px/ms threshold before momentum stops
-const TOUCH_PAN_FRICTION = 0.9;                 // per-frame retention for touch glide
+const PAN_MOMENTUM_MIN_SPEED = 0.01;            // px/ms threshold before momentum stops (lowered for touch)
+const TOUCH_PAN_FRICTION = 0.92;                // per-frame retention for touch glide (higher = longer glide)
 const TRACKPAD_PAN_FRICTION = 0.94;             // per-frame retention for trackpad glide
 const PAN_MOMENTUM_FRAME = 16.67;               // baseline frame duration (ms) for damping scaling
-const TOUCH_PAN_MOMENTUM_BOOST = 1.05;          // slight boost so touch flicks feel responsive
+const TOUCH_PAN_MOMENTUM_BOOST = 1.5;           // minimal boost for natural touch momentum feel
 const TRACKPAD_PAN_MOMENTUM_BOOST = 1.1;        // marginally higher boost for precision trackpads
 
 function NodeCanvas() {
@@ -245,9 +245,12 @@ function NodeCanvas() {
     hasMovedPastThreshold: false,
     longPressTimer: null,
     longPressReady: false,
-    dragOffset: null,
-    nodeData: null
+    dragOffset: null
+    // nodeData removed - use dragNodeId for fresh lookups to avoid stale closures
   });
+
+  // Track long press state synchronously to avoid race conditions in event handlers
+  const longPressingInstanceIdRef = useRef(null);
 
   // Touch interaction constants
   const TOUCH_MOVEMENT_THRESHOLD = 10; // pixels
@@ -509,11 +512,18 @@ function NodeCanvas() {
       e.preventDefault();
       e.stopPropagation();
     }
-    stopPanMomentum();
+    // Only stop momentum if we're starting a new gesture with actual touches
+    // Don't clear momentum during cleanup/end events
+    if (e.touches && e.touches.length > 0) {
+      stopPanMomentum();
+    }
     isTouchDeviceRef.current = true;
 
     if (e.touches && e.touches.length >= 2) {
       // Pinch-to-zoom setup
+      // Stop any momentum first
+      stopPanMomentum();
+
       const t1 = e.touches[0];
       const t2 = e.touches[1];
       const dx = t2.clientX - t1.clientX;
@@ -603,7 +613,43 @@ function NodeCanvas() {
   const handleTouchMoveCanvas = (e) => {
     // Avoid per-move preventDefault/stopPropagation; rely on CSS `touch-action: none`
 
-    if (e.touches && e.touches.length >= 2 && pinchRef.current.active) {
+    // CRITICAL: If a node drag is active, let the document listener handle it exclusively
+    if (touchState.current.isDragging || draggingNodeInfo || touchState.current.dragNodeId) {
+      return; // Don't interfere with node drag
+    }
+
+    if (e.touches && e.touches.length >= 2) {
+      // Initialize pinch if not already active
+      if (!pinchRef.current.active) {
+        const t1 = e.touches[0];
+        const t2 = e.touches[1];
+        const dx = t2.clientX - t1.clientX;
+        const dy = t2.clientY - t1.clientY;
+        const dist = Math.hypot(dx, dy) || 1;
+        const centerX = (t1.clientX + t2.clientX) / 2;
+        const centerY = (t1.clientY + t2.clientY) / 2;
+        const rect = containerRef.current?.getBoundingClientRect();
+        if (rect) {
+          const worldX = (centerX - rect.left - panOffset.x) / zoomLevel + canvasSize.offsetX;
+          const worldY = (centerY - rect.top - panOffset.y) / zoomLevel + canvasSize.offsetY;
+          pinchRef.current = {
+            active: true,
+            startDist: dist,
+            startZoom: zoomLevel,
+            centerClient: { x: centerX, y: centerY },
+            centerWorld: { x: worldX, y: worldY },
+            lastCenterClient: { x: centerX, y: centerY },
+            lastDist: dist
+          };
+          pinchSmoothingRef.current.lastFrameTime = performance.now();
+          // Stop momentum and panning
+          stopPanMomentum();
+          isMouseDown.current = false;
+          setIsPanning(false);
+          setPanStart(null);
+        }
+      }
+
       // Touch-only pinch zoom (higher sensitivity), no two-finger pan on touch
       isPanningOrZooming.current = true;
       const now = performance.now();
@@ -621,8 +667,7 @@ function NodeCanvas() {
       const startDist = pinchRef.current.startDist || dist;
       const startZoom = pinchRef.current.startZoom || zoomLevel;
       const ratioFromStart = dist / (startDist || dist);
-      const clampedRatio = Math.min(1 + TOUCH_PINCH_MAX_RATIO_STEP, Math.max(1 - TOUCH_PINCH_MAX_RATIO_STEP, ratioFromStart || 1));
-      const targetZoomRaw = startZoom * clampedRatio;
+      const targetZoomRaw = startZoom * (ratioFromStart || 1);
       const easing = 1 - Math.pow(1 - TOUCH_PINCH_SENSITIVITY, Math.min(6, dt / 16));
       setZoomLevel(prevZoom => {
         const targetZoom = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, targetZoomRaw || prevZoom));
@@ -654,9 +699,25 @@ function NodeCanvas() {
     const { clientX, clientY } = normalizeTouchEvent(e);
     lastTouchRef.current = { x: clientX, y: clientY };
 
+    // Record velocity for momentum calculation
+    if (panSourceRef.current === 'touch') {
+      const now = performance.now();
+      panVelocityHistoryRef.current.push({ x: clientX, y: clientY, time: now });
+      // Keep samples from last 100ms, but always keep at least the 10 most recent
+      const cutoff = now - 100;
+      const filtered = panVelocityHistoryRef.current.filter(s => s.time >= cutoff);
+      // Ensure we keep at least 10 samples for momentum calculation
+      if (filtered.length >= 10) {
+        panVelocityHistoryRef.current = filtered;
+      } else {
+        // Keep the last 10 samples regardless of time
+        panVelocityHistoryRef.current = panVelocityHistoryRef.current.slice(-10);
+      }
+    }
+
     // Update mouseInsideNode for touch events to maintain proper drag state
-    if (longPressingInstanceId) {
-      const longPressNodeData = nodes.find(n => n.id === longPressingInstanceId);
+    if (longPressingInstanceIdRef.current) {
+      const longPressNodeData = nodes.find(n => n.id === longPressingInstanceIdRef.current);
       if (longPressNodeData) {
         mouseInsideNode.current = isInsideNode(longPressNodeData, clientX, clientY);
       }
@@ -680,6 +741,25 @@ function NodeCanvas() {
     if (pinchRef.current.active) {
       pinchRef.current.active = false;
       isPanningOrZooming.current = false;
+      // Clear velocity history so next pan starts fresh
+      panVelocityHistoryRef.current = [];
+      lastPanVelocityRef.current = { vx: 0, vy: 0 };
+
+      // If there's still a touch remaining (2 fingers -> 1 finger), set up for single-finger pan
+      if (e.touches && e.touches.length === 1) {
+        const t = e.touches[0];
+        setPanStart({ x: t.clientX, y: t.clientY });
+        panSourceRef.current = 'touch';
+        isMouseDown.current = true;
+        mouseMoved.current = false;
+      } else {
+        // All fingers lifted - clear everything
+        setPanStart(null);
+        panSourceRef.current = null;
+        setIsPanning(false);
+        isMouseDown.current = false;
+        mouseMoved.current = false;
+      }
       return;
     }
     const { clientX, clientY } = normalizeTouchEvent(e);
@@ -739,22 +819,43 @@ function NodeCanvas() {
 
   // Dedicated touch handlers for nodes (no synthetic event conversion)
   const handleNodeTouchStart = (nodeData, e) => {
-    // Attach document-level listeners only when starting from a real TouchEvent (not synthesized from pointer)
-    if (!e?.__fromPointer) {
+    console.log('[handleNodeTouchStart] START - docTouchListenersRef.current:', docTouchListenersRef.current);
+    // Attach document-level listeners only once per touch session
+    // Check if listeners are already attached to avoid duplicates
+    if (!docTouchListenersRef.current) {
       try {
-        // Create dedicated listeners bound to this nodeData so we can remove them later
-        const moveListener = (ev) => handleNodeTouchMove(nodeData, ev);
+        console.log('[handleNodeTouchStart] Attaching document listeners for nodeId:', nodeData.id);
+        // Create dedicated listeners with fresh node lookups to avoid stale closures
+        const moveListener = (ev) => {
+          console.log('[DOC LISTENER] touchmove fired, dragNodeId:', touchState.current.dragNodeId, 'isDragging:', touchState.current.isDragging);
+          const freshNodeData = nodes.find(n => n.id === touchState.current.dragNodeId);
+          if (!freshNodeData || !touchState.current.dragNodeId) {
+            console.log('[DOC LISTENER] No fresh node data, returning');
+            return;
+          }
+          handleNodeTouchMove(freshNodeData, ev);
+        };
         const endListener = (ev) => {
-          handleNodeTouchEnd(nodeData, ev);
+          console.log('[DOC LISTENER] touchend fired, cleaning up');
+          const freshNodeData = nodes.find(n => n.id === touchState.current.dragNodeId);
+          if (freshNodeData) {
+            handleNodeTouchEnd(freshNodeData, ev);
+          }
           try {
             document.removeEventListener('touchmove', moveListener, { passive: false });
             document.removeEventListener('touchend', endListener, { passive: false });
             document.removeEventListener('touchcancel', cancelListener, { passive: false });
-          } catch { }
+            console.log('[DOC LISTENER] Document listeners removed');
+          } catch (err) {
+            console.error('[DOC LISTENER] Error removing listeners:', err);
+          }
           docTouchListenersRef.current = null;
         };
         const cancelListener = (ev) => {
-          handleNodeTouchEnd(nodeData, ev);
+          const freshNodeData = nodes.find(n => n.id === touchState.current.dragNodeId);
+          if (freshNodeData) {
+            handleNodeTouchEnd(freshNodeData, ev);
+          }
           try {
             document.removeEventListener('touchmove', moveListener, { passive: false });
             document.removeEventListener('touchend', endListener, { passive: false });
@@ -766,14 +867,18 @@ function NodeCanvas() {
         document.addEventListener('touchend', endListener, { passive: false });
         document.addEventListener('touchcancel', cancelListener, { passive: false });
         docTouchListenersRef.current = { moveListener, endListener, cancelListener };
-      } catch { }
+        console.log('[handleNodeTouchStart] Document listeners attached successfully');
+      } catch (err) {
+        console.error('[handleNodeTouchStart] Error attaching listeners:', err);
+      }
+    } else {
+      console.log('[handleNodeTouchStart] Document listeners already attached, skipping');
     }
     e.stopPropagation();
     if (isPaused || !activeGraphId) return;
 
-    if (e && e.cancelable) {
-      e.preventDefault();
-    }
+    // Do NOT call e.preventDefault() here - React's onTouchStart is passive by default.
+    // We rely on CSS touch-action: none to prevent scrolling.
     stopPanMomentum();
 
     const touch = e.touches[0];
@@ -805,8 +910,9 @@ function NodeCanvas() {
     mouseInsideNode.current = true;
     startedOnNode.current = true;
     panSourceRef.current = 'touch';
-    // Arm quick-drag connection behavior by default
+    // Arm connection drawing by default (matches mouse behavior)
     setLongPressingInstanceId(instanceId);
+    longPressingInstanceIdRef.current = instanceId;
 
     // Add touch feedback class
     const nodeElement = e.currentTarget;
@@ -814,7 +920,11 @@ function NodeCanvas() {
 
     // Haptic feedback if available
     if (navigator.vibrate) {
-      navigator.vibrate(10); // Short vibration for touch start
+      try {
+        navigator.vibrate(10); // Short vibration for touch start
+      } catch (e) {
+        // Ignore vibration errors (e.g. user hasn't interacted yet)
+      }
     }
 
     // Initialize touch state (drag can also start via long-press fallback)
@@ -828,8 +938,8 @@ function NodeCanvas() {
       longPressTimer: null,
       nodeElement: nodeElement,
       longPressReady: false,
-      dragOffset,
-      nodeData
+      dragOffset
+      // nodeData removed - use dragNodeId for fresh lookups to avoid stale closures
     };
 
     // Long-press fallback: begin NODE DRAG while finger is still down (mouse parity)
@@ -839,18 +949,37 @@ function NodeCanvas() {
     touchState.current.longPressTimer = setTimeout(() => {
       const ts = touchState.current;
       if (!ts) return;
-      if (isMouseDown.current && ts.dragNodeId === instanceId && !ts.hasMovedPastThreshold && !ts.isDragging) {
+      // Long press detected! Start node drag (matches mouse behavior)
+      // Don't check hasMovedPastThreshold - we want to start drag even if already moving
+      if (isMouseDown.current && ts.dragNodeId === instanceId && !ts.isDragging) {
+        // Set flag BEFORE starting drag to enable early exit path immediately
+        ts.isDragging = true;
         const started = startDragForNode(nodeData, ts.currentPosition.x, ts.currentPosition.y);
         if (started) {
-          ts.isDragging = true;
           ts.longPressReady = false;
           setSelectedNodeIdForPieMenu(null);
-          // Cancel quick-drag connection intent once dragging node
+          // Cancel connection intent once dragging node
           setLongPressingInstanceId(null);
+          longPressingInstanceIdRef.current = null;
+        } else {
+          // Rollback if failed
+          ts.isDragging = false;
+        }
+
+        // Visual/Haptic feedback
+        if (ts.nodeElement) {
+          ts.nodeElement.classList.add('long-press-active');
+        }
+        if (navigator.vibrate) {
+          try {
+            navigator.vibrate(50);
+          } catch (e) {
+            // Ignore vibration errors
+          }
         }
       }
     }, LONG_PRESS_DURATION);
-    setMouseInsideNode(true);
+    // setMouseInsideNode(true); // Removed: undefined and unnecessary (handled by ref)
   };
 
   // Pointer → Touch compatibility helpers (function declarations to avoid TDZ)
@@ -868,14 +997,17 @@ function NodeCanvas() {
 
   function handleNodePointerDown(nodeData, e) {
     if (e && e.pointerType && e.pointerType !== 'mouse') {
-      try { if (e.cancelable) e.preventDefault(); e.stopPropagation(); } catch { }
+      // Do NOT call e.preventDefault() - it blocks touch recognition
+      // Let the touch event handlers manage the interaction
+      try { e.stopPropagation(); } catch { }
       handleNodeTouchStart(nodeData, toSyntheticTouchEventFromPointer(e));
     }
   }
 
   function handleNodePointerMove(nodeData, e) {
     if (e && e.pointerType && e.pointerType !== 'mouse') {
-      try { if (e.cancelable) e.preventDefault(); e.stopPropagation(); } catch { }
+      // Do NOT call e.preventDefault() - it blocks touch recognition
+      try { e.stopPropagation(); } catch { }
       handleNodeTouchMove(nodeData, toSyntheticTouchEventFromPointer(e));
     }
   }
@@ -908,6 +1040,7 @@ function NodeCanvas() {
     isMouseDown.current = false;
     startedOnNode.current = false;
     setLongPressingInstanceId(null);
+    longPressingInstanceIdRef.current = null;
 
     if (touchState.current.nodeElement) {
       touchState.current.nodeElement.classList.remove('touch-active', 'long-press-active');
@@ -945,7 +1078,7 @@ function NodeCanvas() {
     };
 
     setDraggingNodeInfo(null);
-    setMouseInsideNode(false);
+    mouseInsideNode.current = false;
     // Detach any outstanding document listeners
     if (docTouchListenersRef.current) {
       const { moveListener, endListener, cancelListener } = docTouchListenersRef.current;
@@ -959,48 +1092,72 @@ function NodeCanvas() {
   };
 
   const handleNodeTouchMove = (nodeData, e) => {
-    if (isPaused || !activeGraphId || !touchState.current.dragNodeId) return;
+    console.log('[handleNodeTouchMove] Called with nodeData:', nodeData?.id, 'touchState.dragNodeId:', touchState.current.dragNodeId);
+    if (isPaused || !activeGraphId || !touchState.current.dragNodeId) {
+      console.log('[handleNodeTouchMove] Early return - isPaused:', isPaused, 'activeGraphId:', activeGraphId, 'dragNodeId:', touchState.current.dragNodeId);
+      return;
+    }
 
-    // Prevent the browser from stealing the gesture (scroll/zoom)
-    try {
-      if (e && e.cancelable) e.preventDefault();
-      e.stopPropagation();
-    } catch { }
+    // Do NOT call e.preventDefault() or e.stopPropagation() here
+    // The document-level listener (attached in handleNodeTouchStart) handles everything
 
     const touch = e.touches[0];
-    if (!touch) return;
+    if (!touch) {
+      console.log('[handleNodeTouchMove] No touch, returning');
+      return;
+    }
 
     const currentPos = { x: touch.clientX, y: touch.clientY };
-    const deltaX = currentPos.x - touchState.current.startPosition.x;
-    const deltaY = currentPos.y - touchState.current.startPosition.y;
-    const distance = Math.hypot(deltaX, deltaY);
 
     // Update current position
     touchState.current.currentPosition = currentPos;
+
+    // PRIORITY 1: If drag is already active, just update position and return
+    if (touchState.current.isDragging || draggingNodeInfo) {
+      console.log('[handleNodeTouchMove] DRAGGING - calling handleMouseMove with:', touch.clientX, touch.clientY);
+      const synthetic = {
+        clientX: touch.clientX,
+        clientY: touch.clientY,
+        stopPropagation: () => e.stopPropagation(),
+        preventDefault: () => e.preventDefault()
+      };
+      handleMouseMove(synthetic);
+      return; // Skip all other logic
+    }
+
+    // PRIORITY 2: Check if we should start drag or connection based on movement
+    const deltaX = currentPos.x - touchState.current.startPosition.x;
+    const deltaY = currentPos.y - touchState.current.startPosition.y;
+    const distance = Math.hypot(deltaX, deltaY);
 
     // Check if we've moved past threshold
     if (!touchState.current.hasMovedPastThreshold && distance > TOUCH_MOVEMENT_THRESHOLD) {
       touchState.current.hasMovedPastThreshold = true;
 
-      // Clear any pending long-press (we prioritize drag on move)
+      // Clear any pending long-press timer
       if (touchState.current.longPressTimer) {
         clearTimeout(touchState.current.longPressTimer);
         touchState.current.longPressTimer = null;
       }
 
-      // If quick-drag connection is armed (and not already in node-drag via long-press), begin connection draw instead of node drag
-      if (longPressingInstanceId && !touchState.current.isDragging && !draggingNodeInfo && !drawingConnectionFrom && !pinchRef.current.active) {
-        const armedNode = nodes.find(n => n.id === longPressingInstanceId);
+      // Match mouse behavior: if longPressingInstanceId is set → Connection Draw, else → Node Drag
+      // BUT: If drag is already started (isDragging=true), skip connection logic entirely
+      if (!touchState.current.isDragging && longPressingInstanceIdRef.current && !draggingNodeInfo && !drawingConnectionFrom && !pinchRef.current.active) {
+        // Check if we've left the node area (matches mouse behavior)
+        const armedNode = nodes.find(n => n.id === longPressingInstanceIdRef.current);
         if (armedNode) {
           const leftNodeArea = !isInsideNode(armedNode, touch.clientX, touch.clientY);
+          // Allow both patterns (same as mouse):
+          // 1) Move outside the node (original behavior)
+          // 2) Quick drag while still inside the node (desktop-friendly)
           if (leftNodeArea || startedOnNode.current) {
+            // longPressingInstanceId is armed AND we left the node → Start Connection Draw
             const startNodeDims = getNodeDimensions(armedNode, previewingNodeId === armedNode.id, null);
             const startPt = { x: armedNode.x + startNodeDims.currentWidth / 2, y: armedNode.y + startNodeDims.currentHeight / 2 };
 
-            // Validate touch coordinates before calculating canvas position
             if (!containerRef.current || typeof touch.clientX !== 'number' || typeof touch.clientY !== 'number') {
-              // If coordinates are invalid, don't start drawing connection
               setLongPressingInstanceId(null);
+              longPressingInstanceIdRef.current = null;
               return;
             }
 
@@ -1008,25 +1165,39 @@ function NodeCanvas() {
             const rawX = (touch.clientX - rect.left - panOffset.x) / zoomLevel + canvasSize.offsetX;
             const rawY = (touch.clientY - rect.top - panOffset.y) / zoomLevel + canvasSize.offsetY;
 
-            // Validate calculated coordinates are not NaN
             if (isNaN(rawX) || isNaN(rawY)) {
-              setLongPressingInstanceId(null);
-              return;
+              // Only abort initialization if NOT already dragging
+              if (!touchState.current.isDragging && !draggingNodeInfo) {
+                setLongPressingInstanceId(null);
+                longPressingInstanceIdRef.current = null;
+              }
+              return; // Skip this frame but don't clear drag state if already dragging
             }
 
             const { x: currentX, y: currentY } = clampCoordinates(rawX, rawY);
             setDrawingConnectionFrom({ sourceInstanceId: armedNode.id, startX: startPt.x, startY: startPt.y, currentX, currentY });
-            // keep longPressingInstanceId set until we fully enter connection mode
+            setLongPressingInstanceId(null);
+            longPressingInstanceIdRef.current = null;
+          } else {
+            // Still inside node, haven't left yet → Don't start connection, continue waiting
+            // This allows quick drags inside the node to become node drags instead
           }
         }
-      } else if (!touchState.current.isDragging) {
-        // Otherwise, start dragging the node
-        const dragStarted = startDragForNode(nodeData, touch.clientX, touch.clientY);
-        if (dragStarted) {
+      } else if (!touchState.current.isDragging && !longPressingInstanceIdRef.current) {
+        // longPressingInstanceId NOT set (cleared by long press timeout) → Start Node Drag
+        if (!touchState.current.isDragging) {
+          // Set flag BEFORE to enable early exit path immediately
           touchState.current.isDragging = true;
-          touchState.current.longPressReady = false;
-          setSelectedNodeIdForPieMenu(null);
-          setLongPressingInstanceId(null);
+          const dragStarted = startDragForNode(nodeData, touch.clientX, touch.clientY);
+          if (!dragStarted) {
+            // Rollback if start failed
+            touchState.current.isDragging = false;
+          } else {
+            touchState.current.longPressReady = false;
+            setSelectedNodeIdForPieMenu(null);
+            setLongPressingInstanceId(null);
+            longPressingInstanceIdRef.current = null;
+          }
         }
       }
     }
@@ -1052,6 +1223,7 @@ function NodeCanvas() {
     isMouseDown.current = false;
     startedOnNode.current = false;
     setLongPressingInstanceId(null);
+    longPressingInstanceIdRef.current = null;
 
     // Clean up CSS classes
     if (touchState.current.nodeElement) {
@@ -1089,7 +1261,9 @@ function NodeCanvas() {
 
       // Light haptic feedback for tap completion
       if (navigator.vibrate) {
-        navigator.vibrate(5);
+        try {
+          navigator.vibrate(5);
+        } catch (e) { }
       }
 
       // Handle double-tap for definition navigation
@@ -1115,7 +1289,9 @@ function NodeCanvas() {
     } else if (touchState.current.isDragging) {
       // Drag completion feedback
       if (navigator.vibrate) {
-        navigator.vibrate(15); // Slightly stronger feedback for drag completion
+        try {
+          navigator.vibrate(15); // Slightly stronger feedback for drag completion
+        } catch (e) { }
       }
     }
 
@@ -1141,7 +1317,7 @@ function NodeCanvas() {
 
     // Ensure drag state is cleared
     setDraggingNodeInfo(null);
-    setMouseInsideNode(false);
+    mouseInsideNode.current = false;
 
     // Detach document listeners set on touchstart
     if (docTouchListenersRef.current) {
@@ -1830,15 +2006,21 @@ function NodeCanvas() {
       const moveX = ref.vx * dt;
       const moveY = ref.vy * dt;
 
-      let appliedX = 0;
-      let appliedY = 0;
+      // Calculate the new pan offset and track what actually got applied
+      const viewport = viewportSizeRef.current;
+      const canvas = canvasSizeRef.current;
+      const z = zoomLevelRef.current;
+
+      if (!viewport || !canvas || !z) {
+        stopPanMomentum();
+        return;
+      }
+
+      // Track if we hit bounds to stop momentum in that direction
+      let hitBoundsX = false;
+      let hitBoundsY = false;
+
       setPanOffset(prev => {
-        const viewport = viewportSizeRef.current;
-        const canvas = canvasSizeRef.current;
-        const z = zoomLevelRef.current;
-        if (!viewport || !canvas || !z) {
-          return prev;
-        }
         const minX = viewport.width - canvas.width * z;
         const minY = viewport.height - canvas.height * z;
         const maxX = 0;
@@ -1847,26 +2029,30 @@ function NodeCanvas() {
         const targetY = prev.y + moveY;
         const clampedX = Math.min(Math.max(targetX, minX), maxX);
         const clampedY = Math.min(Math.max(targetY, minY), maxY);
-        appliedX = clampedX - prev.x;
-        appliedY = clampedY - prev.y;
+
+        // Check if we hit bounds
+        hitBoundsX = Math.abs(clampedX - targetX) > 0.01;
+        hitBoundsY = Math.abs(clampedY - targetY) > 0.01;
+
         return { x: clampedX, y: clampedY };
       });
 
       const damping = Math.pow(frictionBase, dt / PAN_MOMENTUM_FRAME);
 
-      // If we hit bounds, kill the relevant velocity component
-      if (Math.abs(appliedX - moveX) > 0.01) {
+      // If we hit bounds, stop momentum in that direction
+      if (hitBoundsX) {
         ref.vx = 0;
       } else {
         ref.vx *= damping;
       }
-      if (Math.abs(appliedY - moveY) > 0.01) {
+      if (hitBoundsY) {
         ref.vy = 0;
       } else {
         ref.vy *= damping;
       }
 
-      if (Math.hypot(ref.vx, ref.vy) < PAN_MOMENTUM_MIN_SPEED) {
+      const speed = Math.hypot(ref.vx, ref.vy);
+      if (speed < PAN_MOMENTUM_MIN_SPEED) {
         stopPanMomentum();
         isPanningOrZooming.current = false;
         return;
@@ -5729,8 +5915,11 @@ function NodeCanvas() {
 
               // Validate calculated coordinates are not NaN
               if (isNaN(rawX) || isNaN(rawY)) {
-                setLongPressingInstanceId(null);
-                return;
+                // Only clear if NOT already dragging
+                if (!draggingNodeInfo) {
+                  setLongPressingInstanceId(null);
+                }
+                return; // Skip this frame but don't abort active drag
               }
 
               const { x: currentX, y: currentY } = clampCoordinates(rawX, rawY);
@@ -5738,8 +5927,8 @@ function NodeCanvas() {
               setLongPressingInstanceId(null); // Clear ID
             }
           }
-        } else if (!draggingNodeInfo && !drawingConnectionFrom && !isPanning && !startedOnNode.current && !pinchRef.current.active) {
-          // Start panning after threshold exceeded
+        } else if (!draggingNodeInfo && !drawingConnectionFrom && !isPanning && !startedOnNode.current && !pinchRef.current.active && !panStart) {
+          // Start panning after threshold exceeded (check panStart ref to avoid race condition with setState)
           isPanningOrZooming.current = true;
           setIsPanning(true);
           lastPanVelocityRef.current = { vx: 0, vy: 0 };
@@ -5747,6 +5936,7 @@ function NodeCanvas() {
           setPanStart({ x: e.clientX, y: e.clientY });
           panSourceRef.current = isTouchDeviceRef.current ? 'touch' : 'mouse';
           panVelocityHistoryRef.current = [{ x: e.clientX, y: e.clientY, time: performance.now() }];
+          console.log('[Mouse Move] Started panning, reset history');
         }
       }
     }
@@ -5755,8 +5945,12 @@ function NodeCanvas() {
     if (draggingNodeInfo) {
       // Per-frame console removed for performance
 
-      // Store latest drag event for RAF processing
-      pendingDragUpdate.current = { e, draggingNodeInfo };
+      // Store latest drag coordinates (not event object which can become stale)
+      pendingDragUpdate.current = {
+        clientX: e.clientX,
+        clientY: e.clientY,
+        draggingNodeInfo
+      };
 
       // Schedule RAF update if not already scheduled (throttles to display refresh rate)
       if (!dragUpdateScheduled.current) {
@@ -5766,15 +5960,14 @@ function NodeCanvas() {
           const update = pendingDragUpdate.current;
           if (!update) return;
 
-          const e = update.e;
-          const draggingNodeInfo = update.draggingNodeInfo;
+          const { clientX, clientY, draggingNodeInfo } = update;
           // Ensure labels recalc during drag (touch or mouse) by clearing cache each frame
           placedLabelsRef.current = new Map();
           // Group drag via label
           if (draggingNodeInfo.groupId && Array.isArray(draggingNodeInfo.memberOffsets)) {
             const rect = containerRef.current.getBoundingClientRect();
-            const mouseCanvasX = (e.clientX - rect.left - panOffset.x) / zoomLevel + canvasSize.offsetX;
-            const mouseCanvasY = (e.clientY - rect.top - panOffset.y) / zoomLevel + canvasSize.offsetY;
+            const mouseCanvasX = (clientX - rect.left - panOffset.x) / zoomLevel + canvasSize.offsetX;
+            const mouseCanvasY = (clientY - rect.top - panOffset.y) / zoomLevel + canvasSize.offsetY;
             const positionUpdates = draggingNodeInfo.memberOffsets.map(({ id, dx, dy }) => {
               const node = nodes.find(n => n.id === id);
               const xRaw = mouseCanvasX - dx;
@@ -5801,8 +5994,8 @@ function NodeCanvas() {
             const primaryInstanceId = draggingNodeInfo.primaryId;
             // Use the same coordinate system as single node drag for consistency
             const rect = containerRef.current.getBoundingClientRect();
-            const mouseCanvasX = (e.clientX - rect.left - panOffset.x) / zoomLevel + canvasSize.offsetX;
-            const mouseCanvasY = (e.clientY - rect.top - panOffset.y) / zoomLevel + canvasSize.offsetY;
+            const mouseCanvasX = (clientX - rect.left - panOffset.x) / zoomLevel + canvasSize.offsetX;
+            const mouseCanvasY = (clientY - rect.top - panOffset.y) / zoomLevel + canvasSize.offsetY;
 
             // Calculate new primary position based on mouse position and initial offset
             const initialMouseCanvasX = (draggingNodeInfo.initialMouse.x - rect.left - panOffset.x) / zoomLevel + canvasSize.offsetX;
@@ -5862,8 +6055,8 @@ function NodeCanvas() {
 
               // Get mouse position in canvas coordinates
               const rect = containerRef.current.getBoundingClientRect();
-              const mouseCanvasX = (e.clientX - rect.left - panOffset.x) / zoomLevel + canvasSize.offsetX;
-              const mouseCanvasY = (e.clientY - rect.top - panOffset.y) / zoomLevel + canvasSize.offsetY;
+              const mouseCanvasX = (clientX - rect.left - panOffset.x) / zoomLevel + canvasSize.offsetX;
+              const mouseCanvasY = (clientY - rect.top - panOffset.y) / zoomLevel + canvasSize.offsetY;
 
               let newX, newY;
 
@@ -6023,8 +6216,10 @@ function NodeCanvas() {
     lastPanSampleRef.current = { time: performance.now() };
     panSourceRef.current = isTouchDeviceRef.current ? 'touch' : 'mouse';
     panVelocityHistoryRef.current = [{ x: e.clientX, y: e.clientY, time: performance.now() }];
+    console.log('[Mouse Down] History reset to 1 sample');
   };
   const handleMouseUp = (e) => {
+    console.log('[Mouse Up] Called, history length:', panVelocityHistoryRef.current.length, 'Stack:', new Error().stack.split('\n').slice(1, 4).join('\n'));
     if (isPaused || !activeGraphId) return;
     clearTimeout(longPressTimeout.current);
     setLongPressingInstanceId(null); // Clear ID
@@ -6211,16 +6406,23 @@ function NodeCanvas() {
     if (isPanning && panStart) {
       const source = panSourceRef.current;
       if (source === 'trackpad' || source === 'touch') {
-        // Calculate velocity from history
+        // Calculate velocity from RECENT samples only (last 80ms for responsive feel)
         const history = panVelocityHistoryRef.current;
         let vx = 0, vy = 0;
+        let recentCount = 0;
         if (history.length >= 2) {
-          const last = history[history.length - 1];
-          const first = history[0];
-          const dt = last.time - first.time;
-          if (dt > 10) { // Avoid division by zero or extremely small dt
-            vx = (last.x - first.x) / dt;
-            vy = (last.y - first.y) / dt;
+          const now = history[history.length - 1].time;
+          const cutoff = now - 80; // Use samples from last 80ms only
+          const recent = history.filter(s => s.time >= cutoff);
+          recentCount = recent.length;
+          if (recent.length >= 2) {
+            const last = recent[recent.length - 1];
+            const first = recent[0];
+            const dt = last.time - first.time;
+            if (dt > 1) { // Only avoid exact zero or extremely small dt
+              vx = (last.x - first.x) / dt;
+              vy = (last.y - first.y) / dt;
+            }
           }
         }
 
@@ -6230,7 +6432,10 @@ function NodeCanvas() {
           vy = lastPanVelocityRef.current.vy;
         }
 
-        momentumStarted = startPanMomentum(vx, vy, source);
+        const speed = Math.hypot(vx, vy);
+        if (speed >= PAN_MOMENTUM_MIN_SPEED) {
+          momentumStarted = startPanMomentum(vx, vy, source);
+        }
       }
     }
     if (!momentumStarted) {
@@ -6248,41 +6453,8 @@ function NodeCanvas() {
     mouseMoved.current = false;
   };
   const handleMouseUpCanvas = (e) => {
-    if (isPaused || !activeGraphId) return;
-    if (isPanning) {
-      const dx = e.clientX - mouseDownPosition.current.x;
-      const dy = e.clientY - mouseDownPosition.current.y;
-      const dist = Math.sqrt(dx * dx + dy * dy);
-      if (dist > MOVEMENT_THRESHOLD) {
-        setRecentlyPanned(true);
-        setTimeout(() => setRecentlyPanned(false), 100);
-      }
-      const maxX = 0;
-      const maxY = 0;
-      const minX = viewportSize.width - canvasSize.width * zoomLevel;
-      const minY = viewportSize.height - canvasSize.height * zoomLevel;
-      setPanOffset(prev => ({
-        x: Math.min(Math.max(prev.x, minX), maxX),
-        y: Math.min(Math.max(prev.y, minY), maxY),
-      }));
-    }
-    if (selectionStart) {
-      setSelectionStart(null);
-      setSelectionRect(null);
-    } else if (selectionRect) {
-      // Defensive: ensure selection box is cleared even if selectionStart was unset
-      setSelectionRect(null);
-    }
-    setIsPanning(false);
-    isPanningOrZooming.current = false; // Clear the flag when canvas mouse up
-    panSourceRef.current = null; // Reset pan source
-    setDraggingNodeInfo(null);
-    setDrawingConnectionFrom(null);
-
-    isMouseDown.current = false;
-    // Don't reset wasDrawingConnection here - let handleCanvasClick check it first
-    // wasDrawingConnection.current = false;
-    // setHasMouseMovedSinceDown(false); // Reset on next mousedown
+    // Delegate to the main handleMouseUp to ensure consistent cleanup
+    handleMouseUp(e);
   };
   const handleCanvasClick = (e) => {
     if (wasDrawingConnection.current) {
@@ -8474,12 +8646,9 @@ function NodeCanvas() {
           onTouchEnd={handleTouchEndCanvas}
           onTouchCancel={handleTouchEndCanvas}
           onContextMenu={(e) => {
-            // Only show context menu on empty canvas areas (not on nodes or other elements)
-            if (e.target === e.currentTarget || e.target.classList.contains('canvas') || e.target.tagName === 'svg') {
-              e.preventDefault();
-              e.stopPropagation();
-              showContextMenu(e.clientX, e.clientY, getCanvasContextMenuOptions());
-            }
+            // Prevent context menu on canvas (disable long-press right-click behavior)
+            e.preventDefault();
+            e.stopPropagation();
           }}
         >
           {isUniverseLoading ? (
@@ -11183,7 +11352,6 @@ function NodeCanvas() {
                             onPointerUp={(e) => handleNodePointerUp(node, e)}
                             onPointerCancel={(e) => handleNodePointerCancel(node, e)}
                             onTouchStart={(e) => handleNodeTouchStart(node, e)}
-                            onTouchMove={(e) => handleNodeTouchMove(node, e)}
                             onTouchEnd={(e) => handleNodeTouchEnd(node, e)}
                             onContextMenu={(e) => {
                               e.preventDefault();
@@ -11404,7 +11572,6 @@ function NodeCanvas() {
                                 onPointerUp={(e) => handleNodePointerUp(activeNodeToRender, e)}
                                 onPointerCancel={(e) => handleNodePointerCancel(activeNodeToRender, e)}
                                 onTouchStart={(e) => handleNodeTouchStart(activeNodeToRender, e)}
-                                onTouchMove={(e) => handleNodeTouchMove(activeNodeToRender, e)}
                                 onTouchEnd={(e) => handleNodeTouchEnd(activeNodeToRender, e)}
                                 onContextMenu={(e) => {
                                   e.preventDefault();
@@ -11500,7 +11667,6 @@ function NodeCanvas() {
                               onPointerUp={(e) => handleNodePointerUp(draggingNodeToRender, e)}
                               onPointerCancel={(e) => handleNodePointerCancel(draggingNodeToRender, e)}
                               onTouchStart={(e) => handleNodeTouchStart(draggingNodeToRender, e)}
-                              onTouchMove={(e) => handleNodeTouchMove(draggingNodeToRender, e)}
                               onTouchEnd={(e) => handleNodeTouchEnd(draggingNodeToRender, e)}
                               onContextMenu={(e) => {
                                 e.preventDefault();

@@ -179,7 +179,6 @@ const UnifiedSelector = ({
             onClose?.();
           }
         }}
-        onTouchStart={(e) => e.stopPropagation()}
       />
 
       <div
@@ -193,9 +192,8 @@ const UnifiedSelector = ({
           display: 'flex',
           flexDirection: 'column',
           gap: isSmallScreen ? '12px' : '18px',
-          pointerEvents: 'auto'
+          pointerEvents: 'none'
         }}
-        onTouchStart={(e) => e.stopPropagation()}
       >
         {showDialog && (
           <div
@@ -208,7 +206,8 @@ const UnifiedSelector = ({
               boxShadow: '0 2px 10px rgba(0,0,0,0.2)',
               position: 'relative',
               flexShrink: 0,
-              maxWidth: '100%'
+              maxWidth: '100%',
+              pointerEvents: 'auto'
             }}
             onClick={(e) => e.stopPropagation()}
             onMouseDown={(e) => e.stopPropagation()}
@@ -223,7 +222,6 @@ const UnifiedSelector = ({
                 touchAction: 'manipulation'
               }}
               onPointerDown={(e) => { if (e.pointerType !== 'mouse') { e.stopPropagation(); } }}
-              onTouchStart={(e) => { e.stopPropagation(); }}
             >
               <X size={closeIconSize} color="#999" onClick={() => { setName(''); setColorPickerVisible(false); onClose?.(); }} />
             </div>
@@ -302,7 +300,7 @@ const UnifiedSelector = ({
 
         {showGrid && (
           <div
-            style={{ flex: 1, overflow: 'hidden', display: 'flex', justifyContent: 'center', width: '100%', minHeight: 0 }}
+            style={{ flex: 1, overflow: 'hidden', display: 'flex', justifyContent: 'center', width: '100%', minHeight: 0, pointerEvents: 'auto' }}
           >
             {/* Outer rounded rectangle */}
             <div

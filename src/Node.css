@@ -1,14 +1,14 @@
 .node {
-    cursor: pointer;
-    /* Prevent OS long-press callout and default touch actions on nodes */
-    -webkit-touch-callout: none;
-    -webkit-user-select: none;
-    user-select: none;
-    -webkit-tap-highlight-color: transparent;
-    touch-action: none;
-    will-change: transform;
-    /* Remove transitions handled by inline styles in Node.jsx */
-    /* transition: transform 0.05s ease, filter 0.1s ease; */
+  cursor: pointer;
+  /* Prevent OS long-press callout and default touch actions on nodes */
+  -webkit-touch-callout: none;
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-tap-highlight-color: transparent;
+  touch-action: none;
+  will-change: transform;
+  /* Remove transitions handled by inline styles in Node.jsx */
+  /* transition: transform 0.05s ease, filter 0.1s ease; */
 }
 
 /* Inherit the suppression for node descendants (SVG children) */
@@ -20,19 +20,20 @@
 }
 
 .node.selected .node-background {
-    /* Use node-background directly for stroke */
-    stroke: black;
-    stroke-width: 8px;
+  /* Use node-background directly for stroke */
+  stroke: black;
+  stroke-width: 8px;
 }
 
 .node.dragging .node-background {
-    /* Use node-background directly for filter */
-    filter: drop-shadow(0px 8px 10px rgba(0, 0, 0, 0.4));
+  /* Use node-background directly for filter */
+  filter: drop-shadow(0px 8px 10px rgba(0, 0, 0, 0.4));
 }
 
 /* Add style for previewing state */
 .node.previewing .node-background {
-  /* stroke: #a0a0a0; */ /* Removed light grey stroke */
+  /* stroke: #a0a0a0; */
+  /* Removed light grey stroke */
   filter: drop-shadow(0px 10px 15px rgba(0, 0, 0, 0.2));
 }
 
@@ -45,8 +46,10 @@
 /* Style for the inner text span - ensure it works with foreignObject */
 .node-name-text {
   display: inline-block;
-  width: 100%; /* Needed for ellipsis/centering */
-  text-align: center; /* Ensure centered text */
+  width: 100%;
+  /* Needed for ellipsis/centering */
+  text-align: center;
+  /* Ensure centered text */
   font-family: 'EmOne', sans-serif;
   /* Remove transition - handled inline */
 }
@@ -75,6 +78,7 @@
 
 /* Touch-optimized styles for mobile devices */
 @media (hover: none) and (pointer: coarse) {
+
   /* Increase minimum touch target size */
   .node {
     min-width: 44px;
@@ -109,13 +113,19 @@
 .node.touch-active {
   transform: scale(0.95);
   transition: transform 0.1s ease;
-  filter: brightness(1.1);
 }
 
 /* Long press feedback disabled for mobile drag UX */
-.node.long-press-active { }
+.node.long-press-active {}
 
 @keyframes pulse {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.8; }
+
+  0%,
+  100% {
+    opacity: 1;
+  }
+
+  50% {
+    opacity: 0.8;
+  }
 }
