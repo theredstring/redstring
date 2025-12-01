@@ -304,9 +304,10 @@ export async function runExecutorOnce() {
       // Determine layout nodes + options
       // FULL layout: include ALL nodes (existing + new) for complete re-layout
       // PARTIAL layout: only layout new nodes, preserve existing positions
-      const isFullLayout = layoutMode === 'full';
+      // AUTO layout: defaults to FULL for comprehensive graph appearance
+      const isFullLayout = layoutMode === 'full' || layoutMode === 'auto';
       const partialContext = !isFullLayout ? buildPartialLayoutContext(graphId) : null;
-      const usePartialLayout = partialContext && (layoutMode === 'partial' || layoutMode === 'auto');
+      const usePartialLayout = partialContext && layoutMode === 'partial';
 
       // For full layout, get ALL existing instances to include in layout
       let layoutNodes = [...tempInstances];
@@ -1337,6 +1338,82 @@ export async function runExecutorOnce() {
           }
         }
       }
+    } else if (task.toolName === 'create_edge') {
+      // Create an edge between two instances
+      const sourceInstanceId = validation.sanitized.source_instance_id;
+      const targetInstanceId = validation.sanitized.target_instance_id;
+      const graphId = validation.sanitized.graph_id;
+      const name = validation.sanitized.name || '';
+      const description = validation.sanitized.description || '';
+      const directionality = validation.sanitized.directionality || { arrowsToward: [] };
+      const definitionNode = validation.sanitized.definitionNode || task.args?.definitionNode || null;
+
+      if (!sourceInstanceId || !targetInstanceId || !graphId) {
+        throw new Error('source_instance_id, target_instance_id, and graph_id are required for create_edge');
+      }
+
+      const edgeId = `edge-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+      
+      // Convert arrowsToward array to Set if needed
+      let arrowsTowardSet = new Set();
+      if (Array.isArray(directionality.arrowsToward)) {
+        arrowsTowardSet = new Set(directionality.arrowsToward);
+      } else if (directionality.arrowsToward instanceof Set) {
+        arrowsTowardSet = directionality.arrowsToward;
+      }
+
+      // Handle definition node - find or create prototype
+      let definitionNodeIds = [];
+      let typeNodeId = validation.sanitized.edge_prototype_id || 'base-connection-prototype';
+
+      if (definitionNode && definitionNode.name) {
+        const defNodeName = definitionNode.name;
+        const store = getBridgeStore();
+        
+        // Search for existing prototype with same name (deduplication)
+        const existingProto = Array.isArray(store.nodePrototypes)
+          ? store.nodePrototypes.find(p => p.name?.toLowerCase() === defNodeName.toLowerCase())
+          : null;
+
+        if (existingProto) {
+          // Reuse existing prototype
+          definitionNodeIds = [existingProto.id];
+          typeNodeId = existingProto.id;
+          console.log(`[Executor] create_edge: Reusing existing definition prototype: "${defNodeName}" (${existingProto.id})`);
+        } else {
+          // Create a new prototype for the connection definition
+          const defProtoId = `prototype-def-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+          ops.push({
+            type: 'addNodePrototype',
+            prototypeData: {
+              id: defProtoId,
+              name: defNodeName,
+              description: definitionNode.description || `Defines the "${name || 'connection'}" relationship`,
+              color: definitionNode.color || '#708090',
+              typeNodeId: 'base-connection-prototype',
+              definitionGraphIds: []
+            }
+          });
+          definitionNodeIds = [defProtoId];
+          typeNodeId = defProtoId;
+          console.log(`[Executor] create_edge: Created new definition prototype: "${defNodeName}" (${defProtoId})`);
+        }
+      }
+
+      ops.push({
+        type: 'addEdge',
+        graphId,
+        edgeData: {
+          id: edgeId,
+          sourceId: sourceInstanceId,
+          destinationId: targetInstanceId,
+          name,
+          typeNodeId,
+          directionality: { arrowsToward: arrowsTowardSet },
+          definitionNodeIds
+        }
+      });
+      console.log(`[Executor] create_edge: Creating edge ${edgeId} from ${sourceInstanceId} to ${targetInstanceId} in graph ${graphId}`);
     } else if (task.toolName === 'delete_edge') {
       // Delete a specific edge
       const graphId = validation.sanitized.graphId;

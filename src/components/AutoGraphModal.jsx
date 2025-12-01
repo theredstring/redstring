@@ -140,20 +140,10 @@ const AutoGraphModal = ({ isOpen, onClose, onGenerate, activeGraphId }) => {
             </div>
           )}
 
-          {/* Layout Algorithm */}
-          <div className="autograph-section">
-            <label className="autograph-label">Layout Algorithm</label>
-            <select
-              className="autograph-select"
-              value={layoutAlgorithm}
-              onChange={(e) => setLayoutAlgorithm(e.target.value)}
-            >
-              <option value="force">Force-Directed (physics-based, general purpose)</option>
-              <option value="hierarchical">Hierarchical (tree-like structures)</option>
-              <option value="radial">Radial (orbits around center)</option>
-              <option value="grid">Grid (organized rows/columns)</option>
-              <option value="circular">Circular (nodes on circle perimeter)</option>
-            </select>
+          {/* Layout info - always force-directed */}
+          <div className="autograph-section autograph-info">
+            <span className="autograph-label">Layout:</span>
+            <span className="autograph-value">Force-Directed (auto-positioned)</span>
           </div>
 
           {/* Target Mode */}

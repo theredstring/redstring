@@ -305,3 +305,22 @@
   font-weight: 700;
 }
 
+.autograph-info {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  background: rgba(78, 205, 196, 0.08);
+  border-radius: 4px;
+}
+
+.autograph-info .autograph-label {
+  margin-bottom: 0;
+  font-weight: 600;
+}
+
+.autograph-value {
+  color: #4ECDC4;
+  font-weight: 500;
+}
+

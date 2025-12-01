@@ -157,7 +157,7 @@ function extractEntityName(text, fallback = 'New Concept') {
 
 const WIZARD_CHOICE_GRAPH_SPEC = Object.freeze({
   name: "Wonder Weaver's Map",
-  layoutAlgorithm: 'radial',
+  layoutAlgorithm: 'force',
   layoutMode: 'auto',
   nodes: [
     { name: 'Idea Hearth', color: '#8B0000', description: 'Gather sparks of inspiration' },
@@ -253,13 +253,17 @@ You are the PLANNER in a multi-stage orchestration pipeline:
 5. CONTINUATION: Checks if more work needed (agentic loop, max 5 iterations)
 
 YOUR JOB: Focus on SEMANTIC data (names, relationships, colors, descriptions). The system handles:
-- Spatial layout (force-directed, hierarchical, radial algorithms)
+- Spatial layout (force-directed algorithm - automatically positioned)
 - Duplicate prevention (fuzzy matching like "Avengers" ≈ "The Avengers")
 - UI updates (React mutations, graph rendering)
 - Iteration control (auto-continuation until complete)
 
-THINK IN BATCHES: Generate 5-8 nodes per iteration. The system will ask "should I continue?" after each batch.
-If the user wants a large graph, start with core concepts, then the system auto-continues with related concepts.
+BATCH SIZING: Generate comprehensive graphs in fewer iterations.
+- INITIAL GRAPHS: 12-20 nodes in the first phase. Aim to complete most topics in 1-2 phases max.
+- Simple topics (solar system, org chart): Complete in 1 phase with 10-15 nodes.
+- Medium topics (mythology, movie cast): Complete in 1-2 phases, 15-25 nodes total.
+- Complex topics (historical events): 2-3 phases max, 25-40 nodes total.
+The system will ask "should I continue?" - but prefer completing sooner with quality over many small iterations.
 
 Search-first policy:
 - Before creating a graph or concept, list/search to reuse existing when possible.
@@ -273,7 +277,7 @@ OUTPUT FORMAT:
 Respond with valid JSON only. No extra text, no markdown.
 
 {
-  "intent": "qa" | "create_graph" | "create_node" | "analyze" | "update_node" | "delete_node" | "delete_graph",
+  "intent": "qa" | "create_graph" | "create_node" | "analyze" | "update_node" | "delete_node" | "delete_graph" | "update_edge" | "delete_edge" | "create_edge" | "bulk_delete" | "enrich_node",
   "response": "brief, friendly message prefacing your action",
   "questions": ["optional clarifying question"],
   "graph": { "name": "graph name" },
@@ -299,6 +303,24 @@ Respond with valid JSON only. No extra text, no markdown.
   "delete": {
     "target": "node name or ID",
     "graphId": "optional graph ID for delete_graph"
+  },
+  "edge": {
+    "source": "source node name",
+    "target": "target node name",
+    "definitionNode": {
+      "name": "Connection Type",
+      "color": "#HEX",
+      "description": "what this connection means"
+    },
+    "directionality": "unidirectional" | "bidirectional" | "none" | "reverse"
+  },
+  "edgeDelete": {
+    "source": "source node name",
+    "target": "target node name"
+  },
+  "bulkDelete": {
+    "nodes": ["Node Name 1", "Node Name 2"],
+    "reason": "optional explanation"
   }
 }
 
@@ -469,7 +491,7 @@ CRITICAL: nodes MUST use "name" field. DO NOT use "id", "title", or "label". The
       }
     }
   ],
-  "layoutAlgorithm": "force" | "hierarchical" | "radial" | "grid"  // OPTIONAL, defaults to "force"
+  "layoutAlgorithm": "force"  // ALWAYS use force-directed layout
 }
 
 CRITICAL SYNTHESIS RULES:
@@ -487,7 +509,7 @@ CRITICAL SYNTHESIS RULES:
 8. FUZZY MATCHING: "Avengers Initiative" ≈ "The Avengers" ≈ "Avengers" - treat as same node
 
 Example: Graph has [Sun, Earth, Mars]. You add Moon and Venus:
-{"intent":"create_node","response":"I'll add Moon (orbiting Earth) and Venus (inner planet), with 5 orbital relationships.","graphSpec":{"nodes":[{"name":"Moon","color":"#C0C0C0","description":"Earth's natural satellite"},{"name":"Venus","color":"#FFC649","description":"Second planet from Sun"}],"edges":[{"source":"Earth","target":"Moon","directionality":"unidirectional","definitionNode":{"name":"Orbits","description":"Gravitational orbit relationship"}},{"source":"Sun","target":"Venus","directionality":"unidirectional","definitionNode":{"name":"Orbits","description":"Gravitational orbit relationship"}},{"source":"Venus","target":"Earth","directionality":"none","definitionNode":{"name":"Planetary Neighbor","description":"Adjacent planets in solar system"}},{"source":"Moon","target":"Mars","directionality":"none"},{"source":"Venus","target":"Mars","directionality":"none"}],"layoutAlgorithm":"radial"}}
+{"intent":"create_node","response":"I'll add Moon (orbiting Earth) and Venus (inner planet), with 5 orbital relationships.","graphSpec":{"nodes":[{"name":"Moon","color":"#C0C0C0","description":"Earth's natural satellite"},{"name":"Venus","color":"#FFC649","description":"Second planet from Sun"}],"edges":[{"source":"Earth","target":"Moon","directionality":"unidirectional","definitionNode":{"name":"Orbits","description":"Gravitational orbit relationship"}},{"source":"Sun","target":"Venus","directionality":"unidirectional","definitionNode":{"name":"Orbits","description":"Gravitational orbit relationship"}},{"source":"Venus","target":"Earth","directionality":"none","definitionNode":{"name":"Planetary Neighbor","description":"Adjacent planets in solar system"}},{"source":"Moon","target":"Mars","directionality":"none"},{"source":"Venus","target":"Mars","directionality":"none"}],"layoutAlgorithm":"force"}}
 
 Notice: 2 new nodes, 5 edges (dense!), directionality specified, meaningful relationships defined
 
@@ -509,8 +531,36 @@ IMPORTANT: Use "analyze" intent first to read the graph, then delete each node i
 Example: {"intent":"analyze","response":"I'll clear all nodes from this graph. Let me first see what's here."}
 
 Intent: "delete_graph" (REMOVE ENTIRE GRAPH)
-When: "delete the X graph", "remove this graph".
-Example: {"intent":"delete_graph","response":"I'll dissolve the 'Old Drafts' graph.","delete":{"graphId":"graph-123"}}
+When: "delete the X graph", "remove this graph", "delete this graph".
+CRITICAL: Use the active graph from CURRENT GRAPH context. Do NOT ask for graph ID! The system will resolve the graph name to ID automatically.
+Example: {"intent":"delete_graph","response":"I'll dissolve the 'Stranger Things' graph.","delete":{"target":"Stranger Things"}}
+Note: You can also use "graphId" if you have it, but "target" (graph name) is preferred and will be resolved automatically.
+
+Intent: "update_edge" (REPLACE/MODIFY CONNECTION)
+When: "change the connection between X and Y", "update the relationship", "replace the edge", "make the connection between X and Y reflect Z".
+CRITICAL: This REPLACES the existing connection. If user wants to keep old connection and add new one, use "create_edge" instead.
+Example: {"intent":"update_edge","response":"I'll update the Joyce-Hopper connection to reflect their romantic status.","edge":{"source":"Joyce Byers","target":"Jim Hopper","definitionNode":{"name":"Romantic Partnership","color":"#E74C3C","description":"Love interest"},"directionality":"bidirectional"}}
+
+Intent: "delete_edge" (REMOVE SPECIFIC CONNECTION)
+When: "remove the connection between X and Y", "delete the edge", "break the link between X and Y".
+Example: {"intent":"delete_edge","response":"I'll remove that connection.","edgeDelete":{"source":"Node A","target":"Node B"}}
+
+Intent: "create_edge" (ADD CONNECTION BETWEEN EXISTING NODES)
+When: "connect X to Y", "add relationship between", "link these nodes", "create a connection from X to Y".
+Example: {"intent":"create_edge","response":"I'll connect those nodes.","edge":{"source":"Node A","target":"Node B","definitionNode":{"name":"Related To","color":"#3498DB","description":"General relationship"},"directionality":"bidirectional"}}
+
+Intent: "bulk_delete" (DELETE MULTIPLE NODES AT ONCE)
+When: "undo recent additions", "remove these nodes", "delete all the nodes you just added", "undo what you just did".
+IMPORTANT: List ALL node names to delete in the bulkDelete.nodes array.
+Example: {"intent":"bulk_delete","response":"I'll remove the 5 recently added nodes.","bulkDelete":{"nodes":["Node A","Node B","Node C","Node D","Node E"],"reason":"Undoing recent additions"}}
+NOTE: You must know which nodes to delete. If unsure, use "analyze" intent first to see the graph, then ask the user which nodes to remove.
+
+Intent: "enrich_node" (CREATE DEFINITION GRAPH FOR NODE)
+When: "enrich X", "expand X", "create a definition for X", "break down X", "decompose X", "what is X made of", "define X".
+CRITICAL: This creates a NEW definition graph for the node and populates it with sub-components.
+The node must exist in the active graph. The definition graph will be created and populated automatically.
+Example: {"intent":"enrich_node","response":"I'll create a definition graph for 'Solar System' with its planets and relationships.","enrich":{"target":"Solar System","graphSpec":{"nodes":[{"name":"Sun","color":"#FDB813"},{"name":"Mercury","color":"#8C7853"}],"edges":[{"source":"Sun","target":"Mercury","directionality":"unidirectional","definitionNode":{"name":"Orbits","description":"Planet orbits star"}}]}}}
+NOTE: The graphSpec should contain nodes that DEFINE or COMPOSE the target node. Think: "What are the key parts that make up X?"
 
 LAYOUT CHOICES:
 - radial/orbit: Hub-and-spoke (solar systems, org charts, hub concepts).
@@ -519,9 +569,9 @@ LAYOUT CHOICES:
 - force/force-directed: General networks when structure is mixed.
 
 GRAPHSPEC GUIDELINES:
-- 5-8 nodes for graphs that include connection definitions (keeps responses manageable).
-- 8-12 nodes otherwise or when the user requests more scope.
-- 2-5 nodes when adding to an existing graph.
+- NEW GRAPHS: 12-20 nodes for comprehensive coverage. Complete most topics in 1 phase.
+- EXISTING GRAPHS: 3-8 nodes when expanding (focused additions).
+- PREFER COMPLETION: Better to complete with 15 good nodes than drag on with many tiny batches.
 - Use only colors from the provided palette; do not invent new ones.
 - Give edges descriptive names ("orbits", "leads to", "part of", "influences").
 - Include descriptions for ambiguous concepts.
@@ -1017,26 +1067,25 @@ app.post('/api/ai/agent/continue', async (req, res) => {
       }
     }
 
-    // SELF-DIRECTED AGENT: No hardcoded iteration limits
-    // AI decides when the graph is complete based on topic complexity
-    // Safety limits only for extreme edge cases
+    // SELF-DIRECTED AGENT: AI decides when the graph is complete
+    // Safety limits for edge cases - with new guidelines, should complete in 1-3 phases normally
     const phaseNumber = (graphState?.nodeCount || 0) > 0 ? 'continuation' : 'initial';
-    const MAX_PHASES = 50; // Safety limit for extreme edge cases
-    const MAX_TOTAL_NODES = 200; // Sanity check
+    const MAX_PHASES = 8; // With improved batching, should complete in 1-3 phases max
+    const MAX_TOTAL_NODES = 100; // Reasonable limit for graph complexity
 
     const currentPhase = iteration || 0;
     const nodeCount = graphState?.nodeCount || 0;
 
-    // Safety check: extreme edge cases only
+    // Safety check: graceful completion if limits approached
     if (currentPhase >= MAX_PHASES) {
-      logger.warn(`[Agent/Continue] Safety limit reached: ${MAX_PHASES} phases for cid=${cid}`);
-      const responseText = `⚠️ Safety limit reached after ${MAX_PHASES} phases. Graph has ${nodeCount} nodes.`;
-      return res.json({ success: true, completed: true, response: responseText, reason: 'safety_limit' });
+      logger.warn(`[Agent/Continue] Completing after ${MAX_PHASES} phases for cid=${cid}`);
+      const responseText = `Graph complete with ${nodeCount} nodes. The core concepts are covered!`;
+      return res.json({ success: true, completed: true, response: responseText, reason: 'phases_complete' });
     }
 
     if (nodeCount >= MAX_TOTAL_NODES) {
-      logger.warn(`[Agent/Continue] Safety limit reached: ${MAX_TOTAL_NODES} nodes for cid=${cid}`);
-      const responseText = `⚠️ Graph has reached ${MAX_TOTAL_NODES} nodes (safety limit).`;
+      logger.warn(`[Agent/Continue] Completing at ${MAX_TOTAL_NODES} nodes for cid=${cid}`);
+      const responseText = `Graph complete with ${nodeCount} nodes - a comprehensive knowledge network!`;
       return res.json({ success: true, completed: true, response: responseText, reason: 'node_limit' });
     }
 
@@ -1281,24 +1330,25 @@ If NEEDS MORE (graph needs expansion):
 - Explain what you're adding and why
 - Example reasoning: "Main Olympians complete (12 nodes). Now adding 8 Titans to show generational hierarchy."
 
-EVALUATION GUIDELINES:
-- Simple topics (e.g., "solar system"): 8-12 nodes usually sufficient → COMPLETE
-- Medium topics (e.g., "Greek mythology"): 20-30 nodes typical → 2-3 phases
-- Complex topics (e.g., "World War II"): 40-60 nodes needed → 4-6 phases
-- Be comprehensive but not exhaustive - cover key concepts, not every detail
+EVALUATION GUIDELINES - PREFER FEWER ITERATIONS:
+- Simple topics (e.g., "solar system"): 10-15 nodes → COMPLETE in 1 phase
+- Medium topics (e.g., "Greek mythology"): 15-25 nodes → COMPLETE in 1-2 phases MAX
+- Complex topics (e.g., "World War II"): 25-40 nodes → 2-3 phases MAX
+- CRITICAL: Most graphs should complete in 1-2 phases. Quality over quantity.
+- Don't add nodes just to hit a number - if the core concepts are covered, COMPLETE.
 
 CRITICAL INSTRUCTIONS:
 1. STAY ON TOPIC: Only add nodes relevant to "${originalMessage}"
 2. AVOID DUPLICATES: Check the node list above before adding
-3. BE DECISIVE: Don't continue indefinitely - know when to stop
-4. QUALITY OVER QUANTITY: Better to complete with 20 good nodes than 50 mediocre ones
+3. PREFER COMPLETING: Most graphs should be COMPLETE in 1-2 phases. When in doubt, COMPLETE.
+4. QUALITY OVER QUANTITY: 15 good nodes beats 50 mediocre ones. Don't pad the graph.
+5. DON'T OVERTHINK: If the main concepts are covered, the graph is COMPLETE. Move on.
 
 Respond with JSON:
 {
   "decision": "continue" | "complete",
-  "reasoning": "Detailed explanation of your decision",
-  "response": "User-facing message about what you're doing or completing",
-  "nextSteps": ["Optional: Array of logical next progressions IF completing"],  // Only if decision is "complete" AND there are natural extensions
+  "reasoning": "Internal explanation (NOT shown to user)",
+  "response": "SHORT user message (1 sentence max, e.g. 'Graph complete!' or 'Adding 5 more creatures...')",
   "graphSpec": {  // Only if decision is "continue"
     "nodes": [{name:"X",color:"#HEX",description:"..."}],
     "edges": [{
@@ -1310,13 +1360,11 @@ Respond with JSON:
   }
 }
 
-NEXT STEPS GUIDANCE (when decision is "complete"):
-- If there are natural extensions or related topics, suggest 2-3 as "nextSteps"
-- Examples:
-  * ADHD mechanisms graph → ["Add treatment approaches", "Add behavioral symptoms", "Add environmental factors"]
-  * Greek mythology graph → ["Add Roman equivalents", "Add mythological creatures", "Add famous myths/stories"]
-  * Solar system graph → ["Add moons for each planet", "Add asteroid belt objects", "Add orbital mechanics"]
-- If the topic is self-contained with no obvious extensions, omit "nextSteps"
+RESPONSE EXAMPLES (keep it SHORT):
+- GOOD: "Graph complete with 14 mythical creatures!"
+- GOOD: "Adding 6 more planets..."
+- BAD: "The graph already includes a strong, diversified set of major mythical creatures from multiple cultures and categories..."
+- BAD: Long explanations about what's in the graph
 `;
     }
 
@@ -1454,16 +1502,12 @@ NEXT STEPS GUIDANCE (when decision is "complete"):
     }
 
     if (decision.decision === 'complete') {
-      const summary = decision.reasoning || decision.response || `Populated graph with ${graphState?.nodeCount || 0} nodes and ${graphState?.edgeCount || 0} connections.`;
-      const nextSteps = decision.nextSteps || decision.suggestions || null;
-
-      // Build completion message
-      let completionMessage = `${summary}`;
-      if (nextSteps && Array.isArray(nextSteps) && nextSteps.length > 0) {
-        completionMessage += `\n\nPossible next steps:\n${nextSteps.map((s, i) => `${i + 1}. ${s}`).join('\n')}`;
-      } else if (nextSteps && typeof nextSteps === 'string') {
-        completionMessage += `\n\n${nextSteps}`;
-      }
+      // CRITICAL: Use response (user-facing) NOT reasoning (internal explanation)
+      const nodeCount = graphState?.nodeCount || 0;
+      const edgeCount = graphState?.edgeCount || 0;
+      const defaultMsg = `Graph complete with ${nodeCount} nodes and ${edgeCount} connections.`;
+      // Use the short response, falling back to default
+      const completionMessage = decision.response || defaultMsg;
 
       // CRITICAL: Send to chat so user sees the completion
       appendChat('ai', completionMessage, { cid, channel: 'agent' });
@@ -1831,18 +1875,9 @@ app.post('/api/ai/agent', async (req, res) => {
       || /\bnode\s+(called|named)\b/i.test(msgText)
       || args.prototypeId || args.conceptName;
     const isQuestionIntent = /[?]\s*$|\b(what|who|describe|summarize|explain|about|why|how)\b/i.test(msgText);
-    // Only treat as graph creation when the graph noun directly follows the create/make/new verb
-    // e.g., "create a graph", "make the graph" — but NOT "make a new node in this graph"
-    const isGraphCreate = /\b(create|make|new)\b\s+(?:a\s+|the\s+)?(graph|perspective|view)\b/i.test(msgText);
 
-    // Intent flags needed early for prompt building
-    const lower = msgText.toLowerCase();
-    const mentionsNode = /(\bnode\b|\bconcept\b|\bthing\b|\bidea\b)/i.test(lower);
-    const explicitCreateGraph = /(\b(create|make|add|new)\b\s+(graph|perspective|view)\b)/i.test(lower);
-    const explicitCreateNode = /(\b(create|make|add|place|insert|spawn)\b\s+(node|concept|thing|idea)\b)/i.test(lower);
-    const wantsAddToGraph = /(\b(create|make|add|place|insert|spawn)\b)[\s\S]*\b(to|into)\b[\s\S]*\b(current\s+graph|graph)\b/i.test(lower);
-    const wantsPopulate = /(fill\s*out|populate|flesh\s*out|expand)\b[\s\S]*\bgraph\b/i.test(msgText) || /components\s+of/i.test(msgText);
-    const wantsWizardChoice = /\b(whatever|anything|your choice|surprise me|up to you)\b/i.test(msgText);
+    // LLM handles all intent detection - no regex pre-filtering
+    // This avoids false positives like "don't enrich" triggering enrich intent
 
     // Model-steered planning (STRICT JSON) with conversation history for context memory
     let planned = null;
@@ -2019,23 +2054,8 @@ app.post('/api/ai/agent', async (req, res) => {
           }
         }
 
-        const wantsDefineConnections = /\b(define|label|annotate)\b[\s\S]{0,80}\b(connection|edge|relationship|link)s?\b/i.test(msgText);
-        const actionHints = [];
-        if (wantsPopulate) {
-          // CRITICAL: Force read_graph_structure FIRST to get full context
-          // The "Example concepts" above only shows 3 nodes - not enough for synthesis
-          actionHints.push('User explicitly asked to expand the active graph. FIRST respond with intent "analyze" to read the full graph structure. The system will then auto-chain to create_node with complete context.');
-        }
-        if (wantsDefineConnections) {
-          actionHints.push('User wants connection labels. Respond with intent "define_connections" targeting the active graph.');
-        }
-        if (wantsWizardChoice) {
-          actionHints.push('User said "whatever/your choice". Pick a delightful topic and respond with intent "create_graph" plus a complete graphSpec (5-8 nodes, 5+ edges).');
-        }
-        const actionHintBlock = actionHints.length > 0
-          ? '\n\n🧭 NEXT ACTION:\n' + actionHints.join('\n')
-          : '';
-        const plannerContextBlock = `${recentContext}${graphContext}${paletteContext}${actionHintBlock}`;
+        // LLM determines intent from context - no action hints needed
+        const plannerContextBlock = `${recentContext}${graphContext}${paletteContext}`;
 
         let text = '';
         const systemPrompt = `${system}${plannerContextBlock}`;
@@ -2316,27 +2336,18 @@ app.post('/api/ai/agent', async (req, res) => {
       }
     } catch { }
 
-    // Heuristic intent resolution to avoid misclassifying node requests as graph creation
-    // (Intent flags already declared above before LLM call)
+    // Trust the LLM's intent detection - no heuristic overrides
     let resolvedIntent = planned?.intent || null;
-    if (resolvedIntent === 'create_graph' && (mentionsNode || wantsAddToGraph) && !explicitCreateGraph) {
-      resolvedIntent = 'create_node';
-    } else if (resolvedIntent === 'create_node' && explicitCreateGraph) {
-      resolvedIntent = 'create_graph';
-    }
 
     telemetry.push({
       ts: Date.now(),
       type: 'intent_resolution',
       cid,
-      original: planned?.intent || null,
-      resolved: resolvedIntent || null,
-      flags: { mentionsNode, explicitCreateGraph, explicitCreateNode }
+      intent: resolvedIntent || null
     });
 
     logger.debug(`[Agent] Intent resolved: ${resolvedIntent}, planned:`, planned ? JSON.stringify(planned) : 'null');
     logger.debug(`[Agent] Message was: "${msgText}"`);
-    logger.debug(`[Agent] Regex flags: isCreateIntent=${isCreateIntent}, isGraphCreate=${isGraphCreate}, mentionsNode=${mentionsNode}`);
 
     // Handle QA intent immediately - just return the response, no tool execution
     if (resolvedIntent === 'qa' && planned) {
@@ -2577,7 +2588,7 @@ app.post('/api/ai/agent', async (req, res) => {
     // Create intent: route graph creation through orchestrator queues
     // If graphSpec is also provided, create graph AND populate it in one shot
     // Only allow regex fallback if the LLM call succeeded (planned is not null)
-    if (resolvedIntent === 'create_graph' || (planned && isGraphCreate && !mentionsNode && !wantsAddToGraph)) {
+    if (resolvedIntent === 'create_graph') {
       const graphName = (() => {
         const fromPlanned = planned?.graph?.name;
         if (fromPlanned) return fromPlanned;
@@ -2602,8 +2613,6 @@ app.post('/api/ai/agent', async (req, res) => {
       let graphSpecToUse = null;
       if (Array.isArray(planned?.graphSpec?.nodes) && planned.graphSpec.nodes.length > 0) {
         graphSpecToUse = planned.graphSpec;
-      } else if (wantsWizardChoice) {
-        graphSpecToUse = getWizardChoiceGraphSpec();
       }
       const hasGraphSpec = Array.isArray(graphSpecToUse?.nodes) && graphSpecToUse.nodes.length > 0;
 
@@ -2676,7 +2685,7 @@ app.post('/api/ai/agent', async (req, res) => {
 
         console.log('[Agent] Queued create_populated_graph goal:', { graphName, cid, nodeCount, edgeCount, layoutAlgorithm, layoutMode });
 
-        const resp = planned?.response || `Creating "${graphName}" with ${nodeCount} concept${nodeCount > 1 ? 's' : ''} using ${layoutAlgorithm} layout, then labeling the connections.`;
+        const resp = planned?.response || `Creating "${graphName}" with ${nodeCount} concept${nodeCount > 1 ? 's' : ''}, then labeling the connections.`;
         // Response sent via JSON below - don't duplicate with appendChat
         const toolCalls = [
           {
@@ -2795,6 +2804,12 @@ app.post('/api/ai/agent', async (req, res) => {
       // Store API credentials in meta for Committer auto-chain
       const apiKey = req.headers.authorization?.replace(/^Bearer\s+/i, '');
       const apiConfig = body?.context?.apiConfig || null;
+      
+      // CRITICAL: Do NOT trigger agenticLoop for delete/undo/clear operations
+      // These should read the graph and STOP, not continue adding nodes
+      const isDeleteOrUndo = /\b(undo|delete|remove|clear|revert|rollback)\b/i.test(msgText);
+      const shouldChain = !isDeleteOrUndo;
+      
       const goalId = queueManager.enqueue('goalQueue', {
         type: 'goal',
         goal: 'analyze_graph',
@@ -2805,8 +2820,9 @@ app.post('/api/ai/agent', async (req, res) => {
           apiKey,
           apiConfig,
           iteration: 0,
-          agenticLoop: true,  // Enable READ-THEN-CREATE auto-chain
-          chainState: body.context?.chainState
+          agenticLoop: shouldChain,  // Only enable auto-chain for expansion, not delete/undo
+          chainState: body.context?.chainState,
+          originalMessage: msgText  // Pass original message for context
         }
       });
       ensureSchedulerStarted();
@@ -2849,13 +2865,10 @@ app.post('/api/ai/agent', async (req, res) => {
     // Planner-first multi-item creation via graphSpec (model-led + auto-layout)
     console.log('[Agent] Checking create_node branch:', {
       resolvedIntent,
-      wantsAddToGraph,
-      wantsPopulate,
       hasGraphSpec: !!planned?.graphSpec,
-      nodeCount: planned?.graphSpec?.nodes?.length,
-      fullPlan: JSON.stringify(planned)
+      nodeCount: planned?.graphSpec?.nodes?.length
     });
-    if ((resolvedIntent === 'create_node' || wantsAddToGraph || wantsPopulate) && Array.isArray(planned?.graphSpec?.nodes) && planned.graphSpec.nodes.length > 0) {
+    if (resolvedIntent === 'create_node' && Array.isArray(planned?.graphSpec?.nodes) && planned.graphSpec.nodes.length > 0) {
       // Route through queue-based orchestration with auto-layout
       console.log('[Agent] Entering create_node handler with graphSpec');
       try {
@@ -2955,7 +2968,7 @@ app.post('/api/ai/agent', async (req, res) => {
           layoutMode
         });
 
-        const resp = planned?.response || `Okay — I'll create ${nodeCount} concept${nodeCount > 1 ? 's' : ''}${edgeCount ? ` with ${edgeCount} connection${edgeCount > 1 ? 's' : ''}` : ''} using ${layoutAlgorithm} layout, then label their relationships.`;
+        const resp = planned?.response || `Okay — I'll create ${nodeCount} concept${nodeCount > 1 ? 's' : ''}${edgeCount ? ` with ${edgeCount} connection${edgeCount > 1 ? 's' : ''}` : ''}, then label their relationships.`;
 
         appendChat('ai', resp, { cid, channel: 'agent' });
 
@@ -3134,13 +3147,124 @@ app.post('/api/ai/agent', async (req, res) => {
       }
     }
 
+    // BULK DELETE INTENT (for undo operations)
+    if (resolvedIntent === 'bulk_delete' && planned?.bulkDelete?.nodes?.length > 0) {
+      try {
+        const nodeNames = planned.bulkDelete.nodes;
+        const reason = planned.bulkDelete.reason || 'User requested deletion';
+        
+        if (!targetGraphId) {
+          const text = 'I need an active graph to delete nodes from. Please select a graph first.';
+          appendChat('ai', text, { cid, channel: 'agent' });
+          return res.json({ success: true, response: text, toolCalls: [], cid });
+        }
+
+        const activeGraph = (Array.isArray(bridgeStoreData.graphs) ? bridgeStoreData.graphs : []).find(g => g.id === targetGraphId);
+        const prototypesList = Array.isArray(bridgeStoreData.nodePrototypes) ? bridgeStoreData.nodePrototypes : [];
+        
+        // Collect all instance IDs to delete
+        const allInstancesToDelete = [];
+        const foundNodes = [];
+        const notFoundNodes = [];
+
+        for (const nodeName of nodeNames) {
+          const proto = prototypesList.find(p => String(p?.name || '').toLowerCase() === String(nodeName).toLowerCase());
+          
+          if (!proto) {
+            notFoundNodes.push(nodeName);
+            continue;
+          }
+
+          if (activeGraph && activeGraph.instances) {
+            for (const [iid, inst] of Object.entries(activeGraph.instances)) {
+              if (inst.prototypeId === proto.id) {
+                allInstancesToDelete.push({ instanceId: iid, nodeName, prototypeId: proto.id });
+                foundNodes.push(nodeName);
+              }
+            }
+          }
+        }
+
+        if (allInstancesToDelete.length === 0) {
+          const text = notFoundNodes.length > 0 
+            ? `I couldn't find any of those nodes in the current graph: ${notFoundNodes.join(', ')}`
+            : 'No matching nodes found to delete.';
+          appendChat('ai', text, { cid, channel: 'agent' });
+          return res.json({ success: true, response: text, toolCalls: [], cid });
+        }
+
+        // Queue delete tasks for each instance
+        const tasks = allInstancesToDelete.map(item => ({
+          toolName: 'delete_node_instance',
+          args: {
+            graphId: targetGraphId,
+            instanceId: item.instanceId
+          },
+          threadId: cid
+        }));
+
+        const dag = { tasks };
+        const goalId = queueManager.enqueue('goalQueue', {
+          type: 'goal',
+          goal: 'bulk_delete_nodes',
+          dag,
+          threadId: cid,
+          partitionKey: cid
+        });
+
+        ensureSchedulerStarted();
+        eventLog.append({ type: 'GOAL_ENQUEUED', id: goalId, threadId: cid, goal: 'bulk_delete_nodes' });
+
+        const uniqueNodeNames = [...new Set(foundNodes)];
+        let resp = planned?.response || `I'll remove ${allInstancesToDelete.length} node${allInstancesToDelete.length > 1 ? 's' : ''}: ${uniqueNodeNames.slice(0, 5).join(', ')}${uniqueNodeNames.length > 5 ? '...' : ''}.`;
+        
+        if (notFoundNodes.length > 0) {
+          resp += ` (Couldn't find: ${notFoundNodes.slice(0, 3).join(', ')}${notFoundNodes.length > 3 ? '...' : ''})`;
+        }
+        
+        appendChat('ai', resp, { cid, channel: 'agent' });
+
+        return res.json({
+          success: true,
+          response: resp,
+          toolCalls: [{ 
+            name: 'bulk_delete', 
+            status: 'queued', 
+            args: { 
+              count: allInstancesToDelete.length, 
+              nodes: uniqueNodeNames.slice(0, 5),
+              reason 
+            } 
+          }],
+          cid,
+          goalId
+        });
+      } catch (e) {
+        const errorMsg = `Error in bulk delete: ${e.message || e}`;
+        logger.error('[Agent] Bulk delete failed:', e);
+        appendChat('system', errorMsg, { cid, channel: 'agent' });
+        return res.json({ success: false, error: errorMsg, cid });
+      }
+    }
+
     // DELETE GRAPH INTENT
     if (resolvedIntent === 'delete_graph') {
       try {
-        const graphIdToDelete = planned?.delete?.graphId || targetGraphId;
+        // Resolve graph ID: priority: explicit graphId > targetGraphId > graph name lookup
+        let graphIdToDelete = planned?.delete?.graphId || targetGraphId;
+        
+        // If no ID but we have a graph name, look it up
+        if (!graphIdToDelete && planned?.delete?.target) {
+          const graphName = String(planned.delete.target).trim();
+          const foundGraph = (Array.isArray(bridgeStoreData.graphs) ? bridgeStoreData.graphs : [])
+            .find(g => g.name === graphName || g.name?.toLowerCase() === graphName.toLowerCase());
+          if (foundGraph) {
+            graphIdToDelete = foundGraph.id;
+          }
+        }
 
         if (!graphIdToDelete) {
-          const text = 'I need to know which graph to delete. Can you specify the graph name?';
+          const text = 'I need to know which graph to delete. Please specify the graph name or ensure you have an active graph selected.';
           appendChat('ai', text, { cid, channel: 'agent' });
           return res.json({ success: true, response: text, toolCalls: [], cid });
         }
@@ -3205,8 +3329,434 @@ app.post('/api/ai/agent', async (req, res) => {
       return null;
     };
 
-    // 0) Populate/fill current graph with components/concepts
-    if (wantsPopulate && targetGraphId) {
+    // Helper function to find edge ID by source and target node names
+    const findEdgeByNodeNames = (sourceName, targetName, graphId) => {
+      const graph = (Array.isArray(bridgeStoreData.graphs) ? bridgeStoreData.graphs : []).find(g => g.id === graphId);
+      if (!graph || !graph.edgeIds || !Array.isArray(graph.edgeIds)) return null;
+
+      const sourceProtoId = findPrototypeIdByName(sourceName);
+      const targetProtoId = findPrototypeIdByName(targetName);
+      if (!sourceProtoId || !targetProtoId) return null;
+
+      const sourceInstanceId = findInstanceIdInActiveGraph(sourceProtoId, graphId);
+      const targetInstanceId = findInstanceIdInActiveGraph(targetProtoId, graphId);
+      if (!sourceInstanceId || !targetInstanceId) return null;
+
+      // Find edge connecting these instances by checking graph's edgeIds
+      const edges = bridgeStoreData.edges || {};
+      for (const edgeId of graph.edgeIds) {
+        const edge = edges[edgeId] || (Array.isArray(bridgeStoreData.graphEdges) 
+          ? bridgeStoreData.graphEdges.find(e => e.id === edgeId) 
+          : null);
+        if (edge && edge.sourceId === sourceInstanceId && edge.destinationId === targetInstanceId) {
+          return edgeId;
+        }
+      }
+      return null;
+    };
+
+    // Helper function to resolve node names to instance IDs
+    const resolveNodeNamesToInstances = (sourceName, targetName, graphId) => {
+      const sourceProtoId = findPrototypeIdByName(sourceName);
+      const targetProtoId = findPrototypeIdByName(targetName);
+      
+      if (!sourceProtoId) {
+        return { error: `Could not find node "${sourceName}"` };
+      }
+      if (!targetProtoId) {
+        return { error: `Could not find node "${targetName}"` };
+      }
+
+      const sourceInstanceId = findInstanceIdInActiveGraph(sourceProtoId, graphId);
+      const targetInstanceId = findInstanceIdInActiveGraph(targetProtoId, graphId);
+
+      if (!sourceInstanceId) {
+        return { error: `Could not find instance of "${sourceName}" in the current graph` };
+      }
+      if (!targetInstanceId) {
+        return { error: `Could not find instance of "${targetName}" in the current graph` };
+      }
+
+      return { sourceInstanceId, targetInstanceId };
+    };
+
+    // CREATE EDGE INTENT
+    if (resolvedIntent === 'create_edge') {
+      try {
+        if (!targetGraphId) {
+          const text = 'I need an active graph to create a connection. Please select a graph first.';
+          appendChat('ai', text, { cid, channel: 'agent' });
+          return res.json({ success: true, response: text, toolCalls: [], cid });
+        }
+
+        const edgeSpec = planned?.edge;
+        if (!edgeSpec || !edgeSpec.source || !edgeSpec.target) {
+          const text = 'I need both source and target node names to create a connection.';
+          appendChat('ai', text, { cid, channel: 'agent' });
+          return res.json({ success: true, response: text, toolCalls: [], cid });
+        }
+
+        const resolved = resolveNodeNamesToInstances(edgeSpec.source, edgeSpec.target, targetGraphId);
+        if (resolved.error) {
+          appendChat('ai', resolved.error, { cid, channel: 'agent' });
+          return res.json({ success: true, response: resolved.error, toolCalls: [], cid });
+        }
+
+        // Determine directionality
+        let arrowsToward = [resolved.targetInstanceId];
+        if (edgeSpec.directionality === 'bidirectional') {
+          arrowsToward = [resolved.sourceInstanceId, resolved.targetInstanceId];
+        } else if (edgeSpec.directionality === 'none' || edgeSpec.directionality === 'undirected') {
+          arrowsToward = [];
+        } else if (edgeSpec.directionality === 'reverse') {
+          arrowsToward = [resolved.sourceInstanceId];
+        }
+
+        // Build edge task with definition node data
+        // The executor will create the prototype if it doesn't exist
+        const dag = {
+          tasks: [{
+            toolName: 'create_edge',
+            args: {
+              source_instance_id: resolved.sourceInstanceId,
+              target_instance_id: resolved.targetInstanceId,
+              graph_id: targetGraphId,
+              name: edgeSpec.definitionNode?.name || '',
+              description: edgeSpec.definitionNode?.description || '',
+              directionality: { arrowsToward },
+              // Pass definition node data for the executor to create if needed
+              definitionNode: edgeSpec.definitionNode ? {
+                name: edgeSpec.definitionNode.name,
+                color: edgeSpec.definitionNode.color || '#708090',
+                description: edgeSpec.definitionNode.description || ''
+              } : null
+            },
+            threadId: cid
+          }]
+        };
+
+        const goalId = queueManager.enqueue('goalQueue', {
+          type: 'goal',
+          goal: 'create_edge',
+          dag,
+          threadId: cid,
+          partitionKey: cid
+        });
+
+        ensureSchedulerStarted();
+        eventLog.append({ type: 'GOAL_ENQUEUED', id: goalId, threadId: cid, goal: 'create_edge' });
+
+        const resp = planned?.response || `I'll connect "${edgeSpec.source}" to "${edgeSpec.target}".`;
+        appendChat('ai', resp, { cid, channel: 'agent' });
+
+        return res.json({
+          success: true,
+          response: resp,
+          toolCalls: [{ name: 'create_edge', status: 'queued', args: { source: edgeSpec.source, target: edgeSpec.target } }],
+          cid,
+          goalId
+        });
+      } catch (e) {
+        const errorMsg = `Error creating edge: ${e.message || e}`;
+        logger.error('[Agent] Edge creation failed:', e);
+        appendChat('system', errorMsg, { cid, channel: 'agent' });
+        return res.json({ success: false, error: errorMsg, cid });
+      }
+    }
+
+    // ENRICH NODE INTENT (create definition graph and populate it)
+    if (resolvedIntent === 'enrich_node') {
+      try {
+        if (!targetGraphId) {
+          const text = 'I need an active graph to enrich a node. Please select a graph first.';
+          appendChat('ai', text, { cid, channel: 'agent' });
+          return res.json({ success: true, response: text, toolCalls: [], cid });
+        }
+
+        const targetName = planned?.enrich?.target || null;
+        if (!targetName) {
+          const text = 'I need to know which node to enrich. Please specify the node name.';
+          appendChat('ai', text, { cid, channel: 'agent' });
+          return res.json({ success: true, response: text, toolCalls: [], cid });
+        }
+
+        const prototypeId = findPrototypeIdByName(targetName);
+        if (!prototypeId) {
+          const text = `I couldn't find a node named "${targetName}" to enrich.`;
+          appendChat('ai', text, { cid, channel: 'agent' });
+          return res.json({ success: true, response: text, toolCalls: [], cid });
+        }
+
+        // Check if node already has a definition graph
+        const prototype = (Array.isArray(bridgeStoreData.nodePrototypes) ? bridgeStoreData.nodePrototypes : [])
+          .find(p => p.id === prototypeId);
+        
+        const graphSpec = planned?.enrich?.graphSpec || planned?.graphSpec;
+        if (!graphSpec || !Array.isArray(graphSpec.nodes) || graphSpec.nodes.length === 0) {
+          const text = `I'll enrich "${targetName}", but I need a graphSpec with nodes that define/compose it.`;
+          appendChat('ai', text, { cid, channel: 'agent' });
+          return res.json({ success: true, response: text, toolCalls: [], cid });
+        }
+
+        if (prototype?.definitionGraphIds && prototype.definitionGraphIds.length > 0) {
+          // Node already has definition - populate the first one
+          const existingGraphId = prototype.definitionGraphIds[0];
+          
+          const dag = {
+            tasks: [{
+              toolName: 'create_populated_graph',
+              args: {
+                graphSpec: {
+                  nodes: graphSpec.nodes || [],
+                  edges: graphSpec.edges || []
+                },
+                layoutAlgorithm: graphSpec.layoutAlgorithm || 'force',
+                layoutMode: 'full',
+                graphId: existingGraphId
+              },
+              threadId: cid
+            }]
+          };
+
+          const goalId = queueManager.enqueue('goalQueue', {
+            type: 'goal',
+            goal: 'enrich_node',
+            dag,
+            threadId: cid,
+            partitionKey: cid
+          });
+
+          ensureSchedulerStarted();
+          const resp = planned?.response || `I'll populate the definition graph for "${targetName}" with ${graphSpec.nodes.length} components.`;
+          appendChat('ai', resp, { cid, channel: 'agent' });
+
+          return res.json({
+            success: true,
+            response: resp,
+            toolCalls: [{ name: 'enrich_node', status: 'queued', args: { target: targetName, graphId: existingGraphId } }],
+            cid,
+            goalId
+          });
+        } else {
+          // Create new definition graph and populate it
+          const dag = {
+            tasks: [
+              {
+                toolName: 'create_and_assign_graph_definition',
+                args: { prototypeId },
+                threadId: cid
+              },
+              {
+                toolName: 'create_populated_graph',
+                args: {
+                  graphSpec: {
+                    nodes: graphSpec.nodes || [],
+                    edges: graphSpec.edges || []
+                  },
+                  layoutAlgorithm: graphSpec.layoutAlgorithm || 'force',
+                  layoutMode: 'full'
+                },
+                threadId: cid,
+                dependsOn: ['create_and_assign_graph_definition']
+              }
+            ]
+          };
+
+          const goalId = queueManager.enqueue('goalQueue', {
+            type: 'goal',
+            goal: 'enrich_node',
+            dag,
+            threadId: cid,
+            partitionKey: cid
+          });
+
+          ensureSchedulerStarted();
+          const resp = planned?.response || `I'll create a definition graph for "${targetName}" with ${graphSpec.nodes.length} components.`;
+          appendChat('ai', resp, { cid, channel: 'agent' });
+
+          return res.json({
+            success: true,
+            response: resp,
+            toolCalls: [{ name: 'enrich_node', status: 'queued', args: { target: targetName } }],
+            cid,
+            goalId
+          });
+        }
+      } catch (e) {
+        const errorMsg = `Error enriching node: ${e.message || e}`;
+        logger.error('[Agent] Node enrichment failed:', e);
+        appendChat('system', `${errorMsg}\n\nCouldn't enrich the node. Check if it exists and try again.`, { cid, channel: 'agent' });
+        return res.json({ success: false, error: errorMsg, cid });
+      }
+    }
+
+    // UPDATE EDGE INTENT (replace existing connection)
+    if (resolvedIntent === 'update_edge') {
+      try {
+        if (!targetGraphId) {
+          const text = 'I need an active graph to update a connection. Please select a graph first.';
+          appendChat('ai', text, { cid, channel: 'agent' });
+          return res.json({ success: true, response: text, toolCalls: [], cid });
+        }
+
+        const edgeSpec = planned?.edge;
+        if (!edgeSpec || !edgeSpec.source || !edgeSpec.target) {
+          const text = 'I need both source and target node names to update a connection.';
+          appendChat('ai', text, { cid, channel: 'agent' });
+          return res.json({ success: true, response: text, toolCalls: [], cid });
+        }
+
+        // Find existing edge
+        const existingEdgeId = findEdgeByNodeNames(edgeSpec.source, edgeSpec.target, targetGraphId);
+        if (!existingEdgeId) {
+          const text = `I couldn't find an existing connection between "${edgeSpec.source}" and "${edgeSpec.target}". Would you like me to create one instead?`;
+          appendChat('ai', text, { cid, channel: 'agent' });
+          return res.json({ success: true, response: text, toolCalls: [], cid });
+        }
+
+        const resolved = resolveNodeNamesToInstances(edgeSpec.source, edgeSpec.target, targetGraphId);
+        if (resolved.error) {
+          appendChat('ai', resolved.error, { cid, channel: 'agent' });
+          return res.json({ success: true, response: resolved.error, toolCalls: [], cid });
+        }
+
+        // Determine directionality
+        let arrowsToward = [resolved.targetInstanceId];
+        if (edgeSpec.directionality === 'bidirectional') {
+          arrowsToward = [resolved.sourceInstanceId, resolved.targetInstanceId];
+        } else if (edgeSpec.directionality === 'none' || edgeSpec.directionality === 'undirected') {
+          arrowsToward = [];
+        } else if (edgeSpec.directionality === 'reverse') {
+          arrowsToward = [resolved.sourceInstanceId];
+        }
+
+        // Delete old edge and create new one with definition node data
+        const dag = {
+          tasks: [
+            {
+              toolName: 'delete_edge',
+              args: {
+                graphId: targetGraphId,
+                edgeId: existingEdgeId
+              },
+              threadId: cid
+            },
+            {
+              toolName: 'create_edge',
+              args: {
+                source_instance_id: resolved.sourceInstanceId,
+                target_instance_id: resolved.targetInstanceId,
+                graph_id: targetGraphId,
+                name: edgeSpec.definitionNode?.name || '',
+                description: edgeSpec.definitionNode?.description || '',
+                directionality: { arrowsToward },
+                // Pass definition node data for the executor to create if needed
+                definitionNode: edgeSpec.definitionNode ? {
+                  name: edgeSpec.definitionNode.name,
+                  color: edgeSpec.definitionNode.color || '#708090',
+                  description: edgeSpec.definitionNode.description || ''
+                } : null
+              },
+              threadId: cid
+            }
+          ]
+        };
+
+        const goalId = queueManager.enqueue('goalQueue', {
+          type: 'goal',
+          goal: 'update_edge',
+          dag,
+          threadId: cid,
+          partitionKey: cid
+        });
+
+        ensureSchedulerStarted();
+        eventLog.append({ type: 'GOAL_ENQUEUED', id: goalId, threadId: cid, goal: 'update_edge' });
+
+        const resp = planned?.response || `I'll update the connection between "${edgeSpec.source}" and "${edgeSpec.target}".`;
+        appendChat('ai', resp, { cid, channel: 'agent' });
+
+        return res.json({
+          success: true,
+          response: resp,
+          toolCalls: [{ name: 'update_edge', status: 'queued', args: { source: edgeSpec.source, target: edgeSpec.target } }],
+          cid,
+          goalId
+        });
+      } catch (e) {
+        const errorMsg = `Error updating edge: ${e.message || e}`;
+        logger.error('[Agent] Edge update failed:', e);
+        appendChat('system', errorMsg, { cid, channel: 'agent' });
+        return res.json({ success: false, error: errorMsg, cid });
+      }
+    }
+
+    // DELETE EDGE INTENT
+    if (resolvedIntent === 'delete_edge') {
+      try {
+        if (!targetGraphId) {
+          const text = 'I need an active graph to delete a connection. Please select a graph first.';
+          appendChat('ai', text, { cid, channel: 'agent' });
+          return res.json({ success: true, response: text, toolCalls: [], cid });
+        }
+
+        const edgeDelete = planned?.edgeDelete;
+        if (!edgeDelete || !edgeDelete.source || !edgeDelete.target) {
+          const text = 'I need both source and target node names to delete a connection.';
+          appendChat('ai', text, { cid, channel: 'agent' });
+          return res.json({ success: true, response: text, toolCalls: [], cid });
+        }
+
+        const existingEdgeId = findEdgeByNodeNames(edgeDelete.source, edgeDelete.target, targetGraphId);
+        if (!existingEdgeId) {
+          const text = `I couldn't find a connection between "${edgeDelete.source}" and "${edgeDelete.target}".`;
+          appendChat('ai', text, { cid, channel: 'agent' });
+          return res.json({ success: true, response: text, toolCalls: [], cid });
+        }
+
+        const dag = {
+          tasks: [{
+            toolName: 'delete_edge',
+            args: {
+              graphId: targetGraphId,
+              edgeId: existingEdgeId
+            },
+            threadId: cid
+          }]
+        };
+
+        const goalId = queueManager.enqueue('goalQueue', {
+          type: 'goal',
+          goal: 'delete_edge',
+          dag,
+          threadId: cid,
+          partitionKey: cid
+        });
+
+        ensureSchedulerStarted();
+        eventLog.append({ type: 'GOAL_ENQUEUED', id: goalId, threadId: cid, goal: 'delete_edge' });
+
+        const resp = planned?.response || `I'll remove the connection between "${edgeDelete.source}" and "${edgeDelete.target}".`;
+        appendChat('ai', resp, { cid, channel: 'agent' });
+
+        return res.json({
+          success: true,
+          response: resp,
+          toolCalls: [{ name: 'delete_edge', status: 'queued', args: { source: edgeDelete.source, target: edgeDelete.target } }],
+          cid,
+          goalId
+        });
+      } catch (e) {
+        const errorMsg = `Error deleting edge: ${e.message || e}`;
+        logger.error('[Agent] Edge deletion failed:', e);
+        appendChat('system', errorMsg, { cid, channel: 'agent' });
+        return res.json({ success: false, error: errorMsg, cid });
+      }
+    }
+
+    // 0) Populate/fill current graph with components/concepts (handled via analyze → create_node chain)
+    // This fallback is no longer needed - LLM handles via analyze intent
+    if (false && targetGraphId) {
       // Prefer planner-provided graphSpec if available
       if (Array.isArray(planned?.graphSpec?.nodes) && planned.graphSpec.nodes.length > 0) {
         // Re-enter via planner-first path above

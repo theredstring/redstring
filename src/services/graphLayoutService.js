@@ -299,8 +299,8 @@ export const FORCE_LAYOUT_DEFAULTS = {
   minNodeRadius: 80,
   collisionRadius: 80,  // Alias for minNodeRadius
   
-  // Edge avoidance (not used in new algo but kept for tuner)
-  edgeAvoidance: 0,
+  // Edge avoidance - push nodes away from edges they're not part of
+  edgeAvoidance: 0.5,  // Default ON at 50% strength
   edgeAvoidanceRadius: 200,
   
   // Bounds

@@ -257,6 +257,10 @@ class CommitterService {
           const threadIds = new Set(unseen.map(p => p.threadId).filter(Boolean));
           const nodeCount = ops.filter(o => o.type === 'addNodeInstance').length;
           const edgeCount = ops.filter(o => o.type === 'addEdge').length;
+          
+          // Check if this is part of an agentic loop (multi-phase generation)
+          // Suppress intermediate "Added X nodes" messages to reduce chat spam
+          const isAgenticIteration = unseen.some(p => p.meta?.agenticLoop && p.meta?.iteration > 0);
 
           if (threadIds.size > 0 && (nodeCount > 0 || edgeCount > 0)) {
             for (const threadId of threadIds) {
@@ -280,12 +284,9 @@ class CommitterService {
 
               const { bridgeFetch } = await import('./bridgeConfig.js');
 
-              // Send completion message to chat
-              await bridgeFetch('/api/bridge/chat/append', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ role: 'system', text: msg, cid: threadId, channel: 'agent' })
-              }).catch(() => { });
+              // SUPPRESS all "Added X nodes" system messages - tool cards show status already
+              // The AI's completion response is sufficient feedback
+              // (Keeping the bridgeFetch import for tool status updates below)
 
               // Report tool call completion status updates to chat
               // Determine which tool completed based on operation types

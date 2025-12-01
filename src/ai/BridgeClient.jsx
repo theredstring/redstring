@@ -461,6 +461,7 @@ const BridgeClient = () => {
                     activeGraphId: s.activeGraphId,
                     activeGraphName: s.activeGraphId ? (s.graphs.get(s.activeGraphId)?.name || null) : null,
                     openGraphIds: s.openGraphIds,
+                    autoLayoutSettings: s.autoLayoutSettings || { layoutScale: 'balanced', layoutScaleMultiplier: 1, layoutIterations: 'balanced' },
                     summary: {
                       totalGraphs: s.graphs.size,
                       totalPrototypes: s.nodePrototypes.size,
@@ -516,7 +517,8 @@ const BridgeClient = () => {
                   edges: Array.from(s2.edges.values()),
                   activeGraphId: s2.activeGraphId,
                   activeGraphName: s2.activeGraphId ? (s2.graphs.get(s2.activeGraphId)?.name || null) : null,
-                  openGraphIds: s2.openGraphIds
+                  openGraphIds: s2.openGraphIds,
+                  autoLayoutSettings: s2.autoLayoutSettings || { layoutScale: 'balanced', layoutScaleMultiplier: 1, layoutIterations: 'balanced' }
                 };
                 await bridgeFetch('/api/bridge/state', {
                   method: 'POST',
@@ -1010,6 +1012,12 @@ const BridgeClient = () => {
           activeGraphId: state.activeGraphId,
           activeGraphName: state.activeGraphId ? (state.graphs.get(state.activeGraphId)?.name || null) : null,
           openGraphIds: state.openGraphIds,
+          // Auto-layout settings (for AI to use same parameters as UI)
+          autoLayoutSettings: state.autoLayoutSettings || {
+            layoutScale: 'balanced',
+            layoutScaleMultiplier: 1,
+            layoutIterations: 'balanced'
+          },
           // File status (optional)
           fileStatus,
 

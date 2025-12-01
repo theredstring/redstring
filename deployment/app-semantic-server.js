@@ -329,6 +329,42 @@ app.post('/api/mcp/request', async (req, res) => {
 
 logger.info('[App] AI agent proxy endpoints configured');
 
+// Bridge state sync endpoints (CRITICAL for edits to work)
+app.post('/api/bridge/state', async (req, res) => {
+  try {
+    const response = await fetch(`${BRIDGE_INTERNAL_URL}/api/bridge/state`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify(req.body)
+    });
+    const data = await response.json();
+    res.status(response.status).json(data);
+  } catch (error) {
+    logger.error('[Bridge State Proxy] Error:', error);
+    res.status(503).json({ error: 'Bridge state sync unavailable', details: error.message });
+  }
+});
+
+app.get('/api/bridge/actions', async (req, res) => {
+  try {
+    const response = await fetch(`${BRIDGE_INTERNAL_URL}/api/bridge/actions`, {
+      method: 'GET',
+      headers: {
+        'Content-Type': 'application/json'
+      }
+    });
+    const data = await response.json();
+    res.status(response.status).json(data);
+  } catch (error) {
+    logger.error('[Bridge Actions Proxy] Error:', error);
+    res.status(503).json({ error: 'Bridge actions unavailable', details: error.message });
+  }
+});
+
+logger.info('[App] Bridge state sync proxy endpoints configured');
+
 // =============================================================================
 // OAuth Proxy Endpoints
 // =============================================================================

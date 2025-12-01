@@ -90,8 +90,42 @@ const ForceSimulationModal = ({
     onLayoutScaleMultiplierChange?.(1);
   };
 
-  const handleCopyToAutoLayout = () => {
-    onCopyToAutoLayout?.();
+  const handleCopySettings = () => {
+    // Build settings JSON
+    const settings = {
+      // Scale settings
+      layoutScale: scalePreset,
+      layoutScaleMultiplier: scaleMultiplier,
+      iterationPreset: iterationPreset,
+      // Force parameters
+      repulsionStrength: params.repulsionStrength,
+      attractionStrength: params.attractionStrength,
+      linkDistance: params.linkDistance,
+      minLinkDistance: params.minLinkDistance,
+      centerStrength: params.centerStrength,
+      collisionRadius: params.collisionRadius,
+      edgeAvoidance: params.edgeAvoidance,
+      alphaDecay: params.alphaDecay,
+      velocityDecay: params.velocityDecay
+    };
+    
+    const json = JSON.stringify(settings, null, 2);
+    navigator.clipboard.writeText(json).then(() => {
+      // Show brief visual feedback
+      const btn = document.querySelector('.force-sim-btn[title*="Copy"]');
+      if (btn) {
+        const originalHTML = btn.innerHTML;
+        btn.innerHTML = '✓ Copied!';
+        btn.style.backgroundColor = '#2E7D32';
+        setTimeout(() => {
+          btn.innerHTML = originalHTML;
+          btn.style.backgroundColor = '';
+        }, 1500);
+      }
+    }).catch(err => {
+      console.error('Failed to copy settings:', err);
+      alert('Failed to copy to clipboard');
+    });
   };
 
   const handleIterationPresetChange = (presetKey) => {
@@ -307,14 +341,18 @@ const ForceSimulationModal = ({
 
       const radiusSource = getRadius(source);
       const radiusTarget = getRadius(target);
-      const minDistance = Math.max(scaledMinLinkDistance, (radiusSource + radiusTarget) * nodeSeparationMultiplier);
+      // Min distance is the SLIDER value, not computed from radii
+      const minDistance = scaledMinLinkDistance;
       let force;
 
-      // ENFORCE MINIMUM DISTANCE - strong repulsion if too close
+      // ENFORCE MINIMUM DISTANCE - VERY strong repulsion if too close
       if (dist < minDistance) {
-        // Push apart HARD when below minimum
+        // Push apart HARD when below minimum - exponentially stronger as they get closer
+        const ratio = dist / minDistance; // 0 to 1
         const deficit = minDistance - dist;
-        force = -deficit * attractionStrength * 3 * state.alpha; // 3x stronger push
+        // Much stronger: 10x base, plus exponential boost when very close
+        const intensityMultiplier = 10 + (1 - ratio) * 20; // 10-30x depending on how close
+        force = -deficit * attractionStrength * intensityMultiplier * state.alpha;
       }
       // Normal spring behavior between min and target
       else if (dist < scaledLinkDistance) {
@@ -340,16 +378,20 @@ const ForceSimulationModal = ({
 
     // Edge avoidance force - push nodes away from edges they're not part of
     if (edgeAvoidance > 0) {
+      // Pre-build node map for faster lookup
+      const nodesMap = new Map(nodes.map(n => [n.id, n]));
+      
       nodes.forEach(node => {
         const vel = velocities.get(node.id);
         if (!vel) return;
+        const nodeRadius = getRadius(node);
 
         edges.forEach(edge => {
           // Skip if node is part of this edge
           if (edge.sourceId === node.id || edge.destinationId === node.id) return;
 
-          const source = nodes.find(n => n.id === edge.sourceId);
-          const target = nodes.find(n => n.id === edge.destinationId);
+          const source = nodesMap.get(edge.sourceId);
+          const target = nodesMap.get(edge.destinationId);
           if (!source || !target) return;
 
           // Calculate distance from node to line segment (edge)
@@ -371,14 +413,19 @@ const ForceSimulationModal = ({
           // Distance from node to closest point on edge
           const dx = node.x - closestX;
           const dy = node.y - closestY;
-          const distSq = dx * dx + dy * dy;
-          const dist = Math.sqrt(distSq);
+          const dist = Math.sqrt(dx * dx + dy * dy);
 
-          // Only apply force if node is close to edge
-          const avoidanceRadius = scaledCollisionRadius * 1.5;
+          // Avoidance radius is based on node size + extra buffer
+          // Larger radius = nodes stay further from edges
+          const avoidanceRadius = nodeRadius * 2 + scaledLinkDistance * 0.3;
+          
           if (dist < avoidanceRadius && dist > 1) {
-            // Push node away from edge
-            const force = ((avoidanceRadius - dist) / avoidanceRadius) * edgeAvoidance * state.alpha * 100;
+            // Push node away from edge - exponential falloff for stronger close-range push
+            const ratio = dist / avoidanceRadius; // 0 to 1
+            // Exponential: much stronger when close, gentler when far
+            const intensity = Math.pow(1 - ratio, 2); // Quadratic falloff
+            // Scale by edgeAvoidance slider (0-1 typically) * 500 for significant effect
+            const force = intensity * edgeAvoidance * state.alpha * 500;
             vel.vx += (dx / dist) * force;
             vel.vy += (dy / dist) * force;
           }
@@ -618,8 +665,8 @@ const ForceSimulationModal = ({
             <button className="force-sim-btn force-sim-btn-secondary" onClick={handleRandomize}>
               🎲 Randomize
             </button>
-            <button className="force-sim-btn" onClick={handleCopyToAutoLayout} title="Copy current settings to Auto-Layout defaults">
-              💾 Copy
+            <button className="force-sim-btn" onClick={handleCopySettings} title="Copy settings JSON to clipboard">
+              📋 Copy
             </button>
           </div>
 
