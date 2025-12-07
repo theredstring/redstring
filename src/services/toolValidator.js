@@ -156,7 +156,7 @@ class ToolValidator {
           default: '',
           description: 'Optional edge description' 
         },
-        directionality: { 
+        directionality: {
           type: 'object',
           properties: {
             arrowsToward: {
@@ -168,7 +168,16 @@ class ToolValidator {
           default: { arrowsToward: [] },
           description: 'Edge directionality configuration'
         },
-        ai_metadata: { 
+        definitionNode: {
+          type: 'object',
+          properties: {
+            name: { type: 'string' },
+            color: { type: 'string' },
+            description: { type: 'string' }
+          },
+          description: 'Node prototype definition for the edge relationship'
+        },
+        ai_metadata: {
           type: 'object',
           default: {},
           description: 'AI creation metadata'

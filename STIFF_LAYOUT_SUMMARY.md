@@ -13,3 +13,5 @@ This makes the graph feel like a network of rigid rods rather than rubber bands,
 ## Why this helps "Emergent Geometry"
 In unweighted graphs, geometric patterns (hexagons, triangles, grids) emerge when all edge lengths are uniform. By enforcing rigid length constraints iteratively, the layout algorithm is forced to find a configuration where all edges are as close to length $L$ as possible, which naturally converges on these symmetric geometric forms.
 
+
+

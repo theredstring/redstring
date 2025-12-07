@@ -72,3 +72,5 @@ echo -e "${BOLD}${GREEN}🎉 Artifact Registry setup complete!${NC}"
 echo ""
 echo -e "${BLUE}You can now run your deployment scripts.${NC}"
 
+
+
