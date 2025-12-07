@@ -710,7 +710,10 @@ export const exportToRedstring = (storeState, userDomain = null) => {
       })(),
       
       // Abstraction chains for rdfs:subClassOf generation
-      "redstring:abstractionChains": prototype.abstractionChains || {}
+      "redstring:abstractionChains": prototype.abstractionChains || {},
+      
+      // Agent configuration (if node is an agent)
+      "redstring:agentConfig": prototype.agentConfig || null
     };
   });
 
@@ -1309,6 +1312,13 @@ export const importFromRedstring = (redstringData, storeActions) => {
               cognitive['redstring:cognitiveAssociations'] ?? prototype.cognitiveAssociations
             );
           }
+
+          // Agent configuration
+          if (hasOwn(prototype, 'redstring:agentConfig') || hasOwn(prototype, 'agentConfig')) {
+            convertedPrototype.agentConfig = prototype['redstring:agentConfig'] ?? prototype.agentConfig ?? null;
+          } else {
+            convertedPrototype.agentConfig = null; // Default to null if not present
+          }
         } else {
           // Legacy format - handle old structure
           const { spatial = {}, media = {}, cognitive = {}, semantic = {}, ...nodeData } = prototype;
@@ -1323,7 +1333,8 @@ export const importFromRedstring = (redstringData, storeActions) => {
             imageAspectRatio: media.aspectRatio,
             externalLinks: semantic.externalLinks || [],
             equivalentClasses: semantic.equivalentClasses || [],
-            citations: semantic.citations || []
+            citations: semantic.citations || [],
+            agentConfig: nodeData.agentConfig || null // Preserve agentConfig if present in legacy format
           };
         }
         

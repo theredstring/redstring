@@ -4,18 +4,19 @@ class OrchestratorScheduler {
   constructor() {
     this.enabled = false;
     this.timer = null;
-    this.runners = null; // { runPlannerOnce, runExecutorOnce, runAuditorOnce }
+    this.runners = null; // { runPlannerOnce, runExecutorOnce, runAuditorOnce, runAgentOnce }
     this.options = {
       cadenceMs: 250,
       planner: false,
       executor: false,
       auditor: false,
-      maxPerTick: { planner: 1, executor: 2, auditor: 2 }
+      agent: false,
+      maxPerTick: { planner: 1, executor: 2, auditor: 2, agent: 1 }
     };
     this.metrics = {
       startedAt: null,
       ticks: 0,
-      runs: { planner: 0, executor: 0, auditor: 0 },
+      runs: { planner: 0, executor: 0, auditor: 0, agent: 0 },
       lastError: null
     };
   }
@@ -26,7 +27,8 @@ class OrchestratorScheduler {
     this.runners = {
       runPlannerOnce: mod.runPlannerOnce,
       runExecutorOnce: mod.runExecutorOnce,
-      runAuditorOnce: mod.runAuditorOnce
+      runAuditorOnce: mod.runAuditorOnce,
+      runAgentOnce: mod.runAgentOnce
     };
   }
 
@@ -61,7 +63,7 @@ class OrchestratorScheduler {
     if (!this.enabled) return;
     await this._ensureRunners();
     this.metrics.ticks++;
-    const { planner, executor, auditor, maxPerTick } = this.options;
+    const { planner, executor, auditor, agent, maxPerTick } = this.options;
 
     if (planner) {
       for (let i = 0; i < (maxPerTick.planner || 0); i++) {
@@ -93,6 +95,17 @@ class OrchestratorScheduler {
         } catch (e) {
           console.error('[Scheduler] Auditor error:', e);
           this.metrics.lastError = `Auditor: ${e.message}`;
+        }
+      }
+    }
+    if (agent) {
+      for (let i = 0; i < (maxPerTick.agent || 0); i++) {
+        try {
+        await this.runners.runAgentOnce();
+        this.metrics.runs.agent++;
+        } catch (e) {
+          console.error('[Scheduler] Agent error:', e);
+          this.metrics.lastError = `Agent: ${e.message}`;
         }
       }
     }

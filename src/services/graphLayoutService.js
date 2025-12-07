@@ -266,6 +266,36 @@ function calculateCentering(pos, centerX, centerY, strength) {
   };
 }
 
+/**
+ * Calculate distance from point P to line segment AB.
+ * Returns { distSq, closestX, closestY, t }
+ * t is the projection factor (0 to 1).
+ */
+function getPointSegmentDistSq(px, py, ax, ay, bx, by) {
+  const dx = bx - ax;
+  const dy = by - ay;
+  if (dx === 0 && dy === 0) {
+    // Segment is a point
+    const diffX = px - ax;
+    const diffY = py - ay;
+    return { distSq: diffX * diffX + diffY * diffY, closestX: ax, closestY: ay, t: 0 };
+  }
+
+  const t = ((px - ax) * dx + (py - ay) * dy) / (dx * dx + dy * dy);
+  const clampedT = Math.max(0, Math.min(1, t));
+  const closestX = ax + clampedT * dx;
+  const closestY = ay + clampedT * dy;
+  const diffX = px - closestX;
+  const diffY = py - closestY;
+  
+  return {
+    distSq: diffX * diffX + diffY * diffY,
+    closestX,
+    closestY,
+    t: clampedT
+  };
+}
+
 // ============================================================================
 // CONSTANTS & PRESETS
 // ============================================================================
@@ -310,6 +340,10 @@ export const FORCE_LAYOUT_DEFAULTS = {
   labelAwareLinkDistance: true,
   labelAwareLinkPadding: 30,
   labelAwareLinkReduction: 1,
+
+  // Advanced forces
+  enableEdgeRepulsion: true, // Triplet repulsion
+  stiffness: 0.6,            // Rigid body stiffness (0.0 - 1.0)
   
   // Presets
   layoutScale: 'balanced',
@@ -604,6 +638,106 @@ export function forceDirectedLayout(nodes, edges, options = {}) {
         }
       }
     }
+
+    // ------------------------------------------------------------------------
+    // Edge Repulsion (Node-Edge & Edge-Edge Interaction)
+    // ------------------------------------------------------------------------
+    // Edges repel nodes (and thus other edges via their endpoints).
+    // This prevents nodes from crossing edges or sitting on top of them.
+    // It naturally handles "triplet repulsion" (edge-edge) by repelling 
+    // each edge's endpoints from the other edge's segment.
+    
+    if (config.enableEdgeRepulsion) {
+      // Pre-calculate edge segments for this iteration
+      const edgeSegments = [];
+      edges.forEach(edge => {
+        const p1 = positions.get(edge.sourceId);
+        const p2 = positions.get(edge.destinationId);
+        if (p1 && p2) {
+          edgeSegments.push({
+            sourceId: edge.sourceId,
+            targetId: edge.destinationId,
+            x1: p1.x, y1: p1.y,
+            x2: p2.x, y2: p2.y
+          });
+        }
+      });
+
+      const edgeRepulsionStrength = repulsionStrength * 0.8; 
+      const minDist = finalMinNodeDistance;
+
+      // Iterate all nodes against all edges
+      // O(N * E) complexity - acceptable for typical graph sizes
+      for (let i = 0; i < nodes.length; i++) {
+        const node = nodes[i];
+        const nPos = positions.get(node.id);
+        if (!nPos) continue;
+
+        for (let j = 0; j < edgeSegments.length; j++) {
+          const seg = edgeSegments[j];
+          
+          // Skip if node is part of the edge (incident)
+          if (node.id === seg.sourceId || node.id === seg.targetId) continue;
+          
+          // Helper to apply force from segment to point
+          const { distSq, closestX, closestY, t } = getPointSegmentDistSq(
+            nPos.x, nPos.y, 
+            seg.x1, seg.y1, 
+            seg.x2, seg.y2
+          );
+          
+          // Only interact if relatively close
+          if (distSq > minDist * minDist * 4) continue;
+          
+          const dist = Math.sqrt(distSq);
+          
+          // Calculate repulsion vector
+          let rx, ry;
+          if (dist < 0.1) {
+            // Very close/on top: random or perpendicular kick
+            const dx = seg.x2 - seg.x1;
+            const dy = seg.y2 - seg.y1;
+            const len = Math.sqrt(dx * dx + dy * dy) || 1;
+            rx = -dy / len;
+            ry = dx / len;
+          } else {
+            rx = (nPos.x - closestX) / dist;
+            ry = (nPos.y - closestY) / dist;
+          }
+          
+          // Strength falls off with distance
+          const forceMag = (edgeRepulsionStrength * alpha) / Math.max(distSq, 100);
+          
+          const fx = rx * forceMag;
+          const fy = ry * forceMag;
+          
+          // Apply force to the node (away from edge)
+          const fNode = forces.get(node.id);
+          if (fNode) {
+            fNode.fx += fx;
+            fNode.fy += fy;
+          }
+          
+          // Apply equal and opposite reaction to edge endpoints
+          // Distribute based on t (proximity to endpoints)
+          // t=0 (source), t=1 (target)
+          const reactionX = -fx;
+          const reactionY = -fy;
+          
+          const fSource = forces.get(seg.sourceId);
+          const fTarget = forces.get(seg.targetId);
+          
+          if (fSource) {
+            fSource.fx += reactionX * (1 - t);
+            fSource.fy += reactionY * (1 - t);
+          }
+          if (fTarget) {
+            fTarget.fx += reactionX * t;
+            fTarget.fy += reactionY * t;
+          }
+        }
+      }
+    }
     
     // Spring forces (edges)
     edges.forEach(edge => {
@@ -679,12 +813,35 @@ export function forceDirectedLayout(nodes, edges, options = {}) {
     
     // Cool down
     alpha = Math.max(config.alphaMin, alpha * (1 - config.alphaDecay));
+
+    // ------------------------------------------------------------------------
+    // In-Loop Constraint Enforcement (Stiffness)
+    // ------------------------------------------------------------------------
+    // Applying constraints *during* the simulation loop creates "rigid body" 
+    // behavior, making the graph much stiffer and encouraging emergent geometry.
+    
+    if (config.stiffness > 0) {
+      // 1. Rigid Edge Constraints (Springs are not enough for stiffness)
+      enforceEdgeConstraints(
+        positions, edges, nodeById, getNodeRadius, 
+        finalTargetLinkDistance, 1, config.stiffness * alpha
+      );
+      
+      // 2. Collision Resolution (Prevent overlaps actively)
+      // We run this less frequently to save perf, or every frame for high quality
+      if (iter % 2 === 0) {
+        resolveOverlaps(
+          positions, nodes, getNodeRadius, config.padding, 
+          config.width, config.height, 1
+        );
+      }
+    }
   }
   
-  // Multi-stage constraint enforcement for rigidity
+  // Multi-stage constraint enforcement for rigidity (Final Polish)
   // Stage 1: Enforce edge constraints (connected nodes stay at target distance)
   enforceEdgeConstraints(positions, edges, nodeById, getNodeRadius, 
-    finalTargetLinkDistance, 5);
+    finalTargetLinkDistance, 5, 0.8); // High stiffness for final pass
   
   // Stage 2: Resolve all overlaps
   resolveOverlaps(positions, nodes, getNodeRadius, config.padding, 
@@ -692,7 +849,7 @@ export function forceDirectedLayout(nodes, edges, options = {}) {
   
   // Stage 3: Re-enforce edge constraints (maintain connectivity after overlap resolution)
   enforceEdgeConstraints(positions, edges, nodeById, getNodeRadius, 
-    finalTargetLinkDistance, 3);
+    finalTargetLinkDistance, 3, 0.8);
   
   // Stage 4: Final gentle overlap check
   resolveOverlaps(positions, nodes, getNodeRadius, config.padding, 
@@ -707,7 +864,7 @@ export function forceDirectedLayout(nodes, edges, options = {}) {
  * Enforce edge length constraints
  * Connected nodes try to maintain target distance (rigid body behavior)
  */
-function enforceEdgeConstraints(positions, edges, nodeById, getRadius, targetDistance, passes) {
+function enforceEdgeConstraints(positions, edges, nodeById, getRadius, targetDistance, passes, stiffness = 0.5) {
   for (let pass = 0; pass < passes; pass++) {
     edges.forEach(edge => {
       const p1 = positions.get(edge.sourceId);
@@ -718,37 +875,33 @@ function enforceEdgeConstraints(positions, edges, nodeById, getRadius, targetDis
       const dy = p2.y - p1.y;
       const dist = Math.sqrt(dx * dx + dy * dy);
       
-      if (dist < 1) return; // Skip degenerate edges
+      if (dist < 0.1) return; // Skip degenerate edges
       
       const n1 = nodeById.get(edge.sourceId);
       const n2 = nodeById.get(edge.destinationId);
       const r1 = getRadius(n1);
       const r2 = getRadius(n2);
       
-      // Constraint: maintain distance between min and target
-      const minAllowed = (r1 + r2) * 1.3;
-      const maxAllowed = targetDistance * 1.2;
+      // Dynamic Target Calculation
+      // We want nodes to sit at 'targetDistance' generally, 
+      // but MUST NOT overlap (radius + radius).
+      const minSeparation = (r1 + r2) * 1.1; // 10% gap
+      const effectiveTarget = Math.max(targetDistance, minSeparation);
       
-      let correction = 0;
-      if (dist < minAllowed) {
-        // Too close - push apart
-        correction = (minAllowed - dist) / 2;
-      } else if (dist > maxAllowed) {
-        // Too far - pull together
-        correction = (maxAllowed - dist) / 2;
-      } else {
-        // Within acceptable range - still nudge toward target
-        correction = (targetDistance - dist) * 0.1;
-      }
+      // Calculate scalar correction
+      // If stiffness is 1.0, we move exactly to target.
+      // If stiffness is low, we gently nudge.
+      const diff = dist - effectiveTarget;
+      const correction = diff * stiffness * 0.5; // 0.5 because we move both nodes
       
       const ux = dx / dist;
       const uy = dy / dist;
       
-      // Apply constraint symmetrically (both nodes move)
-      p1.x -= ux * correction;
-      p1.y -= uy * correction;
-      p2.x += ux * correction;
-      p2.y += uy * correction;
+      // Apply correction
+      p1.x += ux * correction;
+      p1.y += uy * correction;
+      p2.x -= ux * correction;
+      p2.y -= uy * correction;
     });
   }
 }

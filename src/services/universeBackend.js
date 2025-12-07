@@ -271,6 +271,9 @@ class UniverseBackend {
     this.authStatus = null;
     this.loggedMergeWarning = false;
 
+    // Background load tracking to prevent race conditions
+    this.pendingBackgroundLoadId = null;
+
     // Device configuration
     this.deviceConfig = null;
     this.isGitOnlyMode = false;
@@ -1044,11 +1047,29 @@ class UniverseBackend {
             gfWarn('[UniverseBackend] Active universe load timed out; marking UI loaded and continuing in background');
             // Release UI spinner immediately
             this.storeOperations?.setUniverseLoaded(true, true);
+
+            // CRITICAL: Track background load to cancel if needed
+            const bgLoadId = Date.now();
+            this.pendingBackgroundLoadId = bgLoadId;
+
             // Continue loading in background and apply when ready
             this.loadUniverseData(activeUniverse, { allowPermissionPrompt: false })
               .then((bgState) => {
+                // CRITICAL: Check if this background load has been superseded
+                if (this.pendingBackgroundLoadId !== bgLoadId) {
+                  gfLog('[UniverseBackend] Background load superseded by newer load, discarding');
+                  return;
+                }
+
                 if (bgState && this.storeOperations?.loadUniverseFromFile) {
                   try {
+                    // CRITICAL: Check if a load is already in progress before applying
+                    const currentState = this.storeOperations.getState?.();
+                    if (currentState?._isLoadingUniverse) {
+                      gfWarn('[UniverseBackend] Another load in progress, skipping background load');
+                      return;
+                    }
+
                     // Preserve current viewport (panOffset, zoomLevel) to avoid jarring resets after background load
                     try {
                       const current = this.storeOperations.getState?.();
@@ -1078,7 +1099,12 @@ class UniverseBackend {
                       // Best-effort viewport preservation; ignore if unavailable
                     }
 
-                    this.storeOperations.loadUniverseFromFile(bgState);
+                    const success = this.storeOperations.loadUniverseFromFile(bgState);
+                    if (!success) {
+                      gfWarn('[UniverseBackend] Background load rejected by store (concurrent load in progress)');
+                    } else {
+                      gfLog('[UniverseBackend] Background load completed successfully');
+                    }
                   } catch (e) {
                     gfWarn('[UniverseBackend] Background universe load failed to apply:', e);
                   }
@@ -1283,7 +1309,15 @@ class UniverseBackend {
                 // Don't overwrite! User's local work is preserved
               } else {
                 // Git has data or both are empty - safe to load
-                this.storeOperations.loadUniverseFromFile(storeState);
+                // CRITICAL: Cancel any pending background loads before loading
+                this.pendingBackgroundLoadId = null;
+
+                const success = this.storeOperations.loadUniverseFromFile(storeState);
+                if (!success) {
+                  gfWarn('[UniverseBackend] Failed to reload from Git - concurrent load in progress');
+                  return;
+                }
+
                 const loadedState = this.storeOperations.getState();
                 const nodeCount = loadedState?.nodePrototypes ? (loadedState.nodePrototypes instanceof Map ? loadedState.nodePrototypes.size : Object.keys(loadedState.nodePrototypes).length) : 0;
                 gfLog(`[UniverseBackend] Reloaded from Git after auth: ${nodeCount} nodes`);
@@ -2048,6 +2082,9 @@ class UniverseBackend {
 
     this.activeUniverseSlug = key;
     this.saveToStorage();
+
+    // CRITICAL: Cancel any pending background loads to prevent overwriting
+    this.pendingBackgroundLoadId = null;
 
     this.notifyStatus('info', `Switched to universe: ${universe.name}`);
 
@@ -3902,8 +3939,11 @@ class UniverseBackend {
     if (!this.isInitialized) {
       await this.initialize();
     }
-    
+
     gfLog(`[UniverseBackend] Reloading universe: ${universeSlug}`);
+
+    // CRITICAL: Cancel any pending background loads to prevent overwriting
+    this.pendingBackgroundLoadId = null;
 
     const universe = this.getUniverse(universeSlug);
     if (!universe) {

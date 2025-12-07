@@ -1,6 +1,7 @@
 import { useEffect, useRef } from 'react';
 import useGraphStore from '../store/graphStore.jsx';
 import { bridgeEventSource, bridgeFetch } from '../services/bridgeConfig.js';
+import { navigateAfterCreation, navigateOnGraphSwitch } from '../services/canvasNavigationService.js';
 
 const MAX_LAYOUT_NODES = 400;
 const MAX_SUMMARY_EDGES = 600;
@@ -427,6 +428,8 @@ const BridgeClient = () => {
                 const g = s.graphs.get(graphId);
                 const friendly = `Switched to graph "${g?.name || graphId}"`;
                 window.dispatchEvent(new CustomEvent('rs-telemetry', { detail: [{ ts: Date.now(), type: 'info', name: 'setActiveGraph', message: friendly }] }));
+                // Navigate to show the switched graph
+                navigateOnGraphSwitch(graphId);
               } catch { }
               return { success: true, graphId };
             },
@@ -473,6 +476,8 @@ const BridgeClient = () => {
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify(bridgeData)
                   });
+                  // Navigate to show the opened graph
+                  navigateOnGraphSwitch(graphId);
                 } catch { }
               } catch { }
               return { success: true, graphId };
@@ -525,6 +530,11 @@ const BridgeClient = () => {
                   headers: { 'Content-Type': 'application/json' },
                   body: JSON.stringify(bridgeData)
                 }).catch(err => console.warn('[BridgeClient] Failed to sync new graph:', err));
+
+                // Navigate to show the new graph
+                if (afterId && afterId !== beforeId) {
+                  navigateOnGraphSwitch(afterId);
+                }
               } catch { }
               return { success: true, graphId: afterId || beforeId };
             },
@@ -581,6 +591,31 @@ const BridgeClient = () => {
               console.log('MCPBridge: Forwarding chat message to AI model', { message, context });
               // The actual chat handling happens in the MCP server
               return { success: true, message, context };
+            },
+            navigateTo: async (options) => {
+              // Navigate the canvas to show specific content
+              // options: { mode, nodeIds, graphId, coordinates, zoom }
+              console.log('MCPBridge: Navigating to', options);
+              const { navigateToNodes, navigateToFitContent, navigateToCoordinates } = await import('../services/canvasNavigationService.js');
+              
+              if (options.nodeIds && options.nodeIds.length > 0) {
+                navigateToNodes(options.nodeIds, { 
+                  graphId: options.graphId,
+                  delay: options.delay || 150 
+                });
+              } else if (options.coordinates) {
+                navigateToCoordinates(
+                  options.coordinates.x, 
+                  options.coordinates.y, 
+                  { zoom: options.zoom, delay: options.delay || 150 }
+                );
+              } else {
+                navigateToFitContent({ 
+                  graphId: options.graphId,
+                  delay: options.delay || 150 
+                });
+              }
+              return { success: true, navigated: true };
             },
             applyMutations: async (operations) => {
               console.groupCollapsed('MCPBridge: Applying batch mutations');
@@ -802,11 +837,14 @@ const BridgeClient = () => {
                       break;
                     case 'createNewGraph': {
                       const init = op.initialData || {};
+                      let newGraphId = null;
                       if (init.id) {
                         store.createGraphWithId(init.id, init);
                         try { store.openGraphTab(init.id); } catch { }
+                        newGraphId = init.id;
                       } else {
                         store.createNewGraph(init);
+                        newGraphId = useGraphStore.getState().activeGraphId;
                       }
                       try {
                         const s2 = useGraphStore.getState();
@@ -814,6 +852,10 @@ const BridgeClient = () => {
                         const g = gid ? s2.graphs.get(gid) : null;
                         const friendly = `Created graph "${g?.name || 'New Graph'}"`;
                         window.dispatchEvent(new CustomEvent('rs-telemetry', { detail: [{ ts: Date.now(), type: 'info', name: 'applyMutations', message: friendly }] }));
+                        // Navigate to show the new graph
+                        if (newGraphId) {
+                          navigateOnGraphSwitch(newGraphId);
+                        }
                       } catch { }
                       results.push({ type: op.type, ok: true });
                       break;
@@ -847,6 +889,7 @@ const BridgeClient = () => {
                       break;
                     case 'setActiveGraph':
                       store.setActiveGraph(op.graphId);
+                      navigateOnGraphSwitch(op.graphId);
                       results.push({ type: op.type, ok: true, graphId: op.graphId });
                       break;
                     case 'deleteNodeInstance':
@@ -897,6 +940,14 @@ const BridgeClient = () => {
                         });
                       });
                       console.log(`MCPBridge: Auto-layout applied to ${positions.length} nodes`);
+
+                      // Navigate to show the new content courteously
+                      const newNodeIds = addedInstances.map(r => r.id).filter(Boolean);
+                      navigateAfterCreation({
+                        nodeIds: newNodeIds,
+                        graphId: a,
+                        action: 'applyMutations'
+                      });
                     }
                   } catch (layoutErr) {
                     console.warn('MCPBridge: Auto-layout failed:', layoutErr);

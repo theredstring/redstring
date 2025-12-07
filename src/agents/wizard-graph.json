@@ -1,0 +1,117 @@
+{
+  "id": "wizard-agent-graph",
+  "name": "The Wizard",
+  "description": "The Wizard agent graph - routes user intent to specialized handlers",
+  "nodes": [
+    {
+      "id": "intent-router",
+      "name": "Intent Router",
+      "description": "Routes user messages to appropriate handlers",
+      "agentConfig": {
+        "enabled": true,
+        "type": "router",
+        "prompt": "You are The Wizard's Intent Router. Analyze user messages and route them to the appropriate handler:\n- 'Graph Builder' for creating new graphs\n- 'Node Editor' for editing existing nodes\n- 'Query Handler' for questions and analysis\n\nReturn JSON: {\"route\": \"Graph Builder\" | \"Node Editor\" | \"Query Handler\", \"input\": <original message>}",
+        "routes": {
+          "Graph Builder": "graph-builder",
+          "Node Editor": "node-editor",
+          "Query Handler": "query-handler"
+        },
+        "defaultRoute": "graph-builder",
+        "maxTokens": 500,
+        "temperature": 0.3
+      }
+    },
+    {
+      "id": "graph-builder",
+      "name": "Graph Builder",
+      "description": "Creates new graphs with nodes and connections",
+      "agentConfig": {
+        "enabled": true,
+        "type": "executor",
+        "prompt": "You are The Wizard's Graph Builder. Create comprehensive graphs based on user requests. Generate node names in Title Case with spaces, define meaningful connections, and use appropriate colors. Output JSON matching the create_populated_graph tool format.",
+        "maxTokens": 2000,
+        "temperature": 0.7,
+        "events": ["graph:create"]
+      }
+    },
+    {
+      "id": "node-editor",
+      "name": "Node Editor",
+      "description": "Edits existing nodes, connections, and graph structure",
+      "agentConfig": {
+        "enabled": true,
+        "type": "executor",
+        "prompt": "You are The Wizard's Node Editor. Modify existing graphs by updating nodes, creating/deleting edges, enriching nodes with definitions, or bulk deleting. Always use the active graph from context - never ask for graph IDs.",
+        "maxTokens": 2000,
+        "temperature": 0.7,
+        "events": ["node:edit", "edge:edit"]
+      }
+    },
+    {
+      "id": "query-handler",
+      "name": "Query Handler",
+      "description": "Handles questions and analysis requests",
+      "agentConfig": {
+        "enabled": true,
+        "type": "executor",
+        "prompt": "You are The Wizard's Query Handler. Answer questions about graphs, analyze relationships, and provide insights. Keep responses concise and grounded in the graph structure.",
+        "maxTokens": 1500,
+        "temperature": 0.7,
+        "events": ["query"]
+      }
+    },
+    {
+      "id": "committer",
+      "name": "Committer",
+      "description": "Final stage - applies mutations to the graph",
+      "agentConfig": {
+        "enabled": true,
+        "type": "executor",
+        "prompt": "You are The Wizard's Committer. Review the planned mutations and ensure they are valid. Output a clean, user-facing completion message.",
+        "maxTokens": 500,
+        "temperature": 0.5
+      }
+    }
+  ],
+  "edges": [
+    {
+      "id": "router-to-builder",
+      "sourceId": "intent-router",
+      "destinationId": "graph-builder",
+      "typeNodeId": "agent-delegates-to"
+    },
+    {
+      "id": "router-to-editor",
+      "sourceId": "intent-router",
+      "destinationId": "node-editor",
+      "typeNodeId": "agent-delegates-to"
+    },
+    {
+      "id": "router-to-query",
+      "sourceId": "intent-router",
+      "destinationId": "query-handler",
+      "typeNodeId": "agent-delegates-to"
+    },
+    {
+      "id": "builder-to-committer",
+      "sourceId": "graph-builder",
+      "destinationId": "committer",
+      "typeNodeId": "agent-reports-to"
+    },
+    {
+      "id": "editor-to-committer",
+      "sourceId": "node-editor",
+      "destinationId": "committer",
+      "typeNodeId": "agent-reports-to"
+    },
+    {
+      "id": "query-to-committer",
+      "sourceId": "query-handler",
+      "destinationId": "committer",
+      "typeNodeId": "agent-reports-to"
+    }
+  ]
+}
+
+
+

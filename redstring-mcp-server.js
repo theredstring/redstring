@@ -3162,6 +3162,96 @@ server.tool(
   }
 );
 
+// Tool: Navigate the canvas to show specific content
+// This allows the AI to guide users through graphs by panning/zooming the view
+server.tool(
+  "navigate_to",
+  "Navigate the canvas view to show specific nodes or content. Use this when walking users through a graph to visually guide them to different areas.",
+  {
+    mode: z.enum(['fit_content', 'focus_nodes', 'coordinates']).optional().describe("Navigation mode: fit_content (show all), focus_nodes (zoom to specific nodes), coordinates (pan to location)"),
+    nodeIds: z.array(z.string()).optional().describe("Node instance IDs to focus on (for focus_nodes mode)"),
+    nodeNames: z.array(z.string()).optional().describe("Node names to find and focus on (alternative to nodeIds)"),
+    graphId: z.string().optional().describe("Graph ID to navigate within (default: active graph)"),
+    coordinates: z.object({
+      x: z.number(),
+      y: z.number()
+    }).optional().describe("Canvas coordinates to pan to (for coordinates mode)"),
+    zoom: z.number().optional().describe("Zoom level (0.3 to 1.5)")
+  },
+  async ({ mode = 'fit_content', nodeIds, nodeNames, graphId, coordinates, zoom }) => {
+    try {
+      const state = await getRealRedstringState();
+      
+      // If nodeNames provided, resolve to nodeIds
+      let resolvedNodeIds = nodeIds || [];
+      if (nodeNames && nodeNames.length > 0 && state) {
+        const targetGraphId = graphId || state.activeGraphId;
+        const graph = state.graphs?.get?.(targetGraphId) || (state.graphs || {})[targetGraphId];
+        if (graph && graph.instances) {
+          const instances = graph.instances instanceof Map 
+            ? Array.from(graph.instances.values())
+            : Object.values(graph.instances);
+          
+          for (const name of nodeNames) {
+            const nameLower = name.toLowerCase();
+            for (const inst of instances) {
+              const proto = state.nodePrototypes?.get?.(inst.prototypeId) || 
+                (state.nodePrototypes || {})[inst.prototypeId];
+              if (proto && proto.name.toLowerCase().includes(nameLower)) {
+                resolvedNodeIds.push(inst.id);
+                break;
+              }
+            }
+          }
+        }
+      }
+      
+      // Queue navigation action
+      const navAction = {
+        id: `pa-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+        action: 'navigateTo',
+        params: [{
+          mode,
+          nodeIds: resolvedNodeIds.length > 0 ? resolvedNodeIds : undefined,
+          graphId,
+          coordinates,
+          zoom,
+          delay: 100
+        }],
+        timestamp: Date.now()
+      };
+      
+      pendingActions.push(navAction);
+      console.log('✅ Bridge: Queued navigateTo action:', { mode, nodeCount: resolvedNodeIds.length });
+      
+      // Brief wait for action to be processed
+      await new Promise(resolve => setTimeout(resolve, 200));
+      
+      const description = mode === 'focus_nodes' && resolvedNodeIds.length > 0
+        ? `Navigating to ${resolvedNodeIds.length} node(s)`
+        : mode === 'coordinates' && coordinates
+        ? `Navigating to coordinates (${coordinates.x}, ${coordinates.y})`
+        : 'Navigating to fit all content in view';
+      
+      return {
+        content: [{
+          type: "text",
+          text: JSON.stringify({
+            success: true,
+            message: description,
+            mode,
+            nodeIds: resolvedNodeIds,
+            graphId: graphId || state?.activeGraphId
+          }, null, 2)
+        }]
+      };
+    } catch (error) {
+      console.error('Navigate to error:', error);
+      return { content: [{ type: "text", text: `❌ Navigation error: ${error.message}` }] };
+    }
+  }
+);
+
 // AI-Guided Workflow Tool removed - chat tool already exists above
 
 server.tool(

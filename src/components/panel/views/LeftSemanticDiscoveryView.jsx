@@ -1,11 +1,14 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { Search, Loader2, X, RotateCcw } from 'lucide-react';
-import ToggleSlider from '../../ToggleSlider.jsx';
+import Dropdown from '../../Dropdown.jsx';
 import DraggableConceptCard from '../items/DraggableConceptCard.jsx';
 import GhostSemanticNode from '../items/GhostSemanticNode.jsx';
 import { enhancedSemanticSearch } from '../../../services/semanticWebQuery.js';
 import { knowledgeFederation } from '../../../services/knowledgeFederation.js';
 import { normalizeToCandidate, candidateToConcept } from '../../../services/candidates.js';
+import { ingestOrbitIndexEntries } from '../../../services/orbitLocalIndex.js';
+import useGraphStore from '../../../store/graphStore.jsx';
+import { markPrototypesProtected } from '../../../services/prototypeProtection.js';
 
 // Generate deterministic concept colors (matches Panel view)
 const generateConceptColor = (name) => {
@@ -45,17 +48,381 @@ const generateConceptColor = (name) => {
   return hsvToHex(hue, targetSaturation, targetBrightness);
 };
 
+const STARTER_PACK = [
+  {
+    uri: 'http://example.org/entity/Person',
+    id: 'starter-person',
+    label: 'Person',
+    description: 'A human being.',
+    types: ['Class'],
+    source: 'starter-pack',
+    related: [
+      { uri: 'http://example.org/entity/Organization', label: 'Organization', predicate: 'works_at', source: 'starter-pack' },
+      { uri: 'http://example.org/entity/Place', label: 'Place', predicate: 'born_in', source: 'starter-pack' }
+    ]
+  },
+  {
+    uri: 'http://example.org/entity/Organization',
+    id: 'starter-organization',
+    label: 'Organization',
+    description: 'A company or institution.',
+    types: ['Class'],
+    source: 'starter-pack',
+    related: [
+      { uri: 'http://example.org/entity/Product', label: 'Product', predicate: 'produces', source: 'starter-pack' },
+      { uri: 'http://example.org/entity/Person', label: 'Person', predicate: 'employs', source: 'starter-pack' }
+    ]
+  },
+  {
+    uri: 'http://example.org/entity/Place',
+    id: 'starter-place',
+    label: 'Place',
+    description: 'A city or location.',
+    types: ['Class'],
+    source: 'starter-pack',
+    related: [
+      { uri: 'http://example.org/entity/Event', label: 'Event', predicate: 'hosts', source: 'starter-pack' }
+    ]
+  },
+  {
+    uri: 'http://example.org/entity/Event',
+    id: 'starter-event',
+    label: 'Event',
+    description: 'An occurrence at a place and time.',
+    types: ['Class'],
+    source: 'starter-pack',
+    related: [
+      { uri: 'http://example.org/entity/Person', label: 'Person', predicate: 'involves', source: 'starter-pack' },
+      { uri: 'http://example.org/entity/Place', label: 'Place', predicate: 'located_in', source: 'starter-pack' }
+    ]
+  },
+  {
+    uri: 'http://example.org/entity/Technology',
+    id: 'starter-technology',
+    label: 'Technology',
+    description: 'A tool or technique.',
+    types: ['Class'],
+    source: 'starter-pack',
+    related: [
+      { uri: 'http://example.org/entity/Product', label: 'Product', predicate: 'enables', source: 'starter-pack' }
+    ]
+  },
+  {
+    uri: 'http://example.org/entity/Product',
+    id: 'starter-product',
+    label: 'Product',
+    description: 'A manufactured or digital item.',
+    types: ['Class'],
+    source: 'starter-pack',
+    related: [
+      { uri: 'http://example.org/entity/Technology', label: 'Technology', predicate: 'uses', source: 'starter-pack' }
+    ]
+  },
+  {
+    uri: 'http://example.org/entity/Idea',
+    id: 'starter-idea',
+    label: 'Idea',
+    description: 'A concept or theme.',
+    types: ['Class'],
+    source: 'starter-pack',
+    related: [
+      { uri: 'http://example.org/entity/Person', label: 'Person', predicate: 'proposes', source: 'starter-pack' }
+    ]
+  },
+  {
+    uri: 'http://example.org/entity/Project',
+    id: 'starter-project',
+    label: 'Project',
+    description: 'An organized effort with goals.',
+    types: ['Class'],
+    source: 'starter-pack',
+    related: [
+      { uri: 'http://example.org/entity/Person', label: 'Person', predicate: 'led_by', source: 'starter-pack' },
+      { uri: 'http://example.org/entity/Organization', label: 'Organization', predicate: 'sponsored_by', source: 'starter-pack' }
+    ]
+  }
+];
+
 // Left Semantic Discovery View - Concept Discovery Engine
-const LeftSemanticDiscoveryView = ({ storeActions, nodePrototypesMap, openRightPanelNodeTab, rightPanelTabs, activeDefinitionNodeId, selectedInstanceIds = new Set(), hydratedNodes = [] }) => {
+const LeftSemanticDiscoveryView = ({ storeActions, nodePrototypesMap, openRightPanelNodeTab, rightPanelTabs, activeDefinitionNodeId, selectedInstanceIds = new Set(), hydratedNodes = [], onLoadWikidataCatalog }) => {
   const [isSearching, setIsSearching] = useState(false);
   const [discoveredConcepts, setDiscoveredConcepts] = useState([]);
   const [searchHistory, setSearchHistory] = useState([]);
   const [selectedConcept, setSelectedConcept] = useState(null);
-  const [viewMode, setViewMode] = useState('discover'); // 'discover', 'history', 'advanced'
+  const [viewMode, setViewMode] = useState('discover'); // 'discover', 'history', 'catalog'
   const [manualQuery, setManualQuery] = useState('');
   const [expandingNodeId, setExpandingNodeId] = useState(null);
   const [semanticExpansionResults, setSemanticExpansionResults] = useState([]);
   const [searchProgress, setSearchProgress] = useState('');
+  const LOG_TAG = '[SemanticDiscovery:Catalog]';
+
+  const [catalogParams, setCatalogParams] = useState({
+    seedCount: 50, // prototypes to seed from current graph/selection
+    maxDepth: 1,
+    maxEntitiesPerLevel: 15,
+    predicateCap: 6,
+    entityCap: 20000,
+    seedStrategy: 'graph' // graph | random
+  });
+  const [catalogLoading, setCatalogLoading] = useState(false);
+  const [catalogStatus, setCatalogStatus] = useState('');
+  const [catalogLog, setCatalogLog] = useState([]);
+  const [catalogJobId, setCatalogJobId] = useState(null);
+  const [catalogProgress, setCatalogProgress] = useState(null); // 0-1
+  const catalogLastStatusRef = useRef('');
+
+  const makeFriendlyName = (entry) => {
+    if (entry.label) return entry.label;
+    const tail = entry.uri ? decodeURIComponent(entry.uri.split('/').pop() || entry.uri) : '';
+    return tail.replace(/[_-]+/g, ' ') || entry.uri || 'Unknown';
+  };
+
+  const formatPredicate = (pred) => {
+    if (!pred) return 'relatedTo';
+    const tail = decodeURIComponent(String(pred).split('/').pop() || pred);
+    if (/^P\d+$/.test(tail)) return tail; // keep if purely PID
+    return tail.replace(/[_-]+/g, ' ');
+  };
+
+  const generateRandomCatalog = (count = 5) => {
+    return Array.from({ length: count }).map((_, idx) => {
+      const uri = `http://example.org/random/${Date.now()}-${idx + 1}`;
+      return {
+        uri,
+        id: uri,
+        label: `Random seed ${idx + 1}`,
+        description: 'Random primer entity',
+        types: [],
+        source: 'random-primer',
+        related: [
+          {
+            uri: `${uri}#rel1`,
+            label: `Related ${idx + 1}.1`,
+            predicate: 'relatedTo',
+            source: 'random-primer'
+          },
+          {
+            uri: `${uri}#rel2`,
+            label: `Related ${idx + 1}.2`,
+            predicate: 'relatedTo',
+            source: 'random-primer'
+          }
+        ]
+      };
+    });
+  };
+  const availableSeedCount = useMemo(() => {
+    if (!nodePrototypesMap) return 0;
+    let count = 0;
+    nodePrototypesMap.forEach((p) => {
+      if (p?.id && p.id !== 'base-thing-prototype' && p.id !== 'base-connection-prototype') {
+        count += 1;
+      }
+    });
+    return count;
+  }, [nodePrototypesMap]);
+
+  const estimateCatalog = useMemo(() => {
+    const seeds = Math.max(1, Number(catalogParams.seedCount) || 1);
+    const perLevel = Math.max(1, Number(catalogParams.maxEntitiesPerLevel) || 1);
+    const depth = Math.max(1, Number(catalogParams.maxDepth) || 1);
+    const predicateCap = Math.max(1, Number(catalogParams.predicateCap) || 1);
+    const entityCap = Math.max(100, Number(catalogParams.entityCap) || 100);
+
+    // Simple breadth estimate: level1 = seeds*perLevel; level2 = perLevel^2, etc.
+    let estimatedEntities = seeds;
+    let frontier = seeds * perLevel;
+    for (let d = 0; d < depth; d++) {
+      estimatedEntities += frontier;
+      frontier = Math.min(frontier * perLevel, entityCap);
+      if (estimatedEntities > entityCap) {
+        estimatedEntities = entityCap;
+        break;
+      }
+    }
+
+    const estimatedTriples = Math.min(entityCap, estimatedEntities) * (predicateCap + 2); // +2 for label/desc
+    const estimatedMB = Math.round((estimatedTriples * 220) / 1_000_000); // ~220 bytes per triple rough average
+    const perSearchResults = Math.min(estimatedEntities, perLevel * (depth + 1));
+
+    return {
+      entities: estimatedEntities,
+      triples: estimatedTriples,
+      sizeMB: estimatedMB,
+      perSearchResults
+    };
+  }, [catalogParams]);
+
+  const handleParamChange = (key, value) => {
+    setCatalogParams(prev => ({ ...prev, [key]: value }));
+  };
+
+  const appendCatalogLog = (msg) => {
+    setCatalogLog((prev) => {
+      const next = [...prev, { ts: new Date(), msg }];
+      return next.slice(-50);
+    });
+  };
+
+  const handleLoadCatalog = () => {
+    const payload = { params: catalogParams, estimates: estimateCatalog, availableSeedCount };
+    console.log(`${LOG_TAG} Triggering Wikidata slice load`, payload);
+    setCatalogLoading(true);
+    setCatalogStatus('Starting Wikidata slice load…');
+    appendCatalogLog('Starting Wikidata slice load…');
+    const complete = (ok, msg) => {
+      const statusMsg = msg || (ok ? 'Wikidata slice load triggered' : 'Wikidata slice load failed');
+      setCatalogStatus(statusMsg);
+      // Keep loading active until status poll reports completion/failure
+      if (!ok) {
+        setCatalogProgress((prev) => (prev == null ? 0 : prev));
+        setCatalogLoading(false);
+      }
+      appendCatalogLog(statusMsg);
+    };
+
+    try {
+      if (onLoadWikidataCatalog) {
+        const maybePromise = onLoadWikidataCatalog(payload);
+        if (maybePromise && typeof maybePromise.then === 'function') {
+          maybePromise
+            .then((resp) => {
+              if (resp?.jobId) setCatalogJobId(resp.jobId);
+              if (resp?.error) {
+                appendCatalogLog(`Error: ${resp.error}`);
+                complete(false, resp.error);
+                return;
+              }
+              let catalogEntries = [];
+              if (Array.isArray(resp?.sampleCatalog) && resp.sampleCatalog.length > 0) {
+                const hasGenericLabels = resp.sampleCatalog.every((e) =>
+                  typeof e.label === 'string' && /wikidata seed/i.test(e.label)
+                );
+                catalogEntries = hasGenericLabels ? STARTER_PACK : resp.sampleCatalog;
+              } else if (catalogParams.seedStrategy === 'random') {
+                catalogEntries = generateRandomCatalog(Math.min(8, Math.max(3, Number(catalogParams.seedCount) || 3)));
+              } else {
+                catalogEntries = STARTER_PACK;
+              }
+
+              if (catalogEntries.length > 0) {
+                const store = useGraphStore.getState();
+                const createdIds = [];
+                catalogEntries.forEach((entry) => {
+                  const protoId = entry.id || entry.uri;
+                  const create = store.addNodePrototype || store.addNodePrototypeWithDeduplication;
+                  if (create) {
+                    create({
+                      id: protoId,
+                      name: makeFriendlyName(entry),
+                      description: entry.description || '',
+                      typeNodeId: entry.typeNodeId || 'base-thing-prototype',
+                      externalLinks: [entry.uri],
+                      equivalentClasses: entry.types || [],
+                      isOrbitCatalog: true,
+                      source: entry.source || 'wikidata',
+                    });
+                    createdIds.push(protoId);
+                  }
+                });
+
+                if (createdIds.length > 0) {
+                  ingestOrbitIndexEntries(catalogEntries, { graphStore: useGraphStore });
+                  markPrototypesProtected(createdIds);
+                }
+
+                const tripleLogs = [];
+                catalogEntries.forEach((entry) => {
+                  appendCatalogLog(`Node: ${entry.label || entry.uri}`);
+                  if (Array.isArray(entry.related)) {
+                    entry.related.forEach((rel) => {
+                      tripleLogs.push(`${entry.label || entry.uri} --- ${formatPredicate(rel.predicate)} ---> ${rel.label || rel.uri}`);
+                    });
+                  }
+                });
+                if (tripleLogs.length > 0) {
+                  tripleLogs.slice(0, 10).forEach((t) => appendCatalogLog(t));
+                  if (tripleLogs.length > 10) {
+                    appendCatalogLog(`...and ${tripleLogs.length - 10} more triples`);
+                  }
+                }
+                appendCatalogLog(`Ingested ${catalogEntries.length} catalog prototypes`);
+                appendCatalogLog(`Imported ${catalogEntries.length} entities, ${tripleLogs.length || 0} relationships`);
+                setCatalogStatus((prev) => `${prev} • Added ${catalogEntries.length} prototypes`);
+              }
+              complete(true, 'Wikidata slice load requested');
+            })
+            .catch((err) => {
+              console.warn(`${LOG_TAG} Load failed via prop`, err);
+              complete(false, err?.message || 'Load failed');
+            });
+        } else {
+          complete(true, 'Wikidata slice load requested');
+        }
+      } else {
+        // Broadcast so other parts of the app can hook in without prop drilling
+        window.dispatchEvent(new CustomEvent('loadWikidataCatalog', { detail: payload }));
+        appendCatalogLog('No handler attached; dispatched loadWikidataCatalog event');
+        // Give UI a visible loading window even for fire-and-forget
+        setTimeout(() => complete(true, 'Wikidata slice load requested'), 800);
+      }
+    } catch (err) {
+      console.warn(`${LOG_TAG} Load failed`, err);
+      complete(false, err?.message || 'Load failed');
+    }
+  };
+
+  // Poll catalog status while loading or jobId set
+  useEffect(() => {
+    if (!catalogLoading) return undefined;
+    let cancelled = false;
+    const poll = async () => {
+      try {
+        const resp = await fetch('/api/catalog/status');
+        if (!resp.ok) {
+          appendCatalogLog(`Status poll failed: HTTP ${resp.status}`);
+          return;
+        }
+        const data = await resp.json();
+        if (cancelled) return;
+        if (data.state) {
+          const statusLine = `${data.state}${data.lastMessage ? `: ${data.lastMessage}` : ''}`;
+          setCatalogStatus(statusLine);
+          if (catalogLastStatusRef.current !== statusLine) {
+            catalogLastStatusRef.current = statusLine;
+            appendCatalogLog(`Status: ${statusLine}`);
+          }
+          if (typeof data.progress === 'number') {
+            setCatalogProgress(Math.min(1, Math.max(0, data.progress)));
+          } else if (data.state === 'running') {
+            // optimistic nudge if no progress returned
+            setCatalogProgress((prev) => {
+              if (prev == null) return 0.15;
+              return Math.min(0.9, prev + 0.05);
+            });
+          }
+        }
+        if (data.state === 'failed') {
+          setCatalogProgress((prev) => (prev == null ? 0 : prev));
+          setCatalogLoading(false);
+        }
+        if (data.state === 'completed') {
+          setCatalogProgress(1);
+          setTimeout(() => {
+            setCatalogLoading(false);
+            setCatalogProgress(null);
+          }, 800);
+        }
+      } catch {
+        // ignore
+      }
+      if (!cancelled) {
+        setTimeout(poll, 800);
+      }
+    };
+    poll();
+    return () => { cancelled = true; };
+  }, [catalogLoading]);
 
   // Persist discovery history and search results across sessions (localStorage)
   useEffect(() => {
@@ -563,9 +930,6 @@ const LeftSemanticDiscoveryView = ({ storeActions, nodePrototypesMap, openRightP
   };
 
   // Debug logging
-  console.log('[SemanticDiscovery] Rendering with viewMode:', viewMode);
-  console.log('[SemanticDiscovery] Contexts:', contexts);
-  console.log('[SemanticDiscovery] Manual query:', manualQuery);
 
   return (
     <>
@@ -631,20 +995,270 @@ const LeftSemanticDiscoveryView = ({ storeActions, nodePrototypesMap, openRightP
         <h2 style={{ margin: 0, color: '#260000', userSelect: 'none', fontSize: '1.1rem', fontWeight: 'bold', fontFamily: "'EmOne', sans-serif", marginBottom: '12px' }}>
           Semantic Discovery
         </h2>
-        <ToggleSlider
+        <Dropdown
           options={[
             { value: 'discover', label: 'Discover' },
-            { value: 'history', label: 'History' }
+            { value: 'catalog', label: 'Catalog' },
+            { value: 'history', label: `History${searchHistory.length ? ` (${searchHistory.length})` : ''}` }
           ]}
           value={viewMode}
           onChange={setViewMode}
-          rightContent={
-            viewMode === 'history' && searchHistory.length > 0 ? (
-              `${searchHistory.length} search${searchHistory.length !== 1 ? 'es' : ''}`
-            ) : null
-          }
         />
       </div>
+
+      {viewMode === 'catalog' && (
+        <div
+          style={{
+            border: '1px solid rgba(38,0,0,0.18)',
+            borderRadius: 12,
+            padding: '10px 12px',
+            background: 'transparent',
+            marginBottom: 14,
+            boxShadow: '0 6px 18px rgba(0,0,0,0.04)',
+            flex: 1,
+            display: 'flex',
+            flexDirection: 'column',
+            gap: 12
+          }}
+        >
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <div style={{ fontSize: 12, fontWeight: 'bold', color: '#260000', fontFamily: "'EmOne', sans-serif" }}>
+              Wikidata Slice (feeds Orbit & All Things)
+            </div>
+            {catalogLoading && (
+              <div style={{ fontSize: 11, color: '#260000', background: '#f0e6e3', padding: '4px 8px', borderRadius: 10 }}>
+                Loading…
+              </div>
+            )}
+            <button
+              onClick={handleLoadCatalog}
+              disabled={isSearching || catalogLoading}
+              style={{
+                background: isSearching || catalogLoading ? '#a88c87' : '#260000',
+                color: '#EFE8E5',
+                border: 'none',
+                borderRadius: 10,
+                padding: '6px 12px',
+                fontSize: 11,
+                minWidth: 140,
+                cursor: isSearching || catalogLoading ? 'wait' : 'pointer',
+                boxShadow: '0 2px 6px rgba(0,0,0,0.12)',
+                opacity: isSearching || catalogLoading ? 0.7 : 1
+              }}
+              title="Load a scoped Wikidata slice into the local catalog"
+            >
+              {catalogLoading ? 'Loading…' : 'Load Wikidata slice'}
+            </button>
+          </div>
+          <div style={{ fontSize: 11, color: availableSeedCount > 0 ? '#4b3732' : '#8B0000', marginTop: -6 }}>
+            {availableSeedCount > 0
+              ? `Available seeds from current graphs: ${availableSeedCount}`
+              : 'No graph seeds found — loader may start empty until you add nodes or supply a query.'}
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+            <label style={{ display: 'flex', flexDirection: 'column', fontSize: 11, color: '#260000', gap: 6 }}>
+              <span style={{ display: 'flex', justifyContent: 'space-between' }}>
+                <span>Seeds from graph</span>
+                <span style={{ fontWeight: 'bold' }}>{catalogParams.seedCount}</span>
+              </span>
+              <input
+                type="range"
+                min={1}
+                max={500}
+                value={catalogParams.seedCount}
+                onChange={(e) => handleParamChange('seedCount', Number(e.target.value))}
+                style={{ accentColor: '#8B0000', background: 'transparent' }}
+                title="How many current prototypes to seed the slice with"
+              />
+              <span style={{ fontSize: 10, color: '#5a403a' }}>Start with top N prototypes from the active web/selection.</span>
+            </label>
+            <label style={{ display: 'flex', flexDirection: 'column', fontSize: 11, color: '#260000', gap: 6 }}>
+              <span style={{ display: 'flex', justifyContent: 'space-between' }}>
+                <span>Max depth</span>
+                <span style={{ fontWeight: 'bold' }}>{catalogParams.maxDepth}</span>
+              </span>
+              <input
+                type="range"
+                min={1}
+                max={3}
+                value={catalogParams.maxDepth}
+                onChange={(e) => handleParamChange('maxDepth', Number(e.target.value))}
+                style={{ accentColor: '#8B0000', background: 'transparent' }}
+                title="How many hops away to pull related entities"
+              />
+              <span style={{ fontSize: 10, color: '#5a403a' }}>Expansion hops from each seed.</span>
+            </label>
+            <label style={{ display: 'flex', flexDirection: 'column', fontSize: 11, color: '#260000', gap: 6 }}>
+              <span style={{ display: 'flex', justifyContent: 'space-between' }}>
+                <span>Entities per level</span>
+                <span style={{ fontWeight: 'bold' }}>{catalogParams.maxEntitiesPerLevel}</span>
+              </span>
+              <input
+                type="range"
+                min={5}
+                max={50}
+                value={catalogParams.maxEntitiesPerLevel}
+                onChange={(e) => handleParamChange('maxEntitiesPerLevel', Number(e.target.value))}
+                style={{ accentColor: '#8B0000', background: 'transparent' }}
+                title="Max related entities collected per hop"
+              />
+              <span style={{ fontSize: 10, color: '#5a403a' }}>Per-hop breadth cap.</span>
+            </label>
+            <label style={{ display: 'flex', flexDirection: 'column', fontSize: 11, color: '#260000', gap: 6 }}>
+              <span style={{ display: 'flex', justifyContent: 'space-between' }}>
+                <span>Predicate cap</span>
+                <span style={{ fontWeight: 'bold' }}>{catalogParams.predicateCap}</span>
+              </span>
+              <input
+                type="range"
+                min={3}
+                max={20}
+                value={catalogParams.predicateCap}
+                onChange={(e) => handleParamChange('predicateCap', Number(e.target.value))}
+                style={{ accentColor: '#8B0000', background: 'transparent' }}
+                title="Max properties kept per entity"
+              />
+              <span style={{ fontSize: 10, color: '#5a403a' }}>Keeps only the top predicates per entity.</span>
+            </label>
+            <label style={{ display: 'flex', flexDirection: 'column', fontSize: 11, color: '#260000', gap: 6 }}>
+              <span style={{ display: 'flex', justifyContent: 'space-between' }}>
+                <span>Entity cap</span>
+                <span style={{ fontWeight: 'bold' }}>{catalogParams.entityCap.toLocaleString()}</span>
+              </span>
+              <input
+                type="range"
+                min={500}
+                max={500000}
+                step={500}
+                value={catalogParams.entityCap}
+                onChange={(e) => handleParamChange('entityCap', Number(e.target.value))}
+                style={{ accentColor: '#8B0000', background: 'transparent' }}
+                title="Hard stop on total entities ingested"
+              />
+              <span style={{ fontSize: 10, color: '#5a403a' }}>Global limit to keep the slice lean.</span>
+            </label>
+            <label style={{ display: 'flex', flexDirection: 'column', fontSize: 11, color: '#260000', gap: 6 }}>
+              <span style={{ display: 'flex', justifyContent: 'space-between' }}>
+                <span>Seed strategy</span>
+                <span style={{ fontWeight: 'bold' }}>{catalogParams.seedStrategy === 'graph' ? 'From graph' : 'Random primer'}</span>
+              </span>
+              <div style={{ display: 'flex', gap: 6 }}>
+                <button
+                  onClick={() => handleParamChange('seedStrategy', 'graph')}
+                  style={{
+                    flex: 1,
+                    padding: '6px 8px',
+                    borderRadius: 8,
+                    border: '1px solid #8B0000',
+                    background: catalogParams.seedStrategy === 'graph' ? '#8B0000' : 'transparent',
+                    color: catalogParams.seedStrategy === 'graph' ? '#EFE8E5' : '#260000',
+                    cursor: 'pointer',
+                    fontSize: 12
+                  }}
+                  title="Seed from current graph/selection nodes"
+                >
+                  From graph
+                </button>
+                <button
+                  onClick={() => handleParamChange('seedStrategy', 'random')}
+                  style={{
+                    flex: 1,
+                    padding: '6px 8px',
+                    borderRadius: 8,
+                    border: '1px solid #8B0000',
+                    background: catalogParams.seedStrategy === 'random' ? '#8B0000' : 'transparent',
+                    color: catalogParams.seedStrategy === 'random' ? '#EFE8E5' : '#260000',
+                    cursor: 'pointer',
+                    fontSize: 12
+                  }}
+                  title="Seed using a random primer when the graph is sparse"
+                >
+                  Random primer
+                </button>
+              </div>
+              <span style={{ fontSize: 10, color: '#5a403a' }}>
+                Use current web as seeds or let the loader pick a random primer if the graph is empty.
+              </span>
+            </label>
+          </div>
+          <div style={{ fontSize: 11, color: '#4b3732', display: 'flex', gap: 12, flexWrap: 'wrap' }}>
+            <div title="Estimated unique entities ingested">≈ {estimateCatalog.entities.toLocaleString()} entities</div>
+            <div title="Estimated statements stored locally">≈ {estimateCatalog.triples.toLocaleString()} triples</div>
+            <div title="Approximate on-disk footprint">~ {estimateCatalog.sizeMB} MB on disk</div>
+            <div title="Likely results surfaced per search in this slice">~ {estimateCatalog.perSearchResults} results / search</div>
+            {catalogStatus && <div style={{ color: '#260000', fontWeight: 'bold' }}>{catalogStatus}</div>}
+          </div>
+          {catalogLoading && (
+            <div style={{ marginTop: 6 }}>
+              <div style={{ height: 8, borderRadius: 10, background: 'rgba(139,0,0,0.15)', overflow: 'hidden' }}>
+                <div
+                  style={{
+                    height: '100%',
+                    width: `${Math.round((catalogProgress ?? 0.1) * 100)}%`,
+                    background: '#8B0000',
+                    transition: 'width 0.4s ease',
+                  }}
+                />
+              </div>
+            </div>
+          )}
+          {(catalogLoading || catalogLog.length > 0) && (
+            <div
+              style={{
+                marginTop: 8,
+                border: '1px solid rgba(38,0,0,0.12)',
+                borderRadius: 10,
+                padding: '8px 10px',
+                background: '#f8f4f2',
+                maxHeight: 150,
+                overflow: 'auto'
+              }}
+            >
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+                <div style={{ fontSize: 11, fontWeight: 'bold', color: '#260000' }}>
+                  Import log
+                </div>
+                <button
+                  onClick={() => {
+                    const text = catalogLog.map((e) => `${e.ts.toISOString()} - ${e.msg}`).join('\n');
+                    if (text && navigator.clipboard?.writeText) {
+                      navigator.clipboard.writeText(text).catch(() => {});
+                    }
+                  }}
+                  style={{
+                    background: 'transparent',
+                    border: '1px solid #8B0000',
+                    color: '#8B0000',
+                    borderRadius: 8,
+                    padding: '4px 8px',
+                    fontSize: 10,
+                    cursor: 'pointer'
+                  }}
+                  title="Copy import log to clipboard"
+                >
+                  Copy
+                </button>
+              </div>
+              {catalogLog.length === 0 && (
+                <div style={{ fontSize: 11, color: '#5a403a' }}>Waiting for events…</div>
+              )}
+              {catalogLog.length > 0 && (
+                <ul style={{ listStyle: 'none', padding: 0, margin: 0, display: 'flex', flexDirection: 'column', gap: 4 }}>
+                  {catalogLog.slice().reverse().map((entry, idx) => (
+                    <li
+                      key={`${entry.ts.toISOString()}-${idx}`}
+                      style={{ fontSize: 11, color: '#3a2723', background: '#fff', borderRadius: 8, padding: '6px 8px', boxShadow: '0 1px 2px rgba(0,0,0,0.06)' }}
+                    >
+                      <div style={{ fontSize: 10, color: '#7a615c' }}>{entry.ts.toLocaleTimeString()}</div>
+                      <div>{entry.msg}</div>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          )}
+        </div>
+      )}
 
       {viewMode === 'discover' && (
         <>

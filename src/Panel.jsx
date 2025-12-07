@@ -796,6 +796,28 @@ const Panel = forwardRef(
       console.log(`[toggleSection] Toggled section '${name}'. New collapsed state: ${!sectionCollapsed[name]}`);
     };
 
+    // --- Semantic catalog loader hook ---
+    const handleLoadWikidataCatalog = async (payload) => {
+      try {
+        const resp = await fetch('/api/catalog/wikidata-slice', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+        });
+        if (!resp.ok) {
+          const text = await resp.text();
+          console.warn('[Panel] Wikidata slice load failed:', resp.status, text);
+          throw new Error(text || `HTTP ${resp.status}`);
+        }
+        const data = await resp.json().catch(() => ({}));
+        console.log('[Panel] Wikidata slice load response:', data);
+        return data;
+      } catch (err) {
+        console.warn('[Panel] Wikidata slice load error:', err);
+        throw err;
+      }
+    };
+
     // AI view redirect removed - wizard is re-enabled
 
     // Debug section state
@@ -1577,7 +1599,6 @@ const Panel = forwardRef(
         );
       } else if (leftViewActive === 'semantic') {
         // Semantic Discovery view - concept discovery engine
-        console.log('[Panel] Rendering semantic discovery view');
         panelContent = (
           <LeftSemanticDiscoveryView
             storeActions={storeActions}
@@ -1587,6 +1608,7 @@ const Panel = forwardRef(
             activeDefinitionNodeId={activeDefinitionNodeId}
             selectedInstanceIds={selectedInstanceIds}
             hydratedNodes={hydratedNodes}
+            onLoadWikidataCatalog={handleLoadWikidataCatalog}
           />
         );
       } else if (leftViewActive === 'ai') {

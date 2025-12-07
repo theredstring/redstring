@@ -13,7 +13,7 @@
 .pie-menu-bubble-inner.is-popping {
   /* Starts from base styles (opacity 0, scaled down) */
   animation-name: pie-bubble-pop;
-  animation-duration: 400ms;
+  animation-duration: 200ms;
   animation-timing-function: cubic-bezier(0.34, 1.56, 0.64, 1);
   animation-fill-mode: forwards; /* Ends at opacity 1, correct scale/pos */
 }
@@ -30,7 +30,7 @@
   opacity: 1; 
   transform: translate(0,0) scale(1);
   animation-name: pie-bubble-shrink-out;
-  animation-duration: 120ms; /* Slightly faster shrink */
+  animation-duration: 100ms; /* Slightly faster shrink */
   animation-timing-function: cubic-bezier(0.6, -0.28, 0.735, 0.045);
   animation-fill-mode: forwards; /* Ends at opacity 0, scaled down */
 }
@@ -68,7 +68,7 @@
   opacity: 1; 
   transform: translate(0,0) scale(1);
   animation-name: pie-bubble-shrink-out;
-  animation-duration: 150ms; /* Faster shrink */
+  animation-duration: 100ms; /* Faster shrink */
   animation-timing-function: cubic-bezier(0.6, -0.28, 0.735, 0.045); /* EaseInBack for a nice effect */
   animation-fill-mode: forwards;
   /* animation-delay for shrinking out (reversed stagger) is set via inline style in PieMenu.jsx */

@@ -35,30 +35,30 @@ const PlusSign = ({
 
   const lerp = (a, b, t) => a + (b - a) * t;
   
+  // CSS color name to hex mapping - hoisted to avoid reallocation
+  const colorNameToHex = {
+    'maroon': '#800000',
+    'red': '#FF0000',
+    'orange': '#FFA500',
+    'yellow': '#FFFF00',
+    'olive': '#808000',
+    'green': '#008000',
+    'purple': '#800080',
+    'fuchsia': '#FF00FF',
+    'lime': '#00FF00',
+    'teal': '#008080',
+    'aqua': '#00FFFF',
+    'blue': '#0000FF',
+    'navy': '#000080',
+    'black': '#000000',
+    'gray': '#808080',
+    'silver': '#C0C0C0',
+    'white': '#EFE8E5'
+  };
+
   const interpolateColor = (color1, color2, factor) => {
     // Simple color interpolation for hex colors
     if (color1 === color2) return color1;
-    
-    // CSS color name to hex mapping
-    const colorNameToHex = {
-      'maroon': '#800000',
-      'red': '#FF0000',
-      'orange': '#FFA500',
-      'yellow': '#FFFF00',
-      'olive': '#808000',
-      'green': '#008000',
-      'purple': '#800080',
-      'fuchsia': '#FF00FF',
-      'lime': '#00FF00',
-      'teal': '#008080',
-      'aqua': '#00FFFF',
-      'blue': '#0000FF',
-      'navy': '#000080',
-      'black': '#000000',
-      'gray': '#808080',
-      'silver': '#C0C0C0',
-      'white': '#EFE8E5'
-    };
     
     // Convert hex to RGB
     const hexToRgb = (hex) => {

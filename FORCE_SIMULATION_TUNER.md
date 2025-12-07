@@ -107,6 +107,7 @@ Interactive, draggable modal for tuning force-directed graph layout parameters i
 ### Simulation Algorithm
 Custom force-directed layout implementation based on:
 - N-body repulsion (Barnes-Hut style, but O(n²) for simplicity)
+- **Edge Repulsion (Triplets)**: Edges repel each other to improve angular resolution, except for parallel edges (same two nodes).
 - Spring forces on edges
 - Centering force
 - Collision detection and resolution
@@ -122,6 +123,7 @@ Custom force-directed layout implementation based on:
 - Real-time parameter updates
 - Suitable for graphs up to ~50-100 nodes
 - Larger graphs may need optimization
+- **Edge Repulsion Impact**: Adds O(E²) complexity. For very dense graphs (>500 edges), consider disabling `enableEdgeRepulsion`.
 
 ## Files
 - `/src/components/ForceSimulationModal.jsx` - Main component
@@ -134,4 +136,3 @@ Custom force-directed layout implementation based on:
 - Export/import parameter sets
 - Grid/hierarchical constraint options
 - WebWorker-based simulation for large graphs
-

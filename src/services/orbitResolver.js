@@ -1,6 +1,7 @@
 import { normalizeToCandidate } from './candidates.js';
 import { KnowledgeFederation } from './knowledgeFederation.js';
 import { findRelatedConcepts } from './semanticWebQuery.js';
+import { findLocalOrbitCandidates } from './orbitLocalIndex.js';
 
 // Lazy import helper to avoid circular dependency
 let _useGraphStore = null;
@@ -53,6 +54,33 @@ export async function fetchOrbitCandidatesForPrototype(prototype, options = {}) 
 
     const providers = [];
     
+    // 0) Local catalog-first: Orbit index entries persisted in the store
+    providers.push(
+      findLocalOrbitCandidates(prototype, { limit: 48 })
+        .then((results) => {
+          console.log(`🏠 Local orbit index returned ${results?.length || 0} candidates for "${seed}"`);
+          if (!Array.isArray(results)) return [];
+          return results.map((r) =>
+            normalizeToCandidate(
+              {
+                name: r.name,
+                uri: r.uri,
+                predicate: r.predicate || 'relatedTo',
+                source: r.source || 'orbit-local',
+                sourceTrust: r.sourceTrust ?? getSourceTrust(r.source || 'orbit-local'),
+                externalLinks: r.externalLinks || (r.uri ? [r.uri] : []),
+                equivalentClasses: r.types || [],
+              },
+              context
+            )
+          );
+        })
+        .catch((error) => {
+          console.warn(`❌ Local orbit index failed for "${seed}":`, error.message);
+          return [];
+        })
+    );
+
     console.log(`🌐 Querying semantic web for "${seed}"`);
     
     // 1) Semantic web query utility (most reliable)

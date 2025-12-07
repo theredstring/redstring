@@ -9,9 +9,9 @@ const NUM_FIXED_POSITIONS = 8;
 const FIXED_ANGLE_STEP = (2 * Math.PI) / NUM_FIXED_POSITIONS; // PI/4 or 45 degrees
 const START_ANGLE_OFFSET = -Math.PI / 2; // Start at the top position (North)
 
-const POP_ANIMATION_DURATION = 400; // ms, matches CSS
-const SHRINK_ANIMATION_DURATION = 150; // ms, matches CSS (FASTER)
-const STAGGER_DELAY = 40; // ms, slightly reduced
+const POP_ANIMATION_DURATION = 200; // ms, matches CSS
+const SHRINK_ANIMATION_DURATION = 100; // ms, matches CSS (FASTER)
+const STAGGER_DELAY = 20; // ms, slightly reduced
 const EXIT_ANIMATION_BUFFER = 50; // ms, extra buffer for animation to complete visually
 
 const PieMenu = ({
@@ -113,31 +113,31 @@ const PieMenu = ({
     };
   }, [animationState, handleAnimationEnd]);
 
-  // Auto-close timer: Close the pie menu after 5 seconds of being visible
-  useEffect(() => {
-    // Clear any existing timer
-    if (autoCloseTimerRef.current) {
-      clearTimeout(autoCloseTimerRef.current);
-      autoCloseTimerRef.current = null;
-    }
+  // Auto-close timer: DISABLED - PieMenu should remain open until user explicitly closes it
+  // useEffect(() => {
+  //   // Clear any existing timer
+  //   if (autoCloseTimerRef.current) {
+  //     clearTimeout(autoCloseTimerRef.current);
+  //     autoCloseTimerRef.current = null;
+  //   }
 
-    // Start a new timer when the menu becomes visible (visible_steady state)
-    if (animationState === 'visible_steady' && isVisible) {
-      console.log('[PieMenu] Starting 5-second auto-close timer');
-      autoCloseTimerRef.current = setTimeout(() => {
-        console.log('[PieMenu] Auto-close timer expired, triggering close');
-        onAutoClose();
-      }, 5000); // 5 seconds
-    }
+  //   // Start a new timer when the menu becomes visible (visible_steady state)
+  //   if (animationState === 'visible_steady' && isVisible) {
+  //     console.log('[PieMenu] Starting 5-second auto-close timer');
+  //     autoCloseTimerRef.current = setTimeout(() => {
+  //       console.log('[PieMenu] Auto-close timer expired, triggering close');
+  //       onAutoClose();
+  //     }, 5000); // 5 seconds
+  //   }
 
-    // Cleanup function
-    return () => {
-      if (autoCloseTimerRef.current) {
-        clearTimeout(autoCloseTimerRef.current);
-        autoCloseTimerRef.current = null;
-      }
-    };
-  }, [animationState, isVisible, onAutoClose]);
+  //   // Cleanup function
+  //   return () => {
+  //     if (autoCloseTimerRef.current) {
+  //       clearTimeout(autoCloseTimerRef.current);
+  //       autoCloseTimerRef.current = null;
+  //     }
+  //   };
+  // }, [animationState, isVisible, onAutoClose]);
 
   // Render null if essential data is missing
   if (!node || !buttons || !buttons.length || !nodeDimensions) {

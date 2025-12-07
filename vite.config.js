@@ -1,6 +1,6 @@
 /// <reference types="vitest" />
-import { defineConfig } from 'vite'
-import react from '@vitejs/plugin-react'
+import { defineConfig } from 'vite';
+import react from '@vitejs/plugin-react';
 
 // https://vitejs.dev/config/
 export default defineConfig({
@@ -15,8 +15,13 @@ export default defineConfig({
   },
   server: {
     host: true, // listen on all interfaces for LAN testing
-    port: 4000,
+    port: Number(process.env.VITE_DEV_PORT) || 4001,
     proxy: {
+      // Primary API/bridge proxy to the semantic server
+      '/api': {
+        target: process.env.VITE_API_TARGET || 'http://localhost:4002',
+        changeOrigin: true,
+      },
       '/api/conceptnet': {
         target: 'http://api.conceptnet.io',
         changeOrigin: true,

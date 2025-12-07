@@ -87,6 +87,17 @@ let telemetry = [];
 let chatLog = [];
 let actionSequence = 0; // monotonically increasing sequence for action ordering
 
+// Filter function to remove test messages from chatLog (retroactive cleanup)
+function cleanTestMessages() {
+  const before = chatLog.length;
+  chatLog = chatLog.filter(entry => !entry.isTest);
+  const removed = before - chatLog.length;
+  if (removed > 0) {
+    logger.info(`[Bridge] Cleaned ${removed} test messages from chat log`);
+  }
+  return removed;
+}
+
 function appendChat(role, text, extra = {}) {
   try {
     const entry = { ts: Date.now(), role, text: String(text || ''), ...extra };
@@ -850,8 +861,263 @@ app.post('/api/bridge/chat/append', (req, res) => {
   }
 });
 
+// Tool discovery endpoint for test harness
+app.get('/api/bridge/tools', (_req, res) => {
+  try {
+    const tools = [
+      {
+        name: 'qa',
+        description: 'Answer questions about the knowledge graph',
+        parameters: { type: 'object', properties: {} }
+      },
+      {
+        name: 'create_graph',
+        description: 'Create a new knowledge graph with nodes and edges',
+        parameters: {
+          type: 'object',
+          properties: {
+            graph: { type: 'object', properties: { name: { type: 'string' } } },
+            graphSpec: {
+              type: 'object',
+              properties: {
+                nodes: { type: 'array' },
+                edges: { type: 'array' },
+                layoutAlgorithm: { type: 'string' }
+              }
+            }
+          }
+        }
+      },
+      {
+        name: 'create_node',
+        description: 'Add a new concept/node to the active graph',
+        parameters: {
+          type: 'object',
+          properties: {
+            node: {
+              type: 'object',
+              properties: {
+                name: { type: 'string' },
+                color: { type: 'string' },
+                description: { type: 'string' }
+              }
+            }
+          }
+        }
+      },
+      {
+        name: 'analyze',
+        description: 'Analyze the current graph structure',
+        parameters: { type: 'object', properties: {} }
+      },
+      {
+        name: 'update_node',
+        description: 'Update properties of an existing node',
+        parameters: {
+          type: 'object',
+          properties: {
+            update: {
+              type: 'object',
+              properties: {
+                target: { type: 'string' },
+                changes: { type: 'object' }
+              }
+            }
+          }
+        }
+      },
+      {
+        name: 'delete_node',
+        description: 'Delete a node from the graph',
+        parameters: {
+          type: 'object',
+          properties: {
+            delete: {
+              type: 'object',
+              properties: {
+                target: { type: 'string' }
+              }
+            }
+          }
+        }
+      },
+      {
+        name: 'delete_graph',
+        description: 'Delete an entire graph',
+        parameters: {
+          type: 'object',
+          properties: {
+            delete: {
+              type: 'object',
+              properties: {
+                graphId: { type: 'string' }
+              }
+            }
+          }
+        }
+      },
+      {
+        name: 'update_edge',
+        description: 'Update an existing connection between nodes',
+        parameters: {
+          type: 'object',
+          properties: {
+            edge: {
+              type: 'object',
+              properties: {
+                source: { type: 'string' },
+                target: { type: 'string' },
+                definitionNode: { type: 'object' },
+                directionality: { type: 'string' }
+              }
+            }
+          }
+        }
+      },
+      {
+        name: 'delete_edge',
+        description: 'Delete a connection between nodes',
+        parameters: {
+          type: 'object',
+          properties: {
+            edgeDelete: {
+              type: 'object',
+              properties: {
+                source: { type: 'string' },
+                target: { type: 'string' }
+              }
+            }
+          }
+        }
+      },
+      {
+        name: 'create_edge',
+        description: 'Create a new connection between existing nodes',
+        parameters: {
+          type: 'object',
+          properties: {
+            edge: {
+              type: 'object',
+              properties: {
+                source: { type: 'string' },
+                target: { type: 'string' },
+                definitionNode: { type: 'object' },
+                directionality: { type: 'string' }
+              }
+            }
+          }
+        }
+      },
+      {
+        name: 'bulk_delete',
+        description: 'Delete multiple nodes at once',
+        parameters: {
+          type: 'object',
+          properties: {
+            targets: { type: 'array', items: { type: 'string' } }
+          }
+        }
+      },
+      {
+        name: 'enrich_node',
+        description: 'Create a definition graph for a node to enrich it with detail',
+        parameters: {
+          type: 'object',
+          properties: {
+            target: { type: 'string' }
+          }
+        }
+      }
+    ];
+
+    res.json({
+      tools,
+      count: tools.length,
+      type: 'intent-based',
+      note: 'The wizard uses intent-based planning, not function calling. Each tool represents an intent that the LLM detects from user messages.'
+    });
+  } catch (error) {
+    logger.error('[Bridge] Tool list error:', error);
+    res.status(500).json({ error: 'Failed to get tool definitions' });
+  }
+});
+
 app.get('/api/bridge/telemetry', (_req, res) => {
   res.json({ telemetry, chat: chatLog.slice(-200) });
+});
+
+// Run wizard tests endpoint
+app.post('/api/bridge/run-tests', async (req, res) => {
+  try {
+    const { mode = 'dry' } = req.body || {};
+    logger.info(`[Bridge] Running wizard tests in ${mode} mode`);
+
+    // Clean any old test messages from chat log before running new tests
+    cleanTestMessages();
+
+    // Extract API key from request headers (sent by UI)
+    const apiKey = req.headers.authorization
+      ? String(req.headers.authorization).replace(/^Bearer\s+/i, '')
+      : '';
+
+    if (!apiKey && mode !== 'dry') {
+      logger.warn('[Bridge] No API key provided in Authorization header for tests');
+    } else if (apiKey) {
+      logger.debug(`[Bridge] API key received for tests: ${apiKey.slice(0, 8)}...${apiKey.slice(-4)} (length: ${apiKey.length})`);
+    }
+
+    // Spawn test process
+    const args = mode === 'auto' ? ['--auto-discover'] :
+                mode === 'dry' ? ['--dry-run'] :
+                [];
+
+    const { spawn } = await import('child_process');
+    const testProcess = spawn('node', ['test/ai/wizard-e2e.js', ...args], {
+      env: {
+        ...process.env,
+        BRIDGE_URL: 'http://localhost:3001',
+        API_KEY: apiKey // Pass API key to test process
+      },
+      stdio: 'pipe'
+    });
+
+    let output = '';
+    let errorOutput = '';
+
+    testProcess.stdout.on('data', (data) => {
+      output += data.toString();
+    });
+
+    testProcess.stderr.on('data', (data) => {
+      errorOutput += data.toString();
+    });
+
+    testProcess.on('close', (code) => {
+      logger.info(`[Bridge] Tests completed with code ${code}`);
+      const success = code === 0;
+
+      // Parse test results from output
+      const passMatch = output.match(/Passed:\s+(\d+)/);
+      const failMatch = output.match(/Failed:\s+(\d+)/);
+
+      appendChat('system', success ? '✅ Tests passed!' : '❌ Some tests failed', {
+        cid: 'test-run',
+        testResults: {
+          success,
+          exitCode: code,
+          passed: passMatch ? parseInt(passMatch[1]) : 0,
+          failed: failMatch ? parseInt(failMatch[1]) : 0,
+          output: output.substring(0, 1000), // Truncate to avoid huge messages
+          mode
+        }
+      });
+    });
+
+    res.json({ success: true, message: 'Tests started', mode });
+  } catch (error) {
+    logger.error('[Bridge] Failed to run tests:', error);
+    res.status(500).json({ error: String(error?.message || error) });
+  }
 });
 
 // Debug endpoints for execution tracing
@@ -1806,8 +2072,9 @@ app.post('/api/ai/agent', async (req, res) => {
     const cid = body.cid || `cid-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
     logger.debug(`[Agent] Request received: ${JSON.stringify({ message: body.message, cid, conversationHistory: body.conversationHistory?.length || 0 })}`);
     const isChainContinuation = body.context?.chainState?.remainingSubgoals;
+    const isTest = body.context?.isTest || false; // Flag from test harness
     if (body.message && !isChainContinuation) {
-      appendChat('user', body.message, { channel: 'agent' });
+      appendChat('user', body.message, { channel: 'agent', isTest });
     }
     const args = body.args || {};
     const conceptName = args.conceptName || body.conceptName || extractEntityName(body.message, 'New Concept');
@@ -4318,10 +4585,12 @@ app.get('/events/stream', (req, res) => {
           }
         }
       }
-      // Stream chat log entries as well
+      // Stream chat log entries as well (skip test messages)
       const chatTail = chatLog.slice(-50);
       if (chatTail.length > 0) {
         for (const c of chatTail) {
+          // Skip test messages (from test harness)
+          if (c && c.isTest) continue;
           send({ type: 'CHAT', item: c, ts: Date.now() });
         }
       }

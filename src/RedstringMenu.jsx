@@ -38,6 +38,7 @@ const RedstringMenu = ({
   onSaveUniverse,
   onExportRdf,
   onOpenRecentFile,
+  onLoadWikidataCatalog,
   // Auto-graph generation
   onGenerateTestGraph,
   onOpenForceSim,
@@ -267,6 +268,17 @@ const RedstringMenu = ({
                                 >
                                   <FileText size={16} style={{ marginRight: '8px', minWidth: '16px', flexShrink: 0 }} />
                                   Export as RDF/Turtle
+                                </div>
+                                <div
+                                  className="submenu-item"
+                                  onMouseEnter={handleRegularSubmenuItemHover}
+                                  onClick={() => {
+                                    onLoadWikidataCatalog?.();
+                                  }}
+                                  style={{ cursor: 'pointer' }}
+                                >
+                                  <Globe size={16} style={{ marginRight: '8px', minWidth: '16px', flexShrink: 0 }} />
+                                  Load from Wikidata...
                                 </div>
                                 <div
                                     className={`submenu-item has-submenu ${isNestedSubmenuOpen('RecentFiles') ? 'active-submenu-parent' : ''}`}

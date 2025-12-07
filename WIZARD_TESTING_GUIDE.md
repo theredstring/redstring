@@ -28,12 +28,17 @@ This starts the UI on port 4000. The UI's Committer processes queued goals.
 
 **Dry-run mode** (tests bridge connectivity, no API key needed):
 ```bash
-node test/ai/wizard-e2e.js --dry-run
+npm run test:wizard:dry
 ```
 
 **Full mode** (tests AI intent detection, requires API key):
 ```bash
-API_KEY=your-openrouter-key node test/ai/wizard-e2e.js
+API_KEY=your-openrouter-key npm run test:wizard
+```
+
+**Auto-discover mode** (tests all wizard tools automatically):
+```bash
+API_KEY=your-openrouter-key npm run test:wizard:auto
 ```
 
 ## What Gets Tested
@@ -47,6 +52,7 @@ API_KEY=your-openrouter-key node test/ai/wizard-e2e.js
 | Delete Graph | AI uses context instead of asking for ID | Yes |
 | Pending Actions API | Bridge returns pending actions | No |
 | Telemetry API | Bridge returns telemetry data | No |
+| **Auto-Discover Tools** | **Discovers and tests all wizard tools** | **Yes (with --auto-discover)** |
 
 ## Architecture Overview
 
@@ -149,7 +155,64 @@ The prompt should instruct the AI to use context. Check `AGENT_PLANNER_PROMPT` i
    - Add test case with example prompt
    - Validate expected behavior
 
+## Auto-Discovery Testing
+
+The wizard can now **test itself automatically**! The `--auto-discover` flag enables a self-testing mode that:
+
+1. **Discovers all tools** - Queries `/api/bridge/tools` to get the complete list of wizard capabilities
+2. **Generates test cases** - Creates appropriate test messages for each tool
+3. **Executes tests** - Runs the wizard with test messages and validates responses
+4. **Reports results** - Shows which tools work and which fail
+
+### Benefits
+
+✅ **Zero maintenance** - New tools are automatically tested
+✅ **Full coverage** - Every intent gets exercised
+✅ **Regression safety** - Know immediately if something breaks
+✅ **Self-documenting** - Living examples of what the wizard can do
+
+### Example Output
+
+```bash
+$ API_KEY=your-key npm run test:wizard:auto
+
+Test 8: Auto-discover all wizard tools...
+  Discovered 12 tools: qa, create_graph, create_node, analyze, update_node, delete_node, delete_graph, update_edge, delete_edge, create_edge, bulk_delete, enrich_node
+  Testing qa: "What graphs do I have?"
+    ✓ qa returns response
+  Testing analyze: "Analyze the current graph structure"
+    ✓ analyze returns response
+  Testing create_node: "Add a Computer node to this graph"
+    ✓ create_node returns response
+
+📊 Test Summary
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  Passed: 11
+  Failed: 0
+✅ All tests passed!
+```
+
 ## API Reference
+
+### GET /api/bridge/tools
+Returns all available wizard tools/intents for auto-discovery testing.
+
+**Response:**
+```json
+{
+  "tools": [
+    {
+      "name": "create_graph",
+      "description": "Create a new knowledge graph with nodes and edges",
+      "parameters": { "type": "object", ... }
+    },
+    ...
+  ],
+  "count": 12,
+  "type": "intent-based",
+  "note": "The wizard uses intent-based planning, not function calling..."
+}
+```
 
 ### POST /api/ai/agent
 Main AI agent endpoint. Accepts user message and context.
@@ -189,4 +252,6 @@ Get execution telemetry and chat history.
 | `BRIDGE_PORT` | Bridge daemon port | 3001 |
 | `API_KEY` | OpenRouter/Anthropic API key | - |
 | `BRIDGE_URL` | Bridge URL for tests | http://localhost:3001 |
+
+
 

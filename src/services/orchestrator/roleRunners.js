@@ -1682,6 +1682,46 @@ export async function runExecutorOnce() {
   }
 }
 
+// Agent Executor: runs agent graph tasks
+export async function runAgentOnce() {
+  const items = queueManager.pull('agentQueue', { max: 1 });
+  if (items.length === 0) return;
+  const item = items[0];
+
+  try {
+    const { agentGraphId, nodeId, input, workingMemoryId, apiKey, apiConfig } = item.data;
+
+    // Import AgentExecutor dynamically to avoid circular dependencies
+    const { default: AgentExecutor } = await import('../../services/agent/AgentExecutor.js');
+    
+    // Get agent graph from store
+    const bridgeStore = getBridgeStore();
+    const agentGraph = bridgeStore.graphs?.get(agentGraphId);
+    
+    if (!agentGraph) {
+      throw new Error(`Agent graph ${agentGraphId} not found`);
+    }
+
+    // Create executor
+    const executor = new AgentExecutor(agentGraph, apiKey, apiConfig);
+    
+    // Execute
+    const output = await executor.execute(input, nodeId);
+    
+    // Store result in working memory or return via queue
+    queueManager.enqueue('agentResults', {
+      workingMemoryId,
+      output,
+      trace: executor.getTrace()
+    });
+    
+    queueManager.ack('agentQueue', item.leaseId);
+  } catch (e) {
+    console.error('[Agent Executor] Error:', e);
+    queueManager.nack('agentQueue', item.leaseId);
+  }
+}
+
 // Auditor: pulls patches and validates, then enqueues a review item
 export async function runAuditorOnce() {
   const pulled = queueManager.pull('patchQueue', { max: 1 });

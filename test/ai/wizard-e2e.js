@@ -2,12 +2,15 @@
  * E2E Test Harness for The Wizard
  * Tests edge operations and graph editing without requiring full UI
  * 
- * Usage: 
+ * Usage:
  *   # Dry-run (test bridge connectivity only)
  *   node test/ai/wizard-e2e.js --dry-run
- * 
+ *
  *   # Full test with API key
  *   API_KEY=your-api-key node test/ai/wizard-e2e.js
+ *
+ *   # Auto-discover and test all wizard tools
+ *   API_KEY=your-api-key node test/ai/wizard-e2e.js --auto-discover
  * 
  * Requirements:
  *   - Bridge daemon running on port 3001 (npm run bridge)
@@ -68,7 +71,8 @@ async function callAgent(message, context = {}) {
         activeGraphId: context.activeGraphId || null,
         activeGraph: context.activeGraph || null,
         conversationHistory: context.conversationHistory || [],
-        apiConfig: context.apiConfig || null
+        apiConfig: context.apiConfig || null,
+        isTest: true // Mark as test to prevent chat broadcast
       }
     })
   });
@@ -101,6 +105,33 @@ async function getTelemetry() {
 async function getBridgeState() {
   const response = await fetch(`${BRIDGE_URL}/api/bridge/state`);
   return response.json();
+}
+
+// Test helper to discover all wizard tools
+async function discoverTools() {
+  const response = await fetch(`${BRIDGE_URL}/api/bridge/tools`);
+  const data = await response.json();
+  return data.tools || [];
+}
+
+// Generate a test message for a given tool/intent
+function generateTestMessage(tool) {
+  const messages = {
+    'qa': 'What graphs do I have?',
+    'create_graph': 'Create a graph about planets with Earth, Mars, and Venus',
+    'create_node': 'Add a Computer node to this graph',
+    'analyze': 'Analyze the current graph structure',
+    'update_node': 'Change Earth\'s color to blue',
+    'delete_node': 'Delete the Mars node',
+    'delete_graph': 'Delete this graph',
+    'update_edge': 'Change the connection between Earth and Sun to Orbits',
+    'delete_edge': 'Remove the connection between Earth and Mars',
+    'create_edge': 'Connect Earth to Moon with an Orbits relationship',
+    'bulk_delete': 'Delete Earth, Mars, and Venus',
+    'enrich_node': 'Enrich the Earth node with more details'
+  };
+
+  return messages[tool.name] || `Test ${tool.name}`;
 }
 
 // Helper to wait for pending actions to be picked up
@@ -461,6 +492,48 @@ async function runTests() {
   console.log();
 
   // ========================================
+  // Test 8: Auto-discover and test all tools (optional)
+  // ========================================
+  const AUTO_DISCOVER = process.argv.includes('--auto-discover');
+  if (AUTO_DISCOVER && !DRY_RUN) {
+    log('blue', 'Test 8: Auto-discover all wizard tools...');
+    try {
+      const tools = await discoverTools();
+      log('cyan', `  Discovered ${tools.length} tools: ${tools.map(t => t.name).join(', ')}`);
+
+      // Test a few key tools
+      const toolsToTest = ['qa', 'analyze', 'create_node'];
+      for (const toolName of toolsToTest) {
+        const tool = tools.find(t => t.name === toolName);
+        if (!tool) continue;
+
+        const testMessage = generateTestMessage(tool);
+        log('cyan', `  Testing ${tool.name}: "${testMessage}"`);
+
+        try {
+          const response = await callAgent(testMessage, {
+            activeGraphId: testGraphId,
+            activeGraph: { name: 'Solar System', nodeCount: 2, edgeCount: 1 }
+          });
+
+          if (response.error) {
+            log('yellow', `    ⚠ ${tool.name}: ${response.error}`);
+          } else {
+            assertTruthy(response.response || response.goalId, `${tool.name} returns response`);
+          }
+        } catch (error) {
+          log('red', `    ✗ ${tool.name} failed: ${error.message}`);
+          testsFailed++;
+        }
+      }
+    } catch (error) {
+      log('red', `  ❌ Auto-discovery failed: ${error.message}`);
+      testsFailed++;
+    }
+    console.log();
+  }
+
+  // ========================================
   // Summary
   // ========================================
   log('cyan', '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
@@ -489,4 +562,4 @@ if (isMainModule) {
   });
 }
 
-export { runTests, callAgent, syncBridgeState, getPendingActions, getTelemetry, getBridgeState };
+export { runTests, callAgent, syncBridgeState, getPendingActions, getTelemetry, getBridgeState, discoverTools, generateTestMessage };

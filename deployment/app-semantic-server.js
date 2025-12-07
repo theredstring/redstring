@@ -974,6 +974,199 @@ app.get('/health', (req, res) => {
   res.json({ status: 'healthy', service: 'redstring-server' });
 });
 
+// --- Semantic Catalog (live slice) ---
+const catalogState = {
+  jobId: null,
+  state: 'idle', // idle | running | completed | failed
+  startedAt: null,
+  finishedAt: null,
+  lastMessage: '',
+  progress: 0,
+};
+
+const WIKIDATA_ENDPOINT = 'https://query.wikidata.org/sparql';
+
+async function fetchWikidataSlice(seedLabels = [], { perSeed = 5, maxTotal = 200, timeoutMs = 15000 } = {}) {
+  if (!Array.isArray(seedLabels) || seedLabels.length === 0) return [];
+
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+
+  const seedsEscaped = seedLabels
+    .map((label) => `"${label.replace(/"/g, '\\"')}"@en`)
+    .join(' ');
+
+  // Curated predicate allowlist for readable relationships
+  const predicateAllowlist = [
+    'wdt:P31', // instance of
+    'wdt:P279', // subclass of
+    'wdt:P361', // part of
+    'wdt:P527', // has part
+    'wdt:P131', // located in admin territory
+    'wdt:P176', // manufacturer
+    'wdt:P178', // developer
+    'wdt:P50',  // author
+    'wdt:P17',  // country
+    'wdt:P495', // country of origin
+    'wdt:P36'   // capital
+  ];
+
+  const predicateValues = predicateAllowlist.join(' ');
+
+  const query = `
+    PREFIX wd: <http://www.wikidata.org/entity/>
+    PREFIX wdt: <http://www.wikidata.org/prop/direct/>
+    PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
+    PREFIX schema: <http://schema.org/>
+    PREFIX wikibase: <http://wikiba.se/ontology#>
+    PREFIX bd: <http://www.bigdata.com/rdf#>
+
+    SELECT ?item ?itemLabel ?itemDescription ?related ?relatedLabel ?pred ?predLabel WHERE {
+      VALUES ?seedLabel { ${seedsEscaped} }
+      VALUES ?pred { ${predicateValues} }
+      ?item rdfs:label ?seedLabel .
+      FILTER(LANG(?seedLabel) = "en")
+      OPTIONAL { ?item rdfs:label ?itemLabel . FILTER(LANG(?itemLabel) = "en") }
+      OPTIONAL { ?item schema:description ?itemDescription . FILTER(LANG(?itemDescription) = "en") }
+      OPTIONAL {
+        ?item ?pred ?related .
+        FILTER(isIRI(?related))
+        SERVICE wikibase:label { bd:serviceParam wikibase:language "en". }
+      }
+    }
+    LIMIT ${Math.min(maxTotal * 6, 1800)}
+  `;
+
+  const resp = await fetch(WIKIDATA_ENDPOINT, {
+    method: 'POST',
+    headers: {
+      'Accept': 'application/sparql-results+json',
+      'Content-Type': 'application/x-www-form-urlencoded',
+      'User-Agent': 'Redstring-Catalog/0.1',
+    },
+    body: `query=${encodeURIComponent(query)}`,
+    signal: controller.signal,
+    // keepalive helps with some browsers; not critical here
+  });
+
+  clearTimeout(timer);
+
+  if (!resp.ok) {
+    const txt = await resp.text().catch(() => '');
+    throw new Error(`Wikidata HTTP ${resp.status}: ${txt}`);
+  }
+
+  const data = await resp.json();
+  if (!data?.results?.bindings) return [];
+
+  const items = new Map();
+  for (const b of data.results.bindings) {
+    const itemUri = b.item?.value;
+    if (!itemUri) continue;
+    const entry = items.get(itemUri) || {
+      uri: itemUri,
+      id: itemUri,
+      label: b.itemLabel?.value || itemUri.split('/').pop(),
+      description: b.itemDescription?.value || '',
+      types: [],
+      source: 'wikidata',
+      related: [],
+    };
+    const relLabel = b.relatedLabel?.value;
+    if (b.related?.value && relLabel && entry.related.length < perSeed) {
+      entry.related.push({
+        uri: b.related.value,
+        label: relLabel,
+        predicate: b.predLabel?.value || b.pred?.value?.split('/').pop() || 'relatedTo',
+        source: 'wikidata',
+      });
+    }
+    items.set(itemUri, entry);
+    if (items.size >= maxTotal) break;
+  }
+
+  return Array.from(items.values()).slice(0, maxTotal);
+}
+
+app.get('/api/catalog/status', (req, res) => {
+  res.json(catalogState);
+});
+
+app.post('/api/catalog/wikidata-slice', async (req, res) => {
+  try {
+    const payload = req.body || {};
+    console.log('[Catalog] Received Wikidata slice request:', JSON.stringify(payload, null, 2));
+    // Start a job
+    catalogState.jobId = Date.now().toString();
+    catalogState.state = 'running';
+    catalogState.startedAt = new Date().toISOString();
+    catalogState.finishedAt = null;
+    catalogState.lastMessage = 'Starting job';
+    catalogState.progress = 0.1;
+
+    const seeds = Array.isArray(payload?.params?.seedLabels) && payload.params.seedLabels.length > 0
+      ? payload.params.seedLabels
+      : ['Person', 'Organization', 'Product', 'Project', 'Technology', 'Place'];
+
+    const perSeed = Math.min(50, Math.max(1, Number(payload?.params?.maxEntitiesPerLevel) || 15));
+    const maxTotal = Math.min(800, Math.max(10, Number(payload?.params?.entityCap) || 200));
+
+    catalogState.lastMessage = `Gathering seeds (${seeds.length})`;
+    catalogState.progress = 0.25;
+
+    let sampleCatalog = [];
+    try {
+      sampleCatalog = await fetchWikidataSlice(seeds, { perSeed, maxTotal });
+    } catch (err) {
+      const msg = err?.message || String(err);
+      console.warn('[Catalog] Live fetch failed:', msg);
+      catalogState.lastMessage = `Failed: ${msg}`;
+      catalogState.state = 'failed';
+      catalogState.progress = 1.0;
+      catalogState.finishedAt = new Date().toISOString();
+      return res.status(502).json({
+        ok: false,
+        message: 'Wikidata slice fetch failed',
+        error: msg,
+        jobId: catalogState.jobId
+      });
+    }
+
+    if (!Array.isArray(sampleCatalog) || sampleCatalog.length === 0) {
+      sampleCatalog = seeds.slice(0, 8).map((label, idx) => ({
+        uri: `http://example.org/starter/${encodeURIComponent(label)}-${idx + 1}`,
+        id: `starter-${idx + 1}-${label}`,
+        label,
+        description: `Starter concept for ${label}`,
+        types: ['Class'],
+        source: 'starter-pack',
+        related: [],
+      }));
+    }
+
+    catalogState.lastMessage = `Fetched ${sampleCatalog.length} entities`;
+    catalogState.progress = 0.8;
+    catalogState.lastMessage = 'Completed';
+    catalogState.state = 'completed';
+    catalogState.progress = 1.0;
+    catalogState.finishedAt = new Date().toISOString();
+
+    res.json({
+      ok: true,
+      message: 'Wikidata slice request accepted',
+      received: payload,
+      jobId: catalogState.jobId,
+      sampleCatalog
+    });
+  } catch (err) {
+    console.error('[Catalog] Failed to handle Wikidata slice request:', err?.message || err);
+    catalogState.state = 'failed';
+    catalogState.finishedAt = new Date().toISOString();
+    catalogState.lastMessage = err?.message || 'Error';
+    res.status(500).json({ ok: false, error: err?.message || 'Internal error' });
+  }
+});
+
 // --- Local Semantic Web Hosting ---
 
 // Resolve universe file path by slug
@@ -1140,4 +1333,3 @@ app.listen(PORT, () => {
 });
 
 export default app;
-

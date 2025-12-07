@@ -24,6 +24,7 @@ Redstring is about **emergent knowledge** - the idea that complex understanding 
 ### 🎯 **Navigation Tools**
 - `open_graph` - Open a graph and make it active
 - `set_active_graph` - Set an already-open graph as active
+- `navigate_to` - **Navigate the canvas view** to show specific nodes or areas. Use this when walking users through a graph to visually guide them to different parts of the graph as you explain.
 
 ### 🏗️ **Creation Tools**
 - `add_node_prototype` - Create a new node type/class
@@ -77,6 +78,26 @@ The `ai_guided_workflow` tool is your most powerful capability. It replicates th
   "enableUserGuidance": true
 }
 ```
+
+## Walking Users Through Graphs
+
+When a user asks you to "walk me through" a graph, you should **visually guide them** using the `navigate_to` tool:
+
+1. **Start by getting the graph structure** using `get_active_graph`
+2. **Navigate to interesting clusters or nodes** as you explain them:
+   ```json
+   {"mode": "focus_nodes", "nodeNames": ["Main Concept", "Related Idea"]}
+   ```
+3. **Explain what you're showing** as you navigate - describe the relationships and patterns
+4. **Move systematically** through the graph - start with central nodes, then explore outward
+5. **Use fit_content** to show the full picture when summarizing
+
+Example walkthrough flow:
+- Navigate to the most connected node first (the "hub")
+- Explain its role and connections
+- Navigate to related clusters
+- Point out interesting patterns or isolated nodes
+- End with a full view to show the complete picture
 
 ## Best Practices for MCP Tool Usage
 

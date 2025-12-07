@@ -1,5 +1,5 @@
 import React from 'react';
-import { Bot, Key, Settings, RotateCcw, Send, User, Square, Copy, Trash2 } from 'lucide-react';
+import { Bot, Key, Settings, RotateCcw, Send, User, Square, Copy, Trash2, Brain } from 'lucide-react';
 import APIKeySetup from '../../../ai/components/APIKeySetup.jsx';
 import mcpClient from '../../../services/mcpClient.js';
 import apiKeyManager from '../../../services/apiKeyManager.js';
@@ -7,6 +7,8 @@ import { bridgeFetch, bridgeEventSource } from '../../../services/bridgeConfig.j
 import StandardDivider from '../../StandardDivider.jsx';
 import { HEADER_HEIGHT } from '../../../constants.js';
 import ToolCallCard from '../../ToolCallCard.jsx';
+import DruidMindPanel from '../../DruidMindPanel.jsx';
+import DruidInstance from '../../../services/agent/DruidInstance.js';
 
 // Internal AI Collaboration View component (migrated from src/ai/AICollaborationPanel.jsx)
 const LeftAIView = ({ compact = false, activeGraphId, graphsMap }) => {
@@ -20,6 +22,8 @@ const LeftAIView = ({ compact = false, activeGraphId, graphsMap }) => {
   const [apiKeyInfo, setApiKeyInfo] = React.useState(null);
   const [isAutonomousMode, setIsAutonomousMode] = React.useState(true);
   const [currentAgentRequest, setCurrentAgentRequest] = React.useState(null);
+  const [showDruidMind, setShowDruidMind] = React.useState(false);
+  const [druidInstance, setDruidInstance] = React.useState(null);
   const messagesEndRef = React.useRef(null);
   const inputRef = React.useRef(null);
 
@@ -316,6 +320,74 @@ const LeftAIView = ({ compact = false, activeGraphId, graphsMap }) => {
   const handleSendMessage = async () => {
     if (!currentInput.trim() || isProcessing) return;
     const userMessage = currentInput.trim();
+
+    // Handle slash commands
+    if (userMessage.startsWith('/')) {
+      const command = userMessage.slice(1).split(' ')[0].toLowerCase();
+      const args = userMessage.slice(1).split(' ').slice(1);
+
+      if (command === 'test') {
+        addMessage('user', userMessage);
+        setCurrentInput('');
+        setIsProcessing(true);
+
+        try {
+          // Determine test mode from args
+          const mode = args.includes('--auto-discover') ? 'auto' :
+                      args.includes('--dry-run') ? 'dry' :
+                      'full';
+
+          const modeDesc = mode === 'auto' ? 'Auto-discovery mode (testing all 12 tools)' :
+                          mode === 'dry' ? 'Dry-run mode (connectivity check only)' :
+                          'Full test mode (intent detection tests)';
+
+          addMessage('system', `🧪 Running wizard tests in ${modeDesc}...`);
+
+          // Get API key to pass to test process
+          const apiKey = await apiKeyManager.getAPIKey();
+          if (!apiKey && mode !== 'dry') {
+            addMessage('system', '⚠️ No API key configured. Running in dry-run mode (connectivity check only).');
+          }
+
+          // Trigger tests via bridge
+          const response = await bridgeFetch('/api/bridge/run-tests', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              ...(apiKey && { 'Authorization': `Bearer ${apiKey}` })
+            },
+            body: JSON.stringify({ mode })
+          });
+
+          if (!response.ok) {
+            throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+          }
+
+          const result = await response.json();
+
+          if (result.success) {
+            addMessage('system', '✅ Tests started successfully!');
+            addMessage('system', 'Watch this chat for results, or check your terminal for detailed output.');
+          } else {
+            addMessage('system', `⚠️ Tests started but returned: ${result.message || 'Unknown status'}`);
+          }
+
+        } catch (error) {
+          addMessage('system', `❌ Failed to run tests: ${error.message}`);
+          addMessage('system', 'Make sure the bridge daemon is running (npm run bridge)');
+        } finally {
+          setIsProcessing(false);
+        }
+        return;
+      }
+
+      // Unknown command
+      addMessage('user', userMessage);
+      addMessage('system', `Unknown command: /${command}\n\nAvailable commands:\n  /test [--dry-run|--auto-discover] - Run wizard tests`);
+      setCurrentInput('');
+      return;
+    }
+
     addMessage('user', userMessage);
     setCurrentInput('');
     setIsProcessing(true);
@@ -613,6 +685,18 @@ const LeftAIView = ({ compact = false, activeGraphId, graphsMap }) => {
       >
         <RotateCcw size={20} />
       </button>
+      <button
+        className={`ai-flat-button ${showDruidMind ? 'active' : ''}`}
+        onClick={() => {
+          if (!druidInstance) {
+            setDruidInstance(new DruidInstance());
+          }
+          setShowDruidMind(!showDruidMind);
+        }}
+        title="View The Druid's Mind"
+      >
+        <Brain size={20} />
+      </button>
     </div>
   );
 
@@ -665,6 +749,12 @@ const LeftAIView = ({ compact = false, activeGraphId, graphsMap }) => {
       {showAPIKeySetup && (
         <div className="ai-api-setup-section">
           <APIKeySetup onKeySet={() => checkAPIKey()} onClose={() => setShowAPIKeySetup(false)} inline={true} />
+        </div>
+      )}
+
+      {showDruidMind && druidInstance && (
+        <div className="ai-druid-mind-section" style={{ borderTop: '1px solid #e0e0e0', borderBottom: '1px solid #e0e0e0', maxHeight: '400px', overflowY: 'auto' }}>
+          <DruidMindPanel druidInstance={druidInstance} />
         </div>
       )}
 

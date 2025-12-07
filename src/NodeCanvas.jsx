@@ -31,6 +31,7 @@ import AutoGraphModal from './components/AutoGraphModal';
 import ForceSimulationModal from './components/ForceSimulationModal';
 import { parseInputData, generateGraph } from './services/autoGraphGenerator';
 import { applyLayout, FORCE_LAYOUT_DEFAULTS } from './services/graphLayoutService.js';
+import { NavigationMode, calculateNavigationParams } from './services/canvasNavigationService.js';
 
 // Import Zustand store and selectors/actions
 import useGraphStore, {
@@ -265,6 +266,8 @@ function NodeCanvas() {
   // Track the source of current panning for momentum decisions
   const panSourceRef = useRef(null); // 'touch', 'trackpad', 'mouse', null
   const panVelocityHistoryRef = useRef([]); // History of recent pan positions for momentum calculation
+  const actuallyPannedRef = useRef(false); // Track if we actually moved the canvas during panning
+  const recentlyPannedRef = useRef(false); // Synchronous tracking of recent pans to prevent clicks
   // Track latest widths in refs to avoid stale closures in global listeners
   const leftWidthRef = useRef(leftPanelWidth);
   const rightWidthRef = useRef(rightPanelWidth);
@@ -4099,7 +4102,7 @@ function NodeCanvas() {
   useEffect(() => {
     if (!currentPieMenuData) return;
     setCurrentPieMenuData(prev => prev ? { ...prev, buttons: targetPieMenuButtons } : prev);
-  }, [targetPieMenuButtons, currentPieMenuData]);
+  }, [targetPieMenuButtons]); // Removed currentPieMenuData from deps to prevent infinite loop (using functional update form)
 
   // Effect to restore view state on graph change or center if no stored state
   useLayoutEffect(() => {
@@ -5931,6 +5934,7 @@ function NodeCanvas() {
           // Start panning after threshold exceeded (check panStart ref to avoid race condition with setState)
           isPanningOrZooming.current = true;
           setIsPanning(true);
+          actuallyPannedRef.current = false; // Reset pan tracking for new pan gesture
           lastPanVelocityRef.current = { vx: 0, vy: 0 };
           lastPanSampleRef.current = { time: performance.now() };
           setPanStart({ x: e.clientX, y: e.clientY });
@@ -6151,6 +6155,8 @@ function NodeCanvas() {
           });
 
           if (Math.abs(appliedDx) > 0.01 || Math.abs(appliedDy) > 0.01) {
+            // Mark that we actually panned (moved the canvas)
+            actuallyPannedRef.current = true;
             // Calculate instantaneous velocity for reference
             lastPanVelocityRef.current = {
               vx: appliedDx / dt,
@@ -6212,6 +6218,7 @@ function NodeCanvas() {
     }
     setPanStart({ x: e.clientX, y: e.clientY });
     setIsPanning(true);
+    actuallyPannedRef.current = false; // Reset pan tracking for new pan gesture
     lastPanVelocityRef.current = { vx: 0, vy: 0 };
     lastPanSampleRef.current = { time: performance.now() };
     panSourceRef.current = isTouchDeviceRef.current ? 'touch' : 'mouse';
@@ -6229,6 +6236,11 @@ function NodeCanvas() {
     if (drawingConnectionFrom) {
       wasDrawingConnection.current = true; // Prevent PlusSign from appearing
       const targetNodeData = nodes.find(n => isInsideNode(n, e.clientX, e.clientY));
+
+      // Prevent duplicate processing if mouse up fires multiple times for same gesture
+      if (drawingConnectionFrom.processing) return;
+      drawingConnectionFrom.processing = true;
+
       console.log('Connection end:', {
         clientX: e.clientX,
         clientY: e.clientY,
@@ -6245,12 +6257,12 @@ function NodeCanvas() {
           (edge.sourceId === sourceId && edge.destinationId === destId) ||
           (edge.sourceId === destId && edge.destinationId === sourceId)
         );
-
-        if (!exists) {
-          const newEdgeId = uuidv4();
-          const newEdgeData = { id: newEdgeId, sourceId, destinationId: destId };
-          storeActions.addEdge(activeGraphId, newEdgeData);
-        }
+        
+        // For new connections, only create ONE edge initially
+        // The user can create more later if they want
+        const newEdgeId = uuidv4();
+        const newEdgeData = { id: newEdgeId, sourceId, destinationId: destId };
+        storeActions.addEdge(activeGraphId, newEdgeData);
       }
       setDrawingConnectionFrom(null);
     }
@@ -6438,6 +6450,19 @@ function NodeCanvas() {
         }
       }
     }
+    
+    // Set recentlyPanned if we actually moved the canvas during panning
+    if (actuallyPannedRef.current) {
+      setRecentlyPanned(true);
+      recentlyPannedRef.current = true; // Set sync ref
+      // Clear the flag after a short delay to allow handleCanvasClick to see it
+      setTimeout(() => {
+        setRecentlyPanned(false);
+        recentlyPannedRef.current = false;
+      }, 100);
+      actuallyPannedRef.current = false;
+    }
+    
     if (!momentumStarted) {
       stopPanMomentum();
       isPanningOrZooming.current = false; // Clear the flag when panning ends
@@ -6448,9 +6473,8 @@ function NodeCanvas() {
     panVelocityHistoryRef.current = [];
     lastPanSampleRef.current = { time: performance.now() };
     isMouseDown.current = false;
-    // Reset mouseMoved.current immediately after mouse up logic is done
-    // This prevents race condition with canvas click handler
-    mouseMoved.current = false;
+    // DO NOT reset mouseMoved.current here - let handleCanvasClick see it to differentiate clicks from drags
+    // mouseMoved.current = false;
   };
   const handleMouseUpCanvas = (e) => {
     // Delegate to the main handleMouseUp to ensure consistent cleanup
@@ -6477,12 +6501,30 @@ function NodeCanvas() {
     if (!isValidCanvasTarget) return;
 
     // For canvas clicks, we don't need to wait for the CLICK_DELAY since we're not dealing with double-click detection
+    
+    // Calculate movement distance to allow micro-movements (jitter)
+    const dx = e.clientX - mouseDownPosition.current.x;
+    const dy = e.clientY - mouseDownPosition.current.y;
+    const dist = Math.sqrt(dx * dx + dy * dy);
+    const isMicroMovement = dist < 8; // 8px tolerance
+    
     // Only check if we're in a state that should block canvas interactions
-    if (isPaused || draggingNodeInfo || drawingConnectionFrom || recentlyPanned || nodeNamePrompt.visible || !activeGraphId) {
+    // Use recentlyPannedRef for synchronous check to avoid stale closure issues
+    if (isPaused || draggingNodeInfo || drawingConnectionFrom || nodeNamePrompt.visible || !activeGraphId) {
       setLastInteractionType('blocked_click');
       return;
     }
+    
+    // Only block for panning if it wasn't a micro-movement
+    if (!isMicroMovement && (recentlyPanned || recentlyPannedRef.current)) {
+       setLastInteractionType('blocked_click_panned');
+       return;
+    }
+
     if (ignoreCanvasClick.current) { ignoreCanvasClick.current = false; return; }
+
+    // Clear hovered edge info when clicking on canvas (fixes connection panel requiring 2 clicks)
+    setHoveredEdgeInfo(null);
 
     // Close Group panel on click-off like other panels
     if (groupControlPanelShouldShow || groupControlPanelVisible || selectedGroup) {
@@ -6533,16 +6575,53 @@ function NodeCanvas() {
     }
 
     // Clear selected edge when clicking on empty canvas
-    if ((selectedEdgeId || selectedEdgeIds.size > 0) && !hoveredEdgeInfo) {
+    if (selectedEdgeId || selectedEdgeIds.size > 0) {
       storeActions.setSelectedEdgeId(null);
       storeActions.clearSelectedEdgeIds();
+      return;
+    }
+
+    // Don't show PlusSign if mouse moved significantly (likely a pan, not a click)
+    if (mouseMoved.current && !isMicroMovement) {
+      // Reset mouseMoved now that we've checked it for the click event
+      mouseMoved.current = false;
+      return;
+    }
+    // Always reset mouseMoved after processing the click event
+    if (mouseMoved.current) mouseMoved.current = false;
+
+    // Check if RedstringMenu is visible or closing (via DOM check since state isn't available)
+    const menuContainer = document.querySelector('.menu-container');
+    if (menuContainer && !menuContainer.classList.contains('exiting')) {
+       // Menu is open (or not definitely exiting) - don't show plus sign
+       return;
+    }
+
+    // Check if canvas is "open" for PlusSign - no panels or overlays should be visible
+    const isCanvasOpen = 
+      !nodeControlPanelVisible &&
+      !connectionControlPanelVisible &&
+      !groupControlPanelVisible &&
+      !abstractionControlPanelVisible &&
+      !abstractionCarouselVisible &&
+      !selectedNodeIdForPieMenu &&
+      !nodeNamePrompt.visible &&
+      !connectionNamePrompt.visible &&
+      !abstractionPrompt.visible;
+
+    if (!isCanvasOpen) {
+      // Canvas is not open - don't show PlusSign
+      if (plusSign) {
+        setPlusSign(ps => ps && { ...ps, mode: 'disappear' });
+      }
       return;
     }
 
     const rect = containerRef.current.getBoundingClientRect();
     const mouseX = (e.clientX - rect.left - panOffset.x) / zoomLevel + canvasSize.offsetX;
     const mouseY = (e.clientY - rect.top - panOffset.y) / zoomLevel + canvasSize.offsetY;
-    // Prevent plus sign if pie menu is active or about to become active or hovering an edge
+    
+    // Only show plus sign on explicit canvas clicks when canvas is open
     if (!plusSign && selectedInstanceIds.size === 0 && !hoveredEdgeInfo) {
       setPlusSign({ x: mouseX, y: mouseY, mode: 'appear', tempName: '' });
       setLastInteractionType('plus_sign_shown');
@@ -8364,6 +8443,124 @@ function NodeCanvas() {
     };
   }, [handleBackToCivilizationClick, activeGraphId]);
 
+  // Listen for navigation events from the Wizard and other systems
+  useEffect(() => {
+    const handleNavigateTo = (event) => {
+      const detail = event.detail || {};
+      const { mode, graphId, nodeIds, targetX, targetY, targetZoom, padding = 100, minZoom = 0.3, maxZoom: navMaxZoom = 1.5 } = detail;
+
+      // Only navigate if this is the active graph (or no graphId specified)
+      if (graphId && graphId !== activeGraphId) return;
+
+      // Handle different navigation modes
+      switch (mode) {
+        case NavigationMode.FIT_CONTENT: {
+          // Use existing back-to-civilization logic to fit all content
+          handleBackToCivilizationClick();
+          break;
+        }
+
+        case NavigationMode.FOCUS_NODES: {
+          // Navigate to focus on specific nodes
+          if (!nodeIds || nodeIds.length === 0 || !nodes || nodes.length === 0) {
+            handleBackToCivilizationClick();
+            return;
+          }
+
+          // Find the specified nodes
+          const targetNodes = nodes.filter(n => nodeIds.includes(n.id));
+          if (targetNodes.length === 0) {
+            console.warn('[CanvasNav] No matching nodes found for IDs:', nodeIds);
+            handleBackToCivilizationClick();
+            return;
+          }
+
+          // Calculate bounding box of target nodes
+          let minX = Infinity, minY = Infinity;
+          let maxX = -Infinity, maxY = -Infinity;
+
+          targetNodes.forEach(node => {
+            const dims = baseDimsById.get(node.id) || getNodeDimensions(node, false, null);
+            minX = Math.min(minX, node.x);
+            minY = Math.min(minY, node.y);
+            maxX = Math.max(maxX, node.x + dims.currentWidth);
+            maxY = Math.max(maxY, node.y + dims.currentHeight);
+          });
+
+          // Calculate navigation parameters
+          const navParams = calculateNavigationParams(
+            { minX, minY, maxX, maxY },
+            viewportSize,
+            canvasSize,
+            { padding, minZoom, maxZoom: Math.min(navMaxZoom, MAX_ZOOM) }
+          );
+
+          // Apply navigation
+          setZoomLevel(navParams.zoom);
+          setPanOffset({ x: navParams.panX, y: navParams.panY });
+          console.log('[CanvasNav] Navigated to nodes:', { nodeIds, zoom: navParams.zoom });
+          break;
+        }
+
+        case NavigationMode.COORDINATES: {
+          // Navigate to specific coordinates
+          if (typeof targetX !== 'number' || typeof targetY !== 'number') {
+            console.warn('[CanvasNav] Invalid coordinates:', { targetX, targetY });
+            return;
+          }
+
+          const effectiveZoom = Math.max(minZoom, Math.min(targetZoom || 1, navMaxZoom, MAX_ZOOM));
+          
+          // Calculate pan to center on target coordinates
+          const targetPanX = (viewportSize.width / 2) - (targetX - canvasSize.offsetX) * effectiveZoom;
+          const targetPanY = (viewportSize.height / 2) - (targetY - canvasSize.offsetY) * effectiveZoom;
+
+          // Apply bounds constraints
+          const maxPanX = 0;
+          const minPanX = viewportSize.width - canvasSize.width * effectiveZoom;
+          const maxPanY = 0;
+          const minPanY = viewportSize.height - canvasSize.height * effectiveZoom;
+
+          setZoomLevel(effectiveZoom);
+          setPanOffset({
+            x: Math.min(Math.max(targetPanX, minPanX), maxPanX),
+            y: Math.min(Math.max(targetPanY, minPanY), maxPanY)
+          });
+          console.log('[CanvasNav] Navigated to coordinates:', { x: targetX, y: targetY, zoom: effectiveZoom });
+          break;
+        }
+
+        case NavigationMode.CENTER: {
+          // Navigate to canvas center
+          const defaultZoom = 1;
+          const centerPanX = viewportSize.width / 2 - (canvasSize.width / 2) * defaultZoom;
+          const centerPanY = viewportSize.height / 2 - (canvasSize.height / 2) * defaultZoom;
+
+          const maxPanX = 0;
+          const minPanX = viewportSize.width - canvasSize.width * defaultZoom;
+          const maxPanY = 0;
+          const minPanY = viewportSize.height - canvasSize.height * defaultZoom;
+
+          setZoomLevel(defaultZoom);
+          setPanOffset({
+            x: Math.min(Math.max(centerPanX, minPanX), maxPanX),
+            y: Math.min(Math.max(centerPanY, minPanY), maxPanY)
+          });
+          console.log('[CanvasNav] Navigated to center');
+          break;
+        }
+
+        default:
+          console.warn('[CanvasNav] Unknown navigation mode:', mode);
+      }
+    };
+
+    window.addEventListener('rs-navigate-to', handleNavigateTo);
+    return () => {
+      window.removeEventListener('rs-navigate-to', handleNavigateTo);
+    };
+  }, [activeGraphId, nodes, baseDimsById, viewportSize, canvasSize, handleBackToCivilizationClick, MAX_ZOOM]);
+
   return (
     <div
       className="node-canvas-container"
@@ -9205,6 +9402,22 @@ function NodeCanvas() {
                   }
 
                   // Split edges based on whether they connect to node-group members
+                  // Calculate edge bundling for multiple connections
+                  const edgeBundleInfo = new Map();
+                  const bundles = new Map();
+                  visibleEdges.forEach(edge => {
+                    const key = [edge.sourceId, edge.destinationId].sort().join('-');
+                    if (!bundles.has(key)) bundles.set(key, []);
+                    bundles.get(key).push(edge);
+                  });
+                  bundles.forEach(edges => {
+                     // Sort by ID for stability
+                     edges.sort((a, b) => a.id.localeCompare(b.id));
+                     edges.forEach((edge, index) => {
+                       edgeBundleInfo.set(edge.id, { index, count: edges.length });
+                     });
+                  });
+
                   const edgesBelowNodeGroups = visibleEdges.filter(e =>
                     !nodeGroupMemberIds.has(e.sourceId) && !nodeGroupMemberIds.has(e.destinationId)
                   );
@@ -9489,18 +9702,45 @@ function NodeCanvas() {
                           manhattanSourceSide = sSide;
                           manhattanDestSide = dSide;
                         }
+
+                        // Calculate bundle path if needed
+                        const bundleInfo = edgeBundleInfo.get(edge.id);
+                        const bundleCount = bundleInfo?.count || 1;
+                        const bundleIndex = bundleInfo?.index || 0;
+                        const isBundled = bundleCount > 1;
+                        let bundlePath = null;
+
+                        if (isBundled && (!enableAutoRouting || routingStyle === 'straight')) {
+                           const spacing = 100;
+                           const curvature = (bundleIndex - (bundleCount - 1) / 2) * spacing;
+                           
+                           const midX = (startX + endX) / 2;
+                           const midY = (startY + endY) / 2;
+                           
+                           const dx = endX - startX;
+                           const dy = endY - startY;
+                           const len = Math.sqrt(dx * dx + dy * dy) || 0.001;
+                           const perpX = -dy / len;
+                           const perpY = dx / len;
+                           
+                           const cx = midX + perpX * curvature;
+                           const cy = midY + perpY * curvature;
+                           
+                           bundlePath = `M ${startX},${startY} Q ${cx},${cy} ${endX},${endY}`;
+                        }
+
                         return (
                           <g key={`edge-above-${edge.id}-${idx}`}>
                             {/* Main edge line - always same thickness */}
                             {/* Glow effect for selected or hovered edge */}
                             {(isSelected || isHovered) && (
-                              (enableAutoRouting && (routingStyle === 'manhattan' || routingStyle === 'clean')) ? (
+                              (enableAutoRouting && (routingStyle === 'manhattan' || routingStyle === 'clean')) || (isBundled && bundlePath) ? (
                                 <path
-                                  d={(routingStyle === 'manhattan') ? manhattanPathD : (() => {
+                                  d={(routingStyle === 'manhattan') ? manhattanPathD : ((routingStyle === 'clean') ? (() => {
                                     // Use consistent clean routing path helper
                                     const cleanPts = generateCleanRoutingPath(edge, sourceNode, destNode, sNodeDims, eNodeDims, cleanLaneOffsets, cleanLaneSpacing);
                                     return buildRoundedPathFromPoints(cleanPts, 8);
-                                  })()}
+                                  })() : bundlePath)}
                                   fill="none"
                                   stroke={edgeColor}
                                   strokeWidth="12"
@@ -9526,7 +9766,7 @@ function NodeCanvas() {
                               )
                             )}
 
-                            {(enableAutoRouting && (routingStyle === 'manhattan' || routingStyle === 'clean')) ? (
+                            {(enableAutoRouting && (routingStyle === 'manhattan' || routingStyle === 'clean')) || (isBundled && bundlePath) ? (
                               <>
                                 {routingStyle === 'manhattan' && !arrowsToward.has(sourceNode.id) && (
                                   <line x1={x1} y1={y1} x2={startX} y2={startY} stroke={edgeColor} strokeWidth={showConnectionNames ? "16" : "6"} strokeLinecap="round" />
@@ -9535,11 +9775,11 @@ function NodeCanvas() {
                                   <line x1={endX} y1={endY} x2={x2} y2={y2} stroke={edgeColor} strokeWidth={showConnectionNames ? "16" : "6"} strokeLinecap="round" />
                                 )}
                                 <path
-                                  d={(routingStyle === 'manhattan') ? manhattanPathD : (() => {
+                                  d={(routingStyle === 'manhattan') ? manhattanPathD : ((routingStyle === 'clean') ? (() => {
                                     // Use consistent clean routing path helper
                                     const cleanPts = generateCleanRoutingPath(edge, sourceNode, destNode, sNodeDims, eNodeDims, cleanLaneOffsets, cleanLaneSpacing);
                                     return buildRoundedPathFromPoints(cleanPts, 8);
-                                  })()}
+                                  })() : bundlePath)}
                                   fill="none"
                                   stroke={edgeColor}
                                   strokeWidth={showConnectionNames ? "16" : "6"}
@@ -9576,6 +9816,62 @@ function NodeCanvas() {
                                   midY = (startY + endY) / 2;
                                   angle = 90;
                                 }
+                              } else if (isBundled && bundlePath) {
+                                  // For bundled connections, position label at the apex of the curve
+                                  const spacing = 100;
+                                  const curvature = (bundleIndex - (bundleCount - 1) / 2) * spacing;
+                                  
+                                  const baseMidX = (startX + endX) / 2;
+                                  const baseMidY = (startY + endY) / 2;
+                                  
+                                  const dx = endX - startX;
+                                  const dy = endY - startY;
+                                  const len = Math.sqrt(dx * dx + dy * dy) || 0.001;
+                                  const perpX = -dy / len;
+                                  const perpY = dx / len;
+                                  
+                                  // The quadratic bezier apex is at t=0.5
+                                  // For a quadratic bezier with control point C, the point at t=0.5 is:
+                                  // P(0.5) = 0.25*P0 + 0.5*C + 0.25*P1
+                                  // Where P0=start, P1=end, C=(mid + perp*curvature)
+                                  
+                                  const cx = baseMidX + perpX * curvature;
+                                  const cy = baseMidY + perpY * curvature;
+                                  
+                                  midX = 0.25 * startX + 0.5 * cx + 0.25 * endX;
+                                  midY = 0.25 * startY + 0.5 * cy + 0.25 * endY;
+                                  
+                                  // Tangent angle at t=0.5 matches the line between start and end
+                                  angle = Math.atan2(dy, dx) * (180 / Math.PI);
+
+                              } else if (isBundled && bundlePath) {
+                                  // For bundled connections, position label at the apex of the curve
+                                  const spacing = 100;
+                                  const curvature = (bundleIndex - (bundleCount - 1) / 2) * spacing;
+                                  
+                                  const baseMidX = (startX + endX) / 2;
+                                  const baseMidY = (startY + endY) / 2;
+                                  
+                                  const dx = endX - startX;
+                                  const dy = endY - startY;
+                                  const len = Math.sqrt(dx * dx + dy * dy) || 0.001;
+                                  const perpX = -dy / len;
+                                  const perpY = dx / len;
+                                  
+                                  // The quadratic bezier apex is at t=0.5
+                                  // For a quadratic bezier with control point C, the point at t=0.5 is:
+                                  // P(0.5) = 0.25*P0 + 0.5*C + 0.25*P1
+                                  // Where P0=start, P1=end, C=(mid + perp*curvature)
+                                  
+                                  const cx = baseMidX + perpX * curvature;
+                                  const cy = baseMidY + perpY * curvature;
+                                  
+                                  midX = 0.25 * startX + 0.5 * cx + 0.25 * endX;
+                                  midY = 0.25 * startY + 0.5 * cy + 0.25 * endY;
+                                  
+                                  // Tangent angle at t=0.5 matches the line between start and end
+                                  angle = Math.atan2(dy, dx) * (180 / Math.PI);
+
                               } else {
                                 midX = (x1 + x2) / 2;
                                 midY = (y1 + y2) / 2;
@@ -9675,6 +9971,30 @@ function NodeCanvas() {
                                     angle = 0;
                                   }
                                 }
+                              } else if (isBundled && bundlePath) {
+                                // Always force-calculate for bundled paths - do NOT use cache
+                                // This prevents old straight-line positions from being reused
+                                const spacing = 100;
+                                const curvature = (bundleIndex - (bundleCount - 1) / 2) * spacing;
+                                
+                                const baseMidX = (startX + endX) / 2;
+                                const baseMidY = (startY + endY) / 2;
+                                
+                                const dx = endX - startX;
+                                const dy = endY - startY;
+                                const len = Math.sqrt(dx * dx + dy * dy) || 0.001;
+                                const perpX = -dy / len;
+                                const perpY = dx / len;
+                                
+                                const cx = baseMidX + perpX * curvature;
+                                const cy = baseMidY + perpY * curvature;
+                                
+                                midX = 0.25 * startX + 0.5 * cx + 0.25 * endX;
+                                midY = 0.25 * startY + 0.5 * cy + 0.25 * endY;
+                                
+                                angle = Math.atan2(dy, dx) * (180 / Math.PI);
+                                
+                                // We don't cache this because curvature depends on dynamic bundle index
                               } else {
                                 // Straight line: reuse cached placement when available to prevent flicker (except during dragging)
                                 const cached = placedLabelsRef.current.get(edge.id);
@@ -9733,13 +10053,13 @@ function NodeCanvas() {
                             })()}
 
                             {/* Invisible click area for edge selection - matches hover detection */}
-                            {(enableAutoRouting && (routingStyle === 'manhattan' || routingStyle === 'clean')) ? (
+                            {(enableAutoRouting && (routingStyle === 'manhattan' || routingStyle === 'clean')) || (isBundled && bundlePath) ? (
                               <path
-                                d={(routingStyle === 'manhattan') ? manhattanPathD : (() => {
+                                d={((routingStyle === 'manhattan' && !isBundled) ? manhattanPathD : ((routingStyle === 'clean' && !isBundled) ? (() => {
                                   // Use consistent clean routing path helper
                                   const cleanPts = generateCleanRoutingPath(edge, sourceNode, destNode, sNodeDims, eNodeDims, cleanLaneOffsets, cleanLaneSpacing);
                                   return buildRoundedPathFromPoints(cleanPts, 8);
-                                })()}
+                                })() : bundlePath))}
                                 fill="none"
                                 stroke="transparent"
                                 strokeWidth="40"
@@ -10046,9 +10366,36 @@ function NodeCanvas() {
                                   destArrowAngle = Math.atan2(dy, dx) * (180 / Math.PI);
                                 }
                               } else {
-                                // Manhattan-aware arrow placement; falls back to straight orientation
+                                // Bundle / Manhattan-aware arrow placement; falls back to straight orientation
                                 const offset = showConnectionNames ? 6 : (shouldShortenSource || shouldShortenDest ? 3 : 5);
-                                if (enableAutoRouting && routingStyle === 'manhattan') {
+
+                                if (isBundled && bundlePath) {
+                                   const spacing = 100;
+                                   const curvature = (bundleIndex - (bundleCount - 1) / 2) * spacing;
+                                   const midX = (startX + endX) / 2;
+                                   const midY = (startY + endY) / 2;
+                                   const dx = endX - startX;
+                                   const dy = endY - startY;
+                                   const len = Math.sqrt(dx * dx + dy * dy) || 0.001;
+                                   const perpX = -dy / len;
+                                   const perpY = dx / len;
+                                   const cx = midX + perpX * curvature;
+                                   const cy = midY + perpY * curvature;
+
+                                   const tSx = cx - startX;
+                                   const tSy = cy - startY;
+                                   sourceArrowAngle = Math.atan2(-tSy, -tSx) * (180 / Math.PI);
+                                   
+                                   const tEx = endX - cx;
+                                   const tEy = endY - cy;
+                                   destArrowAngle = Math.atan2(tEy, tEx) * (180 / Math.PI);
+                                   
+                                   sourceArrowX = startX;
+                                   sourceArrowY = startY;
+                                   destArrowX = endX;
+                                   destArrowY = endY;
+
+                                } else if (enableAutoRouting && routingStyle === 'manhattan') {
                                   // Destination arrow aligns to terminal segment into destination
                                   const horizontalTerminal = Math.abs(endX - startX) > Math.abs(endY - startY);
                                   if (horizontalTerminal) {
@@ -10551,18 +10898,45 @@ function NodeCanvas() {
                           manhattanSourceSide = sSide;
                           manhattanDestSide = dSide;
                         }
+
+                        // Calculate bundle path if needed
+                        const bundleInfo = edgeBundleInfo.get(edge.id);
+                        const bundleCount = bundleInfo?.count || 1;
+                        const bundleIndex = bundleInfo?.index || 0;
+                        const isBundled = bundleCount > 1;
+                        let bundlePath = null;
+
+                        if (isBundled && (!enableAutoRouting || routingStyle === 'straight')) {
+                           const spacing = 100;
+                           const curvature = (bundleIndex - (bundleCount - 1) / 2) * spacing;
+                           
+                           const midX = (startX + endX) / 2;
+                           const midY = (startY + endY) / 2;
+                           
+                           const dx = endX - startX;
+                           const dy = endY - startY;
+                           const len = Math.sqrt(dx * dx + dy * dy) || 0.001;
+                           const perpX = -dy / len;
+                           const perpY = dx / len;
+                           
+                           const cx = midX + perpX * curvature;
+                           const cy = midY + perpY * curvature;
+                           
+                           bundlePath = `M ${startX},${startY} Q ${cx},${cy} ${endX},${endY}`;
+                        }
+
                         return (
                           <g key={`edge-above-${edge.id}-${idx}`}>
                             {/* Main edge line - always same thickness */}
                             {/* Glow effect for selected or hovered edge */}
                             {(isSelected || isHovered) && (
-                              (enableAutoRouting && (routingStyle === 'manhattan' || routingStyle === 'clean')) ? (
+                              (enableAutoRouting && (routingStyle === 'manhattan' || routingStyle === 'clean')) || (isBundled && bundlePath) ? (
                                 <path
-                                  d={(routingStyle === 'manhattan') ? manhattanPathD : (() => {
+                                  d={(routingStyle === 'manhattan') ? manhattanPathD : ((routingStyle === 'clean') ? (() => {
                                     // Use consistent clean routing path helper
                                     const cleanPts = generateCleanRoutingPath(edge, sourceNode, destNode, sNodeDims, eNodeDims, cleanLaneOffsets, cleanLaneSpacing);
                                     return buildRoundedPathFromPoints(cleanPts, 8);
-                                  })()}
+                                  })() : bundlePath)}
                                   fill="none"
                                   stroke={edgeColor}
                                   strokeWidth="12"
@@ -10588,7 +10962,7 @@ function NodeCanvas() {
                               )
                             )}
 
-                            {(enableAutoRouting && (routingStyle === 'manhattan' || routingStyle === 'clean')) ? (
+                            {(enableAutoRouting && (routingStyle === 'manhattan' || routingStyle === 'clean')) || (isBundled && bundlePath) ? (
                               <>
                                 {routingStyle === 'manhattan' && !arrowsToward.has(sourceNode.id) && (
                                   <line x1={x1} y1={y1} x2={startX} y2={startY} stroke={edgeColor} strokeWidth={showConnectionNames ? "16" : "6"} strokeLinecap="round" />
@@ -10597,11 +10971,11 @@ function NodeCanvas() {
                                   <line x1={endX} y1={endY} x2={x2} y2={y2} stroke={edgeColor} strokeWidth={showConnectionNames ? "16" : "6"} strokeLinecap="round" />
                                 )}
                                 <path
-                                  d={(routingStyle === 'manhattan') ? manhattanPathD : (() => {
+                                  d={(routingStyle === 'manhattan') ? manhattanPathD : ((routingStyle === 'clean') ? (() => {
                                     // Use consistent clean routing path helper
                                     const cleanPts = generateCleanRoutingPath(edge, sourceNode, destNode, sNodeDims, eNodeDims, cleanLaneOffsets, cleanLaneSpacing);
                                     return buildRoundedPathFromPoints(cleanPts, 8);
-                                  })()}
+                                  })() : bundlePath)}
                                   fill="none"
                                   stroke={edgeColor}
                                   strokeWidth={showConnectionNames ? "16" : "6"}
@@ -10638,6 +11012,62 @@ function NodeCanvas() {
                                   midY = (startY + endY) / 2;
                                   angle = 90;
                                 }
+                              } else if (isBundled && bundlePath) {
+                                  // For bundled connections, position label at the apex of the curve
+                                  const spacing = 100;
+                                  const curvature = (bundleIndex - (bundleCount - 1) / 2) * spacing;
+                                  
+                                  const baseMidX = (startX + endX) / 2;
+                                  const baseMidY = (startY + endY) / 2;
+                                  
+                                  const dx = endX - startX;
+                                  const dy = endY - startY;
+                                  const len = Math.sqrt(dx * dx + dy * dy) || 0.001;
+                                  const perpX = -dy / len;
+                                  const perpY = dx / len;
+                                  
+                                  // The quadratic bezier apex is at t=0.5
+                                  // For a quadratic bezier with control point C, the point at t=0.5 is:
+                                  // P(0.5) = 0.25*P0 + 0.5*C + 0.25*P1
+                                  // Where P0=start, P1=end, C=(mid + perp*curvature)
+                                  
+                                  const cx = baseMidX + perpX * curvature;
+                                  const cy = baseMidY + perpY * curvature;
+                                  
+                                  midX = 0.25 * startX + 0.5 * cx + 0.25 * endX;
+                                  midY = 0.25 * startY + 0.5 * cy + 0.25 * endY;
+                                  
+                                  // Tangent angle at t=0.5 matches the line between start and end
+                                  angle = Math.atan2(dy, dx) * (180 / Math.PI);
+
+                              } else if (isBundled && bundlePath) {
+                                  // For bundled connections, position label at the apex of the curve
+                                  const spacing = 100;
+                                  const curvature = (bundleIndex - (bundleCount - 1) / 2) * spacing;
+                                  
+                                  const baseMidX = (startX + endX) / 2;
+                                  const baseMidY = (startY + endY) / 2;
+                                  
+                                  const dx = endX - startX;
+                                  const dy = endY - startY;
+                                  const len = Math.sqrt(dx * dx + dy * dy) || 0.001;
+                                  const perpX = -dy / len;
+                                  const perpY = dx / len;
+                                  
+                                  // The quadratic bezier apex is at t=0.5
+                                  // For a quadratic bezier with control point C, the point at t=0.5 is:
+                                  // P(0.5) = 0.25*P0 + 0.5*C + 0.25*P1
+                                  // Where P0=start, P1=end, C=(mid + perp*curvature)
+                                  
+                                  const cx = baseMidX + perpX * curvature;
+                                  const cy = baseMidY + perpY * curvature;
+                                  
+                                  midX = 0.25 * startX + 0.5 * cx + 0.25 * endX;
+                                  midY = 0.25 * startY + 0.5 * cy + 0.25 * endY;
+                                  
+                                  // Tangent angle at t=0.5 matches the line between start and end
+                                  angle = Math.atan2(dy, dx) * (180 / Math.PI);
+
                               } else {
                                 midX = (x1 + x2) / 2;
                                 midY = (y1 + y2) / 2;
@@ -10737,6 +11167,30 @@ function NodeCanvas() {
                                     angle = 0;
                                   }
                                 }
+                              } else if (isBundled && bundlePath) {
+                                // Always force-calculate for bundled paths - do NOT use cache
+                                // This prevents old straight-line positions from being reused
+                                const spacing = 100;
+                                const curvature = (bundleIndex - (bundleCount - 1) / 2) * spacing;
+                                
+                                const baseMidX = (startX + endX) / 2;
+                                const baseMidY = (startY + endY) / 2;
+                                
+                                const dx = endX - startX;
+                                const dy = endY - startY;
+                                const len = Math.sqrt(dx * dx + dy * dy) || 0.001;
+                                const perpX = -dy / len;
+                                const perpY = dx / len;
+                                
+                                const cx = baseMidX + perpX * curvature;
+                                const cy = baseMidY + perpY * curvature;
+                                
+                                midX = 0.25 * startX + 0.5 * cx + 0.25 * endX;
+                                midY = 0.25 * startY + 0.5 * cy + 0.25 * endY;
+                                
+                                angle = Math.atan2(dy, dx) * (180 / Math.PI);
+                                
+                                // We don't cache this because curvature depends on dynamic bundle index
                               } else {
                                 // Straight line: reuse cached placement when available to prevent flicker (except during dragging)
                                 const cached = placedLabelsRef.current.get(edge.id);
@@ -10795,13 +11249,13 @@ function NodeCanvas() {
                             })()}
 
                             {/* Invisible click area for edge selection - matches hover detection */}
-                            {(enableAutoRouting && (routingStyle === 'manhattan' || routingStyle === 'clean')) ? (
+                            {(enableAutoRouting && (routingStyle === 'manhattan' || routingStyle === 'clean')) || (isBundled && bundlePath) ? (
                               <path
-                                d={(routingStyle === 'manhattan') ? manhattanPathD : (() => {
+                                d={((routingStyle === 'manhattan' && !isBundled) ? manhattanPathD : ((routingStyle === 'clean' && !isBundled) ? (() => {
                                   // Use consistent clean routing path helper
                                   const cleanPts = generateCleanRoutingPath(edge, sourceNode, destNode, sNodeDims, eNodeDims, cleanLaneOffsets, cleanLaneSpacing);
                                   return buildRoundedPathFromPoints(cleanPts, 8);
-                                })()}
+                                })() : bundlePath))}
                                 fill="none"
                                 stroke="transparent"
                                 strokeWidth="40"
@@ -11047,9 +11501,36 @@ function NodeCanvas() {
                                   destArrowAngle = Math.atan2(dy, dx) * (180 / Math.PI);
                                 }
                               } else {
-                                // Manhattan-aware arrow placement; falls back to straight orientation
+                                // Bundle / Manhattan-aware arrow placement; falls back to straight orientation
                                 const offset = showConnectionNames ? 6 : (shouldShortenSource || shouldShortenDest ? 3 : 5);
-                                if (enableAutoRouting && routingStyle === 'manhattan') {
+
+                                if (isBundled && bundlePath) {
+                                   const spacing = 100;
+                                   const curvature = (bundleIndex - (bundleCount - 1) / 2) * spacing;
+                                   const midX = (startX + endX) / 2;
+                                   const midY = (startY + endY) / 2;
+                                   const dx = endX - startX;
+                                   const dy = endY - startY;
+                                   const len = Math.sqrt(dx * dx + dy * dy) || 0.001;
+                                   const perpX = -dy / len;
+                                   const perpY = dx / len;
+                                   const cx = midX + perpX * curvature;
+                                   const cy = midY + perpY * curvature;
+
+                                   const tSx = cx - startX;
+                                   const tSy = cy - startY;
+                                   sourceArrowAngle = Math.atan2(-tSy, -tSx) * (180 / Math.PI);
+                                   
+                                   const tEx = endX - cx;
+                                   const tEy = endY - cy;
+                                   destArrowAngle = Math.atan2(tEy, tEx) * (180 / Math.PI);
+                                   
+                                   sourceArrowX = startX;
+                                   sourceArrowY = startY;
+                                   destArrowX = endX;
+                                   destArrowY = endY;
+
+                                } else if (enableAutoRouting && routingStyle === 'manhattan') {
                                   // Destination arrow aligns to terminal segment into destination
                                   const horizontalTerminal = Math.abs(endX - startX) > Math.abs(endY - startY);
                                   if (horizontalTerminal) {
@@ -11426,8 +11907,9 @@ function NodeCanvas() {
                           )}
                           onHoverChange={handlePieMenuHoverChange}
                           onAutoClose={() => {
-                            console.log('[NodeCanvas] PieMenu auto-close triggered after 5 seconds');
-                            setSelectedNodeIdForPieMenu(null);
+                            // Auto-close disabled - PieMenu should remain open until user explicitly closes it
+                            // console.log('[NodeCanvas] PieMenu auto-close triggered after 5 seconds');
+                            // setSelectedNodeIdForPieMenu(null);
                           }}
                           onExitAnimationComplete={() => {
                             // 

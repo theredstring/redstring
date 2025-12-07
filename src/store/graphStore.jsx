@@ -226,6 +226,8 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
   return {
     // Initialize with completely empty state - universe file is required
     graphs: new Map(),
+    // Prototypes explicitly protected from cleanup (e.g., local Orbit catalog)
+    protectedPrototypeIds: new Set(),
     nodePrototypes: (() => {
       // Initialize with base "Thing" and "Connection" types
       const nodePrototypes = new Map();
@@ -240,7 +242,8 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
         typeNodeId: null, // No parent type - this is the most basic type
         definitionGraphIds: [],
         isSpecificityChainNode: false, // Not part of any specificity chain
-        hasSpecificityChain: false // Does not define a specificity chain
+        hasSpecificityChain: false, // Does not define a specificity chain
+        agentConfig: null // Agent configuration (null = not an agent)
       });
 
       // Base "Connection" type
@@ -253,7 +256,8 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
         typeNodeId: null, // No parent type - this is the most basic connection type
         definitionGraphIds: [],
         isSpecificityChainNode: false, // Not part of any specificity chain
-        hasSpecificityChain: false // Does not define a specificity chain
+        hasSpecificityChain: false, // Does not define a specificity chain
+        agentConfig: null // Agent configuration (null = not an agent)
       });
 
       return nodePrototypes;
@@ -272,6 +276,30 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
         isSpecificityChainNode: false, // Not part of any specificity chain
         hasSpecificityChain: false // Does not define a specificity chain
       });
+
+      // Agent control flow edge types (for agent graphs)
+      const agentEdgeTypes = [
+        { id: 'agent-delegates-to', name: 'Delegates To', color: '#E74C3C', description: 'Parent assigns subtask to child agent' },
+        { id: 'agent-reports-to', name: 'Reports To', color: '#2ECC71', description: 'Child returns results to parent agent' },
+        { id: 'agent-triggers', name: 'Triggers', color: '#F39C12', description: 'Event causes agent to fire' },
+        { id: 'agent-validates', name: 'Validates', color: '#9B59B6', description: 'Checks output of another agent' },
+        { id: 'agent-fallback-to', name: 'Fallback To', color: '#1ABC9C', description: 'If primary fails, try this agent' },
+        { id: 'agent-depends-on', name: 'Depends On', color: '#3498DB', description: 'Must wait for completion' }
+      ];
+
+      agentEdgeTypes.forEach(edgeType => {
+        edgePrototypes.set(edgeType.id, {
+          id: edgeType.id,
+          name: edgeType.name,
+          description: edgeType.description,
+          color: edgeType.color,
+          typeNodeId: connectionId, // All agent edges are subtypes of Connection
+          definitionGraphIds: [],
+          isSpecificityChainNode: false,
+          hasSpecificityChain: false
+        });
+      });
+
       return edgePrototypes;
     })(),
     edges: new Map(),
@@ -304,6 +332,7 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
     isUniverseLoading: true, // Start in loading state
     universeLoadingError: null,
     hasUniverseFile: false,
+    _isLoadingUniverse: false, // Internal lock to prevent concurrent loads
 
     // Storage mode settings
     storageMode: 'hybrid', // 'local', 'git', 'hybrid'
@@ -506,6 +535,7 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
             picture: '',
             color: newPrototypeColor || group.color || '#8B0000',
             definitionGraphIds: [],
+            agentConfig: null, // Agent configuration (null = not an agent)
             createdAt: new Date().toISOString()
           };
           draft.nodePrototypes.set(prototypeId, newPrototype);
@@ -772,9 +802,45 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
         const prototypeId = prototypeData.id || uuidv4();
         if (!draft.nodePrototypes.has(prototypeId)) {
           const createdAt = prototypeData.createdAt || new Date().toISOString();
-          draft.nodePrototypes.set(prototypeId, { ...prototypeData, id: prototypeId, createdAt });
+          // Ensure agentConfig defaults to null if not provided
+          const agentConfig = prototypeData.agentConfig !== undefined ? prototypeData.agentConfig : null;
+          draft.nodePrototypes.set(prototypeId, { ...prototypeData, id: prototypeId, createdAt, agentConfig });
         }
       }));
+    },
+
+    /**
+     * Upserts a prototype into the protected catalog so it shows up in All Things
+     * and is excluded from cleanup. Intended for local Orbit index entries.
+     */
+    upsertProtectedPrototype: (prototypeData) => {
+      api.setChangeContext({ type: 'prototype_create', target: 'protected_prototype' });
+      let prototypeId = prototypeData.id;
+      set(produce((draft) => {
+        prototypeId = prototypeId || prototypeData.uri || uuidv4();
+
+        const existing = draft.nodePrototypes.get(prototypeId);
+        if (existing) {
+          draft.nodePrototypes.set(prototypeId, {
+            ...existing,
+            ...prototypeData,
+            id: prototypeId,
+            isOrbitCatalog: true,
+          });
+        } else {
+          const createdAt = prototypeData.createdAt || new Date().toISOString();
+          draft.nodePrototypes.set(prototypeId, {
+            ...prototypeData,
+            id: prototypeId,
+            createdAt,
+            isOrbitCatalog: true,
+          });
+        }
+
+        if (!draft.protectedPrototypeIds) draft.protectedPrototypeIds = new Set();
+        draft.protectedPrototypeIds.add(prototypeId);
+      }));
+      return prototypeId;
     },
 
     // Adds a node prototype with duplicate detection by name
@@ -2347,6 +2413,11 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
       // Step 1: Find all referenced prototypes and instances
       const referencedPrototypeIds = new Set();
 
+      // Protect explicitly registered prototypes (e.g., Orbit catalog)
+      if (draft.protectedPrototypeIds) {
+        draft.protectedPrototypeIds.forEach((id) => referencedPrototypeIds.add(id));
+      }
+
       // Add saved prototypes
       draft.savedNodeIds.forEach(prototypeId => referencedPrototypeIds.add(prototypeId));
 
@@ -2564,6 +2635,16 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
     // Universe file management actions
     loadUniverseFromFile: (dataToLoad) => {
       try {
+        // CRITICAL: Prevent concurrent loads - check if a load is already in progress
+        const currentState = api.getState();
+        if (currentState._isLoadingUniverse) {
+          console.warn("[graphStore] Load already in progress, ignoring concurrent load attempt");
+          return false;
+        }
+
+        // Set loading lock
+        set({ _isLoadingUniverse: true });
+
         // If dataToLoad already contains Maps (i.e., was returned by importFromRedstring earlier) we can use it directly.
         const isAlreadyDeserialized = dataToLoad && dataToLoad.graphs instanceof Map;
 
@@ -2588,8 +2669,9 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
             isUniverseLoading: false,
             universeLoadingError: "Failed to load universe: Invalid data format",
             hasUniverseFile: false,
+            _isLoadingUniverse: false,
           });
-          return;
+          return false;
         }
 
         // Normalize all edge directionality to ensure arrowsToward is always a Set
@@ -2638,13 +2720,22 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
           console.warn('[graphStore] Failed to sanitize saved sets during load:', e);
         }
 
+        console.log("[graphStore] Loading universe with", {
+          nodes: storeState.nodePrototypes?.size || 0,
+          graphs: storeState.graphs?.size || 0,
+          edges: storeState.edges?.size || 0
+        });
+
         set({
           ...storeState,
           isUniverseLoaded: true,
           isUniverseLoading: false,
           universeLoadingError: null,
           hasUniverseFile: true,
+          _isLoadingUniverse: false,
         });
+
+        return true;
       } catch (error) {
         console.error("[graphStore] Critical error in loadUniverseFromFile:", error);
         set({
@@ -2652,7 +2743,9 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
           isUniverseLoading: false,
           universeLoadingError: `Failed to load universe: ${error.message}`,
           hasUniverseFile: false,
+          _isLoadingUniverse: false,
         });
+        return false;
       }
     },
 

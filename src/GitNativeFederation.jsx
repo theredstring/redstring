@@ -286,7 +286,7 @@ const GitNativeFederation = ({ variant = 'panel', onRequestClose }) => {
   }, []);
 
   const refreshState = useCallback(async (options = {}) => {
-    const { silent = false, timeoutMs = 8000 } = options;
+    const { silent = false, timeoutMs = 2000 } = options; // Reduced from 8000ms to improve responsiveness
     const timerApi = typeof window !== 'undefined' ? window : globalThis;
     let timeoutId = null;
     let didTimeout = false;
@@ -403,7 +403,7 @@ const GitNativeFederation = ({ variant = 'panel', onRequestClose }) => {
 
     window.addEventListener('redstring:auth-expired', handleAuthExpired);
 
-    // Poll sync status every 1 second to keep UI updated (fast commits need fast UI updates)
+    // Poll sync status every 5 seconds to keep UI updated without saturating the network
     const pollInterval = setInterval(async () => {
       try {
         const universes = await gitFederationService.refreshUniverses();
@@ -411,7 +411,7 @@ const GitNativeFederation = ({ variant = 'panel', onRequestClose }) => {
       } catch (err) {
         // Silent fail - don't spam console
       }
-    }, 1000);
+    }, 5000);
 
     return () => {
       window.removeEventListener('redstring:auth-connected', handleAuthConnected);

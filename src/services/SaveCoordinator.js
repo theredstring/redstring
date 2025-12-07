@@ -37,6 +37,13 @@ class SaveCoordinator {
     this.statusHandlers = new Set();
     this.isSaving = false;
     this.lastError = null;
+    this.isGlobalDragging = false; // Track drag state globally to prevent interleaved updates from triggering saves
+    
+    // Worker for offloading heavy serialization
+    this.saveWorker = null;
+    this.workerProcessing = false;
+    this.workerDirty = false;
+    this.nextStateToProcess = null;
 
     console.log('[SaveCoordinator] Initialized with simple batched saves');
   }
@@ -64,11 +71,102 @@ class SaveCoordinator {
     this.setGitSyncEngine(gitSyncEngine);
     this.isEnabled = true;
 
+    // Initialize Save Worker
+    try {
+      this.saveWorker = new Worker(new URL('./save.worker.js', import.meta.url), { type: 'module' });
+      this.saveWorker.onmessage = this.handleWorkerMessage.bind(this);
+      console.log('[SaveCoordinator] Save worker initialized');
+    } catch (e) {
+      console.warn('[SaveCoordinator] Failed to initialize save worker:', e);
+      this.saveWorker = null;
+    }
+
     // Initialize Git autosave policy
     gitAutosavePolicy.initialize(gitSyncEngine, this);
 
     console.log('[SaveCoordinator] Initialized with dependencies and autosave policy');
     this.notifyStatus('info', 'Save coordinator ready with Git autosave policy');
+  }
+
+  handleWorkerMessage(e) {
+    const { type, hash, jsonString, success, error } = e.data;
+    
+    this.workerProcessing = false;
+    
+    if (type === 'save_processed' && success) {
+      // Worker finished processing
+      
+      // Check if hash changed
+      if (hash !== this.lastSaveHash && hash !== this.pendingHash) {
+        this.pendingHash = hash;
+        this.pendingString = jsonString; // Store the pre-serialized string
+        
+        console.log('[SaveCoordinator] Change detected by worker, hash:', hash.substring(0, 8));
+        this.isDirty = true;
+        this.notifyStatus('info', 'Changes detected');
+        
+        // Notify Git autosave policy
+        gitAutosavePolicy.onEditActivity();
+        
+        // Schedule the actual write
+        this.scheduleSave();
+      }
+    } else if (type === 'error') {
+      console.error('[SaveCoordinator] Worker error:', error);
+      this.notifyStatus('error', `Worker save failed: ${error}`);
+    }
+
+    // Process any queued updates
+    if (this.workerDirty) {
+      this.workerDirty = false;
+      this.sendToWorker();
+    }
+  }
+
+  sendToWorker() {
+    if (!this.saveWorker || !this.nextStateToProcess) return;
+    
+    this.workerProcessing = true;
+
+    // Extract only data properties for the worker to avoid DataCloneError
+    // The store state often contains functions (actions) mixed in
+    const {
+      graphs,
+      nodePrototypes,
+      edges,
+      openGraphIds,
+      activeGraphId,
+      activeDefinitionNodeId,
+      expandedGraphIds,
+      rightPanelTabs,
+      savedNodeIds,
+      savedGraphIds,
+      showConnectionNames
+    } = this.nextStateToProcess;
+
+    const cleanState = {
+      graphs,
+      nodePrototypes,
+      edges,
+      openGraphIds,
+      activeGraphId,
+      activeDefinitionNodeId,
+      expandedGraphIds,
+      rightPanelTabs,
+      savedNodeIds,
+      savedGraphIds,
+      showConnectionNames
+    };
+
+    this.saveWorker.postMessage({
+      type: 'process_save',
+      state: cleanState,
+      userDomain: null 
+    });
+    
+    // Keep reference for fallback/Git sync
+    this.lastState = this.nextStateToProcess;
+    this.nextStateToProcess = null; 
   }
 
   // Main entry point for state changes
@@ -81,73 +179,47 @@ class SaveCoordinator {
     }
 
     try {
-      // PERFORMANCE OPTIMIZATION: Skip expensive hash calculation during drag 'move' phase
-      // Only compute hash on drag start/end, not during every frame of movement
-      if (changeContext.isDragging === true && changeContext.phase === 'move') {
-        // During drag move, just mark dirty and defer everything else
-        // We'll compute the hash and save when the drag ends
+      // Update global drag state based on context
+      if (changeContext.isDragging === true) {
+        this.isGlobalDragging = true;
+      } else if (changeContext.phase === 'end') {
+        this.isGlobalDragging = false;
+      }
+
+      // Skip updates during drag
+      if (this.isGlobalDragging && changeContext.phase !== 'end') {
         this.isDirty = true;
-        this.lastState = newState; // Store state for later save
+        this.nextStateToProcess = newState; // Keep updating the latest state
         this.lastChangeContext = changeContext;
         
-        // Only log occasionally to avoid console spam (once per second max)
         const now = Date.now();
         if (!this._lastDragLogTime || (now - this._lastDragLogTime) > 1000) {
-          console.log('[SaveCoordinator] Drag in progress - deferring hash and save');
+          console.log('[SaveCoordinator] Drag in progress - deferring processing');
           this._lastDragLogTime = now;
         }
-        return; // Skip hash calculation and save scheduling during drag
-      }
-
-      // Calculate hash for non-drag-move changes
-      const stateHash = this.generateStateHash(newState);
-      
-      // Check if this is a real change
-      const hasRealChange = stateHash !== this.lastSaveHash && stateHash !== this.pendingHash;
-      
-      if (!hasRealChange) {
-        return; // No changes, nothing to do
-      }
-
-      // Set dirty flag IMMEDIATELY for UI feedback
-      this.isDirty = true;
-      
-      // Handle drag end differently - always process it
-      if (changeContext.phase === 'end' && changeContext.isDragging === false) {
-        console.log('[SaveCoordinator] Drag ended, processing final state');
-        this.pendingHash = stateHash;
-        this.dragPendingHash = null;
-        this.lastState = newState;
-        this.lastChangeContext = changeContext;
-        
-        // Notify Git autosave policy of the change
-        gitAutosavePolicy.onEditActivity();
-        
-        // Schedule the save
-        this.scheduleSave();
         return;
       }
 
-      // If we were dragging and now stopped, use the pending hash
-      if (this.dragPendingHash) {
-        console.log('[SaveCoordinator] Drag ended, processing pending changes');
-        this.pendingHash = this.dragPendingHash;
-        this.dragPendingHash = null;
-      } else {
-        this.pendingHash = stateHash;
-      }
-
-      console.log('[SaveCoordinator] State change detected:', changeContext.type || 'unknown', 'hash:', stateHash.substring(0, 8));
-
-      // Store the latest state
-      this.lastState = newState;
+      // Update latest state
+      this.nextStateToProcess = newState;
       this.lastChangeContext = changeContext;
 
-      // Notify Git autosave policy of the change
-      gitAutosavePolicy.onEditActivity();
+      // If drag just ended, force immediate processing logic
+      if (changeContext.phase === 'end' && changeContext.isDragging === false) {
+        console.log('[SaveCoordinator] Drag ended, triggering processing');
+      }
 
-      // Schedule a debounced save (all changes batched together)
-      this.scheduleSave();
+      // Debounce sending to worker to avoid flooding it
+      if (this.workerProcessing) {
+        this.workerDirty = true;
+      } else {
+        // Clear existing debounce timer
+        if (this.workerTimer) clearTimeout(this.workerTimer);
+        
+        this.workerTimer = setTimeout(() => {
+          this.sendToWorker();
+        }, 300); // 300ms debounce for worker calls
+      }
 
     } catch (error) {
       console.error('[SaveCoordinator] Error processing state change:', error);
@@ -162,7 +234,7 @@ class SaveCoordinator {
       clearTimeout(this.saveTimer);
     }
 
-    console.log(`[SaveCoordinator] Scheduling save in ${DEBOUNCE_MS}ms`);
+    console.log(`[SaveCoordinator] Scheduling write in ${DEBOUNCE_MS}ms`);
 
     // Schedule new save
     this.saveTimer = setTimeout(() => {
@@ -172,7 +244,10 @@ class SaveCoordinator {
 
   // Execute save (both local and git)
   async executeSave() {
-    if (!this.lastState || this.isSaving) return;
+    if (this.isSaving) return;
+    
+    // We need either a pending string (from worker) or a lastState (fallback)
+    if (!this.pendingString && !this.lastState) return;
 
     try {
       this.isSaving = true;
@@ -184,7 +259,11 @@ class SaveCoordinator {
       if (this.fileStorage && typeof this.fileStorage.saveToFile === 'function') {
         try {
           console.log('[SaveCoordinator] Saving to local file');
-          await this.fileStorage.saveToFile(state, false);
+          // Use pre-serialized string if available
+          await this.fileStorage.saveToFile(state, false, { 
+            preSerialized: !!this.pendingString,
+            serializedData: this.pendingString
+          });
         } catch (error) {
           console.error('[SaveCoordinator] Local file save failed:', error);
         }
@@ -193,18 +272,21 @@ class SaveCoordinator {
       // Save to Git if available
       if (this.gitSyncEngine && this.gitSyncEngine.isHealthy()) {
         console.log('[SaveCoordinator] Queuing git save');
-        this.gitSyncEngine.updateState(state); // rely on engine change detection to prevent redundant commits
-        console.log('[SaveCoordinator] Git save queued, pending commits:', this.gitSyncEngine.pendingCommits?.length);
+        this.gitSyncEngine.updateState(state); 
+        console.log('[SaveCoordinator] Git save queued');
       }
 
       // Update save hash after successful save
       if (this.pendingHash) {
         this.lastSaveHash = this.pendingHash;
-        this.pendingHash = null;
+        // Don't clear pendingHash yet if we want to ensure next check is valid against this save?
+        // Actually, if we saved, this hash is now the "last saved hash".
+        // pendingHash can be cleared or kept as sync reference.
       }
-      // Clear dirty flag after successful save
+      
+      // Clear dirty flag
       this.isDirty = false;
-      this.dragPendingHash = null;
+      this.pendingString = null; // Clear memory
       this.notifyStatus('success', 'Save completed');
 
     } catch (error) {
@@ -225,16 +307,17 @@ class SaveCoordinator {
       console.log('[SaveCoordinator] Force save requested');
       this.notifyStatus('info', 'Force saving...');
       
-      // Clear pending timer
-      if (this.saveTimer) {
-        clearTimeout(this.saveTimer);
-        this.saveTimer = null;
-      }
+      if (this.saveTimer) clearTimeout(this.saveTimer);
+      if (this.workerTimer) clearTimeout(this.workerTimer);
       
-      // Update last state
       this.lastState = state;
       
-      // Execute save immediately
+      // For force save, we might want to bypass worker or wait for it?
+      // Bypassing is safer for "I clicked save, do it now".
+      // But we lose the perf benefit.
+      // Let's use main thread for force save to be instant/synchronous-ish in initiation
+      
+      this.pendingString = null; // Ensure we re-serialize
       await this.executeSave();
       
       this.notifyStatus('success', 'Force save completed');
@@ -247,14 +330,15 @@ class SaveCoordinator {
     }
   }
 
-  // Generate hash for change detection
+  // Generate hash - now mostly for fallback or worker internal use
+  // Kept here for compatibility if needed, but primary logic moved to worker
   generateStateHash(state) {
+      // ... (implementation matches worker) ...
+      // Legacy implementation kept for robustness if worker fails
     try {
-      // Exclude viewport state entirely so viewport-only changes don't trigger saves
       const contentState = {
         graphs: state.graphs ? Array.from(state.graphs.entries()).map(([id, graph]) => {
           const { panOffset, zoomLevel, instances, ...rest } = graph || {};
-          // Convert instances Map to array for proper serialization
           const instancesArray = instances ? Array.from(instances.entries()) : [];
           return [id, { ...rest, instances: instancesArray }];
         }) : [],
@@ -263,18 +347,15 @@ class SaveCoordinator {
       };
 
       const stateString = JSON.stringify(contentState);
-
-      // FNV-1a hash - faster than simple hash for large strings
-      let hash = 2166136261; // FNV offset basis
+      let hash = 2166136261;
       for (let i = 0; i < stateString.length; i++) {
         hash ^= stateString.charCodeAt(i);
         hash += (hash << 1) + (hash << 4) + (hash << 7) + (hash << 8) + (hash << 24);
       }
-
-      return (hash >>> 0).toString(); // Convert to unsigned 32-bit integer
+      return (hash >>> 0).toString();
     } catch (error) {
       console.warn('[SaveCoordinator] Hash generation failed:', error);
-      return Date.now().toString(); // Fallback to timestamp
+      return Date.now().toString();
     }
   }
 
