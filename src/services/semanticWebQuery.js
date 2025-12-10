@@ -5,6 +5,37 @@
  * for immediate semantic web data access
  */
 
+// Rate limiter implementation for DBpedia to avoid 429/405 errors
+const createRateLimiter = (limit, interval) => {
+  const queue = [];
+  let processing = false;
+  
+  const processQueue = async () => {
+    if (processing || queue.length === 0) return;
+    processing = true;
+    
+    const item = queue.shift();
+    try {
+      await item.execute();
+    } catch (e) {
+      item.reject(e);
+    } finally {
+      setTimeout(() => {
+        processing = false;
+        processQueue();
+      }, interval);
+    }
+  };
+  
+  return (fn) => new Promise((resolve, reject) => {
+    queue.push({ execute: async () => resolve(await fn()), reject });
+    processQueue();
+  });
+};
+
+// 1 request every 500ms (2 requests per second max)
+const dbpediaRateLimiter = createRateLimiter(1, 500);
+
 /**
  * Simple Wikidata query for fast enrichment - just basic entity lookup
  * @param {string} entityName - Entity name to search for
@@ -81,16 +112,18 @@ export async function simpleQueryDBpedia(entityName, options = {}) {
   const timeoutId = setTimeout(() => controller.abort(), timeout);
 
   try {
-    const response = await fetch('https://dbpedia.org/sparql', {
-      method: 'POST',
+    const url = new URL('https://dbpedia.org/sparql');
+    url.searchParams.append('query', query);
+    url.searchParams.append('format', 'json');
+
+    const response = await dbpediaRateLimiter(() => fetch(url.toString(), {
+      method: 'GET',
       headers: {
         'Accept': 'application/sparql-results+json',
-        'Content-Type': 'application/x-www-form-urlencoded',
         'User-Agent': 'Redstring-SemanticWeb/1.0'
       },
-      body: `query=${encodeURIComponent(query)}`,
       signal: controller.signal
-    });
+    }));
 
     clearTimeout(timeoutId);
 
@@ -382,16 +415,18 @@ export async function queryDBpedia(entityName, options = {}) {
   try {
     console.log(`[SemanticWebQuery] Starting DBpedia query for "${sanitizedEntityName}" with timeout: ${timeout}ms`);
     
-    const response = await fetch('https://dbpedia.org/sparql', {
-      method: 'POST',
+    const url = new URL('https://dbpedia.org/sparql');
+    url.searchParams.append('query', query);
+    url.searchParams.append('format', 'json');
+
+    const response = await dbpediaRateLimiter(() => fetch(url.toString(), {
+      method: 'GET',
       headers: {
         'Accept': 'application/sparql-results+json',
-        'Content-Type': 'application/x-www-form-urlencoded',
         'User-Agent': 'Redstring-SemanticWeb/1.0'
       },
-      body: `query=${encodeURIComponent(query)}`,
       signal: controller.signal
-    });
+    }));
 
     clearTimeout(timeoutId);
     clearTimeout(backupTimeout);
@@ -1228,16 +1263,18 @@ export async function findRelatedThroughDBpediaProperties(entityName, options = 
           const controller = new AbortController();
           const timeoutId = setTimeout(() => controller.abort(), timeout);
           
-          const response = await fetch('https://dbpedia.org/sparql', {
-            method: 'POST',
+          const url = new URL('https://dbpedia.org/sparql');
+          url.searchParams.append('query', relatedQuery);
+          url.searchParams.append('format', 'json');
+
+          const response = await dbpediaRateLimiter(() => fetch(url.toString(), {
+            method: 'GET',
             headers: {
               'Accept': 'application/sparql-results+json',
-              'Content-Type': 'application/x-www-form-urlencoded',
               'User-Agent': 'Redstring-SemanticWeb/1.0'
             },
-            body: `query=${encodeURIComponent(relatedQuery)}`,
             signal: controller.signal
-          });
+          }));
           
           clearTimeout(timeoutId);
           

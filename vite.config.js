@@ -5,6 +5,7 @@ import react from '@vitejs/plugin-react';
 // https://vitejs.dev/config/
 export default defineConfig({
   plugins: [react()],
+  base: './', // Required for Electron to load assets correctly
   build: {
     sourcemap: true,
     rollupOptions: {
@@ -16,6 +17,9 @@ export default defineConfig({
   server: {
     host: true, // listen on all interfaces for LAN testing
     port: Number(process.env.VITE_DEV_PORT) || 4001,
+    headers: {
+      'Content-Security-Policy': "default-src 'self' 'unsafe-inline' 'unsafe-eval' data: blob: http://localhost:* http://127.0.0.1:* ws://localhost:* ws://127.0.0.1:*; connect-src 'self' http://localhost:* http://127.0.0.1:* ws://localhost:* ws://127.0.0.1:* https://query.wikidata.org https://dbpedia.org https://*.wikipedia.org https://*.wikidata.org https://api.conceptnet.io https://*.redstring.io https://upload.wikimedia.org; img-src 'self' data: blob: http://localhost:* http://127.0.0.1:* https://*.wikipedia.org https://*.wikidata.org https://upload.wikimedia.org;"
+    },
     proxy: {
       // Primary API/bridge proxy to the semantic server
       '/api': {

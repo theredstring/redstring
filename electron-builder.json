@@ -1,0 +1,60 @@
+{
+  "appId": "io.redstring.app",
+  "productName": "Redstring",
+  "directories": {
+    "output": "dist-electron"
+  },
+  "files": [
+    "dist/**/*",
+    "electron/**/*",
+    "package.json"
+  ],
+  "mac": {
+    "category": "public.app-category.productivity",
+    "target": [
+      {
+        "target": "dmg",
+        "arch": ["x64", "arm64"]
+      }
+    ],
+    "protocols": [
+      {
+        "name": "Redstring Protocol",
+        "schemes": ["redstring"]
+      }
+    ]
+  },
+  "win": {
+    "target": [
+      {
+        "target": "nsis",
+        "arch": ["x64", "ia32"]
+      }
+    ],
+    "protocols": [
+      {
+        "name": "Redstring Protocol",
+        "schemes": ["redstring"]
+      }
+    ]
+  },
+  "linux": {
+    "target": [
+      {
+        "target": "AppImage",
+        "arch": ["x64"]
+      }
+    ],
+    "protocols": [
+      {
+        "name": "Redstring Protocol",
+        "schemes": ["redstring"]
+      }
+    ]
+  },
+  "nsis": {
+    "oneClick": false,
+    "allowToChangeInstallationDirectory": true
+  }
+}
+

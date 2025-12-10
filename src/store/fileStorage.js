@@ -7,6 +7,7 @@
 import { exportToRedstring, importFromRedstring } from '../formats/redstringFormat.js';
 import { v4 as uuidv4 } from 'uuid';
 import { CONNECTION_DEFAULT_COLOR } from '../constants.js';
+import { isElectron, pickFile, pickSaveLocation, readFile, writeFile } from '../utils/fileAccessAdapter.js';
 
 // NO UNIVERSE MANAGER IMPORT - This module must be standalone to avoid circular dependencies
 // This is a legacy compatibility layer that doesn't need universeManager access
@@ -87,14 +88,16 @@ const loadBrowserUniverse = async () => {
 };
 
 /**
- * Check if File System Access API is supported
+ * Check if File System Access API is supported (or Electron)
  */
 export const isFileSystemSupported = () => {
-  return 'showSaveFilePicker' in window && 'showOpenFilePicker' in window;
+  return isElectron() || ('showSaveFilePicker' in window && 'showOpenFilePicker' in window);
 };
 
 // Fallback mode for browsers without the File System Access API (e.g., many mobile/tablet browsers)
+// Electron never uses browser storage mode
 const isBrowserStorageMode = () => {
+  if (isElectron()) return false;
   try {
     return !('showSaveFilePicker' in window && 'showOpenFilePicker' in window);
   } catch {
@@ -544,17 +547,9 @@ export const createUniverseFile = async () => {
   }
 
   try {
-    // Get suggested starting directory based on OS
-    const suggestedLocations = getSuggestedLocations();
-    
-    // Prompt user to save the universe.redstring file
-    const handle = await window.showSaveFilePicker({
-      suggestedName: FILE_NAME,
-      startIn: 'documents',
-      types: [{
-        description: 'Redstring Universe Files',
-        accept: { 'application/json': ['.redstring'] }
-      }]
+    // Prompt user to save the universe.redstring file using adapter
+    const handle = await pickSaveLocation({
+      suggestedName: FILE_NAME
     });
     
     await storeFileHandle(handle);
@@ -566,21 +561,22 @@ export const createUniverseFile = async () => {
     const redstringData = exportToRedstring(initialState);
     const dataString = JSON.stringify(redstringData, null, 2);
     
-    const writable = await handle.createWritable({
-      keepExistingData: false
-    });
-    
-    await writable.write(dataString);
-    await writable.close();
+    // Write using adapter (works in both browser and Electron)
+    await writeFile(handle, dataString);
     
     // Store session data
     
     lastSaveTime = Date.now();
     
-    // Add to recent files
-    await addToRecentFiles(handle, handle.name || FILE_NAME);
+    // Get filename for display
+    const fileName = isElectron() && typeof handle === 'string'
+      ? handle.split(/[/\\]/).pop()
+      : (handle?.name || FILE_NAME);
     
-    console.log(`[FileStorage] Universe file created successfully at: ${handle.name}`);
+    // Add to recent files
+    await addToRecentFiles(handle, fileName);
+    
+    console.log(`[FileStorage] Universe file created successfully at: ${fileName}`);
     
     return initialState;
   } catch (error) {
@@ -693,33 +689,31 @@ export const openUniverseFile = async () => {
   }
 
   try {
-    // Get suggested starting directory based on OS
-    const suggestedLocations = getSuggestedLocations();
+    // Use file access adapter (works in both browser and Electron)
+    const handle = await pickFile();
     
-    const [handle] = await window.showOpenFilePicker({
-      startIn: 'documents',
-      types: [{
-        description: 'Redstring Universe Files',
-        accept: { 'application/json': ['.redstring'] }
-      }],
-      multiple: false
-    });
+    // Get filename for display
+    const fileName = isElectron() && typeof handle === 'string'
+      ? handle.split(/[/\\]/).pop()
+      : (handle?.name || FILE_NAME);
     
-    // Ensure we have read/write permission up front so autosave can work immediately
+    // In Electron, we don't need permission checks
     let __permissionForHandle = 'granted';
-    try {
-      if (typeof handle.queryPermission === 'function') {
-        __permissionForHandle = await handle.queryPermission({ mode: 'readwrite' });
-        if (__permissionForHandle === 'prompt' && typeof handle.requestPermission === 'function') {
-          __permissionForHandle = await handle.requestPermission({ mode: 'readwrite' });
+    if (!isElectron()) {
+      try {
+        if (typeof handle.queryPermission === 'function') {
+          __permissionForHandle = await handle.queryPermission({ mode: 'readwrite' });
+          if (__permissionForHandle === 'prompt' && typeof handle.requestPermission === 'function') {
+            __permissionForHandle = await handle.requestPermission({ mode: 'readwrite' });
+          }
         }
+        if (__permissionForHandle !== 'granted') {
+          console.warn('[FileStorage] Read/write permission not granted at import time; proceeding read-only');
+        }
+      } catch (permError) {
+        console.warn('[FileStorage] Failed to verify/request permission:', permError);
+        __permissionForHandle = 'denied';
       }
-      if (__permissionForHandle !== 'granted') {
-        console.warn('[FileStorage] Read/write permission not granted at import time; proceeding read-only');
-      }
-    } catch (permError) {
-      console.warn('[FileStorage] Failed to verify/request permission:', permError);
-      __permissionForHandle = 'denied';
     }
 
     // Only persist file handle if we have permission; otherwise fall back to browser storage for autosave
@@ -727,9 +721,8 @@ export const openUniverseFile = async () => {
       await storeFileHandle(handle);
     }
     
-    // Read the file
-    const file = await handle.getFile();
-    const text = await file.text();
+    // Read the file using adapter
+    const text = await readFile(handle);
     
     // Validate file content
     if (!text || text.trim() === '') {
@@ -754,9 +747,9 @@ export const openUniverseFile = async () => {
     // Store session data
     
     // Add to recent files
-    await addToRecentFiles(handle, handle.name || FILE_NAME);
+    await addToRecentFiles(handle, fileName);
     
-    console.log(`[FileStorage] Universe file loaded successfully from: ${handle.name}`);
+    console.log(`[FileStorage] Universe file loaded successfully from: ${fileName}`);
     
     return importResult.storeState;
   } catch (error) {

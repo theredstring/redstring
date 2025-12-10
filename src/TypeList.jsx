@@ -29,6 +29,26 @@ const TypeList = ({ nodes, setSelectedNodes, selectedNodes = new Set() }) => {
   const edgesMap = useGraphStore((state) => state.edges);
   const setNodeTypeAction = useGraphStore((state) => state.setNodeType);
   
+  // Ensure base "Thing" prototype exists (side effect, must be in useEffect)
+  useEffect(() => {
+    const hasBaseThingPrototype = Array.from(nodePrototypesMap.values())
+      .some(prototype => prototype.id === 'base-thing-prototype');
+    
+    if (!hasBaseThingPrototype) {
+      console.log(`[TypeList] Base "Thing" prototype missing, creating it...`);
+      // Create the missing base "Thing" prototype
+      const storeActions = useGraphStore.getState();
+      storeActions.addNodePrototype({
+        id: 'base-thing-prototype',
+        name: 'Thing',
+        description: 'The base type for all things. Things are nodes, ideas, nouns, concepts, objects, whatever you want them to be. They will always be at the bottom of the abstraction stack. They are the "atoms" of your Redstring universe.',
+        color: '#8B0000', // maroon
+        typeNodeId: null, // No parent type - this is the base type
+        definitionGraphIds: []
+      });
+    }
+  }, [nodePrototypesMap]);
+
   // Get the type nodes available for the current active graph
   const availableTypeNodes = useMemo(() => {
     
@@ -56,24 +76,6 @@ const TypeList = ({ nodes, setSelectedNodes, selectedNodes = new Set() }) => {
       
     // If no specific types are used (or no active graph), include base types
     if (typeNodes.length === 0) {
-      // Check if base "Thing" prototype exists
-      const hasBaseThingPrototype = Array.from(nodePrototypesMap.values())
-        .some(prototype => prototype.id === 'base-thing-prototype');
-      
-      if (!hasBaseThingPrototype) {
-        console.log(`[TypeList] Base "Thing" prototype missing, creating it...`);
-        // Create the missing base "Thing" prototype
-        const storeActions = useGraphStore.getState();
-        storeActions.addNodePrototype({
-          id: 'base-thing-prototype',
-          name: 'Thing',
-          description: 'The base type for all things. Things are nodes, ideas, nouns, concepts, objects, whatever you want them to be. They will always be at the bottom of the abstraction stack. They are the "atoms" of your Redstring universe.',
-          color: '#8B0000', // maroon
-          typeNodeId: null, // No parent type - this is the base type
-          definitionGraphIds: []
-        });
-      }
-      
       typeNodes = Array.from(nodePrototypesMap.values())
         .filter(prototype => {
           // A prototype is a valid type node if:

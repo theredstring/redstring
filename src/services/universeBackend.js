@@ -32,6 +32,17 @@ import {
   touchFileHandle,
   removeFileHandleMetadata
 } from './fileHandlePersistence.js';
+import {
+  isElectron,
+  hasFileSystemAccess,
+  pickFile,
+  pickSaveLocation,
+  readFile,
+  writeFile,
+  fileExists,
+  getFileIdentifier,
+  getFileName
+} from '../utils/fileAccessAdapter.js';
 
 const GF_TAG = '[GF-DEBUG]';
 const { log: __gfNativeLog, warn: __gfNativeWarn, error: __gfNativeError } = console;
@@ -701,12 +712,13 @@ class UniverseBackend {
       const isSmallScreen = screenWidth <= 768;
       const isMediumScreen = screenWidth <= 1024;
 
-      const shouldUseGitOnly = isMobile || isTablet || !('showSaveFilePicker' in window) || (isTouch && isMediumScreen);
+      const hasFileAccess = isElectron() || hasFileSystemAccess();
+      const shouldUseGitOnly = isMobile || isTablet || !hasFileAccess || (isTouch && isMediumScreen);
 
       this.deviceConfig = {
         gitOnlyMode: shouldUseGitOnly,
         sourceOfTruth: shouldUseGitOnly ? 'git' : 'local',
-        enableLocalFileStorage: !shouldUseGitOnly && 'showSaveFilePicker' in window,
+        enableLocalFileStorage: !shouldUseGitOnly && hasFileAccess,
         touchOptimizedUI: isTouch,
         compactInterface: isMobile,
         autoSaveFrequency: isMobile ? 2000 : 1000,
@@ -716,7 +728,8 @@ class UniverseBackend {
           isTablet,
           isTouchDevice: isTouch,
           screenWidth,
-          supportsFileSystemAPI: 'showSaveFilePicker' in window
+          supportsFileSystemAPI: hasFileAccess,
+          isElectron: isElectron()
         }
       };
 
@@ -2396,7 +2409,7 @@ class UniverseBackend {
 
     if (!fileHandle) {
       // If no file handle but local storage is enabled, auto-prompt to set one up
-      if (universe.localFile.enabled && typeof window !== 'undefined' && 'showSaveFilePicker' in window) {
+      if (universe.localFile.enabled && (isElectron() || hasFileSystemAccess())) {
         try {
           gfLog('[UniverseBackend] No file handle for local save, prompting user to select file location');
 
@@ -2409,17 +2422,18 @@ class UniverseBackend {
 
           this.notifyStatus('info', message);
 
-          fileHandle = await window.showSaveFilePicker({
-            suggestedName: suggestedName,
-            types: [{ description: 'Redstring Files', accept: { 'application/json': ['.redstring'] } }]
+          fileHandle = await pickSaveLocation({
+            suggestedName: suggestedName
           });
 
           // Store the file handle
           this.setFileHandle(universe.slug, fileHandle);
-          this.notifyStatus('success', `Local file ${hadPreviousHandle ? 're-' : ''}connected: ${fileHandle.name}`);
+          
+          const fileName = isElectron() ? fileHandle.split(/[/\\]/).pop() : (await getFileName(fileHandle));
+          this.notifyStatus('success', `Local file ${hadPreviousHandle ? 're-' : ''}connected: ${fileName}`);
 
         } catch (error) {
-          if (error.name === 'AbortError') {
+          if (error.message?.includes('cancelled') || error.name === 'AbortError') {
             throw new Error('Local file setup cancelled by user');
           } else {
             throw new Error(`Failed to set up local file: ${error.message}`);
@@ -2432,7 +2446,12 @@ class UniverseBackend {
       }
     }
 
+    // Electron: fileHandle is a string path, Browser: fileHandle is a FileHandle object
     const ensurePermission = async () => {
+      if (isElectron()) {
+        // Electron doesn't need permission checks - file path is already granted
+        return;
+      }
       const permission = await checkFileHandlePermission(fileHandle);
       if (permission === 'granted') return;
       const granted = await requestFileHandlePermission(fileHandle);
@@ -2452,21 +2471,19 @@ class UniverseBackend {
     };
 
     const jsonString = JSON.stringify(redstringData, null, 2);
-    let writable;
     try {
       await ensurePermission();
-      writable = await fileHandle.createWritable();
-      await writable.write(jsonString);
-      await writable.close();
+      await writeFile(fileHandle, jsonString);
 
       try {
-        await touchFileHandle(universe.slug, fileHandle);
+        // Only touch metadata for browser FileHandles, Electron uses path-based tracking
+        if (!isElectron()) {
+          await touchFileHandle(universe.slug, fileHandle);
+        }
       } catch (error) {
         gfWarn('[UniverseBackend] Failed to touch file handle after save:', error);
       }
     } catch (error) {
-      try { await writable?.close(); } catch (_) {}
-
       if (isPermissionError(error)) {
         this.notifyStatus('warning', 'Reauthorize local file access to continue saving this universe');
         throw new Error('Local file access was denied');
@@ -2588,23 +2605,35 @@ class UniverseBackend {
     this.fileHandles.set(slug, fileHandle);
 
     let displayPath = options.displayPath || options.originalPath || null;
-    const fileName = options.fileName || fileHandle?.name || null;
+    let fileName = options.fileName || null;
 
-    if (!displayPath && fileHandle?.getFile) {
-      try {
-        const fileForPath = await fileHandle.getFile();
-        displayPath = fileForPath?.path || fileForPath?.webkitRelativePath || fileForPath?.name || fileHandle?.name || null;
-      } catch (error) {
-        gfLog('[UniverseBackend] Unable to derive display path from file handle:', error);
-        displayPath = fileHandle?.name || null;
+    // Handle Electron file paths (strings) vs browser FileHandles
+    if (isElectron() && typeof fileHandle === 'string') {
+      // Electron: fileHandle is a full path string
+      displayPath = displayPath || fileHandle;
+      fileName = fileName || fileHandle.split(/[/\\]/).pop();
+      gfLog(`[UniverseBackend] Setting Electron file handle for ${slug}: ${displayPath}`);
+    } else if (fileHandle?.name) {
+      // Browser: fileHandle is a FileSystemFileHandle
+      fileName = fileName || fileHandle.name;
+      
+      if (!displayPath && fileHandle?.getFile) {
+        try {
+          const fileForPath = await fileHandle.getFile();
+          displayPath = fileForPath?.path || fileForPath?.webkitRelativePath || fileForPath?.name || fileHandle?.name || null;
+        } catch (error) {
+          gfLog('[UniverseBackend] Unable to derive display path from file handle:', error);
+          displayPath = fileHandle?.name || null;
+        }
       }
     }
 
     if (!displayPath) {
-      displayPath = fileHandle?.name || null;
+      displayPath = fileName || null;
     }
 
-    if (typeof navigator !== 'undefined' && navigator.storage?.persist && !this.persistentStorageRequested) {
+    // Request persistent storage (browser only)
+    if (!isElectron() && typeof navigator !== 'undefined' && navigator.storage?.persist && !this.persistentStorageRequested) {
       try {
         const granted = await navigator.storage.persist();
         gfLog(`[UniverseBackend] Persistent storage ${granted ? 'enabled' : 'already granted'} for file handles`);
@@ -2615,7 +2644,7 @@ class UniverseBackend {
       }
     }
 
-    // Store file handle metadata in IndexedDB for persistence
+    // Store file handle metadata for persistence
     try {
       await storeFileHandleMetadata(slug, fileHandle, {
         universeSlug: slug,
@@ -2623,7 +2652,7 @@ class UniverseBackend {
         fileName,
         displayPath
       });
-      gfLog(`[UniverseBackend] Stored file handle metadata for ${slug}`);
+      gfLog(`[UniverseBackend] Stored file handle metadata for ${slug}${isElectron() ? ' (Electron)' : ''}`);
     } catch (error) {
       gfWarn(`[UniverseBackend] Failed to store file handle metadata:`, error);
     }
@@ -2637,10 +2666,10 @@ class UniverseBackend {
         localFile: {
           ...universe.localFile,
           enabled: true,
-          path: this.sanitizeFileName(fileName || universe.localFile.path || slug),
+          path: isElectron() ? displayPath : this.sanitizeFileName(fileName || universe.localFile.path || slug),
           displayPath: displayPath || universe.localFile.displayPath || fileName || universe.localFile.path,
           hadFileHandle: true,
-          lastFilePath: fileName || universe.localFile.path,
+          lastFilePath: isElectron() ? displayPath : (fileName || universe.localFile.path),
           fileHandleStatus: 'connected',
           unavailableReason: null
         },
@@ -2671,18 +2700,23 @@ class UniverseBackend {
       const universe = this.getUniverse(slug);
       const suggestedName = metadata?.fileName || universe?.localFile?.lastFilePath || `${slug}.redstring`;
 
-      const [fileHandle] = await window.showOpenFilePicker({
-        types: [{ description: 'Redstring Files', accept: { 'application/json': ['.redstring'] } }],
-        multiple: false
+      // Use the file access adapter (works in both browser and Electron)
+      const fileHandle = await pickFile({
+        suggestedName
       });
 
       await this.setFileHandle(slug, fileHandle);
 
+      // Get filename for display
+      const fileName = isElectron() ? 
+        (typeof fileHandle === 'string' ? fileHandle.split(/[/\\]/).pop() : suggestedName) :
+        fileHandle?.name || suggestedName;
+
       const wasReconnecting = metadata?.fileName && !this.fileHandles.has(slug);
-      this.notifyStatus('success', `${wasReconnecting ? 'Reconnected' : 'Linked'} local file: ${fileHandle.name}`);
+      this.notifyStatus('success', `${wasReconnecting ? 'Reconnected' : 'Linked'} local file: ${fileName}`);
       return fileHandle;
     } catch (error) {
-      if (error.name !== 'AbortError') {
+      if (error.name !== 'AbortError' && !error.message?.includes('cancelled')) {
         this.notifyStatus('error', `Failed to setup file handle: ${error.message}`);
         throw error;
       }
@@ -3418,7 +3452,8 @@ class UniverseBackend {
       throw createLocalFileError(code, message);
     }
 
-    if (ensureResult?.needsPermission) {
+    // Electron doesn't need permission checks - file paths are already granted
+    if (ensureResult?.needsPermission && !isElectron()) {
       const message = ensureResult?.message || 'Grant file access permission to resume saving.';
 
       if (!allowPermissionPrompt) {
@@ -3463,12 +3498,29 @@ class UniverseBackend {
       }
     }
 
-    let file;
+    // Electron: fileHandle is a string path, Browser: fileHandle is a FileHandle object
+    let text;
     try {
-      file = await fileHandle.getFile();
+      if (isElectron()) {
+        // Check if file exists first
+        const exists = await fileExists(fileHandle);
+        if (!exists) {
+          await this.updateLocalFileState(universe, {
+            hadFileHandle: false,
+            fileHandleStatus: 'needs_reconnect',
+            reconnectMessage: 'Local file not found. Reconnect the file to continue.',
+            unavailableReason: 'Local file not found. Reconnect the file to continue.'
+          });
+          throw createLocalFileError(LOCAL_FILE_ERROR.NOT_FOUND, 'Local file not found. Reconnect the file to continue.');
+        }
+      }
+      
+      text = await readFile(fileHandle);
     } catch (error) {
       const name = String(error?.name || '');
-      if (name === 'NotAllowedError' || name === 'SecurityError') {
+      const message = String(error?.message || '');
+      
+      if (name === 'NotAllowedError' || name === 'SecurityError' || message.includes('Permission')) {
         await this.updateLocalFileState(universe, {
           fileHandleStatus: 'permission_needed',
           reconnectMessage: 'Grant file access permission to resume saving.',
@@ -3476,7 +3528,7 @@ class UniverseBackend {
         });
         throw createLocalFileError(LOCAL_FILE_ERROR.PERMISSION, 'Permission denied for local file access.');
       }
-      if (name === 'NotFoundError') {
+      if (name === 'NotFoundError' || message.includes('not found')) {
         await this.updateLocalFileState(universe, {
           hadFileHandle: false,
           fileHandleStatus: 'needs_reconnect',
@@ -3485,13 +3537,6 @@ class UniverseBackend {
         });
         throw createLocalFileError(LOCAL_FILE_ERROR.NOT_FOUND, 'Local file not found. Reconnect the file to continue.');
       }
-      throw error;
-    }
-
-    let text;
-    try {
-      text = await file.text();
-    } catch (error) {
       gfWarn('[UniverseBackend] Failed to read local file contents:', error);
       throw createLocalFileError(LOCAL_FILE_ERROR.MISSING, 'Failed to read the linked local file.');
     }
@@ -3504,6 +3549,7 @@ class UniverseBackend {
       const redstringData = JSON.parse(text);
       const { storeState } = importFromRedstring(redstringData);
       try {
+        // Update file handle metadata after successful load
         await touchFileHandle(slug, fileHandle);
       } catch (touchError) {
         gfWarn('[UniverseBackend] Failed to update file handle metadata after load:', touchError);
@@ -4121,13 +4167,12 @@ class UniverseBackend {
     
     let handle;
     if (mode === 'pick') {
-      const [picked] = await window.showOpenFilePicker({
+      handle = await pickFile({
         types: [{ description: 'Redstring Files', accept: { 'application/json': ['.redstring'] } }],
         multiple: false
       });
-      handle = picked;
     } else {
-      handle = await window.showSaveFilePicker({
+      handle = await pickSaveLocation({
         suggestedName,
         types: [{ description: 'Redstring Files', accept: { 'application/json': ['.redstring'] } }]
       });
@@ -4243,14 +4288,10 @@ class UniverseBackend {
     const redstringData = exportToRedstring(storeState);
     const jsonString = JSON.stringify(redstringData, null, 2);
 
-    const ensurePermission = async () => {
-      const permission = await checkFileHandlePermission(handle);
-      if (permission === 'granted') return;
-      const granted = await requestFileHandlePermission(handle);
-      if (granted !== 'granted') {
-        throw new Error('Permission denied for local file access');
-      }
-    };
+    // Get filename for display/storage
+    const fileName = isElectron() ? 
+      (typeof handle === 'string' ? handle.split(/[/\\]/).pop() : 'unknown') :
+      (handle?.name || 'unknown');
 
     const isPermissionError = (error) => {
       if (!error) return false;
@@ -4262,12 +4303,9 @@ class UniverseBackend {
         message.includes('denied');
     };
 
-    let writable;
     try {
-      await ensurePermission();
-      writable = await handle.createWritable();
-      await writable.write(new Blob([jsonString], { type: 'application/json' }));
-      await writable.close();
+      // Use the unified file access adapter
+      await writeFile(handle, jsonString);
       
       // Update last accessed time in persistence
       try {
@@ -4276,8 +4314,6 @@ class UniverseBackend {
         gfWarn('[UniverseBackend] Failed to touch file handle after save:', error);
       }
     } catch (error) {
-      try { await writable?.close(); } catch (_) {}
-
       if (isPermissionError(error)) {
         gfWarn('[UniverseBackend] Local file permission denied during save, flagging reconnect requirement');
         const universe = this.getUniverse(universeSlug);
@@ -4304,7 +4340,7 @@ class UniverseBackend {
         localFile: {
           ...universe.localFile,
           hadFileHandle: true,
-          lastFilePath: handle.name || universe.localFile.lastFilePath,
+          lastFilePath: isElectron() ? handle : fileName,
           lastSaved: new Date().toISOString(),
           fileHandleStatus: 'connected',
           unavailableReason: null
@@ -4313,11 +4349,11 @@ class UniverseBackend {
     }
 
     if (!suppressNotification) {
-      this.notifyStatus('success', `Saved to ${handle.name}`);
+      this.notifyStatus('success', `Saved to ${fileName}`);
     } else {
       gfLog('[UniverseBackend] Local file save completed without user notification');
     }
-    return { success: true, fileName: handle.name };
+    return { success: true, fileName };
   }
 
   /**

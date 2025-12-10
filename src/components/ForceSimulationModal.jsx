@@ -90,7 +90,7 @@ const ForceSimulationModal = ({
     onLayoutScaleMultiplierChange?.(1);
   };
 
-  const handleCopySettings = () => {
+  const handleCopySettings = async () => {
     // Build settings JSON
     const settings = {
       // Scale settings
@@ -110,7 +110,14 @@ const ForceSimulationModal = ({
     };
     
     const json = JSON.stringify(settings, null, 2);
-    navigator.clipboard.writeText(json).then(() => {
+    
+    try {
+      if (window.electron && window.electron.clipboard) {
+        await window.electron.clipboard.writeText(json);
+      } else {
+        await navigator.clipboard.writeText(json);
+      }
+      
       // Show brief visual feedback
       const btn = document.querySelector('.force-sim-btn[title*="Copy"]');
       if (btn) {
@@ -122,10 +129,34 @@ const ForceSimulationModal = ({
           btn.style.backgroundColor = '';
         }, 1500);
       }
-    }).catch(err => {
+    } catch (err) {
       console.error('Failed to copy settings:', err);
-      alert('Failed to copy to clipboard');
-    });
+      // Fallback for older browsers or strict contexts
+      try {
+        const textArea = document.createElement("textarea");
+        textArea.value = json;
+        document.body.appendChild(textArea);
+        textArea.focus();
+        textArea.select();
+        document.execCommand('copy');
+        document.body.removeChild(textArea);
+        
+        // Success feedback
+        const btn = document.querySelector('.force-sim-btn[title*="Copy"]');
+        if (btn) {
+          const originalHTML = btn.innerHTML;
+          btn.innerHTML = '✓ Copied!';
+          btn.style.backgroundColor = '#2E7D32';
+          setTimeout(() => {
+            btn.innerHTML = originalHTML;
+            btn.style.backgroundColor = '';
+          }, 1500);
+        }
+      } catch (fallbackErr) {
+        console.error('Fallback copy failed:', fallbackErr);
+        alert('Failed to copy to clipboard');
+      }
+    }
   };
 
   const handleIterationPresetChange = (presetKey) => {

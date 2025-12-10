@@ -4,11 +4,75 @@
  * Handles persistent storage of File System Access API handles and metadata.
  * Since FileSystemFileHandle objects cannot be serialized, we store metadata
  * and attempt to restore access using the permission system.
+ * 
+ * In Electron: file handles are string paths stored in a local JSON file.
+ * In Browser: file handles are FileSystemFileHandle objects stored in IndexedDB.
  */
+
+import { isElectron, fileExists } from '../utils/fileAccessAdapter.js';
 
 const DB_NAME = 'RedstringFileHandles';
 const DB_VERSION = 2;
 const STORE_NAME = 'fileHandles';
+const ELECTRON_STORE_NAME = 'fileHandles'; // Storage namespace for Electron
+
+// ============================================================
+// Electron Storage Functions (file-based persistence)
+// ============================================================
+
+const electronGetAll = async () => {
+  if (!isElectron()) return {};
+  try {
+    return await window.electron.storage.getAll(ELECTRON_STORE_NAME);
+  } catch (error) {
+    console.error('[FileHandlePersistence] Electron storage read failed:', error);
+    return {};
+  }
+};
+
+const electronGet = async (universeSlug) => {
+  if (!isElectron()) return null;
+  try {
+    return await window.electron.storage.getItem(ELECTRON_STORE_NAME, universeSlug);
+  } catch (error) {
+    console.error('[FileHandlePersistence] Electron storage get failed:', error);
+    return null;
+  }
+};
+
+const electronSet = async (universeSlug, record) => {
+  if (!isElectron()) return false;
+  try {
+    return await window.electron.storage.setItem(ELECTRON_STORE_NAME, universeSlug, record);
+  } catch (error) {
+    console.error('[FileHandlePersistence] Electron storage set failed:', error);
+    return false;
+  }
+};
+
+const electronRemove = async (universeSlug) => {
+  if (!isElectron()) return false;
+  try {
+    return await window.electron.storage.removeItem(ELECTRON_STORE_NAME, universeSlug);
+  } catch (error) {
+    console.error('[FileHandlePersistence] Electron storage remove failed:', error);
+    return false;
+  }
+};
+
+const electronClear = async () => {
+  if (!isElectron()) return false;
+  try {
+    return await window.electron.storage.clear(ELECTRON_STORE_NAME);
+  } catch (error) {
+    console.error('[FileHandlePersistence] Electron storage clear failed:', error);
+    return false;
+  }
+};
+
+// ============================================================
+// IndexedDB Functions (browser persistence)
+// ============================================================
 
 /**
  * Open the IndexedDB database for file handle metadata
@@ -39,16 +103,56 @@ const openDB = () => {
  */
 export const storeFileHandleMetadata = async (universeSlug, fileHandle = null, additionalMetadata = {}) => {
   try {
-    const db = await openDB();
+    // In Electron, fileHandle is a string path; in browser it's a FileHandle object
+    let fileName = null;
+    let resolvedHandle = fileHandle;
+    
+    if (isElectron()) {
+      // Electron: ensure handle is always a string path
+      if (typeof fileHandle === 'string') {
+        resolvedHandle = fileHandle;
+        const parts = fileHandle.split(/[/\\]/);
+        fileName = parts[parts.length - 1];
+      } else if (typeof additionalMetadata.handle === 'string') {
+        resolvedHandle = additionalMetadata.handle;
+        const parts = additionalMetadata.handle.split(/[/\\]/);
+        fileName = parts[parts.length - 1];
+      } else if (typeof additionalMetadata.displayPath === 'string') {
+        resolvedHandle = additionalMetadata.displayPath;
+        const parts = additionalMetadata.displayPath.split(/[/\\]/);
+        fileName = parts[parts.length - 1];
+      } else if (typeof additionalMetadata.path === 'string') {
+        resolvedHandle = additionalMetadata.path;
+        const parts = additionalMetadata.path.split(/[/\\]/);
+        fileName = parts[parts.length - 1];
+      }
+      console.log(`[FileHandlePersistence] Electron: resolved handle for ${universeSlug}:`, resolvedHandle);
+    } else if (fileHandle?.name) {
+      fileName = fileHandle.name;
+    }
+    
+    // Build record, ensuring handle doesn't get overwritten by additionalMetadata spread
+    const { handle: _ignoredHandle, ...safeAdditionalMetadata } = additionalMetadata;
+    
     const record = {
       universeSlug,
-      fileName: fileHandle?.name ?? additionalMetadata.fileName ?? null,
-      kind: fileHandle?.kind ?? additionalMetadata.kind ?? 'file',
-      handle: fileHandle ?? additionalMetadata.handle ?? null,
+      fileName: fileName ?? additionalMetadata.fileName ?? null,
+      kind: isElectron() ? 'file' : (fileHandle?.kind ?? additionalMetadata.kind ?? 'file'),
+      handle: resolvedHandle,
+      isElectron: isElectron(),
       lastAccessed: additionalMetadata.lastAccessed ?? Date.now(),
-      ...additionalMetadata
+      displayPath: isElectron() && typeof resolvedHandle === 'string' ? resolvedHandle : (additionalMetadata.displayPath ?? null),
+      ...safeAdditionalMetadata
     };
     
+    // Use Electron storage or IndexedDB
+    if (isElectron()) {
+      await electronSet(universeSlug, record);
+      console.log(`[FileHandlePersistence] Stored metadata for ${universeSlug}: ${record.fileName || 'unnamed'} (Electron)`);
+      return record;
+    }
+    
+    const db = await openDB();
     return new Promise((resolve, reject) => {
       const transaction = db.transaction([STORE_NAME], 'readwrite');
       const store = transaction.objectStore(STORE_NAME);
@@ -73,6 +177,11 @@ export const storeFileHandleMetadata = async (universeSlug, fileHandle = null, a
  */
 export const getFileHandleMetadata = async (universeSlug) => {
   try {
+    // Use Electron storage or IndexedDB
+    if (isElectron()) {
+      return await electronGet(universeSlug);
+    }
+    
     const db = await openDB();
     
     return new Promise((resolve, reject) => {
@@ -96,6 +205,12 @@ export const getFileHandleMetadata = async (universeSlug) => {
  */
 export const getAllFileHandleMetadata = async () => {
   try {
+    // Use Electron storage or IndexedDB
+    if (isElectron()) {
+      const data = await electronGetAll();
+      return Object.values(data || {});
+    }
+    
     const db = await openDB();
     
     return new Promise((resolve, reject) => {
@@ -119,6 +234,13 @@ export const getAllFileHandleMetadata = async () => {
  */
 export const removeFileHandleMetadata = async (universeSlug) => {
   try {
+    // Use Electron storage or IndexedDB
+    if (isElectron()) {
+      await electronRemove(universeSlug);
+      console.log(`[FileHandlePersistence] Removed metadata for ${universeSlug} (Electron)`);
+      return;
+    }
+    
     const db = await openDB();
     
     return new Promise((resolve, reject) => {
@@ -146,6 +268,12 @@ export const removeFileHandleMetadata = async (universeSlug) => {
  * @returns {Promise<'granted'|'denied'|'prompt'>} Permission state
  */
 export const checkFileHandlePermission = async (fileHandle) => {
+  // Electron: file paths don't need permission checks
+  if (isElectron() && typeof fileHandle === 'string') {
+    const exists = await fileExists(fileHandle);
+    return exists ? 'granted' : 'denied';
+  }
+  
   if (!fileHandle || typeof fileHandle.queryPermission !== 'function') {
     return 'denied';
   }
@@ -166,6 +294,12 @@ export const checkFileHandlePermission = async (fileHandle) => {
  * @returns {Promise<'granted'|'denied'>} Permission state after request
  */
 export const requestFileHandlePermission = async (fileHandle) => {
+  // Electron: file paths don't need permission requests
+  if (isElectron() && typeof fileHandle === 'string') {
+    const exists = await fileExists(fileHandle);
+    return exists ? 'granted' : 'denied';
+  }
+  
   if (!fileHandle || typeof fileHandle.requestPermission !== 'function') {
     return 'denied';
   }
@@ -186,6 +320,26 @@ export const requestFileHandlePermission = async (fileHandle) => {
  * @returns {Promise<boolean>} True if handle is valid and accessible
  */
 export const verifyFileHandleAccess = async (fileHandle) => {
+  // Electron: verify file path exists
+  if (isElectron() && typeof fileHandle === 'string') {
+    try {
+      const exists = await fileExists(fileHandle);
+      return {
+        isValid: exists,
+        permission: exists ? 'granted' : 'denied',
+        needsPermissionPrompt: false,
+        reason: exists ? null : 'file_missing'
+      };
+    } catch (error) {
+      return {
+        isValid: false,
+        permission: 'denied',
+        needsPermissionPrompt: false,
+        reason: 'file_missing'
+      };
+    }
+  }
+  
   if (!fileHandle || typeof fileHandle.queryPermission !== 'function') {
     return {
       isValid: false,
@@ -299,16 +453,36 @@ export const attemptRestoreFileHandle = async (universeSlug, sessionHandle = nul
       };
     }
     
-    if (metadata.handle) {
-      const access = await verifyFileHandleAccess(metadata.handle);
+    // Extract the handle - in Electron it should be a string path
+    let handle = metadata.handle;
+    
+    // Electron: ensure we have a valid string path
+    if (isElectron()) {
+      if (typeof handle !== 'string') {
+        // Try to recover path from displayPath or other fields
+        handle = metadata.displayPath || metadata.path || metadata.lastFilePath;
+        console.log(`[FileHandlePersistence] Electron: recovered handle from metadata:`, handle);
+      }
+      if (typeof handle !== 'string') {
+        console.warn(`[FileHandlePersistence] Electron: no valid path found in metadata for ${universeSlug}`, metadata);
+        return {
+          success: false,
+          metadata,
+          needsReconnect: true,
+          message: 'File path not found in saved metadata. Please reconnect the file.'
+        };
+      }
+    }
+    
+    if (handle) {
+      const access = await verifyFileHandleAccess(handle);
       if (access?.isValid) {
-        await storeFileHandleMetadata(universeSlug, metadata.handle, {
-          ...metadata,
+        await storeFileHandleMetadata(universeSlug, handle, {
           lastAccessed: Date.now()
         });
         return {
           success: true,
-          handle: metadata.handle,
+          handle: handle,
           metadata: { ...metadata, permission: access.permission },
           needsReconnect: false,
           needsPermission: !!access.needsPermissionPrompt,
@@ -384,6 +558,13 @@ export const touchFileHandle = async (universeSlug, fileHandle = null) => {
  */
 export const clearAllFileHandleMetadata = async () => {
   try {
+    // Use Electron storage or IndexedDB
+    if (isElectron()) {
+      await electronClear();
+      console.log('[FileHandlePersistence] Cleared all file handle metadata (Electron)');
+      return;
+    }
+    
     const db = await openDB();
     
     return new Promise((resolve, reject) => {
@@ -405,6 +586,30 @@ export const clearAllFileHandleMetadata = async () => {
   }
 };
 
+/**
+ * Debug: Log all stored file handles (useful for troubleshooting)
+ */
+export const debugFileHandles = async () => {
+  const all = await getAllFileHandleMetadata();
+  console.log('[FileHandlePersistence] All stored file handles:');
+  all.forEach(item => {
+    console.log(`  ${item.universeSlug}:`, {
+      handle: item.handle,
+      handleType: typeof item.handle,
+      displayPath: item.displayPath,
+      fileName: item.fileName,
+      isElectron: item.isElectron
+    });
+  });
+  return all;
+};
+
+// Expose debug function globally for console access
+if (typeof window !== 'undefined') {
+  window.debugFileHandles = debugFileHandles;
+  window.clearFileHandles = clearAllFileHandleMetadata;
+}
+
 export default {
   storeFileHandleMetadata,
   getFileHandleMetadata,
@@ -415,5 +620,6 @@ export default {
   verifyFileHandleAccess,
   attemptRestoreFileHandle,
   touchFileHandle,
-  clearAllFileHandleMetadata
+  clearAllFileHandleMetadata,
+  debugFileHandles
 };

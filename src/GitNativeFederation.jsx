@@ -23,6 +23,7 @@ import {
 } from 'lucide-react';
 
 import gitFederationService, { STORAGE_TYPES } from './services/gitFederationService.js';
+import { isElectron, pickFile, pickSaveLocation, readFile, writeFile } from './utils/fileAccessAdapter.js';
 import { HEADER_HEIGHT } from './constants.js';
 import useGraphStore from './store/graphStore.jsx';
 
@@ -2661,7 +2662,7 @@ const GitNativeFederation = ({ variant = 'panel', onRequestClose }) => {
   };
 
   const applyIncomingLocalFile = async (payload) => {
-    const { slug, fileHandle, file, storeState, metrics, displayPath } = payload;
+    const { slug, fileHandle, fileName, storeState, metrics, displayPath } = payload;
 
     try {
       setLoading(true);
@@ -2673,10 +2674,10 @@ const GitNativeFederation = ({ variant = 'panel', onRequestClose }) => {
 
       await universeBackend.setFileHandle(slug, fileHandle, {
         displayPath,
-        fileName: file.name,
+        fileName,
         suppressNotification: true
       });
-      await universeBackend.linkLocalFileToUniverse(slug, file.name, { displayPath });
+      await universeBackend.linkLocalFileToUniverse(slug, fileName, { displayPath });
 
       try {
         await gitFederationService.forceSave(slug, { skipGit: true });
@@ -2793,43 +2794,44 @@ const GitNativeFederation = ({ variant = 'panel', onRequestClose }) => {
     try {
       setLoading(true);
 
-      const [fileHandle] = await window.showOpenFilePicker({
-        types: [{ description: 'Redstring / JSON Files', accept: { 'application/json': ['.redstring', '.json'] } }],
-        multiple: false,
-        excludeAcceptAllOption: false
-      });
+      // Use the file access adapter (works in both browser and Electron)
+      const fileHandle = await pickFile();
+      
+      // Get file name for display
+      let fileName;
+      if (isElectron() && typeof fileHandle === 'string') {
+        fileName = fileHandle.split(/[/\\]/).pop();
+      } else {
+        fileName = fileHandle?.name || 'unknown';
+      }
+      
+      gfLog('[GitNativeFederation] File handle obtained:', fileName);
 
-      gfLog('[GitNativeFederation] File handle obtained:', fileHandle.name);
+      // In Electron, we don't need permission checks
+      if (!isElectron()) {
+        let permissionStatus = 'granted';
+        if (typeof fileHandle.queryPermission === 'function') {
+          permissionStatus = await fileHandle.queryPermission({ mode: 'read' });
+          gfLog('[GitNativeFederation] File permission status:', permissionStatus);
 
-      let permissionStatus = 'granted';
-      if (typeof fileHandle.queryPermission === 'function') {
-        permissionStatus = await fileHandle.queryPermission({ mode: 'read' });
-        gfLog('[GitNativeFederation] File permission status:', permissionStatus);
+          if (permissionStatus === 'prompt' && typeof fileHandle.requestPermission === 'function') {
+            const granted = await fileHandle.requestPermission({ mode: 'read' });
+            gfLog('[GitNativeFederation] Permission requested, granted:', granted);
+            permissionStatus = granted;
+          }
+        }
 
-        if (permissionStatus === 'prompt' && typeof fileHandle.requestPermission === 'function') {
-          const granted = await fileHandle.requestPermission({ mode: 'read' });
-          gfLog('[GitNativeFederation] Permission requested, granted:', granted);
-          permissionStatus = granted;
+        if (permissionStatus !== 'granted') {
+          throw new Error('File read permission denied. Please allow file access to continue.');
         }
       }
 
-      if (permissionStatus !== 'granted') {
-        throw new Error('File read permission denied. Please allow file access to continue.');
-      }
-
-      const file = await fileHandle.getFile();
-      gfLog('[GitNativeFederation] File object obtained:', {
-        name: file.name,
-        size: file.size,
-        type: file.type,
-        lastModified: new Date(file.lastModified).toISOString()
-      });
-
-      const fileContent = await file.text();
+      // Read file content using adapter
+      const fileContent = await readFile(fileHandle);
       gfLog('[GitNativeFederation] File content read, length:', fileContent.length);
 
       if (!fileContent || fileContent.trim() === '') {
-        throw new Error(`The selected file "${file.name}" is empty (${file.size} bytes). The file may be corrupted or not saved properly. Please check the file and try again.`);
+        throw new Error(`The selected file "${fileName}" is empty. The file may be corrupted or not saved properly. Please check the file and try again.`);
       }
 
       const formatModule = await import('./formats/redstringFormat.js');
@@ -2883,29 +2885,32 @@ const GitNativeFederation = ({ variant = 'panel', onRequestClose }) => {
         hasNodePrototypes: !!storeState?.nodePrototypes,
         nodeCount: typeof metrics.nodeCount === 'number' ? metrics.nodeCount : 'unknown',
         edgeCount: typeof metrics.edgeCount === 'number' ? metrics.edgeCount : 'unknown',
-        fileName: file.name
+        fileName
       });
 
-      const displayPath = resolveFileDisplayPath(fileHandle, file);
+      // In Electron, displayPath is the full path; in browser, derive from FileHandle
+      const displayPath = isElectron() && typeof fileHandle === 'string' 
+        ? fileHandle 
+        : (typeof fileHandle?.name === 'string' ? fileHandle.name : fileName);
 
       payload = {
         slug,
         fileHandle,
-        file,
+        fileName,
         storeState,
         metrics,
         displayPath,
         importHelpers: { importFromRedstring }
       };
 
-      const fileBaseName = file.name.replace(/\.redstring$/i, '');
+      const fileBaseName = fileName.replace(/\.redstring$/i, '');
       const universe = serviceState.universes.find(u => u.slug === slug);
       const universeNameMismatch = universe && fileBaseName !== slug && fileBaseName !== universe.name;
 
       if (universeNameMismatch) {
         setConfirmDialog({
           title: 'Confirm Link',
-          message: `Link "${file.name}" to universe "${universe?.name}"?`,
+          message: `Link "${fileName}" to universe "${universe?.name}"?`,
           details: `This will replace the current data in "${universe?.name}".`,
           variant: 'warning',
           confirmLabel: 'Link & Replace Data',
@@ -2952,30 +2957,27 @@ const GitNativeFederation = ({ variant = 'panel', onRequestClose }) => {
       const redstringData = exportToRedstring(storeState);
       const jsonString = JSON.stringify(redstringData, null, 2);
       
-      // Prompt user to save file
+      // Prompt user to save file using adapter (works in both browser and Electron)
       const suggestedName = `${universe.name || slug}.redstring`;
-      const fileHandle = await window.showSaveFilePicker({
-        suggestedName,
-        types: [{
-          description: 'Redstring Universe Files',
-          accept: { 'application/json': ['.redstring', '.json'] }
-        }],
-        excludeAcceptAllOption: false
-      });
+      const fileHandle = await pickSaveLocation({ suggestedName });
       
-      // Write data to file
-      const writable = await fileHandle.createWritable();
-      await writable.write(jsonString);
-      await writable.close();
+      // Get filename for display
+      const fileName = isElectron() && typeof fileHandle === 'string'
+        ? fileHandle.split(/[/\\]/).pop()
+        : (fileHandle?.name || suggestedName);
+      
+      // Write data to file using adapter
+      await writeFile(fileHandle, jsonString);
       
       // Store the file handle and link to universe
+      const displayPath = isElectron() && typeof fileHandle === 'string' ? fileHandle : fileName;
       await universeBackend.setFileHandle(slug, fileHandle, {
-        displayPath: fileHandle.name,
-        fileName: fileHandle.name,
+        displayPath,
+        fileName,
         suppressNotification: true
       });
 
-      setSyncStatus({ type: 'success', message: `Created and linked ${fileHandle.name}` });
+      setSyncStatus({ type: 'success', message: `Created and linked ${fileName}` });
       await refreshState();
     } catch (err) {
       if (err.name !== 'AbortError') {

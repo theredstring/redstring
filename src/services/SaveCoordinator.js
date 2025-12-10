@@ -279,9 +279,7 @@ class SaveCoordinator {
       // Update save hash after successful save
       if (this.pendingHash) {
         this.lastSaveHash = this.pendingHash;
-        // Don't clear pendingHash yet if we want to ensure next check is valid against this save?
-        // Actually, if we saved, this hash is now the "last saved hash".
-        // pendingHash can be cleared or kept as sync reference.
+        this.pendingHash = null; // Clear pending hash as it is now saved
       }
       
       // Clear dirty flag
@@ -407,7 +405,7 @@ class SaveCoordinator {
 
   // Check if there are unsaved changes (for immediate UI feedback)
   hasUnsavedChanges() {
-    return this.isDirty || this.pendingHash !== null || this.dragPendingHash !== null;
+    return this.isDirty || (this.pendingHash !== null);
   }
 
   setGitSyncEngine(gitSyncEngine) {

@@ -140,9 +140,12 @@ const UnifiedSelector = ({
   const containerMaxWidth = isMobilePortrait
     ? Math.min(mobileState.width - 16, overlayWidth)
     : Math.min(overlayWidth, Math.max(600, Math.floor(bounds.windowWidth * 0.9)));
+  
+  // UPDATED: Increased dialog width and limits
   const dialogWidth = isSmallScreen
     ? containerMaxWidth
-    : Math.min(containerMaxWidth * 0.55, Math.max(420, Math.floor(bounds.windowWidth * 0.4)));
+    : Math.min(containerMaxWidth * 0.75, Math.max(500, Math.floor(bounds.windowWidth * 0.5)));
+    
   const gridOuterWidth = containerMaxWidth;
   const gridInnerPadding = isMobilePortrait ? 10 : (isSmallScreen ? 12 : 16);
 
@@ -172,6 +175,7 @@ const UnifiedSelector = ({
           position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.3)',
           backdropFilter: 'blur(2px)', WebkitBackdropFilter: 'blur(2px)', zIndex: 1000
         }}
+        onPointerDown={(e) => e.stopPropagation()} // Stop propagation on backdrop too to prevent canvas panning
         onClick={(e) => {
           if (e.target === e.currentTarget) {
             setName('');
@@ -197,6 +201,7 @@ const UnifiedSelector = ({
       >
         {showDialog && (
           <div
+            onPointerDown={(e) => e.stopPropagation()} // Isolate from canvas
             style={{
               alignSelf: 'center',
               width: `${dialogWidth}px`,
@@ -221,7 +226,7 @@ const UnifiedSelector = ({
                 padding: isMobilePortrait ? '4px' : '0',
                 touchAction: 'manipulation'
               }}
-              onPointerDown={(e) => { if (e.pointerType !== 'mouse') { e.stopPropagation(); } }}
+              onPointerDown={(e) => e.stopPropagation()}
             >
               <X size={closeIconSize} color="#999" onClick={() => { setName(''); setColorPickerVisible(false); onClose?.(); }} />
             </div>
@@ -245,6 +250,7 @@ const UnifiedSelector = ({
                     touchAction: 'manipulation',
                     padding: isMobilePortrait ? '4px' : '0'
                   }}
+                  onPointerDown={(e) => e.stopPropagation()}
                   onMouseDown={(e) => e.stopPropagation()}
                   onClick={(e) => handleColorPickerToggle(e.currentTarget, e)}
                   title="Change color"
@@ -260,6 +266,7 @@ const UnifiedSelector = ({
                 }}
                 style={{
                   flex: 1,
+                  minWidth: 0, // Enable shrinking
                   padding: inputPadding,
                   borderRadius: '6px',
                   border: '1px solid #260000',
@@ -275,6 +282,7 @@ const UnifiedSelector = ({
               {!searchOnly && (
                 <button
                   onClick={handleSubmit}
+                  onPointerDown={(e) => e.stopPropagation()}
                   style={{
                     padding: inputPadding,
                     backgroundColor: color,
@@ -304,6 +312,7 @@ const UnifiedSelector = ({
           >
             {/* Outer rounded rectangle */}
             <div
+              onPointerDown={(e) => e.stopPropagation()} // Isolate from canvas
               style={{
                 width: isSmallScreen ? '100%' : `${gridOuterWidth}px`,
                 maxWidth: `${gridOuterWidth}px`,
@@ -396,7 +405,11 @@ const UnifiedSelector = ({
                             e.currentTarget.style.boxShadow = 'none';
                           }
                         }}
-                        onClick={() => onNodeSelect?.(prototype)}
+                        onPointerDown={(e) => e.stopPropagation()}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onNodeSelect?.(prototype);
+                        }}
                       >
                         {/* Thumbnail background if available */}
                         {prototype.thumbnailSrc && (
