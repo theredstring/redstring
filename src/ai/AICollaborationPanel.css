@@ -400,6 +400,43 @@
   color: #260000;
   font-style: italic;
   font-weight: 600;
+  display: inline-flex;
+  align-items: baseline;
+}
+
+/* Animated ellipses for processing states */
+.ai-ellipses {
+  display: inline-flex;
+  margin-left: 2px;
+}
+
+.ai-ellipses span {
+  opacity: 0;
+  animation: ellipsis-fade 1.4s infinite;
+}
+
+.ai-ellipses span:nth-child(1) {
+  animation-delay: 0s;
+}
+
+.ai-ellipses span:nth-child(2) {
+  animation-delay: 0.2s;
+}
+
+.ai-ellipses span:nth-child(3) {
+  animation-delay: 0.4s;
+}
+
+@keyframes ellipsis-fade {
+  0%, 20% {
+    opacity: 0;
+  }
+  40% {
+    opacity: 1;
+  }
+  60%, 100% {
+    opacity: 0;
+  }
 }
 
 /* Input Container */

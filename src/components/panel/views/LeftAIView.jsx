@@ -803,7 +803,14 @@ const LeftAIView = ({ compact = false, activeGraphId, graphsMap }) => {
                 <div className="ai-message-content">
                   <div className="ai-message-text">
                     <div className="ai-typing-spinner" aria-label="AI is thinking" />
-                    <div className="ai-processing-status">{isAutonomousMode ? 'Agent thinking and using tools...' : 'Thinking...'}</div>
+                    <div className="ai-processing-status">
+                      {isAutonomousMode ? 'Agent thinking and using tools' : 'Thinking'}
+                      <span className="ai-ellipses">
+                        <span>.</span>
+                        <span>.</span>
+                        <span>.</span>
+                      </span>
+                    </div>
                   </div>
                 </div>
               </div>
