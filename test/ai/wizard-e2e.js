@@ -60,6 +60,15 @@ async function checkBridgeHealth() {
 
 // Test helper to make API calls
 async function callAgent(message, context = {}) {
+  // Always fetch latest bridge state to ensure context is up to date
+  let latestState = {};
+  try {
+    const stateRes = await fetch(`${BRIDGE_URL}/api/bridge/state`);
+    latestState = await stateRes.json();
+  } catch (e) {
+    log('yellow', `  ⚠️ Could not fetch latest state for context: ${e.message}`);
+  }
+
   const response = await fetch(`${BRIDGE_URL}/api/ai/agent`, {
     method: 'POST',
     headers: {
@@ -69,8 +78,10 @@ async function callAgent(message, context = {}) {
     body: JSON.stringify({
       message,
       context: {
-        activeGraphId: context.activeGraphId || null,
+        activeGraphId: context.activeGraphId || latestState.activeGraphId || null,
         activeGraph: context.activeGraph || null,
+        graphs: latestState.graphs || context.graphs || [], // Prefer bridge state
+        nodePrototypes: latestState.nodePrototypes || context.nodePrototypes || [], // Prefer bridge state
         conversationHistory: context.conversationHistory || [],
         apiConfig: context.apiConfig || (MODEL ? { model: MODEL, provider: 'openrouter' } : null),
         isTest: true // Mark as test to prevent chat broadcast
@@ -149,6 +160,32 @@ async function waitForNoNewPendingActions(initialCount, timeout = 5000) {
   return false;
 }
 
+// Helper to check if response contains failure indicators
+function assertSemanticSuccess(response, testName) {
+  const text = (response.response || '').toLowerCase();
+  const failureIndicators = [
+    'could not find',
+    'couldn\'t find',
+    'error',
+    'not found',
+    'failed',
+    'invalid',
+    'missing'
+  ];
+  
+  const foundFailure = failureIndicators.find(indicator => text.includes(indicator));
+  
+  if (foundFailure) {
+    log('red', `  ✗ ${testName} - AI reported failure: "${response.response}"`);
+    testsFailed++;
+    return false;
+  }
+  
+  log('green', `  ✓ ${testName} - AI reported success`);
+  testsPassed++;
+  return true;
+}
+
 // Test result tracking
 let testsPassed = 0;
 let testsFailed = 0;
@@ -195,12 +232,63 @@ function assertToolCall(toolCalls, toolName, testName) {
 }
 
 // Test suite
+// Helper to wait for a goal to be completed
+async function waitForGoal(goalId, timeout = 15000) {
+  if (!goalId) return true;
+  const start = Date.now();
+  log('blue', `  ⌛ Waiting for goal ${goalId}...`);
+  
+  while (Date.now() - start < timeout) {
+    // Priority check: debug traces (most accurate)
+    try {
+      const traceRes = await fetch(`${BRIDGE_URL}/api/bridge/debug/traces`);
+      const traceData = await traceRes.json();
+      const traces = traceData.traces || [];
+      const myTrace = traces.find(t => t.cid === goalId || t.id === goalId);
+      
+      if (myTrace) {
+        if (myTrace.status === 'success' || myTrace.status === 'completed') {
+          // Extra wait for Local Committer to finish
+          await new Promise(resolve => setTimeout(resolve, 500));
+          return true;
+        }
+        if (myTrace.status === 'error') {
+          log('red', `  ❌ Goal failed: ${myTrace.error || 'Unknown error'}`);
+          return false;
+        }
+      }
+    } catch (e) {
+      // Trace API might not be supported yet or failing
+    }
+
+    // Fallback: check pending actions
+    const pending = await getPendingActions();
+    if (pending.pendingActions?.length === 0) {
+      // If no pending actions AND some time has passed, assume we missed the window
+      if (Date.now() - start > 2000) {
+        await new Promise(resolve => setTimeout(resolve, 500));
+        return true;
+      }
+    }
+    
+    await new Promise(resolve => setTimeout(resolve, 1000));
+  }
+  log('yellow', `  ⚠️ Timeout waiting for goal ${goalId}`);
+  return false;
+}
+
 async function runTests() {
   log('cyan', '\n🧪 Starting Wizard E2E Tests...\n');
 
   // Check bridge health
   log('blue', '📡 Checking bridge connection...');
-  const bridgeHealthy = await checkBridgeHealth();
+  let bridgeHealthy = false;
+  for (let i = 0; i < 10; i++) {
+    bridgeHealthy = await checkBridgeHealth();
+    if (bridgeHealthy) break;
+    await new Promise(resolve => setTimeout(resolve, 1000));
+  }
+  
   if (!bridgeHealthy) {
     log('red', '❌ Bridge server not running. Start it with: npm run bridge');
     process.exit(1);
@@ -276,7 +364,9 @@ async function runTests() {
         'connect Earth to Sun with an Orbits relationship',
         {
           activeGraphId: testGraphId,
-          activeGraph: { name: 'Solar System', nodeCount: 2, edgeCount: 1, nodes: ['Sun', 'Earth'] }
+          activeGraph: { name: 'Solar System', nodeCount: 2, edgeCount: 1, nodes: ['Sun', 'Earth'] },
+          graphs: testState.graphs,
+          nodePrototypes: testState.nodePrototypes
         }
       );
       
@@ -291,7 +381,16 @@ async function runTests() {
         const hasEdgeCall = toolCalls.some(tc => 
           tc.name === 'create_edge' || tc.name === 'create_populated_graph'
         );
+        
+        // Semantic validation
+        const semanticOk = assertSemanticSuccess(createResponse, 'Create edge semantic check');
+        
         assertTruthy(hasEdgeCall || createResponse.goalId, 'Returns edge-related tool call or goal');
+        
+        if (createResponse.goalId) {
+          log('blue', `  ⌛ Waiting for goal ${createResponse.goalId}...`);
+          await waitForGoal(createResponse.goalId);
+        }
       }
     } catch (error) {
       log('red', `  ❌ Test 1 failed: ${error.message}`);
@@ -313,7 +412,9 @@ async function runTests() {
         'change the connection between Earth and Sun to be a Gravitational Orbit',
         {
           activeGraphId: testGraphId,
-          activeGraph: { name: 'Solar System', nodeCount: 2, edgeCount: 1, nodes: ['Sun', 'Earth'] }
+          activeGraph: { name: 'Solar System', nodeCount: 2, edgeCount: 1, nodes: ['Sun', 'Earth'] },
+          graphs: testState.graphs,
+          nodePrototypes: testState.nodePrototypes
         }
       );
       
@@ -323,6 +424,7 @@ async function runTests() {
         log('red', `  Error: ${updateResponse.error}`);
         testsFailed++;
       } else {
+        assertSemanticSuccess(updateResponse, 'Update edge semantic check');
         assertTruthy(updateResponse.response, 'Returns a response');
       }
     } catch (error) {
@@ -345,7 +447,9 @@ async function runTests() {
         'remove the connection between Earth and Sun',
         {
           activeGraphId: testGraphId,
-          activeGraph: { name: 'Solar System', nodeCount: 2, edgeCount: 1, nodes: ['Sun', 'Earth'] }
+          activeGraph: { name: 'Solar System', nodeCount: 2, edgeCount: 1, nodes: ['Sun', 'Earth'] },
+          graphs: testState.graphs,
+          nodePrototypes: testState.nodePrototypes
         }
       );
       
@@ -355,6 +459,7 @@ async function runTests() {
         log('red', `  Error: ${deleteResponse.error}`);
         testsFailed++;
       } else {
+        assertSemanticSuccess(deleteResponse, 'Delete edge semantic check');
         assertTruthy(deleteResponse.response, 'Returns a response');
       }
     } catch (error) {
@@ -377,7 +482,9 @@ async function runTests() {
         'please delete this graph',
         {
           activeGraphId: testGraphId,
-          activeGraph: { name: 'Solar System', nodeCount: 2, edgeCount: 0, nodes: ['Sun', 'Earth'] }
+          activeGraph: { name: 'Solar System', nodeCount: 2, edgeCount: 0, nodes: ['Sun', 'Earth'] },
+          graphs: testState.graphs,
+          nodePrototypes: testState.nodePrototypes
         }
       );
       
@@ -393,8 +500,14 @@ async function runTests() {
           log('red', '  ✗ AI asked for graph ID instead of using context');
           testsFailed++;
         } else {
+          assertSemanticSuccess(deleteGraphResponse, 'Delete graph semantic check');
           assertTruthy(deleteGraphResponse.goalId || deleteGraphResponse.toolCalls?.length > 0, 
             'Returns goal or tool calls without asking for ID');
+          
+          if (deleteGraphResponse.goalId) {
+            log('blue', `  ⌛ Waiting for goal ${deleteGraphResponse.goalId}...`);
+            await waitForGoal(deleteGraphResponse.goalId);
+          }
         }
       }
     } catch (error) {
@@ -443,7 +556,9 @@ async function runTests() {
         'enrich Computer with its components',
         {
           activeGraphId: enrichTestGraphId,
-          activeGraph: { name: 'Computer System', nodeCount: 1, edgeCount: 0, nodes: ['Computer'] }
+          activeGraph: { name: 'Computer System', nodeCount: 1, edgeCount: 0, nodes: ['Computer'] },
+          graphs: enrichTestState.graphs,
+          nodePrototypes: enrichTestState.nodePrototypes
         }
       );
       
@@ -458,7 +573,14 @@ async function runTests() {
         const hasEnrichCall = toolCalls.some(tc => 
           tc.name === 'enrich_node' || tc.name === 'create_and_assign_graph_definition'
         );
+        
+        assertSemanticSuccess(enrichResponse, 'Enrich node semantic check');
         assertTruthy(hasEnrichCall || enrichResponse.goalId, 'Returns enrich_node tool call or goal');
+        
+        if (enrichResponse.goalId) {
+          log('blue', `  ⌛ Waiting for goal ${enrichResponse.goalId}...`);
+          await waitForGoal(enrichResponse.goalId);
+        }
         testsPassed++;
       }
     } catch (error) {
@@ -516,13 +638,18 @@ async function runTests() {
         try {
           const response = await callAgent(testMessage, {
             activeGraphId: testGraphId,
-            activeGraph: { name: 'Solar System', nodeCount: 2, edgeCount: 1, nodes: ['Sun', 'Earth'] }
+            activeGraph: { name: 'Solar System', nodeCount: 2, edgeCount: 1, nodes: ['Sun', 'Earth'] },
+            graphs: testState.graphs,
+            nodePrototypes: testState.nodePrototypes
           });
 
           if (response.error) {
             log('yellow', `    ⚠ ${tool.name}: ${response.error}`);
           } else {
             assertTruthy(response.response || response.goalId, `${tool.name} returns response`);
+            if (response.goalId) {
+              await waitForGoal(response.goalId);
+            }
           }
         } catch (error) {
           log('red', `    ✗ ${tool.name} failed: ${error.message}`);

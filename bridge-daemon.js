@@ -619,50 +619,73 @@ app.get('/api/bridge/health', (_req, res) => {
 
 app.post('/api/bridge/state', (req, res) => {
   try {
-    bridgeStoreData = { ...req.body, source: 'redstring-ui' };
+    const incoming = req.body || {};
+    
+    // SMART MERGE: Preserves graphs from other sources (e.g. tests) if not explicitly overwritten
+    if (incoming.graphs && Array.isArray(incoming.graphs)) {
+      const existingGraphs = Array.isArray(bridgeStoreData.graphs) ? bridgeStoreData.graphs : [];
+      const incomingIds = new Set(incoming.graphs.map(g => g.id));
+      
+      // Keep existing graphs that are "test" graphs and not in the incoming set
+      const testGraphs = existingGraphs.filter(g => 
+        !incomingIds.has(g.id) && 
+        (g.id.includes('test') || g.id.includes('itm-') || g.name?.toLowerCase().includes('test'))
+      );
+      
+      bridgeStoreData.graphs = [...incoming.graphs, ...testGraphs];
+    } else {
+      bridgeStoreData.graphs = incoming.graphs || [];
+    }
+
+    // Merge node prototypes
+    if (incoming.nodePrototypes && Array.isArray(incoming.nodePrototypes)) {
+      const existingProtos = Array.isArray(bridgeStoreData.nodePrototypes) ? bridgeStoreData.nodePrototypes : [];
+      const incomingIds = new Set(incoming.nodePrototypes.map(p => p.id));
+      const testProtos = existingProtos.filter(p => !incomingIds.has(p.id) && p.id.includes('test'));
+      bridgeStoreData.nodePrototypes = [...incoming.nodePrototypes, ...testProtos];
+    } else {
+      bridgeStoreData.nodePrototypes = incoming.nodePrototypes || [];
+    }
+
+    // Update other fields
+    bridgeStoreData.activeGraphId = incoming.activeGraphId || bridgeStoreData.activeGraphId;
+    bridgeStoreData.openGraphIds = incoming.openGraphIds || bridgeStoreData.openGraphIds;
+    bridgeStoreData.graphLayouts = { ...bridgeStoreData.graphLayouts, ...(incoming.graphLayouts || {}) };
+    bridgeStoreData.graphSummaries = { ...bridgeStoreData.graphSummaries, ...(incoming.graphSummaries || {}) };
+    bridgeStoreData.graphEdges = incoming.graphEdges || bridgeStoreData.graphEdges;
+    bridgeStoreData.source = 'redstring-ui';
 
     // CRITICAL: Normalize edge data structure
-    // UI sends "graphEdges" array, but orchestrator expects "edges" object/Map
     if (bridgeStoreData.graphEdges && Array.isArray(bridgeStoreData.graphEdges)) {
-      // Convert array to object keyed by edge ID for O(1) lookup
-      bridgeStoreData.edges = {};
+      bridgeStoreData.edges = bridgeStoreData.edges || {};
       for (const edge of bridgeStoreData.graphEdges) {
         if (edge && edge.id) {
           bridgeStoreData.edges[edge.id] = edge;
         }
       }
-      logger.debug(`[Bridge] Normalized ${bridgeStoreData.graphEdges.length} edges from UI to store.edges object`);
+      logger.debug(`[Bridge] Normalized ${bridgeStoreData.graphEdges.length} edges`);
     }
 
     // CRITICAL: Normalize graph instances structure
-    // Ensure instances are objects (not undefined) for all graphs
     if (Array.isArray(bridgeStoreData.graphs)) {
       bridgeStoreData.graphs.forEach(graph => {
         if (graph && !graph.instances) {
           graph.instances = {};
         } else if (graph && graph.instances && typeof graph.instances === 'object') {
-          // Ensure instances is an object (not Map)
           if (graph.instances instanceof Map) {
             graph.instances = Object.fromEntries(graph.instances.entries());
           }
         }
       });
-      logger.debug(`[Bridge] Normalized ${bridgeStoreData.graphs.length} graphs with instances`);
+      logger.debug(`[Bridge] Normalized ${bridgeStoreData.graphs.length} graphs`);
     }
 
-    // Make store accessible to orchestrator components
     setBridgeStoreRef(bridgeStoreData);
-    // Emit debug telemetry snapshot occasionally for visibility
-    try {
-      const gCount = Array.isArray(bridgeStoreData.graphs) ? bridgeStoreData.graphs.length : 0;
-      const aId = bridgeStoreData.activeGraphId;
-      const aName = bridgeStoreData.activeGraphName || null;
-      const file = bridgeStoreData.fileStatus || null;
-      telemetry.push({ ts: Date.now(), type: 'bridge_state', graphs: gCount, activeGraphId: aId, activeGraphName: aName, fileStatus: file });
-    } catch { }
+    
     if (bridgeStoreData.summary) bridgeStoreData.summary.lastUpdate = Date.now();
     res.json({ success: true });
   } catch (err) {
+    logger.error(`[Bridge] Error updating state: ${err.message}`);
     res.status(500).json({ error: String(err?.message || err) });
   }
 });
@@ -2180,13 +2203,15 @@ app.post('/api/ai/agent', async (req, res) => {
           ? '\n\n📝 RECENT CONVERSATION:\n' + conversationHistory.map(msg => `${msg.role === 'user' ? 'User' : 'You'}: ${msg.content}`).join('\n')
           : '';
 
-        // Extract user's color palette from ALL existing prototypes (comprehensive)
+        // Extract user's color palette from node prototypes
         const extractColorPalette = () => {
           const allColors = [];
+          
+          // Use prototypes from context if available, otherwise from bridge store
+          const protos = body?.context?.nodePrototypes || bridgeStoreData.nodePrototypes;
 
-          // PRIORITY: Get colors from ALL node prototypes (now includes color + description from UI)
-          if (bridgeStoreData.nodePrototypes && Array.isArray(bridgeStoreData.nodePrototypes)) {
-            for (const proto of bridgeStoreData.nodePrototypes) {
+          if (protos && Array.isArray(protos)) {
+            for (const proto of protos) {
               if (proto.color && /^#[0-9A-Fa-f]{6}$/.test(proto.color)) {
                 allColors.push(proto.color);
               }
@@ -3520,14 +3545,17 @@ app.post('/api/ai/agent', async (req, res) => {
     // DELETE GRAPH INTENT
     if (resolvedIntent === 'delete_graph') {
       try {
-        // Resolve graph ID: priority: explicit graphId > targetGraphId > graph name lookup
+    // Resolve graph ID: priority: explicit graphId > targetGraphId > graph name lookup
+        const listFromContext = body?.context?.graphs || [];
+        const listFromStore = Array.isArray(bridgeStoreData.graphs) ? bridgeStoreData.graphs : [];
+        const graphs = listFromContext.length > 0 ? listFromContext : listFromStore;
+
         let graphIdToDelete = planned?.delete?.graphId || targetGraphId;
         
         // If no ID but we have a graph name, look it up
         if (!graphIdToDelete && planned?.delete?.target) {
           const graphName = String(planned.delete.target).trim();
-          const foundGraph = (Array.isArray(bridgeStoreData.graphs) ? bridgeStoreData.graphs : [])
-            .find(g => g.name === graphName || g.name?.toLowerCase() === graphName.toLowerCase());
+          const foundGraph = graphs.find(g => g.name === graphName || g.name?.toLowerCase() === graphName.toLowerCase());
           if (foundGraph) {
             graphIdToDelete = foundGraph.id;
           }
@@ -3539,7 +3567,7 @@ app.post('/api/ai/agent', async (req, res) => {
           return res.json({ success: true, response: text, toolCalls: [], cid });
         }
 
-        const graphToDelete = (Array.isArray(bridgeStoreData.graphs) ? bridgeStoreData.graphs : []).find(g => g.id === graphIdToDelete);
+        const graphToDelete = graphs.find(g => g.id === graphIdToDelete);
         if (!graphToDelete) {
           const text = 'I couldn\'t find that graph to delete.';
           appendChat('ai', text, { cid, channel: 'agent' });
@@ -3586,15 +3614,25 @@ app.post('/api/ai/agent', async (req, res) => {
 
     // --- Natural language command heuristics (non-create goals) ---
     const findPrototypeIdByName = (name) => {
-      const list = Array.isArray(bridgeStoreData.nodePrototypes) ? bridgeStoreData.nodePrototypes : [];
+      const listFromContext = body?.context?.nodePrototypes || [];
+      const listFromStore = Array.isArray(bridgeStoreData.nodePrototypes) ? bridgeStoreData.nodePrototypes : [];
+      const list = listFromContext.length > 0 ? listFromContext : listFromStore;
+      
       const m = list.find(p => String(p?.name || '').toLowerCase() === String(name || '').toLowerCase());
       return m ? m.id : null;
     };
     const findInstanceIdInActiveGraph = (prototypeId, graphId) => {
-      const g = (Array.isArray(bridgeStoreData.graphs) ? bridgeStoreData.graphs : []).find(x => x.id === graphId);
+      const listFromContext = body?.context?.graphs || [];
+      const listFromStore = Array.isArray(bridgeStoreData.graphs) ? bridgeStoreData.graphs : [];
+      const graphs = listFromContext.length > 0 ? listFromContext : listFromStore;
+      
+      const g = graphs.find(x => x.id === graphId);
       if (!g || !g.instances) return null;
-      for (const [iid, inst] of Object.entries(g.instances)) {
-        if (inst.prototypeId === prototypeId) return iid;
+      
+      // Support both object and array formats for instances
+      const instances = Array.isArray(g.instances) ? g.instances : Object.values(g.instances);
+      for (const inst of instances) {
+        if (inst.prototypeId === prototypeId) return inst.id;
       }
       return null;
     };
@@ -3618,8 +3656,15 @@ app.post('/api/ai/agent', async (req, res) => {
         const edge = edges[edgeId] || (Array.isArray(bridgeStoreData.graphEdges) 
           ? bridgeStoreData.graphEdges.find(e => e.id === edgeId) 
           : null);
-        if (edge && edge.sourceId === sourceInstanceId && edge.destinationId === targetInstanceId) {
-          return edgeId;
+        
+        if (edge) {
+          if (edge.sourceId === sourceInstanceId && edge.destinationId === targetInstanceId) {
+            return edgeId;
+          }
+          // Also check reverse if it might be bidirectional (loose check for convenience)
+          if (edge.sourceId === targetInstanceId && edge.destinationId === sourceInstanceId) {
+            return edgeId;
+          }
         }
       }
       return null;
@@ -4420,6 +4465,95 @@ let server = startBridgeListener();
 // -----------------------
 // Safety Drainer (when UI/Committer stalls)
 // -----------------------
+// Helper to apply mutations to local bridge store mirror
+function localApplyMutations(ops) {
+  if (!Array.isArray(ops)) return;
+  
+  for (const op of ops) {
+    try {
+      switch (op.type) {
+        case 'createNewGraph':
+          if (op.initialData) {
+            const newGraph = {
+              id: op.initialData.id,
+              name: op.initialData.name,
+              instances: {},
+              edgeIds: [],
+              ...op.initialData
+            };
+            if (Array.isArray(bridgeStoreData.graphs)) {
+              bridgeStoreData.graphs.push(newGraph);
+            } else {
+              bridgeStoreData.graphs = [newGraph];
+            }
+            bridgeStoreData.activeGraphId = newGraph.id;
+          }
+          break;
+          
+        case 'addNodePrototype':
+          if (op.prototypeData) {
+            if (!Array.isArray(bridgeStoreData.nodePrototypes)) {
+              bridgeStoreData.nodePrototypes = [];
+            }
+            bridgeStoreData.nodePrototypes.push(op.prototypeData);
+          }
+          break;
+          
+        case 'addNodeInstance':
+          if (op.graphId && op.prototypeId) {
+            const graph = (Array.isArray(bridgeStoreData.graphs) ? bridgeStoreData.graphs : []).find(g => g.id === op.graphId);
+            if (graph) {
+              if (!graph.instances) graph.instances = {};
+              graph.instances[op.instanceId] = {
+                id: op.instanceId,
+                prototypeId: op.prototypeId,
+                x: op.position?.x || 0,
+                y: op.position?.y || 0
+              };
+            }
+          }
+          break;
+          
+        case 'addEdge':
+          if (op.graphId && op.edgeData) {
+            const graph = (Array.isArray(bridgeStoreData.graphs) ? bridgeStoreData.graphs : []).find(g => g.id === op.graphId);
+            if (graph) {
+              if (!graph.edgeIds) graph.edgeIds = [];
+              graph.edgeIds.push(op.edgeData.id);
+              
+              if (!bridgeStoreData.edges) bridgeStoreData.edges = {};
+              bridgeStoreData.edges[op.edgeData.id] = op.edgeData;
+              
+              if (!Array.isArray(bridgeStoreData.graphEdges)) bridgeStoreData.graphEdges = [];
+              bridgeStoreData.graphEdges.push({ ...op.edgeData, graphId: op.graphId });
+            }
+          }
+          break;
+          
+        case 'deleteEdge':
+          if (op.graphId && op.edgeId) {
+            const graph = (Array.isArray(bridgeStoreData.graphs) ? bridgeStoreData.graphs : []).find(g => g.id === op.graphId);
+            if (graph) {
+              graph.edgeIds = (graph.edgeIds || []).filter(id => id !== op.edgeId);
+              if (bridgeStoreData.edges) delete bridgeStoreData.edges[op.edgeId];
+              bridgeStoreData.graphEdges = (bridgeStoreData.graphEdges || []).filter(e => e.id !== op.edgeId);
+            }
+          }
+          break;
+          
+        case 'deleteGraph':
+          if (op.graphId) {
+            bridgeStoreData.graphs = (Array.isArray(bridgeStoreData.graphs) ? bridgeStoreData.graphs : []).filter(g => g.id !== op.graphId);
+            if (bridgeStoreData.activeGraphId === op.graphId) bridgeStoreData.activeGraphId = null;
+          }
+          break;
+      }
+    } catch (e) {
+      logger.error(`[Bridge] Error applying local mutation: ${e.message}`);
+    }
+  }
+}
+
 const drainedPatchIds = new Set();
 setInterval(() => {
   try {
@@ -4435,6 +4569,9 @@ setInterval(() => {
         continue;
       }
       if (Array.isArray(patch.ops) && patch.ops.length > 0) {
+        // CRITICAL: Apply mutations to local mirror so next AI call has updated context
+        localApplyMutations(patch.ops);
+        
         pendingActions.push({ id: id('apply'), action: 'applyMutations', params: [patch.ops], timestamp: Date.now() });
         telemetry.push({ ts: Date.now(), type: 'tool_call', name: 'applyMutations', args: { opsCount: patch.ops.length, source: 'safety_drainer' } });
       }
@@ -4442,7 +4579,7 @@ setInterval(() => {
       queueManager.ack('reviewQueue', it.leaseId);
     }
   } catch { }
-}, 1000);
+}, 100);
 
 async function killOnPort(port) {
   return new Promise((resolve) => {
