@@ -31,6 +31,7 @@ import fetch from 'node-fetch';
 
 const BRIDGE_URL = process.env.BRIDGE_URL || 'http://localhost:3001';
 const API_KEY = process.env.API_KEY || '';
+const MODEL = process.env.MODEL || '';
 const DRY_RUN = process.argv.includes('--dry-run');
 
 // Colors for console output
@@ -71,7 +72,7 @@ async function callAgent(message, context = {}) {
         activeGraphId: context.activeGraphId || null,
         activeGraph: context.activeGraph || null,
         conversationHistory: context.conversationHistory || [],
-        apiConfig: context.apiConfig || null,
+        apiConfig: context.apiConfig || (MODEL ? { model: MODEL, provider: 'openrouter' } : null),
         isTest: true // Mark as test to prevent chat broadcast
       }
     })
@@ -214,6 +215,8 @@ async function runTests() {
 
   if (DRY_RUN) {
     log('yellow', '🔍 Running in dry-run mode (no AI calls)\n');
+  } else if (MODEL) {
+    log('cyan', `🤖 Using model: ${MODEL}\n`);
   }
 
   // Setup: Create a test graph with nodes (using generic example data)
@@ -273,7 +276,7 @@ async function runTests() {
         'connect Earth to Sun with an Orbits relationship',
         {
           activeGraphId: testGraphId,
-          activeGraph: { name: 'Solar System', nodeCount: 2, edgeCount: 1 }
+          activeGraph: { name: 'Solar System', nodeCount: 2, edgeCount: 1, nodes: ['Sun', 'Earth'] }
         }
       );
       
@@ -310,7 +313,7 @@ async function runTests() {
         'change the connection between Earth and Sun to be a Gravitational Orbit',
         {
           activeGraphId: testGraphId,
-          activeGraph: { name: 'Solar System', nodeCount: 2, edgeCount: 1 }
+          activeGraph: { name: 'Solar System', nodeCount: 2, edgeCount: 1, nodes: ['Sun', 'Earth'] }
         }
       );
       
@@ -342,7 +345,7 @@ async function runTests() {
         'remove the connection between Earth and Sun',
         {
           activeGraphId: testGraphId,
-          activeGraph: { name: 'Solar System', nodeCount: 2, edgeCount: 1 }
+          activeGraph: { name: 'Solar System', nodeCount: 2, edgeCount: 1, nodes: ['Sun', 'Earth'] }
         }
       );
       
@@ -374,7 +377,7 @@ async function runTests() {
         'please delete this graph',
         {
           activeGraphId: testGraphId,
-          activeGraph: { name: 'Solar System', nodeCount: 2, edgeCount: 0 }
+          activeGraph: { name: 'Solar System', nodeCount: 2, edgeCount: 0, nodes: ['Sun', 'Earth'] }
         }
       );
       
@@ -440,7 +443,7 @@ async function runTests() {
         'enrich Computer with its components',
         {
           activeGraphId: enrichTestGraphId,
-          activeGraph: { name: 'Computer System', nodeCount: 1, edgeCount: 0 }
+          activeGraph: { name: 'Computer System', nodeCount: 1, edgeCount: 0, nodes: ['Computer'] }
         }
       );
       
@@ -513,7 +516,7 @@ async function runTests() {
         try {
           const response = await callAgent(testMessage, {
             activeGraphId: testGraphId,
-            activeGraph: { name: 'Solar System', nodeCount: 2, edgeCount: 1 }
+            activeGraph: { name: 'Solar System', nodeCount: 2, edgeCount: 1, nodes: ['Sun', 'Earth'] }
           });
 
           if (response.error) {

@@ -55,3 +55,4 @@ export const hasOAuthCallback = () => {
   return isElectron() && window.electron?.oauth;
 };
 
+

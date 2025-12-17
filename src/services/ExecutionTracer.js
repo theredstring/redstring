@@ -1,9 +1,9 @@
 /**
  * ExecutionTracer - Centralized trace recording for Wizard pipeline
- * 
+ *
  * Records execution traces across all pipeline stages:
  * Planner → Executor → Auditor → Committer → Continuation
- * 
+ *
  * Enables debugging by providing complete visibility into what
  * happened during each conversation.
  */
@@ -13,9 +13,17 @@ class ExecutionTracer {
         this.traces = new Map(); // cid -> trace object
         this.maxTraces = 100; // Keep last 100 conversations
         this.cleanupInterval = null;
+        this.eventLog = null; // Will be set from bridge-daemon
 
         // Start periodic cleanup
         this.startCleanup();
+    }
+
+    /**
+     * Set event log instance (called from bridge-daemon)
+     */
+    setEventLog(eventLog) {
+        this.eventLog = eventLog;
     }
 
     /**
@@ -76,6 +84,9 @@ class ExecutionTracer {
 
         trace.stages.push(stage);
         console.log(`[ExecutionTracer] Recorded stage ${stageName} for cid=${cid}`);
+
+        // Emit event for UI
+        this.emitStageEvent(cid, stageName, 'start', data);
     }
 
     /**
@@ -106,6 +117,9 @@ class ExecutionTracer {
         }
 
         console.log(`[ExecutionTracer] Completed stage ${stageName} for cid=${cid} (${stage.duration}ms, status=${status})`);
+
+        // Emit event for UI
+        this.emitStageEvent(cid, stageName, status, result);
     }
 
     /**
@@ -241,6 +255,26 @@ class ExecutionTracer {
         if (this.cleanupInterval) {
             clearInterval(this.cleanupInterval);
             this.cleanupInterval = null;
+        }
+    }
+
+    /**
+     * Emit stage event to UI via SSE
+     */
+    emitStageEvent(cid, stageName, status, data = {}) {
+        try {
+            if (!this.eventLog) return;
+
+            this.eventLog.append({
+                type: 'wizard_stage',
+                cid,
+                stage: stageName,
+                status,
+                timestamp: Date.now(),
+                data: status === 'start' ? { toolName: data.toolName } : null
+            });
+        } catch (error) {
+            console.warn(`[ExecutionTracer] Failed to emit stage event:`, error.message);
         }
     }
 

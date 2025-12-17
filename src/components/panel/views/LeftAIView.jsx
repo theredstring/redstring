@@ -24,6 +24,7 @@ const LeftAIView = ({ compact = false, activeGraphId, graphsMap }) => {
   const [currentAgentRequest, setCurrentAgentRequest] = React.useState(null);
   const [showDruidMind, setShowDruidMind] = React.useState(false);
   const [druidInstance, setDruidInstance] = React.useState(null);
+  const [wizardStage, setWizardStage] = React.useState(null); // Track current wizard stage
   const messagesEndRef = React.useRef(null);
   const inputRef = React.useRef(null);
 
@@ -209,6 +210,15 @@ const LeftAIView = ({ compact = false, activeGraphId, graphsMap }) => {
     const handler = (e) => {
       const items = Array.isArray(e.detail) ? e.detail : [];
       items.forEach((t) => {
+        // Handle wizard stage updates
+        if (t.type === 'wizard_stage') {
+          if (t.status === 'start') {
+            setWizardStage({ stage: t.stage, toolName: t.data?.toolName });
+          } else if (t.status === 'success' || t.status === 'error') {
+            setWizardStage(null); // Clear stage when complete
+          }
+          return;
+        }
         if (t.type === 'tool_call') {
           const status = t.status || (t.leased ? 'running' : 'running');
           upsertToolCall({
@@ -804,7 +814,17 @@ const LeftAIView = ({ compact = false, activeGraphId, graphsMap }) => {
                   <div className="ai-message-text">
                     <div className="ai-typing-spinner" aria-label="AI is thinking" />
                     <div className="ai-processing-status">
-                      {isAutonomousMode ? 'Agent thinking and using tools' : 'Thinking'}
+                      {wizardStage ? (
+                        <>
+                          {wizardStage.stage === 'planner' && 'Planning graph structure'}
+                          {wizardStage.stage === 'executor' && (wizardStage.toolName ? `Executing ${wizardStage.toolName}` : 'Executing operations')}
+                          {wizardStage.stage === 'auditor' && 'Validating changes'}
+                          {wizardStage.stage === 'committer' && 'Applying to graph'}
+                          {!['planner', 'executor', 'auditor', 'committer'].includes(wizardStage.stage) && `Processing ${wizardStage.stage}`}
+                        </>
+                      ) : (
+                        isAutonomousMode ? 'Agent thinking and using tools' : 'Thinking'
+                      )}
                       <span className="ai-ellipses">
                         <span>.</span>
                         <span>.</span>

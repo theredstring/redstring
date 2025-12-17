@@ -18,6 +18,9 @@ import executionTracer from './src/services/ExecutionTracer.js';
 // Lazily import the scheduler to avoid pulling UI store modules at startup
 let scheduler = null;
 
+// Connect executionTracer to eventLog for SSE broadcasting
+executionTracer.setEventLog(eventLog);
+
 // Environment-based logging control
 const isProduction = process.env.NODE_ENV === 'production';
 const LOG_LEVEL = process.env.LOG_LEVEL || (isProduction ? 'warn' : 'debug');
