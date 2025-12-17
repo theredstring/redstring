@@ -4,15 +4,33 @@ This guide covers how to test and debug The Wizard, Redstring's AI agent.
 
 ## Quick Start
 
-### 1. Start the Bridge Daemon
+### Option A: Self-Starting E2E Test (Recommended for AI Testing)
 
-The bridge daemon handles AI requests and state synchronization:
+The easiest way to test The Wizard is using the self-starting E2E runner:
 
 ```bash
+API_KEY=your-openrouter-key MODEL=openai/gpt-5.1-chat npm run test:wizard:e2e
+```
+
+This automatically:
+- Starts the agent-server
+- Waits for it to be ready
+- Runs all Wizard E2E tests
+- Cleans up and shuts down
+
+### Option B: Manual Setup
+
+### 1. Start the Agent Server
+
+The agent server (formerly bridge-daemon) handles AI requests and state synchronization:
+
+```bash
+npm run agent-server
+# or for compatibility:
 npm run bridge
 ```
 
-This starts the daemon on port 3001. Keep this terminal open.
+This starts the server on port 3001. Keep this terminal open.
 
 ### 2. Start the UI (Optional)
 
@@ -39,6 +57,11 @@ API_KEY=your-openrouter-key npm run test:wizard
 **Auto-discover mode** (tests all wizard tools automatically):
 ```bash
 API_KEY=your-openrouter-key npm run test:wizard:auto
+```
+
+**Self-starting E2E mode** (starts server, runs tests, cleans up - best for CI/AI testing):
+```bash
+API_KEY=your-openrouter-key MODEL=openai/gpt-5.1-chat npm run test:wizard:e2e
 ```
 
 ## What Gets Tested
