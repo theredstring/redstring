@@ -1,6 +1,7 @@
 {
   "appId": "io.redstring.app",
   "productName": "Redstring",
+  "icon": "electron/icon.png",
   "directories": {
     "output": "dist-electron"
   },

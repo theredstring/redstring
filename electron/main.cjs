@@ -2,6 +2,10 @@ const { app, BrowserWindow, ipcMain, shell, dialog, clipboard } = require('elect
 const path = require('path');
 const fs = require('fs').promises;
 const fsSync = require('fs');
+
+// Set app name for proper display in menu bar/dock
+app.setName('Redstring');
+
 // Check for dev mode - either NODE_ENV or if running from source (not packaged)
 const isDev = process.env.NODE_ENV === 'development' || !app.isPackaged;
 
@@ -73,6 +77,7 @@ function createWindow() {
     width: 1280,
     height: 800,
     show: false, // Don't show until ready to prevent flash
+    icon: path.join(__dirname, 'icon.png'), // App icon for dev mode
     webPreferences: {
       nodeIntegration: false,
       contextIsolation: true,
