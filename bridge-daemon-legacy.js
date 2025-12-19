@@ -15,8 +15,12 @@ import http from 'http';
 import https from 'https';
 import apiKeyManager from './src/services/apiKeyManager.js';
 import executionTracer from './src/services/ExecutionTracer.js';
+import { AgentCoordinator } from './src/services/agentRuntime/AgentCoordinator.js';
+import { setPlannerPrompt } from './src/services/agentRuntime/Planner.js';
+
 // Lazily import the scheduler to avoid pulling UI store modules at startup
 let scheduler = null;
+let agentCoordinator = null; // Will be initialized after AGENT_PLANNER_PROMPT is defined
 
 // Connect executionTracer to eventLog for SSE broadcasting
 executionTracer.setEventLog(eventLog);
@@ -608,6 +612,35 @@ TECH CONSTRAINTS:
 - Your job is semantic. After creation you can read back via "analyze" if helpful.
 
 OUTPUT JSON ONLY.`;
+
+// Initialize the modern AgentCoordinator with the planner prompt
+setPlannerPrompt(AGENT_PLANNER_PROMPT);
+
+// Helper to get scheduler lazily
+const ensureSchedulerStarted = async () => {
+  if (!scheduler) {
+    try {
+      const mod = await import('./src/services/Scheduler.js');
+      scheduler = mod.default;
+    } catch (e) {
+      logger.warn('[Bridge] Failed to load scheduler:', e.message);
+    }
+  }
+  if (scheduler && typeof scheduler.start === 'function') {
+    scheduler.start();
+  }
+};
+
+// Create the agent coordinator (used by /api/ai/agent)
+const createAgentCoordinator = () => {
+  return new AgentCoordinator({
+    logger,
+    executionTracer,
+    ensureSchedulerStarted,
+    bridgeStoreData,
+    plannerPrompt: AGENT_PLANNER_PROMPT
+  });
+};
 
 app.get('/health', (_req, res) => {
   res.json({ status: 'ok', source: 'bridge-daemon', timestamp: new Date().toISOString() });
