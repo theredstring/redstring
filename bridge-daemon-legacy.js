@@ -616,21 +616,6 @@ OUTPUT JSON ONLY.`;
 // Initialize the modern AgentCoordinator with the planner prompt
 setPlannerPrompt(AGENT_PLANNER_PROMPT);
 
-// Helper to get scheduler lazily
-const ensureSchedulerStarted = async () => {
-  if (!scheduler) {
-    try {
-      const mod = await import('./src/services/Scheduler.js');
-      scheduler = mod.default;
-    } catch (e) {
-      logger.warn('[Bridge] Failed to load scheduler:', e.message);
-    }
-  }
-  if (scheduler && typeof scheduler.start === 'function') {
-    scheduler.start();
-  }
-};
-
 // Create the agent coordinator (used by /api/ai/agent)
 const createAgentCoordinator = () => {
   return new AgentCoordinator({
