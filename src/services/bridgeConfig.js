@@ -136,6 +136,11 @@ function isLikelyNetworkRefusal(err) {
 }
 
 export function bridgeFetch(path, options) {
+  const now = Date.now();
+  if (__bridgeHealth.cooldownUntil && now < __bridgeHealth.cooldownUntil) {
+    const cooldownRemaining = Math.ceil((__bridgeHealth.cooldownUntil - now) / 1000);
+    return Promise.reject(new Error(`bridge_unavailable_cooldown: ${cooldownRemaining}s remaining`));
+  }
   return fetch(bridgeUrl(path), options)
     .then((res) => {
       // Any response means the listener exists; reset failures
@@ -146,8 +151,8 @@ export function bridgeFetch(path, options) {
     .catch((err) => {
       if (isLikelyNetworkRefusal(err)) {
         __bridgeHealth.consecutiveFailures += 1;
-        // We no longer set a cooldownUntil here to avoid the "bridge_unavailable_cooldown" error.
-        // If it's down, it's down, but we let the user keep trying.
+        // If it's down, set a 1 second cooldown to prevent instant spamming but allow quick retries
+        __bridgeHealth.cooldownUntil = Date.now() + 1000; 
       }
       throw err;
     });

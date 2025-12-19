@@ -55,15 +55,26 @@ export async function* runAgent(userMessage, graphState, config = {}, ensureSche
       let iterationToolCalls = [];
 
       // Stream LLM response for this iteration
+      // Track what we've yielded to prevent duplicates
+      let yieldedChars = 0;
+      
       for await (const chunk of streamLLM(messages, tools, config)) {
         if (chunk.type === 'text') {
-          iterationContent += chunk.content;
-          yield { type: 'response', content: chunk.content };
+          // Only yield new content (dedupe in case of stream issues)
+          const newContent = chunk.content;
+          if (newContent) {
+            iterationContent += newContent;
+            console.log('[AgentLoop] Yielding text chunk:', JSON.stringify(newContent));
+            yield { type: 'response', content: newContent };
+          }
         } else if (chunk.type === 'tool_call') {
           iterationToolCalls.push(chunk);
+          console.log('[AgentLoop] Yielding tool_call:', chunk.name);
           yield chunk;
         }
       }
+      
+      console.log('[AgentLoop] Iteration', iteration, 'complete. Content length:', iterationContent.length);
 
       // Add this iteration's response to history for the next iteration
       if (iterationContent || iterationToolCalls.length > 0) {
@@ -137,14 +148,9 @@ export async function* runAgent(userMessage, graphState, config = {}, ensureSche
       yield { type: 'done', iterations: iteration + 1 };
       return;
     }
-  }      yield { type: 'error', message: error.message };
-      yield { type: 'done', iterations: iteration + 1 };
-      return;
-    }
   }
 
   // Max iterations reached
   yield { type: 'response', content: 'Reached maximum iterations. Task may be incomplete.' };
   yield { type: 'done', iterations: MAX_ITERATIONS };
 }
-

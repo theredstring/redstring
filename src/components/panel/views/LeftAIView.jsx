@@ -581,7 +581,9 @@ const LeftAIView = ({ compact = false, activeGraphId, graphsMap }) => {
       const reader = response.body.getReader();
       const decoder = new TextDecoder();
       let buffer = '';
-      let responseText = '';
+      // Track processed event IDs to prevent duplicates (React StrictMode safety)
+      const processedEvents = new Set();
+      let eventCounter = 0;
 
       try {
         while (true) {
@@ -597,6 +599,11 @@ const LeftAIView = ({ compact = false, activeGraphId, graphsMap }) => {
               const data = line.slice(6);
               try {
                 const event = JSON.parse(data);
+                
+                // Generate unique event ID for deduplication
+                const eventId = `${event.type}-${event.id || eventCounter++}-${event.content?.length || 0}`;
+                if (processedEvents.has(eventId)) continue;
+                processedEvents.add(eventId);
                 
                 // Update streaming message based on event type
                 setMessages(prev => {
@@ -653,9 +660,8 @@ const LeftAIView = ({ compact = false, activeGraphId, graphsMap }) => {
                     }
                     msg.toolCalls = toolCalls;
                   } else if (event.type === 'response') {
-                    // Stream response text
-                    responseText += event.content;
-                    msg.content = responseText;
+                    // Stream response text - accumulate from existing state, not external variable
+                    msg.content = (msg.content || '') + (event.content || '');
                   } else if (event.type === 'error') {
                     msg.content = `Error: ${event.message}`;
                     msg.isStreaming = false;
@@ -947,13 +953,16 @@ const LeftAIView = ({ compact = false, activeGraphId, graphsMap }) => {
                       ))}
                     </div>
                   )}
-                  <div
-                    className="ai-message-text"
-                    style={{ userSelect: 'text', cursor: 'text' }}
-                    dangerouslySetInnerHTML={message.sender === 'system' ? { __html: renderMarkdown(message.content) } : undefined}
-                  >
-                    {message.sender !== 'system' ? message.content : null}
-                  </div>
+                  {/* Only render text box if there's content */}
+                  {message.content && (
+                    <div
+                      className="ai-message-text"
+                      style={{ userSelect: 'text', cursor: 'text' }}
+                      dangerouslySetInnerHTML={message.sender === 'system' ? { __html: renderMarkdown(message.content) } : undefined}
+                    >
+                      {message.sender !== 'system' ? message.content : null}
+                    </div>
+                  )}
                   <div className="ai-message-timestamp">{new Date(message.timestamp).toLocaleTimeString()}</div>
                 </div>
               </div>
