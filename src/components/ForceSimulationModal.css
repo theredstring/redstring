@@ -11,7 +11,7 @@
   max-height: 90vh;
   display: flex;
   flex-direction: column;
-  user-select: none;
+  /* Removed global user-select: none - now applied selectively */
 }
 
 .force-sim-header {
@@ -22,6 +22,7 @@
   background: #7A0000;
   border-bottom: 2px solid #8B0000;
   border-radius: 6px 6px 0 0;
+  user-select: none; /* Prevent text selection during dragging */
 }
 
 .force-sim-header h3 {
@@ -83,6 +84,8 @@
   font-size: 16px;
   color: #4ecdc4;
   font-weight: bold;
+  user-select: text; /* Allow users to select and copy stat values */
+  cursor: text;
 }
 
 .force-sim-info {
@@ -121,6 +124,7 @@
   align-items: center;
   gap: 6px;
   transition: background 0.2s;
+  user-select: none; /* Buttons shouldn't be selectable */
 }
 
 .force-sim-btn:hover {
@@ -172,6 +176,7 @@
 .force-sim-param label {
   font-size: 13px;
   color: #bdb5b5;
+  user-select: none; /* Labels don't need to be selectable */
 }
 
 .force-sim-param input[type="range"] {
@@ -219,6 +224,8 @@
   color: #4ecdc4;
   text-align: right;
   font-weight: bold;
+  user-select: text; /* Allow users to select and copy parameter values */
+  cursor: text;
 }
 
 .force-sim-preset-row {
@@ -264,6 +271,7 @@
   align-items: center;
   gap: 2px;
   transition: background 0.2s, border 0.2s, color 0.2s;
+  user-select: none; /* Preset chips shouldn't be selectable */
 }
 
 .force-sim-chip small {
@@ -278,3 +286,27 @@
   border-color: #ff7070;
 }
 
+/* JSON textarea styles */
+.force-sim-json-container {
+  margin-top: 16px;
+  padding: 12px;
+  background: #1a0000;
+  border: 1px solid #7A0000;
+  border-radius: 4px;
+}
+
+.force-sim-json-textarea {
+  width: 100%;
+  min-height: 200px;
+  max-height: 300px;
+  background: #0d0000;
+  border: 1px solid #7A0000;
+  border-radius: 4px;
+  color: #4ecdc4;
+  font-family: 'Courier New', monospace;
+  font-size: 12px;
+  padding: 8px;
+  resize: vertical;
+  user-select: text;
+  cursor: text;
+}

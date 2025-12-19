@@ -216,9 +216,12 @@ class CommitterService {
         if (mutationOps.length > 0) {
           await emitApplyMutations(mutationOps);
 
-          // If layout operations occurred (nodes added/repositioned), trigger auto-layout
+          // If layout operations occurred (structural changes to graph), trigger auto-layout
           const hasLayoutOps = mutationOps.some(op =>
             op.type === 'addNodeInstance' ||
+            op.type === 'removeNodeInstance' ||
+            op.type === 'addEdge' ||
+            op.type === 'removeEdge' ||
             op.type === 'updateNodeInstance' ||
             (op.type === 'createNewGraph' && op.initialData?.nodes?.length > 0)
           );

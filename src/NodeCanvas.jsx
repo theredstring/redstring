@@ -2222,6 +2222,18 @@ function NodeCanvas() {
       return;
     }
 
+    // Skip auto-layout for very large graphs to prevent UI freeze
+    // Force-directed layout is O(n²) and becomes prohibitively slow
+    if (nodes.length > 50) {
+      console.log(`[AutoLayout] Skipping auto-layout: graph too large (${nodes.length} nodes, threshold is 50)`);
+      return;
+    }
+
+    // Show loading indicator for large graphs
+    if (nodes.length > 20) {
+      console.log(`[AutoLayout] Applying auto-layout to ${nodes.length} nodes...`);
+    }
+
     const layoutNodes = nodes.map(node => {
       const cachedDims = baseDimsById.get(node.id);
       const realDims = cachedDims && cachedDims.currentWidth && cachedDims.currentHeight
@@ -2262,7 +2274,7 @@ function NodeCanvas() {
       layoutScale: layoutScalePreset,
       layoutScaleMultiplier,
       iterationPreset: layoutIterationPreset,
-      useExistingPositions: false
+      useExistingPositions: true  // Preserve manually arranged nodes
     };
 
     try {
@@ -8339,19 +8351,33 @@ function NodeCanvas() {
 
   // Listen for auto-layout trigger events from AI operations (mutations)
   useEffect(() => {
+    let debounceTimer = null;
+
     const handleTriggerAutoLayout = (event) => {
       const { graphId } = event.detail || {};
+
       // Only trigger if this is the active graph
       if (!graphId || graphId === activeGraphId) {
-        // Small delay to ensure mutations are fully applied before layout
-        setTimeout(() => {
+        // Clear existing timer (debounce mechanism)
+        if (debounceTimer) {
+          clearTimeout(debounceTimer);
+        }
+
+        // Debounce for 500ms to batch rapid mutations
+        // This prevents layout thrashing during quick wizard operations
+        debounceTimer = setTimeout(() => {
           applyAutoLayoutToActiveGraph();
-        }, 200);
+          debounceTimer = null;
+        }, 500);
       }
     };
 
     window.addEventListener('rs-trigger-auto-layout', handleTriggerAutoLayout);
+
     return () => {
+      if (debounceTimer) {
+        clearTimeout(debounceTimer);
+      }
       window.removeEventListener('rs-trigger-auto-layout', handleTriggerAutoLayout);
     };
   }, [applyAutoLayoutToActiveGraph, activeGraphId]);

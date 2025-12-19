@@ -1670,6 +1670,7 @@ RESPONSE EXAMPLES (keep it SHORT):
       ]
     };
 
+    // Only add json_object format for OpenRouter (local LLMs may not support it)
     if (provider === 'openrouter') {
       routerPayload.response_format = { type: 'json_object' };
     }
@@ -1686,14 +1687,22 @@ RESPONSE EXAMPLES (keep it SHORT):
     });
 
     try {
+      // Build headers based on provider
+      const headers = { 'Content-Type': 'application/json' };
+      if (provider === 'local' || provider === 'openai') {
+        // Local providers may not need auth
+        if (apiKey && apiKey !== 'local' && apiKey.trim() !== '') {
+          headers['Authorization'] = `Bearer ${apiKey}`;
+        }
+      } else {
+        headers['Authorization'] = `Bearer ${apiKey}`;
+        headers['HTTP-Referer'] = 'https://redstring.io';
+        headers['X-Title'] = 'Redstring';
+      }
+
       const llmResponse = await fetch(endpoint, {
         method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${apiKey}`,
-          'Content-Type': 'application/json',
-          'HTTP-Referer': 'https://redstring.io',
-          'X-Title': 'Redstring'
-        },
+        headers,
         body: JSON.stringify(routerPayload)
       });
 
@@ -1946,8 +1955,16 @@ app.post('/api/ai/chat', async (req, res) => {
 
     if (context?.apiConfig) {
       provider = context.apiConfig.provider || provider;
-      endpoint = context.apiConfig.endpoint || endpoint;
       model = context.apiConfig.model || model;
+      
+      // Set appropriate default endpoint based on provider
+      if (provider === 'local' || provider === 'openai') {
+        endpoint = context.apiConfig.endpoint || 'http://localhost:11434/v1/chat/completions';
+      } else if (provider === 'anthropic') {
+        endpoint = context.apiConfig.endpoint || 'https://api.anthropic.com/v1/messages';
+      } else {
+        endpoint = context.apiConfig.endpoint || endpoint;
+      }
     } else {
       if (apiKey.startsWith('claude-')) {
         provider = 'anthropic';
@@ -1987,14 +2004,22 @@ app.post('/api/ai/chat', async (req, res) => {
         return data?.content?.[0]?.text || '';
       }
 
+      // Build headers based on provider
+      const headers = { 'Content-Type': 'application/json' };
+      if (provider === 'local' || provider === 'openai') {
+        // Local providers may not need auth
+        if (apiKey && apiKey !== 'local' && apiKey.trim() !== '') {
+          headers['Authorization'] = `Bearer ${apiKey}`;
+        }
+      } else {
+        headers['Authorization'] = `Bearer ${apiKey}`;
+        headers['HTTP-Referer'] = 'https://redstring.io';
+        headers['X-Title'] = 'Redstring Knowledge Graph';
+      }
+
       const res = await fetch(endpoint, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${apiKey}`,
-          'HTTP-Referer': 'https://redstring.io',
-          'X-Title': 'Redstring Knowledge Graph'
-        },
+        headers,
         body: JSON.stringify({
           model: targetModel,
           messages: [
@@ -2007,13 +2032,17 @@ app.post('/api/ai/chat', async (req, res) => {
       });
       if (!res.ok) {
         const text = await res.text();
-        throw { status: res.status, body: text };
+        const isLocal = endpoint?.includes('localhost') || endpoint?.includes('127.0.0.1');
+        throw { status: res.status, body: text, isLocal };
       }
       const data = await res.json();
       return data?.choices?.[0]?.message?.content || '';
     };
 
-    for (let attempt = 0; attempt < 2; attempt++) {
+    // For local providers, only try once (no fallback models make sense)
+    const maxAttempts = (provider === 'local' || provider === 'openai') ? 1 : 2;
+    
+    for (let attempt = 0; attempt < maxAttempts; attempt++) {
       const targetModel = attempt === 0 ? currentModel : defaultModelForProvider;
       try {
         aiResponse = await sendLLMRequest(targetModel);
@@ -2022,6 +2051,12 @@ app.post('/api/ai/chat', async (req, res) => {
         }
         break;
       } catch (err) {
+        // Better error message for local LLM failures
+        if (err?.isLocal) {
+          const errorMsg = `Local LLM server error: ${err.body || err.status}. Is the server running?`;
+          appendChat('system', errorMsg, { cid, channel: 'agent' });
+          return res.status(502).json({ error: errorMsg, response: errorMsg });
+        }
         if (attempt === 0 && err?.status === 400 && typeof err?.body === 'string' && err.body.includes('Invalid model')) {
           if (defaultModelForProvider && defaultModelForProvider !== currentModel) {
             appendChat('system', `The configured model "${currentModel}" was rejected. I retried with "${defaultModelForProvider}".`, { cid, channel: 'agent' });

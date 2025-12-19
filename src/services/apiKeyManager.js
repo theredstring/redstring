@@ -253,6 +253,11 @@ class APIKeyManager {
     // Remove whitespace
     const cleanKey = apiKey.trim();
     
+    // 'local' is a special placeholder for local LLM providers that don't require keys
+    if (cleanKey === 'local') {
+      return true;
+    }
+    
     // Just check it's not empty and has reasonable length
     return cleanKey.length >= 5;
   }
@@ -287,6 +292,70 @@ class APIKeyManager {
   }
 
   /**
+   * Get local LLM provider presets
+   * @returns {Array} List of local LLM provider configurations
+   */
+  getLocalProviderPresets() {
+    return [
+      {
+        id: 'ollama',
+        name: 'Ollama',
+        provider: 'local',
+        endpoint: 'http://localhost:11434/v1/chat/completions',
+        defaultPort: 11434,
+        requiresApiKey: false,
+        commonModels: ['llama2', 'llama3', 'mistral', 'codellama', 'phi', 'gemma'],
+        setupInstructions: 'Run "ollama serve" in terminal, then "ollama pull <model>"',
+        docsUrl: 'https://ollama.com'
+      },
+      {
+        id: 'lm-studio',
+        name: 'LM Studio',
+        provider: 'local',
+        endpoint: 'http://localhost:1234/v1/chat/completions',
+        defaultPort: 1234,
+        requiresApiKey: false,
+        commonModels: [], // User downloads models via LM Studio UI
+        setupInstructions: 'Start LM Studio, load a model, and enable the local server',
+        docsUrl: 'https://lmstudio.ai'
+      },
+      {
+        id: 'localai',
+        name: 'LocalAI',
+        provider: 'local',
+        endpoint: 'http://localhost:8080/v1/chat/completions',
+        defaultPort: 8080,
+        requiresApiKey: false,
+        commonModels: ['gpt-3.5-turbo', 'gpt-4'],
+        setupInstructions: 'Start LocalAI server with docker or binary',
+        docsUrl: 'https://localai.io'
+      },
+      {
+        id: 'vllm',
+        name: 'vLLM',
+        provider: 'local',
+        endpoint: 'http://localhost:8000/v1/chat/completions',
+        defaultPort: 8000,
+        requiresApiKey: false,
+        commonModels: [],
+        setupInstructions: 'Run vLLM server: python -m vllm.entrypoints.openai.api_server',
+        docsUrl: 'https://docs.vllm.ai'
+      },
+      {
+        id: 'custom-local',
+        name: 'Custom OpenAI-Compatible Server',
+        provider: 'local',
+        endpoint: 'http://localhost:8080/v1/chat/completions',
+        defaultPort: 8080,
+        requiresApiKey: false,
+        commonModels: [],
+        setupInstructions: 'Enter your custom OpenAI-compatible endpoint',
+        docsUrl: null
+      }
+    ];
+  }
+
+  /**
    * Get default API endpoint for a provider
    * @param {string} provider - The provider name
    * @returns {string} Default endpoint URL
@@ -296,6 +365,7 @@ class APIKeyManager {
       'anthropic': 'https://api.anthropic.com/v1/messages',
       'openai': 'https://api.openai.com/v1/chat/completions',
       'openrouter': 'https://openrouter.ai/api/v1/chat/completions',
+      'local': 'http://localhost:11434/v1/chat/completions', // Default to Ollama
       'google': 'https://generativelanguage.googleapis.com/v1beta/models',
       'cohere': 'https://api.cohere.ai/v1/chat',
       'custom': ''
@@ -313,6 +383,7 @@ class APIKeyManager {
       'anthropic': 'claude-3-sonnet-20240229',
       'openai': 'gpt-4o',
       'openrouter': 'anthropic/claude-3-sonnet', // Fixed: Use the correct model name
+      'local': 'llama2', // Ollama default
       'google': 'gemini-pro',
       'cohere': 'command-r',
       'custom': ''

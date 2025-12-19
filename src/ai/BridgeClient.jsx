@@ -1,7 +1,7 @@
 import { useEffect, useRef } from 'react';
 import useGraphStore from '../store/graphStore.jsx';
 import { bridgeEventSource, bridgeFetch } from '../services/bridgeConfig.js';
-import { navigateAfterCreation, navigateOnGraphSwitch } from '../services/canvasNavigationService.js';
+import { navigateOnGraphSwitch } from '../services/canvasNavigationService.js';
 
 const MAX_LAYOUT_NODES = 400;
 const MAX_SUMMARY_EDGES = 600;
@@ -913,45 +913,27 @@ const BridgeClient = () => {
                 const g = a ? s.graphs.get(a) : null;
                 console.log('MCPBridge: applyMutations summary', { activeGraphId: a, activeInstanceCount: g?.instances?.size, totalGraphs: s.graphs.size });
 
-                // Apply auto-layout whenever nodes are created
-                const addedInstances = results.filter(r => r.type === 'addNodeInstance' && r.ok);
-                if (addedInstances.length > 0 && a) {
-                  console.log(`MCPBridge: Triggering auto-layout for ${addedInstances.length} new node${addedInstances.length !== 1 ? 's' : ''}`);
-                  try {
-                    // Import and apply layout service
-                    const { applyLayout } = await import('../services/graphLayoutService.js');
-                    const graphToLayout = s.graphs.get(a);
-                    if (graphToLayout) {
-                      const instances = Array.from(graphToLayout.instances?.values() || []);
-                      const edges = (graphToLayout.edgeIds || []).map(eid => {
-                        const edge = s.edges.get(eid);
-                        return edge ? { sourceId: edge.sourceId, destinationId: edge.destinationId } : null;
-                      }).filter(Boolean);
+                // Detect structural changes that warrant auto-layout
+                const structuralChanges = results.filter(r =>
+                  r.ok && (
+                    r.type === 'addNodeInstance' ||
+                    r.type === 'removeNodeInstance' ||
+                    r.type === 'addEdge' ||
+                    r.type === 'removeEdge'
+                  )
+                );
 
-                      // Determine layout algorithm based on structure
-                      const layoutAlgorithm = 'force'; // Default, could be inferred from edge patterns
-                      const positions = applyLayout(instances, edges, layoutAlgorithm, {});
+                if (structuralChanges.length > 0 && a && typeof window !== 'undefined') {
+                  console.log(`MCPBridge: Triggering auto-layout for ${structuralChanges.length} structural change${structuralChanges.length !== 1 ? 's' : ''}`);
 
-                      // Apply positions
-                      positions.forEach(pos => {
-                        s.updateNodeInstance(a, pos.instanceId, (inst) => {
-                          inst.x = pos.x;
-                          inst.y = pos.y;
-                        });
-                      });
-                      console.log(`MCPBridge: Auto-layout applied to ${positions.length} nodes`);
+                  // Dispatch event to trigger auto-layout (same as manual command)
+                  // This uses the debounced handler in NodeCanvas which batches rapid mutations
+                  window.dispatchEvent(new CustomEvent('rs-trigger-auto-layout', {
+                    detail: { graphId: a }
+                  }));
 
-                      // Navigate to show the new content courteously
-                      const newNodeIds = addedInstances.map(r => r.id).filter(Boolean);
-                      navigateAfterCreation({
-                        nodeIds: newNodeIds,
-                        graphId: a,
-                        action: 'applyMutations'
-                      });
-                    }
-                  } catch (layoutErr) {
-                    console.warn('MCPBridge: Auto-layout failed:', layoutErr);
-                  }
+                  // Note: Layout completion will trigger view navigation via rs-auto-layout-complete event
+                  // No need to manually navigate here
                 }
               } catch { }
               console.groupEnd();

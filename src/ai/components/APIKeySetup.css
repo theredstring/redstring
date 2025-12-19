@@ -427,3 +427,190 @@
 .edit-key-button:hover:not(:disabled) {
   background: #8B0000;
 }
+
+/* Local LLM Providers Section */
+.local-providers-section {
+  margin-top: 16px;
+  padding: 16px;
+  background: rgba(38, 0, 0, 0.03);
+  border: 1px solid #260000;
+  border-radius: 0;
+}
+
+.section-description {
+  color: #260000;
+  font-size: 13px;
+  line-height: 1.5;
+  margin-bottom: 16px;
+  font-family: 'EmOne', sans-serif;
+}
+
+.preset-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.preset-button {
+  background: #bdb5b5;
+  border: 2px solid #260000;
+  border-radius: 0;
+  padding: 12px;
+  cursor: pointer;
+  transition: all 0.2s;
+  font-family: 'EmOne', sans-serif;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+
+.preset-button:hover:not(:disabled) {
+  background: #8B0000;
+  color: #EFE8E5;
+  border-color: #8B0000;
+}
+
+.preset-button.selected {
+  background: #260000;
+  color: #bdb5b5;
+  border-color: #260000;
+}
+
+.preset-button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.preset-name {
+  font-weight: 600;
+  font-size: 14px;
+  color: inherit;
+}
+
+.preset-port {
+  font-size: 12px;
+  color: inherit;
+  opacity: 0.8;
+}
+
+.preset-instructions {
+  padding: 12px;
+  background: rgba(38, 0, 0, 0.05);
+  border-left: 3px solid #260000;
+  margin-bottom: 16px;
+  font-size: 13px;
+  color: #260000;
+  font-family: 'EmOne', sans-serif;
+  line-height: 1.5;
+}
+
+.preset-instructions strong {
+  color: #260000;
+}
+
+.preset-docs-link {
+  display: inline-block;
+  margin-left: 8px;
+  color: #260000;
+  text-decoration: none;
+  font-weight: 500;
+}
+
+.preset-docs-link:hover {
+  text-decoration: underline;
+  color: #8B0000;
+}
+
+.local-config-fields {
+  margin-top: 16px;
+}
+
+.model-suggestions {
+  margin-top: 8px;
+  padding: 8px;
+  background: rgba(38, 0, 0, 0.05);
+  border-left: 3px solid #260000;
+  font-size: 12px;
+  color: #260000;
+  font-family: 'EmOne', sans-serif;
+}
+
+.field-help {
+  display: block;
+  margin-top: 6px;
+  font-size: 12px;
+  color: #6b7280;
+  font-family: 'EmOne', sans-serif;
+}
+
+.connection-test-section {
+  margin-top: 16px;
+  padding-top: 16px;
+  border-top: 1px solid #260000;
+}
+
+.test-connection-button {
+  background: #260000;
+  color: #bdb5b5;
+  border: none;
+  padding: 10px 20px;
+  border-radius: 0;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s;
+  font-family: 'EmOne', sans-serif;
+}
+
+.test-connection-button:hover:not(:disabled) {
+  background: #8B0000;
+  color: #EFE8E5;
+}
+
+.test-connection-button:disabled {
+  background: #9ca3af;
+  cursor: not-allowed;
+}
+
+.connection-test-result {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 12px;
+  padding: 10px;
+  border-radius: 0;
+  font-size: 13px;
+  font-family: 'EmOne', sans-serif;
+}
+
+.connection-test-result.success {
+  background: #f0fdf4;
+  color: #059669;
+  border: 1px solid #bbf7d0;
+}
+
+.connection-test-result.error {
+  background: #fef2f2;
+  color: #dc2626;
+  border: 1px solid #fecaca;
+}
+
+.endpoint-input {
+  width: 100%;
+  padding: 12px;
+  border: 1px solid #260000;
+  border-radius: 0;
+  font-size: 14px;
+  font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+  background: #bdb5b5;
+  color: #260000;
+  transition: border-color 0.2s;
+}
+
+.endpoint-input:focus {
+  outline: none;
+  border-color: #F00000;
+  box-shadow: 0 0 0 2px rgba(240, 0, 0, 0.1);
+}

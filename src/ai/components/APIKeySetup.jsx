@@ -19,6 +19,10 @@ const APIKeySetup = ({ onKeySet, onClose, inline = false }) => {
   const [recentModels, setRecentModels] = useState([]);
   const [isEditingExisting, setIsEditingExisting] = useState(false);
   const [allowKeyEdit, setAllowKeyEdit] = useState(true);
+  const [localPresets] = useState(() => apiKeyManager.getLocalProviderPresets());
+  const [selectedPreset, setSelectedPreset] = useState(null);
+  const [connectionTestResult, setConnectionTestResult] = useState(null);
+  const [isTestingConnection, setIsTestingConnection] = useState(false);
 
   const providers = apiKeyManager.getCommonProviders();
 
@@ -66,6 +70,8 @@ const APIKeySetup = ({ onKeySet, onClose, inline = false }) => {
 
   const handleProviderChange = (newProvider) => {
     setProvider(newProvider);
+    setSelectedPreset(null);
+    setConnectionTestResult(null);
     // Auto-set defaults for known providers
     if (newProvider !== 'custom') {
       setEndpoint(apiKeyManager.getDefaultEndpoint(newProvider));
@@ -73,6 +79,76 @@ const APIKeySetup = ({ onKeySet, onClose, inline = false }) => {
     } else {
       setEndpoint('');
       setModel('');
+    }
+  };
+
+  const handlePresetSelect = (preset) => {
+    setSelectedPreset(preset);
+    setProvider('local');
+    setEndpoint(preset.endpoint);
+    setModel(preset.commonModels[0] || '');
+    if (!preset.requiresApiKey) {
+      setApiKey('local'); // Placeholder value
+    }
+    setConnectionTestResult(null);
+  };
+
+  const testLocalConnection = async () => {
+    if (!endpoint) {
+      setConnectionTestResult({ success: false, message: 'Please enter an endpoint URL first' });
+      return;
+    }
+
+    setIsTestingConnection(true);
+    setConnectionTestResult(null);
+    setError('');
+    setSuccess('');
+
+    try {
+      // Test connection by calling /v1/models endpoint
+      const modelsEndpoint = endpoint.replace('/v1/chat/completions', '/v1/models');
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 5000); // 5 second timeout
+
+      const response = await fetch(modelsEndpoint, {
+        method: 'GET',
+        signal: controller.signal
+      });
+
+      clearTimeout(timeoutId);
+
+      if (response.ok) {
+        const data = await response.json();
+        const models = data.data?.map(m => m.id) || [];
+        setConnectionTestResult({
+          success: true,
+          message: `Connection successful! Found ${models.length} model(s)${models.length > 0 ? ': ' + models.slice(0, 3).join(', ') + (models.length > 3 ? '...' : '') : ''}`,
+          models
+        });
+        setSuccess('Local LLM server connection verified!');
+      } else {
+        setConnectionTestResult({
+          success: false,
+          message: `Server responded with status ${response.status}`
+        });
+        setError(`Connection test failed: Server returned ${response.status}`);
+      }
+    } catch (error) {
+      if (error.name === 'AbortError') {
+        setConnectionTestResult({
+          success: false,
+          message: 'Connection timeout - is the server running?'
+        });
+        setError('Connection timeout. Make sure your local LLM server is running.');
+      } else {
+        setConnectionTestResult({
+          success: false,
+          message: `Cannot connect: ${error.message}`
+        });
+        setError(`Connection failed: ${error.message}`);
+      }
+    } finally {
+      setIsTestingConnection(false);
     }
   };
 
@@ -84,7 +160,8 @@ const APIKeySetup = ({ onKeySet, onClose, inline = false }) => {
 
     try {
       let keyToStore = apiKey.trim();
-      if (!keyToStore) {
+      // Local providers may not require API keys
+      if (!keyToStore && provider !== 'local') {
         if (isEditingExisting && !allowKeyEdit) {
           keyToStore = await apiKeyManager.getAPIKey();
           if (!keyToStore) {
@@ -93,8 +170,13 @@ const APIKeySetup = ({ onKeySet, onClose, inline = false }) => {
         } else {
         throw new Error('API key cannot be empty');
         }
-      } else if (!apiKeyManager.validateAPIKey(keyToStore)) {
+      } else if (keyToStore && !apiKeyManager.validateAPIKey(keyToStore)) {
         throw new Error('Invalid API key');
+      }
+      
+      // For local providers without API key, use placeholder
+      if (provider === 'local' && !keyToStore) {
+        keyToStore = 'local';
       }
 
       // For custom providers, use the custom name
@@ -363,6 +445,7 @@ const APIKeySetup = ({ onKeySet, onClose, inline = false }) => {
                     {p.name}
                   </option>
                 ))}
+                <option value="local">💻 Local LLM Server</option>
               </select>
               
               {provider === 'custom' && (
@@ -379,10 +462,101 @@ const APIKeySetup = ({ onKeySet, onClose, inline = false }) => {
                   />
                 </div>
               )}
+
+              {provider === 'local' && (
+                <div className="local-providers-section">
+                  <p className="section-description">
+                    Run models on your own machine for privacy, offline use, and zero API costs.
+                  </p>
+                  <div className="preset-grid">
+                    {localPresets.map(preset => (
+                      <button
+                        key={preset.id}
+                        type="button"
+                        className={`preset-button ${selectedPreset?.id === preset.id ? 'selected' : ''}`}
+                        onClick={() => handlePresetSelect(preset)}
+                        disabled={isLoading}
+                      >
+                        <div className="preset-name">{preset.name}</div>
+                        <div className="preset-port">:{preset.defaultPort}</div>
+                      </button>
+                    ))}
+                  </div>
+                  
+                  {selectedPreset && (
+                    <div className="preset-instructions">
+                      <strong>Setup:</strong> {selectedPreset.setupInstructions}
+                      {selectedPreset.docsUrl && (
+                        <a href={selectedPreset.docsUrl} target="_blank" rel="noopener noreferrer" className="preset-docs-link">
+                          Documentation →
+                        </a>
+                      )}
+                    </div>
+                  )}
+
+                  <div className="local-config-fields">
+                    <div className="form-group">
+                      <label htmlFor="localEndpoint">Endpoint URL</label>
+                      <input
+                        id="localEndpoint"
+                        type="text"
+                        value={endpoint}
+                        onChange={(e) => setEndpoint(e.target.value)}
+                        placeholder="http://localhost:11434/v1/chat/completions"
+                        disabled={isLoading}
+                        className="key-input"
+                      />
+                      <small className="field-help">
+                        OpenAI-compatible endpoint URL (e.g., http://localhost:11434/v1/chat/completions)
+                      </small>
+                    </div>
+                    
+                    <div className="form-group">
+                      <label htmlFor="localModel">Model Name</label>
+                      <input
+                        id="localModel"
+                        type="text"
+                        value={model}
+                        onChange={(e) => setModel(e.target.value)}
+                        placeholder="llama2"
+                        disabled={isLoading}
+                        className="key-input"
+                      />
+                      {selectedPreset?.commonModels.length > 0 && (
+                        <div className="model-suggestions">
+                          Common models: {selectedPreset.commonModels.join(', ')}
+                        </div>
+                      )}
+                      <small className="field-help">
+                        Model name as recognized by your local LLM server
+                      </small>
+                    </div>
+                    
+                    <div className="connection-test-section">
+                      <button
+                        type="button"
+                        onClick={testLocalConnection}
+                        disabled={isTestingConnection || !endpoint}
+                        className="test-connection-button"
+                      >
+                        {isTestingConnection ? 'Testing...' : 'Test Connection'}
+                      </button>
+                      {connectionTestResult && (
+                        <div className={`connection-test-result ${connectionTestResult.success ? 'success' : 'error'}`}>
+                          {connectionTestResult.success ? <CheckCircle size={16} /> : <AlertCircle size={16} />}
+                          <span>{connectionTestResult.message}</span>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              )}
               
-              <div className="provider-info">
-                <p>Enter your API key below. The system will store it securely in your browser.</p>
-              </div>
+              {provider !== 'local' && (
+                <div className="provider-info">
+                  <p>Enter your API key below. The system will store it securely in your browser.</p>
+                </div>
+              )}
             </div>
 
             {/* Model Selection - Always show for OpenRouter */}
@@ -473,6 +647,7 @@ const APIKeySetup = ({ onKeySet, onClose, inline = false }) => {
               </div>
             )}
 
+            {provider !== 'local' && (
             <div className="form-group">
               <label htmlFor="apiKey">API Key</label>
               {(!isEditingExisting || allowKeyEdit) ? (
@@ -512,6 +687,35 @@ const APIKeySetup = ({ onKeySet, onClose, inline = false }) => {
                 </div>
               )}
             </div>
+            )}
+
+            {provider === 'local' && (
+              <div className="form-group">
+                <label htmlFor="apiKey">API Key (Optional)</label>
+                <div className="key-input-container">
+                  <input
+                    id="apiKey"
+                    type={showKey ? 'text' : 'password'}
+                    value={apiKey}
+                    onChange={(e) => setApiKey(e.target.value)}
+                    placeholder="Leave empty if not required by your server"
+                    disabled={isLoading}
+                    className="key-input"
+                  />
+                  <button
+                    type="button"
+                    className="toggle-visibility"
+                    onClick={() => setShowKey(!showKey)}
+                    disabled={isLoading}
+                  >
+                    {showKey ? <EyeOff size={16} /> : <Eye size={16} />}
+                  </button>
+                </div>
+                <small className="field-help">
+                  Most local LLM servers don't require API keys. Only enter one if your server requires authentication.
+                </small>
+              </div>
+            )}
 
             {error && (
               <div className="error-message">
@@ -530,10 +734,10 @@ const APIKeySetup = ({ onKeySet, onClose, inline = false }) => {
             <div className="form-actions">
               <button
                 type="submit"
-                disabled={isLoading || (!apiKey.trim() && !(isEditingExisting && !allowKeyEdit))}
+                disabled={isLoading || ((provider !== 'local') && !apiKey.trim() && !(isEditingExisting && !allowKeyEdit))}
                 className="submit-button"
               >
-                {isLoading ? 'Storing...' : isEditingExisting ? 'Save Configuration' : 'Store API Key'}
+                {isLoading ? 'Storing...' : isEditingExisting ? 'Save Configuration' : provider === 'local' ? 'Save Configuration' : 'Store API Key'}
               </button>
             </div>
           </form>

@@ -1,13 +1,13 @@
 /**
  * LLM Caller - Reusable function for calling LLM APIs
- * Supports OpenRouter and Anthropic APIs
+ * Supports OpenRouter, Anthropic, and local OpenAI-compatible APIs (Ollama, LM Studio, etc.)
  */
 
 /**
  * Call an LLM with a prompt
  * @param {Object} options
- * @param {string} options.apiKey - API key
- * @param {string} options.provider - 'openrouter' | 'anthropic'
+ * @param {string} options.apiKey - API key (optional for local providers)
+ * @param {string} options.provider - 'openrouter' | 'anthropic' | 'openai' | 'local'
  * @param {string} options.endpoint - API endpoint URL
  * @param {string} options.model - Model identifier
  * @param {string} options.systemPrompt - System prompt
@@ -28,7 +28,8 @@ export async function callLLM({
   maxTokens = 2000,
   temperature = 0.7
 }) {
-  if (!apiKey) {
+  // Local providers may not require API keys
+  if (!apiKey && provider !== 'local' && provider !== 'openai') {
     throw new Error('API key is required');
   }
 
@@ -95,6 +96,45 @@ export async function callLLM({
 
     const data = await response.json();
     return data.content?.[0]?.text || '';
+  } else if (provider === 'openai' || provider === 'local') {
+    // OpenAI-compatible endpoint (works with OpenAI, Ollama, LM Studio, LocalAI, vLLM, etc.)
+    const openaiEndpoint = endpoint || 'http://localhost:11434/v1/chat/completions';
+    const openaiModel = model || 'llama2';
+    
+    const payload = {
+      model: openaiModel,
+      messages: [
+        ...(systemPrompt ? [{ role: 'system', content: systemPrompt }] : []),
+        ...messages,
+        { role: 'user', content: userPrompt }
+      ],
+      max_tokens: maxTokens,
+      temperature
+    };
+
+    // Local LLM servers may not require API keys, but some do
+    const headers = {
+      'Content-Type': 'application/json',
+      ...(apiKey && apiKey !== 'local' && apiKey.trim() !== '' ? { 'Authorization': `Bearer ${apiKey}` } : {})
+    };
+
+    const response = await fetch(openaiEndpoint, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify(payload)
+    });
+    
+    // Enhanced error handling for local connection issues
+    if (!response.ok) {
+      const errorText = await response.text();
+      if (endpoint?.includes('localhost') || endpoint?.includes('127.0.0.1')) {
+        throw new Error(`Local LLM server error: ${errorText}. Is the server running?`);
+      }
+      throw new Error(`OpenAI API error (${response.status}): ${errorText}`);
+    }
+
+    const data = await response.json();
+    return data.choices?.[0]?.message?.content || '';
   } else {
     throw new Error(`Unsupported provider: ${provider}`);
   }

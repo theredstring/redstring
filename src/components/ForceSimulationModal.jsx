@@ -70,6 +70,7 @@ const ForceSimulationModal = ({
 
   // Simulation state
   const [iteration, setIteration] = useState(0);
+  const [showJson, setShowJson] = useState(false);
   const simulationState = useRef({
     velocities: new Map(), // instanceId -> {vx, vy}
     alpha: 1.0,
@@ -108,54 +109,66 @@ const ForceSimulationModal = ({
       alphaDecay: params.alphaDecay,
       velocityDecay: params.velocityDecay
     };
-    
+
     const json = JSON.stringify(settings, null, 2);
-    
+    let copySuccess = false;
+
     try {
-      if (window.electron && window.electron.clipboard) {
+      // Try Electron clipboard first
+      if (window.electron?.clipboard?.writeText) {
         await window.electron.clipboard.writeText(json);
-      } else {
-        await navigator.clipboard.writeText(json);
+        copySuccess = true;
+        console.log('✓ Copied via Electron clipboard');
       }
-      
-      // Show brief visual feedback
-      const btn = document.querySelector('.force-sim-btn[title*="Copy"]');
-      if (btn) {
-        const originalHTML = btn.innerHTML;
-        btn.innerHTML = '✓ Copied!';
-        btn.style.backgroundColor = '#2E7D32';
-        setTimeout(() => {
-          btn.innerHTML = originalHTML;
-          btn.style.backgroundColor = '';
-        }, 1500);
+      // Try standard clipboard API
+      else if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(json);
+        copySuccess = true;
+        console.log('✓ Copied via Navigator clipboard');
       }
     } catch (err) {
-      console.error('Failed to copy settings:', err);
-      // Fallback for older browsers or strict contexts
+      console.error('Primary clipboard methods failed:', err);
+
+      // Fallback: textarea method
       try {
         const textArea = document.createElement("textarea");
         textArea.value = json;
+        textArea.style.position = 'fixed';
+        textArea.style.opacity = '0';
         document.body.appendChild(textArea);
         textArea.focus();
         textArea.select();
-        document.execCommand('copy');
+        copySuccess = document.execCommand('copy');
         document.body.removeChild(textArea);
-        
-        // Success feedback
-        const btn = document.querySelector('.force-sim-btn[title*="Copy"]');
-        if (btn) {
-          const originalHTML = btn.innerHTML;
-          btn.innerHTML = '✓ Copied!';
-          btn.style.backgroundColor = '#2E7D32';
-          setTimeout(() => {
-            btn.innerHTML = originalHTML;
-            btn.style.backgroundColor = '';
-          }, 1500);
+
+        if (copySuccess) {
+          console.log('✓ Copied via fallback method');
         }
       } catch (fallbackErr) {
-        console.error('Fallback copy failed:', fallbackErr);
-        alert('Failed to copy to clipboard');
+        console.error('All clipboard methods failed:', fallbackErr);
       }
+    }
+
+    // Visual feedback
+    const btn = document.querySelector('.force-sim-btn[title*="Copy"]');
+    if (btn) {
+      const originalHTML = btn.innerHTML;
+      if (copySuccess) {
+        btn.innerHTML = '✓ Copied!';
+        btn.style.backgroundColor = '#2E7D32';
+      } else {
+        btn.innerHTML = '✗ Copy Failed';
+        btn.style.backgroundColor = '#B71C1C';
+      }
+      setTimeout(() => {
+        btn.innerHTML = originalHTML;
+        btn.style.backgroundColor = '';
+      }, 1500);
+    }
+
+    // Alert user if failed
+    if (!copySuccess) {
+      alert('Failed to copy to clipboard. Please use the "Show JSON" button and copy manually.');
     }
   };
 
@@ -699,7 +712,35 @@ const ForceSimulationModal = ({
             <button className="force-sim-btn" onClick={handleCopySettings} title="Copy settings JSON to clipboard">
               📋 Copy
             </button>
+            <button className="force-sim-btn" onClick={() => setShowJson(!showJson)}>
+              {showJson ? '🔼 Hide JSON' : '🔽 Show JSON'}
+            </button>
           </div>
+
+          {/* JSON textarea (conditionally rendered) */}
+          {showJson && (
+            <div className="force-sim-json-container">
+              <textarea
+                readOnly
+                value={JSON.stringify({
+                  layoutScale: scalePreset,
+                  layoutScaleMultiplier: scaleMultiplier,
+                  iterationPreset: iterationPreset,
+                  repulsionStrength: params.repulsionStrength,
+                  attractionStrength: params.attractionStrength,
+                  linkDistance: params.linkDistance,
+                  minLinkDistance: params.minLinkDistance,
+                  centerStrength: params.centerStrength,
+                  collisionRadius: params.collisionRadius,
+                  edgeAvoidance: params.edgeAvoidance,
+                  alphaDecay: params.alphaDecay,
+                  velocityDecay: params.velocityDecay
+                }, null, 2)}
+                className="force-sim-json-textarea"
+                onClick={(e) => e.target.select()}
+              />
+            </div>
+          )}
 
           <div className="force-sim-preset-row">
             <div className="force-sim-preset-label">Layout Iterations</div>

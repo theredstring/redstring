@@ -13,7 +13,7 @@ Redstring is a semantic knowledge graph application that allows users to create,
   2. `npm run dev` (Vite UI on :4000) in one shell.
   3. `npm run bridge` (starts `bridge-daemon.js` on :3001, auto-kills stale listeners). Use `npm run bridge -- --kill-only` to stop it.
   4. Verify the daemon with `curl http://localhost:3001/health` and `curl http://localhost:3001/api/bridge/health`.
-  5. In the UI, click the 🔑 icon in the AI panel to store your Anthropic/OpenRouter key locally (never committed).
+  5. In the UI, click the 🔑 icon in the AI panel to store your Anthropic/OpenRouter key locally (never committed), or configure a local LLM server (Ollama, LM Studio, etc.) for privacy and offline use.
 - **Using The Wizard**:
   - Bridge client now mounts automatically via `<BridgeClient />` in `src/App.jsx` and streams graph state + pending actions to the daemon.
   - The left AI panel replays bridge telemetry, reconnects via the refresh icon, and calls `/api/ai/chat` or `/api/ai/agent` with your stored key.
@@ -21,6 +21,7 @@ Redstring is a semantic knowledge graph application that allows users to create,
 - **Troubleshooting**:
   - If the refresh icon reports an unreachable bridge, rerun `npm run bridge` and ensure nothing else is bound to :3001.
   - The bridge expects your API key in the `Authorization` header; the UI handles this once the key is stored locally.
+  - For local LLM servers, ensure the server is running and accessible at the configured endpoint (e.g., `http://localhost:11434` for Ollama).
 - **The Wizard's Magic: LLM + Auto-Layout Pipeline**:
   - **Core Philosophy**: LLM handles semantics (what nodes/edges), auto-layout handles spatial positioning (where to place them).
   - **Flow**: User message → `/api/ai/agent` → LLM produces graphSpec → enqueued with layoutAlgorithm → Executor calls `graphLayoutService.applyLayout()` → positioned ops → Committer → UI.
@@ -252,10 +253,21 @@ localStorage.setItem('debug', 'semanticWebQuery:*');
 - **Cross-Language Support**: Extend search to multiple languages
 - **Real-time Updates**: Live updates from semantic web sources
 
+### Local LLM Integration (2025-01)
+- **New Capability**: Support for local LLM servers (Ollama, LM Studio, LocalAI, vLLM, etc.) via OpenAI-compatible API format.
+- **Implementation**: `src/services/agent/llmCaller.js` supports `provider: 'local'` or `provider: 'openai'` with custom endpoints, `src/services/apiKeyManager.js` includes local provider presets, `src/ai/components/APIKeySetup.jsx` provides UI for local LLM configuration.
+- **Provider Presets**: Ollama (port 11434), LM Studio (port 1234), LocalAI (port 8080), vLLM (port 8000), and custom OpenAI-compatible servers.
+- **Configuration**: Users select "💻 Local LLM Server" from provider dropdown, choose a preset or configure manually, enter endpoint URL and model name, test connection, and save.
+- **Benefits**: Complete data privacy (no data leaves user's machine), offline capability, zero API costs, lower latency, no rate limits.
+- **API Compatibility**: All local providers use OpenAI `/v1/chat/completions` format, making them compatible with existing Wizard agent code.
+- **Documentation**: See `LOCAL_LLM_SETUP.md` for detailed setup instructions for each provider.
+- **Key Files**: `src/services/agent/llmCaller.js` (OpenAI-compatible endpoint support), `src/services/apiKeyManager.js` (local provider presets), `src/ai/components/APIKeySetup.jsx` (local LLM UI), `LOCAL_LLM_SETUP.md` (setup guide).
+
 ## Integration Points
 - **Semantic Discovery Panel**: Primary interface for concept exploration
 - **Node Canvas**: Visual representation of discovered concepts
 - **Knowledge Federation**: Legacy integration maintained for compatibility
 - **External APIs**: Wikidata, DBpedia, Wikipedia endpoints
+- **Local LLM Servers**: Ollama, LM Studio, LocalAI, vLLM, and custom OpenAI-compatible endpoints
 
 This enhanced semantic search system provides significantly better results for queries like "LittleBigPlanet" by leveraging the rich property-based relationships in DBpedia and consolidating results across multiple semantic web sources.

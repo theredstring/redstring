@@ -297,8 +297,16 @@ export async function plan({
 
   if (context.apiConfig) {
     provider = context.apiConfig.provider || provider;
-    endpoint = context.apiConfig.endpoint || endpoint;
     model = context.apiConfig.model || model;
+    
+    // Set appropriate default endpoint based on provider
+    if (provider === 'local' || provider === 'openai') {
+      endpoint = context.apiConfig.endpoint || 'http://localhost:11434/v1/chat/completions';
+    } else if (provider === 'anthropic') {
+      endpoint = context.apiConfig.endpoint || 'https://api.anthropic.com/v1/messages';
+    } else {
+      endpoint = context.apiConfig.endpoint || endpoint;
+    }
   } else if (apiKey.startsWith('claude-') || apiKey.startsWith('sk-ant-')) {
     provider = 'anthropic';
     endpoint = 'https://api.anthropic.com/v1/messages';
@@ -358,14 +366,17 @@ export async function plan({
     baseRouterPayload.response_format = { type: 'json_object' };
   }
 
-  // Model fallbacks
+  // Model fallbacks - local providers don't need fallbacks
   const requestedModel = model;
   const explicitFallbacks = Array.isArray(context.apiConfig?.fallbackModels)
     ? context.apiConfig.fallbackModels.filter(m => typeof m === 'string')
     : [];
-  const defaultFallbacks = provider === 'openrouter'
-    ? ['openai/gpt-4o-mini', 'anthropic/claude-3.5-sonnet']
-    : [];
+  // Skip fallbacks for local providers - they only have the models you've pulled
+  const defaultFallbacks = (provider === 'local' || provider === 'openai')
+    ? []
+    : provider === 'openrouter'
+      ? ['openai/gpt-4o-mini', 'anthropic/claude-3.5-sonnet']
+      : [];
   const candidateModels = [requestedModel, ...explicitFallbacks, ...defaultFallbacks]
     .filter((m, idx, arr) => typeof m === 'string' && arr.indexOf(m) === idx);
 
@@ -375,7 +386,7 @@ export async function plan({
 
   // Try models with retries
   for (const candidate of candidateModels) {
-    const maxAttempts = provider === 'openrouter' ? 2 : 1;
+    const maxAttempts = (provider === 'openrouter') ? 2 : 1;
     for (let attempt = 1; attempt <= maxAttempts; attempt++) {
       try {
         if (provider === 'anthropic') {
@@ -394,7 +405,44 @@ export async function plan({
           err.status = r.status;
           err.body = await r.text();
           throw err;
+        } else if (provider === 'local' || provider === 'openai') {
+          // Local LLM providers (Ollama, LM Studio, etc.) - use OpenAI-compatible format
+          // Don't include json_object response_format as some local models don't support it
+          const localPayload = {
+            model: candidate,
+            max_tokens: PLANNER_MAX_TOKENS,
+            temperature: 0.3,
+            messages: [
+              { role: 'system', content: systemPrompt },
+              { role: 'user', content: userPrompt }
+            ]
+          };
+          
+          // Build headers - only include Authorization if we have a real API key
+          const headers = { 'Content-Type': 'application/json' };
+          if (apiKey && apiKey !== 'local' && apiKey.trim() !== '') {
+            headers['Authorization'] = `Bearer ${apiKey}`;
+          }
+          
+          const r = await fetch(endpoint, {
+            method: 'POST',
+            headers,
+            body: JSON.stringify(localPayload)
+          });
+          if (r.ok) {
+            const data = await r.json();
+            text = data?.choices?.[0]?.message?.content || '';
+            usedModel = candidate;
+            break;
+          }
+          const errPayloadText = await r.text();
+          const isLocalhost = endpoint?.includes('localhost') || endpoint?.includes('127.0.0.1');
+          const err = new Error(isLocalhost ? 'Local LLM server error - is the server running?' : 'OpenAI API error');
+          err.status = r.status;
+          err.body = errPayloadText;
+          throw err;
         } else {
+          // OpenRouter and other providers
           const payload = { ...baseRouterPayload, model: candidate };
           const r = await fetch(endpoint, {
             method: 'POST',

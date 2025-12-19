@@ -35,6 +35,47 @@ This guide explains how AI models can integrate with Redstring's cognitive knowl
 - **Semantic Web**: RDF export capabilities for external AI processing
 - **Federation**: Connection to external knowledge sources
 
+## LLM Provider Support
+
+### Cloud Providers
+
+Redstring supports multiple cloud-based LLM providers:
+
+- **OpenRouter** - Access to 200+ models from various providers
+- **Anthropic** - Claude models (Sonnet, Haiku, Opus)
+- **OpenAI** - GPT models (GPT-4, GPT-3.5)
+- **Google** - Gemini models
+- **Cohere** - Command models
+
+### Local LLM Providers
+
+Redstring also supports local LLM servers for privacy, offline use, and zero API costs:
+
+- **Ollama** - Easy-to-use local LLM runtime (default port: 11434)
+- **LM Studio** - User-friendly desktop app (default port: 1234)
+- **LocalAI** - Self-hosted AI inference server (default port: 8080)
+- **vLLM** - High-performance inference engine (default port: 8000)
+- **Custom OpenAI-Compatible Servers** - Any server implementing OpenAI API format
+
+All local providers use the OpenAI `/v1/chat/completions` API format, making them compatible with Redstring's Wizard agent.
+
+**Configuration:**
+1. Open AI Panel → Click 🔑 icon
+2. Select "💻 Local LLM Server" from provider dropdown
+3. Choose a preset (Ollama, LM Studio, etc.) or configure manually
+4. Enter endpoint URL and model name
+5. Test connection to verify server accessibility
+6. Save configuration
+
+**Benefits of Local LLMs:**
+- ✅ Complete data privacy (no data leaves your machine)
+- ✅ Works offline (no internet required)
+- ✅ Zero API costs
+- ✅ Lower latency (no network overhead)
+- ✅ No rate limits
+
+**See [LOCAL_LLM_SETUP.md](LOCAL_LLM_SETUP.md) for detailed setup instructions.**
+
 ## MCP Tools Available
 ### Orchestration Policy
 

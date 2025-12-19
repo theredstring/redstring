@@ -808,31 +808,13 @@ const LeftAIView = ({ compact = false, activeGraphId, graphsMap }) => {
               </div>
             ))}
             {isProcessing && (
-              <div className="ai-message ai-message-ai" style={{ alignSelf: 'flex-start' }}>
+              <div className="ai-thinking-row">
                 <div className="ai-message-avatar"><Bot size={16} /></div>
-                <div className="ai-message-content">
-                  <div className="ai-message-text">
-                    <div className="ai-typing-spinner" aria-label="AI is thinking" />
-                    <div className="ai-processing-status">
-                      {wizardStage ? (
-                        <>
-                          {wizardStage.stage === 'planner' && 'Planning graph structure'}
-                          {wizardStage.stage === 'executor' && (wizardStage.toolName ? `Executing ${wizardStage.toolName}` : 'Executing operations')}
-                          {wizardStage.stage === 'auditor' && 'Validating changes'}
-                          {wizardStage.stage === 'committer' && 'Applying to graph'}
-                          {!['planner', 'executor', 'auditor', 'committer'].includes(wizardStage.stage) && `Processing ${wizardStage.stage}`}
-                        </>
-                      ) : (
-                        isAutonomousMode ? 'Agent thinking and using tools' : 'Thinking'
-                      )}
-                      <span className="ai-ellipses">
-                        <span>.</span>
-                        <span>.</span>
-                        <span>.</span>
-                      </span>
-                    </div>
-                  </div>
-                </div>
+                <span className="ai-thinking-dots">
+                  <span>•</span>
+                  <span>•</span>
+                  <span>•</span>
+                </span>
               </div>
             )}
             <div ref={messagesEndRef} />
