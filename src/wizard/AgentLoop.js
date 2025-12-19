@@ -51,28 +51,44 @@ export async function* runAgent(userMessage, graphState, config = {}, ensureSche
 
   for (let iteration = 0; iteration < MAX_ITERATIONS; iteration++) {
     try {
-      // Call LLM
-      const response = await callLLM(messages, tools, config);
+      let iterationContent = '';
+      let iterationToolCalls = [];
+
+      // Stream LLM response for this iteration
+      for await (const chunk of streamLLM(messages, tools, config)) {
+        if (chunk.type === 'text') {
+          iterationContent += chunk.content;
+          yield { type: 'response', content: chunk.content };
+        } else if (chunk.type === 'tool_call') {
+          iterationToolCalls.push(chunk);
+          yield chunk;
+        }
+      }
+
+      // Add this iteration's response to history for the next iteration
+      if (iterationContent || iterationToolCalls.length > 0) {
+        messages.push({
+          role: 'assistant',
+          content: iterationContent || null,
+          tool_calls: iterationToolCalls.length > 0 ? iterationToolCalls.map(tc => ({
+            id: tc.id,
+            type: 'function',
+            function: {
+              name: tc.name,
+              arguments: JSON.stringify(tc.args)
+            }
+          })) : undefined
+        });
+      }
 
       // If no tool calls, LLM decided task is complete
-      if (!response.toolCalls || response.toolCalls.length === 0) {
-        if (response.content) {
-          yield { type: 'response', content: response.content };
-        }
+      if (iterationToolCalls.length === 0) {
         yield { type: 'done', iterations: iteration + 1 };
         return;
       }
 
       // Execute tools sequentially
-      for (const toolCall of response.toolCalls) {
-        // Stream tool call event
-        yield {
-          type: 'tool_call',
-          name: toolCall.name,
-          args: toolCall.args,
-          id: toolCall.id
-        };
-
+      for (const toolCall of iterationToolCalls) {
         try {
           // Execute tool
           const result = await executeTool(
@@ -93,18 +109,6 @@ export async function* runAgent(userMessage, graphState, config = {}, ensureSche
 
           // Add tool result to conversation for LLM to verify
           messages.push({
-            role: 'assistant',
-            content: null,
-            tool_calls: [{
-              id: toolCall.id,
-              type: 'function',
-              function: {
-                name: toolCall.name,
-                arguments: JSON.stringify(toolCall.args)
-              }
-            }]
-          });
-          messages.push({
             role: 'tool',
             tool_call_id: toolCall.id,
             content: JSON.stringify(result)
@@ -120,18 +124,6 @@ export async function* runAgent(userMessage, graphState, config = {}, ensureSche
 
           // Add error to conversation
           messages.push({
-            role: 'assistant',
-            content: null,
-            tool_calls: [{
-              id: toolCall.id,
-              type: 'function',
-              function: {
-                name: toolCall.name,
-                arguments: JSON.stringify(toolCall.args)
-              }
-            }]
-          });
-          messages.push({
             role: 'tool',
             tool_call_id: toolCall.id,
             content: JSON.stringify({ error: error.message })
@@ -142,6 +134,10 @@ export async function* runAgent(userMessage, graphState, config = {}, ensureSche
       // Loop continues - LLM will verify results and decide: more work or respond
     } catch (error) {
       yield { type: 'error', message: error.message };
+      yield { type: 'done', iterations: iteration + 1 };
+      return;
+    }
+  }      yield { type: 'error', message: error.message };
       yield { type: 'done', iterations: iteration + 1 };
       return;
     }
