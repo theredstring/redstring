@@ -55,6 +55,23 @@
     transform: translateY(-3px);
   }
 }
+
+/* Streaming content fade-in animation */
+.ai-message-ai .ai-tool-calls .ai-tool-call {
+  animation: tool-fade-in 0.3s ease-out;
+}
+
+@keyframes tool-fade-in {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
 /* AI Collaboration Panel - Redstring Canvas Color Integration */
 
 .ai-collaboration-panel {

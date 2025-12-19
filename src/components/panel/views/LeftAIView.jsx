@@ -460,6 +460,17 @@ const LeftAIView = ({ compact = false, activeGraphId, graphsMap }) => {
       }
       const abortController = new AbortController();
       setCurrentAgentRequest(abortController);
+      
+      // Create placeholder AI message for streaming updates
+      const streamingMessageId = `${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+      setMessages(prev => [...prev, {
+        id: streamingMessageId,
+        sender: 'ai',
+        content: '',
+        timestamp: new Date().toISOString(),
+        toolCalls: [],
+        isStreaming: true
+      }]);
 
       // Send recent conversation history for context memory
       const recentMessages = messages.slice(-10).map(msg => ({
@@ -534,12 +545,60 @@ const LeftAIView = ({ compact = false, activeGraphId, graphsMap }) => {
       }
       const result = await response.json();
       const text = result?.response || 'Agent completed without a response.';
-      addMessage('ai', text, { toolCalls: result.toolCalls || [], iterations: result.iterations, mode: 'autonomous', isComplete: result.isComplete });
+      
+      // Update the streaming message with final content instead of creating a new one
+      setMessages(prev => {
+        const updated = [...prev];
+        let idx = updated.length - 1;
+        while (idx >= 0 && updated[idx].sender !== 'ai') idx--;
+        if (idx >= 0) {
+          const existingToolCalls = updated[idx].toolCalls || [];
+          const newToolCalls = result.toolCalls || [];
+          // Merge tool calls, keeping existing ones and adding any new ones from result
+          const mergedToolCalls = [...existingToolCalls];
+          for (const tc of newToolCalls) {
+            if (!mergedToolCalls.some(existing => existing.id === tc.id || existing.name === tc.name)) {
+              mergedToolCalls.push({ ...tc, expanded: false });
+            }
+          }
+          updated[idx] = {
+            ...updated[idx],
+            content: text,
+            toolCalls: mergedToolCalls,
+            isStreaming: false,
+            iterations: result.iterations,
+            mode: 'autonomous',
+            isComplete: result.isComplete
+          };
+          return updated;
+        }
+        // Fallback: create new message if no AI message found
+        return [...prev, {
+          id: `${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+          sender: 'ai',
+          content: text,
+          timestamp: new Date().toISOString(),
+          toolCalls: (result.toolCalls || []).map(tc => ({ ...tc, expanded: false })),
+          iterations: result.iterations,
+          mode: 'autonomous',
+          isComplete: result.isComplete
+        }];
+      });
       setIsConnected(true);
     } catch (error) {
       if (error.name !== 'AbortError') {
         console.error('[AI Collaboration] Autonomous agent failed:', error);
-        addMessage('ai', `Agent error: ${error.message}`);
+        // Update streaming message with error
+        setMessages(prev => {
+          const updated = [...prev];
+          let idx = updated.length - 1;
+          while (idx >= 0 && updated[idx].sender !== 'ai') idx--;
+          if (idx >= 0 && updated[idx].isStreaming) {
+            updated[idx] = { ...updated[idx], content: `Error: ${error.message}`, isStreaming: false };
+            return updated;
+          }
+          return [...prev, { id: `${Date.now()}_err`, sender: 'ai', content: `Agent error: ${error.message}`, timestamp: new Date().toISOString(), toolCalls: [] }];
+        });
       }
     } finally {
       setCurrentAgentRequest(null);
@@ -807,16 +866,26 @@ const LeftAIView = ({ compact = false, activeGraphId, graphsMap }) => {
                 </div>
               </div>
             ))}
-            {isProcessing && (
-              <div className="ai-thinking-row">
-                <div className="ai-message-avatar"><Bot size={16} /></div>
-                <span className="ai-thinking-dots">
-                  <span>•</span>
-                  <span>•</span>
-                  <span>•</span>
-                </span>
-              </div>
-            )}
+            {isProcessing && (() => {
+              // Find the streaming message to check if it has content
+              const streamingMsg = messages.find(m => m.isStreaming);
+              const hasStreamingContent = streamingMsg && (streamingMsg.content || (streamingMsg.toolCalls && streamingMsg.toolCalls.length > 0));
+              
+              // Only show thinking dots if no streaming content yet
+              if (!hasStreamingContent) {
+                return (
+                  <div className="ai-thinking-row">
+                    <div className="ai-message-avatar"><Bot size={16} /></div>
+                    <span className="ai-thinking-dots">
+                      <span>•</span>
+                      <span>•</span>
+                      <span>•</span>
+                    </span>
+                  </div>
+                );
+              }
+              return null;
+            })()}
             <div ref={messagesEndRef} />
           </div>
           <div className="ai-input-container" style={{ marginBottom: toggleClearance }}>
