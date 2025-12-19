@@ -521,69 +521,161 @@ const LeftAIView = ({ compact = false, activeGraphId, graphsMap }) => {
         };
       }
 
-      const response = await bridgeFetch('/api/ai/agent', {
+      // Build graph state for new Wizard endpoint
+      const graphState = {
+        graphs: activeGraphId && graphsMap ? Array.from(graphsMap.values()).map(g => ({
+          id: g.id,
+          name: g.name,
+          instances: g.instances,
+          edgeIds: g.edgeIds || []
+        })) : [],
+        nodePrototypes: activeGraphData ? (() => {
+          const instances = activeGraphData.instances instanceof Map
+            ? Array.from(activeGraphData.instances.values())
+            : Array.isArray(activeGraphData.instances)
+              ? activeGraphData.instances
+              : Object.values(activeGraphData.instances || {});
+          const protoMap = new Map();
+          instances.forEach(inst => {
+            if (inst.prototypeId && !protoMap.has(inst.prototypeId)) {
+              protoMap.set(inst.prototypeId, {
+                id: inst.prototypeId,
+                name: inst.name,
+                color: inst.color,
+                description: inst.description
+              });
+            }
+          });
+          return Array.from(protoMap.values());
+        })() : [],
+        edges: [],
+        activeGraphId: activeGraphId || null
+      };
+
+      // Use new Wizard endpoint with SSE streaming
+      const response = await bridgeFetch('/api/wizard', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
         body: JSON.stringify({
           message: question,
-          conversationHistory: recentMessages,
-          systemPrompt: 'You are the Redstring Wizard. Converse, plan small steps, and enqueue goals that the orchestrator can execute. Stay grounded in the active graph.',
-          context: {
-            activeGraphId: activeGraphId || null,
-            activeGraph: graphStructure,  // CRITICAL: Send actual graph data
-            graphInfo,
-            graphCount,
-            hasAPIKey,
-            apiConfig: apiConfig ? { provider: apiConfig.provider, endpoint: apiConfig.endpoint, model: apiConfig.model, settings: apiConfig.settings } : null
+          graphState,
+          config: {
+            cid: `wizard-${Date.now()}`,
+            apiConfig: apiConfig ? {
+              provider: apiConfig.provider,
+              endpoint: apiConfig.endpoint,
+              model: apiConfig.model,
+              settings: apiConfig.settings
+            } : null
           }
         }),
         signal: abortController.signal
       });
+
       if (!response.ok) {
         const errorBody = await response.text();
-        throw new Error(`Agent request failed (${response.status}): ${errorBody}`);
+        throw new Error(`Wizard request failed (${response.status}): ${errorBody}`);
       }
-      const result = await response.json();
-      const text = result?.response || 'Agent completed without a response.';
-      
-      // Update the streaming message with final content instead of creating a new one
-      setMessages(prev => {
-        const updated = [...prev];
-        let idx = updated.length - 1;
-        while (idx >= 0 && updated[idx].sender !== 'ai') idx--;
-        if (idx >= 0) {
-          const existingToolCalls = updated[idx].toolCalls || [];
-          const newToolCalls = result.toolCalls || [];
-          // Merge tool calls, keeping existing ones and adding any new ones from result
-          const mergedToolCalls = [...existingToolCalls];
-          for (const tc of newToolCalls) {
-            if (!mergedToolCalls.some(existing => existing.id === tc.id || existing.name === tc.name)) {
-              mergedToolCalls.push({ ...tc, expanded: false });
+
+      // Process SSE stream
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
+      let responseText = '';
+
+      try {
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split('\n');
+          buffer = lines.pop() || '';
+
+          for (const line of lines) {
+            if (line.startsWith('data: ')) {
+              const data = line.slice(6);
+              try {
+                const event = JSON.parse(data);
+                
+                // Update streaming message based on event type
+                setMessages(prev => {
+                  const updated = [...prev];
+                  let idx = updated.length - 1;
+                  while (idx >= 0 && updated[idx].sender !== 'ai') idx--;
+                  if (idx < 0) {
+                    // Create new AI message if none exists
+                    updated.push({
+                      id: streamingMessageId,
+                      sender: 'ai',
+                      content: '',
+                      timestamp: new Date().toISOString(),
+                      toolCalls: [],
+                      isStreaming: true
+                    });
+                    idx = updated.length - 1;
+                  }
+
+                  const msg = { ...updated[idx] };
+
+                  if (event.type === 'tool_call') {
+                    // Add or update tool call
+                    const toolCalls = Array.isArray(msg.toolCalls) ? [...msg.toolCalls] : [];
+                    const existingIndex = toolCalls.findIndex(tc => tc.id === event.id);
+                    if (existingIndex >= 0) {
+                      toolCalls[existingIndex] = {
+                        ...toolCalls[existingIndex],
+                        name: event.name,
+                        args: event.args,
+                        status: 'running'
+                      };
+                    } else {
+                      toolCalls.push({
+                        id: event.id,
+                        name: event.name,
+                        args: event.args,
+                        status: 'running',
+                        expanded: false
+                      });
+                    }
+                    msg.toolCalls = toolCalls;
+                  } else if (event.type === 'tool_result') {
+                    // Update tool call with result
+                    const toolCalls = Array.isArray(msg.toolCalls) ? [...msg.toolCalls] : [];
+                    const toolIndex = toolCalls.findIndex(tc => tc.id === event.id);
+                    if (toolIndex >= 0) {
+                      toolCalls[toolIndex] = {
+                        ...toolCalls[toolIndex],
+                        status: event.result?.error ? 'failed' : 'completed',
+                        result: event.result,
+                        error: event.result?.error
+                      };
+                    }
+                    msg.toolCalls = toolCalls;
+                  } else if (event.type === 'response') {
+                    // Stream response text
+                    responseText += event.content;
+                    msg.content = responseText;
+                  } else if (event.type === 'error') {
+                    msg.content = `Error: ${event.message}`;
+                    msg.isStreaming = false;
+                  } else if (event.type === 'done') {
+                    msg.isStreaming = false;
+                    msg.iterations = event.iterations;
+                  }
+
+                  updated[idx] = msg;
+                  return updated;
+                });
+              } catch (e) {
+                console.warn('[Wizard] Failed to parse SSE event:', e, data);
+              }
             }
           }
-          updated[idx] = {
-            ...updated[idx],
-            content: text,
-            toolCalls: mergedToolCalls,
-            isStreaming: false,
-            iterations: result.iterations,
-            mode: 'autonomous',
-            isComplete: result.isComplete
-          };
-          return updated;
         }
-        // Fallback: create new message if no AI message found
-        return [...prev, {
-          id: `${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
-          sender: 'ai',
-          content: text,
-          timestamp: new Date().toISOString(),
-          toolCalls: (result.toolCalls || []).map(tc => ({ ...tc, expanded: false })),
-          iterations: result.iterations,
-          mode: 'autonomous',
-          isComplete: result.isComplete
-        }];
-      });
+      } finally {
+        reader.releaseLock();
+      }
       setIsConnected(true);
     } catch (error) {
       if (error.name !== 'AbortError') {

@@ -2159,6 +2159,54 @@ app.post('/api/ai/chat', async (req, res) => {
   }
 });
 
+// New Wizard endpoint - simplified single-LLM loop
+app.post('/api/wizard', async (req, res) => {
+  try {
+    const { message, graphState, config } = req.body || {};
+    if (!message) {
+      return res.status(400).json({ error: 'Message is required' });
+    }
+
+    const apiKey = req.headers.authorization?.replace(/^Bearer\s+/i, '') || '';
+    const apiConfig = config?.apiConfig || {};
+    
+    // Set up SSE
+    res.setHeader('Content-Type', 'text/event-stream');
+    res.setHeader('Cache-Control', 'no-cache');
+    res.setHeader('Connection', 'keep-alive');
+
+    // Import runAgent dynamically to avoid circular dependencies
+    const { runAgent } = await import('./src/wizard/AgentLoop.js');
+    
+    const llmConfig = {
+      apiKey,
+      provider: apiConfig.provider || 'openrouter',
+      endpoint: apiConfig.endpoint,
+      model: apiConfig.model,
+      temperature: apiConfig.settings?.temperature,
+      maxTokens: apiConfig.settings?.max_tokens,
+      cid: config.cid || `wizard-${Date.now()}`
+    };
+
+    try {
+      for await (const event of runAgent(message, graphState || {}, llmConfig, ensureSchedulerStarted)) {
+        res.write(`data: ${JSON.stringify(event)}\n\n`);
+      }
+      res.write(`data: ${JSON.stringify({ type: 'done' })}\n\n`);
+    } catch (error) {
+      res.write(`data: ${JSON.stringify({ type: 'error', message: error.message })}\n\n`);
+    }
+    res.end();
+  } catch (error) {
+    if (!res.headersSent) {
+      res.status(500).json({ error: error.message });
+    } else {
+      res.write(`data: ${JSON.stringify({ type: 'error', message: error.message })}\n\n`);
+      res.end();
+    }
+  }
+});
+
 // Optional: simple agent stub so the in-app autonomous mode doesn't 404 on the bridge-only server
 app.post('/api/ai/agent', async (req, res) => {
   try {

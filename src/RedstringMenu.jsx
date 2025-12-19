@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import MaroonSlider from './components/MaroonSlider.jsx';
-import { ChevronRight, FileText, FolderOpen, Save, Clock, Globe, Bug, BookOpen, Home, LayoutGrid, Activity } from 'lucide-react';
+import { ChevronRight, FileText, FolderOpen, Save, Clock, Globe, Bug, BookOpen, Home, LayoutGrid, Activity, RefreshCw } from 'lucide-react';
 import './RedstringMenu.css';
 import DebugOverlay from './DebugOverlay';
 import * as fileStorage from './store/fileStorage.js';
@@ -257,6 +257,17 @@ const RedstringMenu = ({
                               onMouseLeave={handleTopLevelMenuLeave}
                             >
                                 {/* Universe operations removed - UniverseManager eliminated */}
+                                <div
+                                  className="submenu-item"
+                                  onMouseEnter={handleRegularSubmenuItemHover}
+                                  onClick={() => {
+                                    window.location.reload();
+                                  }}
+                                  style={{ cursor: 'pointer' }}
+                                >
+                                  <RefreshCw size={16} style={{ marginRight: '8px', minWidth: '16px', flexShrink: 0 }} />
+                                  Refresh
+                                </div>
                                 <div
                                   className="submenu-item"
                                   onMouseEnter={handleRegularSubmenuItemHover}
