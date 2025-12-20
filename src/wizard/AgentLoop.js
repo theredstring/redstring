@@ -15,12 +15,15 @@ const __dirname = path.dirname(__filename);
 
 // Load system prompt
 const SYSTEM_PROMPT_PATH = path.join(__dirname, 'prompts', 'system.md');
-let SYSTEM_PROMPT = '';
+let SYSTEM_PROMPT = 'You are The Wizard, a helpful assistant for building knowledge graphs.';
 try {
-  SYSTEM_PROMPT = fs.readFileSync(SYSTEM_PROMPT_PATH, 'utf8');
+  const loadedPrompt = fs.readFileSync(SYSTEM_PROMPT_PATH, 'utf8');
+  if (loadedPrompt) {
+    SYSTEM_PROMPT = loadedPrompt;
+  }
 } catch (error) {
   console.error('[AgentLoop] Failed to load system prompt:', error);
-  SYSTEM_PROMPT = 'You are The Wizard, a helpful assistant for building knowledge graphs.';
+  // SYSTEM_PROMPT already has default value
 }
 
 const MAX_ITERATIONS = 10;
@@ -38,7 +41,8 @@ export async function* runAgent(userMessage, graphState, config = {}, ensureSche
   
   // Build context
   const contextStr = buildContext(graphState);
-  const fullSystemPrompt = SYSTEM_PROMPT.replace('{graphName}', graphState.activeGraphId ? (graphState.graphs?.find(g => g.id === graphState.activeGraphId)?.name || 'Unknown') : 'None')
+  const systemPrompt = SYSTEM_PROMPT || 'You are The Wizard, a helpful assistant for building knowledge graphs.';
+  const fullSystemPrompt = systemPrompt.replace('{graphName}', graphState.activeGraphId ? (graphState.graphs?.find(g => g.id === graphState.activeGraphId)?.name || 'Unknown') : 'None')
     .replace('{nodeList}', contextStr.includes('Existing Things') ? contextStr.split('Existing Things:')[1]?.split('\n')[0] || '' : '')
     .replace('{edgeList}', ''); // Can be enhanced later
 

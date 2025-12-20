@@ -85,18 +85,22 @@ export function buildContext(graphState) {
  * @returns {string} Truncated context
  */
 export function truncateContext(context, maxLength = 4000) {
-  if (context.length <= maxLength) return context;
+  const suffix = '\n... (truncated)';
+  const suffixLength = suffix.length;
+  const effectiveMaxLength = maxLength - suffixLength;
+  
+  if (context.length <= effectiveMaxLength) return context;
   
   // Try to truncate at a sentence boundary
-  const truncated = context.substring(0, maxLength);
+  const truncated = context.substring(0, effectiveMaxLength);
   const lastPeriod = truncated.lastIndexOf('.');
   const lastNewline = truncated.lastIndexOf('\n');
   const cutPoint = Math.max(lastPeriod, lastNewline);
   
-  if (cutPoint > maxLength * 0.8) {
-    return truncated.substring(0, cutPoint + 1) + '\n... (truncated)';
+  if (cutPoint > effectiveMaxLength * 0.8) {
+    return truncated.substring(0, cutPoint + 1) + suffix;
   }
   
-  return truncated + '... (truncated)';
+  return truncated + suffix;
 }
 
