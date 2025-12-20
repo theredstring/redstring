@@ -1,6 +1,7 @@
 import React, { useMemo, useState, useCallback, useRef } from 'react';
 import useGraphStore from './store/graphStore.jsx';
 import { getNodeDimensions } from './utils.js';
+import { getTextColor } from './utils/colorUtils.js';
 
 /**
  * Connection Text Component
@@ -1149,7 +1150,9 @@ const UniversalNodeRenderer = ({
                       style={{
                         fontSize: `${computedFontSize}px`,
                         fontWeight: 'bold',
-                        color: node.isGroup ? (node.color || '#8B0000') : '#bdb5b5',
+                        color: node.isGroup 
+                          ? getTextColor(node.color || '#8B0000')
+                          : getTextColor(node.color || '#800000'),
                         lineHeight: `${computedLineHeight}px`,
                         // Tighter letter spacing for decomposition view to fit more text
                         letterSpacing: renderContext === 'decomposition' ? '-0.3px' : '-0.2px',

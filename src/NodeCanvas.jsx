@@ -1897,6 +1897,7 @@ function NodeCanvas() {
   const [draggingNodeInfo, setDraggingNodeInfo] = useState(null); // Renamed, structure might change
   const [preDragZoomLevel, setPreDragZoomLevel] = useState(null);
   const [isAnimatingZoom, setIsAnimatingZoom] = useState(false);
+  const zoomOutInitiatedRef = useRef(false);
   const zoomAnimationRef = useRef({
     active: false,
     startTime: 0,
@@ -2146,13 +2147,15 @@ function NodeCanvas() {
     } catch { }
   }, [activeGraphId, nodes, baseDimsById, viewportSize, canvasSize, MAX_ZOOM]);
 
-  const animateZoomToTarget = useCallback((targetZoom, anchorPoint = null) => {
+  const animateZoomToTarget = useCallback((targetZoom, anchorPoint = null, currentZoom = null) => {
     // anchorPoint: { clientX, clientY } - the screen point to keep stable
+    // currentZoom: optional explicit current zoom level (to avoid stale ref issues)
     if (zoomAnimationRef.current.animationId) {
       cancelAnimationFrame(zoomAnimationRef.current.animationId);
     }
 
-    const startZoom = zoomLevelRef.current;
+    // Use provided currentZoom if available, otherwise fall back to ref (but prefer state)
+    const startZoom = currentZoom !== null ? currentZoom : zoomLevelRef.current;
     const startPan = { ...panOffsetRef.current };
 
     // If no anchor point provided, use viewport center
@@ -4632,10 +4635,14 @@ function NodeCanvas() {
       });
 
       // Movement Zoom-Out: Store pre-drag zoom and start animation
-      if (zoomLevelRef.current > DRAG_ZOOM_MIN) {
-        setPreDragZoomLevel(zoomLevelRef.current);
-        const targetZoom = Math.max(DRAG_ZOOM_MIN, zoomLevelRef.current * DRAG_ZOOM_OUT_FACTOR);
-        animateZoomToTarget(targetZoom, { clientX, clientY });
+      // Use zoomLevel from closure (current state) instead of ref to avoid stale values
+      // Only initiate zoom-out once per drag session
+      const currentZoom = zoomLevel;
+      if (currentZoom > DRAG_ZOOM_MIN && !zoomOutInitiatedRef.current) {
+        zoomOutInitiatedRef.current = true;
+        setPreDragZoomLevel(currentZoom);
+        const targetZoom = Math.max(DRAG_ZOOM_MIN, currentZoom * DRAG_ZOOM_OUT_FACTOR);
+        animateZoomToTarget(targetZoom, { clientX, clientY }, currentZoom);
       }
 
       selectedInstanceIds.forEach(id => {
@@ -4652,10 +4659,14 @@ function NodeCanvas() {
     setDraggingNodeInfo({ instanceId, offset });
 
     // Movement Zoom-Out: Store pre-drag zoom and start animation
-    if (zoomLevelRef.current > DRAG_ZOOM_MIN) {
-      setPreDragZoomLevel(zoomLevelRef.current);
-      const targetZoom = Math.max(DRAG_ZOOM_MIN, zoomLevelRef.current * DRAG_ZOOM_OUT_FACTOR);
-      animateZoomToTarget(targetZoom, { clientX, clientY });
+    // Use zoomLevel from closure (current state) instead of ref to avoid stale values
+    // Only initiate zoom-out once per drag session
+    const currentZoom = zoomLevel;
+    if (currentZoom > DRAG_ZOOM_MIN && !zoomOutInitiatedRef.current) {
+      zoomOutInitiatedRef.current = true;
+      setPreDragZoomLevel(currentZoom);
+      const targetZoom = Math.max(DRAG_ZOOM_MIN, currentZoom * DRAG_ZOOM_OUT_FACTOR);
+      animateZoomToTarget(targetZoom, { clientX, clientY }, currentZoom);
     }
 
     storeActions.updateNodeInstance(activeGraphId, instanceId, draft => { draft.scale = 1.15; });
@@ -6498,8 +6509,10 @@ function NodeCanvas() {
 
       // Movement Zoom-Out: Restore zoom level if we were dragging
       if (preDragZoomLevel !== null) {
-        animateZoomToTarget(preDragZoomLevel, { clientX: e.clientX, clientY: e.clientY });
+        // Use current zoom level from closure to avoid stale ref issues
+        animateZoomToTarget(preDragZoomLevel, { clientX: e.clientX, clientY: e.clientY }, zoomLevel);
         setPreDragZoomLevel(null);
+        zoomOutInitiatedRef.current = false; // Reset flag for next drag
       }
     }
 

@@ -775,7 +775,7 @@ const Node = ({
                 }}
                 title="Delete current definition"
               >
-                <Trash2 size={20} color="#bdb5b5" />
+                <Trash2 size={20} color={nodeTextColor} />
               </div>
             </foreignObject>
           )}
@@ -813,7 +813,7 @@ const Node = ({
                 }}
                 title="Open definition in new tab"
               >
-                <ArrowUpFromDot size={20} color="#bdb5b5" />
+                <ArrowUpFromDot size={20} color={nodeTextColor} />
               </div>
             </foreignObject>
           )}
@@ -851,7 +851,7 @@ const Node = ({
                 }}
                 title="Convert to Thing-Group"
               >
-                <PackageOpen size={20} color="#bdb5b5" />
+                <PackageOpen size={20} color={nodeTextColor} />
               </div>
             </foreignObject>
           )}
@@ -917,7 +917,7 @@ const Node = ({
                     }}
                     title={hasMultipleDefinitions ? "Previous definition" : "Only one definition"}
                   >
-                    <ChevronLeft size={28} color="#bdb5b5" />
+                    <ChevronLeft size={28} color={nodeTextColor} />
                   </div>
                 </foreignObject>
 
@@ -942,7 +942,7 @@ const Node = ({
                       justifyContent: 'center',
                       fontSize: '18px',
                       fontWeight: 'bold',
-                      color: '#bdb5b5',
+                      color: nodeTextColor,
                       opacity: 0.7,
                       transition: 'opacity 0.2s ease'
                     }}
@@ -1015,7 +1015,7 @@ const Node = ({
                     }}
                     title={hasMultipleDefinitions ? "Next definition" : "Only one definition"}
                   >
-                    <ChevronRight size={28} color="#bdb5b5" />
+                    <ChevronRight size={28} color={nodeTextColor} />
                   </div>
                 </foreignObject>
               </>

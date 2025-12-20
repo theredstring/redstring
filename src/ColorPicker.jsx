@@ -11,6 +11,8 @@ const ColorPicker = ({
   parentContainerRef = null // Optional parent container to consider as "inside"
 }) => {
   const [selectedHue, setSelectedHue] = useState(0);
+  const [selectedSaturation, setSelectedSaturation] = useState(100);
+  const [selectedBrightness, setSelectedBrightness] = useState(55);
   const [hexInput, setHexInput] = useState('');
   const pickerRef = useRef(null);
 
@@ -65,20 +67,35 @@ const ColorPicker = ({
     if (currentColor && currentColor.startsWith('#')) {
       const hsv = hexToHsv(currentColor);
       setSelectedHue(hsv.h);
+      setSelectedSaturation(Math.round(hsv.s * 100));
+      setSelectedBrightness(Math.round(hsv.v * 100));
       setHexInput(currentColor);
     }
   }, [currentColor, hexToHsv]);
-
-  // Get maroon-like saturation and brightness (from #8B0000)
-  const maroonHsv = hexToHsv('#8B0000');
-  const targetSaturation = maroonHsv.s; // ~1.0
-  const targetBrightness = maroonHsv.v; // ~0.545
 
   // Handle hue slider change
   const handleHueChange = (e) => {
     const hue = parseInt(e.target.value);
     setSelectedHue(hue);
-    const newColor = hsvToHex(hue, targetSaturation, targetBrightness);
+    const newColor = hsvToHex(hue, selectedSaturation / 100, selectedBrightness / 100);
+    setHexInput(newColor);
+    onColorChange(newColor);
+  };
+
+  // Handle saturation slider change
+  const handleSaturationChange = (e) => {
+    const saturation = parseInt(e.target.value);
+    setSelectedSaturation(saturation);
+    const newColor = hsvToHex(selectedHue, saturation / 100, selectedBrightness / 100);
+    setHexInput(newColor);
+    onColorChange(newColor);
+  };
+
+  // Handle brightness slider change
+  const handleBrightnessChange = (e) => {
+    const brightness = parseInt(e.target.value);
+    setSelectedBrightness(brightness);
+    const newColor = hsvToHex(selectedHue, selectedSaturation / 100, brightness / 100);
     setHexInput(newColor);
     onColorChange(newColor);
   };
@@ -98,6 +115,8 @@ const ColorPicker = ({
     if (/^#[0-9A-Fa-f]{6}$/.test(value)) {
       const hsv = hexToHsv(value);
       setSelectedHue(hsv.h);
+      setSelectedSaturation(Math.round(hsv.s * 100));
+      setSelectedBrightness(Math.round(hsv.v * 100));
       onColorChange(value);
     }
   };
@@ -141,7 +160,8 @@ const ColorPicker = ({
   const getPositionStyle = () => {
     const offset = 8; // Distance from the trigger
     const pickerWidth = 240; // minWidth from the picker style
-    const pickerHeight = 200; // Estimated height
+    // Update pickerHeight estimate for new sliders
+    const pickerHeight = 320;
     
     let left, right, top;
     
@@ -189,7 +209,15 @@ const ColorPicker = ({
     return style;
   };
 
-  const currentPreviewColor = hsvToHex(selectedHue, targetSaturation, targetBrightness);
+  const currentPreviewColor = hsvToHex(selectedHue, selectedSaturation / 100, selectedBrightness / 100);
+
+  // Generate gradient colors for saturation slider (gray to fully saturated at current hue/brightness)
+  const saturationGradientStart = hsvToHex(selectedHue, 0, selectedBrightness / 100);
+  const saturationGradientEnd = hsvToHex(selectedHue, 100, selectedBrightness / 100);
+
+  // Generate gradient colors for brightness slider (black to white at current hue/saturation)
+  const brightnessGradientStart = hsvToHex(selectedHue, selectedSaturation / 100, 0);
+  const brightnessGradientEnd = hsvToHex(selectedHue, selectedSaturation / 100, 100);
 
   return (
     <div
@@ -241,7 +269,7 @@ const ColorPicker = ({
         </label>
         <div style={{ position: 'relative' }}>
           <style>{`
-            .color-picker-slider-${selectedHue}::-webkit-slider-thumb {
+            .color-picker-slider-${selectedHue}-${selectedSaturation}-${selectedBrightness}::-webkit-slider-thumb {
               appearance: none;
               -webkit-appearance: none;
               width: 20px;
@@ -252,7 +280,7 @@ const ColorPicker = ({
               cursor: pointer;
               box-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
             }
-            .color-picker-slider-${selectedHue}::-moz-range-thumb {
+            .color-picker-slider-${selectedHue}-${selectedSaturation}-${selectedBrightness}::-moz-range-thumb {
               width: 20px;
               height: 20px;
               border-radius: 50%;
@@ -271,14 +299,136 @@ const ColorPicker = ({
             onMouseDown={(e) => e.stopPropagation()}
             onClick={(e) => e.stopPropagation()}
             onMouseUp={(e) => e.stopPropagation()}
-            className={`color-picker-slider-${selectedHue}`}
+            className={`color-picker-slider-${selectedHue}-${selectedSaturation}-${selectedBrightness}`}
             style={{
               width: '100%',
               height: '20px',
               borderRadius: '4px',
               background: `linear-gradient(to right, 
-                #8B0000, #8B8B00, #008B00, #008B8B, #00008B, #8B008B, #8B0000
+                ${hsvToHex(0, selectedSaturation / 100, selectedBrightness / 100)}, 
+                ${hsvToHex(60, selectedSaturation / 100, selectedBrightness / 100)}, 
+                ${hsvToHex(120, selectedSaturation / 100, selectedBrightness / 100)}, 
+                ${hsvToHex(180, selectedSaturation / 100, selectedBrightness / 100)}, 
+                ${hsvToHex(240, selectedSaturation / 100, selectedBrightness / 100)}, 
+                ${hsvToHex(300, selectedSaturation / 100, selectedBrightness / 100)}, 
+                ${hsvToHex(360, selectedSaturation / 100, selectedBrightness / 100)}
               )`,
+              outline: 'none',
+              cursor: 'pointer',
+              appearance: 'none',
+              WebkitAppearance: 'none'
+            }}
+          />
+        </div>
+      </div>
+
+      {/* Saturation slider */}
+      <div style={{ marginBottom: '12px' }}>
+        <label style={{ 
+          display: 'block', 
+          color: '#260000', 
+          fontSize: '12px', 
+          fontWeight: 'bold', 
+          marginBottom: '4px' 
+        }}>
+          Saturation
+        </label>
+        <div style={{ position: 'relative' }}>
+          <style>{`
+            .color-picker-saturation-slider-${selectedHue}-${selectedSaturation}-${selectedBrightness}::-webkit-slider-thumb {
+              appearance: none;
+              -webkit-appearance: none;
+              width: 20px;
+              height: 20px;
+              border-radius: 50%;
+              background: ${hsvToHex(selectedHue, selectedSaturation / 100, selectedBrightness / 100)};
+              border: 2px solid #260000;
+              cursor: pointer;
+              box-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
+            }
+            .color-picker-saturation-slider-${selectedHue}-${selectedSaturation}-${selectedBrightness}::-moz-range-thumb {
+              width: 20px;
+              height: 20px;
+              border-radius: 50%;
+              background: ${hsvToHex(selectedHue, selectedSaturation / 100, selectedBrightness / 100)};
+              border: 2px solid #260000;
+              cursor: pointer;
+              box-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
+            }
+          `}</style>
+          <input
+            type="range"
+            min="0"
+            max="100"
+            value={selectedSaturation}
+            onChange={handleSaturationChange}
+            onMouseDown={(e) => e.stopPropagation()}
+            onClick={(e) => e.stopPropagation()}
+            onMouseUp={(e) => e.stopPropagation()}
+            className={`color-picker-saturation-slider-${selectedHue}-${selectedSaturation}-${selectedBrightness}`}
+            style={{
+              width: '100%',
+              height: '20px',
+              borderRadius: '4px',
+              background: `linear-gradient(to right, ${saturationGradientStart}, ${saturationGradientEnd})`,
+              outline: 'none',
+              cursor: 'pointer',
+              appearance: 'none',
+              WebkitAppearance: 'none'
+            }}
+          />
+        </div>
+      </div>
+
+      {/* Brightness slider */}
+      <div style={{ marginBottom: '12px' }}>
+        <label style={{ 
+          display: 'block', 
+          color: '#260000', 
+          fontSize: '12px', 
+          fontWeight: 'bold', 
+          marginBottom: '4px' 
+        }}>
+          Brightness
+        </label>
+        <div style={{ position: 'relative' }}>
+          <style>{`
+            .color-picker-brightness-slider-${selectedHue}-${selectedSaturation}-${selectedBrightness}::-webkit-slider-thumb {
+              appearance: none;
+              -webkit-appearance: none;
+              width: 20px;
+              height: 20px;
+              border-radius: 50%;
+              background: ${hsvToHex(selectedHue, selectedSaturation / 100, selectedBrightness / 100)};
+              border: 2px solid #260000;
+              cursor: pointer;
+              box-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
+            }
+            .color-picker-brightness-slider-${selectedHue}-${selectedSaturation}-${selectedBrightness}::-moz-range-thumb {
+              width: 20px;
+              height: 20px;
+              border-radius: 50%;
+              background: ${hsvToHex(selectedHue, selectedSaturation / 100, selectedBrightness / 100)};
+              border: 2px solid #260000;
+              cursor: pointer;
+              box-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
+            }
+          `}</style>
+          <input
+            type="range"
+            min="0"
+            max="100"
+            value={selectedBrightness}
+            onChange={handleBrightnessChange}
+            onMouseDown={(e) => e.stopPropagation()}
+            onClick={(e) => e.stopPropagation()}
+            onMouseUp={(e) => e.stopPropagation()}
+            className={`color-picker-brightness-slider-${selectedHue}-${selectedSaturation}-${selectedBrightness}`}
+            style={{
+              width: '100%',
+              height: '20px',
+              borderRadius: '4px',
+              background: `linear-gradient(to right, ${brightnessGradientStart}, ${brightnessGradientEnd})`,
               outline: 'none',
               cursor: 'pointer',
               appearance: 'none',

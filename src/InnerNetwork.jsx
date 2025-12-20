@@ -11,6 +11,7 @@ import {
     NODE_DEFAULT_COLOR
 } from './constants'; // Import necessary constants
 import { getNodeDimensions } from './utils.js'; // Import from utils.js
+import { getTextColor } from './utils/colorUtils.js';
 import useGraphStore from "./store/graphStore.jsx";
 
 // --- InnerNetwork Component --- 
@@ -333,7 +334,7 @@ const InnerNetwork = ({ nodes, edges, width, height, padding }) => {
                textAnchor="middle"
                dominantBaseline="central"
                fontSize={Math.max(8, 12 / scale)} // Scale font size but keep readable
-               fill="#bdb5b5"
+               fill={getTextColor(node.color || NODE_DEFAULT_COLOR || 'maroon')}
                fontWeight="bold"
                fontFamily="'EmOne', sans-serif"
                style={{

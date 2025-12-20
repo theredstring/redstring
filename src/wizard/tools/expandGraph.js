@@ -38,7 +38,7 @@ export async function expandGraph(args, graphState, cid, ensureSchedulerStarted)
   const graphSpec = {
     nodes: nodes.map(n => ({
       name: n.name,
-      color: n.color || '#5B6CFF',
+      color: n.color || undefined,
       description: n.description || ''
     })),
     edges: edges.map(e => ({

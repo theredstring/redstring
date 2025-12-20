@@ -40,7 +40,7 @@ export async function createNode(args, graphState, cid, ensureSchedulerStarted) 
       args: {
         name,
         graph_id: targetGraphId,
-        color: color || '#5B6CFF',
+        color: color || undefined,
         description: description || ''
       },
       threadId: cid

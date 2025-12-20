@@ -69,13 +69,15 @@ const ForceSimulationModal = ({
   });
 
   // Simulation state
-  const [iteration, setIteration] = useState(0);
+  const [displayIteration, setDisplayIteration] = useState(0);
+  const [displayAlpha, setDisplayAlpha] = useState(1.0);
   const [showJson, setShowJson] = useState(false);
   const simulationState = useRef({
     velocities: new Map(), // instanceId -> {vx, vy}
     alpha: 1.0,
     iteration: 0
   });
+  const lastDisplayUpdate = useRef(0);
 
   const handleScaleMultiplierChange = (value) => {
     const numeric = Number(value);
@@ -267,7 +269,9 @@ const ForceSimulationModal = ({
         alpha: 1.0,
         iteration: 0
       };
-      setIteration(0);
+      lastDisplayUpdate.current = 0;
+      setDisplayIteration(0);
+      setDisplayAlpha(1.0);
     }
   }, [isOpen, getNodes, graphId, storeActions]);
 
@@ -546,14 +550,25 @@ const ForceSimulationModal = ({
     state.alpha *= (1 - alphaDecay);
     state.iteration++;
 
-    setIteration(state.iteration);
+    // Only update display every 10 frames to avoid excessive re-renders
+    if (state.iteration - lastDisplayUpdate.current >= 10) {
+      lastDisplayUpdate.current = state.iteration;
+      setDisplayIteration(state.iteration);
+      setDisplayAlpha(state.alpha);
+    }
   };
 
-  // Animation loop
+  // Store latest simulationStep in a ref so the animation loop always uses current values
+  const simulationStepRef = useRef(simulationStep);
+  useEffect(() => {
+    simulationStepRef.current = simulationStep;
+  });
+
+  // Animation loop - only depends on isRunning to avoid restarts
   useEffect(() => {
     if (isRunning) {
       const animate = () => {
-        simulationStep();
+        simulationStepRef.current();
         animationRef.current = requestAnimationFrame(animate);
       };
       animationRef.current = requestAnimationFrame(animate);
@@ -564,15 +579,10 @@ const ForceSimulationModal = ({
         }
       };
     }
-  }, [isRunning, params, scaleMultiplier]);
+  }, [isRunning]);
 
-  // Apply single step when params change (even when paused)
-  useEffect(() => {
-    if (!isRunning && isOpen) {
-      // Do a single simulation step when params change
-      simulationStep();
-    }
-  }, [params, scaleMultiplier]);
+  // NOTE: Removed auto-step on param change while paused for performance
+  // Users can manually click Play to see changes
 
   // Dragging logic
   const handleMouseDown = (e) => {
@@ -625,7 +635,9 @@ const ForceSimulationModal = ({
       });
     });
     simulationState.current.velocities = velocities;
-    setIteration(0);
+    lastDisplayUpdate.current = 0;
+    setDisplayIteration(0);
+    setDisplayAlpha(1.0);
   };
 
   const handleRandomize = () => {
@@ -676,11 +688,11 @@ const ForceSimulationModal = ({
         <div className="force-sim-stats-box">
           <div className="force-sim-stat">
             <span className="force-sim-stat-label">Iteration:</span>
-            <span className="force-sim-stat-value">{iteration}</span>
+            <span className="force-sim-stat-value">{displayIteration}</span>
           </div>
           <div className="force-sim-stat">
             <span className="force-sim-stat-label">Alpha:</span>
-            <span className="force-sim-stat-value">{simulationState.current.alpha.toFixed(4)}</span>
+            <span className="force-sim-stat-value">{displayAlpha.toFixed(4)}</span>
           </div>
           <div className="force-sim-stat">
             <span className="force-sim-stat-label">Status:</span>

@@ -319,13 +319,13 @@ export async function plan({
     ? '\n\n📝 RECENT CONVERSATION:\n' + conversationHistory.map(msg => `${msg.role === 'user' ? 'User' : 'You'}: ${msg.content}`).join('\n')
     : '';
 
-  // Extract color palette
+  // Extract color palette for reference (optional guidance, not restriction)
   const nodePrototypes = context.nodePrototypes || bridgeStoreData.nodePrototypes || [];
   const userPalette = extractColorPalette(nodePrototypes);
   const paletteColors = generateSpectrumColors(userPalette);
   const paletteContext = userPalette
-    ? `\n🎨 USER'S COLOR PALETTE (${userPalette.count} colors, avg hue: ${userPalette.avgHue}°):\nUSE THESE COLORS: ${paletteColors.join(', ')}\n⚠️ ONLY use colors from the list above. Pick colors that match the concept's meaning.`
-    : `\n🎨 AVAILABLE COLORS: ${paletteColors.join(', ')}\n⚠️ ONLY use colors from the list above. Pick colors that match the concept's meaning.`;
+    ? `\n🎨 USER'S COLOR PALETTE (${userPalette.count} colors, avg hue: ${userPalette.avgHue}°):\nReference colors: ${paletteColors.join(', ')}\n💡 You can use any valid hex color (#RRGGBB format). Consider semantic meaning: warm colors (reds, oranges) for concepts, cool colors (blues, greens) for logic/structure, or match the user's existing palette for consistency.`
+    : `\n🎨 COLOR GUIDANCE:\nYou can use any valid hex color (#RRGGBB format). Consider semantic meaning: warm colors (reds, oranges) for concepts, cool colors (blues, greens) for logic/structure. Example colors: #FF6B6B, #4ECDC4, #45B7D1, #FFA07A, #98D8C8, #F7DC6F, #BB8FCE, #85C1E2.`;
 
   // Build graph context
   const graphContext = buildGraphContext(context.activeGraph, bridgeStoreData);
