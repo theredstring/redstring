@@ -14,6 +14,7 @@ const ForceSimulationModal = ({
   storeActions,
   getNodes,
   getEdges,
+  getDraggedNodeIds = () => new Set(),
   onNodePositionsUpdated,
   layoutScalePreset = FORCE_LAYOUT_DEFAULTS.layoutScale || 'balanced',
   layoutScaleMultiplier = FORCE_LAYOUT_DEFAULTS.layoutScaleMultiplier || 1,
@@ -306,6 +307,7 @@ const ForceSimulationModal = ({
 
     const nodes = getNodes();
     const nodesById = new Map(nodes.map(node => [node.id, node]));
+    const draggedIds = getDraggedNodeIds(); // Get currently dragged nodes to exclude from forces
     const nodeRadiusCache = new Map();
     const getRadius = (node) => {
       if (!node) return (params.collisionRadius || defaultCollisionRadius) * scaleMultiplier;
@@ -339,12 +341,15 @@ const ForceSimulationModal = ({
     });
 
     // Repulsion force (n-body) - improved with distance cap
+    // Dragged nodes still repel others, but don't receive forces themselves
     for (let i = 0; i < nodes.length; i++) {
       for (let j = i + 1; j < nodes.length; j++) {
         const nodeA = nodes[i];
         const nodeB = nodes[j];
         const velA = velocities.get(nodeA.id);
         const velB = velocities.get(nodeB.id);
+        const aIsDragged = draggedIds.has(nodeA.id);
+        const bIsDragged = draggedIds.has(nodeB.id);
 
         if (!velA || !velB) continue;
 
@@ -366,14 +371,20 @@ const ForceSimulationModal = ({
         const fx = (dx / dist) * force;
         const fy = (dy / dist) * force;
 
-        velA.vx -= fx;
-        velA.vy -= fy;
-        velB.vx += fx;
-        velB.vy += fy;
+        // Only apply forces to non-dragged nodes
+        if (!aIsDragged) {
+          velA.vx -= fx;
+          velA.vy -= fy;
+        }
+        if (!bIsDragged) {
+          velB.vx += fx;
+          velB.vy += fy;
+        }
       }
     }
 
     // Attraction/Repulsion force along edges - maintains distance range
+    // Dragged nodes are fixed, so only apply forces to non-dragged endpoints
     edges.forEach(edge => {
       const source = nodesById.get(edge.sourceId);
       const target = nodesById.get(edge.destinationId);
@@ -382,6 +393,8 @@ const ForceSimulationModal = ({
 
       const velSource = velocities.get(source.id);
       const velTarget = velocities.get(target.id);
+      const sourceIsDragged = draggedIds.has(source.id);
+      const targetIsDragged = draggedIds.has(target.id);
 
       if (!velSource || !velTarget) return;
 
@@ -420,18 +433,27 @@ const ForceSimulationModal = ({
       const fx = (dx / dist) * force;
       const fy = (dy / dist) * force;
 
-      velSource.vx += fx;
-      velSource.vy += fy;
-      velTarget.vx -= fx;
-      velTarget.vy -= fy;
+      // Only apply forces to non-dragged nodes
+      if (!sourceIsDragged) {
+        velSource.vx += fx;
+        velSource.vy += fy;
+      }
+      if (!targetIsDragged) {
+        velTarget.vx -= fx;
+        velTarget.vy -= fy;
+      }
     });
 
     // Edge avoidance force - push nodes away from edges they're not part of
+    // Skip dragged nodes - they're fixed in place
     if (edgeAvoidance > 0) {
       // Pre-build node map for faster lookup
       const nodesMap = new Map(nodes.map(n => [n.id, n]));
       
       nodes.forEach(node => {
+        // Skip dragged nodes
+        if (draggedIds.has(node.id)) return;
+        
         const vel = velocities.get(node.id);
         if (!vel) return;
         const nodeRadius = getRadius(node);
@@ -483,10 +505,11 @@ const ForceSimulationModal = ({
       });
     }
 
-    // Center force
+    // Center force - skip dragged nodes
     const centerX = 0;
     const centerY = 0;
     nodes.forEach(node => {
+      if (draggedIds.has(node.id)) return; // Skip dragged nodes
       const vel = velocities.get(node.id);
       if (vel) {
         vel.vx += (centerX - node.x) * centerStrength * state.alpha;
@@ -495,8 +518,10 @@ const ForceSimulationModal = ({
     });
 
     // Update positions in bulk (apply speed multiplier)
+    // Skip dragged nodes - they're controlled by the user
     const updates = [];
     nodes.forEach(node => {
+      if (draggedIds.has(node.id)) return; // Skip dragged nodes
       const vel = velocities.get(node.id);
       if (vel) {
         updates.push({
@@ -508,6 +533,16 @@ const ForceSimulationModal = ({
     });
 
     // Apply STRONG collision detection to updates with padding
+    // Dragged nodes are not in updates array, but we still need to avoid them
+    // First, collect current positions of dragged nodes for collision
+    const draggedPositions = [];
+    draggedIds.forEach(id => {
+      const node = nodesById.get(id);
+      if (node) {
+        draggedPositions.push({ instanceId: id, x: node.x, y: node.y, isDragged: true });
+      }
+    });
+
     for (let i = 0; i < updates.length; i++) {
       for (let j = i + 1; j < updates.length; j++) {
         const updateA = updates[i];
@@ -534,6 +569,29 @@ const ForceSimulationModal = ({
           updateA.y -= moveY;
           updateB.x += moveX;
           updateB.y += moveY;
+        }
+      }
+    }
+
+    // Collision with dragged nodes - push non-dragged away, dragged stays fixed
+    for (let i = 0; i < updates.length; i++) {
+      const update = updates[i];
+      for (const dragged of draggedPositions) {
+        const dx = update.x - dragged.x;
+        const dy = update.y - dragged.y;
+        const dist = Math.sqrt(dx * dx + dy * dy);
+        const nodeUpdate = nodesById.get(update.instanceId);
+        const nodeDragged = nodesById.get(dragged.instanceId);
+        const radiusUpdate = getRadius(nodeUpdate);
+        const radiusDragged = getRadius(nodeDragged);
+        const minDist = (radiusUpdate + radiusDragged) * nodeSeparationMultiplier;
+
+        if (dist < minDist && dist > 0) {
+          // Push the non-dragged node away (full push since dragged is fixed)
+          const overlap = minDist - dist;
+          const angle = Math.atan2(dy, dx);
+          update.x += Math.cos(angle) * overlap;
+          update.y += Math.sin(angle) * overlap;
         }
       }
     }
