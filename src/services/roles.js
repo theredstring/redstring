@@ -28,7 +28,7 @@ export const ToolAllowlists = {
   planner: ['verify_state', 'list_available_graphs', 'get_active_graph', 'search_nodes', 'read_graph_structure', 'define_connections', 'get_edge_info', 'get_node_definition', 'sparql_query', 'semantic_search'],
   executor: [
     // write-capable tasks executed into patches (Committer is single-writer)
-    'create_graph', 'create_node_prototype', 'create_node_instance', 'create_edge', 'create_subgraph', 'create_populated_graph',
+    'create_graph', 'create_node_prototype', 'create_node_instance', 'create_node', 'create_edge', 'create_subgraph', 'create_populated_graph',
     'update_node_prototype', 'delete_node_instance', 'delete_graph', 'delete_edge', 'delete_node_prototype',
     'create_group', 'convert_to_node_group', 'set_active_graph',
     // read-only inspection tasks allowed for analysis pipelines

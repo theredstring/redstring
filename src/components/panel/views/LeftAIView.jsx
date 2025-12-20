@@ -461,16 +461,8 @@ const LeftAIView = ({ compact = false, activeGraphId, graphsMap }) => {
       const abortController = new AbortController();
       setCurrentAgentRequest(abortController);
       
-      // Create placeholder AI message for streaming updates
+      // Message ID for streaming updates - message will be created on first SSE event
       const streamingMessageId = `${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-      setMessages(prev => [...prev, {
-        id: streamingMessageId,
-        sender: 'ai',
-        content: '',
-        timestamp: new Date().toISOString(),
-        toolCalls: [],
-        isStreaming: true
-      }]);
 
       // Send recent conversation history for context memory
       const recentMessages = messages.slice(-10).map(msg => ({
@@ -608,10 +600,10 @@ const LeftAIView = ({ compact = false, activeGraphId, graphsMap }) => {
                 // Update streaming message based on event type
                 setMessages(prev => {
                   const updated = [...prev];
-                  let idx = updated.length - 1;
-                  while (idx >= 0 && updated[idx].sender !== 'ai') idx--;
+                  // Find THIS streaming message by ID, not just any AI message
+                  let idx = updated.findIndex(m => m.id === streamingMessageId);
                   if (idx < 0) {
-                    // Create new AI message if none exists
+                    // Create new AI message for this stream
                     updated.push({
                       id: streamingMessageId,
                       sender: 'ai',
@@ -686,16 +678,16 @@ const LeftAIView = ({ compact = false, activeGraphId, graphsMap }) => {
     } catch (error) {
       if (error.name !== 'AbortError') {
         console.error('[AI Collaboration] Autonomous agent failed:', error);
-        // Update streaming message with error
+        // Update or create streaming message with error
         setMessages(prev => {
           const updated = [...prev];
-          let idx = updated.length - 1;
-          while (idx >= 0 && updated[idx].sender !== 'ai') idx--;
-          if (idx >= 0 && updated[idx].isStreaming) {
+          const idx = updated.findIndex(m => m.id === streamingMessageId);
+          if (idx >= 0) {
             updated[idx] = { ...updated[idx], content: `Error: ${error.message}`, isStreaming: false };
             return updated;
           }
-          return [...prev, { id: `${Date.now()}_err`, sender: 'ai', content: `Agent error: ${error.message}`, timestamp: new Date().toISOString(), toolCalls: [] }];
+          // If no streaming message yet, create one with the error
+          return [...prev, { id: streamingMessageId, sender: 'ai', content: `Error: ${error.message}`, timestamp: new Date().toISOString(), toolCalls: [], isStreaming: false }];
         });
       }
     } finally {

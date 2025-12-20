@@ -255,17 +255,13 @@ class ToolValidator {
 
     this.registerSchema('create_subgraph', {
       type: 'object',
-      required: ['graphId', 'graphSpec'],
+      required: ['graph_id', 'graph_spec'],
       properties: {
-        graphId: {
-          type: 'string',
-          description: 'Target graph ID to add subgraph to'
-        },
         graph_id: {
           type: 'string',
-          description: 'Target graph ID (alternate field name)'
+          description: 'Target graph ID'
         },
-        graphSpec: {
+        graph_spec: {
           type: 'object',
           required: ['nodes'],
           properties: {
@@ -300,18 +296,18 @@ class ToolValidator {
           },
           description: 'Specification of nodes and edges to create'
         },
-        layoutAlgorithm: {
+        layout_algorithm: {
           type: 'string',
           enum: ['force', 'force-directed', 'hierarchical', 'tree', 'radial', 'orbit', 'grid', 'circular', 'circle'],
           default: 'force',
           description: 'Layout algorithm to use for positioning nodes'
         },
-        layoutMode: {
-        type: 'string',
-        enum: ['auto', 'full', 'partial'],
-        default: 'auto',
-        description: 'Controls whether new nodes are laid out relative to the existing layout (partial)'
-      }
+        layout_mode: {
+          type: 'string',
+          enum: ['auto', 'full', 'partial'],
+          default: 'auto',
+          description: 'Controls whether new nodes are laid out relative to the existing layout (partial)'
+        }
       }
     });
 
@@ -339,7 +335,7 @@ class ToolValidator {
 
     this.registerSchema('create_populated_graph', {
       type: 'object',
-      required: ['name', 'graphSpec'],
+      required: ['name', 'graph_spec'],
       properties: {
         name: {
           type: 'string',
@@ -351,11 +347,11 @@ class ToolValidator {
           default: '',
           description: 'Optional description'
         },
-        graphId: {
+        graph_id: {
           type: 'string',
           description: 'Optional graph ID to use when creating the graph (enables follow-up tasks in the same DAG)'
         },
-        graphSpec: {
+        graph_spec: {
           type: 'object',
           required: ['nodes'],
           properties: {
@@ -390,13 +386,13 @@ class ToolValidator {
           },
           description: 'Specification of nodes and edges'
         },
-        layoutAlgorithm: {
+        layout_algorithm: {
           type: 'string',
           enum: ['force', 'force-directed', 'hierarchical', 'tree', 'radial', 'orbit', 'grid', 'circular', 'circle'],
           default: 'force',
           description: 'Layout algorithm for positioning'
         },
-        layoutMode: {
+        layout_mode: {
           type: 'string',
           enum: ['auto', 'full', 'partial'],
           default: 'auto',
@@ -407,13 +403,13 @@ class ToolValidator {
 
     this.registerSchema('create_subgraph_in_new_graph', {
       type: 'object',
-      required: ['graphName', 'graphSpec'],
+      required: ['graph_name', 'graph_spec'],
       properties: {
-        graphName: {
+        graph_name: {
           type: 'string',
           description: 'Name of the newly created graph to populate'
         },
-        graphSpec: {
+        graph_spec: {
           type: 'object',
           required: ['nodes'],
           properties: {
@@ -448,7 +444,7 @@ class ToolValidator {
           },
           description: 'Specification of nodes and edges to create'
         },
-        layoutAlgorithm: {
+        layout_algorithm: {
           type: 'string',
           enum: ['force', 'force-directed', 'hierarchical', 'tree', 'radial', 'orbit', 'grid', 'circular', 'circle'],
           default: 'force',
@@ -459,9 +455,9 @@ class ToolValidator {
 
     this.registerSchema('update_node_prototype', {
       type: 'object',
-      required: ['prototypeId'],
+      required: ['prototype_id'],
       properties: {
-        prototypeId: {
+        prototype_id: {
           type: 'string',
           description: 'ID of the prototype to update'
         },
@@ -484,13 +480,13 @@ class ToolValidator {
 
     this.registerSchema('delete_node_instance', {
       type: 'object',
-      required: ['graphId', 'instanceId'],
+      required: ['graph_id', 'instance_id'],
       properties: {
-        graphId: {
+        graph_id: {
           type: 'string',
           description: 'Graph containing the instance'
         },
-        instanceId: {
+        instance_id: {
           type: 'string',
           description: 'ID of the instance to delete'
         }
@@ -499,9 +495,9 @@ class ToolValidator {
 
     this.registerSchema('delete_graph', {
       type: 'object',
-      required: ['graphId'],
+      required: ['graph_id'],
       properties: {
-        graphId: {
+        graph_id: {
           type: 'string',
           description: 'ID of the graph to delete'
         }
@@ -521,12 +517,25 @@ class ToolValidator {
 
     this.registerSchema('set_active_graph', {
       type: 'object',
-      required: ['graphId'],
+      required: ['graph_id'],
       properties: {
-        graphId: {
+        graph_id: {
           type: 'string',
           description: 'Graph ID to make active'
         }
+      }
+    });
+
+    this.registerSchema('create_node', {
+      type: 'object',
+      required: ['name', 'graph_id'],
+      properties: {
+        name: { type: 'string' },
+        graph_id: { type: 'string' },
+        description: { type: 'string', default: '' },
+        color: { type: 'string', default: '#5B6CFF' },
+        x: { type: 'number', default: 0 },
+        y: { type: 'number', default: 0 }
       }
     });
 
@@ -593,18 +602,18 @@ class ToolValidator {
     // New inspection tools
     this.registerSchema('get_edge_info', {
       type: 'object',
-      required: ['sourceName', 'targetName'],
+      required: ['source_name', 'target_name'],
       properties: {
-        graphId: {
+        graph_id: {
           type: 'string',
           description: 'Graph ID (defaults to active graph)'
         },
-        sourceName: {
+        source_name: {
           type: 'string',
           minLength: 1,
           description: 'Source node name'
         },
-        targetName: {
+        target_name: {
           type: 'string',
           minLength: 1,
           description: 'Target node name'
@@ -614,13 +623,13 @@ class ToolValidator {
 
     this.registerSchema('get_node_definition', {
       type: 'object',
-      required: ['nodeId'],
+      required: ['node_id'],
       properties: {
-        nodeId: {
+        node_id: {
           type: 'string',
           description: 'Node instance ID'
         },
-        graphId: {
+        graph_id: {
           type: 'string',
           description: 'Graph ID (defaults to active graph)'
         }
@@ -630,13 +639,13 @@ class ToolValidator {
     // Deletion tools
     this.registerSchema('delete_edge', {
       type: 'object',
-      required: ['graphId', 'edgeId'],
+      required: ['graph_id', 'edge_id'],
       properties: {
-        graphId: {
+        graph_id: {
           type: 'string',
           description: 'Graph ID containing the edge'
         },
-        edgeId: {
+        edge_id: {
           type: 'string',
           description: 'Edge ID to delete'
         }
@@ -645,9 +654,9 @@ class ToolValidator {
 
     this.registerSchema('delete_node_prototype', {
       type: 'object',
-      required: ['prototypeId'],
+      required: ['prototype_id'],
       properties: {
-        prototypeId: {
+        prototype_id: {
           type: 'string',
           description: 'Prototype ID to delete'
         }

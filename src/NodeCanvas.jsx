@@ -6471,6 +6471,11 @@ function NodeCanvas() {
     panVelocityHistoryRef.current = [];
     lastPanSampleRef.current = { time: performance.now() };
     isMouseDown.current = false;
+    // If mouse moved during a canvas pan (not on a node), suppress the canvas click
+    // to prevent the plus sign from appearing after a drag
+    if (mouseMoved.current && !startedOnNode.current) {
+      ignoreCanvasClick.current = true;
+    }
     // Reset mouseMoved.current immediately after mouse up logic is done
     // This prevents race condition with canvas click handler
     mouseMoved.current = false;

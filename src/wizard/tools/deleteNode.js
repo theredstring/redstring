@@ -19,8 +19,8 @@ export async function deleteNode(args, graphState, cid, ensureSchedulerStarted) 
     tasks: [{
       toolName: 'delete_node_instance',
       args: {
-        instanceId: nodeId,
-        graphId: activeGraphId
+        instance_id: nodeId,
+        graph_id: activeGraphId
       },
       threadId: cid
     }]

@@ -33,45 +33,19 @@ export async function createNode(args, graphState, cid, ensureSchedulerStarted) 
     throw new Error('No active graph. Please open or create a graph first.');
   }
 
-  // Check if prototype already exists
-  const existingProtoId = findPrototypeIdByName(name, nodePrototypes);
-  
   const targetGraphId = activeGraphId;
   const dag = {
-    tasks: []
-  };
-
-  if (existingProtoId) {
-    // Just create instance
-    dag.tasks.push({
-      toolName: 'create_node_instance',
-      args: {
-        prototypeId: existingProtoId,
-        graphId: targetGraphId
-      },
-      threadId: cid
-    });
-  } else {
-    // Create prototype and instance
-    dag.tasks.push({
-      toolName: 'create_node_prototype',
+    tasks: [{
+      toolName: 'create_node',
       args: {
         name,
+        graph_id: targetGraphId,
         color: color || '#5B6CFF',
         description: description || ''
       },
       threadId: cid
-    });
-    dag.tasks.push({
-      toolName: 'create_node_instance',
-      args: {
-        prototypeId: '${create_node_prototype.prototypeId}', // Reference from previous task
-        graphId: targetGraphId
-      },
-      threadId: cid,
-      dependsOn: ['create_node_prototype']
-    });
-  }
+    }]
+  };
 
   const goalId = queueManager.enqueue('goalQueue', {
     type: 'goal',

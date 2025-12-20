@@ -19,8 +19,8 @@ export async function deleteEdge(args, graphState, cid, ensureSchedulerStarted) 
     tasks: [{
       toolName: 'delete_edge',
       args: {
-        graphId: activeGraphId,
-        edgeId
+        graph_id: activeGraphId,
+        edge_id: edgeId
       },
       threadId: cid
     }]

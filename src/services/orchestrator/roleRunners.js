@@ -201,7 +201,57 @@ export async function runExecutorOnce() {
     }
     // Convert task into ops without touching UI store (Committer + UI will apply)
     const ops = [];
-    if (task.toolName === 'create_node_instance') {
+    if (task.toolName === 'create_node') {
+      const store = getBridgeStore();
+      const { name, graph_id, description, color, x, y } = validation.sanitized;
+      
+      // Check if prototype already exists
+      const match = findExistingPrototype(name, store);
+      let prototypeId;
+      
+      if (match) {
+        prototypeId = match.proto.id;
+        console.log(`[Executor] create_node: Reusing prototype "${name}" (${prototypeId})`);
+      } else {
+        prototypeId = `prototype-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+        ops.push({
+          type: 'addNodePrototype',
+          prototypeData: {
+            id: prototypeId,
+            name,
+            description: description || '',
+            color: color || '#5B6CFF',
+            typeNodeId: null,
+            definitionGraphIds: []
+          }
+        });
+        console.log(`[Executor] create_node: Created prototype "${name}" (${prototypeId})`);
+      }
+      
+      const instanceId = `inst-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+      ops.push({
+        type: 'addNodeInstance',
+        graphId: graph_id,
+        prototypeId,
+        position: { x: x || 0, y: y || 0 },
+        instanceId
+      });
+      console.log(`[Executor] create_node: Created instance ${instanceId} in graph ${graph_id}`);
+    } else if (task.toolName === 'create_node_prototype') {
+      const prototypeId = `prototype-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+      ops.push({
+        type: 'addNodePrototype',
+        prototypeData: {
+          id: prototypeId,
+          name: validation.sanitized.name,
+          description: validation.sanitized.description || '',
+          color: validation.sanitized.color || '#5B6CFF',
+          typeNodeId: validation.sanitized.type_node_id || null,
+          definitionGraphIds: []
+        }
+      });
+      console.log(`[Executor] ✨ NEW PROTOTYPE: Created "${validation.sanitized.name}" (${prototypeId})`);
+    } else if (task.toolName === 'create_node_instance') {
       const instanceId = `inst-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
       ops.push({ type: 'addNodeInstance', graphId: validation.sanitized.graph_id, prototypeId: validation.sanitized.prototype_id, position: { x: validation.sanitized.x, y: validation.sanitized.y }, instanceId });
     } else if (task.toolName === 'create_graph') {
@@ -210,10 +260,10 @@ export async function runExecutorOnce() {
     } else if (task.toolName === 'create_subgraph') {
       // Use auto-layout to position nodes from LLM's semantic output
       const { applyLayout } = await import('../graphLayoutService.js');
-      const graphId = validation.sanitized.graphId || validation.sanitized.graph_id;
-      const graphSpec = validation.sanitized.graphSpec || {};
-      const layoutAlgorithm = validation.sanitized.layoutAlgorithm || 'force';
-      const layoutMode = validation.sanitized.layoutMode || 'auto';
+      const graphId = validation.sanitized.graph_id;
+      const graphSpec = validation.sanitized.graph_spec || {};
+      const layoutAlgorithm = validation.sanitized.layout_algorithm || 'force';
+      const layoutMode = validation.sanitized.layout_mode || 'auto';
 
       const nodes = Array.isArray(graphSpec.nodes) ? graphSpec.nodes : [];
       const edges = Array.isArray(graphSpec.edges) ? graphSpec.edges : [];
@@ -629,10 +679,10 @@ export async function runExecutorOnce() {
       const { applyLayout } = await import('../graphLayoutService.js');
       const name = validation.sanitized.name;
       const description = validation.sanitized.description || '';
-      const graphSpec = validation.sanitized.graphSpec || {};
-      const layoutAlgorithm = validation.sanitized.layoutAlgorithm || 'force';
-      const layoutMode = validation.sanitized.layoutMode || 'auto';
-      const providedGraphId = validation.sanitized.graphId;
+      const graphSpec = validation.sanitized.graph_spec || {};
+      const layoutAlgorithm = validation.sanitized.layout_algorithm || 'force';
+      const layoutMode = validation.sanitized.layout_mode || 'auto';
+      const providedGraphId = validation.sanitized.graph_id;
 
       // 1. Create the graph
       const graphId = providedGraphId || `graph-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
@@ -845,9 +895,9 @@ export async function runExecutorOnce() {
       // Create subgraph in a newly created graph (graph was created by previous task in DAG)
       // Need to find the graph ID by name since it was just created
       const { applyLayout } = await import('../graphLayoutService.js');
-      const graphName = validation.sanitized.graphName;
-      const graphSpec = validation.sanitized.graphSpec || {};
-      const layoutAlgorithm = validation.sanitized.layoutAlgorithm || 'force';
+      const graphName = validation.sanitized.graph_name;
+      const graphSpec = validation.sanitized.graph_spec || {};
+      const layoutAlgorithm = validation.sanitized.layout_algorithm || 'force';
 
       // This will be resolved by the committer after the graph is created
       // For now, use a placeholder that the committer will replace
@@ -1058,11 +1108,11 @@ export async function runExecutorOnce() {
       });
     } else if (task.toolName === 'define_connections') {
       const store = getBridgeStore();
-      const graphId = validation.sanitized.graphId || store.activeGraphId;
+      const graphId = validation.sanitized.graph_id || store.activeGraphId;
       const edges = (Array.isArray(store.graphEdges) ? store.graphEdges : []).filter(edge => edge.graphId === graphId);
       const generalTypes = new Set(['connects', 'relates to', 'links', 'associates', 'connection', 'related to']);
       const limit = validation.sanitized.limit || 32;
-      const includeGeneral = validation.sanitized.include_general_types !== false && validation.sanitized.includeGeneralTypes !== false;
+      const includeGeneral = validation.sanitized.include_general_types !== false;
 
       const toDefine = edges.filter(edge => !Array.isArray(edge.definitionNodeIds) || edge.definitionNodeIds.length === 0)
         .filter(edge => includeGeneral || !generalTypes.has(((edge.type || edge.name || '').trim().toLowerCase())))
@@ -1147,26 +1197,26 @@ export async function runExecutorOnce() {
       // Update an existing node prototype
       ops.push({
         type: 'updateNodePrototype',
-        prototypeId: validation.sanitized.prototypeId,
+        prototypeId: validation.sanitized.prototype_id,
         updates: {
           name: validation.sanitized.name,
           description: validation.sanitized.description,
           color: validation.sanitized.color
         }
       });
-      console.log(`[Executor] update_node_prototype: Updating prototype ${validation.sanitized.prototypeId}`);
+      console.log(`[Executor] update_node_prototype: Updating prototype ${validation.sanitized.prototype_id}`);
     } else if (task.toolName === 'delete_node_instance') {
       // Delete a node instance from a graph
       ops.push({
         type: 'deleteNodeInstance',
-        graphId: validation.sanitized.graphId,
-        instanceId: validation.sanitized.instanceId
+        graphId: validation.sanitized.graph_id,
+        instanceId: validation.sanitized.instance_id
       });
-      console.log(`[Executor] delete_node_instance: Deleting instance ${validation.sanitized.instanceId} from graph ${validation.sanitized.graphId}`);
+      console.log(`[Executor] delete_node_instance: Deleting instance ${validation.sanitized.instance_id} from graph ${validation.sanitized.graph_id}`);
     } else if (task.toolName === 'delete_graph') {
       // Delete an entire graph
       const store = getBridgeStore();
-      let graphId = validation.sanitized.graphId || store.activeGraphId;
+      let graphId = validation.sanitized.graph_id || store.activeGraphId;
 
       // Robust resolution: if graphId is not a valid ID, check if it's a name
       const graphs = Array.isArray(store.graphs) ? store.graphs : [];
@@ -1193,15 +1243,15 @@ export async function runExecutorOnce() {
     } else if (task.toolName === 'get_edge_info') {
       // Find specific edges between two named nodes
       const store = getBridgeStore();
-      const graphId = validation.sanitized.graphId || store.activeGraphId;
-      const sourceName = validation.sanitized.sourceName;
-      const targetName = validation.sanitized.targetName;
+      const graphId = validation.sanitized.graph_id || store.activeGraphId;
+      const sourceName = validation.sanitized.source_name;
+      const targetName = validation.sanitized.target_name;
 
       if (!sourceName || !targetName) {
         ops.push({
           type: 'readResponse',
           toolName: 'get_edge_info',
-          data: { error: 'Both sourceName and targetName are required' }
+          data: { error: 'Both source_name and target_name are required' }
         });
       } else {
         const graph = getGraphById(graphId);
@@ -1278,17 +1328,17 @@ export async function runExecutorOnce() {
     } else if (task.toolName === 'get_node_definition') {
       // Check if a node has a definition graph
       const store = getBridgeStore();
-      const nodeId = validation.sanitized.nodeId;
+      const nodeId = validation.sanitized.node_id;
 
       if (!nodeId) {
         ops.push({
           type: 'readResponse',
           toolName: 'get_node_definition',
-          data: { error: 'nodeId is required' }
+          data: { error: 'node_id is required' }
         });
       } else {
         // Find the instance to get its prototype
-        const graphId = validation.sanitized.graphId || store.activeGraphId;
+        const graphId = validation.sanitized.graph_id || store.activeGraphId;
         const graph = getGraphById(graphId);
 
         if (!graph) {
@@ -1416,11 +1466,11 @@ export async function runExecutorOnce() {
       console.log(`[Executor] create_edge: Creating edge ${edgeId} from ${sourceInstanceId} to ${targetInstanceId} in graph ${graphId}`);
     } else if (task.toolName === 'delete_edge') {
       // Delete a specific edge
-      const graphId = validation.sanitized.graphId;
-      const edgeId = validation.sanitized.edgeId;
+      const graphId = validation.sanitized.graph_id;
+      const edgeId = validation.sanitized.edge_id;
 
       if (!graphId || !edgeId) {
-        throw new Error('Both graphId and edgeId are required for delete_edge');
+        throw new Error('Both graph_id and edge_id are required for delete_edge');
       }
 
       ops.push({
@@ -1431,10 +1481,10 @@ export async function runExecutorOnce() {
       console.log(`[Executor] delete_edge: Deleting edge ${edgeId} from graph ${graphId}`);
     } else if (task.toolName === 'delete_node_prototype') {
       // Delete a node prototype (hard delete - removes the concept)
-      const prototypeId = validation.sanitized.prototypeId;
+      const prototypeId = validation.sanitized.prototype_id;
 
       if (!prototypeId) {
-        throw new Error('prototypeId is required for delete_node_prototype');
+        throw new Error('prototype_id is required for delete_node_prototype');
       }
 
       ops.push({
@@ -1444,12 +1494,12 @@ export async function runExecutorOnce() {
       console.log(`[Executor] delete_node_prototype: Deleting prototype ${prototypeId}`);
     } else if (task.toolName === 'create_group') {
       // Create a visual group
-      const graphId = validation.sanitized.graphId;
+      const graphId = validation.sanitized.graph_id;
       const name = validation.sanitized.name || 'Group';
       const memberInstanceIds = validation.sanitized.memberInstanceIds || [];
 
       if (!graphId) {
-        throw new Error('graphId is required for create_group');
+        throw new Error('graph_id is required for create_group');
       }
 
       ops.push({
@@ -1464,15 +1514,15 @@ export async function runExecutorOnce() {
       console.log(`[Executor] create_group: Creating group "${name}" with ${memberInstanceIds.length} members`);
     } else if (task.toolName === 'convert_to_node_group') {
       // Convert a group into a Node with a nested graph definition
-      const graphId = validation.sanitized.graphId;
-      const groupId = validation.sanitized.groupId;
-      const nodePrototypeId = validation.sanitized.nodePrototypeId;
-      const createNewPrototype = validation.sanitized.createNewPrototype || false;
-      const newPrototypeName = validation.sanitized.newPrototypeName || '';
-      const newPrototypeColor = validation.sanitized.newPrototypeColor || '#8B0000';
+      const graphId = validation.sanitized.graph_id;
+      const groupId = validation.sanitized.group_id;
+      const nodePrototypeId = validation.sanitized.node_prototype_id;
+      const createNewPrototype = validation.sanitized.create_new_prototype || false;
+      const newPrototypeName = validation.sanitized.new_prototype_name || '';
+      const newPrototypeColor = validation.sanitized.new_prototype_color || '#8B0000';
 
       if (!graphId || !groupId) {
-        throw new Error('Both graphId and groupId are required for convert_to_node_group');
+        throw new Error('Both graph_id and group_id are required for convert_to_node_group');
       }
 
       ops.push({
@@ -1487,10 +1537,10 @@ export async function runExecutorOnce() {
       console.log(`[Executor] convert_to_node_group: Converting group ${groupId} to node-group`);
     } else if (task.toolName === 'set_active_graph') {
       // Switch the active view to a specific graph
-      const graphId = validation.sanitized.graphId;
+      const graphId = validation.sanitized.graph_id;
 
       if (!graphId) {
-        throw new Error('graphId is required for set_active_graph');
+        throw new Error('graph_id is required for set_active_graph');
       }
 
       ops.push({

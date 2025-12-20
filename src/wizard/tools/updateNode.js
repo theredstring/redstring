@@ -14,7 +14,7 @@ export async function updateNode(args, graphState, cid, ensureSchedulerStarted) 
     tasks: [{
       toolName: 'update_node_prototype',
       args: {
-        prototypeId: nodeId,
+        prototype_id: nodeId,
         ...(name && { name }),
         ...(color && { color }),
         ...(description !== undefined && { description })

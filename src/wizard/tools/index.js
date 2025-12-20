@@ -13,6 +13,7 @@ import { searchNodes } from './searchNodes.js';
 import { getNodeContext } from './getNodeContext.js';
 import { createGraph } from './createGraph.js';
 import { expandGraph } from './expandGraph.js';
+import { createPopulatedGraph } from './createPopulatedGraph.js';
 
 const TOOLS = {
   createNode,
@@ -23,7 +24,8 @@ const TOOLS = {
   searchNodes,
   getNodeContext,
   createGraph,
-  expandGraph
+  expandGraph,
+  createPopulatedGraph
 };
 
 /**
@@ -147,7 +149,7 @@ export function getToolDefinitions() {
     },
     {
       name: 'expandGraph',
-      description: 'Add multiple nodes and edges at once (bulk operation)',
+      description: 'Add multiple nodes and edges at once to the ACTIVE graph (bulk operation)',
       parameters: {
         type: 'object',
         properties: {
@@ -179,6 +181,44 @@ export function getToolDefinitions() {
           }
         },
         required: ['nodes']
+      }
+    },
+    {
+      name: 'createPopulatedGraph',
+      description: 'Create a NEW graph with nodes and edges in one operation. Use this when you need to create a brand new workspace with content.',
+      parameters: {
+        type: 'object',
+        properties: {
+          name: { type: 'string', description: 'Name for the new graph workspace' },
+          description: { type: 'string', description: 'Optional description of the graph' },
+          nodes: {
+            type: 'array',
+            description: 'Array of nodes to create in the new graph',
+            items: {
+              type: 'object',
+              properties: {
+                name: { type: 'string' },
+                color: { type: 'string' },
+                description: { type: 'string' }
+              },
+              required: ['name']
+            }
+          },
+          edges: {
+            type: 'array',
+            description: 'Array of edges to create',
+            items: {
+              type: 'object',
+              properties: {
+                source: { type: 'string', description: 'Source node name' },
+                target: { type: 'string', description: 'Target node name' },
+                type: { type: 'string', description: 'Relationship type' }
+              },
+              required: ['source', 'target']
+            }
+          }
+        },
+        required: ['name', 'nodes']
       }
     }
   ];

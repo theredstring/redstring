@@ -57,10 +57,10 @@ export async function expandGraph(args, graphState, cid, ensureSchedulerStarted)
     tasks: [{
       toolName: 'create_populated_graph',
       args: {
-        graphSpec,
-        layoutAlgorithm: 'force',
-        layoutMode: 'full',
-        graphId: activeGraphId
+        graph_spec: graphSpec,
+        layout_algorithm: 'force',
+        layout_mode: 'full',
+        graph_id: activeGraphId
       },
       threadId: cid
     }]
