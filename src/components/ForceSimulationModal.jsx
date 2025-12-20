@@ -38,6 +38,7 @@ const ForceSimulationModal = ({
   const initialAlphaDecay = LAYOUT_ITERATION_PRESETS[initialIterationPreset]?.alphaDecay ?? defaultAlphaDecay;
   const [scaleMultiplier, setScaleMultiplier] = useState(initialScaleMultiplier);
   const [iterationPreset, setIterationPreset] = useState(initialIterationPreset);
+  const [simulationSpeed, setSimulationSpeed] = useState(1.0);
   const baseNodeSeparationMultiplier = FORCE_LAYOUT_DEFAULTS.nodeSeparationMultiplier || 1.25;
   const nodeSeparationMultiplier = baseNodeSeparationMultiplier * scaleMultiplier;
   const scalePresetEntries = Object.entries(LAYOUT_SCALE_PRESETS);
@@ -99,6 +100,7 @@ const ForceSimulationModal = ({
       // Scale settings
       layoutScale: scalePreset,
       layoutScaleMultiplier: scaleMultiplier,
+      simulationSpeed: simulationSpeed,
       iterationPreset: iterationPreset,
       // Force parameters
       repulsionStrength: params.repulsionStrength,
@@ -492,15 +494,15 @@ const ForceSimulationModal = ({
       }
     });
 
-    // Update positions in bulk
+    // Update positions in bulk (apply speed multiplier)
     const updates = [];
     nodes.forEach(node => {
       const vel = velocities.get(node.id);
       if (vel) {
         updates.push({
           instanceId: node.id,
-          x: node.x + vel.vx,
-          y: node.y + vel.vy
+          x: node.x + vel.vx * simulationSpeed,
+          y: node.y + vel.vy * simulationSpeed
         });
       }
     });
@@ -737,6 +739,7 @@ const ForceSimulationModal = ({
                 value={JSON.stringify({
                   layoutScale: scalePreset,
                   layoutScaleMultiplier: scaleMultiplier,
+                  simulationSpeed: simulationSpeed,
                   iterationPreset: iterationPreset,
                   repulsionStrength: params.repulsionStrength,
                   attractionStrength: params.attractionStrength,
@@ -799,6 +802,30 @@ const ForceSimulationModal = ({
               <div className="force-sim-chip-group">
                 <button type="button" className="force-sim-chip" onClick={handleResetScale}>
                   Reset scale
+                </button>
+              </div>
+            </div>
+
+            <div className="force-sim-param">
+              <label>Speed</label>
+              <input
+                type="range"
+                min="0.1"
+                max="3.0"
+                step="0.1"
+                value={simulationSpeed}
+                onChange={(e) => setSimulationSpeed(Number(e.target.value))}
+              />
+              <span>{simulationSpeed.toFixed(1)}×</span>
+              <div className="force-sim-chip-group">
+                <button type="button" className="force-sim-chip" onClick={() => setSimulationSpeed(0.5)}>
+                  0.5×
+                </button>
+                <button type="button" className="force-sim-chip" onClick={() => setSimulationSpeed(1.0)}>
+                  1×
+                </button>
+                <button type="button" className="force-sim-chip" onClick={() => setSimulationSpeed(2.0)}>
+                  2×
                 </button>
               </div>
             </div>
