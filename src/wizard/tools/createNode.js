@@ -58,7 +58,7 @@ export async function createNode(args, graphState, cid, ensureSchedulerStarted) 
   if (ensureSchedulerStarted) ensureSchedulerStarted();
 
   return {
-    nodeId: existingProtoId || 'pending',
+    nodeId: 'pending',
     name,
     goalId
   };
