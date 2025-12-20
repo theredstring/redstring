@@ -4,6 +4,7 @@ import { NODE_WIDTH, NODE_HEIGHT, NODE_CORNER_RADIUS, NODE_PADDING } from './con
 import './Node.css';
 import UniversalNodeRenderer from './UniversalNodeRenderer.jsx'; // Import UniversalNodeRenderer for faithful representations
 import { getNodeDimensions } from './utils.js'; // Import needed for node dims
+import { getTextColor } from './utils/colorUtils.js';
 import { ChevronLeft, ChevronRight, Trash2, Expand, ArrowUpFromDot, PackageOpen } from 'lucide-react'; // Import navigation icons, trash, expand, and package-open
 import useGraphStore, { getHydratedNodesForGraph, getEdgesForGraph } from "./store/graphStore.jsx"; // Import store selectors
 
@@ -160,6 +161,9 @@ const Node = ({
   }, [isPreviewing, definitionGraphIds, currentDefinitionIndex, storeState.graphs]);
 
   const displayTitle = (isPreviewing && currentGraphName) ? currentGraphName : nodeName;
+
+  // Calculate dynamic text color based on node background
+  const nodeTextColor = useMemo(() => getTextColor(node.color || '#800000'), [node.color]);
 
   // Determine if text will be multiline for conditional padding
   const isMultiline = useMemo(() => {
@@ -391,7 +395,7 @@ const Node = ({
               style={{
                 fontSize: '20px',
                 fontWeight: 'bold',
-                color: '#bdb5b5',
+                color: nodeTextColor,
                 lineHeight: '32px', // Increased line spacing for better readability
                 whiteSpace: 'normal',
                 overflowWrap: 'break-word',
@@ -525,7 +529,7 @@ const Node = ({
                     x={nodeX + currentWidth - 20} // Position in bottom-right corner
                     y={contentAreaY + innerNetworkHeight - 10}
                     fontSize="12"
-                    fill="#bdb5b5"
+                    fill={nodeTextColor}
                     textAnchor="end"
                     style={{ opacity: 0.7 }}
                   >
@@ -609,7 +613,7 @@ const Node = ({
               padding: '4px 8px',
               boxSizing: 'border-box',
               fontSize: '20px',
-              color: '#bdb5b5',
+              color: nodeTextColor,
               fontWeight: 'normal',
               lineHeight: '24px',
               textAlign: 'center',

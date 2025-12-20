@@ -112,6 +112,11 @@ const PAN_MOMENTUM_FRAME = 16.67;               // baseline frame duration (ms) 
 const TOUCH_PAN_MOMENTUM_BOOST = 1.5;           // minimal boost for natural touch momentum feel
 const TRACKPAD_PAN_MOMENTUM_BOOST = 1.1;        // marginally higher boost for precision trackpads
 
+// Movement Zoom-Out constants
+const DRAG_ZOOM_OUT_FACTOR = 0.85;            // Zoom to 85% of current (15% reduction)
+const DRAG_ZOOM_MIN = 0.3;                    // Don't zoom out beyond this
+const DRAG_ZOOM_ANIMATION_DURATION = 250;     // ms (slightly increased for smoothness)
+
 function NodeCanvas() {
   // CULLING DISABLE FLAG - Set to true to enable culling, false to disable
   const ENABLE_CULLING = false;
@@ -1890,12 +1895,28 @@ function NodeCanvas() {
     }
   }, []);
   const [draggingNodeInfo, setDraggingNodeInfo] = useState(null); // Renamed, structure might change
+  const [preDragZoomLevel, setPreDragZoomLevel] = useState(null);
+  const [isAnimatingZoom, setIsAnimatingZoom] = useState(false);
+  const zoomAnimationRef = useRef({
+    active: false,
+    startTime: 0,
+    startZoom: 1,
+    targetZoom: 1,
+    startPan: { x: 0, y: 0 },
+    anchorWorld: { x: 0, y: 0 },
+    anchorClient: { x: 0, y: 0 },
+    animationId: null
+  });
   const [longPressingInstanceId, setLongPressingInstanceId] = useState(null); // Store ID
   const [drawingConnectionFrom, setDrawingConnectionFrom] = useState(null); // Structure might change (store source ID)
 
   const [isPanning, setIsPanning] = useState(false);
   const [panStart, setPanStart] = useState({ x: 0, y: 0 });
   const [panOffset, setPanOffset] = useState({ x: 0, y: 0 });
+  const panOffsetRef = useRef(panOffset);
+  useEffect(() => {
+    panOffsetRef.current = panOffset;
+  }, [panOffset]);
   const [recentlyPanned, setRecentlyPanned] = useState(false);
 
   const [selectionRect, setSelectionRect] = useState(null);
@@ -2124,6 +2145,76 @@ function NodeCanvas() {
       setPanOffset({ x: finalPanX, y: finalPanY });
     } catch { }
   }, [activeGraphId, nodes, baseDimsById, viewportSize, canvasSize, MAX_ZOOM]);
+
+  const animateZoomToTarget = useCallback((targetZoom, anchorPoint = null) => {
+    // anchorPoint: { clientX, clientY } - the screen point to keep stable
+    if (zoomAnimationRef.current.animationId) {
+      cancelAnimationFrame(zoomAnimationRef.current.animationId);
+    }
+
+    const startZoom = zoomLevelRef.current;
+    const startPan = { ...panOffsetRef.current };
+
+    // If no anchor point provided, use viewport center
+    const clientX = anchorPoint ? anchorPoint.clientX : viewportSizeRef.current.width / 2;
+    const clientY = anchorPoint ? anchorPoint.clientY : viewportSizeRef.current.height / 2;
+
+    const rect = containerRef.current?.getBoundingClientRect();
+    if (!rect) return;
+
+    // The world coordinates of the anchor point at the START of animation
+    const anchorWorldX = (clientX - rect.left - startPan.x) / startZoom + canvasSizeRef.current.offsetX;
+    const anchorWorldY = (clientY - rect.top - startPan.y) / startZoom + canvasSizeRef.current.offsetY;
+
+    zoomAnimationRef.current = {
+      active: true,
+      startTime: performance.now(),
+      startZoom,
+      targetZoom,
+      startPan,
+      anchorWorld: { x: anchorWorldX, y: anchorWorldY },
+      anchorClient: { x: clientX, y: clientY },
+      animationId: null
+    };
+
+    setIsAnimatingZoom(true);
+
+    const step = (now) => {
+      const state = zoomAnimationRef.current;
+      if (!state.active) return;
+
+      const elapsed = now - state.startTime;
+      const progress = Math.min(1, elapsed / DRAG_ZOOM_ANIMATION_DURATION);
+
+      // Easing: easeOutCubic
+      const t = 1 - Math.pow(1 - progress, 3);
+
+      const currentZoom = state.startZoom + (state.targetZoom - state.startZoom) * t;
+
+      // Calculate pan required to keep anchorWorld at anchorClient with currentZoom
+      const newPanX = state.anchorClient.x - rect.left - (state.anchorWorld.x - canvasSizeRef.current.offsetX) * currentZoom;
+      const newPanY = state.anchorClient.y - rect.top - (state.anchorWorld.y - canvasSizeRef.current.offsetY) * currentZoom;
+
+      // Clamp pan to canvas bounds
+      const minPanX = viewportSizeRef.current.width - canvasSizeRef.current.width * currentZoom;
+      const minPanY = viewportSizeRef.current.height - canvasSizeRef.current.height * currentZoom;
+      const clampedPanX = Math.min(0, Math.max(newPanX, minPanX));
+      const clampedPanY = Math.min(0, Math.max(newPanY, minPanY));
+
+      setZoomLevel(currentZoom);
+      setPanOffset({ x: clampedPanX, y: clampedPanY });
+
+      if (progress < 1) {
+        state.animationId = requestAnimationFrame(step);
+      } else {
+        state.active = false;
+        state.animationId = null;
+        setIsAnimatingZoom(false);
+      }
+    };
+
+    zoomAnimationRef.current.animationId = requestAnimationFrame(step);
+  }, [setZoomLevel, setPanOffset]);
 
   // Function to move out-of-bounds nodes back into canvas while preserving relative positions
   const moveOutOfBoundsNodesInBounds = useCallback(() => {
@@ -4539,8 +4630,16 @@ function NodeCanvas() {
         relativeOffsets: initialPositions,
         primaryId: instanceId
       });
+
+      // Movement Zoom-Out: Store pre-drag zoom and start animation
+      if (zoomLevelRef.current > DRAG_ZOOM_MIN) {
+        setPreDragZoomLevel(zoomLevelRef.current);
+        const targetZoom = Math.max(DRAG_ZOOM_MIN, zoomLevelRef.current * DRAG_ZOOM_OUT_FACTOR);
+        animateZoomToTarget(targetZoom, { clientX, clientY });
+      }
+
       selectedInstanceIds.forEach(id => {
-        storeActions.updateNodeInstance(activeGraphId, id, draft => { draft.scale = 1.1; });
+        storeActions.updateNodeInstance(activeGraphId, id, draft => { draft.scale = 1.15; });
       });
       return true;
     }
@@ -4551,7 +4650,15 @@ function NodeCanvas() {
     const mouseCanvasY = (clientY - rect.top - panOffset.y) / zoomLevel + canvasSize.offsetY;
     const offset = { x: mouseCanvasX - nodeData.x, y: mouseCanvasY - nodeData.y };
     setDraggingNodeInfo({ instanceId, offset });
-    storeActions.updateNodeInstance(activeGraphId, instanceId, draft => { draft.scale = 1.1; });
+
+    // Movement Zoom-Out: Store pre-drag zoom and start animation
+    if (zoomLevelRef.current > DRAG_ZOOM_MIN) {
+      setPreDragZoomLevel(zoomLevelRef.current);
+      const targetZoom = Math.max(DRAG_ZOOM_MIN, zoomLevelRef.current * DRAG_ZOOM_OUT_FACTOR);
+      animateZoomToTarget(targetZoom, { clientX, clientY });
+    }
+
+    storeActions.updateNodeInstance(activeGraphId, instanceId, draft => { draft.scale = 1.15; });
     return true;
   }, [
     activeGraphId,
@@ -6063,7 +6170,7 @@ function NodeCanvas() {
                 activeGraphId,
                 id,
                 draft => {
-                  if (draft.scale !== 1.1) draft.scale = 1.1;
+                  if (draft.scale !== 1.15) draft.scale = 1.15;
                 },
                 { isDragging: true, phase: 'move' }
               );
@@ -6389,6 +6496,11 @@ function NodeCanvas() {
 
       setDraggingNodeInfo(null);
 
+      // Movement Zoom-Out: Restore zoom level if we were dragging
+      if (preDragZoomLevel !== null) {
+        animateZoomToTarget(preDragZoomLevel, { clientX: e.clientX, clientY: e.clientY });
+        setPreDragZoomLevel(null);
+      }
     }
 
     // Finalize selection box
