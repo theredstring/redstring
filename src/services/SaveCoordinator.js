@@ -32,6 +32,7 @@ class SaveCoordinator {
 
     // Drag performance optimization
     this._lastDragLogTime = 0; // Throttle console logs during drag
+    this._lastInteractionEndTime = 0; // Track when interaction ended for cooldown
 
     // Status tracking
     this.statusHandlers = new Set();
@@ -179,22 +180,45 @@ class SaveCoordinator {
     }
 
     try {
-      // Update global drag state based on context
-      if (changeContext.isDragging === true) {
+      // Update global interaction state based on context
+      // Track drag, pan, pinch, and animation states
+      const isInteracting = changeContext.isDragging === true || 
+                           changeContext.isPanning === true ||
+                           changeContext.isPinching === true ||
+                           changeContext.isAnimating === true;
+                           
+      if (isInteracting) {
+        if (!this.isGlobalDragging) {
+          console.log('[SaveCoordinator] Interaction started:', { 
+            isDragging: changeContext.isDragging, 
+            isPanning: changeContext.isPanning,
+            isPinching: changeContext.isPinching,
+            isAnimating: changeContext.isAnimating,
+            phase: changeContext.phase,
+            type: changeContext.type
+          });
+        }
         this.isGlobalDragging = true;
-      } else if (changeContext.phase === 'end') {
+      } else if (changeContext.phase === 'end' || changeContext.phase === 'complete') {
+        if (this.isGlobalDragging) {
+          console.log('[SaveCoordinator] Interaction ended');
+          this._lastInteractionEndTime = Date.now();
+        }
         this.isGlobalDragging = false;
       }
 
-      // Skip updates during drag
-      if (this.isGlobalDragging && changeContext.phase !== 'end') {
+      // Skip updates during any interaction (drag, pan, pinch, zoom animation)
+      if (this.isGlobalDragging && changeContext.phase !== 'end' && changeContext.phase !== 'complete') {
         this.isDirty = true;
         this.nextStateToProcess = newState; // Keep updating the latest state
         this.lastChangeContext = changeContext;
         
         const now = Date.now();
         if (!this._lastDragLogTime || (now - this._lastDragLogTime) > 1000) {
-          console.log('[SaveCoordinator] Drag in progress - deferring processing');
+          const interactionType = changeContext.isDragging ? 'drag' : 
+                                 changeContext.isPanning ? 'pan' :
+                                 changeContext.isPinching ? 'pinch' : 'interaction';
+          console.log(`[SaveCoordinator] ${interactionType.charAt(0).toUpperCase() + interactionType.slice(1)} in progress - deferring processing`);
           this._lastDragLogTime = now;
         }
         return;
@@ -204,12 +228,18 @@ class SaveCoordinator {
       this.nextStateToProcess = newState;
       this.lastChangeContext = changeContext;
 
-      // If drag just ended, force immediate processing logic
-      if (changeContext.phase === 'end' && changeContext.isDragging === false) {
-        console.log('[SaveCoordinator] Drag ended, triggering processing');
+      // If interaction just ended, force immediate processing logic  
+      if ((changeContext.phase === 'end' || changeContext.phase === 'complete') && !isInteracting) {
+        console.log('[SaveCoordinator] Interaction ended, triggering processing');
+        // Clear worker timer to force fresh processing after interaction
+        if (this.workerTimer) {
+          clearTimeout(this.workerTimer);
+          this.workerTimer = null;
+        }
       }
 
       // Debounce sending to worker to avoid flooding it
+      // But ONLY if we're not in an interaction - worker serialization is expensive
       if (this.workerProcessing) {
         this.workerDirty = true;
       } else {
@@ -245,6 +275,25 @@ class SaveCoordinator {
   // Execute save (both local and git)
   async executeSave() {
     if (this.isSaving) return;
+    
+    // CRITICAL: Don't execute save during ANY user interaction (drag, pan, pinch, zoom animation)
+    // This prevents choppy performance and ensures we only save when the user is done interacting
+    if (this.isGlobalDragging) {
+      console.log('[SaveCoordinator] executeSave blocked - user interaction still in progress, rescheduling');
+      this.scheduleSave(); // Reschedule for after interaction ends
+      return;
+    }
+    
+    // CRITICAL: Add cooldown after interaction ends to let UI settle
+    // This prevents choppy lift/release by deferring heavy file I/O
+    const timeSinceInteractionEnd = Date.now() - this._lastInteractionEndTime;
+    const COOLDOWN_MS = 300; // Wait 300ms after interaction ends before saving
+    if (this._lastInteractionEndTime > 0 && timeSinceInteractionEnd < COOLDOWN_MS) {
+      const remainingCooldown = COOLDOWN_MS - timeSinceInteractionEnd;
+      console.log(`[SaveCoordinator] executeSave deferred ${remainingCooldown}ms for post-interaction cooldown`);
+      setTimeout(() => this.executeSave(), remainingCooldown);
+      return;
+    }
     
     // We need either a pending string (from worker) or a lastState (fallback)
     if (!this.pendingString && !this.lastState) return;

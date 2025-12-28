@@ -173,3 +173,6 @@ export const generateProgressiveColor = (baseColor, level) => {
   return hslToHex(h, reducedSaturation, newLightness);
 };
 
+
+
+

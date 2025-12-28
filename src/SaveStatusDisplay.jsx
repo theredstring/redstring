@@ -10,8 +10,17 @@ const SaveStatusDisplay = () => {
   useEffect(() => {
     let cancelled = false;
 
-    // Poll sync status every second (same as GitNativeFederation)
-    const pollInterval = setInterval(async () => {
+    // Poll sync status - use longer interval during interactions to reduce load
+    const getPollInterval = () => {
+      // Check if user is actively interacting (dragging, panning, etc.)
+      const isInteracting = saveCoordinator.isGlobalDragging;
+      return isInteracting ? 5000 : 1000; // 5s during interaction, 1s otherwise
+    };
+
+    let currentInterval = getPollInterval();
+    let pollInterval;
+
+    const poll = async () => {
       if (cancelled) return;
 
       try {
@@ -73,14 +82,24 @@ const SaveStatusDisplay = () => {
           setIsCTA(false);
         }
       }
-    }, 1000);
 
-    // Initial load
-    pollInterval;
+      // Reschedule with potentially updated interval
+      const nextInterval = getPollInterval();
+      if (nextInterval !== currentInterval) {
+        currentInterval = nextInterval;
+        if (pollInterval) clearTimeout(pollInterval);
+        pollInterval = setTimeout(poll, currentInterval);
+      } else {
+        pollInterval = setTimeout(poll, currentInterval);
+      }
+    };
+
+    // Initial poll
+    poll();
 
     return () => {
       cancelled = true;
-      clearInterval(pollInterval);
+      if (pollInterval) clearTimeout(pollInterval);
     };
   }, []);
 

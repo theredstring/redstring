@@ -136,23 +136,16 @@ function isLikelyNetworkRefusal(err) {
 }
 
 export function bridgeFetch(path, options) {
-  const now = Date.now();
-  if (__bridgeHealth.cooldownUntil && now < __bridgeHealth.cooldownUntil) {
-    const cooldownRemaining = Math.ceil((__bridgeHealth.cooldownUntil - now) / 1000);
-    return Promise.reject(new Error(`bridge_unavailable_cooldown: ${cooldownRemaining}s remaining`));
-  }
+  // Cooldown removed to prevent development friction
   return fetch(bridgeUrl(path), options)
     .then((res) => {
       // Any response means the listener exists; reset failures
       __bridgeHealth.consecutiveFailures = 0;
-      __bridgeHealth.cooldownUntil = 0;
       return res;
     })
     .catch((err) => {
       if (isLikelyNetworkRefusal(err)) {
         __bridgeHealth.consecutiveFailures += 1;
-        // If it's down, set a 1 second cooldown to prevent instant spamming but allow quick retries
-        __bridgeHealth.cooldownUntil = Date.now() + 1000; 
       }
       throw err;
     });

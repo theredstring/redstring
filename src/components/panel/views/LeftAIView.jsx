@@ -445,6 +445,10 @@ const LeftAIView = ({ compact = false, activeGraphId, graphsMap }) => {
   const graphCount = graphsMap && typeof graphsMap.size === 'number' ? graphsMap.size : 0;
 
   const handleAutonomousAgent = async (question) => {
+    // Message ID for streaming updates - message will be created on first SSE event
+    // Defined outside try/catch so it's available in error handler
+    const streamingMessageId = `${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+
     try {
       const apiConfig = await apiKeyManager.getAPIKeyInfo();
       const apiKey = await apiKeyManager.getAPIKey();
@@ -461,9 +465,6 @@ const LeftAIView = ({ compact = false, activeGraphId, graphsMap }) => {
       const abortController = new AbortController();
       setCurrentAgentRequest(abortController);
       
-      // Message ID for streaming updates - message will be created on first SSE event
-      const streamingMessageId = `${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-
       // Send recent conversation history for context memory
       const recentMessages = messages.slice(-10).map(msg => ({
         role: msg.sender === 'user' ? 'user' : msg.sender === 'ai' ? 'assistant' : 'system',

@@ -1494,7 +1494,20 @@ const BridgeClient = () => {
           }
         } catch { }
       } catch (error) {
-        // Ignore errors - this is just a polling mechanism
+        // Handle connection errors by entering reconnection mode to stop console spam
+        const isConnectionError = error.message && (
+          error.message.includes('fetch') ||
+          error.message.includes('ECONNREFUSED') ||
+          error.message.includes('Failed to fetch') ||
+          error.message.includes('bridge_unavailable_cooldown') ||
+          error.message.includes('NetworkError')
+        );
+
+        if (isConnectionError && connectionStateRef.current.isConnected) {
+          console.log('🔌 MCP Bridge: Connection lost (polling failed), switching to reconnection mode');
+          connectionStateRef.current.isConnected = false;
+          startReconnection();
+        }
       }
     };
 
