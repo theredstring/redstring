@@ -2134,12 +2134,18 @@ function NodeCanvas() {
     let animationFrameId;
     
     const panLoop = () => {
+      // If zooming (initial drag or restore), skip edge panning to prevent fighting/jitter
+      if (isAnimatingZoomRef.current || restoreInProgressRef.current) {
+        panRafRef.current = requestAnimationFrame(panLoop);
+        return;
+      }
+
       if (!draggingNodeInfoRef.current) return;
 
       const { x: mouseX, y: mouseY } = mousePositionRef.current;
       const bounds = viewportBoundsRef.current;
-      const margin = 100; // Edge zone size in pixels
-      const maxSpeed = 15; // Max speed per frame
+      const margin = 150; // Larger edge zone for better responsiveness
+      const maxSpeed = 25; // Faster max speed
 
       let dx = 0;
       let dy = 0;
@@ -2355,9 +2361,10 @@ function NodeCanvas() {
     } catch { }
   }, [activeGraphId, nodes, baseDimsById, viewportSize, canvasSize, MAX_ZOOM]);
 
-  const animateZoomToTarget = useCallback((targetZoom, anchorPoint = null, currentZoom = null) => {
+  const animateZoomToTarget = useCallback((targetZoom, anchorPoint = null, currentZoom = null, currentPan = null) => {
     // anchorPoint: { clientX, clientY } - the screen point to keep stable
     // currentZoom: optional explicit current zoom level (to avoid stale ref issues)
+    // currentPan: optional explicit current pan (to avoid stale ref issues)
     
     
     // Stop any existing drag zoom animation
@@ -2374,7 +2381,8 @@ function NodeCanvas() {
 
     // Use provided currentZoom if available, otherwise fall back to ref (but prefer state)
     const startZoom = currentZoom !== null ? currentZoom : zoomLevelRef.current;
-    const startPan = { ...panOffsetRef.current };
+    // Use provided currentPan if available, otherwise fall back to ref
+    const startPan = currentPan ? { ...currentPan } : { ...panOffsetRef.current };
 
     // If no anchor point provided, use viewport center
     const clientX = anchorPoint ? anchorPoint.clientX : viewportSizeRef.current.width / 2;
@@ -2386,6 +2394,10 @@ function NodeCanvas() {
     // The world coordinates of the anchor point at the START of animation
     const anchorWorldX = (clientX - rect.left - startPan.x) / startZoom + canvasSizeRef.current.offsetX;
     const anchorWorldY = (clientY - rect.top - startPan.y) / startZoom + canvasSizeRef.current.offsetY;
+
+    // #region agent log
+    fetch('http://127.0.0.1:7242/ingest/52d0fe28-158e-49a4-b331-f013fcb14181',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'NodeCanvas.jsx:animateZoomToTarget:start',message:'Animation Start',data:{startPan,startZoom,anchorWorld:{x:anchorWorldX,y:anchorWorldY},clientX,clientY,rectLeft:rect.left,rectTop:rect.top},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H15'})}).catch(()=>{});
+    // #endregion
 
     zoomAnimationRef.current = {
       active: true,
@@ -6684,7 +6696,8 @@ function NodeCanvas() {
     console.log('[Mouse Down] History reset to 1 sample');
   };
   const handleMouseUp = (e) => {
-    console.log('[Mouse Up] Called, history length:', panVelocityHistoryRef.current.length, 'Stack:', new Error().stack.split('\n').slice(1, 4).join('\n'));
+    
+    // console.log('[Mouse Up] Called, history length:', panVelocityHistoryRef.current.length, 'Stack:', new Error().stack.split('\n').slice(1, 4).join('\n'));
     
     if (isPaused || !activeGraphId) return;
     clearTimeout(longPressTimeout.current);
@@ -6875,7 +6888,6 @@ function NodeCanvas() {
         actualZoomedOutLevelRef.current = null; // Clear the tracked zoom level
         actualZoomedOutPanRef.current = null; // Clear the tracked pan offset
         preDragPanOffsetRef.current = null; // Clear the stored pan offset
-        
         // Reset restoreInProgress after animation would have started
         requestAnimationFrame(() => {
           restoreInProgressRef.current = false;
