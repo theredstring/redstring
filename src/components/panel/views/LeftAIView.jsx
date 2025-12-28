@@ -545,6 +545,8 @@ const LeftAIView = ({ compact = false, activeGraphId, graphsMap }) => {
         activeGraphId: activeGraphId || null
       };
 
+      console.log('[Wizard] Starting request to /api/wizard', { apiKey: apiKey ? 'present' : 'missing', apiConfig });
+
       // Use new Wizard endpoint with SSE streaming
       const response = await bridgeFetch('/api/wizard', {
         method: 'POST',

@@ -2007,18 +2007,11 @@ function NodeCanvas() {
     zoomLevelRef.current = zoomLevel;
   }, [zoomLevel]);
 
-  // #region agent log - Watchdog to track zoom changes during drag
+  // Watchdog removed
   const prevZoomForWatchdog = useRef(zoomLevel);
   useEffect(() => {
-    if (draggingNodeInfoRef.current && !isAnimatingZoomRef.current) {
-      const delta = Math.abs(zoomLevel - prevZoomForWatchdog.current);
-      if (delta > 0.001) {
-        fetch('http://127.0.0.1:7242/ingest/52d0fe28-158e-49a4-b331-f013fcb14181',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'NodeCanvas.jsx:zoomWatchdog',message:'WATCHDOG: Zoom changed during drag (NOT from our animation)',data:{prevZoom:prevZoomForWatchdog.current,newZoom:zoomLevel,delta,preDragZoomLevel,isAnimatingZoom:isAnimatingZoomRef.current},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H7,H8,H9,H10'})}).catch(()=>{});
-      }
-    }
     prevZoomForWatchdog.current = zoomLevel;
-  }, [zoomLevel, preDragZoomLevel]);
-  // #endregion
+  }, [zoomLevel]);
 
   const stopPanMomentum = useCallback(() => {
     const { animationId } = panMomentumRef.current;
@@ -2178,9 +2171,6 @@ function NodeCanvas() {
     // anchorPoint: { clientX, clientY } - the screen point to keep stable
     // currentZoom: optional explicit current zoom level (to avoid stale ref issues)
     
-    // #region agent log
-    fetch('http://127.0.0.1:7242/ingest/52d0fe28-158e-49a4-b331-f013fcb14181',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'NodeCanvas.jsx:animateZoomToTarget:entry',message:'animateZoomToTarget called',data:{targetZoom,anchorPoint,currentZoom,existingAnimationId:!!zoomAnimationRef.current.animationId,pinchAnimating:pinchSmoothingRef.current?.isAnimating,zoomLevelRefCurrent:zoomLevelRef.current},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H1,H2'})}).catch(()=>{});
-    // #endregion
     
     // Stop any existing drag zoom animation
     if (zoomAnimationRef.current.animationId) {
@@ -2225,9 +2215,6 @@ function NodeCanvas() {
     const step = (now) => {
       const state = zoomAnimationRef.current;
       if (!state.active) {
-        // #region agent log
-        fetch('http://127.0.0.1:7242/ingest/52d0fe28-158e-49a4-b331-f013fcb14181',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'NodeCanvas.jsx:animateZoomToTarget:step',message:'Animation step skipped - state.active is false',data:{state},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H1'})}).catch(()=>{});
-        // #endregion
         return;
       }
 
@@ -2249,19 +2236,12 @@ function NodeCanvas() {
       const clampedPanX = Math.min(0, Math.max(newPanX, minPanX));
       const clampedPanY = Math.min(0, Math.max(newPanY, minPanY));
 
-      // #region agent log
-      if (progress < 0.1 || progress > 0.9) fetch('http://127.0.0.1:7242/ingest/52d0fe28-158e-49a4-b331-f013fcb14181',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'NodeCanvas.jsx:animateZoomToTarget:step',message:'Animation step',data:{progress:progress.toFixed(3),currentZoom:currentZoom.toFixed(4),startZoom:state.startZoom,targetZoom:state.targetZoom,clampedPanX:clampedPanX.toFixed(1),clampedPanY:clampedPanY.toFixed(1)},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H1,H4'})}).catch(()=>{});
-      // #endregion
-
       setZoomLevel(currentZoom);
       setPanOffset({ x: clampedPanX, y: clampedPanY });
 
       if (progress < 1) {
         state.animationId = requestAnimationFrame(step);
       } else {
-        // #region agent log
-        fetch('http://127.0.0.1:7242/ingest/52d0fe28-158e-49a4-b331-f013fcb14181',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'NodeCanvas.jsx:animateZoomToTarget:complete',message:'Animation complete',data:{finalZoom:currentZoom.toFixed(4),targetZoom:state.targetZoom,finalPanX:clampedPanX.toFixed(1),finalPanY:clampedPanY.toFixed(1)},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H1'})}).catch(()=>{});
-        // #endregion
         // Store the actual final zoom level AND pan offset for accurate restore later
         // (React state/ref updates are async, so we must capture the actual values here)
         if (zoomOutInitiatedRef.current && !restoreInProgressRef.current) {
@@ -2279,10 +2259,6 @@ function NodeCanvas() {
 
   // Animate directly to target zoom AND pan values (used for restore to avoid anchor drift)
   const animateZoomAndPanToTarget = useCallback((targetZoom, targetPan, currentZoom, currentPan = null) => {
-    // #region agent log
-    fetch('http://127.0.0.1:7242/ingest/52d0fe28-158e-49a4-b331-f013fcb14181',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'NodeCanvas.jsx:animateZoomAndPanToTarget:entry',message:'animateZoomAndPanToTarget called',data:{targetZoom,targetPan,currentZoom,currentPan:currentPan||panOffsetRef.current,usedActualPan:!!currentPan},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H6'})}).catch(()=>{});
-    // #endregion
-
     // Stop any existing animations
     if (zoomAnimationRef.current.animationId) {
       cancelAnimationFrame(zoomAnimationRef.current.animationId);
@@ -2321,19 +2297,12 @@ function NodeCanvas() {
       const currentPanX = state.startPan.x + (state.targetPan.x - state.startPan.x) * t;
       const currentPanY = state.startPan.y + (state.targetPan.y - state.startPan.y) * t;
 
-      // #region agent log
-      if (progress < 0.1 || progress > 0.9) fetch('http://127.0.0.1:7242/ingest/52d0fe28-158e-49a4-b331-f013fcb14181',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'NodeCanvas.jsx:animateZoomAndPanToTarget:step',message:'Direct restore step',data:{progress:progress.toFixed(3),currentZoom:currentZoomVal.toFixed(4),currentPanX:currentPanX.toFixed(1),currentPanY:currentPanY.toFixed(1)},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H6'})}).catch(()=>{});
-      // #endregion
-
       setZoomLevel(currentZoomVal);
       setPanOffset({ x: currentPanX, y: currentPanY });
 
       if (progress < 1) {
         state.animationId = requestAnimationFrame(step);
       } else {
-        // #region agent log
-        fetch('http://127.0.0.1:7242/ingest/52d0fe28-158e-49a4-b331-f013fcb14181',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'NodeCanvas.jsx:animateZoomAndPanToTarget:complete',message:'Direct restore complete',data:{finalZoom:currentZoomVal.toFixed(4),finalPanX:currentPanX.toFixed(1),finalPanY:currentPanY.toFixed(1)},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H6'})}).catch(()=>{});
-        // #endregion
         state.active = false;
         state.animationId = null;
         setIsAnimatingZoom(false);
@@ -4344,15 +4313,9 @@ function NodeCanvas() {
 
   // Effect to restore view state on graph change or center if no stored state
   useLayoutEffect(() => {
-    // #region agent log
-    fetch('http://127.0.0.1:7242/ingest/52d0fe28-158e-49a4-b331-f013fcb14181',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'NodeCanvas.jsx:graphViewEffect:triggered',message:'GRAPH VIEW EFFECT TRIGGERED',data:{activeGraphId,viewportWidth:viewportSize.width,canvasWidth:canvasSize.width,draggingNodeInfo:!!draggingNodeInfoRef.current,isAnimatingZoom:isAnimatingZoomRef.current},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H10,H11'})}).catch(()=>{});
-    // #endregion
-    
-    // CRITICAL: Don't restore view state during node drag or drag zoom animations
+    // If we're dragging a node or animating zoom, DO NOT restore view from store
+    // This prevents the "teleportation" where store state overrides our local interaction state
     if (draggingNodeInfoRef.current || isAnimatingZoomRef.current) {
-      // #region agent log
-      fetch('http://127.0.0.1:7242/ingest/52d0fe28-158e-49a4-b331-f013fcb14181',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'NodeCanvas.jsx:graphViewEffect:blocked',message:'RESTORE BLOCKED during drag/animation',data:{draggingNodeInfo:!!draggingNodeInfoRef.current,isAnimatingZoom:isAnimatingZoomRef.current},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H11'})}).catch(()=>{});
-      // #endregion
       return;
     }
     
@@ -4365,9 +4328,6 @@ function NodeCanvas() {
 
       if (graphData && graphData.panOffset && typeof graphData.zoomLevel === 'number') {
         // Restore the stored view state immediately
-        // #region agent log
-        fetch('http://127.0.0.1:7242/ingest/52d0fe28-158e-49a4-b331-f013fcb14181',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'NodeCanvas.jsx:graphViewEffect:restore',message:'GRAPH VIEW EFFECT restoring zoom',data:{newZoom:graphData.zoomLevel,newPan:graphData.panOffset,draggingNodeInfo:!!draggingNodeInfoRef.current,isAnimatingZoom:isAnimatingZoomRef.current},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H7,H10'})}).catch(()=>{});
-        // #endregion
         setPanOffset(graphData.panOffset);
         setZoomLevel(graphData.zoomLevel);
       } else {
@@ -4434,23 +4394,14 @@ function NodeCanvas() {
 
       // CRITICAL: Don't save during node drag or drag zoom animations
       if (draggingNodeInfo || isAnimatingZoom) {
-        // #region agent log
-        fetch('http://127.0.0.1:7242/ingest/52d0fe28-158e-49a4-b331-f013fcb14181',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'NodeCanvas.jsx:saveViewEffect:blocked',message:'SAVE BLOCKED during drag/animation',data:{draggingNodeInfo:!!draggingNodeInfo,isAnimatingZoom},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H11'})}).catch(()=>{});
-        // #endregion
         return;
       }
 
       const saveDelay = 300; // Standard delay for non-pinch operations
       saveViewStateTimeout.current = setTimeout(() => {
         if (!isPanningOrZooming.current && !draggingNodeInfoRef.current && !isAnimatingZoomRef.current) {
-          // #region agent log
-          fetch('http://127.0.0.1:7242/ingest/52d0fe28-158e-49a4-b331-f013fcb14181',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'NodeCanvas.jsx:saveViewEffect:saving',message:'SAVING view state',data:{zoom:zoomLevel,pan:panOffset},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H11'})}).catch(()=>{});
-          // #endregion
           updateGraphViewInStore();
         } else {
-          // #region agent log
-          fetch('http://127.0.0.1:7242/ingest/52d0fe28-158e-49a4-b331-f013fcb14181',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'NodeCanvas.jsx:saveViewEffect:timeoutBlocked',message:'SAVE TIMEOUT blocked - still dragging/animating',data:{isPanning:isPanningOrZooming.current,dragging:!!draggingNodeInfoRef.current,animating:isAnimatingZoomRef.current},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H11'})}).catch(()=>{});
-          // #endregion
         }
       }, saveDelay);
     }
@@ -4470,9 +4421,6 @@ function NodeCanvas() {
     if (!smoothing || !smoothing.isAnimating) {
       return;
     }
-    // #region agent log
-    if (draggingNodeInfoRef.current || isAnimatingZoomRef.current) fetch('http://127.0.0.1:7242/ingest/52d0fe28-158e-49a4-b331-f013fcb14181',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'NodeCanvas.jsx:animatePinchSmoothing',message:'WARNING: pinchSmoothing running during drag/zoom!',data:{isDragging:!!draggingNodeInfoRef.current,isAnimatingZoom:isAnimatingZoomRef.current,currentZoom:smoothing.currentZoom,targetZoom:smoothing.targetZoom},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H1'})}).catch(()=>{});
-    // #endregion
     if (!smoothing.isAnimating) {
       // Animation should not be running
       if (smoothing?.animationId) {
@@ -4518,9 +4466,6 @@ function NodeCanvas() {
     const panYDelta = smoothing.currentPanY - prevPanY;
 
     // Batch state updates to reduce renders and potential jitter
-    // #region agent log
-    if (draggingNodeInfoRef.current || isAnimatingZoomRef.current) fetch('http://127.0.0.1:7242/ingest/52d0fe28-158e-49a4-b331-f013fcb14181',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'NodeCanvas.jsx:animatePinchSmoothing:step',message:'PINCH SMOOTHING setting zoom DURING DRAG/ANIM',data:{newZoom:smoothing.currentZoom,newPanX:smoothing.currentPanX,draggingNodeInfo:!!draggingNodeInfoRef.current,isAnimatingZoom:isAnimatingZoomRef.current},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H7,H8'})}).catch(()=>{});
-    // #endregion
     if (React?.startTransition) {
       React.startTransition(() => {
         setZoomLevel(smoothing.currentZoom);
@@ -4799,18 +4744,12 @@ function NodeCanvas() {
       // Movement Zoom-Out: Trigger after a tiny delay to ensure state is settled
       // This prevents zoom reset during the movement threshold delay while still triggering reliably
       const currentZoom = zoomLevel;
-      // #region agent log
-      fetch('http://127.0.0.1:7242/ingest/52d0fe28-158e-49a4-b331-f013fcb14181',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'NodeCanvas.jsx:startDragForNode:group',message:'startDragForNode zoom check (group)',data:{currentZoom,DRAG_ZOOM_MIN,zoomOutInitiated:zoomOutInitiatedRef.current,preDragZoomLevel},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H2,H3,H5'})}).catch(()=>{});
-      // #endregion
       if (currentZoom > DRAG_ZOOM_MIN && !zoomOutInitiatedRef.current) {
         zoomOutInitiatedRef.current = true;
         setPreDragZoomLevel(currentZoom);
         // Store original pan offset for proper restore (avoids anchor drift)
         preDragPanOffsetRef.current = { ...panOffset };
         const targetZoom = Math.max(DRAG_ZOOM_MIN, currentZoom * DRAG_ZOOM_OUT_FACTOR);
-        // #region agent log
-        fetch('http://127.0.0.1:7242/ingest/52d0fe28-158e-49a4-b331-f013fcb14181',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'NodeCanvas.jsx:startDragForNode:zoomOut',message:'Initiating zoom-out from startDragForNode (group)',data:{currentZoom,targetZoom,clientX,clientY,storedPanOffset:preDragPanOffsetRef.current},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H2,H5,H6'})}).catch(()=>{});
-        // #endregion
         // Small delay to ensure state is settled and prevent interference
         requestAnimationFrame(() => {
           animateZoomToTarget(targetZoom, { clientX, clientY }, currentZoom);
@@ -4833,18 +4772,12 @@ function NodeCanvas() {
     // Movement Zoom-Out: Trigger after a tiny delay to ensure state is settled
     // This prevents zoom reset during the movement threshold delay while still triggering reliably
     const currentZoom = zoomLevel;
-    // #region agent log
-    fetch('http://127.0.0.1:7242/ingest/52d0fe28-158e-49a4-b331-f013fcb14181',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'NodeCanvas.jsx:startDragForNode:single',message:'startDragForNode zoom check (single)',data:{currentZoom,DRAG_ZOOM_MIN,zoomOutInitiated:zoomOutInitiatedRef.current,preDragZoomLevel},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H2,H3,H5'})}).catch(()=>{});
-    // #endregion
     if (currentZoom > DRAG_ZOOM_MIN && !zoomOutInitiatedRef.current) {
       zoomOutInitiatedRef.current = true;
       setPreDragZoomLevel(currentZoom);
       // Store original pan offset for proper restore (avoids anchor drift)
       preDragPanOffsetRef.current = { ...panOffset };
       const targetZoom = Math.max(DRAG_ZOOM_MIN, currentZoom * DRAG_ZOOM_OUT_FACTOR);
-      // #region agent log
-      fetch('http://127.0.0.1:7242/ingest/52d0fe28-158e-49a4-b331-f013fcb14181',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'NodeCanvas.jsx:startDragForNode:zoomOut',message:'Initiating zoom-out from startDragForNode (single)',data:{currentZoom,targetZoom,clientX,clientY,storedPanOffset:preDragPanOffsetRef.current},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H2,H5,H6'})}).catch(()=>{});
-      // #endregion
       // Small delay to ensure state is settled and prevent interference
       requestAnimationFrame(() => {
         animateZoomToTarget(targetZoom, { clientX, clientY }, currentZoom);
@@ -5243,9 +5176,6 @@ function NodeCanvas() {
           viewportSize, canvasSize, MIN_ZOOM, MAX_ZOOM,
         });
         if (opId === zoomOpIdRef.current) {
-          // #region agent log
-          fetch('http://127.0.0.1:7242/ingest/52d0fe28-158e-49a4-b331-f013fcb14181',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'NodeCanvas.jsx:handleWheel:pinchZoomWorker',message:'PINCH ZOOM WEBWORKER setting zoom',data:{newZoom:result.zoomLevel,newPan:result.panOffset,draggingNodeInfo:!!draggingNodeInfo,isAnimatingZoom},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H7,H8'})}).catch(()=>{});
-          // #endregion
           setPanOffset(result.panOffset);
           setZoomLevel(result.zoomLevel);
         }
@@ -5321,9 +5251,6 @@ function NodeCanvas() {
         });
         // Drop stale results (older ops) to avoid "ghost frames"
         if (opId === zoomOpIdRef.current) {
-          // #region agent log
-          fetch('http://127.0.0.1:7242/ingest/52d0fe28-158e-49a4-b331-f013fcb14181',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'NodeCanvas.jsx:handleWheel:mouseWheelWorker',message:'MOUSE WHEEL WEBWORKER setting zoom',data:{newZoom:result.zoomLevel,newPan:result.panOffset,draggingNodeInfo:!!draggingNodeInfo,isAnimatingZoom},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H7,H8'})}).catch(()=>{});
-          // #endregion
           setPanOffset(result.panOffset);
           setZoomLevel(result.zoomLevel);
           lastZoomTsRef.current = nowTs;
@@ -6580,6 +6507,7 @@ function NodeCanvas() {
   };
   const handleMouseUp = (e) => {
     console.log('[Mouse Up] Called, history length:', panVelocityHistoryRef.current.length, 'Stack:', new Error().stack.split('\n').slice(1, 4).join('\n'));
+    
     if (isPaused || !activeGraphId) return;
     clearTimeout(longPressTimeout.current);
     setLongPressingInstanceId(null); // Clear ID
@@ -6727,15 +6655,9 @@ function NodeCanvas() {
       setDraggingNodeInfo(null);
 
       // Movement Zoom-Out: Restore zoom level if we were dragging
-      // #region agent log
-      fetch('http://127.0.0.1:7242/ingest/52d0fe28-158e-49a4-b331-f013fcb14181',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'NodeCanvas.jsx:handleMouseUp:restoreCheck',message:'handleMouseUp restore check',data:{preDragZoomLevel,preDragPanOffset:preDragPanOffsetRef.current,actualZoomedOutLevel:actualZoomedOutLevelRef.current,restoreInProgress:restoreInProgressRef.current,zoomOutInitiated:zoomOutInitiatedRef.current},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H3,H6'})}).catch(()=>{});
-      // #endregion
       // Prevent double calls - only process if not already restoring
       if (preDragZoomLevel !== null && !restoreInProgressRef.current) {
         restoreInProgressRef.current = true;
-        // #region agent log
-        fetch('http://127.0.0.1:7242/ingest/52d0fe28-158e-49a4-b331-f013fcb14181',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'NodeCanvas.jsx:handleMouseUp:restoreZoom',message:'Restoring zoom and pan from handleMouseUp',data:{preDragZoomLevel,preDragPanOffset:preDragPanOffsetRef.current,actualZoomedOutLevel:actualZoomedOutLevelRef.current,actualZoomedOutPan:actualZoomedOutPanRef.current},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H3,H6'})}).catch(()=>{});
-        // #endregion
         // Use actualZoomedOutLevelRef (the real zoom after animation) instead of stale closure value
         const startZoomForRestore = actualZoomedOutLevelRef.current ?? zoomLevelRef.current;
         // Use actualZoomedOutPanRef (the real pan after animation) instead of stale ref

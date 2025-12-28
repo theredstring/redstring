@@ -15,7 +15,7 @@ import { exportToRedstring } from '../formats/redstringFormat.js';
 import { gitAutosavePolicy } from './GitAutosavePolicy.js';
 
 // SIMPLIFIED: No priorities - all changes batched together with a single debounce
-const DEBOUNCE_MS = 500; // Wait 500ms after last change before saving
+const DEBOUNCE_MS = 2000; // Wait 2000ms after last change before saving (merges node drop + view restore)
 
 class SaveCoordinator {
   constructor() {
@@ -335,7 +335,7 @@ class SaveCoordinator {
       this.isDirty = false;
       this.pendingString = null; // Clear memory
       this.notifyStatus('success', 'Save completed');
-
+      
     } catch (error) {
       console.error('[SaveCoordinator] Save failed:', error);
       this.notifyStatus('error', `Save failed: ${error.message}`);
