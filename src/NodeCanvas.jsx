@@ -2027,6 +2027,20 @@ function NodeCanvas() {
 
   const mousePositionRef = useRef({ x: 0, y: 0 });
 
+  // Document-level mouse tracking during drag (captures events even over panels)
+  useEffect(() => {
+    if (!draggingNodeInfo) return;
+    
+    const handleDocumentMouseMove = (e) => {
+      mousePositionRef.current = { x: e.clientX, y: e.clientY };
+    };
+    
+    document.addEventListener('mousemove', handleDocumentMouseMove);
+    return () => {
+      document.removeEventListener('mousemove', handleDocumentMouseMove);
+    };
+  }, [draggingNodeInfo]);
+
   // --- Grid Snapping Helpers ---
   const snapToGrid = (mouseX, mouseY, nodeWidth, nodeHeight) => {
     return GeometryUtils.snapToGrid(mouseX, mouseY, nodeWidth, nodeHeight, gridMode, gridSize);
