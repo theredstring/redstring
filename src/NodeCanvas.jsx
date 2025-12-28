@@ -114,7 +114,7 @@ const TOUCH_PAN_MOMENTUM_BOOST = 1.5;           // minimal boost for natural tou
 const TRACKPAD_PAN_MOMENTUM_BOOST = 1.1;        // marginally higher boost for precision trackpads
 
 // Movement Zoom-Out constants
-const DRAG_ZOOM_OUT_FACTOR = 0.85;            // Zoom to 85% of current (15% reduction)
+const DRAG_ZOOM_OUT_FACTOR = 0.65;            // Zoom to 65% of current (35% reduction)
 const DRAG_ZOOM_MIN = 0.3;                    // Don't zoom out beyond this
 const DRAG_ZOOM_ANIMATION_DURATION = 250;     // ms (slightly increased for smoothness)
 
@@ -2216,9 +2216,6 @@ function NodeCanvas() {
 
         if (newX !== currentPan.x || newY !== currentPan.y) {
           const newPan = { x: newX, y: newY };
-          // #region agent log
-          fetch('http://127.0.0.1:7242/ingest/52d0fe28-158e-49a4-b331-f013fcb14181',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'NodeCanvas.jsx:panLoop:update',message:'panLoop updating',data:{dx,dy,newPan,frame:performance.now()},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H20'})}).catch(()=>{});
-          // #endregion
           
           // CRITICAL: Update ref synchronously BEFORE setPanOffset
           // This ensures handleMouseMove's RAF sees the new value immediately
@@ -6583,10 +6580,6 @@ function NodeCanvas() {
               const mouseCanvasX = (clientX - rect.left - currentPan.x) / currentZoom + currentCanvasSize.offsetX;
               const mouseCanvasY = (clientY - rect.top - currentPan.y) / currentZoom + currentCanvasSize.offsetY;
 
-              // #region agent log
-              fetch('http://127.0.0.1:7242/ingest/52d0fe28-158e-49a4-b331-f013fcb14181',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'NodeCanvas.jsx:handleMouseMove:RAF:singleNode',message:'handleMouseMove RAF updating',data:{mouseCanvasX,mouseCanvasY,currentPan,frame:performance.now()},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H20'})}).catch(()=>{});
-              // #endregion
-
               let newX, newY;
 
               // Apply smooth grid snapping to single node
@@ -6914,21 +6907,23 @@ function NodeCanvas() {
         const currentZoom = zoomLevelRef.current;
         const currentPan = panOffsetRef.current;
         
-        // Calculate Target Pan: Maintain the current center point
-        // We want the point currently at the center of the viewport to STAY at the center after zooming in
+        // Calculate Target Pan: Center on where the node was DROPPED (mouse position)
+        // This ensures the dropped node stays visible after zooming back in
         const rect = containerRef.current.getBoundingClientRect();
-        const centerX = rect.width / 2;
-        const centerY = rect.height / 2;
+        const dropX = e.clientX - rect.left;
+        const dropY = e.clientY - rect.top;
         
-        // 1. Find world coordinates of the center point using CURRENT zoom/pan
+        // 1. Find world coordinates of the drop point using CURRENT zoom/pan
         // worldX = (screenX - panX) / zoom + offsetX
-        const centerWorldX = (centerX - currentPan.x) / currentZoom + canvasSizeRef.current.offsetX;
-        const centerWorldY = (centerY - currentPan.y) / currentZoom + canvasSizeRef.current.offsetY;
+        const dropWorldX = (dropX - currentPan.x) / currentZoom + canvasSizeRef.current.offsetX;
+        const dropWorldY = (dropY - currentPan.y) / currentZoom + canvasSizeRef.current.offsetY;
         
-        // 2. Calculate NEW pan to keep that world point at the center using TARGET zoom
+        // 2. Calculate NEW pan to keep that world point at the CENTER of the viewport using TARGET zoom
         // panX = screenX - (worldX - offsetX) * zoom
-        const targetPanX = centerX - (centerWorldX - canvasSizeRef.current.offsetX) * targetZoom;
-        const targetPanY = centerY - (centerWorldY - canvasSizeRef.current.offsetY) * targetZoom;
+        const viewportCenterX = rect.width / 2;
+        const viewportCenterY = rect.height / 2;
+        const targetPanX = viewportCenterX - (dropWorldX - canvasSizeRef.current.offsetX) * targetZoom;
+        const targetPanY = viewportCenterY - (dropWorldY - canvasSizeRef.current.offsetY) * targetZoom;
         
         // Clamp the new pan to bounds
         const minPanX = viewportSizeRef.current.width - canvasSizeRef.current.width * targetZoom;
