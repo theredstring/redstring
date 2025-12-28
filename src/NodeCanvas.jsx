@@ -1,4 +1,5 @@
 import React, { useState, useRef, useEffect, useLayoutEffect, useMemo, useCallback } from 'react';
+import { flushSync } from 'react-dom';
 import { Lethargy } from 'lethargy';
 import './NodeCanvas.css';
 import { X } from 'lucide-react';
@@ -1932,6 +1933,10 @@ function NodeCanvas() {
   useEffect(() => {
     panOffsetRef.current = panOffset;
   }, [panOffset]);
+  
+  // Track if edge panning is actively modifying pan (to avoid conflicts with handleMouseMove RAF)
+  const isEdgePanningRef = useRef(false);
+  
   const [recentlyPanned, setRecentlyPanned] = useState(false);
 
   const [selectionRect, setSelectionRect] = useState(null);
@@ -2177,6 +2182,9 @@ function NodeCanvas() {
       }
 
       if (dx !== 0 || dy !== 0) {
+        // Mark that edge panning is active (handleMouseMove RAF should skip)
+        isEdgePanningRef.current = true;
+        
         const currentPan = panOffsetRef.current;
         const currentZoom = zoomLevelRef.current;
         
@@ -2194,10 +2202,28 @@ function NodeCanvas() {
 
         if (newX !== currentPan.x || newY !== currentPan.y) {
           const newPan = { x: newX, y: newY };
-          setPanOffset(newPan);
+          // #region agent log
+          fetch('http://127.0.0.1:7242/ingest/52d0fe28-158e-49a4-b331-f013fcb14181',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'NodeCanvas.jsx:panLoop:update',message:'panLoop updating',data:{dx,dy,newPan,frame:performance.now()},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H20'})}).catch(()=>{});
+          // #endregion
+          
+          // CRITICAL: Update ref synchronously BEFORE setPanOffset
+          // This ensures handleMouseMove's RAF sees the new value immediately
+          // (useEffect that syncs ref from state runs AFTER RAF callbacks)
+          panOffsetRef.current = newPan;
+          
+          // Use flushSync to make pan update synchronous
+          // This ensures canvas transform and node position update in the same render
+          // Preventing 1-frame jitter where node moves but canvas doesn't
+          flushSync(() => {
+            setPanOffset(newPan);
+          });
+          
           // Force update node position with new pan to keep it under mouse
           performDragUpdate(mouseX, mouseY, newPan, currentZoom, draggingNodeInfoRef.current);
         }
+      } else {
+        // Not in edge zone - allow handleMouseMove RAF to update node position
+        isEdgePanningRef.current = false;
       }
 
       animationFrameId = requestAnimationFrame(panLoop);
@@ -2394,10 +2420,6 @@ function NodeCanvas() {
     // The world coordinates of the anchor point at the START of animation
     const anchorWorldX = (clientX - rect.left - startPan.x) / startZoom + canvasSizeRef.current.offsetX;
     const anchorWorldY = (clientY - rect.top - startPan.y) / startZoom + canvasSizeRef.current.offsetY;
-
-    // #region agent log
-    fetch('http://127.0.0.1:7242/ingest/52d0fe28-158e-49a4-b331-f013fcb14181',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'NodeCanvas.jsx:animateZoomToTarget:start',message:'Animation Start',data:{startPan,startZoom,anchorWorld:{x:anchorWorldX,y:anchorWorldY},clientX,clientY,rectLeft:rect.left,rectTop:rect.top},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H15'})}).catch(()=>{});
-    // #endregion
 
     zoomAnimationRef.current = {
       active: true,
@@ -6433,17 +6455,29 @@ function NodeCanvas() {
         dragUpdateScheduled.current = true;
         requestAnimationFrame(() => {
           dragUpdateScheduled.current = false;
+          
+          // Skip if edge panning is active - panLoop handles node positioning during edge pan
+          if (isEdgePanningRef.current) {
+            return;
+          }
+          
           const update = pendingDragUpdate.current;
           if (!update) return;
 
           const { clientX, clientY, draggingNodeInfo } = update;
+          
+          // Use refs for latest values to avoid stale closure (prevents jitter during edge panning)
+          const currentPan = panOffsetRef.current;
+          const currentZoom = zoomLevelRef.current;
+          const currentCanvasSize = canvasSizeRef.current;
+          
           // Ensure labels recalc during drag (touch or mouse) by clearing cache each frame
           placedLabelsRef.current = new Map();
           // Group drag via label
           if (draggingNodeInfo.groupId && Array.isArray(draggingNodeInfo.memberOffsets)) {
             const rect = containerRef.current.getBoundingClientRect();
-            const mouseCanvasX = (clientX - rect.left - panOffset.x) / zoomLevel + canvasSize.offsetX;
-            const mouseCanvasY = (clientY - rect.top - panOffset.y) / zoomLevel + canvasSize.offsetY;
+            const mouseCanvasX = (clientX - rect.left - currentPan.x) / currentZoom + currentCanvasSize.offsetX;
+            const mouseCanvasY = (clientY - rect.top - currentPan.y) / currentZoom + currentCanvasSize.offsetY;
             const positionUpdates = draggingNodeInfo.memberOffsets.map(({ id, dx, dy }) => {
               const node = nodes.find(n => n.id === id);
               const xRaw = mouseCanvasX - dx;
@@ -6470,12 +6504,12 @@ function NodeCanvas() {
             const primaryInstanceId = draggingNodeInfo.primaryId;
             // Use the same coordinate system as single node drag for consistency
             const rect = containerRef.current.getBoundingClientRect();
-            const mouseCanvasX = (clientX - rect.left - panOffset.x) / zoomLevel + canvasSize.offsetX;
-            const mouseCanvasY = (clientY - rect.top - panOffset.y) / zoomLevel + canvasSize.offsetY;
+            const mouseCanvasX = (clientX - rect.left - currentPan.x) / currentZoom + currentCanvasSize.offsetX;
+            const mouseCanvasY = (clientY - rect.top - currentPan.y) / currentZoom + currentCanvasSize.offsetY;
 
             // Calculate new primary position based on mouse position and initial offset
-            const initialMouseCanvasX = (draggingNodeInfo.initialMouse.x - rect.left - panOffset.x) / zoomLevel + canvasSize.offsetX;
-            const initialMouseCanvasY = (draggingNodeInfo.initialMouse.y - rect.top - panOffset.y) / zoomLevel + canvasSize.offsetY;
+            const initialMouseCanvasX = (draggingNodeInfo.initialMouse.x - rect.left - currentPan.x) / currentZoom + currentCanvasSize.offsetX;
+            const initialMouseCanvasY = (draggingNodeInfo.initialMouse.y - rect.top - currentPan.y) / currentZoom + currentCanvasSize.offsetY;
 
             const dx = mouseCanvasX - initialMouseCanvasX;
             const dy = mouseCanvasY - initialMouseCanvasY;
@@ -6530,10 +6564,14 @@ function NodeCanvas() {
             if (node) {
               const dims = getNodeDimensions(node, false, null);
 
-              // Get mouse position in canvas coordinates
+              // Get mouse position in canvas coordinates (use refs for latest values)
               const rect = containerRef.current.getBoundingClientRect();
-              const mouseCanvasX = (clientX - rect.left - panOffset.x) / zoomLevel + canvasSize.offsetX;
-              const mouseCanvasY = (clientY - rect.top - panOffset.y) / zoomLevel + canvasSize.offsetY;
+              const mouseCanvasX = (clientX - rect.left - currentPan.x) / currentZoom + currentCanvasSize.offsetX;
+              const mouseCanvasY = (clientY - rect.top - currentPan.y) / currentZoom + currentCanvasSize.offsetY;
+
+              // #region agent log
+              fetch('http://127.0.0.1:7242/ingest/52d0fe28-158e-49a4-b331-f013fcb14181',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'NodeCanvas.jsx:handleMouseMove:RAF:singleNode',message:'handleMouseMove RAF updating',data:{mouseCanvasX,mouseCanvasY,currentPan,frame:performance.now()},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H20'})}).catch(()=>{});
+              // #endregion
 
               let newX, newY;
 
@@ -6844,6 +6882,9 @@ function NodeCanvas() {
       }
 
       setDraggingNodeInfo(null);
+      
+      // Reset edge panning flag when drag ends
+      isEdgePanningRef.current = false;
 
       // Movement Zoom-Out: Restore zoom level if we were dragging
       // Prevent double calls - only process if not already restoring
