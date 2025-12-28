@@ -6838,22 +6838,46 @@ function NodeCanvas() {
       // Prevent double calls - only process if not already restoring
       if (preDragZoomLevel !== null && !restoreInProgressRef.current) {
         restoreInProgressRef.current = true;
-        // Use actualZoomedOutLevelRef (the real zoom after animation) instead of stale closure value
-        const startZoomForRestore = actualZoomedOutLevelRef.current ?? zoomLevelRef.current;
-        // Use actualZoomedOutPanRef (the real pan after animation) instead of stale ref
-        const startPanForRestore = actualZoomedOutPanRef.current ?? panOffsetRef.current;
-        // Use direct pan/zoom restore to avoid anchor drift (H6 fix)
-        if (preDragPanOffsetRef.current) {
-          animateZoomAndPanToTarget(preDragZoomLevel, preDragPanOffsetRef.current, startZoomForRestore, startPanForRestore);
-        } else {
-          // Fallback to anchor-based if we don't have stored pan
-          animateZoomToTarget(preDragZoomLevel, { clientX: e.clientX, clientY: e.clientY }, startZoomForRestore);
-        }
+        
+        // Target Zoom: Always go back to the original level
+        const targetZoom = preDragZoomLevel;
+        
+        // Current State
+        // CRITICAL: Always use the live refs for current state to account for any edge panning that happened
+        // actualZoomedOutPanRef is stale if edge panning occurred after zoom-out finished
+        const currentZoom = zoomLevelRef.current;
+        const currentPan = panOffsetRef.current;
+        
+        // Calculate Target Pan: Maintain the current center point
+        // We want the point currently at the center of the viewport to STAY at the center after zooming in
+        const rect = containerRef.current.getBoundingClientRect();
+        const centerX = rect.width / 2;
+        const centerY = rect.height / 2;
+        
+        // 1. Find world coordinates of the center point using CURRENT zoom/pan
+        // worldX = (screenX - panX) / zoom + offsetX
+        const centerWorldX = (centerX - currentPan.x) / currentZoom + canvasSizeRef.current.offsetX;
+        const centerWorldY = (centerY - currentPan.y) / currentZoom + canvasSizeRef.current.offsetY;
+        
+        // 2. Calculate NEW pan to keep that world point at the center using TARGET zoom
+        // panX = screenX - (worldX - offsetX) * zoom
+        const targetPanX = centerX - (centerWorldX - canvasSizeRef.current.offsetX) * targetZoom;
+        const targetPanY = centerY - (centerWorldY - canvasSizeRef.current.offsetY) * targetZoom;
+        
+        // Clamp the new pan to bounds
+        const minPanX = viewportSizeRef.current.width - canvasSizeRef.current.width * targetZoom;
+        const minPanY = viewportSizeRef.current.height - canvasSizeRef.current.height * targetZoom;
+        const clampedTargetPanX = Math.min(0, Math.max(targetPanX, minPanX));
+        const clampedTargetPanY = Math.min(0, Math.max(targetPanY, minPanY));
+        
+        animateZoomAndPanToTarget(targetZoom, { x: clampedTargetPanX, y: clampedTargetPanY }, currentZoom, currentPan);
+
         setPreDragZoomLevel(null);
         zoomOutInitiatedRef.current = false; // Reset flag for next drag
         actualZoomedOutLevelRef.current = null; // Clear the tracked zoom level
         actualZoomedOutPanRef.current = null; // Clear the tracked pan offset
         preDragPanOffsetRef.current = null; // Clear the stored pan offset
+        
         // Reset restoreInProgress after animation would have started
         requestAnimationFrame(() => {
           restoreInProgressRef.current = false;
