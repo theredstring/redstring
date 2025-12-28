@@ -1950,7 +1950,8 @@ function NodeCanvas() {
   const [leftPanelInitialView, setLeftPanelInitialView] = useState(null); // Control which view to open in left panel
 
   // Use proper viewport bounds hook for accurate, live viewport calculations
-  const viewportBounds = useViewportBounds(leftPanelExpanded, rightPanelExpanded, false);
+  // We pass typeListMode !== 'closed' to ensure edge panning respects the TypeList visibility
+  const viewportBounds = useViewportBounds(leftPanelExpanded, rightPanelExpanded, typeListMode !== 'closed');
 
   // Calculate viewport size - use fixed window dimensions for canvas coordinate system
   // This ensures canvas coordinates are independent of panel state
@@ -2012,6 +2013,193 @@ function NodeCanvas() {
   useEffect(() => {
     prevZoomForWatchdog.current = zoomLevel;
   }, [zoomLevel]);
+
+  // Viewport bounds ref for edge panning effect
+  const viewportBoundsRef = useRef(viewportBounds);
+  useEffect(() => {
+    viewportBoundsRef.current = viewportBounds;
+  }, [viewportBounds]);
+
+  const mousePositionRef = useRef({ x: 0, y: 0 });
+
+  // --- Grid Snapping Helpers ---
+  const snapToGrid = (mouseX, mouseY, nodeWidth, nodeHeight) => {
+    return GeometryUtils.snapToGrid(mouseX, mouseY, nodeWidth, nodeHeight, gridMode, gridSize);
+  };
+
+  const snapToGridAnimated = (mouseX, mouseY, nodeWidth, nodeHeight, currentPos) => {
+    return GeometryUtils.snapToGridAnimated(mouseX, mouseY, nodeWidth, nodeHeight, currentPos, gridMode, gridSize);
+  };
+
+  // Helper to update node position during drag (extracted for reuse in edge panning)
+  // MOVED HERE: Must be defined AFTER snapToGridAnimated
+  const performDragUpdate = useCallback((clientX, clientY, currentPan, currentZoom, draggingInfo) => {
+    // Ensure labels recalc during drag
+    placedLabelsRef.current = new Map();
+    
+    // Calculate mouse position in canvas coordinates
+    const rect = containerRef.current.getBoundingClientRect();
+    const mouseCanvasX = (clientX - rect.left - currentPan.x) / currentZoom + canvasSizeRef.current.offsetX;
+    const mouseCanvasY = (clientY - rect.top - currentPan.y) / currentZoom + canvasSizeRef.current.offsetY;
+
+    // Group drag via label
+    if (draggingInfo.groupId && Array.isArray(draggingInfo.memberOffsets)) {
+      const positionUpdates = draggingInfo.memberOffsets.map(({ id, dx, dy }) => {
+        const node = nodes.find(n => n.id === id);
+        const xRaw = mouseCanvasX - dx;
+        const yRaw = mouseCanvasY - dy;
+        if (!node) return { instanceId: id, x: xRaw, y: yRaw };
+        if (gridMode === 'off') {
+          return { instanceId: id, x: xRaw, y: yRaw };
+        }
+        const dims = getNodeDimensions(node, false, null);
+        const centerX = xRaw + dims.currentWidth / 2;
+        const centerY = yRaw + dims.currentHeight / 2;
+        const snappedCenterX = Math.floor(centerX / gridSize) * gridSize;
+        const snappedCenterY = Math.floor(centerY / gridSize) * gridSize;
+        const snappedX = snappedCenterX - (dims.currentWidth / 2);
+        const snappedY = snappedCenterY - (dims.currentHeight / 2);
+        return { instanceId: id, x: snappedX, y: snappedY };
+      });
+      storeActions.updateMultipleNodeInstancePositions(activeGraphId, positionUpdates, { isDragging: true, phase: 'move' });
+      return;
+    }
+
+    // Multi-node drag
+    if (draggingInfo.relativeOffsets) {
+      const primaryInstanceId = draggingInfo.primaryId;
+      // Calculate new primary position based on mouse position and initial offset
+      // Note: We must use the current pan/zoom to reconstruct the initial canvas position relative to current view
+      const initialMouseCanvasX = (draggingInfo.initialMouse.x - rect.left - currentPan.x) / currentZoom + canvasSizeRef.current.offsetX;
+      const initialMouseCanvasY = (draggingInfo.initialMouse.y - rect.top - currentPan.y) / currentZoom + canvasSizeRef.current.offsetY;
+
+      const dx = mouseCanvasX - initialMouseCanvasX;
+      const dy = mouseCanvasY - initialMouseCanvasY;
+      let newPrimaryX = draggingInfo.initialPrimaryPos.x + dx;
+      let newPrimaryY = draggingInfo.initialPrimaryPos.y + dy;
+
+      // Apply smooth grid snapping to primary node
+      if (gridMode !== 'off') {
+        const primaryNode = nodes.find(n => n.id === primaryInstanceId);
+        if (primaryNode) {
+          const dims = getNodeDimensions(primaryNode, false, null);
+          const snapped = snapToGridAnimated(mouseCanvasX, mouseCanvasY, dims.currentWidth, dims.currentHeight, { x: primaryNode.x, y: primaryNode.y });
+          newPrimaryX = snapped.x;
+          newPrimaryY = snapped.y;
+        }
+      }
+
+      const positionUpdates = [];
+      positionUpdates.push({ instanceId: primaryInstanceId, x: newPrimaryX, y: newPrimaryY });
+
+      Object.keys(draggingInfo.relativeOffsets).forEach(instanceId => {
+        const relativeOffset = draggingInfo.relativeOffsets[instanceId];
+        positionUpdates.push({
+          instanceId: instanceId,
+          x: newPrimaryX + relativeOffset.offsetX,
+          y: newPrimaryY + relativeOffset.offsetY
+        });
+      });
+
+      storeActions.updateMultipleNodeInstancePositions(activeGraphId, positionUpdates, { isDragging: true, phase: 'move' });
+      return;
+    }
+
+    // Single node drag
+    const { instanceId, offset } = draggingInfo;
+    const node = nodes.find(n => n.id === instanceId);
+    if (node) {
+      const dims = getNodeDimensions(node, false, null);
+      let newX, newY;
+
+      if (gridMode !== 'off') {
+        const snapped = snapToGridAnimated(mouseCanvasX, mouseCanvasY, dims.currentWidth, dims.currentHeight, { x: node.x, y: node.y });
+        newX = snapped.x;
+        newY = snapped.y;
+      } else {
+        newX = mouseCanvasX - offset.x;
+        newY = mouseCanvasY - offset.y;
+      }
+      storeActions.updateNodeInstance(activeGraphId, instanceId, draft => {
+        draft.x = newX;
+        draft.y = newY;
+      }, { isDragging: true, phase: 'move' });
+    }
+  }, [activeGraphId, nodes, gridMode, gridSize, storeActions]);
+
+  // Edge Panning Effect
+  useEffect(() => {
+    if (!draggingNodeInfo) return;
+
+    let animationFrameId;
+    
+    const panLoop = () => {
+      if (!draggingNodeInfoRef.current) return;
+
+      const { x: mouseX, y: mouseY } = mousePositionRef.current;
+      const bounds = viewportBoundsRef.current;
+      const margin = 100; // Edge zone size in pixels
+      const maxSpeed = 15; // Max speed per frame
+
+      let dx = 0;
+      let dy = 0;
+
+      // Left
+      if (mouseX < bounds.x + margin) {
+        const dist = (bounds.x + margin) - mouseX;
+        const ratio = Math.min(1, dist / margin); // Cap at 1 (max speed)
+        dx = -maxSpeed * Math.pow(ratio, 2);
+      }
+      // Right
+      else if (mouseX > bounds.x + bounds.width - margin) {
+        const dist = mouseX - (bounds.x + bounds.width - margin);
+        const ratio = Math.min(1, dist / margin);
+        dx = maxSpeed * Math.pow(ratio, 2);
+      }
+
+      // Top
+      if (mouseY < bounds.y + margin) {
+        const dist = (bounds.y + margin) - mouseY;
+        const ratio = Math.min(1, dist / margin);
+        dy = -maxSpeed * Math.pow(ratio, 2);
+      }
+      // Bottom
+      else if (mouseY > bounds.y + bounds.height - margin) {
+        const dist = mouseY - (bounds.y + bounds.height - margin);
+        const ratio = Math.min(1, dist / margin);
+        dy = maxSpeed * Math.pow(ratio, 2);
+      }
+
+      if (dx !== 0 || dy !== 0) {
+        const currentPan = panOffsetRef.current;
+        const currentZoom = zoomLevelRef.current;
+        
+        const currentCanvasWidth = canvasSizeRef.current.width * currentZoom;
+        const currentCanvasHeight = canvasSizeRef.current.height * currentZoom;
+        
+        // Clamp to canvas bounds
+        const minX = viewportSizeRef.current.width - currentCanvasWidth;
+        const minY = viewportSizeRef.current.height - currentCanvasHeight;
+        const maxX = 0;
+        const maxY = 0;
+
+        const newX = Math.min(Math.max(currentPan.x - dx, minX), maxX);
+        const newY = Math.min(Math.max(currentPan.y - dy, minY), maxY);
+
+        if (newX !== currentPan.x || newY !== currentPan.y) {
+          const newPan = { x: newX, y: newY };
+          setPanOffset(newPan);
+          // Force update node position with new pan to keep it under mouse
+          performDragUpdate(mouseX, mouseY, newPan, currentZoom, draggingNodeInfoRef.current);
+        }
+      }
+
+      animationFrameId = requestAnimationFrame(panLoop);
+    };
+
+    animationFrameId = requestAnimationFrame(panLoop);
+    return () => cancelAnimationFrame(animationFrameId);
+  }, [draggingNodeInfo, performDragUpdate]);
 
   const stopPanMomentum = useCallback(() => {
     const { animationId } = panMomentumRef.current;
@@ -2584,13 +2772,8 @@ function NodeCanvas() {
   }, [panOffset, zoomLevel, canvasSize]);
 
   // --- Grid Snapping Helpers ---
-  const snapToGrid = (mouseX, mouseY, nodeWidth, nodeHeight) => {
-    return GeometryUtils.snapToGrid(mouseX, mouseY, nodeWidth, nodeHeight, gridMode, gridSize);
-  };
+  // (Helpers moved up to satisfy dependency in performDragUpdate)
 
-  const snapToGridAnimated = (mouseX, mouseY, nodeWidth, nodeHeight, currentPos) => {
-    return GeometryUtils.snapToGridAnimated(mouseX, mouseY, nodeWidth, nodeHeight, currentPos, gridMode, gridSize);
-  };
   // Calculate proper minimum zoom to prevent zooming beyond canvas edges
   const MIN_ZOOM = Math.max(
     viewportSize.width / canvasSize.width,
@@ -5883,6 +6066,9 @@ function NodeCanvas() {
   const panUpdateScheduled = useRef(false);
 
   const handleMouseMove = async (e) => {
+    // Update mouse position for edge panning
+    mousePositionRef.current = { x: e.clientX, y: e.clientY };
+
     if (isPaused || !activeGraphId) return;
 
     // Avoid per-frame logging during drag; logs removed for performance
@@ -6215,16 +6401,10 @@ function NodeCanvas() {
       // This ensures zoom-out happens after movement threshold, preventing reset during delay
       if (!zoomOutInitiatedRef.current) {
         const currentZoom = zoomLevel;
-        // #region agent log
-        fetch('http://127.0.0.1:7242/ingest/52d0fe28-158e-49a4-b331-f013fcb14181',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'NodeCanvas.jsx:handleMouseMove:zoomCheck',message:'handleMouseMove zoom check',data:{currentZoom,DRAG_ZOOM_MIN,zoomOutInitiated:zoomOutInitiatedRef.current},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H2,H5'})}).catch(()=>{});
-        // #endregion
         if (currentZoom > DRAG_ZOOM_MIN) {
           zoomOutInitiatedRef.current = true;
           setPreDragZoomLevel(currentZoom);
           const targetZoom = Math.max(DRAG_ZOOM_MIN, currentZoom * DRAG_ZOOM_OUT_FACTOR);
-          // #region agent log
-          fetch('http://127.0.0.1:7242/ingest/52d0fe28-158e-49a4-b331-f013fcb14181',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'NodeCanvas.jsx:handleMouseMove:zoomOut',message:'Initiating zoom-out from handleMouseMove',data:{currentZoom,targetZoom},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H2,H5'})}).catch(()=>{});
-          // #endregion
           animateZoomToTarget(targetZoom, { clientX: e.clientX, clientY: e.clientY }, currentZoom);
         }
       }
