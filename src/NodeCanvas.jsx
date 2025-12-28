@@ -4933,10 +4933,10 @@ function NodeCanvas() {
         // Store original pan offset for proper restore (avoids anchor drift)
         preDragPanOffsetRef.current = { ...panOffset };
         const targetZoom = Math.max(DRAG_ZOOM_MIN, currentZoom * DRAG_ZOOM_OUT_FACTOR);
-        // Small delay to ensure state is settled and prevent interference
-        requestAnimationFrame(() => {
-          animateZoomToTarget(targetZoom, { clientX, clientY }, currentZoom);
-        });
+        
+        // Start animation immediately (synchronously) to avoid 1-frame delay/glitch
+        // We pass the current panOffset explicitly to ensure the anchor calculation matches the current view
+        animateZoomToTarget(targetZoom, { clientX, clientY }, currentZoom, { ...panOffset });
       }
 
       selectedInstanceIds.forEach(id => {
@@ -4959,13 +4959,11 @@ function NodeCanvas() {
       zoomOutInitiatedRef.current = true;
       setPreDragZoomLevel(currentZoom);
       // Store original pan offset for proper restore (avoids anchor drift)
-      preDragPanOffsetRef.current = { ...panOffset };
-      const targetZoom = Math.max(DRAG_ZOOM_MIN, currentZoom * DRAG_ZOOM_OUT_FACTOR);
-      // Small delay to ensure state is settled and prevent interference
-      requestAnimationFrame(() => {
-        animateZoomToTarget(targetZoom, { clientX, clientY }, currentZoom);
-      });
-    }
+        preDragPanOffsetRef.current = { ...panOffset };
+        const targetZoom = Math.max(DRAG_ZOOM_MIN, currentZoom * DRAG_ZOOM_OUT_FACTOR);
+        // Start animation immediately (synchronously)
+        animateZoomToTarget(targetZoom, { clientX, clientY }, currentZoom, { ...panOffset });
+      }
 
     storeActions.updateNodeInstance(activeGraphId, instanceId, draft => { draft.scale = 1.15; }, { isDragging: true, phase: 'start' });
     return true;
@@ -6405,7 +6403,7 @@ function NodeCanvas() {
           zoomOutInitiatedRef.current = true;
           setPreDragZoomLevel(currentZoom);
           const targetZoom = Math.max(DRAG_ZOOM_MIN, currentZoom * DRAG_ZOOM_OUT_FACTOR);
-          animateZoomToTarget(targetZoom, { clientX: e.clientX, clientY: e.clientY }, currentZoom);
+          animateZoomToTarget(targetZoom, { clientX: e.clientX, clientY: e.clientY }, currentZoom, { ...panOffset });
         }
       }
 
