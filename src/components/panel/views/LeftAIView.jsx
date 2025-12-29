@@ -569,7 +569,11 @@ const LeftAIView = ({ compact = false, activeGraphId, graphsMap, edgesMap }) => 
         activeGraphId: activeGraphId || null
       };
 
-      console.log('[Wizard] Starting request to /api/wizard', { apiKey: apiKey ? 'present' : 'missing', apiConfig });
+      console.log('[Wizard] Starting request to /api/wizard', { 
+        apiKey: apiKey ? 'present' : 'missing', 
+        apiConfig,
+        historyLength: recentMessages.length 
+      });
 
       // Use new Wizard endpoint with SSE streaming
       const response = await bridgeFetch('/api/wizard', {
@@ -578,6 +582,7 @@ const LeftAIView = ({ compact = false, activeGraphId, graphsMap, edgesMap }) => 
         body: JSON.stringify({
           message: question,
           graphState,
+          conversationHistory: recentMessages, // Include conversation history for context
           config: {
             cid: `wizard-${Date.now()}`,
             apiConfig: apiConfig ? {

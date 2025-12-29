@@ -61,8 +61,20 @@ export async function* runAgent(userMessage, graphState, config = {}, ensureSche
     .replace('{nodeList}', contextStr.includes('Existing Things') ? contextStr.split('Existing Things:')[1]?.split('\n')[0] || '' : '')
     .replace('{edgeList}', ''); // Can be enhanced later
 
+  // Build messages array with conversation history
+  const conversationHistory = config.conversationHistory || [];
+  const historyMessages = conversationHistory
+    .filter(msg => msg.content && msg.content.trim()) // Filter out empty messages
+    .map(msg => ({
+      role: msg.role === 'user' ? 'user' : 'assistant',
+      content: msg.content
+    }));
+  
+  console.log('[AgentLoop] Conversation history:', historyMessages.length, 'messages');
+  
   const messages = [
     { role: 'system', content: fullSystemPrompt + '\n\n' + contextStr },
+    ...historyMessages, // Include prior conversation for context
     { role: 'user', content: userMessage }
   ];
 

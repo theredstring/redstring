@@ -2151,7 +2151,7 @@ app.post('/api/ai/chat', async (req, res) => {
 // New Wizard endpoint - simplified single-LLM loop
 app.post('/api/wizard', async (req, res) => {
   try {
-    const { message, graphState, config } = req.body || {};
+    const { message, graphState, conversationHistory, config } = req.body || {};
     if (!message) {
       return res.status(400).json({ error: 'Message is required' });
     }
@@ -2174,7 +2174,8 @@ app.post('/api/wizard', async (req, res) => {
       model: apiConfig.model,
       temperature: apiConfig.settings?.temperature,
       maxTokens: apiConfig.settings?.max_tokens,
-      cid: config.cid || `wizard-${Date.now()}`
+      cid: config.cid || `wizard-${Date.now()}`,
+      conversationHistory: conversationHistory || [] // Pass conversation history
     };
 
     try {
