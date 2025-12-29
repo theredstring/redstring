@@ -628,22 +628,25 @@ const RedstringMenu = ({
                                   <div style={{ fontSize: '11px', color: '#BDB6B5', opacity: 0.6, marginBottom: '6px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Group Layout Algorithm</div>
                                   <div 
                                     className="submenu-item" 
+                                    onMouseEnter={handleRegularSubmenuItemHover}
                                     onClick={() => onSetGroupLayoutAlgorithm?.('node-driven')}
-                                    style={{ paddingLeft: '8px', opacity: groupLayoutAlgorithm === 'node-driven' ? 1 : 0.6 }}
+                                    style={{ paddingLeft: '8px', opacity: groupLayoutAlgorithm === 'node-driven' ? 1 : 0.8 }}
                                   >
                                     {groupLayoutAlgorithm === 'node-driven' ? '✓ ' : ''}Node-Driven (Force)
                                   </div>
                                   <div 
                                     className="submenu-item" 
+                                    onMouseEnter={handleRegularSubmenuItemHover}
                                     onClick={() => onSetGroupLayoutAlgorithm?.('euler')}
-                                    style={{ paddingLeft: '8px', opacity: groupLayoutAlgorithm === 'euler' ? 1 : 0.6 }}
+                                    style={{ paddingLeft: '8px', opacity: groupLayoutAlgorithm === 'euler' ? 1 : 0.8 }}
                                   >
                                     {groupLayoutAlgorithm === 'euler' ? '✓ ' : ''}Euler (Region-First)
                                   </div>
                                   <div 
                                     className="submenu-item" 
+                                    onMouseEnter={handleRegularSubmenuItemHover}
                                     onClick={() => onSetGroupLayoutAlgorithm?.('hybrid')}
-                                    style={{ paddingLeft: '8px', opacity: groupLayoutAlgorithm === 'hybrid' ? 1 : 0.6 }}
+                                    style={{ paddingLeft: '8px', opacity: groupLayoutAlgorithm === 'hybrid' ? 1 : 0.8 }}
                                   >
                                     {groupLayoutAlgorithm === 'hybrid' ? '✓ ' : ''}Hybrid
                                   </div>
@@ -662,6 +665,7 @@ const RedstringMenu = ({
 
                                 <div
                                   className="submenu-item"
+                                  onMouseEnter={handleRegularSubmenuItemHover}
                                   onClick={() => onToggleShowClusterHulls?.()}
                                   style={{ cursor: 'pointer', opacity: showClusterHulls ? 1 : 0.8 }}
                                 >

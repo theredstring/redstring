@@ -191,7 +191,9 @@ function NodeCanvas() {
         setLayoutScaleMultiplier: () => { },
         setLayoutIterationPreset: () => { },
         deleteNodePrototype: () => { },
-        deleteGraph: () => { }
+        deleteGraph: () => { },
+        setGroupLayoutAlgorithm: () => { },
+        toggleShowClusterHulls: () => { }
       };
     }
   }, []);

@@ -349,6 +349,8 @@ export const FORCE_LAYOUT_DEFAULTS = {
   groupAttractionStrength: 0.1,  // How strongly nodes pull toward group center
   groupRepulsionStrength: 0.5,   // How strongly different groups push apart
   minGroupDistance: 400,         // Minimum distance between group centroids
+  groupExclusionStrength: 0.8,   // How strongly non-members are pushed out of group bounds
+  groupBoundaryPadding: 60,      // Padding around group bounding boxes
   
   // Presets
   layoutScale: 'balanced',
@@ -831,6 +833,94 @@ export function forceDirectedLayout(nodes, edges, options = {}) {
           const scaledStrength = strength / groupIds.size;
           force.fx += (dx / dist) * scaledStrength * dist;
           force.fy += (dy / dist) * scaledStrength * dist;
+        });
+      });
+      
+      // ------------------------------------------------------------------------
+      // Group Exclusion Force: Push non-members OUT of group bounding boxes
+      // ------------------------------------------------------------------------
+      const groupExclusionStrength = config.groupExclusionStrength || 0.8;
+      const groupBoundaryPadding = config.groupBoundaryPadding || 60;
+      
+      // First, compute bounding boxes for each group
+      const groupBounds = new Map();
+      groups.forEach(group => {
+        let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+        (group.memberInstanceIds || []).forEach(nodeId => {
+          const pos = positions.get(nodeId);
+          const node = nodeById.get(nodeId);
+          if (pos && node) {
+            const w = node.width || 100;
+            const h = node.height || 60;
+            minX = Math.min(minX, pos.x);
+            minY = Math.min(minY, pos.y);
+            maxX = Math.max(maxX, pos.x + w);
+            maxY = Math.max(maxY, pos.y + h);
+          }
+        });
+        if (minX !== Infinity) {
+          // Add padding to create the group region
+          groupBounds.set(group.id, {
+            minX: minX - groupBoundaryPadding,
+            minY: minY - groupBoundaryPadding,
+            maxX: maxX + groupBoundaryPadding,
+            maxY: maxY + groupBoundaryPadding,
+            centerX: (minX + maxX) / 2,
+            centerY: (minY + maxY) / 2
+          });
+        }
+      });
+      
+      // For each node, check if it's inside any group it doesn't belong to
+      nodes.forEach(node => {
+        const pos = positions.get(node.id);
+        const force = forces.get(node.id);
+        if (!pos || !force) return;
+        
+        const nodeGroups = nodeGroupsMap.get(node.id) || new Set();
+        const nodeW = node.width || 100;
+        const nodeH = node.height || 60;
+        const nodeCenterX = pos.x + nodeW / 2;
+        const nodeCenterY = pos.y + nodeH / 2;
+        
+        groups.forEach(group => {
+          // Skip if node belongs to this group
+          if (nodeGroups.has(group.id)) return;
+          
+          const bounds = groupBounds.get(group.id);
+          if (!bounds) return;
+          
+          // Check if node center is inside the group bounds
+          if (nodeCenterX >= bounds.minX && nodeCenterX <= bounds.maxX &&
+              nodeCenterY >= bounds.minY && nodeCenterY <= bounds.maxY) {
+            
+            // Node is inside a group it doesn't belong to - push it OUT
+            const dx = nodeCenterX - bounds.centerX;
+            const dy = nodeCenterY - bounds.centerY;
+            const dist = Math.sqrt(dx * dx + dy * dy);
+            
+            // Find the nearest edge to push toward
+            const distToLeft = nodeCenterX - bounds.minX;
+            const distToRight = bounds.maxX - nodeCenterX;
+            const distToTop = nodeCenterY - bounds.minY;
+            const distToBottom = bounds.maxY - nodeCenterY;
+            const minEdgeDist = Math.min(distToLeft, distToRight, distToTop, distToBottom);
+            
+            // Push strength increases the deeper inside the node is
+            const penetrationDepth = minEdgeDist;
+            const pushStrength = groupExclusionStrength * alpha * (1 + penetrationDepth / 100);
+            
+            // Push toward nearest edge
+            if (minEdgeDist === distToLeft) {
+              force.fx -= pushStrength * 50;
+            } else if (minEdgeDist === distToRight) {
+              force.fx += pushStrength * 50;
+            } else if (minEdgeDist === distToTop) {
+              force.fy -= pushStrength * 50;
+            } else {
+              force.fy += pushStrength * 50;
+            }
+          }
         });
       });
       
@@ -1437,6 +1527,7 @@ export function eulerLayout(nodes, edges, options = {}) {
     useExistingPositions: true,
     iterations: 50, // Fewer iterations for refinement
     groupAttractionStrength: 0.3, // Stronger group pull
+    groupExclusionStrength: 1.2,  // Strong exclusion to keep nodes in their zones
     centerStrength: 0.01 // Less center pull
   });
 }
@@ -1462,7 +1553,8 @@ export function hybridLayout(nodes, edges, options = {}) {
     ...options,
     useExistingPositions: true,
     groupAttractionStrength: 0.15,
-    groupRepulsionStrength: 0.6
+    groupRepulsionStrength: 0.6,
+    groupExclusionStrength: 1.0  // Strong exclusion for hybrid
   });
 }
 
