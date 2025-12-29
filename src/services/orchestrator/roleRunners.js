@@ -457,7 +457,17 @@ export async function runExecutorOnce() {
         layoutScale: autoSettings.layoutScale,
         layoutScaleMultiplier: autoSettings.layoutScaleMultiplier,
         iterationPreset: autoSettings.iterationPreset,
-        useExistingPositions: false  // Full re-layout by default
+        useExistingPositions: false,  // Full re-layout by default
+        // Pass full force tuner parameters
+        repulsionStrength: autoSettings.repulsionStrength,
+        attractionStrength: autoSettings.attractionStrength,
+        linkDistance: autoSettings.linkDistance,
+        minLinkDistance: autoSettings.minLinkDistance,
+        centerStrength: autoSettings.centerStrength,
+        collisionRadius: autoSettings.collisionRadius,
+        edgeAvoidance: autoSettings.edgeAvoidance,
+        alphaDecay: autoSettings.alphaDecay,
+        velocityDecay: autoSettings.velocityDecay
       };
       let partialTranslation = null;
 
@@ -759,6 +769,23 @@ export async function runExecutorOnce() {
         destinationId: instanceIdByName.get(edge.target)
       })).filter(e => e.sourceId && e.destinationId);
 
+      // Prepare groups for layout (resolve member names to instance IDs)
+      const groupsForLayout = [];
+      const groups = Array.isArray(graphSpec.groups) ? graphSpec.groups : [];
+      groups.forEach(group => {
+        const memberNames = Array.isArray(group.memberNames) ? group.memberNames : [];
+        const memberInstanceIds = memberNames
+          .map(name => instanceIdByName.get(name))
+          .filter(id => id); // Filter out undefined (names not found)
+        
+        if (memberInstanceIds.length > 0) {
+          groupsForLayout.push({
+            id: group.name || `group-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+            memberInstanceIds
+          });
+        }
+      });
+
       // Use same layout settings as UI Auto-Layout button
       const { getAutoLayoutSettings } = await import('../bridgeStoreAccessor.js');
       const autoSettings = getAutoLayoutSettings();
@@ -792,7 +819,19 @@ export async function runExecutorOnce() {
         iterationPreset: autoSettings.iterationPreset,
         width: layoutWidth,
         height: layoutHeight,
-        padding: layoutPadding
+        padding: layoutPadding,
+        // Pass full force tuner parameters
+        repulsionStrength: autoSettings.repulsionStrength,
+        attractionStrength: autoSettings.attractionStrength,
+        linkDistance: autoSettings.linkDistance,
+        minLinkDistance: autoSettings.minLinkDistance,
+        centerStrength: autoSettings.centerStrength,
+        collisionRadius: autoSettings.collisionRadius,
+        edgeAvoidance: autoSettings.edgeAvoidance,
+        alphaDecay: autoSettings.alphaDecay,
+        velocityDecay: autoSettings.velocityDecay,
+        // Pass groups for group-aware clustering
+        groups: groupsForLayout
       });
 
       // RECENTERING: Shift layout to center around (0,0)
@@ -914,7 +953,7 @@ export async function runExecutorOnce() {
       });
 
       // 4. Create groups (if any specified in graph_spec)
-      const groups = Array.isArray(graphSpec.groups) ? graphSpec.groups : [];
+      // Note: groupsForLayout was already prepared above for layout, now create them in the store
       groups.forEach(group => {
         const groupId = `group-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
         const memberNames = Array.isArray(group.memberNames) ? group.memberNames : [];
@@ -1051,7 +1090,17 @@ export async function runExecutorOnce() {
         layoutScale: autoSettings.layoutScale,
         layoutScaleMultiplier: autoSettings.layoutScaleMultiplier,
         iterationPreset: autoSettings.iterationPreset,
-        useExistingPositions: false  // Full re-layout by default
+        useExistingPositions: false,  // Full re-layout by default
+        // Pass full force tuner parameters
+        repulsionStrength: autoSettings.repulsionStrength,
+        attractionStrength: autoSettings.attractionStrength,
+        linkDistance: autoSettings.linkDistance,
+        minLinkDistance: autoSettings.minLinkDistance,
+        centerStrength: autoSettings.centerStrength,
+        collisionRadius: autoSettings.collisionRadius,
+        edgeAvoidance: autoSettings.edgeAvoidance,
+        alphaDecay: autoSettings.alphaDecay,
+        velocityDecay: autoSettings.velocityDecay
       };
       // Apply auto-layout to get positions
       const positions = applyLayout(layoutNodes, tempEdges, layoutAlgorithm, layoutOptions);

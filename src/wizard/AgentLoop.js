@@ -41,6 +41,21 @@ export async function* runAgent(userMessage, graphState, config = {}, ensureSche
   
   // Build context
   const contextStr = buildContext(graphState);
+  
+  // Debug logging for graph context
+  const activeGraph = graphState?.graphs?.find(g => g.id === graphState.activeGraphId);
+  const instanceCount = activeGraph?.instances 
+    ? (Array.isArray(activeGraph.instances) ? activeGraph.instances.length : Object.keys(activeGraph.instances).length)
+    : 0;
+  console.log('[AgentLoop] Graph context:', {
+    activeGraphId: graphState?.activeGraphId,
+    activeGraphName: activeGraph?.name,
+    instanceCount,
+    edgeCount: activeGraph?.edgeIds?.length || 0,
+    graphCount: graphState?.graphs?.length || 0,
+    contextPreview: contextStr.substring(0, 300)
+  });
+  
   const systemPrompt = SYSTEM_PROMPT || 'You are The Wizard, a helpful assistant for building knowledge graphs.';
   const fullSystemPrompt = systemPrompt.replace('{graphName}', graphState.activeGraphId ? (graphState.graphs?.find(g => g.id === graphState.activeGraphId)?.name || 'Unknown') : 'None')
     .replace('{nodeList}', contextStr.includes('Existing Things') ? contextStr.split('Existing Things:')[1]?.split('\n')[0] || '' : '')

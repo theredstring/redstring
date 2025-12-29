@@ -49,14 +49,44 @@ export function getActiveGraph() {
 /**
  * Get auto-layout settings from the store
  * Returns the same settings used by the UI's Auto-Layout button
+ * Merges autoLayoutSettings with forceTunerSettings (forceTunerSettings takes precedence for individual force params)
  */
 export function getAutoLayoutSettings() {
   const store = getBridgeStore();
-  const settings = store.autoLayoutSettings || {};
+  const autoSettings = store.autoLayoutSettings || {};
+  const tunerSettings = store.forceTunerSettings || {};
+  
+  // Merge settings: use tuner settings if available, otherwise fall back to auto settings or defaults
+  const defaults = {
+    layoutScale: 'balanced',
+    layoutScaleMultiplier: 1,
+    layoutIterations: 'balanced',
+    repulsionStrength: 500000,
+    attractionStrength: 0.2,
+    linkDistance: 400,
+    minLinkDistance: 250,
+    centerStrength: 0.015,
+    collisionRadius: 80,
+    edgeAvoidance: 0.5,
+    alphaDecay: 0.015,
+    velocityDecay: 0.85
+  };
+  
   return {
-    layoutScale: settings.layoutScale || 'balanced',
-    layoutScaleMultiplier: settings.layoutScaleMultiplier ?? 1,
-    iterationPreset: settings.layoutIterations || 'balanced'
+    // Scale/iteration presets: prefer autoLayoutSettings (these are synced)
+    layoutScale: autoSettings.layoutScale || tunerSettings.layoutScale || defaults.layoutScale,
+    layoutScaleMultiplier: autoSettings.layoutScaleMultiplier ?? tunerSettings.layoutScaleMultiplier ?? defaults.layoutScaleMultiplier,
+    iterationPreset: autoSettings.layoutIterations || tunerSettings.layoutIterations || defaults.layoutIterations,
+    // Individual force parameters: prefer forceTunerSettings (user-tuned values)
+    repulsionStrength: tunerSettings.repulsionStrength ?? defaults.repulsionStrength,
+    attractionStrength: tunerSettings.attractionStrength ?? defaults.attractionStrength,
+    linkDistance: tunerSettings.linkDistance ?? defaults.linkDistance,
+    minLinkDistance: tunerSettings.minLinkDistance ?? defaults.minLinkDistance,
+    centerStrength: tunerSettings.centerStrength ?? defaults.centerStrength,
+    collisionRadius: tunerSettings.collisionRadius ?? defaults.collisionRadius,
+    edgeAvoidance: tunerSettings.edgeAvoidance ?? defaults.edgeAvoidance,
+    alphaDecay: tunerSettings.alphaDecay ?? defaults.alphaDecay,
+    velocityDecay: tunerSettings.velocityDecay ?? defaults.velocityDecay
   };
 }
 

@@ -22,21 +22,15 @@ export function buildContext(graphState) {
   if (activeGraph) {
     context += `\n\n🎯 CURRENT WEB: "${activeGraph.name}"`;
     
-    // Count nodes and edges in active graph
-    const nodeIds = new Set();
-    const edgeIds = activeGraph.edgeIds || [];
-    
-    // Collect node IDs from instances
-    if (activeGraph.instances) {
-      const instances = Array.isArray(activeGraph.instances) 
+    // Extract instances (handle Map, Array, or Object)
+    const instances = activeGraph.instances instanceof Map
+      ? Array.from(activeGraph.instances.values())
+      : Array.isArray(activeGraph.instances) 
         ? activeGraph.instances 
-        : Object.values(activeGraph.instances);
-      instances.forEach(inst => {
-        if (inst.prototypeId) nodeIds.add(inst.prototypeId);
-      });
-    }
-
-    const nodeCount = nodeIds.size;
+        : Object.values(activeGraph.instances || {});
+    
+    const edgeIds = activeGraph.edgeIds || [];
+    const nodeCount = instances.length;
     const edgeCount = edgeIds.length;
 
     if (nodeCount === 0) {
@@ -44,16 +38,49 @@ export function buildContext(graphState) {
     } else {
       context += `\nStatus: ${nodeCount} Thing${nodeCount !== 1 ? 's' : ''}, ${edgeCount} Connection${edgeCount !== 1 ? 's' : ''}`;
       
-      // List some node names
+      // List node names directly from instances (with prototype fallback)
       const nodeNames = [];
-      for (const protoId of nodeIds) {
-        const proto = nodePrototypes.find(p => p.id === protoId);
-        if (proto) nodeNames.push(proto.name);
-        if (nodeNames.length >= 10) break;
+      for (const inst of instances) {
+        // Try instance name first, then look up prototype
+        let name = inst.name;
+        if (!name && inst.prototypeId) {
+          const proto = nodePrototypes.find(p => p.id === inst.prototypeId);
+          name = proto?.name;
+        }
+        if (name) {
+          nodeNames.push(name);
+        }
+        if (nodeNames.length >= 15) break; // Show more names for better context
       }
       
       if (nodeNames.length > 0) {
-        context += `\nExisting Things: ${nodeNames.join(', ')}${nodeCount > 10 ? '...' : ''}`;
+        context += `\nExisting Things: ${nodeNames.join(', ')}${nodeCount > 15 ? '...' : ''}`;
+      }
+    }
+    
+    // Include groups if present
+    const groups = activeGraph.groups || [];
+    if (groups.length > 0) {
+      const groupNames = groups.slice(0, 5).map(g => g.name || 'Unnamed').join(', ');
+      context += `\nGroups: ${groupNames}${groups.length > 5 ? '...' : ''}`;
+    }
+    
+    // Include edge/connection info if available
+    if (edgeCount > 0 && edges && edges.length > 0) {
+      // Filter edges belonging to this graph
+      const graphEdges = edges.filter(e => 
+        edgeIds.includes(e.id) || edgeIds.includes(e.edgeId)
+      );
+      if (graphEdges.length > 0) {
+        const edgeDescriptions = graphEdges.slice(0, 10).map(e => {
+          const sourceInst = instances.find(i => i.id === e.sourceId || i.id === e.source);
+          const targetInst = instances.find(i => i.id === e.targetId || i.id === e.target);
+          const sourceName = sourceInst?.name || e.sourceName || 'Unknown';
+          const targetName = targetInst?.name || e.targetName || 'Unknown';
+          const relType = e.type || e.connectionType || 'relates to';
+          return `${sourceName} --[${relType}]--> ${targetName}`;
+        });
+        context += `\nConnections: ${edgeDescriptions.join('; ')}${graphEdges.length > 10 ? '...' : ''}`;
       }
     }
   } else if (graphs.length > 0) {

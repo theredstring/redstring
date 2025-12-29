@@ -11,7 +11,7 @@ import DruidMindPanel from '../../DruidMindPanel.jsx';
 import DruidInstance from '../../../services/agent/DruidInstance.js';
 
 // Internal AI Collaboration View component (migrated from src/ai/AICollaborationPanel.jsx)
-const LeftAIView = ({ compact = false, activeGraphId, graphsMap }) => {
+const LeftAIView = ({ compact = false, activeGraphId, graphsMap, edgesMap }) => {
   const [isConnected, setIsConnected] = React.useState(false);
   const [messages, setMessages] = React.useState([]);
   const [currentInput, setCurrentInput] = React.useState('');
@@ -515,13 +515,24 @@ const LeftAIView = ({ compact = false, activeGraphId, graphsMap }) => {
       }
 
       // Build graph state for new Wizard endpoint
+      // CRITICAL: Convert Map objects to arrays for JSON serialization
       const graphState = {
-        graphs: activeGraphId && graphsMap ? Array.from(graphsMap.values()).map(g => ({
-          id: g.id,
-          name: g.name,
-          instances: g.instances,
-          edgeIds: g.edgeIds || []
-        })) : [],
+        graphs: activeGraphId && graphsMap ? Array.from(graphsMap.values()).map(g => {
+          // Convert instances Map to array for serialization
+          const instancesArray = g.instances instanceof Map
+            ? Array.from(g.instances.values())
+            : Array.isArray(g.instances)
+              ? g.instances
+              : Object.values(g.instances || {});
+          
+          return {
+            id: g.id,
+            name: g.name,
+            instances: instancesArray,
+            edgeIds: g.edgeIds || [],
+            groups: g.groups || []
+          };
+        }) : [],
         nodePrototypes: activeGraphData ? (() => {
           const instances = activeGraphData.instances instanceof Map
             ? Array.from(activeGraphData.instances.values())
@@ -541,7 +552,20 @@ const LeftAIView = ({ compact = false, activeGraphId, graphsMap }) => {
           });
           return Array.from(protoMap.values());
         })() : [],
-        edges: [],
+        // Extract edges from edgesMap for the active graph
+        edges: activeGraphData && edgesMap ? (() => {
+          const edgeIds = activeGraphData.edgeIds || [];
+          return edgeIds.map(edgeId => {
+            const edge = edgesMap.get(edgeId);
+            if (!edge) return null;
+            return {
+              id: edgeId,
+              sourceId: edge.sourceId,
+              targetId: edge.targetId,
+              type: edge.type || edge.connectionType || 'relates to'
+            };
+          }).filter(Boolean);
+        })() : [],
         activeGraphId: activeGraphId || null
       };
 

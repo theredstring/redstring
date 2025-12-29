@@ -345,6 +345,11 @@ export const FORCE_LAYOUT_DEFAULTS = {
   enableEdgeRepulsion: true, // Triplet repulsion
   stiffness: 0.6,            // Rigid body stiffness (0.0 - 1.0)
   
+  // Group clustering
+  groupAttractionStrength: 0.1,  // How strongly nodes pull toward group center
+  groupRepulsionStrength: 0.5,   // How strongly different groups push apart
+  minGroupDistance: 400,         // Minimum distance between group centroids
+  
   // Presets
   layoutScale: 'balanced',
   layoutScaleMultiplier: 1,
@@ -486,6 +491,15 @@ export function forceDirectedLayout(nodes, edges, options = {}) {
   const clusterMap = new Map();
   clusters.forEach((cluster, idx) => {
     cluster.forEach(node => clusterMap.set(node.id, idx));
+  });
+  
+  // Build group membership map (user-defined groups override connectivity clusters)
+  const groups = options.groups || [];
+  const nodeGroupMap = new Map();
+  groups.forEach(group => {
+    (group.memberInstanceIds || []).forEach(nodeId => {
+      nodeGroupMap.set(nodeId, group.id);
+    });
   });
   
   // Apply cluster scaling - more clusters need more space, but keep link stretch tight
@@ -769,6 +783,98 @@ export function forceDirectedLayout(nodes, edges, options = {}) {
         f2.fy -= spring.fy;
       }
     });
+    
+    // ------------------------------------------------------------------------
+    // Group-Aware Forces (if groups are defined)
+    // ------------------------------------------------------------------------
+    if (groups.length > 0) {
+      // Calculate group centroids
+      const groupCentroids = new Map();
+      groups.forEach(group => {
+        let sumX = 0, sumY = 0, count = 0;
+        (group.memberInstanceIds || []).forEach(nodeId => {
+          const pos = positions.get(nodeId);
+          if (pos) {
+            sumX += pos.x;
+            sumY += pos.y;
+            count++;
+          }
+        });
+        if (count > 0) {
+          groupCentroids.set(group.id, { x: sumX / count, y: sumY / count });
+        }
+      });
+      
+      // Intra-group attraction: Pull nodes toward their group centroid
+      const groupAttractionStrength = config.groupAttractionStrength || 0.1;
+      nodes.forEach(node => {
+        const groupId = nodeGroupMap.get(node.id);
+        if (!groupId) return;
+        const centroid = groupCentroids.get(groupId);
+        const pos = positions.get(node.id);
+        const force = forces.get(node.id);
+        if (!centroid || !pos || !force) return;
+        
+        const dx = centroid.x - pos.x;
+        const dy = centroid.y - pos.y;
+        const dist = Math.sqrt(dx * dx + dy * dy);
+        if (dist < 0.1) return;
+        
+        const strength = groupAttractionStrength * alpha;
+        force.fx += (dx / dist) * strength * dist;
+        force.fy += (dy / dist) * strength * dist;
+      });
+      
+      // Inter-group repulsion: Push different groups apart
+      const groupRepulsionStrength = config.groupRepulsionStrength || 0.5;
+      const minGroupDistance = config.minGroupDistance || 400;
+      const groupIds = [...groupCentroids.keys()];
+      
+      for (let i = 0; i < groupIds.length; i++) {
+        for (let j = i + 1; j < groupIds.length; j++) {
+          const c1 = groupCentroids.get(groupIds[i]);
+          const c2 = groupCentroids.get(groupIds[j]);
+          if (!c1 || !c2) continue;
+          
+          const dx = c2.x - c1.x;
+          const dy = c2.y - c1.y;
+          const dist = Math.sqrt(dx * dx + dy * dy);
+          
+          if (dist < minGroupDistance) {
+            // Push groups apart
+            const pushStrength = (minGroupDistance - dist) * groupRepulsionStrength * alpha;
+            const ux = dx / Math.max(dist, 0.1);
+            const uy = dy / Math.max(dist, 0.1);
+            
+            // Distribute force to all members of each group
+            const group1 = groups.find(g => g.id === groupIds[i]);
+            const group2 = groups.find(g => g.id === groupIds[j]);
+            
+            if (group1 && group1.memberInstanceIds) {
+              const memberCount1 = group1.memberInstanceIds.length;
+              group1.memberInstanceIds.forEach(nodeId => {
+                const force = forces.get(nodeId);
+                if (force) {
+                  force.fx -= (ux * pushStrength) / memberCount1;
+                  force.fy -= (uy * pushStrength) / memberCount1;
+                }
+              });
+            }
+            
+            if (group2 && group2.memberInstanceIds) {
+              const memberCount2 = group2.memberInstanceIds.length;
+              group2.memberInstanceIds.forEach(nodeId => {
+                const force = forces.get(nodeId);
+                if (force) {
+                  force.fx += (ux * pushStrength) / memberCount2;
+                  force.fy += (uy * pushStrength) / memberCount2;
+                }
+              });
+            }
+          }
+        }
+      }
+    }
     
     // Centering force
     const centerStrength = isSparse ? config.centerStrength * 1.5 : config.centerStrength;

@@ -25,7 +25,17 @@ const getDefaultAutoLayoutSettings = () => ({
 const getDefaultForceTunerSettings = () => ({
   layoutScale: 'balanced',
   layoutScaleMultiplier: 1,
-  layoutIterations: 'balanced'
+  layoutIterations: 'balanced',
+  // Individual force parameters
+  repulsionStrength: 500000,
+  attractionStrength: 0.2,
+  linkDistance: 400,
+  minLinkDistance: 250,
+  centerStrength: 0.015,
+  collisionRadius: 80,
+  edgeAvoidance: 0.5,
+  alphaDecay: 0.015,
+  velocityDecay: 0.85
 });
 
 const VALID_LAYOUT_SCALE_PRESETS = ['compact', 'balanced', 'spacious'];

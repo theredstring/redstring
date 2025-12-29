@@ -99,7 +99,7 @@ const ForceSimulationModal = ({
     // Build settings JSON
     const settings = {
       // Scale settings
-      layoutScale: scalePreset,
+      layoutScale: layoutScalePreset,
       layoutScaleMultiplier: scaleMultiplier,
       simulationSpeed: simulationSpeed,
       iterationPreset: iterationPreset,
@@ -795,7 +795,7 @@ const ForceSimulationModal = ({
               <textarea
                 readOnly
                 value={JSON.stringify({
-                  layoutScale: scalePreset,
+                  layoutScale: layoutScalePreset,
                   layoutScaleMultiplier: scaleMultiplier,
                   simulationSpeed: simulationSpeed,
                   iterationPreset: iterationPreset,

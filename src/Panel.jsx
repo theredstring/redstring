@@ -1665,6 +1665,7 @@ const Panel = memo(forwardRef(
             compact={panelWidth < 300}
             activeGraphId={activeGraphId}
             graphsMap={graphsMap}
+            edgesMap={edgesMap}
           />
         );
       }
