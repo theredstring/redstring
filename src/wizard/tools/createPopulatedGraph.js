@@ -1,19 +1,19 @@
 /**
- * createPopulatedGraph - Create a new graph with nodes and edges in one operation
+ * createPopulatedGraph - Create a new graph with nodes, edges, and groups in one operation
  */
 
 import queueManager from '../../services/queue/Queue.js';
 
 /**
- * Create a new graph and populate it with nodes and edges
- * @param {Object} args - { name, nodes: [{ name, color?, description? }], edges?: [{ source, target, type? }] }
+ * Create a new graph and populate it with nodes, edges, and groups
+ * @param {Object} args - { name, nodes: [{ name, color?, description? }], edges?: [{ source, target, type? }], groups?: [{ name, color?, memberNames }] }
  * @param {Object} graphState - Current graph state (not used, creates new graph)
  * @param {string} cid - Conversation ID
  * @param {Function} ensureSchedulerStarted - Function to start scheduler
- * @returns {Promise<Object>} { graphId, graphName, nodesAdded, edgesAdded }
+ * @returns {Promise<Object>} { graphId, graphName, nodesAdded, edgesAdded, groupsAdded }
  */
 export async function createPopulatedGraph(args, graphState, cid, ensureSchedulerStarted) {
-  const { name, description = '', nodes = [], edges = [] } = args;
+  const { name, description = '', nodes = [], edges = [], groups = [] } = args;
   
   if (!name) {
     throw new Error('Graph name is required');
@@ -42,6 +42,11 @@ export async function createPopulatedGraph(args, graphState, cid, ensureSchedule
         color: '#708090',
         description: ''
       } : null
+    })),
+    groups: (groups || []).map(g => ({
+      name: g.name,
+      color: g.color || '#8B0000',
+      memberNames: g.memberNames || []
     }))
   };
 
@@ -75,6 +80,7 @@ export async function createPopulatedGraph(args, graphState, cid, ensureSchedule
     graphName: name,
     nodesAdded: nodes.length,
     edgesAdded: edges.length,
+    groupsAdded: groups.length,
     goalId
   };
 }

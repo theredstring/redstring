@@ -15,7 +15,7 @@ import { exportToRedstring } from '../formats/redstringFormat.js';
 import { gitAutosavePolicy } from './GitAutosavePolicy.js';
 
 // SIMPLIFIED: No priorities - all changes batched together with a single debounce
-const DEBOUNCE_MS = 2000; // Wait 2000ms after last change before saving (merges node drop + view restore)
+const DEBOUNCE_MS = 3000; // Wait 3000ms after last change before saving (merges node drop + view restore)
 
 class SaveCoordinator {
   constructor() {
@@ -180,6 +180,14 @@ class SaveCoordinator {
     }
 
     try {
+      // Skip processing for viewport-only changes (pan/zoom) - these don't affect the save hash
+      // This prevents unnecessary worker processing during keyboard/wheel panning and zooming
+      if (changeContext.type === 'viewport' && !changeContext.forceProcess) {
+        // Just update the latest state reference for when content changes happen
+        this.nextStateToProcess = newState;
+        return;
+      }
+
       // Update global interaction state based on context
       // Track drag, pan, pinch, and animation states
       const isInteracting = changeContext.isDragging === true || 

@@ -912,6 +912,30 @@ export async function runExecutorOnce() {
           });
         }
       });
+
+      // 4. Create groups (if any specified in graph_spec)
+      const groups = Array.isArray(graphSpec.groups) ? graphSpec.groups : [];
+      groups.forEach(group => {
+        const groupId = `group-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+        const memberNames = Array.isArray(group.memberNames) ? group.memberNames : [];
+        
+        // Resolve member names to instance IDs
+        const memberInstanceIds = memberNames
+          .map(name => instanceIdByName.get(name))
+          .filter(id => id); // Filter out undefined (names not found)
+        
+        ops.push({
+          type: 'createGroup',
+          graphId,
+          groupData: {
+            id: groupId,
+            name: group.name || 'Group',
+            color: group.color || '#8B0000',
+            memberInstanceIds
+          }
+        });
+        console.log(`[Executor] create_populated_graph: Creating group "${group.name}" with ${memberInstanceIds.length} members`);
+      });
     } else if (task.toolName === 'create_subgraph_in_new_graph') {
       // Create subgraph in a newly created graph (graph was created by previous task in DAG)
       // Need to find the graph ID by name since it was just created

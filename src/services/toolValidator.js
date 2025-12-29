@@ -382,9 +382,23 @@ class ToolValidator {
               },
               default: [],
               description: 'Array of edges to create'
+            },
+            groups: {
+              type: 'array',
+              items: {
+                type: 'object',
+                required: ['name', 'memberNames'],
+                properties: {
+                  name: { type: 'string', minLength: 1 },
+                  color: { type: 'string', pattern: '^#[0-9A-Fa-f]{6}$', default: '#8B0000' },
+                  memberNames: { type: 'array', items: { type: 'string' }, default: [] }
+                }
+              },
+              default: [],
+              description: 'Array of groups to create (each group contains memberNames referencing node names)'
             }
           },
-          description: 'Specification of nodes and edges'
+          description: 'Specification of nodes, edges, and groups'
         },
         layout_algorithm: {
           type: 'string',

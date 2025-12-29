@@ -197,7 +197,7 @@ export function getToolDefinitions() {
     },
     {
       name: 'createPopulatedGraph',
-      description: 'Create a NEW graph with nodes and edges in one operation. Use this when you need to create a brand new workspace with content.',
+      description: 'Create a NEW graph with nodes, edges, AND groups in one operation. ALWAYS include meaningful groups when they exist (factions, categories, houses, teams, departments, etc). Groups visually organize related nodes together.',
       parameters: {
         type: 'object',
         properties: {
@@ -227,6 +227,19 @@ export function getToolDefinitions() {
                 type: { type: 'string', description: 'Relationship type' }
               },
               required: ['source', 'target']
+            }
+          },
+          groups: {
+            type: 'array',
+            description: 'Groups to organize nodes (factions, houses, categories, teams). INCLUDE THESE when natural groupings exist!',
+            items: {
+              type: 'object',
+              properties: {
+                name: { type: 'string', description: 'Group name (e.g., "House Montague", "Engineering Team")' },
+                color: { type: 'string', description: 'Group color' },
+                memberNames: { type: 'array', items: { type: 'string' }, description: 'Names of nodes that belong to this group' }
+              },
+              required: ['name', 'memberNames']
             }
           }
         },

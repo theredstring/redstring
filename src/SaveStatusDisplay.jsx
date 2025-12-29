@@ -55,6 +55,7 @@ const SaveStatusDisplay = () => {
         
         // Check SaveCoordinator for immediate dirty flag (includes drag operations)
         const coordinatorHasUnsaved = saveCoordinator.hasUnsavedChanges();
+        const coordinatorIsSaving = saveCoordinator.isSaving;
 
         // Priority order: Error > Paused > Actively Saving > Not Saved > Saved
         if (engine?.isInErrorBackoff || engine?.isHealthy === false) {
@@ -63,8 +64,8 @@ const SaveStatusDisplay = () => {
         } else if (engine?.isPaused) {
           setStatusText('Paused');
           setIsCTA(false);
-        } else if (isCommitting) {
-          // Actively committing to Git
+        } else if (coordinatorIsSaving || isCommitting) {
+          // Actively saving (either SaveCoordinator or Git engine)
           setStatusText('Saving...');
           setIsCTA(false);
         } else if (coordinatorHasUnsaved || pendingCommits > 0 || hasUnsavedChanges) {
