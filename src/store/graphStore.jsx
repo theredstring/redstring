@@ -1710,6 +1710,10 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
         }
 
         const nodeIdMap = new Map(); // name -> instanceId
+        const nodeIdMapNormalized = new Map(); // normalized name -> instanceId (for fuzzy matching)
+
+        // Helper to normalize names for fuzzy matching
+        const normalizeName = (name) => (name || '').toLowerCase().trim();
 
         // 1. Add nodes
         nodes.forEach(node => {
@@ -1738,12 +1742,22 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
           });
 
           nodeIdMap.set(node.name, instanceId);
+          nodeIdMapNormalized.set(normalizeName(node.name), instanceId);
         });
 
+        console.log(`[applyBulkGraphUpdates] Node names in map:`, Array.from(nodeIdMap.keys()));
+        console.log(`[applyBulkGraphUpdates] Normalized names in map:`, Array.from(nodeIdMapNormalized.keys()));
+
         // 2. Add edges
-        edges.forEach(edge => {
-          const sourceId = edge.sourceId || nodeIdMap.get(edge.source);
-          const destId = edge.destinationId || edge.targetId || nodeIdMap.get(edge.target);
+        console.log(`[applyBulkGraphUpdates] Processing ${edges.length} edges...`);
+        edges.forEach((edge, idx) => {
+          console.log(`[applyBulkGraphUpdates] Edge ${idx}: source="${edge.source}", target="${edge.target}", type="${edge.type}"`);
+          
+          // Try exact match first, then normalized match
+          let sourceId = edge.sourceId || nodeIdMap.get(edge.source) || nodeIdMapNormalized.get(normalizeName(edge.source));
+          let destId = edge.destinationId || edge.targetId || nodeIdMap.get(edge.target) || nodeIdMapNormalized.get(normalizeName(edge.target));
+          
+          console.log(`[applyBulkGraphUpdates] Edge ${idx}: sourceId=${sourceId ? 'FOUND' : 'NOT_FOUND'}, destId=${destId ? 'FOUND' : 'NOT_FOUND'}`);
 
           if (sourceId && destId && graph.instances.has(sourceId) && graph.instances.has(destId)) {
             const edgeId = edge.id || uuidv4();
@@ -1759,17 +1773,19 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
               draft.edges.set(edgeId, edgeData);
               if (!graph.edgeIds) graph.edgeIds = [];
               graph.edgeIds.push(edgeId);
+              console.log(`[applyBulkGraphUpdates] Created edge: ${edge.source || 'unknown'} → ${edge.target || 'unknown'} (${edge.type})`);
             }
           } else {
-            console.warn(`[applyBulkGraphUpdates] Skipping edge: source or target not found`, edge);
+            console.warn(`[applyBulkGraphUpdates] Skipping edge - source "${edge.source}" (${sourceId ? 'found' : 'NOT FOUND'}) or target "${edge.target}" (${destId ? 'found' : 'NOT FOUND'})`, edge);
           }
         });
 
         // 3. Add groups
         groups.forEach(group => {
           const groupId = group.id || uuidv4();
+          // Try exact match first, then normalized match for each member
           const memberInstanceIds = group.memberInstanceIds || (group.memberNames || [])
-            .map(name => nodeIdMap.get(name))
+            .map(name => nodeIdMap.get(name) || nodeIdMapNormalized.get(normalizeName(name)))
             .filter(Boolean);
 
           if (memberInstanceIds.length > 0) {
@@ -1780,6 +1796,9 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
               color: group.color || '#8B0000',
               memberInstanceIds
             });
+            console.log(`[applyBulkGraphUpdates] Created group "${group.name}" with ${memberInstanceIds.length} members`);
+          } else {
+            console.warn(`[applyBulkGraphUpdates] Skipping group "${group.name}" - no valid members found from:`, group.memberNames);
           }
         });
 

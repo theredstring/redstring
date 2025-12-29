@@ -55,7 +55,14 @@ const ForceSimulationModal = ({
     collisionRadius: defaultCollisionRadius,
     edgeAvoidance: defaultEdgeAvoidance,
     alphaDecay: defaultAlphaDecay,
-    velocityDecay: defaultVelocityDecay
+    velocityDecay: defaultVelocityDecay,
+    // Group forces
+    groupAttractionStrength: defaultGroupAttraction = 0.1,
+    groupRepulsionStrength: defaultGroupRepulsion = 0.5,
+    groupExclusionStrength: defaultGroupExclusion = 0.8,
+    minGroupDistance: defaultMinGroupDistance = 400,
+    groupBoundaryPadding: defaultGroupBoundaryPadding = 60,
+    stiffness: defaultStiffness = 0.6
   } = FORCE_LAYOUT_DEFAULTS;
 
   const [params, setParams] = useState({
@@ -67,7 +74,14 @@ const ForceSimulationModal = ({
     collisionRadius: defaultCollisionRadius,
     edgeAvoidance: defaultEdgeAvoidance,
     alphaDecay: initialAlphaDecay,
-    velocityDecay: defaultVelocityDecay
+    velocityDecay: defaultVelocityDecay,
+    // Group forces
+    groupAttractionStrength: defaultGroupAttraction,
+    groupRepulsionStrength: defaultGroupRepulsion,
+    groupExclusionStrength: defaultGroupExclusion,
+    minGroupDistance: defaultMinGroupDistance,
+    groupBoundaryPadding: defaultGroupBoundaryPadding,
+    stiffness: defaultStiffness
   });
 
   // Simulation state
@@ -112,7 +126,14 @@ const ForceSimulationModal = ({
       collisionRadius: params.collisionRadius,
       edgeAvoidance: params.edgeAvoidance,
       alphaDecay: params.alphaDecay,
-      velocityDecay: params.velocityDecay
+      velocityDecay: params.velocityDecay,
+      // Group forces
+      groupAttractionStrength: params.groupAttractionStrength,
+      groupRepulsionStrength: params.groupRepulsionStrength,
+      groupExclusionStrength: params.groupExclusionStrength,
+      minGroupDistance: params.minGroupDistance,
+      groupBoundaryPadding: params.groupBoundaryPadding,
+      stiffness: params.stiffness
     };
 
     const json = JSON.stringify(settings, null, 2);
@@ -807,7 +828,13 @@ const ForceSimulationModal = ({
                   collisionRadius: params.collisionRadius,
                   edgeAvoidance: params.edgeAvoidance,
                   alphaDecay: params.alphaDecay,
-                  velocityDecay: params.velocityDecay
+                  velocityDecay: params.velocityDecay,
+                  groupAttractionStrength: params.groupAttractionStrength,
+                  groupRepulsionStrength: params.groupRepulsionStrength,
+                  groupExclusionStrength: params.groupExclusionStrength,
+                  minGroupDistance: params.minGroupDistance,
+                  groupBoundaryPadding: params.groupBoundaryPadding,
+                  stiffness: params.stiffness
                 }, null, 2)}
                 className="force-sim-json-textarea"
                 onClick={(e) => e.target.select()}
@@ -1011,6 +1038,89 @@ const ForceSimulationModal = ({
                 onChange={(e) => setParams({ ...params, alphaDecay: Number(e.target.value) })}
               />
               <span>{params.alphaDecay.toFixed(3)}</span>
+            </div>
+
+            <div className="force-sim-param">
+              <label>Stiffness</label>
+              <input
+                type="range"
+                min="0"
+                max="1"
+                step="0.05"
+                value={params.stiffness}
+                onChange={(e) => setParams({ ...params, stiffness: Number(e.target.value) })}
+              />
+              <span>{params.stiffness.toFixed(2)}</span>
+            </div>
+          </div>
+
+          {/* Group Forces Section */}
+          <div className="force-sim-section">
+            <h4 className="force-sim-section-title">🎯 Group Forces</h4>
+            
+            <div className="force-sim-param">
+              <label>Group Attraction</label>
+              <input
+                type="range"
+                min="0"
+                max="0.5"
+                step="0.01"
+                value={params.groupAttractionStrength}
+                onChange={(e) => setParams({ ...params, groupAttractionStrength: Number(e.target.value) })}
+              />
+              <span>{params.groupAttractionStrength.toFixed(2)}</span>
+            </div>
+
+            <div className="force-sim-param">
+              <label>Group Repulsion</label>
+              <input
+                type="range"
+                min="0"
+                max="2"
+                step="0.05"
+                value={params.groupRepulsionStrength}
+                onChange={(e) => setParams({ ...params, groupRepulsionStrength: Number(e.target.value) })}
+              />
+              <span>{params.groupRepulsionStrength.toFixed(2)}</span>
+            </div>
+
+            <div className="force-sim-param">
+              <label>Group Exclusion</label>
+              <input
+                type="range"
+                min="0"
+                max="2"
+                step="0.05"
+                value={params.groupExclusionStrength}
+                onChange={(e) => setParams({ ...params, groupExclusionStrength: Number(e.target.value) })}
+              />
+              <span>{params.groupExclusionStrength.toFixed(2)}</span>
+            </div>
+
+            <div className="force-sim-param">
+              <label>Min Group Distance</label>
+              <input
+                type="range"
+                min="100"
+                max="800"
+                step="25"
+                value={params.minGroupDistance}
+                onChange={(e) => setParams({ ...params, minGroupDistance: Number(e.target.value) })}
+              />
+              <span>{Math.round(params.minGroupDistance)}px</span>
+            </div>
+
+            <div className="force-sim-param">
+              <label>Group Padding</label>
+              <input
+                type="range"
+                min="0"
+                max="150"
+                step="10"
+                value={params.groupBoundaryPadding}
+                onChange={(e) => setParams({ ...params, groupBoundaryPadding: Number(e.target.value) })}
+              />
+              <span>{Math.round(params.groupBoundaryPadding)}px</span>
             </div>
           </div>
         </div>

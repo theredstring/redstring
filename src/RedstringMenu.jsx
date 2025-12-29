@@ -495,6 +495,47 @@ const RedstringMenu = ({
                                     </div>
                                   )}
                                 </div>
+                                
+                                <div className="submenu-divider" style={{ margin: '8px 0', borderTop: '1px solid #444', opacity: 0.3 }} />
+
+                                <div
+                                  className="submenu-item"
+                                  onClick={() => {
+                                    console.log('[View] Force Simulation Tuner clicked');
+                                    closeAllMenus();
+                                    if (onOpenForceSim) onOpenForceSim();
+                                  }}
+                                  style={{ cursor: 'pointer' }}
+                                >
+                                  <Activity size={14} style={{ marginRight: '8px' }} />
+                                  Force Simulation Tuner
+                                </div>
+
+                                <div
+                                  className="submenu-item"
+                                  onClick={() => {
+                                    console.log('[View] Auto Layout clicked');
+                                    closeAllMenus();
+                                    if (onAutoLayoutGraph) onAutoLayoutGraph();
+                                  }}
+                                  style={{ cursor: 'pointer' }}
+                                >
+                                  <LayoutGrid size={14} style={{ marginRight: '8px' }} />
+                                  Auto Layout Graph
+                                </div>
+
+                                <div
+                                  className="submenu-item"
+                                  onClick={() => {
+                                    console.log('[View] Condense Nodes clicked');
+                                    closeAllMenus();
+                                    if (onCondenseNodes) onCondenseNodes();
+                                  }}
+                                  style={{ cursor: 'pointer' }}
+                                >
+                                  <RefreshCw size={14} style={{ marginRight: '8px' }} />
+                                  Condense Nodes
+                                </div>
                             </div>
                           )}
                       </div>
@@ -609,21 +650,6 @@ const RedstringMenu = ({
                                   Generate Test Graph
                                 </div>
                                 
-                                <div
-                                  className="submenu-item"
-                                  onClick={() => {
-                                    console.log('[DEBUG] Force Simulation Tuner clicked');
-                                    closeAllMenus();
-                                    if (onOpenForceSim) onOpenForceSim();
-                                  }}
-                                  style={{ cursor: 'pointer' }}
-                                >
-                                  <Activity size={14} style={{ marginRight: '8px' }} />
-                                  Force Simulation Tuner
-                                </div>
-
-                                <div className="submenu-divider" style={{ margin: '8px 0', borderTop: '1px solid #444', opacity: 0.3 }} />
-
                                 <div style={{ padding: '0 12px 8px 12px' }}>
                                   <div style={{ fontSize: '11px', color: '#BDB6B5', opacity: 0.6, marginBottom: '6px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Group Layout Algorithm</div>
                                   <div 

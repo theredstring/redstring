@@ -36,8 +36,13 @@ const ToolCallCard = ({ toolName, status, args, result, error, timestamp, execut
         if (!result) return '';
 
         const parts = [];
-        if (result.nodeCount > 0) parts.push(`${result.nodeCount} node${result.nodeCount !== 1 ? 's' : ''}`);
-        if (result.edgeCount > 0) parts.push(`${result.edgeCount} connection${result.edgeCount !== 1 ? 's' : ''}`);
+        const nodeCount = result.nodeCount || (Array.isArray(result.nodesAdded) ? result.nodesAdded.length : 0);
+        const edgeCount = result.edgeCount || (Array.isArray(result.edgesAdded) ? result.edgesAdded.length : 0);
+        const groupCount = result.groupCount || (Array.isArray(result.groupsAdded) ? result.groupsAdded.length : 0);
+        
+        if (nodeCount > 0) parts.push(`${nodeCount} node${nodeCount !== 1 ? 's' : ''}`);
+        if (edgeCount > 0) parts.push(`${edgeCount} connection${edgeCount !== 1 ? 's' : ''}`);
+        if (groupCount > 0) parts.push(`${groupCount} group${groupCount !== 1 ? 's' : ''}`);
 
         let summary = parts.length > 0 ? `Added ${parts.join(', ')}` : '';
         if (result.graphName) summary += ` to "${result.graphName}"`;
@@ -101,6 +106,17 @@ const ToolCallCard = ({ toolName, status, args, result, error, timestamp, execut
                                 {result.edgesAdded.length > 10 && (
                                     <li className="more-items">... and {result.edgesAdded.length - 10} more</li>
                                 )}
+                            </ul>
+                        </div>
+                    )}
+
+                    {result && result.groupsAdded && result.groupsAdded.length > 0 && (
+                        <div className="detail-section">
+                            <h4>Groups</h4>
+                            <ul className="group-list">
+                                {result.groupsAdded.map((group, idx) => (
+                                    <li key={idx}>{typeof group === 'string' ? group : group.name}</li>
+                                ))}
                             </ul>
                         </div>
                     )}

@@ -111,10 +111,18 @@ Create a NEW graph with nodes, edges, AND groups in one operation.
 - `name` (required): Name for the new graph workspace
 - `description` (optional): Description of the graph
 - `nodes` (required): Array of { name, color, description }
-- `edges` (optional): Array of { source, target, type }
-- `groups` (optional but **STRONGLY ENCOURAGED**): Array of { name, color, memberNames }
-- **ALWAYS include groups** when natural groupings exist (factions, houses, teams, categories, departments, etc.)
-- Example: "make a graph of Romeo and Juliet characters" → include nodes for characters AND groups for House Montague/Capulet
+  - **ALWAYS include description** for each node - what it represents
+- `edges` (required!): Array of { source, target, type }
+  - **ALWAYS include edges** to show relationships between nodes
+  - `source` and `target` must **EXACTLY MATCH** node names (case-sensitive!)
+  - Every character/concept should have at least one edge connecting it to others
+- `groups` (strongly encouraged): Array of { name, color, memberNames }
+  - **ALWAYS include groups** when natural groupings exist (factions, houses, teams, categories, departments, etc.)
+  - `memberNames` must **EXACTLY MATCH** node names
+- Example: "make a graph of Romeo and Juliet characters" → 
+  - nodes: Romeo, Juliet, Mercutio, Tybalt, etc. (with descriptions!)
+  - edges: Romeo loves Juliet, Tybalt fights Mercutio, etc.
+  - groups: House Montague, House Capulet
 
 ### createGroup
 Create a visual Group containing specified nodes.

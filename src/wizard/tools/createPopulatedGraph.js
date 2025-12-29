@@ -15,6 +15,13 @@ import queueManager from '../../services/queue/Queue.js';
 export async function createPopulatedGraph(args, graphState, cid, ensureSchedulerStarted) {
   const { name, description = '', nodes = [], edges = [], groups = [] } = args;
   
+  console.log('[createPopulatedGraph] Called with:');
+  console.log('[createPopulatedGraph] - name:', name);
+  console.log('[createPopulatedGraph] - nodes:', nodes.length, 'items');
+  console.log('[createPopulatedGraph] - edges:', edges.length, 'items');
+  console.log('[createPopulatedGraph] - groups:', groups.length, 'items');
+  console.log('[createPopulatedGraph] - edges detail:', JSON.stringify(edges, null, 2));
+  
   if (!name) {
     throw new Error('Graph name is required');
   }
@@ -75,33 +82,46 @@ export async function createPopulatedGraph(args, graphState, cid, ensureSchedule
 
   if (ensureSchedulerStarted) ensureSchedulerStarted();
 
+  // Build the spec for both display and application
+  const nodeSpecs = nodes.map(n => ({
+    name: n.name,
+    color: n.color || '#8B0000',
+    description: n.description || ''
+  }));
+  
+  const edgeSpecs = (edges || []).map(e => ({
+    source: e.source,
+    target: e.target,
+    type: e.type || 'relates to'
+  }));
+  
+  const groupSpecs = (groups || []).map(g => ({
+    name: g.name,
+    color: g.color || '#8B0000',
+    memberNames: g.memberNames || []
+  }));
+
   // Return full spec so UI can apply it directly
+  // Note: nodesAdded/edgesAdded are ARRAYS for ToolCallCard display
   return {
     action: 'createPopulatedGraph',
     graphId,
     graphName: name,
     description,
-    nodesAdded: nodes.length,
-    edgesAdded: edges.length,
-    groupsAdded: groups.length,
+    // For ToolCallCard summary (counts)
+    nodeCount: nodeSpecs.length,
+    edgeCount: edgeSpecs.length,
+    groupCount: groupSpecs.length,
+    // For ToolCallCard details (arrays for display)
+    nodesAdded: nodeSpecs.map(n => n.name),
+    edgesAdded: edgeSpecs,
+    groupsAdded: groupSpecs.map(g => g.name),
     goalId,
     // Include full spec for UI to apply
     spec: {
-      nodes: nodes.map(n => ({
-        name: n.name,
-        color: n.color || '#8B0000',
-        description: n.description || ''
-      })),
-      edges: (edges || []).map(e => ({
-        source: e.source,
-        target: e.target,
-        type: e.type || 'relates to'
-      })),
-      groups: (groups || []).map(g => ({
-        name: g.name,
-        color: g.color || '#8B0000',
-        memberNames: g.memberNames || []
-      }))
+      nodes: nodeSpecs,
+      edges: edgeSpecs,
+      groups: groupSpecs
     }
   };
 }

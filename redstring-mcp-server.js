@@ -215,6 +215,84 @@ app.post('/api/ai/agent', async (req, res) => {
   }
 });
 
+// ─────────────────────────────────────────────────────────────
+// The Wizard Endpoint (SSE streaming) - for AI chat in the UI
+// ─────────────────────────────────────────────────────────────
+let runAgentImported = null;
+
+app.post('/api/wizard', async (req, res) => {
+  try {
+    const { message, graphState, conversationHistory, config } = req.body || {};
+    
+    if (!message) {
+      return res.status(400).json({ error: 'Message is required' });
+    }
+
+    const apiKey = req.headers.authorization?.replace(/^Bearer\s+/i, '') || '';
+    const apiConfig = config?.apiConfig || {};
+    
+    if (!apiKey) {
+      return res.status(401).json({ error: 'API key required in Authorization header' });
+    }
+
+    // Lazy-load the agent runner
+    if (!runAgentImported) {
+      try {
+        const mod = await import('./src/wizard/AgentLoop.js');
+        runAgentImported = mod.runAgent;
+        console.log('[MCP Wizard] AgentLoop loaded successfully');
+      } catch (importError) {
+        console.error('[MCP Wizard] Failed to import AgentLoop:', importError.message);
+        return res.status(503).json({ error: 'Wizard agent not available: ' + importError.message });
+      }
+    }
+
+    // Set up SSE
+    res.setHeader('Content-Type', 'text/event-stream');
+    res.setHeader('Cache-Control', 'no-cache');
+    res.setHeader('Connection', 'keep-alive');
+    res.setHeader('X-Accel-Buffering', 'no'); // Disable nginx buffering
+    
+    const llmConfig = {
+      apiKey,
+      provider: apiConfig.provider || 'openrouter',
+      endpoint: apiConfig.endpoint,
+      model: apiConfig.model,
+      temperature: apiConfig.settings?.temperature,
+      maxTokens: apiConfig.settings?.max_tokens,
+      cid: config?.cid || `wizard-${Date.now()}`,
+      conversationHistory: conversationHistory || []
+    };
+
+    console.log('[MCP Wizard] Request:', {
+      messagePreview: message.substring(0, 50),
+      historyLength: conversationHistory?.length || 0,
+      activeGraph: graphState?.activeGraphId,
+      model: llmConfig.model
+    });
+
+    try {
+      for await (const event of runAgentImported(message, graphState || {}, llmConfig, () => {})) {
+        res.write(`data: ${JSON.stringify(event)}\n\n`);
+      }
+      res.write(`data: ${JSON.stringify({ type: 'done' })}\n\n`);
+    } catch (error) {
+      console.error('[MCP Wizard] Agent error:', error);
+      res.write(`data: ${JSON.stringify({ type: 'error', message: error.message })}\n\n`);
+    }
+    
+    res.end();
+  } catch (error) {
+    console.error('[MCP Wizard] Request error:', error);
+    if (!res.headersSent) {
+      res.status(500).json({ error: error.message });
+    } else {
+      res.write(`data: ${JSON.stringify({ type: 'error', message: error.message })}\n\n`);
+      res.end();
+    }
+  }
+});
+
 // Bridge to the real Redstring store
 // This will be populated when the Redstring app is running
 let redstringStoreBridge = null;

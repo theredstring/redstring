@@ -197,7 +197,7 @@ export function getToolDefinitions() {
     },
     {
       name: 'createPopulatedGraph',
-      description: 'Create a NEW graph with nodes, edges, AND groups in one operation. ALWAYS include meaningful groups when they exist (factions, categories, houses, teams, departments, etc). Groups visually organize related nodes together.',
+      description: 'Create a NEW graph with nodes, edges, AND groups in one operation. ALWAYS include edges to show relationships between nodes! ALWAYS include meaningful groups when they exist (factions, categories, houses, teams, departments, etc).',
       parameters: {
         type: 'object',
         properties: {
@@ -205,26 +205,26 @@ export function getToolDefinitions() {
           description: { type: 'string', description: 'Optional description of the graph' },
           nodes: {
             type: 'array',
-            description: 'Array of nodes to create in the new graph',
+            description: 'Array of nodes to create in the new graph. Give each node a brief description!',
             items: {
               type: 'object',
               properties: {
                 name: { type: 'string' },
                 color: { type: 'string' },
-                description: { type: 'string' }
+                description: { type: 'string', description: 'Brief description of what this node represents - ALWAYS include this!' }
               },
               required: ['name']
             }
           },
           edges: {
             type: 'array',
-            description: 'Array of edges to create',
+            description: 'REQUIRED: Array of edges connecting nodes. Use EXACT node names from the nodes array. Every graph needs edges to show relationships!',
             items: {
               type: 'object',
               properties: {
-                source: { type: 'string', description: 'Source node name' },
-                target: { type: 'string', description: 'Target node name' },
-                type: { type: 'string', description: 'Relationship type' }
+                source: { type: 'string', description: 'Source node name - must EXACTLY match a name in the nodes array' },
+                target: { type: 'string', description: 'Target node name - must EXACTLY match a name in the nodes array' },
+                type: { type: 'string', description: 'Relationship type (e.g., "loves", "fights", "contains", "leads", "is part of")' }
               },
               required: ['source', 'target']
             }
@@ -237,13 +237,13 @@ export function getToolDefinitions() {
               properties: {
                 name: { type: 'string', description: 'Group name (e.g., "House Montague", "Engineering Team")' },
                 color: { type: 'string', description: 'Group color' },
-                memberNames: { type: 'array', items: { type: 'string' }, description: 'Names of nodes that belong to this group' }
+                memberNames: { type: 'array', items: { type: 'string' }, description: 'Names of nodes that belong to this group - must EXACTLY match names in the nodes array' }
               },
               required: ['name', 'memberNames']
             }
           }
         },
-        required: ['name', 'nodes']
+        required: ['name', 'nodes', 'edges']
       }
     },
     {
