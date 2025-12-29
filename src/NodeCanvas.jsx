@@ -31,7 +31,7 @@ import * as fileStorage from './store/fileStorage.js';
 import AutoGraphModal from './components/AutoGraphModal';
 import ForceSimulationModal from './components/ForceSimulationModal';
 import { parseInputData, generateGraph } from './services/autoGraphGenerator';
-import { applyLayout, FORCE_LAYOUT_DEFAULTS } from './services/graphLayoutService.js';
+import { applyLayout, getClusterGeometries, FORCE_LAYOUT_DEFAULTS } from './services/graphLayoutService.js';
 import { NavigationMode, calculateNavigationParams } from './services/canvasNavigationService.js';
 
 // Import Zustand store and selectors/actions
@@ -1370,6 +1370,8 @@ function NodeCanvas() {
   const routingStyle = useGraphStore(state => state.autoLayoutSettings?.routingStyle || 'straight');
   const manhattanBends = useGraphStore(state => state.autoLayoutSettings?.manhattanBends || 'auto');
   const cleanLaneSpacing = useGraphStore(state => state.autoLayoutSettings?.cleanLaneSpacing || 24);
+  const groupLayoutAlgorithm = useGraphStore(state => state.autoLayoutSettings?.groupLayoutAlgorithm || 'node-driven');
+  const showClusterHulls = useGraphStore(state => state.autoLayoutSettings?.showClusterHulls || false);
   const layoutScalePreset = useGraphStore(state => state.autoLayoutSettings?.layoutScale || 'balanced');
   const layoutScaleMultiplier = useGraphStore(state => state.autoLayoutSettings?.layoutScaleMultiplier ?? 1);
   const layoutIterationPreset = useGraphStore(state => state.autoLayoutSettings?.layoutIterations || 'balanced');
@@ -2656,6 +2658,8 @@ function NodeCanvas() {
       console.log(`[AutoLayout] Applying auto-layout to ${nodes.length} nodes...`);
     }
 
+    const graphData = activeGraphId ? graphsMap.get(activeGraphId) : null;
+
     const layoutNodes = nodes.map(node => {
       const cachedDims = baseDimsById.get(node.id);
       const realDims = cachedDims && cachedDims.currentWidth && cachedDims.currentHeight
@@ -2696,11 +2700,12 @@ function NodeCanvas() {
       layoutScale: layoutScalePreset,
       layoutScaleMultiplier,
       iterationPreset: layoutIterationPreset,
-      useExistingPositions: true  // Preserve manually arranged nodes
+      useExistingPositions: true,  // Preserve manually arranged nodes
+      groups: Array.from(graphData?.groups?.values() || [])
     };
 
     try {
-      let updates = applyLayout(layoutNodes, layoutEdges, 'force-directed', layoutOptions);
+      let updates = applyLayout(layoutNodes, layoutEdges, groupLayoutAlgorithm, layoutOptions);
 
       if (!updates || updates.length === 0) {
         console.warn('[AutoLayout] Layout produced no updates.');
@@ -2742,7 +2747,7 @@ function NodeCanvas() {
       );
       resetConnectionLabelCache();
 
-      console.log('[AutoLayout] Applied force-directed layout to graph', activeGraphId, 'for', updates.length, 'nodes.');
+      console.log('[AutoLayout] Applied', groupLayoutAlgorithm, 'layout to graph', activeGraphId, 'for', updates.length, 'nodes.');
 
       setTimeout(() => {
         try {
@@ -2762,7 +2767,7 @@ function NodeCanvas() {
       console.error('[AutoLayout] Failed to apply layout:', error);
       alert(`Auto-layout failed: ${error.message}`);
     }
-  }, [activeGraphId, baseDimsById, nodes, edges, storeActions, moveOutOfBoundsNodesInBounds, resetConnectionLabelCache, layoutScalePreset, layoutScaleMultiplier, layoutIterationPreset, canvasSize]);
+  }, [activeGraphId, baseDimsById, nodes, edges, storeActions, moveOutOfBoundsNodesInBounds, resetConnectionLabelCache, layoutScalePreset, layoutScaleMultiplier, layoutIterationPreset, canvasSize, groupLayoutAlgorithm, graphsMap]);
 
   const condenseGraphNodes = useCallback(() => {
     if (!activeGraphId || !nodes?.length) return;
@@ -9133,6 +9138,10 @@ function NodeCanvas() {
         onSetManhattanBends={storeActions.setManhattanBends}
         onSetCleanLaneSpacing={(v) => useGraphStore.getState().setCleanLaneSpacing(v)}
         cleanLaneSpacing={cleanLaneSpacing}
+        groupLayoutAlgorithm={groupLayoutAlgorithm}
+        onSetGroupLayoutAlgorithm={storeActions.setGroupLayoutAlgorithm}
+        showClusterHulls={showClusterHulls}
+        onToggleShowClusterHulls={storeActions.toggleShowClusterHulls}
 
         // Grid controls
         gridMode={gridMode}
@@ -9513,6 +9522,34 @@ function NodeCanvas() {
                 onMouseMove={handleMouseMove}
               // Remove pointerDown preventDefault to avoid interfering with gestures
               >
+                {/* Cluster Hulls Layer (Debug) */}
+                {showClusterHulls && (() => {
+                  const geometries = getClusterGeometries(hydratedNodes, edges);
+                  return (
+                    <g className="cluster-hulls-layer">
+                      {geometries.map((geo, idx) => {
+                        if (geo.hull.length < 3) return null;
+                        const pointsStr = geo.hull.map(p => `${p.x},${p.y}`).join(' ');
+                        const colors = ['#4ecdc4', '#ff6b6b', '#ffe66d', '#1a535c', '#f7fff7'];
+                        const color = colors[idx % colors.length];
+                        return (
+                          <polygon
+                            key={idx}
+                            points={pointsStr}
+                            fill={color}
+                            fillOpacity="0.1"
+                            stroke={color}
+                            strokeWidth="4"
+                            strokeOpacity="0.3"
+                            strokeDasharray="8,8"
+                            style={{ pointerEvents: 'none' }}
+                          />
+                        );
+                      })}
+                    </g>
+                  );
+                })()}
+
                 {/* Groups layer - render group rectangles behind nodes */}
                 {(() => {
                   const graphData = activeGraphId ? graphsMap.get(activeGraphId) : null;

@@ -45,6 +45,11 @@ const Header = ({
   // Clean routing controls
   onSetCleanLaneSpacing,
   cleanLaneSpacing,
+  // Group layout
+  groupLayoutAlgorithm,
+  onSetGroupLayoutAlgorithm,
+  showClusterHulls,
+  onToggleShowClusterHulls,
   // Grid controls
   gridMode,
   onSetGridMode,
@@ -314,6 +319,10 @@ const Header = ({
             onSetManhattanBends={onSetManhattanBends}
             onSetCleanLaneSpacing={onSetCleanLaneSpacing}
             cleanLaneSpacing={cleanLaneSpacing}
+            groupLayoutAlgorithm={groupLayoutAlgorithm}
+            onSetGroupLayoutAlgorithm={onSetGroupLayoutAlgorithm}
+            showClusterHulls={showClusterHulls}
+            onToggleShowClusterHulls={onToggleShowClusterHulls}
             gridMode={gridMode}
             onSetGridMode={onSetGridMode}
             gridSize={gridSize}

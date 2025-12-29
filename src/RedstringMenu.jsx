@@ -27,6 +27,11 @@ const RedstringMenu = ({
   // Optional: expose clean lane spacing adjuster
   onSetCleanLaneSpacing,
   cleanLaneSpacing,
+  // Group layout
+  groupLayoutAlgorithm,
+  onSetGroupLayoutAlgorithm,
+  showClusterHulls,
+  onToggleShowClusterHulls,
   // Grid controls
   gridMode,
   onSetGridMode,
@@ -616,6 +621,33 @@ const RedstringMenu = ({
                                   <Activity size={14} style={{ marginRight: '8px' }} />
                                   Force Simulation Tuner
                                 </div>
+
+                                <div className="submenu-divider" style={{ margin: '8px 0', borderTop: '1px solid #444', opacity: 0.3 }} />
+
+                                <div style={{ padding: '0 12px 8px 12px' }}>
+                                  <div style={{ fontSize: '11px', color: '#BDB6B5', opacity: 0.6, marginBottom: '6px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Group Layout Algorithm</div>
+                                  <div 
+                                    className="submenu-item" 
+                                    onClick={() => onSetGroupLayoutAlgorithm?.('node-driven')}
+                                    style={{ paddingLeft: '8px', opacity: groupLayoutAlgorithm === 'node-driven' ? 1 : 0.6 }}
+                                  >
+                                    {groupLayoutAlgorithm === 'node-driven' ? '✓ ' : ''}Node-Driven (Force)
+                                  </div>
+                                  <div 
+                                    className="submenu-item" 
+                                    onClick={() => onSetGroupLayoutAlgorithm?.('euler')}
+                                    style={{ paddingLeft: '8px', opacity: groupLayoutAlgorithm === 'euler' ? 1 : 0.6 }}
+                                  >
+                                    {groupLayoutAlgorithm === 'euler' ? '✓ ' : ''}Euler (Region-First)
+                                  </div>
+                                  <div 
+                                    className="submenu-item" 
+                                    onClick={() => onSetGroupLayoutAlgorithm?.('hybrid')}
+                                    style={{ paddingLeft: '8px', opacity: groupLayoutAlgorithm === 'hybrid' ? 1 : 0.6 }}
+                                  >
+                                    {groupLayoutAlgorithm === 'hybrid' ? '✓ ' : ''}Hybrid
+                                  </div>
+                                </div>
                                 
                                 <div className="submenu-divider" style={{ margin: '8px 0', borderTop: '1px solid #444', opacity: 0.3 }} />
                                 
@@ -626,6 +658,14 @@ const RedstringMenu = ({
                                 >
                                   <Bug size={14} style={{ marginRight: '8px' }} />
                                   {debugMode ? 'Hide Debug Overlay' : 'Show Debug Overlay'}
+                                </div>
+
+                                <div
+                                  className="submenu-item"
+                                  onClick={() => onToggleShowClusterHulls?.()}
+                                  style={{ cursor: 'pointer', opacity: showClusterHulls ? 1 : 0.8 }}
+                                >
+                                  {showClusterHulls ? '✓' : ''} Show Cluster Hulls (Connectivity)
                                 </div>
                                 
                                 <div className="submenu-divider" style={{ margin: '8px 0', borderTop: '1px solid #444', opacity: 0.3 }} />

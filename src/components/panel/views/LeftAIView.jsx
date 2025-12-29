@@ -24,67 +24,33 @@ function applyToolResultToStore(toolName, result) {
   if (result.action === 'createPopulatedGraph' && result.spec) {
     console.log('[Wizard] Applying createPopulatedGraph to store:', result.graphName);
     
-    // Create the graph
+    // 1. Create the graph first
     const graphId = store.createNewGraph({
       id: result.graphId,
       name: result.graphName,
       description: result.description || ''
     });
     
-    // Add nodes - track name -> instanceId mapping
-    const nodeIdMap = new Map(); // name -> instanceId
-    for (const node of result.spec.nodes) {
-      // Generate IDs upfront
-      const protoId = `proto-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-      const instanceId = `inst-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-      
-      // Create prototype
-      store.addNodePrototype({
-        id: protoId,
-        name: node.name,
-        color: node.color || '#8B0000',
-        description: node.description || ''
-      });
-      
-      // Add instance to graph
-      store.addNodeInstance(graphId, protoId, {
-        x: Math.random() * 500 + 100,
-        y: Math.random() * 400 + 100
-      }, instanceId);
-      
-      nodeIdMap.set(node.name, instanceId);
-    }
+    // 2. Prepare bulk updates
+    const bulkData = {
+      nodes: result.spec.nodes.map(n => ({
+        name: n.name,
+        color: n.color,
+        description: n.description,
+        // Pre-generate IDs to ensure consistency
+        prototypeId: `proto-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+        instanceId: `inst-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+        x: Math.random() * 600 + 200, // Spread them out a bit more
+        y: Math.random() * 500 + 200
+      })),
+      edges: result.spec.edges || [],
+      groups: result.spec.groups || []
+    };
     
-    // Add edges
-    for (const edge of result.spec.edges || []) {
-      const sourceId = nodeIdMap.get(edge.source);
-      const targetId = nodeIdMap.get(edge.target);
-      if (sourceId && targetId) {
-        const edgeId = `edge-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-        store.addEdge(graphId, {
-          id: edgeId,
-          sourceId: sourceId,
-          destinationId: targetId,
-          type: edge.type || 'relates to'
-        });
-      }
-    }
+    // 3. Apply bulk updates in one transaction
+    store.applyBulkGraphUpdates(graphId, bulkData);
     
-    // Add groups
-    for (const group of result.spec.groups || []) {
-      const memberIds = group.memberNames
-        .map(name => nodeIdMap.get(name))
-        .filter(Boolean);
-      if (memberIds.length > 0) {
-        store.createGroup(graphId, {
-          name: group.name,
-          color: group.color || '#8B0000',
-          memberInstanceIds: memberIds
-        });
-      }
-    }
-    
-    console.log('[Wizard] Graph created with', nodeIdMap.size, 'nodes');
+    console.log('[Wizard] Successfully populated graph:', graphId);
   }
 }
 

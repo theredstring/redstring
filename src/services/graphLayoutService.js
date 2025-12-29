@@ -495,10 +495,11 @@ export function forceDirectedLayout(nodes, edges, options = {}) {
   
   // Build group membership map (user-defined groups override connectivity clusters)
   const groups = options.groups || [];
-  const nodeGroupMap = new Map();
+  const nodeGroupsMap = new Map(); // nodeId -> Set of groupIds
   groups.forEach(group => {
     (group.memberInstanceIds || []).forEach(nodeId => {
-      nodeGroupMap.set(nodeId, group.id);
+      if (!nodeGroupsMap.has(nodeId)) nodeGroupsMap.set(nodeId, new Set());
+      nodeGroupsMap.get(nodeId).add(group.id);
     });
   });
   
@@ -805,24 +806,32 @@ export function forceDirectedLayout(nodes, edges, options = {}) {
         }
       });
       
-      // Intra-group attraction: Pull nodes toward their group centroid
+      // Intra-group attraction: Pull nodes toward their group centroid(s)
       const groupAttractionStrength = config.groupAttractionStrength || 0.1;
       nodes.forEach(node => {
-        const groupId = nodeGroupMap.get(node.id);
-        if (!groupId) return;
-        const centroid = groupCentroids.get(groupId);
+        const groupIds = nodeGroupsMap.get(node.id);
+        if (!groupIds || groupIds.size === 0) return;
+        
         const pos = positions.get(node.id);
         const force = forces.get(node.id);
-        if (!centroid || !pos || !force) return;
-        
-        const dx = centroid.x - pos.x;
-        const dy = centroid.y - pos.y;
-        const dist = Math.sqrt(dx * dx + dy * dy);
-        if (dist < 0.1) return;
-        
-        const strength = groupAttractionStrength * alpha;
-        force.fx += (dx / dist) * strength * dist;
-        force.fy += (dy / dist) * strength * dist;
+        if (!pos || !force) return;
+
+        // Pull toward EVERY group this node belongs to
+        groupIds.forEach(groupId => {
+          const centroid = groupCentroids.get(groupId);
+          if (!centroid) return;
+          
+          const dx = centroid.x - pos.x;
+          const dy = centroid.y - pos.y;
+          const dist = Math.sqrt(dx * dx + dy * dy);
+          if (dist < 0.1) return;
+          
+          const strength = groupAttractionStrength * alpha;
+          // Scale attraction by number of groups to avoid explosive forces
+          const scaledStrength = strength / groupIds.size;
+          force.fx += (dx / dist) * scaledStrength * dist;
+          force.fy += (dy / dist) * scaledStrength * dist;
+        });
       });
       
       // Inter-group repulsion: Push different groups apart
@@ -1341,6 +1350,196 @@ export function gridLayout(nodes, edges, options = {}) {
 /**
  * Circular layout (nodes on circle perimeter)
  */
+// ============================================================================
+// VENN / EULER LAYOUT ALGORITHMS
+// ============================================================================
+
+/**
+ * Euler-Diagram Style (Region-First) Layout
+ * Positions groups based on their membership overlaps first.
+ */
+export function eulerLayout(nodes, edges, options = {}) {
+  const { width, height, padding = 100, groups = [] } = options;
+  const positions = new Map();
+
+  if (groups.length === 0) {
+    return forceDirectedLayout(nodes, edges, options);
+  }
+
+  // 1. Analyze group overlaps
+  const nodeGroupsMap = new Map();
+  groups.forEach(group => {
+    (group.memberInstanceIds || []).forEach(nodeId => {
+      if (!nodeGroupsMap.has(nodeId)) nodeGroupsMap.set(nodeId, new Set());
+      nodeGroupsMap.get(nodeId).add(group.id);
+    });
+  });
+
+  // 2. Position group centroids using a "meta-layout"
+  // Treat groups as nodes, and draw edges between groups that share members
+  const metaNodes = groups.map(g => ({ id: g.id, width: 400, height: 400 }));
+  const metaEdges = [];
+  for (let i = 0; i < groups.length; i++) {
+    for (let j = i + 1; j < groups.length; j++) {
+      const g1 = groups[i];
+      const g2 = groups[j];
+      const shared = (g1.memberInstanceIds || []).filter(id => 
+        (g2.memberInstanceIds || []).includes(id)
+      );
+      if (shared.length > 0) {
+        metaEdges.push({ sourceId: g1.id, destinationId: g2.id });
+      }
+    }
+  }
+
+  // Position group regions in a circle or force-layout
+  const metaPositions = circularLayout(metaNodes, metaEdges, { 
+    width, height, radius: Math.min(width, height) * 0.3 
+  });
+
+  // 3. Position nodes based on their group memberships
+  nodes.forEach(node => {
+    const groupIds = nodeGroupsMap.get(node.id);
+    if (!groupIds || groupIds.size === 0) {
+      // Place non-grouped nodes outside or in center
+      positions.set(node.id, { 
+        x: width / 2 + (Math.random() - 0.5) * 200, 
+        y: height / 2 + (Math.random() - 0.5) * 200 
+      });
+      return;
+    }
+
+    // Centroid of all groups this node belongs to
+    let sumX = 0, sumY = 0, count = 0;
+    groupIds.forEach(gid => {
+      const pos = metaPositions.get(gid);
+      if (pos) {
+        sumX += pos.x;
+        sumY += pos.y;
+        count++;
+      }
+    });
+
+    if (count > 0) {
+      // Add a jitter to prevent total overlap
+      positions.set(node.id, { 
+        x: sumX / count + (Math.random() - 0.5) * 100, 
+        y: sumY / count + (Math.random() - 0.5) * 100 
+      });
+    } else {
+      positions.set(node.id, { x: width / 2, y: height / 2 });
+    }
+  });
+
+  // 4. Run a short force simulation to refine node positions while keeping them in their zones
+  return forceDirectedLayout(nodes, edges, {
+    ...options,
+    useExistingPositions: true,
+    iterations: 50, // Fewer iterations for refinement
+    groupAttractionStrength: 0.3, // Stronger group pull
+    centerStrength: 0.01 // Less center pull
+  });
+}
+
+/**
+ * Hybrid Layout (Algorithm C)
+ * Combines Euler region placement with full force simulation constraints.
+ */
+export function hybridLayout(nodes, edges, options = {}) {
+  // First pass: Euler-style placement to get initial positions
+  const initialPositions = eulerLayout(nodes, edges, {
+    ...options,
+    iterations: 20 // Very quick pass
+  });
+
+  // Second pass: Full force directed layout with those initial positions
+  const nodesWithPos = nodes.map(n => {
+    const pos = initialPositions.get(n.id);
+    return { ...n, x: pos?.x, y: pos?.y };
+  });
+
+  return forceDirectedLayout(nodesWithPos, edges, {
+    ...options,
+    useExistingPositions: true,
+    groupAttractionStrength: 0.15,
+    groupRepulsionStrength: 0.6
+  });
+}
+
+// ============================================================================
+// GEOMETRY UTILITIES
+// ============================================================================
+
+/**
+ * Compute the convex hull of a set of points using Monotone Chain algorithm.
+ * Returns an array of points in counter-clockwise order.
+ */
+export function computeConvexHull(points) {
+  if (points.length <= 2) return points;
+
+  // Sort by x, then y
+  const sorted = [...points].sort((a, b) => a.x !== b.x ? a.x - b.x : a.y - b.y);
+
+  const crossProduct = (o, a, b) => (a.x - o.x) * (b.y - o.y) - (a.y - o.y) * (b.x - o.x);
+
+  // Build lower hull
+  const lower = [];
+  for (const p of sorted) {
+    while (lower.length >= 2 && crossProduct(lower[lower.length - 2], lower[lower.length - 1], p) <= 0) {
+      lower.pop();
+    }
+    lower.push(p);
+  }
+
+  // Build upper hull
+  const upper = [];
+  for (let i = sorted.length - 1; i >= 0; i--) {
+    const p = sorted[i];
+    while (upper.length >= 2 && crossProduct(upper[upper.length - 2], upper[upper.length - 1], p) <= 0) {
+      upper.pop();
+    }
+    upper.push(p);
+  }
+
+  upper.pop();
+  lower.pop();
+  return lower.concat(upper);
+}
+
+/**
+ * Get cluster geometry for visualization
+ */
+export function getClusterGeometries(nodes, edges) {
+  const nodeById = new Map(nodes.map(n => [n.id, n]));
+  const adjacency = new Map();
+  edges.forEach(edge => {
+    if (!adjacency.has(edge.sourceId)) adjacency.set(edge.sourceId, []);
+    if (!adjacency.has(edge.destinationId)) adjacency.set(edge.destinationId, []);
+    adjacency.get(edge.sourceId).push(edge.destinationId);
+    adjacency.get(edge.destinationId).push(edge.sourceId);
+  });
+
+  const clusters = getGraphClusters(nodes, adjacency);
+  
+  return clusters.map(cluster => {
+    // Collect all corners of node rectangles to ensure hull encompasses them
+    const points = [];
+    cluster.forEach(node => {
+      const w = node.width || 100;
+      const h = node.height || 60;
+      points.push({ x: node.x, y: node.y });
+      points.push({ x: node.x + w, y: node.y });
+      points.push({ x: node.x, y: node.y + h });
+      points.push({ x: node.x + w, y: node.y + h });
+    });
+
+    return {
+      nodeIds: cluster.map(n => n.id),
+      hull: computeConvexHull(points)
+    };
+  });
+}
+
 export function circularLayout(nodes, edges, options = {}) {
   const {
     width = 2000,
@@ -1383,8 +1582,16 @@ export function applyLayout(nodes, edges, algorithm = 'force', options = {}) {
   let positions;
   
   switch (algorithm) {
+    case 'euler':
+    case 'region-first':
+      positions = eulerLayout(nodes, edges, options);
+      break;
+    case 'hybrid':
+      positions = hybridLayout(nodes, edges, options);
+      break;
     case 'force':
     case 'force-directed':
+    case 'node-driven':
       positions = forceDirectedLayout(nodes, edges, options);
       break;
     case 'hierarchical':
@@ -1422,11 +1629,15 @@ export function applyLayout(nodes, edges, algorithm = 'force', options = {}) {
 
 export default {
   forceDirectedLayout,
+  eulerLayout,
+  hybridLayout,
   hierarchicalLayout,
   radialLayout,
   gridLayout,
   circularLayout,
   applyLayout,
+  getClusterGeometries,
+  computeConvexHull,
   FORCE_LAYOUT_DEFAULTS,
   LAYOUT_SCALE_PRESETS,
   LAYOUT_ITERATION_PRESETS

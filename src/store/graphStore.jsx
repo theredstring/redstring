@@ -19,7 +19,9 @@ const getDefaultAutoLayoutSettings = () => ({
   cleanLaneSpacing: 200,
   layoutScale: 'balanced',
   layoutScaleMultiplier: 1,
-  layoutIterations: 'balanced'
+  layoutIterations: 'balanced',
+  groupLayoutAlgorithm: 'node-driven',
+  showClusterHulls: false // Debug visualization for connectivity clusters
 });
 
 const getDefaultForceTunerSettings = () => ({
@@ -1697,6 +1699,94 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
     })),
 
     // Creates a new, empty graph and sets it as active
+    // Batch multiple graph updates in one transaction
+    applyBulkGraphUpdates: (graphId, { nodes = [], edges = [], groups = [] }) => {
+      api.setChangeContext({ type: 'bulk_update', target: 'graph', finalize: true });
+      set(produce((draft) => {
+        const graph = draft.graphs.get(graphId);
+        if (!graph) {
+          console.error(`[applyBulkGraphUpdates] Graph ${graphId} not found.`);
+          return;
+        }
+
+        const nodeIdMap = new Map(); // name -> instanceId
+
+        // 1. Add nodes
+        nodes.forEach(node => {
+          const protoId = node.prototypeId || uuidv4();
+          const instanceId = node.instanceId || uuidv4();
+
+          // Add prototype if it doesn't exist
+          if (!draft.nodePrototypes.has(protoId)) {
+            draft.nodePrototypes.set(protoId, {
+              id: protoId,
+              name: node.name,
+              color: node.color || NODE_DEFAULT_COLOR,
+              description: node.description || '',
+              createdAt: new Date().toISOString()
+            });
+          }
+
+          // Add instance to graph
+          if (!graph.instances) graph.instances = new Map();
+          graph.instances.set(instanceId, {
+            id: instanceId,
+            prototypeId: protoId,
+            x: node.x ?? (Math.random() * 500 + 100),
+            y: node.y ?? (Math.random() * 400 + 100),
+            scale: 1
+          });
+
+          nodeIdMap.set(node.name, instanceId);
+        });
+
+        // 2. Add edges
+        edges.forEach(edge => {
+          const sourceId = edge.sourceId || nodeIdMap.get(edge.source);
+          const destId = edge.destinationId || edge.targetId || nodeIdMap.get(edge.target);
+
+          if (sourceId && destId && graph.instances.has(sourceId) && graph.instances.has(destId)) {
+            const edgeId = edge.id || uuidv4();
+            if (!draft.edges.has(edgeId)) {
+              const edgeData = {
+                id: edgeId,
+                sourceId: sourceId,
+                destinationId: destId,
+                type: edge.type || 'relates to',
+                typeNodeId: edge.typeNodeId || 'base-connection-prototype',
+                directionality: normalizeEdgeDirectionality(edge.directionality)
+              };
+              draft.edges.set(edgeId, edgeData);
+              if (!graph.edgeIds) graph.edgeIds = [];
+              graph.edgeIds.push(edgeId);
+            }
+          } else {
+            console.warn(`[applyBulkGraphUpdates] Skipping edge: source or target not found`, edge);
+          }
+        });
+
+        // 3. Add groups
+        groups.forEach(group => {
+          const groupId = group.id || uuidv4();
+          const memberInstanceIds = group.memberInstanceIds || (group.memberNames || [])
+            .map(name => nodeIdMap.get(name))
+            .filter(Boolean);
+
+          if (memberInstanceIds.length > 0) {
+            if (!graph.groups) graph.groups = new Map();
+            graph.groups.set(groupId, {
+              id: groupId,
+              name: group.name || 'Group',
+              color: group.color || '#8B0000',
+              memberInstanceIds
+            });
+          }
+        });
+
+        console.log(`[applyBulkGraphUpdates] Applied ${nodes.length} nodes, ${edges.length} edges, and ${groups.length} groups to graph ${graphId}`);
+      }));
+    },
+
     createNewGraph: (initialData = {}) => {
       const newGraphId = initialData.id || uuidv4(); // Use provided ID if available
       set(produce((draft) => {
@@ -2137,6 +2227,22 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
     })),
 
     // Set the global routing style
+    setGroupLayoutAlgorithm: (algorithm) => set(produce((draft) => {
+      if (!draft.autoLayoutSettings) {
+        draft.autoLayoutSettings = getDefaultAutoLayoutSettings();
+      }
+      draft.autoLayoutSettings.groupLayoutAlgorithm = algorithm;
+      console.log(`[Store] Group layout algorithm set to: ${algorithm}`);
+    })),
+
+    toggleShowClusterHulls: () => set(produce((draft) => {
+      if (!draft.autoLayoutSettings) {
+        draft.autoLayoutSettings = getDefaultAutoLayoutSettings();
+      }
+      draft.autoLayoutSettings.showClusterHulls = !draft.autoLayoutSettings.showClusterHulls;
+      console.log(`[Store] Show cluster hulls set to: ${draft.autoLayoutSettings.showClusterHulls}`);
+    })),
+
     setRoutingStyle: (style) => set(produce((draft) => {
       if (!draft.autoLayoutSettings) {
         draft.autoLayoutSettings = getDefaultAutoLayoutSettings();
