@@ -1535,6 +1535,61 @@ export async function runExecutorOnce() {
         newPrototypeColor
       });
       console.log(`[Executor] convert_to_node_group: Converting group ${groupId} to node-group`);
+    } else if (task.toolName === 'update_group') {
+      // Update a group's properties
+      const graphId = validation.sanitized.graph_id;
+      const groupId = validation.sanitized.group_id;
+      const newName = validation.sanitized.new_name;
+      const newColor = validation.sanitized.new_color;
+      const addMemberIds = validation.sanitized.add_member_ids || [];
+      const removeMemberIds = validation.sanitized.remove_member_ids || [];
+
+      if (!graphId || !groupId) {
+        throw new Error('Both graph_id and group_id are required for update_group');
+      }
+
+      ops.push({
+        type: 'updateGroup',
+        graphId,
+        groupId,
+        updates: {
+          newName,
+          newColor,
+          addMemberIds,
+          removeMemberIds
+        }
+      });
+      console.log(`[Executor] update_group: Updating group ${groupId}`);
+    } else if (task.toolName === 'delete_group') {
+      // Delete a group (keeps members)
+      const graphId = validation.sanitized.graph_id;
+      const groupId = validation.sanitized.group_id;
+
+      if (!graphId || !groupId) {
+        throw new Error('Both graph_id and group_id are required for delete_group');
+      }
+
+      ops.push({
+        type: 'deleteGroup',
+        graphId,
+        groupId
+      });
+      console.log(`[Executor] delete_group: Deleting group ${groupId}`);
+    } else if (task.toolName === 'combine_node_group') {
+      // Collapse a Thing-Group into a single node
+      const graphId = validation.sanitized.graph_id;
+      const groupId = validation.sanitized.group_id;
+
+      if (!graphId || !groupId) {
+        throw new Error('Both graph_id and group_id are required for combine_node_group');
+      }
+
+      ops.push({
+        type: 'combineNodeGroup',
+        graphId,
+        groupId
+      });
+      console.log(`[Executor] combine_node_group: Combining Thing-Group ${groupId} into single node`);
     } else if (task.toolName === 'set_active_graph') {
       // Switch the active view to a specific graph
       const graphId = validation.sanitized.graph_id;

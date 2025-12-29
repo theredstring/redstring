@@ -14,6 +14,12 @@ import { getNodeContext } from './getNodeContext.js';
 import { createGraph } from './createGraph.js';
 import { expandGraph } from './expandGraph.js';
 import { createPopulatedGraph } from './createPopulatedGraph.js';
+import { createGroup } from './createGroup.js';
+import { listGroups } from './listGroups.js';
+import { updateGroup } from './updateGroup.js';
+import { deleteGroup } from './deleteGroup.js';
+import { convertToThingGroup } from './convertToThingGroup.js';
+import { combineThingGroup } from './combineThingGroup.js';
 
 const TOOLS = {
   createNode,
@@ -25,7 +31,13 @@ const TOOLS = {
   getNodeContext,
   createGraph,
   expandGraph,
-  createPopulatedGraph
+  createPopulatedGraph,
+  createGroup,
+  listGroups,
+  updateGroup,
+  deleteGroup,
+  convertToThingGroup,
+  combineThingGroup
 };
 
 /**
@@ -219,6 +231,91 @@ export function getToolDefinitions() {
           }
         },
         required: ['name', 'nodes']
+      }
+    },
+    {
+      name: 'createGroup',
+      description: 'Create a visual Group to organize nodes together. Use this for loose associations within the current graph. For formal decomposition of a concept, create the group first then use convertToThingGroup.',
+      parameters: {
+        type: 'object',
+        properties: {
+          name: { type: 'string', description: 'Name for the group' },
+          memberNames: { 
+            type: 'array', 
+            items: { type: 'string' },
+            description: 'Names of existing nodes to include in the group'
+          },
+          color: { type: 'string', description: 'Hex color like "#8B0000"' }
+        },
+        required: ['name', 'memberNames']
+      }
+    },
+    {
+      name: 'listGroups',
+      description: 'List all groups in the active graph, showing which are regular Groups vs Thing-Groups',
+      parameters: {
+        type: 'object',
+        properties: {},
+        required: []
+      }
+    },
+    {
+      name: 'updateGroup',
+      description: 'Update a group - rename it, change color, or add/remove members',
+      parameters: {
+        type: 'object',
+        properties: {
+          groupName: { type: 'string', description: 'Current name of the group to update' },
+          newName: { type: 'string', description: 'New name for the group' },
+          newColor: { type: 'string', description: 'New hex color' },
+          addMembers: { 
+            type: 'array', 
+            items: { type: 'string' },
+            description: 'Names of nodes to add to the group'
+          },
+          removeMembers: { 
+            type: 'array', 
+            items: { type: 'string' },
+            description: 'Names of nodes to remove from the group'
+          }
+        },
+        required: ['groupName']
+      }
+    },
+    {
+      name: 'deleteGroup',
+      description: 'Delete a group (the member nodes are kept, just ungrouped)',
+      parameters: {
+        type: 'object',
+        properties: {
+          groupName: { type: 'string', description: 'Name of the group to delete' }
+        },
+        required: ['groupName']
+      }
+    },
+    {
+      name: 'convertToThingGroup',
+      description: 'Convert a regular Group into a Thing-Group, making it a formal decomposition of a Thing/concept. This creates a definition graph for that Thing. Use when the grouping represents "what X is made of" or should be reusable.',
+      parameters: {
+        type: 'object',
+        properties: {
+          groupName: { type: 'string', description: 'Name of the group to convert' },
+          thingName: { type: 'string', description: 'Name for the Thing that defines this group (can be existing or new)' },
+          createNewThing: { type: 'boolean', description: 'If true, creates a new Thing. If false, tries to find existing Thing by thingName.' },
+          newThingColor: { type: 'string', description: 'Color for the new Thing if creating one' }
+        },
+        required: ['groupName']
+      }
+    },
+    {
+      name: 'combineThingGroup',
+      description: 'Collapse a Thing-Group back into a single node representing the Thing. All member nodes are removed and replaced with one node of the linked Thing type.',
+      parameters: {
+        type: 'object',
+        properties: {
+          groupName: { type: 'string', description: 'Name of the Thing-Group to collapse' }
+        },
+        required: ['groupName']
       }
     }
   ];

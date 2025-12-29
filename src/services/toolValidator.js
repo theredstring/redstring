@@ -726,6 +726,70 @@ class ToolValidator {
       }
     });
 
+    this.registerSchema('update_group', {
+      type: 'object',
+      required: ['graph_id', 'group_id'],
+      properties: {
+        graph_id: {
+          type: 'string',
+          description: 'Graph ID containing the group'
+        },
+        group_id: {
+          type: 'string',
+          description: 'Group ID to update'
+        },
+        new_name: {
+          type: 'string',
+          description: 'New name for the group'
+        },
+        new_color: {
+          type: 'string',
+          pattern: '^#[0-9A-Fa-f]{6}$',
+          description: 'New color for the group'
+        },
+        add_member_ids: {
+          type: 'array',
+          items: { type: 'string' },
+          description: 'Instance IDs to add to group'
+        },
+        remove_member_ids: {
+          type: 'array',
+          items: { type: 'string' },
+          description: 'Instance IDs to remove from group'
+        }
+      }
+    });
+
+    this.registerSchema('delete_group', {
+      type: 'object',
+      required: ['graph_id', 'group_id'],
+      properties: {
+        graph_id: {
+          type: 'string',
+          description: 'Graph ID containing the group'
+        },
+        group_id: {
+          type: 'string',
+          description: 'Group ID to delete'
+        }
+      }
+    });
+
+    this.registerSchema('combine_node_group', {
+      type: 'object',
+      required: ['graph_id', 'group_id'],
+      properties: {
+        graph_id: {
+          type: 'string',
+          description: 'Graph ID containing the group'
+        },
+        group_id: {
+          type: 'string',
+          description: 'Thing-Group ID to combine/collapse'
+        }
+      }
+    });
+
     // Semantic tools
     this.registerSchema('sparql_query', {
       type: 'object',

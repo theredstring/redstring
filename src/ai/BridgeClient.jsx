@@ -887,6 +887,27 @@ const BridgeClient = () => {
                       );
                       results.push({ type: op.type, ok: true, graphId: op.graphId, groupId: op.groupId });
                       break;
+                    case 'updateGroup':
+                      store.updateGroup(op.graphId, op.groupId, (group) => {
+                        if (op.updates.newName) group.name = op.updates.newName;
+                        if (op.updates.newColor) group.color = op.updates.newColor;
+                        if (op.updates.addMemberIds && op.updates.addMemberIds.length > 0) {
+                          group.memberInstanceIds = [...new Set([...group.memberInstanceIds, ...op.updates.addMemberIds])];
+                        }
+                        if (op.updates.removeMemberIds && op.updates.removeMemberIds.length > 0) {
+                          group.memberInstanceIds = group.memberInstanceIds.filter(id => !op.updates.removeMemberIds.includes(id));
+                        }
+                      });
+                      results.push({ type: op.type, ok: true, groupId: op.groupId });
+                      break;
+                    case 'deleteGroup':
+                      store.deleteGroup(op.graphId, op.groupId);
+                      results.push({ type: op.type, ok: true, groupId: op.groupId });
+                      break;
+                    case 'combineNodeGroup':
+                      store.combineNodeGroup(op.graphId, op.groupId);
+                      results.push({ type: op.type, ok: true, groupId: op.groupId });
+                      break;
                     case 'setActiveGraph':
                       store.setActiveGraph(op.graphId);
                       navigateOnGraphSwitch(op.graphId);
