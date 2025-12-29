@@ -280,8 +280,8 @@ class SaveCoordinator {
     }, DEBOUNCE_MS);
   }
 
-  // Execute save (both local and git)
-  async executeSave() {
+  // Execute save (both local and git) - NON-BLOCKING
+  executeSave() {
     if (this.isSaving) return;
     
     // CRITICAL: Don't execute save during ANY user interaction (drag, pan, pinch, zoom animation)
@@ -306,53 +306,65 @@ class SaveCoordinator {
     // We need either a pending string (from worker) or a lastState (fallback)
     if (!this.pendingString && !this.lastState) return;
 
-    try {
-      this.isSaving = true;
-      const state = this.lastState;
-      
-      console.log('[SaveCoordinator] Executing save');
+    // Capture values before async operations
+    const state = this.lastState;
+    const pendingString = this.pendingString;
+    const pendingHash = this.pendingHash;
+    
+    // Mark as saving immediately
+    this.isSaving = true;
+    console.log('[SaveCoordinator] Executing save (non-blocking)');
 
-      // Save to local file if available
-      if (this.fileStorage && typeof this.fileStorage.saveToFile === 'function') {
+    // Run save operations in a non-blocking manner using requestIdleCallback or setTimeout
+    // This ensures the save doesn't block the main thread
+    const runSave = () => {
+      // Use a microtask to defer to next event loop tick, allowing UI to remain responsive
+      Promise.resolve().then(async () => {
         try {
-          console.log('[SaveCoordinator] Saving to local file');
-          // Use pre-serialized string if available
-          await this.fileStorage.saveToFile(state, false, { 
-            preSerialized: !!this.pendingString,
-            serializedData: this.pendingString
-          });
+          // Save to local file if available - fire and forget with error handling
+          if (this.fileStorage && typeof this.fileStorage.saveToFile === 'function') {
+            this.fileStorage.saveToFile(state, false, { 
+              preSerialized: !!pendingString,
+              serializedData: pendingString
+            }).catch(error => {
+              console.error('[SaveCoordinator] Local file save failed:', error);
+            });
+          }
+
+          // Save to Git if available - already non-blocking (just queues)
+          if (this.gitSyncEngine && this.gitSyncEngine.isHealthy()) {
+            this.gitSyncEngine.updateState(state);
+          }
+
+          // Update save hash after initiating save
+          if (pendingHash) {
+            this.lastSaveHash = pendingHash;
+            this.pendingHash = null;
+          }
+          
+          // Clear dirty flag and pending data
+          this.isDirty = false;
+          this.pendingString = null;
+          this.notifyStatus('success', 'Save completed');
+          
         } catch (error) {
-          console.error('[SaveCoordinator] Local file save failed:', error);
+          console.error('[SaveCoordinator] Save failed:', error);
+          this.notifyStatus('error', `Save failed: ${error.message}`);
+        } finally {
+          this.isSaving = false;
         }
-      }
+      });
+    };
 
-      // Save to Git if available
-      if (this.gitSyncEngine && this.gitSyncEngine.isHealthy()) {
-        console.log('[SaveCoordinator] Queuing git save');
-        this.gitSyncEngine.updateState(state); 
-        console.log('[SaveCoordinator] Git save queued');
-      }
-
-      // Update save hash after successful save
-      if (this.pendingHash) {
-        this.lastSaveHash = this.pendingHash;
-        this.pendingHash = null; // Clear pending hash as it is now saved
-      }
-      
-      // Clear dirty flag
-      this.isDirty = false;
-      this.pendingString = null; // Clear memory
-      this.notifyStatus('success', 'Save completed');
-      
-    } catch (error) {
-      console.error('[SaveCoordinator] Save failed:', error);
-      this.notifyStatus('error', `Save failed: ${error.message}`);
-    } finally {
-      this.isSaving = false;
+    // Use requestIdleCallback if available for even better scheduling, otherwise setTimeout
+    if (typeof requestIdleCallback !== 'undefined') {
+      requestIdleCallback(runSave, { timeout: 100 });
+    } else {
+      setTimeout(runSave, 0);
     }
   }
 
-  // Force immediate save (for manual save button)
+  // Force immediate save (for manual save button) - still awaitable for user feedback
   async forceSave(state) {
     if (!this.isEnabled) {
       throw new Error('Save coordinator not initialized');
@@ -366,20 +378,36 @@ class SaveCoordinator {
       if (this.workerTimer) clearTimeout(this.workerTimer);
       
       this.lastState = state;
+      this.isSaving = true;
       
-      // For force save, we might want to bypass worker or wait for it?
-      // Bypassing is safer for "I clicked save, do it now".
-      // But we lose the perf benefit.
-      // Let's use main thread for force save to be instant/synchronous-ish in initiation
+      // For force save, we do await to give user feedback that it completed
+      // But we still use non-blocking patterns where possible
+      if (this.fileStorage && typeof this.fileStorage.saveToFile === 'function') {
+        try {
+          await this.fileStorage.saveToFile(state, false, { 
+            preSerialized: false // Force re-serialize for explicit save
+          });
+        } catch (error) {
+          console.error('[SaveCoordinator] Force save local file failed:', error);
+        }
+      }
+
+      // Queue Git save (non-blocking)
+      if (this.gitSyncEngine && this.gitSyncEngine.isHealthy()) {
+        this.gitSyncEngine.updateState(state);
+      }
       
-      this.pendingString = null; // Ensure we re-serialize
-      await this.executeSave();
+      this.isDirty = false;
+      this.pendingString = null;
+      this.pendingHash = null;
+      this.isSaving = false;
       
       this.notifyStatus('success', 'Force save completed');
       return true;
 
     } catch (error) {
       console.error('[SaveCoordinator] Force save failed:', error);
+      this.isSaving = false;
       this.notifyStatus('error', `Force save failed: ${error.message}`);
       throw error;
     }
