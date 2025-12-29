@@ -13,6 +13,8 @@
     "bridge:kill": "node scripts/bridge-restart.js --kill-only",
     "agent-server": "node agent-server.js",
     "agent-server:start": "node agent-server.js",
+    "wizard": "node wizard-server.js",
+    "wizard:start": "node wizard-server.js",
     "oauth": "node oauth-server.js",
     "oauth:start": "node oauth-server.js",
     "dev": "vite",
