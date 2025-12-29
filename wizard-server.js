@@ -68,9 +68,18 @@ let scheduler = null;
 async function ensureSchedulerStarted() {
   if (!scheduler) {
     try {
+      // #region agent log
+      fetch('http://127.0.0.1:7242/ingest/52d0fe28-158e-49a4-b331-f013fcb14181',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'wizard-server.js:scheduler:IMPORT_START',message:'Importing scheduler',data:{},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'E'})}).catch(()=>{});
+      // #endregion
       const mod = await import('./src/services/orchestrator/Scheduler.js');
       scheduler = mod.default;
+      // #region agent log
+      fetch('http://127.0.0.1:7242/ingest/52d0fe28-158e-49a4-b331-f013fcb14181',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'wizard-server.js:scheduler:IMPORT_OK',message:'Scheduler imported',data:{hasDefault:!!mod.default},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'E'})}).catch(()=>{});
+      // #endregion
     } catch (e) {
+      // #region agent log
+      fetch('http://127.0.0.1:7242/ingest/52d0fe28-158e-49a4-b331-f013fcb14181',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'wizard-server.js:scheduler:IMPORT_FAIL',message:'Scheduler import failed',data:{error:e.message},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'E'})}).catch(()=>{});
+      // #endregion
       console.warn('[Wizard] Failed to load scheduler:', e.message);
       return;
     }
@@ -181,14 +190,76 @@ app.post('/api/scheduler/start', async (req, res) => {
 });
 
 // ─────────────────────────────────────────────────────────────
-// Fallback for legacy endpoints (graceful degradation)
+// UI Compatibility Endpoints (minimal stubs)
+// ─────────────────────────────────────────────────────────────
+
+// Store registration - UI calls this on startup
+let registeredStore = null;
+app.post('/api/bridge/register-store', (req, res) => {
+  registeredStore = req.body || {};
+  res.json({ ok: true, registered: true });
+});
+
+// State endpoint - UI polls this
+app.get('/api/bridge/state', (req, res) => {
+  res.json({ 
+    graphs: [],
+    pendingActions: [],
+    source: 'wizard-server'
+  });
+});
+
+app.post('/api/bridge/state', (req, res) => {
+  // Accept state updates from UI
+  res.json({ ok: true });
+});
+
+// SSE events stream - UI subscribes to this for real-time updates
+const sseClients = new Set();
+
+app.get('/events/stream', (req, res) => {
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('Connection', 'keep-alive');
+  res.setHeader('X-Accel-Buffering', 'no');
+  
+  // Send initial ping
+  res.write(`data: ${JSON.stringify({ type: 'connected', source: 'wizard-server' })}\n\n`);
+  
+  sseClients.add(res);
+  
+  req.on('close', () => {
+    sseClients.delete(res);
+  });
+});
+
+// Broadcast to all SSE clients (used internally)
+function broadcastEvent(event) {
+  const data = `data: ${JSON.stringify(event)}\n\n`;
+  for (const client of sseClients) {
+    try {
+      client.write(data);
+    } catch (e) {
+      sseClients.delete(client);
+    }
+  }
+}
+
+// Telemetry endpoint
+app.get('/api/bridge/telemetry', (req, res) => {
+  res.json({ chat: [], tools: [] });
+});
+
+// ─────────────────────────────────────────────────────────────
+// Fallback for unhandled endpoints
 // ─────────────────────────────────────────────────────────────
 
 app.all('/api/*', (req, res) => {
+  console.log(`[Wizard] Unhandled: ${req.method} ${req.path}`);
   res.status(404).json({
     error: 'Endpoint not available in wizard-server',
-    hint: 'This is the minimal wizard server. For full bridge functionality, use bridge-daemon-legacy.js',
-    available: ['/api/wizard', '/api/bridge/health', '/api/scheduler/status']
+    path: req.path,
+    available: ['/api/wizard', '/api/bridge/health', '/api/bridge/state', '/events/stream']
   });
 });
 
@@ -198,8 +269,17 @@ app.all('/api/*', (req, res) => {
 
 // Start server function
 export async function startWizardServer() {
+  // #region agent log
+  fetch('http://127.0.0.1:7242/ingest/52d0fe28-158e-49a4-b331-f013fcb14181',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'wizard-server.js:startWizardServer:ENTRY',message:'startWizardServer called',data:{},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'C'})}).catch(()=>{});
+  // #endregion
   try {
+    // #region agent log
+    fetch('http://127.0.0.1:7242/ingest/52d0fe28-158e-49a4-b331-f013fcb14181',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'wizard-server.js:getPort:BEFORE',message:'About to call getPort',data:{},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'D'})}).catch(()=>{});
+    // #endregion
     const PORT = await getPort();
+    // #region agent log
+    fetch('http://127.0.0.1:7242/ingest/52d0fe28-158e-49a4-b331-f013fcb14181',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'wizard-server.js:getPort:AFTER',message:'getPort returned',data:{port:PORT},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'D'})}).catch(()=>{});
+    // #endregion
     
     return new Promise((resolve, reject) => {
       const server = app.listen(PORT, () => {
