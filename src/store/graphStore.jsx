@@ -2915,6 +2915,9 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
     })),
 
     updateGraphView: (graphId, panOffset, zoomLevel) => {
+      // #region agent log
+      fetch('http://127.0.0.1:7242/ingest/52d0fe28-158e-49a4-b331-f013fcb14181',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'graphStore.jsx:2917',message:'updateGraphView called',data:{graphId,zoomLevel:zoomLevel?.toFixed?.(3)},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'C'})}).catch(()=>{});
+      // #endregion
       api.setChangeContext({ type: 'viewport', target: 'graph' });
       set(produce((draft) => {
         const graph = draft.graphs.get(graphId);

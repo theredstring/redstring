@@ -37,6 +37,12 @@ contextBridge.exposeInMainWorld('electron', {
     onCallback: (callback) => {
       ipcRenderer.on('oauth:callback', (event, data) => callback(data));
     },
+  },
+
+  // Agent server control
+  agent: {
+    status: () => ipcRenderer.invoke('agent:status'),
+    restart: () => ipcRenderer.invoke('agent:restart'),
   }
 });
 

@@ -5280,6 +5280,9 @@ function NodeCanvas() {
   };
 
   const handleWheel = async (e) => {
+    // #region agent log
+    fetch('http://127.0.0.1:7242/ingest/52d0fe28-158e-49a4-b331-f013fcb14181',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'NodeCanvas.jsx:5282',message:'handleWheel START',data:{deltaY:e.deltaY?.toFixed?.(2),ctrlKey:e.ctrlKey},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'C'})}).catch(()=>{});
+    // #endregion
     // If a gesture/pinch is active, ignore wheel to prevent double-handling on Safari
     if (pinchRef.current.active) {
       return;

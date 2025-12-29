@@ -520,6 +520,9 @@ const Panel = forwardRef(
     // <<< ADD: Select nodes and edges maps reactively >>>
     // Use a more defensive approach to prevent store access errors
     const storeState = useGraphStore(state => state);
+    // #region agent log
+    fetch('http://127.0.0.1:7242/ingest/52d0fe28-158e-49a4-b331-f013fcb14181',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'Panel.jsx:522',message:'Panel storeState subscription triggered',data:{hasGraphs:!!storeState?.graphs,side},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'B'})}).catch(()=>{});
+    // #endregion
     const nodePrototypesMapRaw = storeState?.nodePrototypes;
     const edgesMapRaw = storeState?.edges;
     const savedNodeIdsRaw = storeState?.savedNodeIds;
@@ -588,6 +591,9 @@ const Panel = forwardRef(
 
     // Derive saved nodes array reactively - savedNodeIds contains PROTOTYPE IDs
     const savedNodes = useMemo(() => {
+      // #region agent log
+      fetch('http://127.0.0.1:7242/ingest/52d0fe28-158e-49a4-b331-f013fcb14181',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'Panel.jsx:590',message:'savedNodes useMemo recalculating',data:{savedCount:savedNodeIds?.size},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'E'})}).catch(()=>{});
+      // #endregion
       return Array.from(savedNodeIds).map(prototypeId => {
         const prototype = nodePrototypesMap.get(prototypeId);
         if (prototype) {

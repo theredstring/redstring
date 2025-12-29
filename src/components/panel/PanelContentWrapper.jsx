@@ -19,6 +19,9 @@ const PanelContentWrapper = ({
   onStartHurtleAnimationFromPanel,
   isUltraSlim = false
 }) => {
+  // #region agent log
+  fetch('http://127.0.0.1:7242/ingest/52d0fe28-158e-49a4-b331-f013fcb14181',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'PanelContentWrapper.jsx:14',message:'PanelContentWrapper render START',data:{tabType,nodeId},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'A'})}).catch(()=>{});
+  // #endregion
   const {
     graphs,
     nodePrototypes,
@@ -69,6 +72,10 @@ const PanelContentWrapper = ({
 
   // Get nodes for the current context
   const getActiveGraphNodes = () => {
+    // #region agent log
+    const startTime = performance.now();
+    fetch('http://127.0.0.1:7242/ingest/52d0fe28-158e-49a4-b331-f013fcb14181',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'PanelContentWrapper.jsx:71',message:'getActiveGraphNodes START',data:{tabType,activeGraphId},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'D'})}).catch(()=>{});
+    // #endregion
     let targetGraphId = activeGraphId;
     
     // For node tabs, show components from the node's definition graph if it has one
@@ -90,7 +97,7 @@ const PanelContentWrapper = ({
     if (!targetGraph || !targetGraph.instances) return [];
     
     // Convert instances to hydrated nodes
-    return Array.from(targetGraph.instances.values())
+    const result = Array.from(targetGraph.instances.values())
       .map(instance => {
         const prototype = nodePrototypes?.get(instance.prototypeId);
         if (!prototype) return null;
@@ -112,6 +119,10 @@ const PanelContentWrapper = ({
         };
       })
       .filter(Boolean);
+    // #region agent log
+    fetch('http://127.0.0.1:7242/ingest/52d0fe28-158e-49a4-b331-f013fcb14181',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'PanelContentWrapper.jsx:115',message:'getActiveGraphNodes END',data:{resultCount:result.length,duration:performance.now()-startTime},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'D'})}).catch(()=>{});
+    // #endregion
+    return result;
   };
 
   const nodeData = getNodeData();

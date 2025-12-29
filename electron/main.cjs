@@ -2,9 +2,70 @@ const { app, BrowserWindow, ipcMain, shell, dialog, clipboard, Menu } = require(
 const path = require('path');
 const fs = require('fs').promises;
 const fsSync = require('fs');
+const { fork } = require('child_process');
 
 // Set app name for proper display in menu bar/dock
 app.setName('Redstring');
+
+// Agent server child process
+let agentServerProcess = null;
+
+// Start the agent server as a child process
+function startAgentServer() {
+  if (agentServerProcess) {
+    console.log('[Electron] Agent server already running');
+    return;
+  }
+
+  const agentServerPath = path.join(__dirname, '..', 'agent-server.js');
+  
+  // Check if agent-server.js exists
+  if (!fsSync.existsSync(agentServerPath)) {
+    console.error('[Electron] Agent server not found at:', agentServerPath);
+    return;
+  }
+
+  console.log('[Electron] Starting agent server...');
+  
+  // Fork the agent server as a child process
+  // Using fork with execArgv to handle ES modules
+  agentServerProcess = fork(agentServerPath, [], {
+    cwd: path.join(__dirname, '..'),
+    stdio: ['pipe', 'pipe', 'pipe', 'ipc'],
+    env: {
+      ...process.env,
+      AGENT_SERVER_MODE: 'true',
+      NODE_ENV: process.env.NODE_ENV || 'development'
+    }
+  });
+
+  agentServerProcess.stdout.on('data', (data) => {
+    console.log(`[AgentServer] ${data.toString().trim()}`);
+  });
+
+  agentServerProcess.stderr.on('data', (data) => {
+    console.error(`[AgentServer] ${data.toString().trim()}`);
+  });
+
+  agentServerProcess.on('error', (error) => {
+    console.error('[Electron] Failed to start agent server:', error);
+    agentServerProcess = null;
+  });
+
+  agentServerProcess.on('exit', (code, signal) => {
+    console.log(`[Electron] Agent server exited with code ${code}, signal ${signal}`);
+    agentServerProcess = null;
+  });
+}
+
+// Stop the agent server
+function stopAgentServer() {
+  if (agentServerProcess) {
+    console.log('[Electron] Stopping agent server...');
+    agentServerProcess.kill('SIGTERM');
+    agentServerProcess = null;
+  }
+}
 
 // Check for dev mode - either NODE_ENV or if running from source (not packaged)
 const isDev = process.env.NODE_ENV === 'development' || !app.isPackaged;
@@ -404,6 +465,9 @@ app.whenReady().then(async () => {
   // Create Redstring directories
   await ensureDirectories();
 
+  // Start the agent server (AI backend)
+  startAgentServer();
+
   createWindow();
   createMenu();
 
@@ -414,5 +478,31 @@ app.whenReady().then(async () => {
 
 app.on('window-all-closed', function () {
   if (process.platform !== 'darwin') app.quit();
+});
+
+// Clean up agent server when app is quitting
+app.on('will-quit', () => {
+  stopAgentServer();
+});
+
+// Also handle before-quit for macOS
+app.on('before-quit', () => {
+  stopAgentServer();
+});
+
+// IPC handlers for agent server control
+ipcMain.handle('agent:status', async () => {
+  return {
+    running: agentServerProcess !== null,
+    pid: agentServerProcess?.pid || null
+  };
+});
+
+ipcMain.handle('agent:restart', async () => {
+  stopAgentServer();
+  // Small delay to ensure clean shutdown
+  await new Promise(resolve => setTimeout(resolve, 500));
+  startAgentServer();
+  return { success: true };
 });
 
