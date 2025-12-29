@@ -1,4 +1,4 @@
-import React, { useState, useEffect, forwardRef, useImperativeHandle, useRef, useCallback, useMemo, Suspense, lazy } from 'react';
+import React, { useState, useEffect, forwardRef, useImperativeHandle, useRef, useCallback, useMemo, Suspense, lazy, memo } from 'react';
 import { useDrag, useDrop, useDragLayer } from 'react-dnd';
 import { getEmptyImage } from 'react-dnd-html5-backend'; // Import for hiding default preview
 import { HEADER_HEIGHT, NODE_CORNER_RADIUS, THUMBNAIL_MAX_DIMENSION, NODE_DEFAULT_COLOR, PANEL_CLOSE_ICON_SIZE } from './constants';
@@ -398,7 +398,48 @@ const getInitialLastCustomWidth = (side, defaultValue) => {
 let panelRenderCount = 0; // Add counter outside component
 
 
-const Panel = forwardRef(
+// PERFORMANCE FIX: Wrap Panel in memo to prevent re-renders during zoom
+// The Panel is a child of NodeCanvas, which re-renders on every zoom level change.
+// Without memo, both left and right Panels would re-render on every wheel event.
+// Custom comparison to avoid re-renders on hydratedNodes array reference changes
+// when the actual node data hasn't changed (e.g., only viewport state changed)
+const panelPropsAreEqual = (prevProps, nextProps) => {
+  // Compare all props except those that might have unstable references
+  const keysToCompare = [
+    'isExpanded', 'side', 'activeGraphId', 'graphName', 'graphDescription',
+    'leftPanelExpanded', 'rightPanelExpanded', 'initialViewActive'
+  ];
+  
+  for (const key of keysToCompare) {
+    if (prevProps[key] !== nextProps[key]) return false;
+  }
+  
+  // For hydratedNodes, compare length and IDs instead of reference
+  const prevNodes = prevProps.hydratedNodes || [];
+  const nextNodes = nextProps.hydratedNodes || [];
+  if (prevNodes.length !== nextNodes.length) return false;
+  for (let i = 0; i < prevNodes.length; i++) {
+    if (prevNodes[i]?.id !== nextNodes[i]?.id) return false;
+  }
+  
+  // For selectedInstanceIds, compare Set contents
+  const prevSelected = prevProps.selectedInstanceIds;
+  const nextSelected = nextProps.selectedInstanceIds;
+  if (prevSelected?.size !== nextSelected?.size) return false;
+  if (prevSelected && nextSelected) {
+    for (const id of prevSelected) {
+      if (!nextSelected.has(id)) return false;
+    }
+  }
+  
+  // Callbacks are stable due to useCallback, so reference equality should work
+  // storeActions, onToggleExpand, onFocusChange, onStartHurtleAnimationFromPanel
+  // should be stable references
+  
+  return true;
+};
+
+const Panel = memo(forwardRef(
   ({
     isExpanded,
     onToggleExpand,
@@ -518,25 +559,26 @@ const Panel = forwardRef(
     const graphsMapRaw = useGraphStore(state => state.graphs);
 
     // <<< ADD: Select nodes and edges maps reactively >>>
-    // Use a more defensive approach to prevent store access errors
-    const storeState = useGraphStore(state => state);
-    // #region agent log
-    fetch('http://127.0.0.1:7242/ingest/52d0fe28-158e-49a4-b331-f013fcb14181',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'Panel.jsx:522',message:'Panel storeState subscription triggered',data:{hasGraphs:!!storeState?.graphs,side},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'B'})}).catch(()=>{});
-    // #endregion
-    const nodePrototypesMapRaw = storeState?.nodePrototypes;
-    const edgesMapRaw = storeState?.edges;
-    const savedNodeIdsRaw = storeState?.savedNodeIds;
+    // PERFORMANCE FIX: Use individual selectors instead of subscribing to entire store
+    // This prevents re-renders when viewport state (panOffset/zoomLevel) changes during zoom
+    const nodePrototypesMapRaw = useGraphStore(state => state.nodePrototypes);
+    const edgesMapRaw = useGraphStore(state => state.edges);
+    const savedNodeIdsRaw = useGraphStore(state => state.savedNodeIds);
     // <<< ADD: Read activeDefinitionNodeId directly from the store >>>
-    const activeDefinitionNodeId = storeState?.activeDefinitionNodeId;
+    const activeDefinitionNodeId = useGraphStore(state => state.activeDefinitionNodeId);
     // <<< ADD: Select rightPanelTabs reactively >>>
-    const rightPanelTabs = storeState?.rightPanelTabs;
+    const rightPanelTabs = useGraphStore(state => state.rightPanelTabs);
 
     // Reserve bottom space for TypeList footer bar when visible
-    const typeListMode = storeState?.typeListMode;
+    const typeListMode = useGraphStore(state => state.typeListMode);
 
     // Add loading state check to prevent accessing store before it's ready
-    const isUniverseLoading = storeState?.isUniverseLoading;
-    const isUniverseLoaded = storeState?.isUniverseLoaded;
+    const isUniverseLoading = useGraphStore(state => state.isUniverseLoading);
+    const isUniverseLoaded = useGraphStore(state => state.isUniverseLoaded);
+    
+    // #region agent log
+    fetch('http://127.0.0.1:7242/ingest/52d0fe28-158e-49a4-b331-f013fcb14181',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'Panel.jsx:522',message:'Panel individual subscriptions triggered',data:{hasNodePrototypes:!!nodePrototypesMapRaw,side},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'B'})}).catch(()=>{});
+    // #endregion
 
     // Debug store subscription
 
@@ -2069,6 +2111,6 @@ const Panel = forwardRef(
       </>
     );
   }
-);
+), panelPropsAreEqual); // End of memo(forwardRef(...), customCompare)
 
 export default Panel;

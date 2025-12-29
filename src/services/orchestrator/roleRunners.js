@@ -194,7 +194,17 @@ export async function runExecutorOnce() {
 
     const allow = new Set(ToolAllowlists.executor);
     if (!allow.has(task.toolName)) throw new Error(`Tool not allowed for executor: ${task.toolName}`);
+    // #region agent log
+    if (task.toolName === 'create_group') {
+      fetch('http://127.0.0.1:7242/ingest/52d0fe28-158e-49a4-b331-f013fcb14181',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'roleRunners.js:pre-validation',message:'About to validate create_group',data:{toolName:task.toolName,argsKeys:Object.keys(task.args||{})},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H3'})}).catch(()=>{});
+    }
+    // #endregion
     const validation = toolValidator.validateToolArgs(task.toolName, task.args || {});
+    // #region agent log
+    if (task.toolName === 'create_group') {
+      fetch('http://127.0.0.1:7242/ingest/52d0fe28-158e-49a4-b331-f013fcb14181',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'roleRunners.js:post-validation',message:'Validation result for create_group',data:{valid:validation.valid,error:validation.error,sanitizedKeys:validation.sanitized?Object.keys(validation.sanitized):null},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H3'})}).catch(()=>{});
+    }
+    // #endregion
     if (!validation.valid) {
       console.error(`[Executor] Validation failed for ${task.toolName}:`, validation.error, '\nTask args:', JSON.stringify(task.args, null, 2));
       throw new Error(`Validation failed: ${validation.error}`);
@@ -684,19 +694,30 @@ export async function runExecutorOnce() {
       const layoutMode = validation.sanitized.layout_mode || 'auto';
       const providedGraphId = validation.sanitized.graph_id;
 
-      // 1. Create the graph
+      // Determine mode: creating new graph or expanding existing
+      const isExpandMode = providedGraphId && !name;
       const graphId = providedGraphId || `graph-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-      ops.push({
-        type: 'createNewGraph',
-        initialData: {
-          id: graphId,
-          name,
-          description,
-          createdAt: new Date().toISOString(),
-          nodes: [],
-          edges: []
+      // #region agent log
+      fetch('http://127.0.0.1:7242/ingest/52d0fe28-158e-49a4-b331-f013fcb14181',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'roleRunners.js:create_populated_graph',message:'Mode determined',data:{isExpandMode,hasName:!!name,hasGraphId:!!providedGraphId,graphId},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'fix-verify',runId:'post-fix'})}).catch(()=>{});
+      // #endregion
+
+      // 1. Create the graph (only if not in expand mode)
+      if (!isExpandMode) {
+        if (!name) {
+          throw new Error('name is required when creating a new graph');
         }
-      });
+        ops.push({
+          type: 'createNewGraph',
+          initialData: {
+            id: graphId,
+            name,
+            description,
+            createdAt: new Date().toISOString(),
+            nodes: [],
+            edges: []
+          }
+        });
+      }
 
       // 2. Create prototypes, instances, and edges with auto-layout
       const nodes = Array.isArray(graphSpec.nodes) ? graphSpec.nodes : [];

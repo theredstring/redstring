@@ -66,15 +66,19 @@ export async function createGroup(args, graphState, cid, ensureSchedulerStarted)
     resolvedMemberIds = [...new Set([...resolvedMemberIds, ...foundIds])];
   }
   
+  const taskArgs = {
+    graph_id: activeGraphId,
+    name,
+    color: color || '#8B0000',
+    memberInstanceIds: resolvedMemberIds
+  };
+  // #region agent log
+  fetch('http://127.0.0.1:7242/ingest/52d0fe28-158e-49a4-b331-f013fcb14181',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'createGroup.js:enqueue',message:'Enqueuing create_group task',data:{argsKeys:Object.keys(taskArgs),graphId:activeGraphId},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H1-H4'})}).catch(()=>{});
+  // #endregion
   const dag = {
     tasks: [{
       toolName: 'create_group',
-      args: {
-        graph_id: activeGraphId,
-        name,
-        color: color || '#8B0000',
-        memberInstanceIds: resolvedMemberIds
-      },
+      args: taskArgs,
       threadId: cid
     }]
   };

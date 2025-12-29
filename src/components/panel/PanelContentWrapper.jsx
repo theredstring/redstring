@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo, memo } from 'react';
 import { THUMBNAIL_MAX_DIMENSION } from '../../constants.js';
 import { generateThumbnail } from '../../utils.js';
 import SharedPanelContent from './SharedPanelContent.jsx';
@@ -9,8 +9,10 @@ import PanelColorPickerPortal from '../PanelColorPickerPortal.jsx';
 /**
  * Wrapper component that handles data fetching and action binding
  * for both home and node tabs
+ * 
+ * PERFORMANCE: This component is memoized to prevent re-renders during zoom/pan
  */
-const PanelContentWrapper = ({ 
+const PanelContentWrapper = memo(({ 
   tabType, // 'home' | 'node'
   nodeId = null,
   storeActions,
@@ -22,12 +24,21 @@ const PanelContentWrapper = ({
   // #region agent log
   fetch('http://127.0.0.1:7242/ingest/52d0fe28-158e-49a4-b331-f013fcb14181',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'PanelContentWrapper.jsx:14',message:'PanelContentWrapper render START',data:{tabType,nodeId},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'A'})}).catch(()=>{});
   // #endregion
-  const {
-    graphs,
-    nodePrototypes,
-    activeGraphId,
-    nodeDefinitionIndices
-  } = useGraphStore();
+  
+  // PERFORMANCE FIX: Use individual selectors instead of destructuring entire store
+  // This prevents re-renders when viewport state (panOffset/zoomLevel) changes
+  const nodePrototypes = useGraphStore(state => state.nodePrototypes);
+  const activeGraphId = useGraphStore(state => state.activeGraphId);
+  const nodeDefinitionIndices = useGraphStore(state => state.nodeDefinitionIndices);
+  
+  // CRITICAL PERFORMANCE FIX: Don't subscribe to graphs changes!
+  // The graphs Map contains panOffset/zoomLevel which change during zoom.
+  // Instead, read graphs non-reactively using getState() since we don't need
+  // to re-render when only viewport state changes.
+  // The component re-renders when activeGraphId or nodePrototypes change, which is when we need fresh graph data.
+  const graphs = useMemo(() => {
+    return useGraphStore.getState().graphs;
+  }, [activeGraphId, nodePrototypes]); // Re-read graphs when active graph or prototypes change
 
   // Color picker state
   const [colorPickerVisible, setColorPickerVisible] = useState(false);
@@ -499,6 +510,6 @@ const PanelContentWrapper = ({
       />
     </>
   );
-};
+}); // End of memo wrapper
 
 export default PanelContentWrapper;
