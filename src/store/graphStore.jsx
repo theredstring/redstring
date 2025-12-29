@@ -1440,6 +1440,9 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
 
     // Adds a NEW edge connecting two instances.
     addEdge: (graphId, newEdgeData, contextOptions = {}) => {
+      // #region agent log
+      fetch('http://127.0.0.1:7242/ingest/52d0fe28-158e-49a4-b331-f013fcb14181',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'graphStore.jsx:addEdge',message:'addEdge called',data:{graphId,edgeId:newEdgeData?.id,sourceId:newEdgeData?.sourceId,destId:newEdgeData?.destinationId,stack:new Error().stack?.split('\n').slice(1,5)},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'A-B'})}).catch(()=>{});
+      // #endregion
       api.setChangeContext({ type: 'edge_create', target: 'edge', finalize: true, ...contextOptions });
       return set(produce((draft) => {
         const graph = draft.graphs.get(graphId);
@@ -1460,6 +1463,15 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
           return;
         }
 
+        // #region agent log
+        // Check for existing edges between same nodes
+        const existingEdges = Array.from(draft.edges.values()).filter(e => 
+          (e.sourceId === sourceInstanceId && e.destinationId === destInstanceId) ||
+          (e.sourceId === destInstanceId && e.destinationId === sourceInstanceId)
+        );
+        fetch('http://127.0.0.1:7242/ingest/52d0fe28-158e-49a4-b331-f013fcb14181',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'graphStore.jsx:addEdge:check',message:'Checking existing edges',data:{edgeId,sourceId:sourceInstanceId,destId:destInstanceId,existingEdgeCount:existingEdges.length,existingEdgeIds:existingEdges.map(e=>e.id)},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'B'})}).catch(()=>{});
+        // #endregion
+
         if (!draft.edges.has(edgeId)) {
           newEdgeData.directionality = normalizeEdgeDirectionality(newEdgeData.directionality);
           // Assign default edge type if not specified
@@ -1472,6 +1484,13 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
             graph.edgeIds = [];
           }
           graph.edgeIds.push(edgeId);
+          // #region agent log
+          fetch('http://127.0.0.1:7242/ingest/52d0fe28-158e-49a4-b331-f013fcb14181',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'graphStore.jsx:addEdge:created',message:'Edge created',data:{edgeId,totalEdgesNow:graph.edgeIds.length},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'A-B'})}).catch(()=>{});
+          // #endregion
+        } else {
+          // #region agent log
+          fetch('http://127.0.0.1:7242/ingest/52d0fe28-158e-49a4-b331-f013fcb14181',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'graphStore.jsx:addEdge:skip',message:'Edge already exists - skipped',data:{edgeId},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'A'})}).catch(()=>{});
+          // #endregion
         }
       }));
     },

@@ -3949,6 +3949,7 @@ function NodeCanvas() {
   const selectionBaseRef = useRef(new Set());
   const wasSelectionBox = useRef(false);
   const wasDrawingConnection = useRef(false);
+  const connectionCreationInProgressRef = useRef(false); // Guard against double edge creation from event bubbling
   // Add refs for click vs double-click detection
   const clickTimeoutIdRef = useRef(null);
   const potentialClickNodeRef = useRef(null);
@@ -6752,8 +6753,9 @@ function NodeCanvas() {
     setLongPressingInstanceId(null); // Clear ID
     mouseInsideNode.current = false;
 
-    // Finalize drawing connection
-    if (drawingConnectionFrom) {
+    // Finalize drawing connection - with guard against double execution from event bubbling
+    if (drawingConnectionFrom && !connectionCreationInProgressRef.current) {
+      connectionCreationInProgressRef.current = true; // Guard against bubbled duplicate calls
       wasDrawingConnection.current = true; // Prevent PlusSign from appearing
       const targetNodeData = nodes.find(n => isInsideNode(n, e.clientX, e.clientY));
       console.log('Connection end:', {
@@ -6767,19 +6769,15 @@ function NodeCanvas() {
         const sourceId = drawingConnectionFrom.sourceInstanceId;
         const destId = targetNodeData.id;
 
-        // Check for existing edge in store's edges
-        const exists = edges.some(edge =>
-          (edge.sourceId === sourceId && edge.destinationId === destId) ||
-          (edge.sourceId === destId && edge.destinationId === sourceId)
-        );
-
-        if (!exists) {
-          const newEdgeId = uuidv4();
-          const newEdgeData = { id: newEdgeId, sourceId, destinationId: destId };
-          storeActions.addEdge(activeGraphId, newEdgeData);
-        }
+        // Allow multiple parallel edges between the same nodes
+        // The curve offset rendering will display them properly
+        const newEdgeId = uuidv4();
+        const newEdgeData = { id: newEdgeId, sourceId, destinationId: destId };
+        storeActions.addEdge(activeGraphId, newEdgeData);
       }
       setDrawingConnectionFrom(null);
+      // Reset guard after a short delay to allow for the next connection drawing
+      setTimeout(() => { connectionCreationInProgressRef.current = false; }, 50);
     }
 
     // Reset scale for dragged nodes
@@ -9939,6 +9937,30 @@ function NodeCanvas() {
                     nodeGroupMemberIds.has(e.sourceId) || nodeGroupMemberIds.has(e.destinationId)
                   );
 
+                  // Group edges by node pairs to calculate curve offsets for multiple edges between same nodes
+                  const edgePairGroups = new Map();
+                  visibleEdges.forEach(e => {
+                    const key = [e.sourceId, e.destinationId].sort().join('--');
+                    if (!edgePairGroups.has(key)) edgePairGroups.set(key, []);
+                    edgePairGroups.get(key).push(e.id);
+                  });
+                  
+                  // Build a map of edge ID -> { pairIndex, totalInPair } for curve offset calculation
+                  const edgeCurveInfo = new Map();
+                  edgePairGroups.forEach((edgeIds, key) => {
+                    const total = edgeIds.length;
+                    edgeIds.forEach((edgeId, idx) => {
+                      edgeCurveInfo.set(edgeId, { pairIndex: idx, totalInPair: total });
+                    });
+                  });
+                  
+                  // #region agent log
+                  const multiEdgePairs = Array.from(edgePairGroups.entries()).filter(([k, v]) => v.length > 1);
+                  if (multiEdgePairs.length > 0) {
+                    fetch('http://127.0.0.1:7242/ingest/52d0fe28-158e-49a4-b331-f013fcb14181',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'NodeCanvas.jsx:edgeRender',message:'Edge rendering info',data:{totalEdges:visibleEdges.length,multiEdgePairs:multiEdgePairs.map(([k,v])=>({pair:k,edgeCount:v.length,edgeIds:v})),enableAutoRouting,routingStyle,willUseCurves:!(enableAutoRouting && (routingStyle === 'manhattan' || routingStyle === 'clean'))},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'D-E'})}).catch(()=>{});
+                  }
+                  // #endregion
+
                   return (
                     <>
                       {/* Edges below node-groups: don't connect to any node-group members */}
@@ -10237,20 +10259,52 @@ function NodeCanvas() {
                                   }}
                                   strokeLinecap="round"
                                 />
-                              ) : (
-                                <line
-                                  x1={startX}
-                                  y1={startY}
-                                  x2={endX}
-                                  y2={endY}
-                                  stroke={edgeColor}
-                                  strokeWidth="12"
-                                  opacity={isSelected ? "0.3" : "0.2"}
-                                  style={{
-                                    filter: `blur(3px) drop-shadow(0 0 8px ${edgeColor})`
-                                  }}
-                                />
-                              )
+                              ) : (() => {
+                                // Glow effect also needs curve for multi-edge pairs
+                                const curveInfo = edgeCurveInfo.get(edge.id);
+                                if (curveInfo && curveInfo.totalInPair > 1) {
+                                  const { pairIndex, totalInPair } = curveInfo;
+                                  const curveSpacing = 40;
+                                  const offsetIndex = pairIndex - (totalInPair - 1) / 2;
+                                  const perpOffset = offsetIndex * curveSpacing;
+                                  const edgeDx = endX - startX;
+                                  const edgeDy = endY - startY;
+                                  const edgeLen = Math.sqrt(edgeDx * edgeDx + edgeDy * edgeDy);
+                                  const perpX = edgeLen > 0 ? -edgeDy / edgeLen : 0;
+                                  const perpY = edgeLen > 0 ? edgeDx / edgeLen : 0;
+                                  const curveMidX = (startX + endX) / 2;
+                                  const curveMidY = (startY + endY) / 2;
+                                  const ctrlX = curveMidX + perpX * perpOffset;
+                                  const ctrlY = curveMidY + perpY * perpOffset;
+                                  return (
+                                    <path
+                                      d={`M ${startX} ${startY} Q ${ctrlX} ${ctrlY} ${endX} ${endY}`}
+                                      fill="none"
+                                      stroke={edgeColor}
+                                      strokeWidth="12"
+                                      opacity={isSelected ? "0.3" : "0.2"}
+                                      style={{
+                                        filter: `blur(3px) drop-shadow(0 0 8px ${edgeColor})`
+                                      }}
+                                      strokeLinecap="round"
+                                    />
+                                  );
+                                }
+                                return (
+                                  <line
+                                    x1={startX}
+                                    y1={startY}
+                                    x2={endX}
+                                    y2={endY}
+                                    stroke={edgeColor}
+                                    strokeWidth="12"
+                                    opacity={isSelected ? "0.3" : "0.2"}
+                                    style={{
+                                      filter: `blur(3px) drop-shadow(0 0 8px ${edgeColor})`
+                                    }}
+                                  />
+                                );
+                              })()
                             )}
 
                             {(enableAutoRouting && (routingStyle === 'manhattan' || routingStyle === 'clean')) ? (
@@ -10274,17 +10328,54 @@ function NodeCanvas() {
                                   strokeLinecap="round"
                                 />
                               </>
-                            ) : (
-                              <line
-                                x1={startX}
-                                y1={startY}
-                                x2={endX}
-                                y2={endY}
-                                stroke={edgeColor}
-                                strokeWidth={showConnectionNames ? "16" : "6"}
-                                style={{ transition: 'stroke 0.2s ease' }}
-                              />
-                            )}
+                            ) : (() => {
+                              // Check if this edge needs curve offset (multiple edges between same nodes)
+                              const curveInfo = edgeCurveInfo.get(edge.id);
+                              if (curveInfo && curveInfo.totalInPair > 1) {
+                                // Calculate curve offset for parallel edges
+                                const { pairIndex, totalInPair } = curveInfo;
+                                const curveSpacing = 40; // Pixels between parallel edge curves
+                                // Center the curves: offset from -half to +half of total spread
+                                const offsetIndex = pairIndex - (totalInPair - 1) / 2;
+                                const perpOffset = offsetIndex * curveSpacing;
+                                
+                                // Calculate perpendicular direction
+                                const edgeDx = endX - startX;
+                                const edgeDy = endY - startY;
+                                const edgeLen = Math.sqrt(edgeDx * edgeDx + edgeDy * edgeDy);
+                                const perpX = edgeLen > 0 ? -edgeDy / edgeLen : 0;
+                                const perpY = edgeLen > 0 ? edgeDx / edgeLen : 0;
+                                
+                                // Control point at midpoint, offset perpendicular to edge
+                                const curveMidX = (startX + endX) / 2;
+                                const curveMidY = (startY + endY) / 2;
+                                const ctrlX = curveMidX + perpX * perpOffset;
+                                const ctrlY = curveMidY + perpY * perpOffset;
+                                
+                                return (
+                                  <path
+                                    d={`M ${startX} ${startY} Q ${ctrlX} ${ctrlY} ${endX} ${endY}`}
+                                    fill="none"
+                                    stroke={edgeColor}
+                                    strokeWidth={showConnectionNames ? "16" : "6"}
+                                    style={{ transition: 'stroke 0.2s ease' }}
+                                    strokeLinecap="round"
+                                  />
+                                );
+                              }
+                              // Single edge - render as straight line
+                              return (
+                                <line
+                                  x1={startX}
+                                  y1={startY}
+                                  x2={endX}
+                                  y2={endY}
+                                  stroke={edgeColor}
+                                  strokeWidth={showConnectionNames ? "16" : "6"}
+                                  style={{ transition: 'stroke 0.2s ease' }}
+                                />
+                              );
+                            })()}
 
                             {/* Connection name text - only show when enabled */}
                             {showConnectionNames && (() => {
@@ -11299,20 +11390,52 @@ function NodeCanvas() {
                                   }}
                                   strokeLinecap="round"
                                 />
-                              ) : (
-                                <line
-                                  x1={startX}
-                                  y1={startY}
-                                  x2={endX}
-                                  y2={endY}
-                                  stroke={edgeColor}
-                                  strokeWidth="12"
-                                  opacity={isSelected ? "0.3" : "0.2"}
-                                  style={{
-                                    filter: `blur(3px) drop-shadow(0 0 8px ${edgeColor})`
-                                  }}
-                                />
-                              )
+                              ) : (() => {
+                                // Glow effect also needs curve for multi-edge pairs
+                                const curveInfo = edgeCurveInfo.get(edge.id);
+                                if (curveInfo && curveInfo.totalInPair > 1) {
+                                  const { pairIndex, totalInPair } = curveInfo;
+                                  const curveSpacing = 40;
+                                  const offsetIndex = pairIndex - (totalInPair - 1) / 2;
+                                  const perpOffset = offsetIndex * curveSpacing;
+                                  const edgeDx = endX - startX;
+                                  const edgeDy = endY - startY;
+                                  const edgeLen = Math.sqrt(edgeDx * edgeDx + edgeDy * edgeDy);
+                                  const perpX = edgeLen > 0 ? -edgeDy / edgeLen : 0;
+                                  const perpY = edgeLen > 0 ? edgeDx / edgeLen : 0;
+                                  const curveMidX = (startX + endX) / 2;
+                                  const curveMidY = (startY + endY) / 2;
+                                  const ctrlX = curveMidX + perpX * perpOffset;
+                                  const ctrlY = curveMidY + perpY * perpOffset;
+                                  return (
+                                    <path
+                                      d={`M ${startX} ${startY} Q ${ctrlX} ${ctrlY} ${endX} ${endY}`}
+                                      fill="none"
+                                      stroke={edgeColor}
+                                      strokeWidth="12"
+                                      opacity={isSelected ? "0.3" : "0.2"}
+                                      style={{
+                                        filter: `blur(3px) drop-shadow(0 0 8px ${edgeColor})`
+                                      }}
+                                      strokeLinecap="round"
+                                    />
+                                  );
+                                }
+                                return (
+                                  <line
+                                    x1={startX}
+                                    y1={startY}
+                                    x2={endX}
+                                    y2={endY}
+                                    stroke={edgeColor}
+                                    strokeWidth="12"
+                                    opacity={isSelected ? "0.3" : "0.2"}
+                                    style={{
+                                      filter: `blur(3px) drop-shadow(0 0 8px ${edgeColor})`
+                                    }}
+                                  />
+                                );
+                              })()
                             )}
 
                             {(enableAutoRouting && (routingStyle === 'manhattan' || routingStyle === 'clean')) ? (
@@ -11336,17 +11459,54 @@ function NodeCanvas() {
                                   strokeLinecap="round"
                                 />
                               </>
-                            ) : (
-                              <line
-                                x1={startX}
-                                y1={startY}
-                                x2={endX}
-                                y2={endY}
-                                stroke={edgeColor}
-                                strokeWidth={showConnectionNames ? "16" : "6"}
-                                style={{ transition: 'stroke 0.2s ease' }}
-                              />
-                            )}
+                            ) : (() => {
+                              // Check if this edge needs curve offset (multiple edges between same nodes)
+                              const curveInfo = edgeCurveInfo.get(edge.id);
+                              if (curveInfo && curveInfo.totalInPair > 1) {
+                                // Calculate curve offset for parallel edges
+                                const { pairIndex, totalInPair } = curveInfo;
+                                const curveSpacing = 40; // Pixels between parallel edge curves
+                                // Center the curves: offset from -half to +half of total spread
+                                const offsetIndex = pairIndex - (totalInPair - 1) / 2;
+                                const perpOffset = offsetIndex * curveSpacing;
+                                
+                                // Calculate perpendicular direction
+                                const edgeDx = endX - startX;
+                                const edgeDy = endY - startY;
+                                const edgeLen = Math.sqrt(edgeDx * edgeDx + edgeDy * edgeDy);
+                                const perpX = edgeLen > 0 ? -edgeDy / edgeLen : 0;
+                                const perpY = edgeLen > 0 ? edgeDx / edgeLen : 0;
+                                
+                                // Control point at midpoint, offset perpendicular to edge
+                                const curveMidX = (startX + endX) / 2;
+                                const curveMidY = (startY + endY) / 2;
+                                const ctrlX = curveMidX + perpX * perpOffset;
+                                const ctrlY = curveMidY + perpY * perpOffset;
+                                
+                                return (
+                                  <path
+                                    d={`M ${startX} ${startY} Q ${ctrlX} ${ctrlY} ${endX} ${endY}`}
+                                    fill="none"
+                                    stroke={edgeColor}
+                                    strokeWidth={showConnectionNames ? "16" : "6"}
+                                    style={{ transition: 'stroke 0.2s ease' }}
+                                    strokeLinecap="round"
+                                  />
+                                );
+                              }
+                              // Single edge - render as straight line
+                              return (
+                                <line
+                                  x1={startX}
+                                  y1={startY}
+                                  x2={endX}
+                                  y2={endY}
+                                  stroke={edgeColor}
+                                  strokeWidth={showConnectionNames ? "16" : "6"}
+                                  style={{ transition: 'stroke 0.2s ease' }}
+                                />
+                              );
+                            })()}
 
                             {/* Connection name text - only show when enabled */}
                             {showConnectionNames && (() => {

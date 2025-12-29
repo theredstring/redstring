@@ -1495,6 +1495,9 @@ export async function runExecutorOnce() {
         }
       }
 
+      // #region agent log
+      fetch('http://127.0.0.1:7242/ingest/52d0fe28-158e-49a4-b331-f013fcb14181',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'roleRunners.js:create_edge',message:'Executor creating edge op',data:{edgeId,sourceInstanceId,targetInstanceId,graphId,name,typeNodeId},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'A-C'})}).catch(()=>{});
+      // #endregion
       ops.push({
         type: 'addEdge',
         graphId,
