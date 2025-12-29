@@ -75,13 +75,34 @@ export async function createPopulatedGraph(args, graphState, cid, ensureSchedule
 
   if (ensureSchedulerStarted) ensureSchedulerStarted();
 
+  // Return full spec so UI can apply it directly
   return {
+    action: 'createPopulatedGraph',
     graphId,
     graphName: name,
+    description,
     nodesAdded: nodes.length,
     edgesAdded: edges.length,
     groupsAdded: groups.length,
-    goalId
+    goalId,
+    // Include full spec for UI to apply
+    spec: {
+      nodes: nodes.map(n => ({
+        name: n.name,
+        color: n.color || '#8B0000',
+        description: n.description || ''
+      })),
+      edges: (edges || []).map(e => ({
+        source: e.source,
+        target: e.target,
+        type: e.type || 'relates to'
+      })),
+      groups: (groups || []).map(g => ({
+        name: g.name,
+        color: g.color || '#8B0000',
+        memberNames: g.memberNames || []
+      }))
+    }
   };
 }
 

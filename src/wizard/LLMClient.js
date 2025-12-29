@@ -76,6 +76,10 @@ async function* streamOpenRouter(messages, tools, { endpoint, model, apiKey, tem
     stream: true
   };
 
+  // #region agent log
+  fetch('http://127.0.0.1:7242/ingest/52d0fe28-158e-49a4-b331-f013fcb14181',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'LLMClient.js:streamOpenRouter:REQUEST',message:'Sending request to OpenRouter',data:{model,toolCount:tools?.length||0,hasTools:!!tools,messageCount:messages?.length},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'F'})}).catch(()=>{});
+  // #endregion
+
   const response = await fetch(endpoint, {
     method: 'POST',
     headers: {
@@ -118,6 +122,12 @@ async function* streamOpenRouter(messages, tools, { endpoint, model, apiKey, tem
             if (!choice) continue;
 
             const delta = choice.delta;
+
+            // #region agent log
+            if (delta?.tool_calls || delta?.content) {
+              fetch('http://127.0.0.1:7242/ingest/52d0fe28-158e-49a4-b331-f013fcb14181',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'LLMClient.js:streamOpenRouter:DELTA',message:'Received delta',data:{hasToolCalls:!!delta?.tool_calls,hasContent:!!delta?.content,contentPreview:delta?.content?.substring?.(0,100),finishReason:choice.finish_reason},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'G'})}).catch(()=>{});
+            }
+            // #endregion
 
             // Tool calls
             if (delta?.tool_calls) {
@@ -175,6 +185,9 @@ async function* streamOpenRouter(messages, tools, { endpoint, model, apiKey, tem
     // Flush remaining tool call
     if (currentToolCall) {
       console.log('[LLMClient:OpenRouter] Yielding tool_call (flush):', currentToolCall.function?.name);
+      // #region agent log
+      fetch('http://127.0.0.1:7242/ingest/52d0fe28-158e-49a4-b331-f013fcb14181',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'LLMClient.js:streamOpenRouter:TOOL_CALL_FLUSH',message:'Flushing tool call',data:{name:currentToolCall.function?.name,hasArgs:!!currentToolCall.function?.arguments},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H'})}).catch(()=>{});
+      // #endregion
       yield {
         type: 'tool_call',
         name: currentToolCall.function?.name,
@@ -186,6 +199,10 @@ async function* streamOpenRouter(messages, tools, { endpoint, model, apiKey, tem
     reader.releaseLock();
   }
 }
+
+// #region agent log - end of streamOpenRouter
+fetch('http://127.0.0.1:7242/ingest/52d0fe28-158e-49a4-b331-f013fcb14181',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'LLMClient.js:MODULE_LOADED',message:'LLMClient module loaded',data:{},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'F'})}).catch(()=>{});
+// #endregion
 
 /**
  * Stream from Anthropic API

@@ -9,6 +9,84 @@ import { HEADER_HEIGHT } from '../../../constants.js';
 import ToolCallCard from '../../ToolCallCard.jsx';
 import DruidMindPanel from '../../DruidMindPanel.jsx';
 import DruidInstance from '../../../services/agent/DruidInstance.js';
+import useGraphStore from '../../../store/graphStore.jsx';
+
+/**
+ * Apply wizard tool results to the store
+ * This bridges the gap between server-side tool execution and client-side store
+ */
+function applyToolResultToStore(toolName, result) {
+  if (!result || result.error) return;
+  
+  const store = useGraphStore.getState();
+  
+  // Handle createPopulatedGraph
+  if (result.action === 'createPopulatedGraph' && result.spec) {
+    console.log('[Wizard] Applying createPopulatedGraph to store:', result.graphName);
+    
+    // Create the graph
+    const graphId = store.createNewGraph({
+      id: result.graphId,
+      name: result.graphName,
+      description: result.description || ''
+    });
+    
+    // Add nodes - track name -> instanceId mapping
+    const nodeIdMap = new Map(); // name -> instanceId
+    for (const node of result.spec.nodes) {
+      // Generate IDs upfront
+      const protoId = `proto-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+      const instanceId = `inst-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+      
+      // Create prototype
+      store.addNodePrototype({
+        id: protoId,
+        name: node.name,
+        color: node.color || '#8B0000',
+        description: node.description || ''
+      });
+      
+      // Add instance to graph
+      store.addNodeInstance(graphId, protoId, {
+        x: Math.random() * 500 + 100,
+        y: Math.random() * 400 + 100
+      }, instanceId);
+      
+      nodeIdMap.set(node.name, instanceId);
+    }
+    
+    // Add edges
+    for (const edge of result.spec.edges || []) {
+      const sourceId = nodeIdMap.get(edge.source);
+      const targetId = nodeIdMap.get(edge.target);
+      if (sourceId && targetId) {
+        const edgeId = `edge-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+        store.addEdge(graphId, {
+          id: edgeId,
+          sourceId: sourceId,
+          destinationId: targetId,
+          type: edge.type || 'relates to'
+        });
+      }
+    }
+    
+    // Add groups
+    for (const group of result.spec.groups || []) {
+      const memberIds = group.memberNames
+        .map(name => nodeIdMap.get(name))
+        .filter(Boolean);
+      if (memberIds.length > 0) {
+        store.createGroup(graphId, {
+          name: group.name,
+          color: group.color || '#8B0000',
+          memberInstanceIds: memberIds
+        });
+      }
+    }
+    
+    console.log('[Wizard] Graph created with', nodeIdMap.size, 'nodes');
+  }
+}
 
 // Internal AI Collaboration View component (migrated from src/ai/AICollaborationPanel.jsx)
 const LeftAIView = ({ compact = false, activeGraphId, graphsMap, edgesMap }) => {
@@ -168,14 +246,29 @@ const LeftAIView = ({ compact = false, activeGraphId, graphsMap, edgesMap }) => 
     });
   };
 
-  // Simple markdown renderer for system messages (supports **bold** and basic formatting)
+  // Simple markdown renderer for chat messages (supports *, **, ***)
   const renderMarkdown = (text) => {
     if (!text) return text;
 
-    // Replace **bold** with <strong>
-    let html = text.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+    const escapeHtml = (str) =>
+      str
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
 
-    // Replace newlines with <br>
+    // Escape any HTML first to avoid injection when we swap in tags below
+    let html = escapeHtml(text);
+
+    // ***bold+italic***
+    html = html.replace(/\*\*\*(.+?)\*\*\*/g, '<strong><em>$1</em></strong>');
+    // **bold**
+    html = html.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+    // *italic*
+    html = html.replace(/\*(.+?)\*/g, '<em>$1</em>');
+
+    // Replace newlines with <br> for layout consistency
     html = html.replace(/\n/g, '<br>');
 
     return html;
@@ -681,6 +774,9 @@ const LeftAIView = ({ compact = false, activeGraphId, graphsMap, edgesMap }) => 
                         result: event.result,
                         error: event.result?.error
                       };
+                      
+                      // Apply tool result to store (bridge server-side tools to client-side store)
+                      applyToolResultToStore(event.name, event.result);
                     }
                     msg.toolCalls = toolCalls;
                   } else if (event.type === 'response') {
@@ -982,10 +1078,8 @@ const LeftAIView = ({ compact = false, activeGraphId, graphsMap, edgesMap }) => 
                     <div
                       className="ai-message-text"
                       style={{ userSelect: 'text', cursor: 'text' }}
-                      dangerouslySetInnerHTML={message.sender === 'system' ? { __html: renderMarkdown(message.content) } : undefined}
-                    >
-                      {message.sender !== 'system' ? message.content : null}
-                    </div>
+                      dangerouslySetInnerHTML={{ __html: renderMarkdown(message.content) }}
+                    />
                   )}
                   <div className="ai-message-timestamp">{new Date(message.timestamp).toLocaleTimeString()}</div>
                 </div>

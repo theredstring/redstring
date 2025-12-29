@@ -321,6 +321,10 @@
   cursor: text;
   white-space: pre-wrap;
 }
+.ai-message-text em {
+  font-style: italic;
+  font-weight: 500;
+}
 
 .ai-message-user .ai-message-text {
   background: rgba(38, 0, 0, 0.1);
