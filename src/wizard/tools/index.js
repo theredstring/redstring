@@ -197,7 +197,7 @@ export function getToolDefinitions() {
     },
     {
       name: 'createPopulatedGraph',
-      description: 'Create a NEW graph with nodes, edges, AND groups in one operation. ALWAYS include edges to show relationships between nodes! ALWAYS include meaningful groups when they exist (factions, categories, houses, teams, departments, etc).',
+      description: 'Create a NEW graph with nodes, edges, AND groups in one operation. ALWAYS include edges with definitionNode to show relationships! ALWAYS include meaningful groups when they exist (factions, categories, houses, teams, departments, etc). CONNECTION DENSITY: Every node should have 2-3 edges minimum.',
       parameters: {
         type: 'object',
         properties: {
@@ -205,12 +205,12 @@ export function getToolDefinitions() {
           description: { type: 'string', description: 'Optional description of the graph' },
           nodes: {
             type: 'array',
-            description: 'Array of nodes to create in the new graph. Give each node a brief description!',
+            description: 'Array of nodes to create. Give each node a brief description!',
             items: {
               type: 'object',
               properties: {
-                name: { type: 'string' },
-                color: { type: 'string' },
+                name: { type: 'string', description: 'Node name - use Title Case (e.g., "Romeo Montague", not "romeo_montague")' },
+                color: { type: 'string', description: 'Hex color like "#8B0000"' },
                 description: { type: 'string', description: 'Brief description of what this node represents - ALWAYS include this!' }
               },
               required: ['name']
@@ -218,15 +218,29 @@ export function getToolDefinitions() {
           },
           edges: {
             type: 'array',
-            description: 'REQUIRED: Array of edges connecting nodes. Use EXACT node names from the nodes array. Every graph needs edges to show relationships!',
+            description: 'REQUIRED: Array of edges connecting nodes. Each edge MUST have definitionNode with name and color. Every node should have 2-3 edges minimum!',
             items: {
               type: 'object',
               properties: {
                 source: { type: 'string', description: 'Source node name - must EXACTLY match a name in the nodes array' },
                 target: { type: 'string', description: 'Target node name - must EXACTLY match a name in the nodes array' },
-                type: { type: 'string', description: 'Relationship type (e.g., "loves", "fights", "contains", "leads", "is part of")' }
+                directionality: { 
+                  type: 'string', 
+                  enum: ['unidirectional', 'bidirectional', 'none', 'reverse'],
+                  description: 'Arrow direction: unidirectional (→), bidirectional (↔), none (—), reverse (←). Default: unidirectional'
+                },
+                definitionNode: {
+                  type: 'object',
+                  description: 'REQUIRED: Defines what this connection type means. Use Title Case for name!',
+                  properties: {
+                    name: { type: 'string', description: 'Connection type name in Title Case (e.g., "Loves", "Parent Of", "Orbits")' },
+                    color: { type: 'string', description: 'Hex color for this connection type' },
+                    description: { type: 'string', description: 'What this connection means' }
+                  },
+                  required: ['name']
+                }
               },
-              required: ['source', 'target']
+              required: ['source', 'target', 'definitionNode']
             }
           },
           groups: {

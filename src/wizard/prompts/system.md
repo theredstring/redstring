@@ -112,17 +112,42 @@ Create a NEW graph with nodes, edges, AND groups in one operation.
 - `description` (optional): Description of the graph
 - `nodes` (required): Array of { name, color, description }
   - **ALWAYS include description** for each node - what it represents
-- `edges` (required!): Array of { source, target, type }
-  - **ALWAYS include edges** to show relationships between nodes
-  - `source` and `target` must **EXACTLY MATCH** node names (case-sensitive!)
-  - Every character/concept should have at least one edge connecting it to others
+  - Use **Title Case** for names (e.g., "Romeo Montague", not "romeo_montague")
+- `edges` (required!): Array with **rich connection definitions**
+  - `source`: Source node name - must EXACTLY match a node name
+  - `target`: Target node name - must EXACTLY match a node name
+  - `directionality`: Arrow direction
+    - `"unidirectional"` (default): Arrow points to target (→)
+    - `"bidirectional"`: Arrows on both ends (↔)
+    - `"none"`: No arrows, just a line (—)
+    - `"reverse"`: Arrow points to source (←)
+  - `definitionNode` (required!): Defines the connection type
+    - `name`: Connection type in **Title Case** (e.g., "Loves", "Parent Of", "Orbits")
+    - `color`: Hex color for this connection type
+    - `description`: What this connection means
+  - **CONNECTION DENSITY**: Every node should have 2-3 edges minimum!
 - `groups` (strongly encouraged): Array of { name, color, memberNames }
   - **ALWAYS include groups** when natural groupings exist (factions, houses, teams, categories, departments, etc.)
   - `memberNames` must **EXACTLY MATCH** node names
-- Example: "make a graph of Romeo and Juliet characters" → 
-  - nodes: Romeo, Juliet, Mercutio, Tybalt, etc. (with descriptions!)
-  - edges: Romeo loves Juliet, Tybalt fights Mercutio, etc.
-  - groups: House Montague, House Capulet
+
+**Example edge with proper definition:**
+```json
+{
+  "source": "Romeo",
+  "target": "Juliet", 
+  "directionality": "bidirectional",
+  "definitionNode": {
+    "name": "Loves",
+    "color": "#E74C3C",
+    "description": "Romantic love between characters"
+  }
+}
+```
+
+**Example: "make a graph of Romeo and Juliet characters"**
+- nodes: Romeo, Juliet, Mercutio, Tybalt, etc. (with descriptions!)
+- edges: Romeo ↔ Juliet (Loves), Tybalt → Mercutio (Kills), etc.
+- groups: House Montague, House Capulet
 
 ### createGroup
 Create a visual Group containing specified nodes.

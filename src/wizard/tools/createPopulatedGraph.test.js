@@ -63,16 +63,16 @@ describe('createPopulatedGraph', () => {
                 { name: 'Node Two', color: '#00FF00', description: '' }
               ],
               edges: [
-                {
+                expect.objectContaining({
                   source: 'Node One',
                   target: 'Node Two',
-                  type: 'connects',
-                  definitionNode: {
-                    name: 'connects',
-                    color: '#708090',
+                  type: 'Connects',
+                  directionality: 'unidirectional',
+                  definitionNode: expect.objectContaining({
+                    name: 'Connects',
                     description: ''
-                  }
-                }
+                  })
+                })
               ]
             }),
             layout_algorithm: 'force',
@@ -82,13 +82,15 @@ describe('createPopulatedGraph', () => {
       })
     }));
 
-    expect(result).toEqual({
+    expect(result).toMatchObject({
       graphId: expect.stringMatching(/^graph-\d+-[\w]+$/),
       graphName: 'Test Graph',
-      nodesAdded: 2,
-      edgesAdded: 1,
+      nodeCount: 2,
+      edgeCount: 1,
       goalId: 'mock-goal-id'
     });
+    expect(result.nodesAdded).toHaveLength(2);
+    expect(result.edgesAdded).toHaveLength(1);
   });
 
   it('uses default color for nodes when not provided', async () => {
@@ -131,7 +133,7 @@ describe('createPopulatedGraph', () => {
     expect(callArgs.dag.tasks[0].args.graph_spec.nodes[0].description).toBe('');
   });
 
-  it('handles edges without type', async () => {
+  it('handles edges without type - defaults to Connection', async () => {
     const graphState = {
       graphs: [],
       nodePrototypes: []
@@ -154,7 +156,8 @@ describe('createPopulatedGraph', () => {
     );
 
     const callArgs = queueManager.enqueue.mock.calls[0][1];
-    expect(callArgs.dag.tasks[0].args.graph_spec.edges[0].type).toBe('');
+    // When no type is provided, defaults to "Connection"
+    expect(callArgs.dag.tasks[0].args.graph_spec.edges[0].type).toBe('Connection');
     expect(callArgs.dag.tasks[0].args.graph_spec.edges[0].definitionNode).toBeNull();
   });
 
@@ -261,7 +264,52 @@ describe('createPopulatedGraph', () => {
       mockEnsureSchedulerStarted
     );
 
-    expect(result.edgesAdded).toBe(0);
+    expect(result.edgeCount).toBe(0);
+    expect(result.edgesAdded).toHaveLength(0);
+  });
+
+  it('handles new definitionNode format with directionality', async () => {
+    const graphState = {
+      graphs: [],
+      nodePrototypes: []
+    };
+
+    const result = await createPopulatedGraph(
+      {
+        name: 'Test Graph',
+        nodes: [
+          { name: 'Romeo', description: 'Male protagonist' },
+          { name: 'Juliet', description: 'Female protagonist' }
+        ],
+        edges: [
+          { 
+            source: 'Romeo', 
+            target: 'Juliet', 
+            directionality: 'bidirectional',
+            definitionNode: {
+              name: 'Loves',
+              color: '#E74C3C',
+              description: 'Romantic love'
+            }
+          }
+        ]
+      },
+      graphState,
+      mockCid,
+      mockEnsureSchedulerStarted
+    );
+
+    const callArgs = queueManager.enqueue.mock.calls[0][1];
+    const edge = callArgs.dag.tasks[0].args.graph_spec.edges[0];
+    
+    expect(edge.directionality).toBe('bidirectional');
+    expect(edge.type).toBe('Loves');
+    expect(edge.definitionNode.name).toBe('Loves');
+    expect(edge.definitionNode.color).toBe('#E74C3C');
+    expect(edge.definitionNode.description).toBe('Romantic love');
+    
+    expect(result.edgesAdded[0].type).toBe('Loves');
+    expect(result.edgesAdded[0].directionality).toBe('bidirectional');
   });
 });
 

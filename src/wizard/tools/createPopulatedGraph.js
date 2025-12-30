@@ -33,28 +33,59 @@ export async function createPopulatedGraph(args, graphState, cid, ensureSchedule
   // Generate a graph ID for the new graph
   const graphId = `graph-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 
-  // Build graph spec for the low-level task
-  const graphSpec = {
-    nodes: nodes.map(n => ({
-      name: n.name,
-      color: n.color || undefined,
-      description: n.description || ''
-    })),
-    edges: (edges || []).map(e => ({
+  // Helper to convert to Title Case
+  const toTitleCase = (str) => {
+    if (!str) return '';
+    return str.replace(/\w\S*/g, (txt) => txt.charAt(0).toUpperCase() + txt.substr(1).toLowerCase());
+  };
+
+  // Helper to generate a color for connection types
+  const generateConnectionColor = (name) => {
+    let hash = 0;
+    for (let i = 0; i < name.length; i++) {
+      hash = name.charCodeAt(i) + ((hash << 5) - hash);
+    }
+    const hue = Math.abs(hash) % 360;
+    return `hsl(${hue}, 60%, 45%)`;
+  };
+
+  // Build unified spec for both queue and UI
+  const nodeSpecs = nodes.map(n => ({
+    name: n.name,
+    color: n.color || '#5B6CFF',
+    description: n.description || ''
+  }));
+  
+  const edgeSpecs = (edges || []).map(e => {
+    // Handle both old format (type string) and new format (definitionNode object)
+    const inputDefNode = e.definitionNode;
+    const typeName = inputDefNode?.name || e.type || '';
+    const titleCaseName = toTitleCase(typeName);
+    
+    return {
       source: e.source,
       target: e.target,
-      type: e.type || '',
-      definitionNode: e.type ? {
-        name: e.type,
-        color: '#708090',
-        description: ''
+      directionality: e.directionality || 'unidirectional',
+      type: titleCaseName || 'Connection',
+      definitionNode: titleCaseName ? {
+        name: titleCaseName,
+        color: inputDefNode?.color || generateConnectionColor(titleCaseName),
+        description: inputDefNode?.description || ''
       } : null
-    })),
-    groups: (groups || []).map(g => ({
-      name: g.name,
-      color: g.color || '#8B0000',
-      memberNames: g.memberNames || []
-    }))
+    };
+  });
+  
+  const groupSpecs = (groups || []).map(g => ({
+    name: g.name,
+    color: g.color || '#8B0000',
+    memberNames: g.memberNames || []
+  }));
+
+  // Build graph spec for the low-level task (with proper definitionNode)
+  const graphSpec = {
+    nodes: nodeSpecs,
+    edges: edgeSpecs,
+    groups: groupSpecs
   };
 
   const dag = {
@@ -81,25 +112,6 @@ export async function createPopulatedGraph(args, graphState, cid, ensureSchedule
   });
 
   if (ensureSchedulerStarted) ensureSchedulerStarted();
-
-  // Build the spec for both display and application
-  const nodeSpecs = nodes.map(n => ({
-    name: n.name,
-    color: n.color || '#8B0000',
-    description: n.description || ''
-  }));
-  
-  const edgeSpecs = (edges || []).map(e => ({
-    source: e.source,
-    target: e.target,
-    type: e.type || 'relates to'
-  }));
-  
-  const groupSpecs = (groups || []).map(g => ({
-    name: g.name,
-    color: g.color || '#8B0000',
-    memberNames: g.memberNames || []
-  }));
 
   // Return full spec so UI can apply it directly
   // Note: nodesAdded/edgesAdded are ARRAYS for ToolCallCard display

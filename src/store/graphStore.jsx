@@ -1748,6 +1748,26 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
         console.log(`[applyBulkGraphUpdates] Node names in map:`, Array.from(nodeIdMap.keys()));
         console.log(`[applyBulkGraphUpdates] Normalized names in map:`, Array.from(nodeIdMapNormalized.keys()));
 
+        // Helper to convert to Title Case
+        const toTitleCase = (str) => {
+          if (!str) return '';
+          return str.replace(/\w\S*/g, (txt) => txt.charAt(0).toUpperCase() + txt.substr(1).toLowerCase());
+        };
+
+        // Helper to generate a color for connection types
+        const generateConnectionColor = (name) => {
+          // Simple hash-based color generation for consistency
+          let hash = 0;
+          for (let i = 0; i < name.length; i++) {
+            hash = name.charCodeAt(i) + ((hash << 5) - hash);
+          }
+          const hue = Math.abs(hash) % 360;
+          return `hsl(${hue}, 60%, 45%)`;
+        };
+
+        // Cache for connection definition prototypes to avoid duplicates
+        const connectionProtoCache = new Map();
+
         // 2. Add edges
         console.log(`[applyBulkGraphUpdates] Processing ${edges.length} edges...`);
         edges.forEach((edge, idx) => {
@@ -1762,18 +1782,78 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
           if (sourceId && destId && graph.instances.has(sourceId) && graph.instances.has(destId)) {
             const edgeId = edge.id || uuidv4();
             if (!draft.edges.has(edgeId)) {
+              // Handle connection definition node - create a prototype for the connection type
+              let definitionNodeIds = [];
+              
+              // Get connection name from definitionNode object or type field
+              const defNode = edge.definitionNode;
+              const connectionTypeName = toTitleCase(
+                defNode?.name || edge.type || 'Connection'
+              );
+              const connectionColor = defNode?.color || edge.color || null;
+              const connectionDescription = defNode?.description || '';
+              
+              if (connectionTypeName && connectionTypeName !== 'Connection' && connectionTypeName !== 'Relates To') {
+                // Check cache first
+                if (connectionProtoCache.has(connectionTypeName)) {
+                  definitionNodeIds = [connectionProtoCache.get(connectionTypeName)];
+                } else {
+                  // Check if prototype already exists with this name
+                  let existingProtoId = null;
+                  draft.nodePrototypes.forEach((proto, protoId) => {
+                    if (proto.name?.toLowerCase() === connectionTypeName.toLowerCase()) {
+                      existingProtoId = protoId;
+                    }
+                  });
+
+                  if (existingProtoId) {
+                    definitionNodeIds = [existingProtoId];
+                    connectionProtoCache.set(connectionTypeName, existingProtoId);
+                    console.log(`[applyBulkGraphUpdates] Reusing connection prototype: "${connectionTypeName}" (${existingProtoId})`);
+                  } else {
+                    // Create new prototype for this connection type
+                    const defProtoId = `proto-conn-${Date.now()}-${idx}-${Math.random().toString(36).slice(2, 8)}`;
+                    draft.nodePrototypes.set(defProtoId, {
+                      id: defProtoId,
+                      name: connectionTypeName,
+                      description: connectionDescription || `Defines the "${connectionTypeName}" relationship`,
+                      color: connectionColor || generateConnectionColor(connectionTypeName),
+                      typeNodeId: null,
+                      definitionGraphIds: [],
+                      createdAt: new Date().toISOString()
+                    });
+                    definitionNodeIds = [defProtoId];
+                    connectionProtoCache.set(connectionTypeName, defProtoId);
+                    console.log(`[applyBulkGraphUpdates] Created connection prototype: "${connectionTypeName}" (${defProtoId})`);
+                  }
+                }
+              }
+
+              // Handle directionality - convert string to arrowsToward Set
+              let arrowsToward = new Set([destId]); // Default: unidirectional to target
+              const dir = edge.directionality || 'unidirectional';
+              if (dir === 'bidirectional') {
+                arrowsToward = new Set([sourceId, destId]);
+              } else if (dir === 'none' || dir === 'undirected') {
+                arrowsToward = new Set();
+              } else if (dir === 'reverse') {
+                arrowsToward = new Set([sourceId]);
+              }
+
               const edgeData = {
                 id: edgeId,
                 sourceId: sourceId,
                 destinationId: destId,
-                type: edge.type || 'relates to',
+                name: connectionTypeName,
+                type: edge.type || connectionTypeName,
                 typeNodeId: edge.typeNodeId || 'base-connection-prototype',
-                directionality: normalizeEdgeDirectionality(edge.directionality)
+                definitionNodeIds: definitionNodeIds,
+                directionality: { arrowsToward }
               };
               draft.edges.set(edgeId, edgeData);
               if (!graph.edgeIds) graph.edgeIds = [];
               graph.edgeIds.push(edgeId);
-              console.log(`[applyBulkGraphUpdates] Created edge: ${edge.source || 'unknown'} → ${edge.target || 'unknown'} (${edge.type})`);
+              console.log(`[applyBulkGraphUpdates] Created edge: ${edge.source || 'unknown'} → ${edge.target || 'unknown'} (${connectionTypeName}) with definitionNodeIds:`, definitionNodeIds);
             }
           } else {
             console.warn(`[applyBulkGraphUpdates] Skipping edge - source "${edge.source}" (${sourceId ? 'found' : 'NOT FOUND'}) or target "${edge.target}" (${destId ? 'found' : 'NOT FOUND'})`, edge);
