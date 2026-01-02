@@ -9898,7 +9898,7 @@ function NodeCanvas() {
                                         fontWeight: 'bold',
                                         color: isNodeGroup
                                           ? getTextColor(nodeGroupColor)
-                                          : (getTextColor(strokeColor) === '#262626' ? '#262626' : strokeColor),
+                                          : (hexToHsl(strokeColor).l > 50 ? getTextColor(strokeColor) : strokeColor),
                                         backgroundColor: 'transparent',
                                         border: 'none',
                                         outline: 'none',
@@ -9912,7 +9912,7 @@ function NodeCanvas() {
                                 <text x={labelX + labelWidth / 2} y={labelY + labelHeight * 0.7 - 2} fontFamily="EmOne, sans-serif" fontSize={fontSize}
                                   fill={isNodeGroup
                                     ? getTextColor(nodeGroupColor)
-                                    : (getTextColor(strokeColor) === '#262626' ? '#262626' : strokeColor)
+                                    : (hexToHsl(strokeColor).l > 50 ? getTextColor(strokeColor) : strokeColor)
                                   } fontWeight="bold" stroke={isNodeGroup ? "none" : "#bdb5b5"} strokeWidth={isNodeGroup ? 0 : strokeWidth} paintOrder="stroke fill" textAnchor="middle">{labelText}</text>
                               )}
                             </g>

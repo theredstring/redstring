@@ -1,6 +1,5 @@
-/**
- * Shared color utility functions for Redstring
- */
+const LIGHTNESS_THRESHOLD = 42;
+const DARK_TEXT_LIGHTNESS = 16;
 
 // Helper function to convert CSS color names to hex
 export const cssColorToHex = (color) => {
@@ -133,11 +132,11 @@ export const getTextColor = (backgroundColor) => {
 
   const { h, s, l } = hexToHsl(backgroundColor);
 
-  // If background is bright (lightness > 35), use dark text with same hue
-  // Threshold 35% provides good contrast for this UI's specific style
-  if (l > 35) {
-    // Use "near black" for better legibility on light backgrounds, as requested
-    return '#262626';
+  // If background is bright, use dark text with same hue
+  if (l > LIGHTNESS_THRESHOLD) {
+    // Create a dark color with the same hue (preserving saturation) but very low lightness
+    // This creates a "near black" that matches the theme of the group/node
+    return hslToHex(h, s, DARK_TEXT_LIGHTNESS);
   } else {
     // Use light text for dark backgrounds
     return '#bdb5b5';
