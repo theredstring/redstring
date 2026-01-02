@@ -874,10 +874,10 @@ function NodeCanvas() {
         const cancelListener = (ev) => {
           const freshNodeData = nodes.find(n => n.id === touchState.current.dragNodeId);
           if (freshNodeData && handleNodeTouchCancelRef.current) {
-             handleNodeTouchCancelRef.current(freshNodeData, ev);
+            handleNodeTouchCancelRef.current(freshNodeData, ev);
           }
           else if (freshNodeData && handleNodeTouchEndRef.current) {
-             handleNodeTouchEndRef.current(freshNodeData, ev);
+            handleNodeTouchEndRef.current(freshNodeData, ev);
           }
           try {
             document.removeEventListener('touchmove', moveListener, { passive: false });
@@ -1939,10 +1939,10 @@ function NodeCanvas() {
   useEffect(() => {
     panOffsetRef.current = panOffset;
   }, [panOffset]);
-  
+
   // Track if edge panning is actively modifying pan (to avoid conflicts with handleMouseMove RAF)
   const isEdgePanningRef = useRef(false);
-  
+
   const [recentlyPanned, setRecentlyPanned] = useState(false);
 
   const [selectionRect, setSelectionRect] = useState(null);
@@ -2036,11 +2036,11 @@ function NodeCanvas() {
   // Document-level mouse tracking during drag (captures events even over panels)
   useEffect(() => {
     if (!draggingNodeInfo) return;
-    
+
     const handleDocumentMouseMove = (e) => {
       mousePositionRef.current = { x: e.clientX, y: e.clientY };
     };
-    
+
     document.addEventListener('mousemove', handleDocumentMouseMove);
     return () => {
       document.removeEventListener('mousemove', handleDocumentMouseMove);
@@ -2061,7 +2061,7 @@ function NodeCanvas() {
   const performDragUpdate = useCallback((clientX, clientY, currentPan, currentZoom, draggingInfo) => {
     // Ensure labels recalc during drag
     placedLabelsRef.current = new Map();
-    
+
     // Calculate mouse position in canvas coordinates
     const rect = containerRef.current.getBoundingClientRect();
     const mouseCanvasX = (clientX - rect.left - currentPan.x) / currentZoom + canvasSizeRef.current.offsetX;
@@ -2157,7 +2157,7 @@ function NodeCanvas() {
     if (!draggingNodeInfo) return;
 
     let animationFrameId;
-    
+
     const panLoop = () => {
       // If zooming (initial drag or restore), skip edge panning to prevent fighting/jitter
       if (isAnimatingZoomRef.current || restoreInProgressRef.current) {
@@ -2204,13 +2204,13 @@ function NodeCanvas() {
       if (dx !== 0 || dy !== 0) {
         // Mark that edge panning is active (handleMouseMove RAF should skip)
         isEdgePanningRef.current = true;
-        
+
         const currentPan = panOffsetRef.current;
         const currentZoom = zoomLevelRef.current;
-        
+
         const currentCanvasWidth = canvasSizeRef.current.width * currentZoom;
         const currentCanvasHeight = canvasSizeRef.current.height * currentZoom;
-        
+
         // Clamp to canvas bounds
         const minX = viewportSizeRef.current.width - currentCanvasWidth;
         const minY = viewportSizeRef.current.height - currentCanvasHeight;
@@ -2222,19 +2222,19 @@ function NodeCanvas() {
 
         if (newX !== currentPan.x || newY !== currentPan.y) {
           const newPan = { x: newX, y: newY };
-          
+
           // CRITICAL: Update ref synchronously BEFORE setPanOffset
           // This ensures handleMouseMove's RAF sees the new value immediately
           // (useEffect that syncs ref from state runs AFTER RAF callbacks)
           panOffsetRef.current = newPan;
-          
+
           // Use flushSync to make pan update synchronous
           // This ensures canvas transform and node position update in the same render
           // Preventing 1-frame jitter where node moves but canvas doesn't
           flushSync(() => {
             setPanOffset(newPan);
           });
-          
+
           // Force update node position with new pan to keep it under mouse
           performDragUpdate(mouseX, mouseY, newPan, currentZoom, draggingNodeInfoRef.current);
         }
@@ -2408,13 +2408,13 @@ function NodeCanvas() {
     // anchorPoint: { clientX, clientY } - the screen point to keep stable
     // currentZoom: optional explicit current zoom level (to avoid stale ref issues)
     // currentPan: optional explicit current pan (to avoid stale ref issues)
-    
-    
+
+
     // Stop any existing drag zoom animation
     if (zoomAnimationRef.current.animationId) {
       cancelAnimationFrame(zoomAnimationRef.current.animationId);
     }
-    
+
     // CRITICAL: Also stop pinch smoothing animation to prevent it from overwriting our zoom
     if (pinchSmoothingRef.current.animationId) {
       cancelAnimationFrame(pinchSmoothingRef.current.animationId);
@@ -4556,7 +4556,7 @@ function NodeCanvas() {
     if (draggingNodeInfoRef.current || isAnimatingZoomRef.current) {
       return;
     }
-    
+
     setIsViewReady(false); // Set to not ready on graph change
 
     // Ensure we have valid sizes and an active graph
@@ -4988,7 +4988,7 @@ function NodeCanvas() {
         // Store original pan offset for proper restore (avoids anchor drift)
         preDragPanOffsetRef.current = { ...panOffset };
         const targetZoom = Math.max(DRAG_ZOOM_MIN, currentZoom * DRAG_ZOOM_OUT_FACTOR);
-        
+
         // Start animation immediately (synchronously) to avoid 1-frame delay/glitch
         // We pass the current panOffset explicitly to ensure the anchor calculation matches the current view
         animateZoomToTarget(targetZoom, { clientX, clientY }, currentZoom, { ...panOffset });
@@ -5014,11 +5014,11 @@ function NodeCanvas() {
       zoomOutInitiatedRef.current = true;
       setPreDragZoomLevel(currentZoom);
       // Store original pan offset for proper restore (avoids anchor drift)
-        preDragPanOffsetRef.current = { ...panOffset };
-        const targetZoom = Math.max(DRAG_ZOOM_MIN, currentZoom * DRAG_ZOOM_OUT_FACTOR);
-        // Start animation immediately (synchronously)
-        animateZoomToTarget(targetZoom, { clientX, clientY }, currentZoom, { ...panOffset });
-      }
+      preDragPanOffsetRef.current = { ...panOffset };
+      const targetZoom = Math.max(DRAG_ZOOM_MIN, currentZoom * DRAG_ZOOM_OUT_FACTOR);
+      // Start animation immediately (synchronously)
+      animateZoomToTarget(targetZoom, { clientX, clientY }, currentZoom, { ...panOffset });
+    }
 
     storeActions.updateNodeInstance(activeGraphId, instanceId, draft => { draft.scale = 1.15; }, { isDragging: true, phase: 'start' });
     return true;
@@ -5291,7 +5291,7 @@ function NodeCanvas() {
 
   const handleWheel = async (e) => {
     // #region agent log
-    fetch('http://127.0.0.1:7242/ingest/52d0fe28-158e-49a4-b331-f013fcb14181',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'NodeCanvas.jsx:5282',message:'handleWheel START',data:{deltaY:e.deltaY?.toFixed?.(2),ctrlKey:e.ctrlKey},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'C'})}).catch(()=>{});
+    fetch('http://127.0.0.1:7242/ingest/52d0fe28-158e-49a4-b331-f013fcb14181', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ location: 'NodeCanvas.jsx:5282', message: 'handleWheel START', data: { deltaY: e.deltaY?.toFixed?.(2), ctrlKey: e.ctrlKey }, timestamp: Date.now(), sessionId: 'debug-session', hypothesisId: 'C' }) }).catch(() => { });
     // #endregion
     // If a gesture/pinch is active, ignore wheel to prevent double-handling on Safari
     if (pinchRef.current.active) {
@@ -6479,22 +6479,22 @@ function NodeCanvas() {
         dragUpdateScheduled.current = true;
         requestAnimationFrame(() => {
           dragUpdateScheduled.current = false;
-          
+
           // Skip if edge panning is active - panLoop handles node positioning during edge pan
           if (isEdgePanningRef.current) {
             return;
           }
-          
+
           const update = pendingDragUpdate.current;
           if (!update) return;
 
           const { clientX, clientY, draggingNodeInfo } = update;
-          
+
           // Use refs for latest values to avoid stale closure (prevents jitter during edge panning)
           const currentPan = panOffsetRef.current;
           const currentZoom = zoomLevelRef.current;
           const currentCanvasSize = canvasSizeRef.current;
-          
+
           // Ensure labels recalc during drag (touch or mouse) by clearing cache each frame
           placedLabelsRef.current = new Map();
           // Group drag via label
@@ -6754,9 +6754,9 @@ function NodeCanvas() {
     console.log('[Mouse Down] History reset to 1 sample');
   };
   const handleMouseUp = (e) => {
-    
+
     // console.log('[Mouse Up] Called, history length:', panVelocityHistoryRef.current.length, 'Stack:', new Error().stack.split('\n').slice(1, 4).join('\n'));
-    
+
     if (isPaused || !activeGraphId) return;
     clearTimeout(longPressTimeout.current);
     setLongPressingInstanceId(null); // Clear ID
@@ -6899,7 +6899,7 @@ function NodeCanvas() {
       }
 
       setDraggingNodeInfo(null);
-      
+
       // Reset edge panning flag when drag ends
       isEdgePanningRef.current = false;
 
@@ -6907,40 +6907,40 @@ function NodeCanvas() {
       // Prevent double calls - only process if not already restoring
       if (preDragZoomLevel !== null && !restoreInProgressRef.current) {
         restoreInProgressRef.current = true;
-        
+
         // Target Zoom: Always go back to the original level
         const targetZoom = preDragZoomLevel;
-        
+
         // Current State
         // CRITICAL: Always use the live refs for current state to account for any edge panning that happened
         // actualZoomedOutPanRef is stale if edge panning occurred after zoom-out finished
         const currentZoom = zoomLevelRef.current;
         const currentPan = panOffsetRef.current;
-        
+
         // Calculate Target Pan: Center on where the node was DROPPED (mouse position)
         // This ensures the dropped node stays visible after zooming back in
         const rect = containerRef.current.getBoundingClientRect();
         const dropX = e.clientX - rect.left;
         const dropY = e.clientY - rect.top;
-        
+
         // 1. Find world coordinates of the drop point using CURRENT zoom/pan
         // worldX = (screenX - panX) / zoom + offsetX
         const dropWorldX = (dropX - currentPan.x) / currentZoom + canvasSizeRef.current.offsetX;
         const dropWorldY = (dropY - currentPan.y) / currentZoom + canvasSizeRef.current.offsetY;
-        
+
         // 2. Calculate NEW pan to keep that world point at the CENTER of the viewport using TARGET zoom
         // panX = screenX - (worldX - offsetX) * zoom
         const viewportCenterX = rect.width / 2;
         const viewportCenterY = rect.height / 2;
         const targetPanX = viewportCenterX - (dropWorldX - canvasSizeRef.current.offsetX) * targetZoom;
         const targetPanY = viewportCenterY - (dropWorldY - canvasSizeRef.current.offsetY) * targetZoom;
-        
+
         // Clamp the new pan to bounds
         const minPanX = viewportSizeRef.current.width - canvasSizeRef.current.width * targetZoom;
         const minPanY = viewportSizeRef.current.height - canvasSizeRef.current.height * targetZoom;
         const clampedTargetPanX = Math.min(0, Math.max(targetPanX, minPanX));
         const clampedTargetPanY = Math.min(0, Math.max(targetPanY, minPanY));
-        
+
         animateZoomAndPanToTarget(targetZoom, { x: clampedTargetPanX, y: clampedTargetPanY }, currentZoom, currentPan);
 
         setPreDragZoomLevel(null);
@@ -7533,7 +7533,7 @@ function NodeCanvas() {
       // Handle zoom (simple stable approach)
       // Skip keyboard zoom during drag to prevent interference with drag zoom animation
       if (draggingNodeInfo || isAnimatingZoom) return;
-      
+
       let zoomDelta = 0;
       if (keysPressed.current[' ']) zoomDelta = -KEYBOARD_ZOOM_SPEED; // Space = zoom out
       if (keysPressed.current['Shift']) zoomDelta = KEYBOARD_ZOOM_SPEED; // Shift = zoom in
@@ -8982,7 +8982,7 @@ function NodeCanvas() {
     const handleNavigateTo = (event) => {
       // Skip navigation during drag to prevent interference with drag zoom animation
       if (draggingNodeInfoRef.current || isAnimatingZoomRef.current) return;
-      
+
       const detail = event.detail || {};
       const { mode, graphId, nodeIds, targetX, targetY, targetZoom, padding = 100, minZoom = 0.3, maxZoom: navMaxZoom = 1.5 } = detail;
 
@@ -9047,7 +9047,7 @@ function NodeCanvas() {
           }
 
           const effectiveZoom = Math.max(minZoom, Math.min(targetZoom || 1, navMaxZoom, MAX_ZOOM));
-          
+
           // Calculate pan to center on target coordinates
           const targetPanX = (viewportSize.width / 2) - (targetX - canvasSize.offsetX) * effectiveZoom;
           const targetPanY = (viewportSize.height / 2) - (targetY - canvasSize.offsetY) * effectiveZoom;
@@ -9746,6 +9746,12 @@ function NodeCanvas() {
                             <g className="group-label" style={{ cursor: 'pointer' }}
                               onClick={(e) => {
                                 e.stopPropagation();
+
+                                // Prevent click if we were dragging (mouse moved significantly)
+                                if (mouseMoved.current) {
+                                  return;
+                                }
+
                                 // Double-click to edit, single click to select
                                 if (e.detail === 2) {
                                   setEditingGroupId(group.id);
@@ -9985,7 +9991,7 @@ function NodeCanvas() {
                     if (!edgePairGroups.has(key)) edgePairGroups.set(key, []);
                     edgePairGroups.get(key).push(e.id);
                   });
-                  
+
                   // Build a map of edge ID -> { pairIndex, totalInPair } for curve offset calculation
                   const edgeCurveInfo = new Map();
                   edgePairGroups.forEach((edgeIds, key) => {
@@ -9994,11 +10000,11 @@ function NodeCanvas() {
                       edgeCurveInfo.set(edgeId, { pairIndex: idx, totalInPair: total });
                     });
                   });
-                  
+
                   // #region agent log
                   const multiEdgePairs = Array.from(edgePairGroups.entries()).filter(([k, v]) => v.length > 1);
                   if (multiEdgePairs.length > 0) {
-                    fetch('http://127.0.0.1:7242/ingest/52d0fe28-158e-49a4-b331-f013fcb14181',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'NodeCanvas.jsx:edgeRender',message:'Edge rendering info',data:{totalEdges:visibleEdges.length,multiEdgePairs:multiEdgePairs.map(([k,v])=>({pair:k,edgeCount:v.length,edgeIds:v})),enableAutoRouting,routingStyle,willUseCurves:!(enableAutoRouting && (routingStyle === 'manhattan' || routingStyle === 'clean'))},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'D-E'})}).catch(()=>{});
+                    fetch('http://127.0.0.1:7242/ingest/52d0fe28-158e-49a4-b331-f013fcb14181', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ location: 'NodeCanvas.jsx:edgeRender', message: 'Edge rendering info', data: { totalEdges: visibleEdges.length, multiEdgePairs: multiEdgePairs.map(([k, v]) => ({ pair: k, edgeCount: v.length, edgeIds: v })), enableAutoRouting, routingStyle, willUseCurves: !(enableAutoRouting && (routingStyle === 'manhattan' || routingStyle === 'clean')) }, timestamp: Date.now(), sessionId: 'debug-session', hypothesisId: 'D-E' }) }).catch(() => { });
                   }
                   // #endregion
 
@@ -10379,20 +10385,20 @@ function NodeCanvas() {
                                 // Center the curves: offset from -half to +half of total spread
                                 const offsetIndex = pairIndex - (totalInPair - 1) / 2;
                                 const perpOffset = offsetIndex * curveSpacing;
-                                
+
                                 // Calculate perpendicular direction
                                 const edgeDx = endX - startX;
                                 const edgeDy = endY - startY;
                                 const edgeLen = Math.sqrt(edgeDx * edgeDx + edgeDy * edgeDy);
                                 const perpX = edgeLen > 0 ? -edgeDy / edgeLen : 0;
                                 const perpY = edgeLen > 0 ? edgeDx / edgeLen : 0;
-                                
+
                                 // Control point at midpoint, offset perpendicular to edge
                                 const curveMidX = (startX + endX) / 2;
                                 const curveMidY = (startY + endY) / 2;
                                 const ctrlX = curveMidX + perpX * perpOffset;
                                 const ctrlY = curveMidY + perpY * perpOffset;
-                                
+
                                 return (
                                   <path
                                     d={`M ${startX} ${startY} Q ${ctrlX} ${ctrlY} ${endX} ${endY}`}
@@ -11510,20 +11516,20 @@ function NodeCanvas() {
                                 // Center the curves: offset from -half to +half of total spread
                                 const offsetIndex = pairIndex - (totalInPair - 1) / 2;
                                 const perpOffset = offsetIndex * curveSpacing;
-                                
+
                                 // Calculate perpendicular direction
                                 const edgeDx = endX - startX;
                                 const edgeDy = endY - startY;
                                 const edgeLen = Math.sqrt(edgeDx * edgeDx + edgeDy * edgeDy);
                                 const perpX = edgeLen > 0 ? -edgeDy / edgeLen : 0;
                                 const perpY = edgeLen > 0 ? edgeDx / edgeLen : 0;
-                                
+
                                 // Control point at midpoint, offset perpendicular to edge
                                 const curveMidX = (startX + endX) / 2;
                                 const curveMidY = (startY + endY) / 2;
                                 const ctrlX = curveMidX + perpX * perpOffset;
                                 const ctrlY = curveMidY + perpY * perpOffset;
-                                
+
                                 return (
                                   <path
                                     d={`M ${startX} ${startY} Q ${ctrlX} ${ctrlY} ${endX} ${endY}`}

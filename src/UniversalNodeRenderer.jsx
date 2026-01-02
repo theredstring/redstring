@@ -40,7 +40,7 @@ const ConnectionText = ({
       displayName = displayName.substring(0, maxChars - 1) + '…';
     }
   }
-  
+
   return (
     <g>
       {/* Background glow for better readability */}
@@ -103,28 +103,28 @@ const UniversalNodeRenderer = ({
   // Data
   nodes = [], // Array of node objects with {id, x, y, width, height, name, color}
   connections = [], // Array of connection objects 
-  
+
   // Sizing
   containerWidth = 400,
   containerHeight = 200,
   scaleMode = 'fit', // 'fit' | 'fill' | 'fixed'
   minNodeSize = 40, // Minimum node size in pixels
   maxNodeSize = 240, // Maximum node size in pixels (allow wider nodes before downscaling)
-  
+
   // Appearance
   backgroundColor = 'transparent',
   showGrid = false,
   padding = 20,
-  
+
   // Layout
   alignNodesHorizontally = false, // For control panels - align all nodes on same Y axis
   minHorizontalSpacing = 140, // Minimum distance between nodes when aligned horizontally
-  
+
   // Interactivity
   interactive = true,
   showHoverEffects = true,
   showConnectionDots = true,
-  
+
   // Callbacks
   onNodeClick,
   onNodeHover,
@@ -147,11 +147,11 @@ const UniversalNodeRenderer = ({
   const [hoveredConnectionId, setHoveredConnectionId] = useState(null);
   const [stableHoveredConnectionId, setStableHoveredConnectionId] = useState(null);
   const hoverTimeoutRef = useRef(null);
-  
+
   const graphsMap = useGraphStore((state) => state.graphs);
   const activeGraphId = useGraphStore((state) => state.activeGraphId);
   const nodePrototypesMap = useGraphStore((state) => state.nodePrototypes);
-  
+
   // Get actual node instances if not provided
   const instances = useMemo(() => {
     if (!activeGraphId || !graphsMap) return new Map();
@@ -164,7 +164,7 @@ const UniversalNodeRenderer = ({
     const sourceCenterY = sourceNode.y + sourceNode.height / 2;
     const targetCenterX = targetNode.x + targetNode.width / 2;
     const targetCenterY = targetNode.y + targetNode.height / 2;
-    
+
     // Arrow tip length for cutting the line (slightly larger for clearer spacing)
     const arrowTipLength = 24 * scale;
 
@@ -175,12 +175,12 @@ const UniversalNodeRenderer = ({
       const length = Math.sqrt(dx * dx + dy * dy);
       const unitX = dx / length;
       const unitY = dy / length;
-      
+
       const startX = hasSourceArrow ? sourceCenterX + unitX * arrowTipLength : sourceCenterX;
       const startY = hasSourceArrow ? sourceCenterY + unitY * arrowTipLength : sourceCenterY;
       const endX = hasTargetArrow ? targetCenterX - unitX * arrowTipLength : targetCenterX;
       const endY = hasTargetArrow ? targetCenterY - unitY * arrowTipLength : targetCenterY;
-      
+
       return {
         path: `M ${startX} ${startY} L ${endX} ${endY}`,
         sourcePoint: { x: sourceCenterX, y: sourceCenterY },
@@ -191,9 +191,9 @@ const UniversalNodeRenderer = ({
     // Smart routing - choose optimal connection points
     const dx = targetCenterX - sourceCenterX;
     const dy = targetCenterY - sourceCenterY;
-    
+
     let sourcePoint, targetPoint;
-    
+
     if (Math.abs(dx) > Math.abs(dy)) {
       // Horizontal connection
       if (dx > 0) {
@@ -217,7 +217,7 @@ const UniversalNodeRenderer = ({
     // Apply arrow tip cutting to smart routing points
     let finalSourcePoint = sourcePoint;
     let finalTargetPoint = targetPoint;
-    
+
     if (hasSourceArrow || hasTargetArrow) {
       const dx = targetPoint.x - sourcePoint.x;
       const dy = targetPoint.y - sourcePoint.y;
@@ -225,14 +225,14 @@ const UniversalNodeRenderer = ({
       if (length > 0) {
         const unitX = dx / length;
         const unitY = dy / length;
-        
+
         if (hasSourceArrow) {
           finalSourcePoint = {
             x: sourcePoint.x + unitX * arrowTipLength,
             y: sourcePoint.y + unitY * arrowTipLength
           };
         }
-        
+
         if (hasTargetArrow) {
           finalTargetPoint = {
             x: targetPoint.x - unitX * arrowTipLength,
@@ -249,7 +249,7 @@ const UniversalNodeRenderer = ({
       const curveOffset = Math.min(50, Math.abs(dx) * 0.3, Math.abs(dy) * 0.3) * scale;
       const controlX = midX + (Math.abs(dx) > Math.abs(dy) ? 0 : curveOffset);
       const controlY = midY + (Math.abs(dx) > Math.abs(dy) ? curveOffset : 0);
-      
+
       return {
         path: `M ${finalSourcePoint.x} ${finalSourcePoint.y} Q ${controlX} ${controlY} ${finalTargetPoint.x} ${finalTargetPoint.y}`,
         sourcePoint,
@@ -268,7 +268,7 @@ const UniversalNodeRenderer = ({
   const getConnectionName = useCallback((connection, nodePrototypesMap) => {
     // Copy the exact working logic from ConnectionBrowser lines 468-481
     let connectionName = 'Connection';
-    
+
     // First try to get name from edge's definition node (if it has one)
     if (connection.definitionNodeIds && connection.definitionNodeIds.length > 0) {
       const definitionNode = nodePrototypesMap.get(connection.definitionNodeIds[0]);
@@ -282,7 +282,7 @@ const UniversalNodeRenderer = ({
         connectionName = edgePrototype.name || 'Connection';
       }
     }
-    
+
     return connectionName;
   }, []);
 
@@ -302,7 +302,7 @@ const UniversalNodeRenderer = ({
     // If nodes don't have positions, get them from instances
     const nodesWithPositions = nodes.map((node, index) => {
       let x, y, width, height;
-      
+
       if (node.x !== undefined && node.y !== undefined) {
         x = node.x;
         y = node.y;
@@ -332,14 +332,14 @@ const UniversalNodeRenderer = ({
           height = dims.currentHeight;
         }
       }
-      
+
       // If alignNodesHorizontally is true, arrange nodes in a horizontal line
       if (alignNodesHorizontally) {
         const nodeSpacing = 200; // Space between nodes
         x = index * nodeSpacing;
         y = 0; // Same Y for all nodes
       }
-      
+
       return {
         ...node,
         x,
@@ -354,10 +354,10 @@ const UniversalNodeRenderer = ({
     const maxX = Math.max(...nodesWithPositions.map(n => n.x + n.width));
     const minY = Math.min(...nodesWithPositions.map(n => n.y));
     const maxY = Math.max(...nodesWithPositions.map(n => n.y + n.height));
-    
+
     const boundingWidth = maxX - minX;
     const boundingHeight = maxY - minY;
-    
+
     // Calculate scale to fit container with padding
     const availableWidth = containerWidth - (padding * 2);
     const availableHeight = containerHeight - (padding * 2);
@@ -369,7 +369,7 @@ const UniversalNodeRenderer = ({
       const sumWidths = baseWidths.reduce((a, b) => a + b, 0);
       const maxHeight = Math.max(...baseHeights, 1);
       const gaps = Math.max(0, nodesWithPositions.length - 1);
-      
+
       // Calculate proportional spacing based on node count and container size
       // Smaller spacing for more nodes to fit better, but maintain readability
       let spacing;
@@ -382,7 +382,7 @@ const UniversalNodeRenderer = ({
       } else {
         spacing = Math.max(8, minHorizontalSpacing * 0.4); // Very compact for 7+ nodes
       }
-      
+
       const widthForNodes = Math.max(1, availableWidth - gaps * spacing);
       const scaleByWidth = Math.min(1, widthForNodes / Math.max(1, sumWidths));
       const scaleByHeight = Math.min(1, availableHeight / Math.max(1, maxHeight));
@@ -425,12 +425,12 @@ const UniversalNodeRenderer = ({
           hasSourceArrow,
           hasTargetArrow
         );
-        
+
         // Calculate adaptive stroke width based on average node size
         const avgNodeSize = (sourceNode.width + sourceNode.height + targetNode.width + targetNode.height) / 4;
         const baseStrokeMultiplier = Math.max(0.02, Math.min(0.08, avgNodeSize / 1000)); // Scales with node size
         const adaptiveStrokeWidth = Math.max(1.5, avgNodeSize * baseStrokeMultiplier * connectionStrokeScale);
-        
+
         return {
           ...conn,
           path,
@@ -449,7 +449,7 @@ const UniversalNodeRenderer = ({
         transform: { scale: nodeScale, offsetX: 0, offsetY: 0 }
       };
     }
-    
+
     let scale;
     if (scaleMode === 'fit') {
       scale = Math.min(availableWidth / boundingWidth, availableHeight / boundingHeight);
@@ -458,9 +458,9 @@ const UniversalNodeRenderer = ({
     } else {
       scale = 1; // fixed
     }
-    
+
     // Respect provided node sizes; do not clamp to a fixed visual size
-    
+
     // Calculate centering offset
     const scaledWidth = boundingWidth * scale;
     const scaledHeight = boundingHeight * scale;
@@ -481,24 +481,24 @@ const UniversalNodeRenderer = ({
     const scaledConnections = connections.map(conn => {
       const sourceNode = scaledNodes.find(n => n.id === conn.sourceId);
       const targetNode = scaledNodes.find(n => n.id === (conn.destinationId || conn.targetId));
-      
+
       if (!sourceNode || !targetNode) return null;
-      
+
       // Calculate arrow states first
       const arrowsToward = conn.directionality?.arrowsToward || new Set();
       const hasSourceArrow = arrowsToward.has(conn.sourceId);
       const hasTargetArrow = arrowsToward.has(conn.destinationId || conn.targetId);
-      
+
       // Calculate connection path with arrow awareness
       const { path, sourcePoint, targetPoint } = calculateConnectionPath(
-        sourceNode, 
-        targetNode, 
+        sourceNode,
+        targetNode,
         routingStyle,
         scale,
         hasSourceArrow,
         hasTargetArrow
       );
-      
+
       // Calculate adaptive stroke width with context-aware scaling
       const avgNodeSize = (sourceNode.width + sourceNode.height + targetNode.width + targetNode.height) / 4;
 
@@ -515,7 +515,7 @@ const UniversalNodeRenderer = ({
         const baseStrokeMultiplier = Math.max(0.02, Math.min(0.08, avgNodeSize / 1000)); // Scales with node size
         adaptiveStrokeWidth = Math.max(1.5, avgNodeSize * baseStrokeMultiplier * connectionStrokeScale);
       }
-      
+
       return {
         ...conn,
         path,
@@ -545,7 +545,7 @@ const UniversalNodeRenderer = ({
       clearTimeout(hoverTimeoutRef.current);
       hoverTimeoutRef.current = null;
     }
-    
+
     setHoveredNodeId(node.id);
     onNodeHover?.(node, true);
   };
@@ -556,22 +556,22 @@ const UniversalNodeRenderer = ({
   };
 
   const handleConnectionMouseEnter = (connection) => {
-    
+
     // Clear any pending leave timeout
     if (hoverTimeoutRef.current) {
       clearTimeout(hoverTimeoutRef.current);
       hoverTimeoutRef.current = null;
     }
-    
+
     setHoveredConnectionId(connection.id);
     setStableHoveredConnectionId(connection.id);
     onConnectionHover?.(connection, true);
   };
 
   const handleConnectionMouseLeave = (connection) => {
-    
+
     setHoveredConnectionId(null);
-    
+
     // Debounce the stable hover state to prevent flicker
     hoverTimeoutRef.current = setTimeout(() => {
       setStableHoveredConnectionId(null);
@@ -580,10 +580,10 @@ const UniversalNodeRenderer = ({
   };
 
   return (
-    <div 
+    <div
       className={`universal-node-renderer ${className}`}
-      style={{ 
-        width: containerWidth, 
+      style={{
+        width: containerWidth,
         height: containerHeight,
         backgroundColor,
         borderRadius: '8px',
@@ -623,53 +623,53 @@ const UniversalNodeRenderer = ({
         {scaledConnections.map(conn => {
           const isHovered = hoveredConnectionId === conn.id;
           const isStableHovered = stableHoveredConnectionId === conn.id;
-          
+
           // Calculate adjusted connection path for consistent dot/arrow positioning
           const dotRadius = Math.max(6, 10 * transform.scale);
           let adjustedPath = conn.path;
           let adjustedSourcePoint = conn.sourcePoint;
           let adjustedTargetPoint = conn.targetPoint;
-          
+
           // Safety check: ensure source and target points exist
-          if (conn.sourcePoint && conn.targetPoint && 
-              typeof conn.sourcePoint.x === 'number' && typeof conn.sourcePoint.y === 'number' &&
-              typeof conn.targetPoint.x === 'number' && typeof conn.targetPoint.y === 'number') {
-            
+          if (conn.sourcePoint && conn.targetPoint &&
+            typeof conn.sourcePoint.x === 'number' && typeof conn.sourcePoint.y === 'number' &&
+            typeof conn.targetPoint.x === 'number' && typeof conn.targetPoint.y === 'number') {
+
             const dx = conn.targetPoint.x - conn.sourcePoint.x;
             const dy = conn.targetPoint.y - conn.sourcePoint.y;
             const length = Math.sqrt(dx * dx + dy * dy);
-            
+
             if (length > 0) {
               const unitX = dx / length;
               const unitY = dy / length;
-              
+
               // Calculate dot/arrow positions (8% from nodes)
               const dotOffset = 0.08 * length;
-              
+
               // Only shorten the line on sides where there are arrows or when hovering to show dots
               let shouldShortenSource = conn.hasSourceArrow || (isStableHovered && !conn.hasSourceArrow);
               let shouldShortenTarget = conn.hasTargetArrow || (isStableHovered && !conn.hasTargetArrow);
-              
+
               // Calculate adjusted points based on what should be shortened
               adjustedSourcePoint = shouldShortenSource ? {
                 x: conn.sourcePoint.x + unitX * dotOffset,
                 y: conn.sourcePoint.y + unitY * dotOffset
               } : conn.sourcePoint;
-              
+
               adjustedTargetPoint = shouldShortenTarget ? {
                 x: conn.targetPoint.x - unitX * dotOffset,
                 y: conn.targetPoint.y - unitY * dotOffset
               } : conn.targetPoint;
-              
+
               // Create adjusted path - only shorten where needed
               adjustedPath = `M ${adjustedSourcePoint.x} ${adjustedSourcePoint.y} L ${adjustedTargetPoint.x} ${adjustedTargetPoint.y}`;
             }
           }
-          
+
           return (
             <g key={`connection-${conn.id}`}>
               {/* Glow filter disabled - was causing connections to disappear */}
-              
+
               {/* Invisible hover area that matches the visual connection line exactly */}
               {interactive && adjustedPath && (
                 <path
@@ -678,7 +678,7 @@ const UniversalNodeRenderer = ({
                   stroke="transparent"
                   strokeWidth={Math.max(8, conn.strokeWidth * 2)} // Just wide enough for easy clicking
                   strokeLinecap="round"
-                  style={{ 
+                  style={{
                     cursor: 'pointer',
                     pointerEvents: 'stroke'
                   }}
@@ -690,13 +690,13 @@ const UniversalNodeRenderer = ({
                     if (e.relatedTarget?.tagName === 'circle') {
                       return;
                     }
-                    
+
                     handleConnectionMouseLeave(conn);
                   }}
                   onClick={() => onConnectionClick?.(conn)}
                 />
               )}
-              
+
               {/* Main connection path - always use adjusted path for consistent positioning */}
               {adjustedPath && (
                 <path
@@ -706,13 +706,13 @@ const UniversalNodeRenderer = ({
                   strokeWidth={Math.max(4, conn.strokeWidth * 1.5)}
                   strokeLinecap="round"
                   filter={isHovered ? `drop-shadow(0 0 8px ${conn.color || '#000000'})` : 'none'}
-                  style={{ 
+                  style={{
                     pointerEvents: 'none', // Don't interfere with hover area above
                     transition: 'none' // Disable animation temporarily
                   }}
                 />
               )}
-              
+
               {/* Direction arrows - match NodeCanvas style */}
               {conn.hasSourceArrow && (() => {
                 // Use adjusted source point for consistent arrow positioning
@@ -721,12 +721,12 @@ const UniversalNodeRenderer = ({
                 const dx = conn.targetPoint.x - conn.sourcePoint.x;
                 const dy = conn.targetPoint.y - conn.sourcePoint.y;
                 const sourceArrowAngle = Math.atan2(-dy, -dx) * 180 / Math.PI; // Point toward the source node
-                
+
                 // Calculate arrow scale based on stroke width (maintains proportions)
                 const arrowScale = Math.max(0.5, conn.strokeWidth / 6); // Base arrow size is for strokeWidth=6
-                
+
                 return (
-                  <g 
+                  <g
                     transform={`translate(${arrowX}, ${arrowY}) rotate(${sourceArrowAngle + 90})`}
                     style={{ cursor: interactive ? 'pointer' : 'default' }}
                     onClick={interactive ? (e) => { e.stopPropagation(); onToggleArrow?.(conn.id, conn.sourceId); } : undefined}
@@ -741,7 +741,7 @@ const UniversalNodeRenderer = ({
                         strokeLinejoin="round"
                         strokeLinecap="round"
                         opacity="0.3"
-                        style={{ 
+                        style={{
                           filter: `blur(2px) drop-shadow(0 0 6px ${conn.color || '#000000'})`,
                           pointerEvents: 'none'
                         }}
@@ -758,25 +758,25 @@ const UniversalNodeRenderer = ({
                       paintOrder="stroke fill"
                       filter={isHovered ? `drop-shadow(0 0 8px ${conn.color || '#000000'})` : 'none'}
                     />
-                    
+
                     {/* Invisible larger hitbox for easier clicking */}
                     <polygon
                       points={`${-22 * arrowScale},${26 * arrowScale} ${22 * arrowScale},${26 * arrowScale} 0,${-26 * arrowScale}`}
                       fill="transparent"
                       stroke="transparent"
-                      style={{ 
+                      style={{
                         cursor: 'pointer',
                         pointerEvents: 'auto'
                       }}
-                      onClick={(e) => { 
-                        e.stopPropagation(); 
-                        onToggleArrow?.(conn.id, conn.sourceId); 
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onToggleArrow?.(conn.id, conn.sourceId);
                       }}
                     />
                   </g>
                 );
               })()}
-              
+
               {conn.hasTargetArrow && (() => {
                 // Use adjusted target point for consistent arrow positioning
                 const arrowX = adjustedTargetPoint.x;
@@ -784,12 +784,12 @@ const UniversalNodeRenderer = ({
                 const dx = conn.targetPoint.x - conn.sourcePoint.x;
                 const dy = conn.targetPoint.y - conn.sourcePoint.y;
                 const destArrowAngle = Math.atan2(dy, dx) * 180 / Math.PI; // Point toward the target node
-                
+
                 // Calculate arrow scale based on stroke width (maintains proportions)
                 const arrowScale = Math.max(0.5, conn.strokeWidth / 6); // Base arrow size is for strokeWidth=6
-                
+
                 return (
-                  <g 
+                  <g
                     transform={`translate(${arrowX}, ${arrowY}) rotate(${destArrowAngle + 90})`}
                     style={{ cursor: interactive ? 'pointer' : 'default' }}
                     onClick={interactive ? (e) => { e.stopPropagation(); onToggleArrow?.(conn.id, conn.targetId || conn.destinationId); } : undefined}
@@ -804,7 +804,7 @@ const UniversalNodeRenderer = ({
                         strokeLinejoin="round"
                         strokeLinecap="round"
                         opacity="0.3"
-                        style={{ 
+                        style={{
                           filter: `blur(2px) drop-shadow(0 0 6px ${conn.color || '#000000'})`,
                           pointerEvents: 'none'
                         }}
@@ -821,25 +821,25 @@ const UniversalNodeRenderer = ({
                       paintOrder="stroke fill"
                       filter={isHovered ? `drop-shadow(0 0 8px ${conn.color || '#000000'})` : 'none'}
                     />
-                    
+
                     {/* Invisible larger hitbox for easier clicking */}
                     <polygon
                       points={`${-22 * arrowScale},${26 * arrowScale} ${22 * arrowScale},${26 * arrowScale} 0,${-26 * arrowScale}`}
                       fill="transparent"
                       stroke="transparent"
-                      style={{ 
+                      style={{
                         cursor: 'pointer',
                         pointerEvents: 'auto'
                       }}
-                      onClick={(e) => { 
-                        e.stopPropagation(); 
-                        onToggleArrow?.(conn.id, conn.targetId || conn.destinationId); 
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onToggleArrow?.(conn.id, conn.targetId || conn.destinationId);
                       }}
                     />
                   </g>
                 );
               })()}
-              
+
               {/* Connection name text - rendered on top of connection */}
               <ConnectionText
                 connection={conn}
@@ -850,7 +850,7 @@ const UniversalNodeRenderer = ({
                 fontScale={connectionFontScale}
                 renderContext={renderContext}
               />
-              
+
               {/* Render dots within the connection group to access adjusted points */}
               {interactive && showConnectionDots && isStableHovered && (
                 <g key={`dots-${conn.id}`}>
@@ -859,18 +859,18 @@ const UniversalNodeRenderer = ({
                     // Use adjusted source point for consistent dot positioning
                     const dotX = adjustedSourcePoint.x;
                     const dotY = adjustedSourcePoint.y;
-                    
+
                     // Calculate dot scale based on stroke width (maintains proportions)
                     const dotScale = Math.max(0.5, conn.strokeWidth / 6); // Base dot size is for strokeWidth=6
-                    
+
                     return (
                       <g>
                         <defs>
                           <filter id={`dot-glow-${conn.id}-source`} x="-50%" y="-50%" width="200%" height="200%">
-                            <feGaussianBlur stdDeviation={Math.max(2, 3 * dotScale)} result="coloredBlur"/>
-                            <feMerge> 
-                              <feMergeNode in="coloredBlur"/>
-                              <feMergeNode in="SourceGraphic"/>
+                            <feGaussianBlur stdDeviation={Math.max(2, 3 * dotScale)} result="coloredBlur" />
+                            <feMerge>
+                              <feMergeNode in="coloredBlur" />
+                              <feMergeNode in="SourceGraphic" />
                             </feMerge>
                           </filter>
                         </defs>
@@ -881,17 +881,17 @@ const UniversalNodeRenderer = ({
                           fill={conn.color || '#000000'}
                           opacity={1}
                           filter={`url(#dot-glow-${conn.id}-source)`}
-                          style={{ 
+                          style={{
                             cursor: 'pointer',
                             pointerEvents: 'auto'
                           }}
-                          onClick={(e) => { 
+                          onClick={(e) => {
                             e.preventDefault();
-                            e.stopPropagation(); 
-                            onToggleArrow?.(conn.id, conn.sourceId); 
+                            e.stopPropagation();
+                            onToggleArrow?.(conn.id, conn.sourceId);
                           }}
                         />
-                        
+
                         {/* Invisible larger hitbox for easier clicking */}
                         <circle
                           cx={dotX}
@@ -899,37 +899,37 @@ const UniversalNodeRenderer = ({
                           r={Math.max(6, 18 * dotScale)}
                           fill="transparent"
                           stroke="transparent"
-                          style={{ 
+                          style={{
                             cursor: 'pointer',
                             pointerEvents: 'auto'
                           }}
-                          onClick={(e) => { 
+                          onClick={(e) => {
                             e.preventDefault();
-                            e.stopPropagation(); 
-                            onToggleArrow?.(conn.id, conn.sourceId); 
+                            e.stopPropagation();
+                            onToggleArrow?.(conn.id, conn.sourceId);
                           }}
                         />
                       </g>
                     );
                   })()}
-                  
+
                   {/* Only show target dot if there's no target arrow */}
                   {!conn.hasTargetArrow && (() => {
                     // Use adjusted target point for consistent dot positioning
                     const dotX = adjustedTargetPoint.x;
                     const dotY = adjustedTargetPoint.y;
-                    
+
                     // Calculate dot scale based on stroke width (maintains proportions)
                     const dotScale = Math.max(0.5, conn.strokeWidth / 6); // Base dot size is for strokeWidth=6
-                    
+
                     return (
                       <g>
                         <defs>
                           <filter id={`dot-glow-${conn.id}-target`} x="-50%" y="-50%" width="200%" height="200%">
-                            <feGaussianBlur stdDeviation={Math.max(2, 3 * dotScale)} result="coloredBlur"/>
-                            <feMerge> 
-                              <feMergeNode in="coloredBlur"/>
-                              <feMergeNode in="SourceGraphic"/>
+                            <feGaussianBlur stdDeviation={Math.max(2, 3 * dotScale)} result="coloredBlur" />
+                            <feMerge>
+                              <feMergeNode in="coloredBlur" />
+                              <feMergeNode in="SourceGraphic" />
                             </feMerge>
                           </filter>
                         </defs>
@@ -940,17 +940,17 @@ const UniversalNodeRenderer = ({
                           fill={conn.color || '#000000'}
                           opacity={1}
                           filter={`url(#dot-glow-${conn.id}-target)`}
-                          style={{ 
+                          style={{
                             cursor: 'pointer',
                             pointerEvents: 'auto'
                           }}
-                          onClick={(e) => { 
+                          onClick={(e) => {
                             e.preventDefault();
-                            e.stopPropagation(); 
-                            onToggleArrow?.(conn.id, conn.targetId || conn.destinationId); 
+                            e.stopPropagation();
+                            onToggleArrow?.(conn.id, conn.targetId || conn.destinationId);
                           }}
                         />
-                        
+
                         {/* Invisible larger hitbox for easier clicking */}
                         <circle
                           cx={dotX}
@@ -958,14 +958,14 @@ const UniversalNodeRenderer = ({
                           r={Math.max(6, 18 * dotScale)}
                           fill="transparent"
                           stroke="transparent"
-                          style={{ 
+                          style={{
                             cursor: 'pointer',
                             pointerEvents: 'auto'
                           }}
-                          onClick={(e) => { 
+                          onClick={(e) => {
                             e.preventDefault();
-                            e.stopPropagation(); 
-                            onToggleArrow?.(conn.id, conn.targetId || conn.destinationId); 
+                            e.stopPropagation();
+                            onToggleArrow?.(conn.id, conn.targetId || conn.destinationId);
                           }}
                         />
                       </g>
@@ -976,18 +976,18 @@ const UniversalNodeRenderer = ({
             </g>
           );
         })}
-        
+
         {/* Render nodes on top */}
         {scaledNodes.map(node => {
           const isHovered = hoveredNodeId === node.id;
           const hasImage = Boolean(node.imageSrc);
-          
+
           // Calculate text sizing and padding
           let nameString = typeof node.name === 'string' ? node.name : '';
 
           // Different sizing for decomposition view (tiny/compact) vs full view
           let baseFontSize, baseLineHeight, baseVerticalPadding, baseSingleLineSidePadding, baseMultiLineSidePadding, baseAverageCharWidth;
-          
+
           if (renderContext === 'decomposition') {
             // Decomposition view: tighter spacing, optimized for readability at small scales
             baseFontSize = node.isGroup ? 22 : 20;
@@ -1039,7 +1039,7 @@ const UniversalNodeRenderer = ({
             // Calculate available characters more accurately
             const availableWidth = node.width - (2 * (isMultiline ? multiLineSidePadding : singleLineSidePadding));
             const maxChars = Math.max(3, Math.floor(availableWidth / averageCharWidth));
-            
+
             // For single words that are too long, always truncate
             if (words.length === 1 && nameString.length > maxChars) {
               nameString = nameString.substring(0, Math.max(1, maxChars - 1)) + '…';
@@ -1056,9 +1056,9 @@ const UniversalNodeRenderer = ({
               }
             }
           }
-          
+
           return (
-            <g 
+            <g
               key={`node-${node.id}`}
               style={{ cursor: interactive ? 'pointer' : 'default' }}
               onMouseEnter={interactive ? () => handleNodeMouseEnter(node) : undefined}
@@ -1080,7 +1080,7 @@ const UniversalNodeRenderer = ({
                   </clipPath>
                 )}
               </defs>
-              
+
               {/* Image (if present) */}
               {hasImage && (
                 <image
@@ -1094,7 +1094,7 @@ const UniversalNodeRenderer = ({
                   style={{ pointerEvents: 'none' }}
                 />
               )}
-              
+
               {/* Node background - special styling for groups, or stroke for image nodes */}
               <rect
                 className="node-background"
@@ -1119,7 +1119,7 @@ const UniversalNodeRenderer = ({
                   vectorEffect: renderContext === 'decomposition' && hasImage ? 'non-scaling-stroke' : undefined
                 }}
               />
-              
+
               {/* Text using foreignObject like Node.jsx - only show if no image */}
               {!hasImage && (
                 <foreignObject
@@ -1127,7 +1127,7 @@ const UniversalNodeRenderer = ({
                   y={node.y}
                   width={node.width}
                   height={node.height}
-                  style={{ 
+                  style={{
                     pointerEvents: 'none',
                     overflow: 'hidden'
                   }}
@@ -1150,13 +1150,15 @@ const UniversalNodeRenderer = ({
                       style={{
                         fontSize: `${computedFontSize}px`,
                         fontWeight: 'bold',
-                        color: node.isGroup 
-                          ? getTextColor(node.color || '#8B0000')
+                        color: node.isGroup
+                          ? (node.color || '#8B0000') // Use actual group color
                           : getTextColor(node.color || '#800000'),
                         lineHeight: `${computedLineHeight}px`,
                         // Tighter letter spacing for decomposition view to fit more text
                         letterSpacing: renderContext === 'decomposition' ? '-0.3px' : '-0.2px',
-                        whiteSpace: renderContext === 'decomposition' && words.length === 1 ? 'nowrap' : 'normal',
+                        whiteSpace: node.isGroup ? 'nowrap' : (renderContext === 'decomposition' && words.length === 1 ? 'nowrap' : 'normal'),
+                        textOverflow: node.isGroup ? 'ellipsis' : undefined,
+                        overflow: node.isGroup ? 'hidden' : undefined,
                         overflowWrap: 'break-word',
                         wordBreak: 'break-word',
                         textAlign: 'center',
