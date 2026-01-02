@@ -8,16 +8,16 @@ export const cssColorToHex = (color) => {
   if (typeof color === 'string' && color.startsWith('#')) {
     return color;
   }
-  
+
   // Create a temporary element to get the computed color
   if (typeof document !== 'undefined') {
     const tempElement = document.createElement('div');
     tempElement.style.color = color;
     document.body.appendChild(tempElement);
-    
+
     const computedColor = getComputedStyle(tempElement).color;
     document.body.removeChild(tempElement);
-    
+
     // Parse rgb(r, g, b) format
     const rgbMatch = computedColor.match(/rgb\((\d+),\s*(\d+),\s*(\d+)\)/);
     if (rgbMatch) {
@@ -27,7 +27,7 @@ export const cssColorToHex = (color) => {
       return `#${r}${g}${b}`;
     }
   }
-  
+
   // Fallback for common CSS colors
   const colorMap = {
     'maroon': '#800000',
@@ -48,22 +48,22 @@ export const cssColorToHex = (color) => {
     'silver': '#c0c0c0',
     'white': '#EFE8E5'
   };
-  
+
   return colorMap[color.toLowerCase()] || '#800000'; // Default to maroon if unknown
 };
 
 export const hexToHsl = (hex) => {
   // Convert CSS color names to hex first
   hex = cssColorToHex(hex);
-  
+
   // Remove # if present
   hex = hex.replace('#', '');
-  
+
   // Handle 3-digit hex
   if (hex.length === 3) {
     hex = hex[0] + hex[0] + hex[1] + hex[1] + hex[2] + hex[2];
   }
-  
+
   // Convert to RGB
   const r = parseInt(hex.substr(0, 2), 16) / 255;
   const g = parseInt(hex.substr(2, 2), 16) / 255;
@@ -130,14 +130,14 @@ export const hslToHex = (h, s, l) => {
  */
 export const getTextColor = (backgroundColor) => {
   if (!backgroundColor) return '#bdb5b5';
-  
+
   const { h, s, l } = hexToHsl(backgroundColor);
-  
+
   // If background is bright (lightness > 35), use dark text with same hue
   // Threshold 35% provides good contrast for this UI's specific style
   if (l > 35) {
-    // Create a dark color with the same hue but very low lightness for better contrast
-    return hslToHex(h, Math.min(s, 50), 12); // Darker text (12% lightness) with slightly higher saturation
+    // Use "near black" for better legibility on light backgrounds, as requested
+    return '#262626';
   } else {
     // Use light text for dark backgrounds
     return '#bdb5b5';
@@ -149,12 +149,12 @@ export const getTextColor = (backgroundColor) => {
  */
 export const generateProgressiveColor = (baseColor, level) => {
   if (level === 0) return baseColor;
-  
+
   const { h, s, l } = hexToHsl(baseColor);
   const reducedSaturation = Math.max(0, s - 25);
-  
+
   let newLightness = l;
-  
+
   if (level < 0) {
     if (level === -1) {
       newLightness = Math.min(90, l + 40);
@@ -169,7 +169,7 @@ export const generateProgressiveColor = (baseColor, level) => {
     const linearDarkeningFactor = level * 6;
     newLightness = Math.max(10, l - linearDarkeningFactor);
   }
-  
+
   return hslToHex(h, reducedSaturation, newLightness);
 };
 

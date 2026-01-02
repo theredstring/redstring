@@ -19,6 +19,7 @@ import EdgeGlowIndicator from './components/EdgeGlowIndicator.jsx'; // Import th
 import BackToCivilization from './BackToCivilization.jsx'; // Import the BackToCivilization component
 import HoverVisionAid from './components/HoverVisionAid.jsx'; // Import the HoverVisionAid component
 import { getNodeDimensions } from './utils.js';
+import { getTextColor, hexToHsl } from './utils/colorUtils.js';
 import { getPrototypeIdFromItem } from './utils/abstraction.js';
 import { analyzeNodeDistribution, getClusterBoundingBox } from './utils/clusterAnalysis.js';
 import { v4 as uuidv4 } from 'uuid'; // Import UUID generator
@@ -1951,6 +1952,8 @@ function NodeCanvas() {
     panOffsetRef.current = panOffset;
   }, [panOffset]);
 
+  const panRafRef = useRef(null);
+
   // Track if edge panning is actively modifying pan (to avoid conflicts with handleMouseMove RAF)
   const isEdgePanningRef = useRef(false);
 
@@ -3029,6 +3032,8 @@ function NodeCanvas() {
   // Dialog color picker state
   const [dialogColorPickerVisible, setDialogColorPickerVisible] = useState(false);
   const [dialogColorPickerPosition, setDialogColorPickerPosition] = useState({ x: 0, y: 0 });
+  const [colorPickerTarget, setColorPickerTarget] = useState(null); // { type: 'node_prompt' | 'connection_prompt' | 'group', id: string }
+
 
   // Add to group dialog state
   const [addToGroupDialog, setAddToGroupDialog] = useState(null); // { nodeId, groupId, groupName, isNodeGroup, position }
@@ -3525,19 +3530,24 @@ function NodeCanvas() {
     setTempGroupName(selectedGroup.name || 'Group');
   }, [selectedGroup]);
 
-  const handleGroupPanelColor = useCallback(() => {
+  const handleGroupPanelColor = useCallback((e) => {
     if (!activeGraphId || !selectedGroup) return;
-    // Open a simple color picker dialog
-    const newColor = prompt('Enter new group color (hex):', selectedGroup.color || '#8B0000');
-    if (newColor && newColor.trim()) {
-      const colorToUse = newColor.startsWith('#') ? newColor : `#${newColor}`;
-      storeActions.updateGroup(activeGraphId, selectedGroup.id, (draft) => {
-        draft.color = colorToUse;
-      });
-      // Update the selected group state to reflect the change
-      setSelectedGroup(prev => prev ? { ...prev, color: colorToUse } : null);
+
+    // Stop propagation if event exists
+    if (e && e.stopPropagation) e.stopPropagation();
+
+    // Position the color picker near the clicked element if possible
+    if (e && e.currentTarget) {
+      const rect = e.currentTarget.getBoundingClientRect();
+      setDialogColorPickerPosition({ x: rect.right, y: rect.bottom });
+    } else {
+      // Fallback center position or mouse position if we tracked it
+      setDialogColorPickerPosition({ x: window.innerWidth / 2, y: window.innerHeight / 2 });
     }
-  }, [activeGraphId, selectedGroup, storeActions.updateGroup]);
+
+    setColorPickerTarget({ type: 'group', id: selectedGroup.id });
+    setDialogColorPickerVisible(true);
+  }, [activeGraphId, selectedGroup, setDialogColorPickerVisible, setDialogColorPickerPosition, setColorPickerTarget]);
 
   const handleGroupPanelConvertToNodeGroup = useCallback(() => {
     if (!activeGraphId || !selectedGroup) return;
@@ -7475,10 +7485,19 @@ function NodeCanvas() {
 
   const handleDialogColorPickerClose = () => {
     setDialogColorPickerVisible(false);
+    setColorPickerTarget(null);
   };
 
   const handleDialogColorChange = (color) => {
-    if (nodeNamePrompt.visible) {
+    if (colorPickerTarget?.type === 'group') {
+      if (activeGraphId && colorPickerTarget.id) {
+        storeActions.updateGroup(activeGraphId, colorPickerTarget.id, (draft) => {
+          draft.color = color;
+        });
+        // Update local state immediately for responsiveness
+        setSelectedGroup(prev => prev && prev.id === colorPickerTarget.id ? { ...prev, color } : prev);
+      }
+    } else if (nodeNamePrompt.visible) {
       setNodeNamePrompt(prev => ({ ...prev, color }));
     } else if (connectionNamePrompt.visible) {
       setConnectionNamePrompt(prev => ({ ...prev, color }));
@@ -7611,8 +7630,7 @@ function NodeCanvas() {
     };
   }, [isPaused, nodeNamePrompt.visible, connectionNamePrompt.visible, abstractionPrompt.visible, isHeaderEditing, isRightPanelInputFocused, isLeftPanelInputFocused, activeGraphId, viewportSize, canvasSize, zoomLevel]);
 
-  // Add ref for dialog container
-  const dialogContainerRef = useRef(null);
+
 
   // Deprecated - replaced by UnifiedSelector
   const renderConnectionNamePrompt = () => {
@@ -9878,7 +9896,9 @@ function NodeCanvas() {
                                         fontSize: `${fontSize}px`,
                                         fontFamily: 'EmOne, sans-serif',
                                         fontWeight: 'bold',
-                                        color: isNodeGroup ? "#bdb5b5" : strokeColor,
+                                        color: isNodeGroup
+                                          ? getTextColor(nodeGroupColor)
+                                          : (getTextColor(strokeColor) === '#262626' ? '#262626' : strokeColor),
                                         backgroundColor: 'transparent',
                                         border: 'none',
                                         outline: 'none',
@@ -9890,7 +9910,10 @@ function NodeCanvas() {
                                 </foreignObject>
                               ) : (
                                 <text x={labelX + labelWidth / 2} y={labelY + labelHeight * 0.7 - 2} fontFamily="EmOne, sans-serif" fontSize={fontSize}
-                                  fill={isNodeGroup ? "#bdb5b5" : strokeColor} fontWeight="bold" stroke={isNodeGroup ? "none" : "#bdb5b5"} strokeWidth={isNodeGroup ? 0 : strokeWidth} paintOrder="stroke fill" textAnchor="middle">{labelText}</text>
+                                  fill={isNodeGroup
+                                    ? getTextColor(nodeGroupColor)
+                                    : (getTextColor(strokeColor) === '#262626' ? '#262626' : strokeColor)
+                                  } fontWeight="bold" stroke={isNodeGroup ? "none" : "#bdb5b5"} strokeWidth={isNodeGroup ? 0 : strokeWidth} paintOrder="stroke fill" textAnchor="middle">{labelText}</text>
                               )}
                             </g>
                           </g>
@@ -13137,9 +13160,11 @@ function NodeCanvas() {
           onClose={handleDialogColorPickerClose}
           onColorChange={handleDialogColorChange}
           currentColor={
-            nodeNamePrompt.visible
-              ? (nodeNamePrompt.color || NODE_DEFAULT_COLOR)
-              : (connectionNamePrompt.color || NODE_DEFAULT_COLOR)
+            colorPickerTarget?.type === 'group'
+              ? (selectedGroup?.color || 'maroon')
+              : (nodeNamePrompt.visible
+                ? (nodeNamePrompt.color || NODE_DEFAULT_COLOR)
+                : (connectionNamePrompt.color || NODE_DEFAULT_COLOR))
           }
           position={dialogColorPickerPosition}
           direction="down-left"
