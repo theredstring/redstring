@@ -127,6 +127,7 @@ function NodeCanvas() {
   const svgRef = useRef(null);
   const wrapperRef = useRef(null);
   const [orbitData, setOrbitData] = useState({ inner: [], outer: [], all: [] });
+  const wasDraggingRef = useRef(false); // Track if a drag just occurred to prevent click events
 
   // <<< OPTIMIZED: Use direct getState() calls for stable action methods >>>
   // Zustand actions are stable - we can use direct references instead of subscriptions
@@ -6900,6 +6901,12 @@ function NodeCanvas() {
 
       setDraggingNodeInfo(null);
 
+      // Track that we just finished dragging a group/node to prevent immediate clicks
+      wasDraggingRef.current = true;
+      setTimeout(() => {
+        wasDraggingRef.current = false;
+      }, 50);
+
       // Reset edge panning flag when drag ends
       isEdgePanningRef.current = false;
 
@@ -9747,8 +9754,8 @@ function NodeCanvas() {
                               onClick={(e) => {
                                 e.stopPropagation();
 
-                                // Prevent click if we were dragging (mouse moved significantly)
-                                if (mouseMoved.current) {
+                                // Prevent click if we were dragging (checked via ref set in mouseUp)
+                                if (wasDraggingRef.current || mouseMoved.current) {
                                   return;
                                 }
 
