@@ -129,6 +129,16 @@ function NodeCanvas() {
   const [orbitData, setOrbitData] = useState({ inner: [], outer: [], all: [] });
   const wasDraggingRef = useRef(false); // Track if a drag just occurred to prevent click events
 
+  // Helper to measure text width accurately for the group labels
+  // We use a cached canvas context to avoid creating it repeatedly
+  const getTextWidth = (text, font) => {
+    const canvas = getTextWidth.canvas || (getTextWidth.canvas = document.createElement("canvas"));
+    const context = canvas.getContext("2d");
+    context.font = font;
+    const metrics = context.measureText(text);
+    return metrics.width;
+  };
+
   // <<< OPTIMIZED: Use direct getState() calls for stable action methods >>>
   // Zustand actions are stable - we can use direct references instead of subscriptions
   // Use a defensive approach to avoid initialization errors
@@ -9610,12 +9620,11 @@ function NodeCanvas() {
                         const labelPaddingHorizontal = GROUP_SPACING.titlePaddingHorizontal;
                         const strokeWidth = GROUP_SPACING.strokeWidth;
 
-                        // Calculate dynamic label size - use editing text if editing, otherwise group name
+                        // Calculate dynamic label size using accurate text measurement
                         const currentText = editingGroupId === group.id ? tempGroupName : (group.name || 'Group');
-                        const estimatedTextWidth = currentText.length * (fontSize * 0.6); // More accurate char width estimate
+                        const measuredTextWidth = getTextWidth(currentText, `bold ${fontSize}px "EmOne", sans-serif`);
                         // Scale label width strictly by text content, not group width
-                        // Use a generous fixed max width (1000) to prevent extremely long labels, but don't couple to group size
-                        const labelWidth = Math.min(1000, Math.max(100, estimatedTextWidth + (labelPaddingHorizontal * 2) + (strokeWidth * 2)));
+                        const labelWidth = Math.min(1000, Math.max(100, measuredTextWidth + (labelPaddingHorizontal * 2) + (strokeWidth * 2)));
                         const labelHeight = Math.max(80, fontSize * 1.4 + (labelPaddingVertical * 2)); // Balanced vertical padding
                         const labelX = rectX + (rectW - labelWidth) / 2; // Center horizontally on group
                         const labelY = rectY - labelHeight - GROUP_SPACING.titleToCanvasGap; // Space above group for nametag effect
