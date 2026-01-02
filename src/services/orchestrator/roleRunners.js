@@ -196,13 +196,13 @@ export async function runExecutorOnce() {
     if (!allow.has(task.toolName)) throw new Error(`Tool not allowed for executor: ${task.toolName}`);
     // #region agent log
     if (task.toolName === 'create_group') {
-      fetch('http://127.0.0.1:7242/ingest/52d0fe28-158e-49a4-b331-f013fcb14181',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'roleRunners.js:pre-validation',message:'About to validate create_group',data:{toolName:task.toolName,argsKeys:Object.keys(task.args||{})},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H3'})}).catch(()=>{});
+      fetch('http://127.0.0.1:7242/ingest/52d0fe28-158e-49a4-b331-f013fcb14181', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ location: 'roleRunners.js:pre-validation', message: 'About to validate create_group', data: { toolName: task.toolName, argsKeys: Object.keys(task.args || {}) }, timestamp: Date.now(), sessionId: 'debug-session', hypothesisId: 'H3' }) }).catch(() => { });
     }
     // #endregion
     const validation = toolValidator.validateToolArgs(task.toolName, task.args || {});
     // #region agent log
     if (task.toolName === 'create_group') {
-      fetch('http://127.0.0.1:7242/ingest/52d0fe28-158e-49a4-b331-f013fcb14181',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'roleRunners.js:post-validation',message:'Validation result for create_group',data:{valid:validation.valid,error:validation.error,sanitizedKeys:validation.sanitized?Object.keys(validation.sanitized):null},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H3'})}).catch(()=>{});
+      fetch('http://127.0.0.1:7242/ingest/52d0fe28-158e-49a4-b331-f013fcb14181', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ location: 'roleRunners.js:post-validation', message: 'Validation result for create_group', data: { valid: validation.valid, error: validation.error, sanitizedKeys: validation.sanitized ? Object.keys(validation.sanitized) : null }, timestamp: Date.now(), sessionId: 'debug-session', hypothesisId: 'H3' }) }).catch(() => { });
     }
     // #endregion
     if (!validation.valid) {
@@ -214,11 +214,11 @@ export async function runExecutorOnce() {
     if (task.toolName === 'create_node') {
       const store = getBridgeStore();
       const { name, graph_id, description, color, x, y } = validation.sanitized;
-      
+
       // Check if prototype already exists
       const match = findExistingPrototype(name, store);
       let prototypeId;
-      
+
       if (match) {
         prototypeId = match.proto.id;
         console.log(`[Executor] create_node: Reusing prototype "${name}" (${prototypeId})`);
@@ -237,7 +237,7 @@ export async function runExecutorOnce() {
         });
         console.log(`[Executor] create_node: Created prototype "${name}" (${prototypeId})`);
       }
-      
+
       const instanceId = `inst-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
       ops.push({
         type: 'addNodeInstance',
@@ -665,7 +665,7 @@ export async function runExecutorOnce() {
                     prototypeData: {
                       id: defProtoId,
                       name: defNodeName,
-                      description: defNode.description || `Defines the "${edge.relation || edge.type || 'connection'}" relationship`,
+                      description: defNode.description || `Connection type: ${defNodeName}`,
                       color: defNode.color || generateConnectionColor(defNodeName),
                       typeNodeId: null,
                       definitionGraphIds: []
@@ -708,7 +708,7 @@ export async function runExecutorOnce() {
       const isExpandMode = providedGraphId && !name;
       const graphId = providedGraphId || `graph-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
       // #region agent log
-      fetch('http://127.0.0.1:7242/ingest/52d0fe28-158e-49a4-b331-f013fcb14181',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'roleRunners.js:create_populated_graph',message:'Mode determined',data:{isExpandMode,hasName:!!name,hasGraphId:!!providedGraphId,graphId},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'fix-verify',runId:'post-fix'})}).catch(()=>{});
+      fetch('http://127.0.0.1:7242/ingest/52d0fe28-158e-49a4-b331-f013fcb14181', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ location: 'roleRunners.js:create_populated_graph', message: 'Mode determined', data: { isExpandMode, hasName: !!name, hasGraphId: !!providedGraphId, graphId }, timestamp: Date.now(), sessionId: 'debug-session', hypothesisId: 'fix-verify', runId: 'post-fix' }) }).catch(() => { });
       // #endregion
 
       // 1. Create the graph (only if not in expand mode)
@@ -777,7 +777,7 @@ export async function runExecutorOnce() {
         const memberInstanceIds = memberNames
           .map(name => instanceIdByName.get(name))
           .filter(id => id); // Filter out undefined (names not found)
-        
+
         if (memberInstanceIds.length > 0) {
           groupsForLayout.push({
             id: group.name || `group-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
@@ -922,7 +922,7 @@ export async function runExecutorOnce() {
                     prototypeData: {
                       id: defProtoId,
                       name: defNodeName,
-                      description: defNode.description || `Defines the "${edge.relation || edge.type || 'connection'}" relationship`,
+                      description: defNode.description || `Connection type: ${defNodeName}`,
                       color: defNode.color || generateConnectionColor(defNodeName),
                       typeNodeId: null,
                       definitionGraphIds: []
@@ -957,12 +957,12 @@ export async function runExecutorOnce() {
       groups.forEach(group => {
         const groupId = `group-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
         const memberNames = Array.isArray(group.memberNames) ? group.memberNames : [];
-        
+
         // Resolve member names to instance IDs
         const memberInstanceIds = memberNames
           .map(name => instanceIdByName.get(name))
           .filter(id => id); // Filter out undefined (names not found)
-        
+
         ops.push({
           type: 'createGroup',
           graphId,
@@ -1171,7 +1171,7 @@ export async function runExecutorOnce() {
                     prototypeData: {
                       id: defProtoId,
                       name: defNodeName,
-                      description: defNode.description || `Defines the "${edge.relation || edge.type || 'connection'}" relationship`,
+                      description: defNode.description || `Connection type: ${defNodeName}`,
                       color: defNode.color || generateConnectionColor(defNodeName),
                       typeNodeId: null,
                       definitionGraphIds: []
@@ -1233,7 +1233,7 @@ export async function runExecutorOnce() {
             prototypeData: {
               id: protoId,
               name: label,
-              description: edge.description || `Defines the "${label}" relationship`,
+              description: edge.description || `Connection type: ${label}`,
               color: edge.definitionNode?.color || '#000000',
               typeNodeId: null,
               definitionGraphIds: []
@@ -1497,7 +1497,7 @@ export async function runExecutorOnce() {
       }
 
       const edgeId = `edge-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-      
+
       // Convert arrowsToward array to Set if needed
       let arrowsTowardSet = new Set();
       if (Array.isArray(directionality.arrowsToward)) {
@@ -1513,7 +1513,7 @@ export async function runExecutorOnce() {
       if (definitionNode && definitionNode.name) {
         const defNodeName = definitionNode.name;
         const store = getBridgeStore();
-        
+
         // Search for existing prototype with same name (deduplication)
         const existingProto = Array.isArray(store.nodePrototypes)
           ? store.nodePrototypes.find(p => p.name?.toLowerCase() === defNodeName.toLowerCase())
@@ -1532,7 +1532,7 @@ export async function runExecutorOnce() {
             prototypeData: {
               id: defProtoId,
               name: defNodeName,
-              description: definitionNode.description || `Defines the "${name || 'connection'}" relationship`,
+              description: definitionNode.description || `Connection type: ${defNodeName}`,
               color: definitionNode.color || '#708090',
               typeNodeId: 'base-connection-prototype',
               definitionGraphIds: []
@@ -1545,7 +1545,7 @@ export async function runExecutorOnce() {
       }
 
       // #region agent log
-      fetch('http://127.0.0.1:7242/ingest/52d0fe28-158e-49a4-b331-f013fcb14181',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'roleRunners.js:create_edge',message:'Executor creating edge op',data:{edgeId,sourceInstanceId,targetInstanceId,graphId,name,typeNodeId},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'A-C'})}).catch(()=>{});
+      fetch('http://127.0.0.1:7242/ingest/52d0fe28-158e-49a4-b331-f013fcb14181', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ location: 'roleRunners.js:create_edge', message: 'Executor creating edge op', data: { edgeId, sourceInstanceId, targetInstanceId, graphId, name, typeNodeId }, timestamp: Date.now(), sessionId: 'debug-session', hypothesisId: 'A-C' }) }).catch(() => { });
       // #endregion
       ops.push({
         type: 'addEdge',
@@ -1895,28 +1895,28 @@ export async function runAgentOnce() {
 
     // Import AgentExecutor dynamically to avoid circular dependencies
     const { default: AgentExecutor } = await import('../../services/agent/AgentExecutor.js');
-    
+
     // Get agent graph from store
     const bridgeStore = getBridgeStore();
     const agentGraph = bridgeStore.graphs?.get(agentGraphId);
-    
+
     if (!agentGraph) {
       throw new Error(`Agent graph ${agentGraphId} not found`);
     }
 
     // Create executor
     const executor = new AgentExecutor(agentGraph, apiKey, apiConfig);
-    
+
     // Execute
     const output = await executor.execute(input, nodeId);
-    
+
     // Store result in working memory or return via queue
     queueManager.enqueue('agentResults', {
       workingMemoryId,
       output,
       trace: executor.getTrace()
     });
-    
+
     queueManager.ack('agentQueue', item.leaseId);
   } catch (e) {
     console.error('[Agent Executor] Error:', e);

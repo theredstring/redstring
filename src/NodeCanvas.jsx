@@ -2084,7 +2084,7 @@ function NodeCanvas() {
     // Group drag via label
     if (draggingInfo.groupId && Array.isArray(draggingInfo.memberOffsets)) {
       const positionUpdates = draggingInfo.memberOffsets.map(({ id, dx, dy }) => {
-        const node = nodes.find(n => n.id === id);
+        const node = nodeById.get(id);
         const xRaw = mouseCanvasX - dx;
         const yRaw = mouseCanvasY - dy;
         if (!node) return { instanceId: id, x: xRaw, y: yRaw };
@@ -2119,7 +2119,7 @@ function NodeCanvas() {
 
       // Apply smooth grid snapping to primary node
       if (gridMode !== 'off') {
-        const primaryNode = nodes.find(n => n.id === primaryInstanceId);
+        const primaryNode = nodeById.get(primaryInstanceId);
         if (primaryNode) {
           const dims = getNodeDimensions(primaryNode, false, null);
           const snapped = snapToGridAnimated(mouseCanvasX, mouseCanvasY, dims.currentWidth, dims.currentHeight, { x: primaryNode.x, y: primaryNode.y });
@@ -2146,7 +2146,7 @@ function NodeCanvas() {
 
     // Single node drag
     const { instanceId, offset } = draggingInfo;
-    const node = nodes.find(n => n.id === instanceId);
+    const node = nodeById.get(instanceId);
     if (node) {
       const dims = getNodeDimensions(node, false, null);
       let newX, newY;
@@ -2164,7 +2164,8 @@ function NodeCanvas() {
         draft.y = newY;
       }, { isDragging: true, phase: 'move' });
     }
-  }, [activeGraphId, nodes, gridMode, gridSize, storeActions]);
+  }, [activeGraphId, nodeById, gridMode, gridSize, storeActions]);
+
 
   // Edge Panning Effect
   useEffect(() => {
@@ -10627,7 +10628,7 @@ function NodeCanvas() {
                                     textAnchor="middle"
                                     dominantBaseline="middle"
                                     transform={`rotate(${adjustedAngle}, ${midX}, ${midY})`}
-                                    stroke={edgeColor}
+                                    stroke={hexToHsl(edgeColor).l > 42 ? getTextColor(edgeColor) : edgeColor}
                                     strokeWidth="6"
                                     strokeLinecap="round"
                                     strokeLinejoin="round"
@@ -11758,7 +11759,7 @@ function NodeCanvas() {
                                     textAnchor="middle"
                                     dominantBaseline="middle"
                                     transform={`rotate(${adjustedAngle}, ${midX}, ${midY})`}
-                                    stroke={edgeColor}
+                                    stroke={hexToHsl(edgeColor).l > 42 ? getTextColor(edgeColor) : edgeColor}
                                     strokeWidth="6"
                                     strokeLinecap="round"
                                     strokeLinejoin="round"

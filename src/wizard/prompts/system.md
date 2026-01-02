@@ -139,7 +139,7 @@ Create a NEW graph with nodes, edges, AND groups in one operation.
   "definitionNode": {
     "name": "Loves",
     "color": "#E74C3C",
-    "description": "Romantic love between characters"
+    "description": "Romantic love between characters (Avoid phrasing like 'Defines the Loves relationship')"
   }
 }
 ```
@@ -196,9 +196,11 @@ For every user request, follow this sequence:
 2. **Completeness**: When creating a web about a topic, include ALL relevant components AND natural groupings.
    - Solar system? All 8 planets + groups for inner/outer planets.
    - A super hero team? All main team members + groups by role/allegiance.
-   - Romeo and Juliet? Characters + groups for House Montague/Capulet.
    - **Groups are essential** - if there are factions, houses, teams, categories, departments, or any natural way to organize Things, include groups.
    - A Thing's descriptions should give the minimum complete context of what it is in the graph, same for Things defining connections.
+   - **Connection Descriptions**: For `definitionNode` descriptions, describe the *nature* or *vibe* of the relationship in a human way. 
+     - ❌ **AVOID**: "Defines the 'Member Of' relationship"
+     - ✅ **USE**: "Indicates formal affiliation with an organization" or "Represents the bond between a member and their group"
    - Try to make nodes and connections as reusable as possible and reuse all the ones you can find that are relevant before creating new ones.
 
 3. **Semantic relevance**: Every Thing should help define the web's concept.
