@@ -9613,8 +9613,9 @@ function NodeCanvas() {
                         // Calculate dynamic label size - use editing text if editing, otherwise group name
                         const currentText = editingGroupId === group.id ? tempGroupName : (group.name || 'Group');
                         const estimatedTextWidth = currentText.length * (fontSize * 0.6); // More accurate char width estimate
-                        const maxLabelWidth = rectW * 0.75; // Cap at 75% of group width
-                        const labelWidth = Math.min(maxLabelWidth, Math.max(180, estimatedTextWidth + (labelPaddingHorizontal * 2) + (strokeWidth * 2)));
+                        // Scale label width strictly by text content, not group width
+                        // Use a generous fixed max width (1000) to prevent extremely long labels, but don't couple to group size
+                        const labelWidth = Math.min(1000, Math.max(100, estimatedTextWidth + (labelPaddingHorizontal * 2) + (strokeWidth * 2)));
                         const labelHeight = Math.max(80, fontSize * 1.4 + (labelPaddingVertical * 2)); // Balanced vertical padding
                         const labelX = rectX + (rectW - labelWidth) / 2; // Center horizontally on group
                         const labelY = rectY - labelHeight - GROUP_SPACING.titleToCanvasGap; // Space above group for nametag effect
