@@ -4957,6 +4957,23 @@ function NodeCanvas() {
     setHoveredEdgeInfo(null);
   }, []);
 
+  const triggerDragZoomOut = useCallback((clientX, clientY) => {
+    // Movement Zoom-Out: Trigger after a tiny delay to ensure state is settled
+    // This prevents zoom reset during the movement threshold delay while still triggering reliably
+    const currentZoom = zoomLevel;
+    if (currentZoom > DRAG_ZOOM_MIN && !zoomOutInitiatedRef.current) {
+      zoomOutInitiatedRef.current = true;
+      setPreDragZoomLevel(currentZoom);
+      // Store original pan offset for proper restore (avoids anchor drift)
+      preDragPanOffsetRef.current = { ...panOffset };
+      const targetZoom = Math.max(DRAG_ZOOM_MIN, currentZoom * DRAG_ZOOM_OUT_FACTOR);
+
+      // Start animation immediately (synchronously) to avoid 1-frame delay/glitch
+      // We pass the current panOffset explicitly to ensure the anchor calculation matches the current view
+      animateZoomToTarget(targetZoom, { clientX, clientY }, currentZoom, { ...panOffset });
+    }
+  }, [zoomLevel, panOffset, animateZoomToTarget]);
+
   const startDragForNode = useCallback((nodeData, clientX, clientY) => {
     if (!nodeData || !activeGraphId) return false;
     const instanceId = nodeData.id;
@@ -4980,20 +4997,14 @@ function NodeCanvas() {
         primaryId: instanceId
       });
 
-      // Movement Zoom-Out: Trigger after a tiny delay to ensure state is settled
-      // This prevents zoom reset during the movement threshold delay while still triggering reliably
-      const currentZoom = zoomLevel;
-      if (currentZoom > DRAG_ZOOM_MIN && !zoomOutInitiatedRef.current) {
-        zoomOutInitiatedRef.current = true;
-        setPreDragZoomLevel(currentZoom);
-        // Store original pan offset for proper restore (avoids anchor drift)
-        preDragPanOffsetRef.current = { ...panOffset };
-        const targetZoom = Math.max(DRAG_ZOOM_MIN, currentZoom * DRAG_ZOOM_OUT_FACTOR);
+      setDraggingNodeInfo({
+        initialMouse: { x: clientX, y: clientY },
+        initialPrimaryPos,
+        relativeOffsets: initialPositions,
+        primaryId: instanceId
+      });
 
-        // Start animation immediately (synchronously) to avoid 1-frame delay/glitch
-        // We pass the current panOffset explicitly to ensure the anchor calculation matches the current view
-        animateZoomToTarget(targetZoom, { clientX, clientY }, currentZoom, { ...panOffset });
-      }
+      triggerDragZoomOut(clientX, clientY);
 
       selectedInstanceIds.forEach(id => {
         storeActions.updateNodeInstance(activeGraphId, id, draft => { draft.scale = 1.15; }, { isDragging: true, phase: 'start' });
@@ -5008,18 +5019,9 @@ function NodeCanvas() {
     const offset = { x: mouseCanvasX - nodeData.x, y: mouseCanvasY - nodeData.y };
     setDraggingNodeInfo({ instanceId, offset });
 
-    // Movement Zoom-Out: Trigger after a tiny delay to ensure state is settled
-    // This prevents zoom reset during the movement threshold delay while still triggering reliably
-    const currentZoom = zoomLevel;
-    if (currentZoom > DRAG_ZOOM_MIN && !zoomOutInitiatedRef.current) {
-      zoomOutInitiatedRef.current = true;
-      setPreDragZoomLevel(currentZoom);
-      // Store original pan offset for proper restore (avoids anchor drift)
-      preDragPanOffsetRef.current = { ...panOffset };
-      const targetZoom = Math.max(DRAG_ZOOM_MIN, currentZoom * DRAG_ZOOM_OUT_FACTOR);
-      // Start animation immediately (synchronously)
-      animateZoomToTarget(targetZoom, { clientX, clientY }, currentZoom, { ...panOffset });
-    }
+
+
+    triggerDragZoomOut(clientX, clientY);
 
     storeActions.updateNodeInstance(activeGraphId, instanceId, draft => { draft.scale = 1.15; }, { isDragging: true, phase: 'start' });
     return true;
@@ -9789,6 +9791,7 @@ function NodeCanvas() {
                                   const mouseCanvasY = (downY - rect.top - panOffset.y) / zoomLevel + canvasSize.offsetY;
                                   const offsets = members.map(m => ({ id: m.id, dx: mouseCanvasX - m.x, dy: mouseCanvasY - m.y }));
                                   setDraggingNodeInfo({ groupId: group.id, memberOffsets: offsets });
+                                  triggerDragZoomOut(downX, downY);
                                 }, LONG_PRESS_DURATION);
                               }}
                               onMouseUp={() => { clearTimeout(groupLongPressTimeout.current); }}
