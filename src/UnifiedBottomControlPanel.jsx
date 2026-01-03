@@ -405,8 +405,8 @@ const UnifiedBottomControlPanel = ({
       ...baseNode,
       x: 0,
       y: 0,
-      width: Math.max(dimensions.currentWidth + 24, 180),
-      height: Math.max(dimensions.currentHeight + 20, 80),
+      width: Math.max(dimensions.currentWidth, 160),
+      height: Math.max(dimensions.currentHeight, 60),
       isGroup: true
     };
   }, [isGroup, selectedGroup]);
@@ -422,8 +422,8 @@ const UnifiedBottomControlPanel = ({
 
     return {
       containerWidth: Math.max(200, groupRendererNode.width + 48),
-      containerHeight: Math.max(90, groupRendererNode.height + 24),
-      padding: 12
+      containerHeight: Math.max(80, groupRendererNode.height + 20),
+      padding: 8
     };
   }, [groupRendererNode]);
 

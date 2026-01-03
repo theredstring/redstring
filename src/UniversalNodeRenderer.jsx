@@ -1148,7 +1148,7 @@ const UniversalNodeRenderer = ({
                   >
                     <span
                       style={{
-                        fontSize: `${computedFontSize}px`,
+                        fontSize: node.isGroup ? `${computedFontSize * 0.9}px` : `${computedFontSize}px`,
                         fontWeight: 'bold',
                         color: node.isGroup
                           ? (node.color || '#8B0000') // Use actual group color
@@ -1156,7 +1156,7 @@ const UniversalNodeRenderer = ({
                         lineHeight: `${computedLineHeight}px`,
                         // Tighter letter spacing for decomposition view to fit more text
                         letterSpacing: renderContext === 'decomposition' ? '-0.3px' : '-0.2px',
-                        whiteSpace: node.isGroup ? 'nowrap' : (renderContext === 'decomposition' && words.length === 1 ? 'nowrap' : 'normal'),
+                        whiteSpace: node.isGroup ? 'normal' : (renderContext === 'decomposition' && words.length === 1 ? 'nowrap' : 'normal'),
                         textOverflow: node.isGroup ? 'ellipsis' : undefined,
                         overflow: node.isGroup ? 'hidden' : undefined,
                         overflowWrap: 'break-word',
@@ -1171,7 +1171,9 @@ const UniversalNodeRenderer = ({
                         textRendering: renderContext === 'decomposition' ? 'optimizeLegibility' : 'auto',
                       }}
                     >
-                      {nameString}
+                      {node.isGroup && nameString.length > 120
+                        ? nameString.substring(0, 120) + '...'
+                        : nameString}
                     </span>
                   </div>
                 </foreignObject>
