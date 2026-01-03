@@ -6621,6 +6621,14 @@ function NodeCanvas() {
       potentialClickNodeRef.current = null;
     }
 
+    // Explicitly close Connection Panel on any canvas interaction (click, pan start, etc.)
+    // This ensures that even if you drag slightly (panning), the panel closes.
+    if ((connectionControlPanelVisible || connectionControlPanelShouldShow) && !isPaused) {
+      setConnectionControlPanelVisible(false);
+      storeActions.setSelectedEdgeId(null);
+      storeActions.clearSelectedEdgeIds();
+    }
+
     isMouseDown.current = true;
     lastMousePosRef.current = { x: e.clientX, y: e.clientY };
     mouseDownPosition.current = { x: e.clientX, y: e.clientY };
@@ -6955,6 +6963,17 @@ function NodeCanvas() {
     handleMouseUp(e);
   };
   const handleCanvasClick = (e) => {
+    // Priority: Check related control panels FIRST before any other checks (like ignoreCanvasClick)
+    // This ensures clicking off always dismisses the panel even if a slight drag occurred
+    if (connectionControlPanelShouldShow || connectionControlPanelVisible || selectedEdgeId || selectedEdgeIds.size > 0) {
+      if (connectionControlPanelShouldShow || connectionControlPanelVisible) {
+        setConnectionControlPanelVisible(false);
+      }
+      storeActions.setSelectedEdgeId(null);
+      storeActions.clearSelectedEdgeIds();
+      return;
+    }
+
     if (wasDrawingConnection.current) {
       wasDrawingConnection.current = false;
       return;
@@ -6992,6 +7011,9 @@ function NodeCanvas() {
       }
       return;
     }
+
+    // Explicitly close Connection Panel if visible
+    // (Moved to top of function - removed from here)
 
     // DEFENSIVE: If carousel is visible but pie menu isn't, force close carousel
     if (abstractionCarouselVisible && !selectedNodeIdForPieMenu) {

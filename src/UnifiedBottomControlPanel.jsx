@@ -549,8 +549,8 @@ const UnifiedBottomControlPanel = ({
               });
 
               // Dynamic sizing based on actual content needs with reasonable maximum
-              const baseSpacing = mobileState.isMobilePortrait ? 220 : 260; // Base width for padding and connection line
-              const nodeSpacing = nodes.length * (mobileState.isMobilePortrait ? 90 : 110); // Per-node spacing
+              const baseSpacing = mobileState.isMobilePortrait ? 180 : 200; // Reduced base width
+              const nodeSpacing = nodes.length * (mobileState.isMobilePortrait ? 80 : 90); // Reduced per-node spacing
 
               const connectionLabelFont = mobileState.isMobilePortrait
                 ? '14px "EmOne", sans-serif'

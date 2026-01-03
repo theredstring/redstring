@@ -54,7 +54,11 @@ const ConnectionText = ({
           textAnchor="middle"
           dominantBaseline="middle"
           transform={`rotate(${adjustedAngle}, ${midX}, ${midY})`}
-          stroke={connection.color || '#000000'}
+          stroke={(() => {
+            const raw = connection.color || '#000000';
+            const suggested = getTextColor(raw);
+            return suggested === '#bdb5b5' ? raw : suggested;
+          })()}
           strokeWidth={strokeWidth * 2}
           strokeLinecap="round"
           strokeLinejoin="round"
@@ -77,7 +81,11 @@ const ConnectionText = ({
         textAnchor="middle"
         dominantBaseline="middle"
         transform={`rotate(${adjustedAngle}, ${midX}, ${midY})`}
-        stroke={connection.color || '#000000'}
+        stroke={(() => {
+          const raw = connection.color || '#000000';
+          const suggested = getTextColor(raw);
+          return suggested === '#bdb5b5' ? raw : suggested;
+        })()}
         strokeWidth={strokeWidth}
         strokeLinecap="round"
         strokeLinejoin="round"
