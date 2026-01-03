@@ -1,7 +1,7 @@
 import React, { useMemo, useState, useCallback, useRef } from 'react';
 import useGraphStore from './store/graphStore.jsx';
 import { getNodeDimensions } from './utils.js';
-import { getTextColor } from './utils/colorUtils.js';
+import { getTextColor, hexToHsl } from './utils/colorUtils.js';
 
 /**
  * Connection Text Component
@@ -999,8 +999,8 @@ const UniversalNodeRenderer = ({
           } else {
             // Full canvas view: use Node.jsx's proportions
             baseFontSize = node.isGroup ? 24 : 20;
-            baseLineHeight = node.isGroup ? 32 : 32; // Match Node.jsx line height
-            baseVerticalPadding = node.isGroup ? 18 : 20; // Match Node.jsx vertical padding
+            baseLineHeight = node.isGroup ? 28 : 32; // Reduced line height for groups (was 32)
+            baseVerticalPadding = node.isGroup ? 10 : 20; // Drastically reduced vertical padding for groups (was 18)
             baseSingleLineSidePadding = node.isGroup ? 30 : 22; // Match Node.jsx side padding
             baseMultiLineSidePadding = node.isGroup ? 36 : 30; // Match Node.jsx multiline padding
             baseAverageCharWidth = node.isGroup ? 14 : 12; // Match Node.jsx char width
@@ -1102,14 +1102,14 @@ const UniversalNodeRenderer = ({
                 y={node.y}
                 width={node.width}
                 height={node.height}
-                rx={cornerRadius}
-                ry={cornerRadius}
+                rx={node.isGroup ? 20 * transform.scale : cornerRadius}
+                ry={node.isGroup ? 20 * transform.scale : cornerRadius}
                 fill={hasImage ? 'none' : (node.isGroup ? '#bdb5b5' : (node.color || '#800000'))}
                 stroke={hasImage ? (node.color || '#800000') : (node.isGroup ? (node.color || '#8B0000') : 'none')}
                 strokeWidth={
                   hasImage
                     ? (renderContext === 'decomposition' ? Math.max(0.8, 1.5 * transform.scale) : Math.max(1, 2 * transform.scale))
-                    : (node.isGroup ? Math.max(3, 6 * transform.scale) : 0)
+                    : (node.isGroup ? 6 * transform.scale : 0)
                 }
                 style={{
                   cursor: interactive ? 'pointer' : 'default',
@@ -1148,10 +1148,10 @@ const UniversalNodeRenderer = ({
                   >
                     <span
                       style={{
-                        fontSize: node.isGroup ? `${computedFontSize * 0.9}px` : `${computedFontSize}px`,
+                        fontSize: node.isGroup ? `${Math.min(24, Math.max(14, 18 * transform.scale))}px` : `${computedFontSize}px`,
                         fontWeight: 'bold',
                         color: node.isGroup
-                          ? (node.color || '#8B0000') // Use actual group color
+                          ? (hexToHsl(node.color || '#8B0000').l > 50 ? getTextColor(node.color || '#8B0000') : (node.color || '#8B0000'))
                           : getTextColor(node.color || '#800000'),
                         lineHeight: `${computedLineHeight}px`,
                         // Tighter letter spacing for decomposition view to fit more text
@@ -1169,6 +1169,8 @@ const UniversalNodeRenderer = ({
                         hyphens: renderContext === 'decomposition' ? 'none' : 'auto', // Disable hyphenation in tiny view
                         // Better text rendering for small sizes
                         textRendering: renderContext === 'decomposition' ? 'optimizeLegibility' : 'auto',
+                        WebkitTextStroke: node.isGroup ? `${Math.max(1.5, 3 * transform.scale)}px #bdb5b5` : undefined,
+                        paintOrder: 'stroke fill',
                       }}
                     >
                       {node.isGroup && nameString.length > 120
