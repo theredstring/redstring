@@ -1,5 +1,4 @@
 import React, { useState, useRef, useEffect, useLayoutEffect, useMemo, useCallback } from 'react';
-import { flushSync } from 'react-dom';
 import { Lethargy } from 'lethargy';
 import './NodeCanvas.css';
 import { X } from 'lucide-react';
@@ -2243,12 +2242,10 @@ function NodeCanvas() {
           // (useEffect that syncs ref from state runs AFTER RAF callbacks)
           panOffsetRef.current = newPan;
 
-          // Use flushSync to make pan update synchronous
-          // This ensures canvas transform and node position update in the same render
-          // Preventing 1-frame jitter where node moves but canvas doesn't
-          flushSync(() => {
-            setPanOffset(newPan);
-          });
+          // Use setPanOffset directly to allow React to batch this update with the 
+          // subsequent node position update in performDragUpdate. 
+          // This reduces re-renders by 50% during edge panning.
+          setPanOffset(newPan);
 
           // Force update node position with new pan to keep it under mouse
           performDragUpdate(mouseX, mouseY, newPan, currentZoom, draggingNodeInfoRef.current);
@@ -5000,7 +4997,7 @@ function NodeCanvas() {
     const instanceId = nodeData.id;
 
     if (selectedInstanceIds.has(instanceId)) {
-      const primaryNodeData = nodes.find(n => n.id === instanceId);
+      const primaryNodeData = nodeById.get(instanceId);
       if (!primaryNodeData) return false;
 
       const initialPrimaryPos = { x: primaryNodeData.x, y: primaryNodeData.y };
@@ -5009,13 +5006,6 @@ function NodeCanvas() {
         if (selectedInstanceIds.has(n.id) && n.id !== instanceId) {
           initialPositions[n.id] = { offsetX: n.x - initialPrimaryPos.x, offsetY: n.y - initialPrimaryPos.y };
         }
-      });
-
-      setDraggingNodeInfo({
-        initialMouse: { x: clientX, y: clientY },
-        initialPrimaryPos,
-        relativeOffsets: initialPositions,
-        primaryId: instanceId
       });
 
       setDraggingNodeInfo({
