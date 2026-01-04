@@ -12,7 +12,7 @@ import PanelColorPickerPortal from '../PanelColorPickerPortal.jsx';
  * 
  * PERFORMANCE: This component is memoized to prevent re-renders during zoom/pan
  */
-const PanelContentWrapper = memo(({ 
+const PanelContentWrapper = memo(({
   tabType, // 'home' | 'node'
   nodeId = null,
   storeActions,
@@ -22,15 +22,15 @@ const PanelContentWrapper = memo(({
   isUltraSlim = false
 }) => {
   // #region agent log
-  fetch('http://127.0.0.1:7242/ingest/52d0fe28-158e-49a4-b331-f013fcb14181',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'PanelContentWrapper.jsx:14',message:'PanelContentWrapper render START',data:{tabType,nodeId},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'A'})}).catch(()=>{});
+  // Agent log removed
   // #endregion
-  
+
   // PERFORMANCE FIX: Use individual selectors instead of destructuring entire store
   // This prevents re-renders when viewport state (panOffset/zoomLevel) changes
   const nodePrototypes = useGraphStore(state => state.nodePrototypes);
   const activeGraphId = useGraphStore(state => state.activeGraphId);
   const nodeDefinitionIndices = useGraphStore(state => state.nodeDefinitionIndices);
-  
+
   // CRITICAL PERFORMANCE FIX: Don't subscribe to graphs changes!
   // The graphs Map contains panOffset/zoomLevel which change during zoom.
   // Instead, read graphs non-reactively using getState() since we don't need
@@ -53,13 +53,13 @@ const PanelContentWrapper = memo(({
       if (!graphs || !activeGraphId) return null;
       const currentGraph = graphs.get(activeGraphId);
       if (!currentGraph) return null;
-      
+
       const definingNodeId = currentGraph?.definingNodeIds?.[0];
       if (definingNodeId && nodePrototypes && nodePrototypes.has(definingNodeId)) {
         // Verify the defining node actually exists
         return nodePrototypes.get(definingNodeId);
       }
-      
+
       // If no defining node or defining node doesn't exist, create a fallback node data object from the graph
       return {
         id: activeGraphId,
@@ -85,10 +85,10 @@ const PanelContentWrapper = memo(({
   const getActiveGraphNodes = () => {
     // #region agent log
     const startTime = performance.now();
-    fetch('http://127.0.0.1:7242/ingest/52d0fe28-158e-49a4-b331-f013fcb14181',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'PanelContentWrapper.jsx:71',message:'getActiveGraphNodes START',data:{tabType,activeGraphId},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'D'})}).catch(()=>{});
+    // Agent log removed
     // #endregion
     let targetGraphId = activeGraphId;
-    
+
     // For node tabs, show components from the node's definition graph if it has one
     if (tabType === 'node' && nodeId && nodePrototypes) {
       const nodeData = nodePrototypes.get(nodeId);
@@ -102,17 +102,17 @@ const PanelContentWrapper = memo(({
         return [];
       }
     }
-    
+
     if (!graphs) return [];
     const targetGraph = graphs.get(targetGraphId);
     if (!targetGraph || !targetGraph.instances) return [];
-    
+
     // Convert instances to hydrated nodes
     const result = Array.from(targetGraph.instances.values())
       .map(instance => {
         const prototype = nodePrototypes?.get(instance.prototypeId);
         if (!prototype) return null;
-        
+
         // Ensure prototype data (including name) is preserved, instance data only adds spatial properties
         return {
           id: instance.id,
@@ -131,7 +131,7 @@ const PanelContentWrapper = memo(({
       })
       .filter(Boolean);
     // #region agent log
-    fetch('http://127.0.0.1:7242/ingest/52d0fe28-158e-49a4-b331-f013fcb14181',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'PanelContentWrapper.jsx:115',message:'getActiveGraphNodes END',data:{resultCount:result.length,duration:performance.now()-startTime},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'D'})}).catch(()=>{});
+    // Agent log removed
     // #endregion
     return result;
   };
@@ -201,7 +201,7 @@ const PanelContentWrapper = memo(({
   })();
 
   // Check if this node is the defining node of the current active graph
-  const isDefiningNodeOfCurrentGraph = activeGraphId && graphData && 
+  const isDefiningNodeOfCurrentGraph = activeGraphId && graphData &&
     graphData.definingNodeIds && graphData.definingNodeIds.includes(nodeData?.id);
 
   // Action handlers
@@ -220,21 +220,21 @@ const PanelContentWrapper = memo(({
     input.onchange = async (e) => {
       const file = e.target.files?.[0];
       if (!file) return;
-      
+
       const reader = new FileReader();
       reader.onload = async (loadEvent) => {
         const fullImageSrc = loadEvent.target?.result;
         if (typeof fullImageSrc !== 'string') return;
-        
+
         const img = new Image();
         img.onload = async () => {
           try {
             const aspectRatio = (img.naturalHeight > 0 && img.naturalWidth > 0) ? (img.naturalHeight / img.naturalWidth) : 1;
             const thumbSrc = await generateThumbnail(fullImageSrc, THUMBNAIL_MAX_DIMENSION);
-            const nodeDataToSave = { 
+            const nodeDataToSave = {
               imageSrc: fullImageSrc,
               thumbnailSrc: thumbSrc,
-              imageAspectRatio: aspectRatio 
+              imageAspectRatio: aspectRatio
             };
             storeActions.updateNodePrototype(nodeId, draft => {
               Object.assign(draft, nodeDataToSave);
@@ -254,14 +254,14 @@ const PanelContentWrapper = memo(({
     event.stopPropagation();
     const nodeId = nodeData?.id;
     if (!nodeId) return;
-    
+
     // If already open for the same node, close it (toggle behavior)
     if (colorPickerVisible && colorPickerNodeId === nodeId) {
       setColorPickerVisible(false);
       setColorPickerNodeId(null);
       return;
     }
-    
+
     // Open color picker - align with the icon position
     const rect = event.currentTarget.getBoundingClientRect();
     setColorPickerPosition({ x: rect.right - 10, y: rect.top - 5 });
@@ -308,7 +308,7 @@ const PanelContentWrapper = memo(({
       if (storeActions?.createAndAssignGraphDefinitionWithoutActivation) {
         const sourceGraphId = activeGraphId; // Capture current graph before it changes
         storeActions.createAndAssignGraphDefinitionWithoutActivation(nodeId);
-        
+
         setTimeout(() => {
           const currentState = useGraphStore.getState();
           const updatedNodeData = currentState.nodePrototypes.get(nodeId);
@@ -331,9 +331,9 @@ const PanelContentWrapper = memo(({
 
   const handleMaterializeConnection = (connection) => {
     console.log('[PanelContentWrapper] Materializing semantic connection:', connection);
-    
+
     const { subject, predicate, object, subjectColor, objectColor } = connection;
-    
+
     // Find or create subject node prototype (REUSE if exists!)
     let subjectPrototypeId = null;
     for (const [id, prototype] of nodePrototypes.entries()) {
@@ -379,7 +379,7 @@ const PanelContentWrapper = memo(({
         definitionGraphIds: []
       });
     }
-    
+
     // Add instances to current graph if they don't exist
     const currentGraph = graphs.get(activeGraphId);
     if (currentGraph) {
@@ -420,7 +420,7 @@ const PanelContentWrapper = memo(({
           scale: 1
         }, objectInstanceId);
       }
-      
+
       // Create edge between instances
       // Dedupe: avoid duplicate edges with same S–P–O in current graph
       try {
@@ -443,8 +443,8 @@ const PanelContentWrapper = memo(({
             color: '#666666'
           });
         }
-      } catch {}
-      
+      } catch { }
+
       console.log('[PanelContentWrapper] Created semantic connection in graph:', {
         subjectPrototypeId,
         objectPrototypeId,
@@ -470,7 +470,7 @@ const PanelContentWrapper = memo(({
     } else {
       errorMessage = 'Node data not found...';
     }
-    
+
     return (
       <div style={{ padding: '10px', color: '#aaa', fontFamily: "'EmOne', sans-serif" }}>
         {errorMessage}
@@ -495,10 +495,10 @@ const PanelContentWrapper = memo(({
         onMaterializeConnection={handleMaterializeConnection}
         isHomeTab={tabType === 'home'}
         showExpandButton={true}
-      expandButtonDisabled={isDefiningNodeOfCurrentGraph}
+        expandButtonDisabled={isDefiningNodeOfCurrentGraph}
         isUltraSlim={isUltraSlim}
       />
-      
+
       {/* Color Picker Component - Rendered in Portal to prevent clipping */}
       <PanelColorPickerPortal
         isVisible={colorPickerVisible}

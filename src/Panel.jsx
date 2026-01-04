@@ -409,11 +409,11 @@ const panelPropsAreEqual = (prevProps, nextProps) => {
     'isExpanded', 'side', 'activeGraphId', 'graphName', 'graphDescription',
     'leftPanelExpanded', 'rightPanelExpanded', 'initialViewActive'
   ];
-  
+
   for (const key of keysToCompare) {
     if (prevProps[key] !== nextProps[key]) return false;
   }
-  
+
   // For hydratedNodes, compare length and IDs instead of reference
   const prevNodes = prevProps.hydratedNodes || [];
   const nextNodes = nextProps.hydratedNodes || [];
@@ -421,7 +421,7 @@ const panelPropsAreEqual = (prevProps, nextProps) => {
   for (let i = 0; i < prevNodes.length; i++) {
     if (prevNodes[i]?.id !== nextNodes[i]?.id) return false;
   }
-  
+
   // For selectedInstanceIds, compare Set contents
   const prevSelected = prevProps.selectedInstanceIds;
   const nextSelected = nextProps.selectedInstanceIds;
@@ -431,11 +431,11 @@ const panelPropsAreEqual = (prevProps, nextProps) => {
       if (!nextSelected.has(id)) return false;
     }
   }
-  
+
   // Callbacks are stable due to useCallback, so reference equality should work
   // storeActions, onToggleExpand, onFocusChange, onStartHurtleAnimationFromPanel
   // should be stable references
-  
+
   return true;
 };
 
@@ -575,9 +575,9 @@ const Panel = memo(forwardRef(
     // Add loading state check to prevent accessing store before it's ready
     const isUniverseLoading = useGraphStore(state => state.isUniverseLoading);
     const isUniverseLoaded = useGraphStore(state => state.isUniverseLoaded);
-    
+
     // #region agent log
-    fetch('http://127.0.0.1:7242/ingest/52d0fe28-158e-49a4-b331-f013fcb14181',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'Panel.jsx:522',message:'Panel individual subscriptions triggered',data:{hasNodePrototypes:!!nodePrototypesMapRaw,side},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'B'})}).catch(()=>{});
+    // Agent log removed
     // #endregion
 
     // Debug store subscription
@@ -634,7 +634,7 @@ const Panel = memo(forwardRef(
     // Derive saved nodes array reactively - savedNodeIds contains PROTOTYPE IDs
     const savedNodes = useMemo(() => {
       // #region agent log
-      fetch('http://127.0.0.1:7242/ingest/52d0fe28-158e-49a4-b331-f013fcb14181',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'Panel.jsx:590',message:'savedNodes useMemo recalculating',data:{savedCount:savedNodeIds?.size},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'E'})}).catch(()=>{});
+      // Agent log removed
       // #endregion
       return Array.from(savedNodeIds).map(prototypeId => {
         const prototype = nodePrototypesMap.get(prototypeId);
