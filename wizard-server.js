@@ -36,13 +36,13 @@ async function getPort() {
   if (await isPortAvailable(preferred)) {
     return preferred;
   }
-  
+
   // If 3001 is in use (e.g., by Electron's embedded bridge), that's fine
   // The UI will connect to whatever is on 3001
   console.log(`[Wizard] Port ${preferred} already in use.`);
   console.log(`[Wizard] If running alongside Electron, stop the Electron app first`);
   console.log(`[Wizard] or set WIZARD_PORT=3002 to run on a different port.`);
-  
+
   throw new Error(`Port ${preferred} in use. Set WIZARD_PORT env var to use a different port.`);
 }
 
@@ -85,7 +85,7 @@ async function ensureSchedulerStarted() {
       return;
     }
   }
-  
+
   if (scheduler && typeof scheduler.start === 'function') {
     const status = scheduler.status();
     if (!status.enabled) {
@@ -119,14 +119,14 @@ app.get('/health', (req, res) => {
 app.post('/api/wizard', async (req, res) => {
   try {
     const { message, graphState, conversationHistory, config } = req.body || {};
-    
+
     if (!message) {
       return res.status(400).json({ error: 'Message is required' });
     }
 
     const apiKey = req.headers.authorization?.replace(/^Bearer\s+/i, '') || '';
     const apiConfig = config?.apiConfig || {};
-    
+
     if (!apiKey) {
       return res.status(401).json({ error: 'API key required in Authorization header' });
     }
@@ -136,7 +136,7 @@ app.post('/api/wizard', async (req, res) => {
     res.setHeader('Cache-Control', 'no-cache');
     res.setHeader('Connection', 'keep-alive');
     res.setHeader('X-Accel-Buffering', 'no'); // Disable nginx buffering
-    
+
     const llmConfig = {
       apiKey,
       provider: apiConfig.provider || 'openrouter',
@@ -164,7 +164,7 @@ app.post('/api/wizard', async (req, res) => {
       console.error('[Wizard] Agent error:', error);
       res.write(`data: ${JSON.stringify({ type: 'error', message: error.message })}\n\n`);
     }
-    
+
     res.end();
   } catch (error) {
     console.error('[Wizard] Request error:', error);
@@ -203,7 +203,7 @@ app.post('/api/bridge/register-store', (req, res) => {
 
 // State endpoint - UI polls this
 app.get('/api/bridge/state', (req, res) => {
-  res.json({ 
+  res.json({
     graphs: [],
     pendingActions: [],
     source: 'wizard-server'
@@ -223,12 +223,12 @@ app.get('/events/stream', (req, res) => {
   res.setHeader('Cache-Control', 'no-cache');
   res.setHeader('Connection', 'keep-alive');
   res.setHeader('X-Accel-Buffering', 'no');
-  
+
   // Send initial ping
   res.write(`data: ${JSON.stringify({ type: 'connected', source: 'wizard-server' })}\n\n`);
-  
+
   sseClients.add(res);
-  
+
   req.on('close', () => {
     sseClients.delete(res);
   });
@@ -246,9 +246,147 @@ function broadcastEvent(event) {
   }
 }
 
+// ─────────────────────────────────────────────────────────────
+// Pending Actions State (for UI ↔ Server communication)
+// ─────────────────────────────────────────────────────────────
+
+let pendingActions = [];
+const inflightActionIds = new Set();
+const inflightMeta = new Map(); // id -> { ts, action, params }
+let telemetry = [];
+let chatLog = [];
+
 // Telemetry endpoint
 app.get('/api/bridge/telemetry', (req, res) => {
-  res.json({ chat: [], tools: [] });
+  res.json({ telemetry, chat: chatLog.slice(-200) });
+});
+
+// ─────────────────────────────────────────────────────────────
+// Pending Actions Endpoints (for Committer and UI)
+// ─────────────────────────────────────────────────────────────
+
+// GET pending actions - UI polls this to receive mutations
+app.get('/api/bridge/pending-actions', (req, res) => {
+  try {
+    const available = pendingActions.filter(a => !inflightActionIds.has(a.id));
+    available.forEach(a => {
+      inflightActionIds.add(a.id);
+      inflightMeta.set(a.id, { ts: Date.now(), action: a.action, params: a.params });
+      telemetry.push({ ts: Date.now(), type: 'tool_call', name: a.action, args: a.params, leased: true, id: a.id });
+    });
+    res.json({ pendingActions: available });
+  } catch (err) {
+    console.error('[Wizard] Pending actions error:', err);
+    res.status(500).json({ error: String(err?.message || err) });
+  }
+});
+
+// POST enqueue actions - Committer uses this to push mutations
+app.post('/api/bridge/pending-actions/enqueue', (req, res) => {
+  try {
+    const { actions } = req.body || {};
+    if (!Array.isArray(actions) || actions.length === 0) {
+      return res.status(400).json({ ok: false, error: 'actions[] required' });
+    }
+    // Prepend openGraph actions inferred from any applyMutations ops to avoid UI timing races
+    const expanded = [];
+    for (const a of actions) {
+      if (a && a.action === 'applyMutations' && Array.isArray(a.params?.[0])) {
+        const ops = a.params[0];
+        const graphIds = new Set();
+        for (const op of ops) {
+          if (op && typeof op.graphId === 'string' && op.graphId) graphIds.add(op.graphId);
+        }
+        for (const gid of graphIds) expanded.push({ action: 'openGraph', params: [gid] });
+      }
+      expanded.push(a);
+    }
+    const id = (suffix) => `pa-${Date.now()}-${Math.random().toString(36).slice(2, 8)}-${suffix}`;
+    for (const a of expanded) {
+      pendingActions.push({ id: id(a.action || 'act'), action: a.action, params: a.params, timestamp: Date.now() });
+      telemetry.push({ ts: Date.now(), type: 'tool_call', name: a.action, args: a.params, status: 'queued' });
+    }
+    res.json({ ok: true, enqueued: actions.length });
+  } catch (err) {
+    console.error('[Wizard] Enqueue error:', err);
+    res.status(500).json({ error: String(err?.message || err) });
+  }
+});
+
+// POST action completed - UI calls this when an action is done
+app.post('/api/bridge/action-completed', (req, res) => {
+  try {
+    const { actionId } = req.body || {};
+    if (actionId) {
+      pendingActions = pendingActions.filter(a => a.id !== actionId);
+      inflightActionIds.delete(actionId);
+      const meta = inflightMeta.get(actionId);
+      if (meta) {
+        telemetry.push({ ts: Date.now(), type: 'tool_call', name: meta.action, args: meta.params, status: 'completed', id: actionId });
+        inflightMeta.delete(actionId);
+      }
+    }
+    res.json({ success: true });
+  } catch (err) {
+    console.error('[Wizard] Action completed error:', err);
+    res.status(500).json({ error: String(err?.message || err) });
+  }
+});
+
+// POST action feedback - for warnings and errors
+app.post('/api/bridge/action-feedback', (req, res) => {
+  try {
+    const { action, status, error, params } = req.body || {};
+    telemetry.push({ ts: Date.now(), type: 'action_feedback', action, status, error, params });
+    console.log(`[Wizard] Action feedback: ${action} - ${status}`);
+    res.json({ acknowledged: true });
+  } catch (err) {
+    console.error('[Wizard] Action feedback error:', err);
+    res.status(500).json({ error: String(err?.message || err) });
+  }
+});
+
+// POST tool status - track tool execution
+app.post('/api/bridge/tool-status', (req, res) => {
+  try {
+    const { cid, toolCalls } = req.body || {};
+    if (!Array.isArray(toolCalls) || toolCalls.length === 0) {
+      return res.status(400).json({ error: 'toolCalls array required' });
+    }
+    for (const tool of toolCalls) {
+      telemetry.push({
+        ts: tool.timestamp || Date.now(),
+        type: 'tool_call',
+        name: tool.name,
+        args: tool.args || {},
+        status: tool.status || 'completed',
+        result: tool.result,
+        error: tool.error,
+        executionTime: tool.executionTime,
+        cid
+      });
+    }
+    res.json({ ok: true, updated: toolCalls.length });
+  } catch (err) {
+    console.error('[Wizard] Tool status error:', err);
+    res.status(500).json({ error: String(err?.message || err) });
+  }
+});
+
+// POST chat append - add messages to chat log
+app.post('/api/bridge/chat/append', (req, res) => {
+  try {
+    const { role, text, cid, channel } = req.body || {};
+    if (!text) return res.status(400).json({ error: 'text required' });
+    const entry = { ts: Date.now(), role: role || 'system', text: String(text), cid, channel: channel || 'agent' };
+    chatLog.push(entry);
+    if (chatLog.length > 1000) chatLog = chatLog.slice(-800);
+    telemetry.push({ ts: entry.ts, type: 'chat', role: entry.role, text: entry.text, cid, channel });
+    res.json({ ok: true });
+  } catch (err) {
+    console.error('[Wizard] Chat append error:', err);
+    res.status(500).json({ error: String(err?.message || err) });
+  }
 });
 
 // ─────────────────────────────────────────────────────────────
@@ -260,7 +398,7 @@ app.all('/api/*', (req, res) => {
   res.status(404).json({
     error: 'Endpoint not available in wizard-server',
     path: req.path,
-    available: ['/api/wizard', '/api/bridge/health', '/api/bridge/state', '/events/stream']
+    available: ['/api/wizard', '/api/bridge/health', '/api/bridge/state', '/api/bridge/pending-actions', '/events/stream']
   });
 });
 
@@ -281,7 +419,7 @@ export async function startWizardServer() {
     // #region agent log
     debugLogSync('wizard-server.js:getPort:AFTER', 'getPort returned', { port: PORT }, 'debug-session', 'D');
     // #endregion
-    
+
     return new Promise((resolve, reject) => {
       const server = app.listen(PORT, () => {
         console.log(`
@@ -296,15 +434,15 @@ export async function startWizardServer() {
 ║    GET  /api/scheduler/status - Queue processor status    ║
 ╚═══════════════════════════════════════════════════════════╝
 `);
-        
+
         // Start scheduler on boot
         ensureSchedulerStarted().catch(e => {
           console.warn('[Wizard] Failed to start scheduler on boot:', e.message);
         });
-        
+
         resolve({ server, port: PORT });
       });
-      
+
       server.on('error', reject);
     });
   } catch (e) {
