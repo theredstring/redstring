@@ -170,8 +170,9 @@ const LeftAIView = ({ compact = false, activeGraphId, graphsMap, edgesMap }) => 
         }
       });
 
-      eventSource.onerror = (err) => {
-        console.warn('[AI Collaboration] SSE error:', err);
+      eventSource.onerror = () => {
+        // Silently handle SSE errors - server may not be available
+        // Connection errors are expected when bridge server isn't running
       };
     } catch (err) {
       console.warn('[AI Collaboration] Failed to establish SSE:', err);

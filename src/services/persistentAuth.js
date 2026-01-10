@@ -156,8 +156,8 @@ export class PersistentAuth {
         // OPTIONAL: Sync from server as backup (stateless server doesn't persist)
         // This is only useful for initial server-side OAuth completion
         try {
-          const response = await oauthFetch('/api/github/auth/state?includeTokens=true');
-          if (response.ok) {
+          const response = await oauthFetch('/api/github/auth/state?includeTokens=true').catch(() => null);
+          if (response && response.ok) {
             const state = await response.json();
             // Only apply server state if browser doesn't have tokens
             if (!this.oauthCache?.accessToken && state?.oauth?.accessToken) {
@@ -167,7 +167,8 @@ export class PersistentAuth {
             }
           }
         } catch (serverError) {
-          console.log('[PersistentAuth] Server sync skipped (expected for stateless server):', serverError.message);
+          // Silently handle - OAuth server may not be running
+          // Browser will log network errors, but we don't add additional logging
         }
 
         this.authStateLoaded = true;
@@ -463,7 +464,7 @@ export class PersistentAuth {
       console.log('[PersistentAuth] No stored GitHub App installation found; attempting discovery...');
       try {
         // Ask backend for installations associated with this app
-        const listResp = await oauthFetch('/api/github/app/installations');
+        const listResp = await oauthFetch('/api/github/app/installations').catch(() => null);
         if (listResp && listResp.ok) {
           const installations = await listResp.json();
           if (Array.isArray(installations) && installations.length > 0) {

@@ -12,6 +12,7 @@ import express from 'express';
 import cors from 'cors';
 import net from 'net';
 import { runAgent } from './src/wizard/AgentLoop.js';
+import { debugLogSync } from './src/utils/debugLogger.js';
 
 const app = express();
 
@@ -69,16 +70,16 @@ async function ensureSchedulerStarted() {
   if (!scheduler) {
     try {
       // #region agent log
-      fetch('http://127.0.0.1:7242/ingest/52d0fe28-158e-49a4-b331-f013fcb14181',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'wizard-server.js:scheduler:IMPORT_START',message:'Importing scheduler',data:{},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'E'})}).catch(()=>{});
+      debugLogSync('wizard-server.js:scheduler:IMPORT_START', 'Importing scheduler', {}, 'debug-session', 'E');
       // #endregion
       const mod = await import('./src/services/orchestrator/Scheduler.js');
       scheduler = mod.default;
       // #region agent log
-      fetch('http://127.0.0.1:7242/ingest/52d0fe28-158e-49a4-b331-f013fcb14181',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'wizard-server.js:scheduler:IMPORT_OK',message:'Scheduler imported',data:{hasDefault:!!mod.default},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'E'})}).catch(()=>{});
+      debugLogSync('wizard-server.js:scheduler:IMPORT_OK', 'Scheduler imported', { hasDefault: !!mod.default }, 'debug-session', 'E');
       // #endregion
     } catch (e) {
       // #region agent log
-      fetch('http://127.0.0.1:7242/ingest/52d0fe28-158e-49a4-b331-f013fcb14181',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'wizard-server.js:scheduler:IMPORT_FAIL',message:'Scheduler import failed',data:{error:e.message},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'E'})}).catch(()=>{});
+      debugLogSync('wizard-server.js:scheduler:IMPORT_FAIL', 'Scheduler import failed', { error: e.message }, 'debug-session', 'E');
       // #endregion
       console.warn('[Wizard] Failed to load scheduler:', e.message);
       return;
@@ -270,15 +271,15 @@ app.all('/api/*', (req, res) => {
 // Start server function
 export async function startWizardServer() {
   // #region agent log
-  fetch('http://127.0.0.1:7242/ingest/52d0fe28-158e-49a4-b331-f013fcb14181',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'wizard-server.js:startWizardServer:ENTRY',message:'startWizardServer called',data:{},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'C'})}).catch(()=>{});
+  debugLogSync('wizard-server.js:startWizardServer:ENTRY', 'startWizardServer called', {}, 'debug-session', 'C');
   // #endregion
   try {
     // #region agent log
-    fetch('http://127.0.0.1:7242/ingest/52d0fe28-158e-49a4-b331-f013fcb14181',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'wizard-server.js:getPort:BEFORE',message:'About to call getPort',data:{},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'D'})}).catch(()=>{});
+    debugLogSync('wizard-server.js:getPort:BEFORE', 'About to call getPort', {}, 'debug-session', 'D');
     // #endregion
     const PORT = await getPort();
     // #region agent log
-    fetch('http://127.0.0.1:7242/ingest/52d0fe28-158e-49a4-b331-f013fcb14181',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'wizard-server.js:getPort:AFTER',message:'getPort returned',data:{port:PORT},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'D'})}).catch(()=>{});
+    debugLogSync('wizard-server.js:getPort:AFTER', 'getPort returned', { port: PORT }, 'debug-session', 'D');
     // #endregion
     
     return new Promise((resolve, reject) => {

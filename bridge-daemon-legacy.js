@@ -6,6 +6,7 @@ import cors from 'cors';
 import { exec } from 'node:child_process';
 import fetch from 'node-fetch';
 import queueManager from './src/services/queue/Queue.js';
+import { debugLogSync } from './src/utils/debugLogger.js';
 import eventLog from './src/services/EventLog.js';
 import committer from './src/services/Committer.js';
 import { setBridgeStoreRef } from './src/services/bridgeStoreAccessor.js';
@@ -75,7 +76,7 @@ app.use(express.json({ limit: '2mb' }));
 
 // Serve static files from public directory (for debug viewer)
 app.use((req, res, next) => {
-  fetch('http://127.0.0.1:7242/ingest/52d0fe28-158e-49a4-b331-f013fcb14181',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'bridge-daemon-legacy.js:middleware',message:'Incoming request',data:{url: req.url, method: req.method},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'B'})}).catch(()=>{});
+  debugLogSync('bridge-daemon-legacy.js:middleware', 'Incoming request', { url: req.url, method: req.method }, 'debug-session', 'B');
   next();
 });
 app.use(express.static('public'));
@@ -4558,7 +4559,7 @@ const startBridgeListener = () => {
   const { server: netServer, protocol } = createBridgeServer();
   serverProtocol = protocol;
   netServer.listen(PORT, () => {
-    fetch('http://127.0.0.1:7242/ingest/52d0fe28-158e-49a4-b331-f013fcb14181',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'bridge-daemon-legacy.js:startBridgeListener',message:'Server started',data:{port: PORT, protocol},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'A'})}).catch(()=>{});
+    debugLogSync('bridge-daemon-legacy.js:startBridgeListener', 'Server started', { port: PORT, protocol }, 'debug-session', 'A');
     console.log(`✅ Bridge daemon listening on ${protocol}://localhost:${PORT}`);
     committer.start();
     import('./src/services/orchestrator/Scheduler.js').then(mod => { scheduler = mod.default; }).catch(() => { });

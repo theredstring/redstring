@@ -33,6 +33,7 @@ import ForceSimulationModal from './components/ForceSimulationModal';
 import { parseInputData, generateGraph } from './services/autoGraphGenerator';
 import { applyLayout, getClusterGeometries, FORCE_LAYOUT_DEFAULTS } from './services/graphLayoutService.js';
 import { NavigationMode, calculateNavigationParams } from './services/canvasNavigationService.js';
+import { debugLogSync } from './utils/debugLogger.js';
 
 // Import Zustand store and selectors/actions
 import useGraphStore, {
@@ -5308,7 +5309,7 @@ function NodeCanvas() {
 
   const handleWheel = async (e) => {
     // #region agent log
-    fetch('http://127.0.0.1:7242/ingest/52d0fe28-158e-49a4-b331-f013fcb14181', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ location: 'NodeCanvas.jsx:5282', message: 'handleWheel START', data: { deltaY: e.deltaY?.toFixed?.(2), ctrlKey: e.ctrlKey }, timestamp: Date.now(), sessionId: 'debug-session', hypothesisId: 'C' }) }).catch(() => { });
+    debugLogSync('NodeCanvas.jsx:handleWheel', 'handleWheel START', { deltaY: e.deltaY?.toFixed?.(2), ctrlKey: e.ctrlKey }, 'debug-session', 'C');
     // #endregion
     // If a gesture/pinch is active, ignore wheel to prevent double-handling on Safari
     if (pinchRef.current.active) {
@@ -9944,7 +9945,7 @@ function NodeCanvas() {
                   // #region agent log
                   const multiEdgePairs = Array.from(edgePairGroups.entries()).filter(([k, v]) => v.length > 1);
                   if (multiEdgePairs.length > 0) {
-                    fetch('http://127.0.0.1:7242/ingest/52d0fe28-158e-49a4-b331-f013fcb14181', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ location: 'NodeCanvas.jsx:edgeRender', message: 'Edge rendering info', data: { totalEdges: visibleEdges.length, multiEdgePairs: multiEdgePairs.map(([k, v]) => ({ pair: k, edgeCount: v.length, edgeIds: v })), enableAutoRouting, routingStyle, willUseCurves: !(enableAutoRouting && (routingStyle === 'manhattan' || routingStyle === 'clean')) }, timestamp: Date.now(), sessionId: 'debug-session', hypothesisId: 'D-E' }) }).catch(() => { });
+                    debugLogSync('NodeCanvas.jsx:edgeRender', 'Edge rendering info', { totalEdges: visibleEdges.length, multiEdgePairs: multiEdgePairs.map(([k, v]) => ({ pair: k, edgeCount: v.length, edgeIds: v })), enableAutoRouting, routingStyle, willUseCurves: !(enableAutoRouting && (routingStyle === 'manhattan' || routingStyle === 'clean')) }, 'debug-session', 'D-E');
                   }
                   // #endregion
 

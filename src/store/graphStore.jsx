@@ -5,6 +5,7 @@ import { NODE_WIDTH, NODE_HEIGHT, NODE_DEFAULT_COLOR } from '../constants.js';
 import { getFileStatus, restoreLastSession, clearSession, notifyChanges } from './fileStorage.js';
 import { importFromRedstring } from '../formats/redstringFormat.js';
 import { MAX_LAYOUT_SCALE_MULTIPLIER } from '../services/graphLayoutService.js';
+import { debugLogSync } from '../utils/debugLogger.js';
 
 // Enable Immer Map/Set plugin support
 enableMapSet();
@@ -1453,7 +1454,7 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
     // Adds a NEW edge connecting two instances.
     addEdge: (graphId, newEdgeData, contextOptions = {}) => {
       // #region agent log
-      fetch('http://127.0.0.1:7242/ingest/52d0fe28-158e-49a4-b331-f013fcb14181',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'graphStore.jsx:addEdge',message:'addEdge called',data:{graphId,edgeId:newEdgeData?.id,sourceId:newEdgeData?.sourceId,destId:newEdgeData?.destinationId,stack:new Error().stack?.split('\n').slice(1,5)},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'A-B'})}).catch(()=>{});
+      debugLogSync('graphStore.jsx:addEdge', 'addEdge called', { graphId, edgeId: newEdgeData?.id, sourceId: newEdgeData?.sourceId, destId: newEdgeData?.destinationId, stack: new Error().stack?.split('\n').slice(1, 5) }, 'debug-session', 'A-B');
       // #endregion
       api.setChangeContext({ type: 'edge_create', target: 'edge', finalize: true, ...contextOptions });
       return set(produce((draft) => {
@@ -1481,7 +1482,7 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
           (e.sourceId === sourceInstanceId && e.destinationId === destInstanceId) ||
           (e.sourceId === destInstanceId && e.destinationId === sourceInstanceId)
         );
-        fetch('http://127.0.0.1:7242/ingest/52d0fe28-158e-49a4-b331-f013fcb14181',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'graphStore.jsx:addEdge:check',message:'Checking existing edges',data:{edgeId,sourceId:sourceInstanceId,destId:destInstanceId,existingEdgeCount:existingEdges.length,existingEdgeIds:existingEdges.map(e=>e.id)},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'B'})}).catch(()=>{});
+        debugLogSync('graphStore.jsx:addEdge:check', 'Checking existing edges', { edgeId, sourceId: sourceInstanceId, destId: destInstanceId, existingEdgeCount: existingEdges.length, existingEdgeIds: existingEdges.map(e => e.id) }, 'debug-session', 'B');
         // #endregion
 
         if (!draft.edges.has(edgeId)) {
@@ -1497,11 +1498,11 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
           }
           graph.edgeIds.push(edgeId);
           // #region agent log
-          fetch('http://127.0.0.1:7242/ingest/52d0fe28-158e-49a4-b331-f013fcb14181',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'graphStore.jsx:addEdge:created',message:'Edge created',data:{edgeId,totalEdgesNow:graph.edgeIds.length},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'A-B'})}).catch(()=>{});
+          debugLogSync('graphStore.jsx:addEdge:created', 'Edge created', { edgeId, totalEdgesNow: graph.edgeIds.length }, 'debug-session', 'A-B');
           // #endregion
         } else {
           // #region agent log
-          fetch('http://127.0.0.1:7242/ingest/52d0fe28-158e-49a4-b331-f013fcb14181',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'graphStore.jsx:addEdge:skip',message:'Edge already exists - skipped',data:{edgeId},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'A'})}).catch(()=>{});
+          debugLogSync('graphStore.jsx:addEdge:skip', 'Edge already exists - skipped', { edgeId }, 'debug-session', 'A');
           // #endregion
         }
       }));
@@ -3150,7 +3151,7 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
 
     updateGraphView: (graphId, panOffset, zoomLevel) => {
       // #region agent log
-      fetch('http://127.0.0.1:7242/ingest/52d0fe28-158e-49a4-b331-f013fcb14181',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'graphStore.jsx:2917',message:'updateGraphView called',data:{graphId,zoomLevel:zoomLevel?.toFixed?.(3)},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'C'})}).catch(()=>{});
+      debugLogSync('graphStore.jsx:updateGraphView', 'updateGraphView called', { graphId, zoomLevel: zoomLevel?.toFixed?.(3) }, 'debug-session', 'C');
       // #endregion
       api.setChangeContext({ type: 'viewport', target: 'graph' });
       set(produce((draft) => {

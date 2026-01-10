@@ -5,6 +5,7 @@ import { RolePrompts, ToolAllowlists } from '../roles.js';
 import { getBridgeStore, getGraphById, getActiveGraph } from '../bridgeStoreAccessor.js';
 import { getGraphSemanticStructure } from '../graphQueries.js';
 import executionTracer from '../ExecutionTracer.js';
+import { debugLogSync } from '../../utils/debugLogger.js';
 
 // Helper to normalize string to Title Case
 function toTitleCase(str) {
@@ -196,13 +197,13 @@ export async function runExecutorOnce() {
     if (!allow.has(task.toolName)) throw new Error(`Tool not allowed for executor: ${task.toolName}`);
     // #region agent log
     if (task.toolName === 'create_group') {
-      fetch('http://127.0.0.1:7242/ingest/52d0fe28-158e-49a4-b331-f013fcb14181', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ location: 'roleRunners.js:pre-validation', message: 'About to validate create_group', data: { toolName: task.toolName, argsKeys: Object.keys(task.args || {}) }, timestamp: Date.now(), sessionId: 'debug-session', hypothesisId: 'H3' }) }).catch(() => { });
+      debugLogSync('roleRunners.js:pre-validation', 'About to validate create_group', { toolName: task.toolName, argsKeys: Object.keys(task.args || {}) }, 'debug-session', 'H3');
     }
     // #endregion
     const validation = toolValidator.validateToolArgs(task.toolName, task.args || {});
     // #region agent log
     if (task.toolName === 'create_group') {
-      fetch('http://127.0.0.1:7242/ingest/52d0fe28-158e-49a4-b331-f013fcb14181', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ location: 'roleRunners.js:post-validation', message: 'Validation result for create_group', data: { valid: validation.valid, error: validation.error, sanitizedKeys: validation.sanitized ? Object.keys(validation.sanitized) : null }, timestamp: Date.now(), sessionId: 'debug-session', hypothesisId: 'H3' }) }).catch(() => { });
+      debugLogSync('roleRunners.js:post-validation', 'Validation result for create_group', { valid: validation.valid, error: validation.error, sanitizedKeys: validation.sanitized ? Object.keys(validation.sanitized) : null }, 'debug-session', 'H3');
     }
     // #endregion
     if (!validation.valid) {
@@ -708,7 +709,7 @@ export async function runExecutorOnce() {
       const isExpandMode = providedGraphId && !name;
       const graphId = providedGraphId || `graph-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
       // #region agent log
-      fetch('http://127.0.0.1:7242/ingest/52d0fe28-158e-49a4-b331-f013fcb14181', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ location: 'roleRunners.js:create_populated_graph', message: 'Mode determined', data: { isExpandMode, hasName: !!name, hasGraphId: !!providedGraphId, graphId }, timestamp: Date.now(), sessionId: 'debug-session', hypothesisId: 'fix-verify', runId: 'post-fix' }) }).catch(() => { });
+      debugLogSync('roleRunners.js:create_populated_graph', 'Mode determined', { isExpandMode, hasName: !!name, hasGraphId: !!providedGraphId, graphId }, 'debug-session', 'fix-verify');
       // #endregion
 
       // 1. Create the graph (only if not in expand mode)
@@ -1545,7 +1546,7 @@ export async function runExecutorOnce() {
       }
 
       // #region agent log
-      fetch('http://127.0.0.1:7242/ingest/52d0fe28-158e-49a4-b331-f013fcb14181', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ location: 'roleRunners.js:create_edge', message: 'Executor creating edge op', data: { edgeId, sourceInstanceId, targetInstanceId, graphId, name, typeNodeId }, timestamp: Date.now(), sessionId: 'debug-session', hypothesisId: 'A-C' }) }).catch(() => { });
+      debugLogSync('roleRunners.js:create_edge', 'Executor creating edge op', { edgeId, sourceInstanceId, targetInstanceId, graphId, name, typeNodeId }, 'debug-session', 'A-C');
       // #endregion
       ops.push({
         type: 'addEdge',

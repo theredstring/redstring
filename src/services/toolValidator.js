@@ -4,6 +4,7 @@
  */
 
 import { v4 as uuidv4 } from 'uuid';
+import { debugLogSync } from '../utils/debugLogger.js';
 
 class ToolValidator {
   constructor() {
@@ -679,7 +680,7 @@ class ToolValidator {
 
     // Group tools
     // #region agent log
-    fetch('http://127.0.0.1:7242/ingest/52d0fe28-158e-49a4-b331-f013fcb14181',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'toolValidator.js:registerSchema-create_group',message:'Registering create_group schema with graph_id',data:{required:['graph_id'],properties_keys:['graph_id','name','color','memberInstanceIds']},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H1'})}).catch(()=>{});
+    debugLogSync('toolValidator.js:registerSchema-create_group', 'Registering create_group schema with graph_id', { required: ['graph_id'], properties_keys: ['graph_id', 'name', 'color', 'memberInstanceIds'] }, 'debug-session', 'H1');
     // #endregion
     this.registerSchema('create_group', {
       type: 'object',
@@ -855,7 +856,7 @@ class ToolValidator {
     const schema = this.schemas.get(toolName);
     // #region agent log
     if (toolName === 'create_group') {
-      fetch('http://127.0.0.1:7242/ingest/52d0fe28-158e-49a4-b331-f013fcb14181',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'toolValidator.js:validateToolArgs',message:'Validating create_group',data:{toolName,argsKeys:Object.keys(args||{}),schemaRequired:schema?.required,schemaPropsKeys:schema?.properties?Object.keys(schema.properties):null},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H1-H3'})}).catch(()=>{});
+      debugLogSync('toolValidator.js:validateToolArgs', 'Validating create_group', { toolName, argsKeys: Object.keys(args || {}), schemaRequired: schema?.required, schemaPropsKeys: schema?.properties ? Object.keys(schema.properties) : null }, 'debug-session', 'H1-H3');
     }
     // #endregion
     if (!schema) {

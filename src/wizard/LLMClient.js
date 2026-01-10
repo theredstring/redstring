@@ -4,6 +4,7 @@
  */
 
 import apiKeyManager from '../services/apiKeyManager.js';
+import { debugLogSync } from '../utils/debugLogger.js';
 
 /**
  * Get default config if not provided
@@ -77,7 +78,7 @@ async function* streamOpenRouter(messages, tools, { endpoint, model, apiKey, tem
   };
 
   // #region agent log
-  fetch('http://127.0.0.1:7242/ingest/52d0fe28-158e-49a4-b331-f013fcb14181',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'LLMClient.js:streamOpenRouter:REQUEST',message:'Sending request to OpenRouter',data:{model,toolCount:tools?.length||0,hasTools:!!tools,messageCount:messages?.length},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'F'})}).catch(()=>{});
+  debugLogSync('LLMClient.js:streamOpenRouter:REQUEST', 'Sending request to OpenRouter', { model, toolCount: tools?.length || 0, hasTools: !!tools, messageCount: messages?.length }, 'debug-session', 'F');
   // #endregion
 
   const response = await fetch(endpoint, {
@@ -125,7 +126,7 @@ async function* streamOpenRouter(messages, tools, { endpoint, model, apiKey, tem
 
             // #region agent log
             if (delta?.tool_calls || delta?.content) {
-              fetch('http://127.0.0.1:7242/ingest/52d0fe28-158e-49a4-b331-f013fcb14181',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'LLMClient.js:streamOpenRouter:DELTA',message:'Received delta',data:{hasToolCalls:!!delta?.tool_calls,hasContent:!!delta?.content,contentPreview:delta?.content?.substring?.(0,100),finishReason:choice.finish_reason},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'G'})}).catch(()=>{});
+              debugLogSync('LLMClient.js:streamOpenRouter:DELTA', 'Received delta', { hasToolCalls: !!delta?.tool_calls, hasContent: !!delta?.content, contentPreview: delta?.content?.substring?.(0, 100), finishReason: choice.finish_reason }, 'debug-session', 'G');
             }
             // #endregion
 
@@ -186,7 +187,7 @@ async function* streamOpenRouter(messages, tools, { endpoint, model, apiKey, tem
     if (currentToolCall) {
       console.log('[LLMClient:OpenRouter] Yielding tool_call (flush):', currentToolCall.function?.name);
       // #region agent log
-      fetch('http://127.0.0.1:7242/ingest/52d0fe28-158e-49a4-b331-f013fcb14181',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'LLMClient.js:streamOpenRouter:TOOL_CALL_FLUSH',message:'Flushing tool call',data:{name:currentToolCall.function?.name,hasArgs:!!currentToolCall.function?.arguments},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H'})}).catch(()=>{});
+      debugLogSync('LLMClient.js:streamOpenRouter:TOOL_CALL_FLUSH', 'Flushing tool call', { name: currentToolCall.function?.name, hasArgs: !!currentToolCall.function?.arguments }, 'debug-session', 'H');
       // #endregion
       yield {
         type: 'tool_call',
@@ -201,7 +202,7 @@ async function* streamOpenRouter(messages, tools, { endpoint, model, apiKey, tem
 }
 
 // #region agent log - end of streamOpenRouter
-fetch('http://127.0.0.1:7242/ingest/52d0fe28-158e-49a4-b331-f013fcb14181',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'LLMClient.js:MODULE_LOADED',message:'LLMClient module loaded',data:{},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'F'})}).catch(()=>{});
+debugLogSync('LLMClient.js:MODULE_LOADED', 'LLMClient module loaded', {}, 'debug-session', 'F');
 // #endregion
 
 /**
