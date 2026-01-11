@@ -10,7 +10,7 @@ const useHistoryStore = create((set, get) => ({
     // Single linear timeline
     history: [],           // All actions in chronological order
     currentIndex: -1,      // Points to "now" (-1 = at end)
-    maxHistorySize: 100,
+    maxHistorySize: 500,
 
     // Push a new action with patches
     pushAction: (entry) => set(state => {

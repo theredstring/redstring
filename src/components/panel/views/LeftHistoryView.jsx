@@ -1,7 +1,7 @@
 import React, { useState, useMemo } from 'react';
-import useHistoryStore from '../../../store/historyStore';
+import useHistoryStore from '../../../store/historyStore.js';
 import useGraphStore from '../../../store/graphStore.jsx';
-import { generateDescription } from '../../../utils/actionDescriptions';
+import { generateDescription } from '../../../utils/actionDescriptions.js';
 import { Clock, Globe, Filter, LayoutGrid } from 'lucide-react';
 import './LeftHistoryView.css';
 
