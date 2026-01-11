@@ -54,6 +54,9 @@ export function generateDescription(context, state) {
         // Position updates (usually bulk)
         case 'position_update':
         case 'node_position': {
+            if (context.groupId) {
+                return `Moved group "${context.groupName || 'Group'}"`;
+            }
             if (nodeCount > 1) {
                 return `Moved ${nodeCount} nodes`;
             }
