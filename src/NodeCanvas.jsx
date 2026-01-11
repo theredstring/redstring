@@ -28,6 +28,8 @@ import { useDrop } from 'react-dnd';
 import { fetchOrbitCandidatesForPrototype } from './services/orbitResolver.js';
 import { showContextMenu } from './components/GlobalContextMenu';
 import * as fileStorage from './store/fileStorage.js';
+import * as folderPersistence from './services/folderPersistence.js';
+import { pickFolder, getFileInFolder, listFilesInFolder } from './utils/fileAccessAdapter.js';
 import AutoGraphModal from './components/AutoGraphModal';
 import ForceSimulationModal from './components/ForceSimulationModal';
 import { parseInputData, generateGraph } from './services/autoGraphGenerator';
@@ -89,6 +91,7 @@ import NodeSelectionGrid from './NodeSelectionGrid'; // Import the new node sele
 import UnifiedSelector from './UnifiedSelector'; // Import the new unified selector
 import OrbitOverlay from './components/OrbitOverlay.jsx';
 import AlphaOnboardingModal from './components/AlphaOnboardingModal.jsx';
+import StorageSetupModal from './components/StorageSetupModal.jsx';
 import HelpModal from './components/HelpModal.jsx';
 import CanvasConfirmDialog from './components/shared/CanvasConfirmDialog.jsx';
 
@@ -1831,9 +1834,76 @@ function NodeCanvas() {
 
   // Onboarding modal state
   const [showOnboardingModal, setShowOnboardingModal] = useState(false);
+  const [showStorageSetupModal, setShowStorageSetupModal] = useState(false);
 
   // Help modal state
   const [showHelpModal, setShowHelpModal] = useState(false);
+
+  // Check for stored folder on app startup and attempt to restore
+  useEffect(() => {
+    let isMounted = true;
+
+    const initializeFromFolder = async () => {
+      try {
+        console.log('[NodeCanvas] Checking for stored folder on startup...');
+
+        // Validate stored folder
+        const { valid, folderHandle } = await folderPersistence.validateStoredFolder();
+
+        if (!valid || !folderHandle) {
+          console.log('[NodeCanvas] No valid stored folder found');
+          return;
+        }
+
+        console.log('[NodeCanvas] Valid folder found, attempting to restore...');
+
+        // Request permission if needed (web only)
+        const { requestFolderPermission } = await import('./utils/fileAccessAdapter.js');
+        const hasPermission = await requestFolderPermission(folderHandle);
+
+        if (!hasPermission) {
+          console.warn('[NodeCanvas] Folder permission denied, clearing stored folder');
+          await folderPersistence.clearFolderHandle();
+          return;
+        }
+
+        // List .redstring files in folder
+        const files = await listFilesInFolder(folderHandle, '*.redstring');
+
+        if (files.length === 0) {
+          console.log('[NodeCanvas] Folder is empty, no universes to restore');
+          return;
+        }
+
+        if (!isMounted) return;
+
+        console.log(`[NodeCanvas] Found ${files.length} universe(s) in folder, loading first one...`);
+
+        // Load the first universe
+        const firstFile = files[0];
+        const { readFile } = await import('./utils/fileAccessAdapter.js');
+        const content = await readFile(firstFile.handle);
+        const data = JSON.parse(content);
+
+        if (!isMounted) return;
+
+        storeActions.loadUniverseFromFile(data);
+        storeActions.setStorageMode('folder');
+        storeActions.setUniverseConnected(true);
+
+        console.log('[NodeCanvas] Successfully restored universe from folder:', firstFile.name);
+      } catch (error) {
+        console.error('[NodeCanvas] Failed to initialize from stored folder:', error);
+        // Don't show error to user, just fall through to normal onboarding
+      }
+    };
+
+    initializeFromFolder();
+
+    return () => {
+      isMounted = false;
+    };
+  }, []); // Run once on mount
 
   // Show onboarding modal when there's no universe file and universe isn't loaded
   useEffect(() => {
@@ -13180,7 +13250,7 @@ function NodeCanvas() {
 
 
 
-      {/* Onboarding Modal */}
+      {/* Onboarding Modal - Welcome Screen */}
       <AlphaOnboardingModal
         isVisible={showOnboardingModal}
         onClose={() => {
@@ -13192,203 +13262,134 @@ function NodeCanvas() {
           } catch { }
           setShowOnboardingModal(false);
         }}
-        onCreateLocal={async () => {
+        onGetStarted={() => {
+          // Close welcome modal and show storage setup
+          setShowOnboardingModal(false);
+          setShowStorageSetupModal(true);
+        }}
+        onUseWithoutSaving={async () => {
+          // Mark onboarding as complete
           try {
+            if (typeof window !== 'undefined') {
+              localStorage.setItem('redstring-alpha-welcome-seen', 'true');
+            }
+          } catch { }
+
+          // Close modal
+          setShowOnboardingModal(false);
+
+          // Load empty universe in browser storage mode
+          console.log('[NodeCanvas] Using browser storage mode (no persistence)');
+          storeActions.setStorageMode('browser');
+          storeActions.setUniverseLoaded(true, false);
+        }}
+      />
+
+      {/* Storage Setup Modal */}
+      <StorageSetupModal
+        isVisible={showStorageSetupModal}
+        onClose={() => {
+          setShowStorageSetupModal(false);
+        }}
+        onFolderSelected={async () => {
+          try {
+            console.log('[NodeCanvas] User selected folder storage option');
+
+            // Prompt user to select folder
+            const folderHandle = await pickFolder();
+
+            if (!folderHandle) {
+              console.log('[NodeCanvas] User cancelled folder selection');
+              return;
+            }
+
+            console.log('[NodeCanvas] Folder selected, storing handle...');
+
+            // Store the folder handle
+            await folderPersistence.storeFolderHandle(folderHandle);
+
             // Mark onboarding as complete
             if (typeof window !== 'undefined') {
               localStorage.setItem('redstring-alpha-welcome-seen', 'true');
             }
 
-            // Set storage mode to local
-            console.log('[NodeCanvas] Setting storage mode to local for file-based storage');
-            storeActions.setStorageMode('local');
+            // Close storage setup modal
+            setShowStorageSetupModal(false);
 
-            // Import file storage functions
-            const { createUniverseFile, enableAutoSave } = fileStorage;
+            // Check if folder has any existing .redstring files
+            const files = await listFilesInFolder(folderHandle, '*.redstring');
 
-            // Create universe file with file picker
-            const initialData = await createUniverseFile();
+            if (files.length > 0) {
+              console.log(`[NodeCanvas] Found ${files.length} existing universe(s) in folder`);
 
-            if (initialData !== null) {
-              // Successfully created universe file, load the empty state
-              storeActions.loadUniverseFromFile(initialData);
+              // Load the first universe file found
+              const firstFile = files[0];
+              console.log('[NodeCanvas] Loading universe from:', firstFile.name);
 
-              // Enable auto-save
-              enableAutoSave(() => useGraphStore.getState());
+              const { readFile } = await import('./utils/fileAccessAdapter.js');
+              const content = await readFile(firstFile.handle);
+              const data = JSON.parse(content);
 
-              // Ensure universe connection is marked as established
+              storeActions.loadUniverseFromFile(data);
+              storeActions.setStorageMode('folder');
               storeActions.setUniverseConnected(true);
+
+              console.log('[NodeCanvas] Successfully loaded universe from folder');
             } else {
-              // User cancelled the file creation dialog
-              storeActions.setUniverseError('File creation was cancelled. Please try again to set up your universe.');
+              console.log('[NodeCanvas] No existing universes found, creating default.redstring');
+
+              // Create default.redstring file
+              const defaultFileName = 'default.redstring';
+              const fileHandle = await getFileInFolder(folderHandle, defaultFileName, true);
+
+              // Create empty universe state
+              const emptyState = {
+                graph: {
+                  id: 'root',
+                  nodes: new Map(),
+                  edges: new Map()
+                },
+                nodePrototypes: new Map(),
+                graphRegistry: new Map([['root', { id: 'root', nodes: new Map(), edges: new Map() }]]),
+                nodeDefinitionIndices: new Map()
+              };
+
+              // Write to file
+              const { writeFile } = await import('./utils/fileAccessAdapter.js');
+              await writeFile(fileHandle, JSON.stringify(emptyState, null, 2));
+
+              // Load the new universe
+              storeActions.loadUniverseFromFile(emptyState);
+              storeActions.setStorageMode('folder');
+              storeActions.setUniverseConnected(true);
+
+              console.log('[NodeCanvas] Created and loaded default universe');
             }
           } catch (error) {
-            storeActions.setUniverseError(`Failed to create universe: ${error.message}. Please try again.`);
+            console.error('[NodeCanvas] Folder setup failed:', error);
+            storeActions.setUniverseError(`Failed to set up folder: ${error.message}`);
           }
         }}
-        onOpenLocal={async () => {
+        onBrowserStorageSelected={async () => {
           try {
+            console.log('[NodeCanvas] User selected browser storage option');
+
             // Mark onboarding as complete
             if (typeof window !== 'undefined') {
               localStorage.setItem('redstring-alpha-welcome-seen', 'true');
             }
 
-            // Set storage mode to local
-            console.log('[NodeCanvas] Setting storage mode to local for file-based storage');
-            storeActions.setStorageMode('local');
+            // Close storage setup modal
+            setShowStorageSetupModal(false);
 
-            // Import file storage functions
-            const { openUniverseFile, enableAutoSave } = fileStorage;
+            // Load empty universe in browser storage mode
+            storeActions.setStorageMode('browser');
+            storeActions.setUniverseLoaded(true, false);
 
-            // Open universe file with file picker
-            const loadedData = await openUniverseFile();
-
-            if (loadedData !== null) {
-              // Successfully loaded universe file
-              storeActions.loadUniverseFromFile(loadedData);
-
-              // Enable auto-save
-              enableAutoSave(() => useGraphStore.getState());
-
-              // Ensure universe connection is marked as established
-              storeActions.setUniverseConnected(true);
-            }
+            console.log('[NodeCanvas] Browser storage mode activated');
           } catch (error) {
-            storeActions.setUniverseError(`Failed to open file: ${error.message}`);
-          }
-        }}
-        onConnectGitHub={async (step) => {
-          // Handle different GitHub setup steps
-          console.log('[NodeCanvas] GitHub setup step:', step);
-
-          // Mark onboarding as complete when GitHub setup is initiated
-          if (typeof window !== 'undefined') {
-            localStorage.setItem('redstring-alpha-welcome-seen', 'true');
-          }
-
-          // Set storage mode to git when GitHub is selected
-          console.log('[NodeCanvas] Setting storage mode to git for GitHub sync');
-          storeActions.setStorageMode('git');
-          storeActions.updateGitSettings({
-            autoSync: true,
-            syncOnSave: true
-          });
-
-          // Expand left panel and open Git Federation view
-          setLeftPanelExpanded(true);
-          setLeftPanelInitialView('federation');
-
-          if (step === 'oauth') {
-            console.log('[NodeCanvas] Starting OAuth flow...');
-            // Trigger OAuth flow directly
-            try {
-              const { oauthFetch } = await import('./services/bridgeConfig.js');
-
-              // Clear previous OAuth state
-              sessionStorage.removeItem('github_oauth_pending');
-              sessionStorage.removeItem('github_oauth_state');
-              sessionStorage.removeItem('github_oauth_result');
-
-              // Get OAuth client ID
-              const resp = await oauthFetch('/api/github/oauth/client-id');
-              if (!resp.ok) throw new Error('Failed to load OAuth configuration');
-              const { clientId } = await resp.json();
-              if (!clientId) throw new Error('GitHub OAuth client ID not configured');
-
-              // Generate state and redirect
-              const stateValue = Math.random().toString(36).slice(2);
-              const redirectUri = `${window.location.origin}/oauth/callback`;
-              const scopes = 'repo';
-
-              sessionStorage.setItem('github_oauth_state', stateValue);
-              sessionStorage.setItem('github_oauth_pending', 'true');
-              // Mark that we should resume onboarding state after redirect
-              sessionStorage.setItem('redstring_onboarding_resume', 'true');
-              sessionStorage.setItem('redstring_onboarding_step', 'oauth');
-              sessionStorage.setItem('redstring_first_link_prompt', 'true');
-
-              const authUrl = `https://github.com/login/oauth/authorize?client_id=${encodeURIComponent(clientId)}&redirect_uri=${encodeURIComponent(redirectUri)}&scope=${encodeURIComponent(scopes)}&state=${encodeURIComponent(stateValue)}`;
-
-              // Close modal before redirect
-              setShowOnboardingModal(false);
-
-              // Redirect to GitHub
-              window.location.href = authUrl;
-            } catch (err) {
-              console.error('[NodeCanvas] OAuth launch failed:', err);
-            }
-          } else if (step === 'app') {
-            console.log('[NodeCanvas] Starting GitHub App installation...');
-            // Trigger GitHub App installation
-            try {
-              const { oauthFetch } = await import('./services/bridgeConfig.js');
-
-              let appName = 'redstring-semantic-sync';
-              try {
-                const resp = await oauthFetch('/api/github/app/info');
-                if (resp.ok) {
-                  const data = await resp.json();
-                  appName = data.name || appName;
-                }
-              } catch {
-                // Use default app name
-              }
-
-              sessionStorage.setItem('github_app_pending', 'true');
-              const stateValue = Date.now().toString();
-              const url = `https://github.com/apps/${appName}/installations/new?state=${stateValue}`;
-              // Mark that we should resume onboarding state after redirect
-              sessionStorage.setItem('redstring_onboarding_resume', 'true');
-              sessionStorage.setItem('redstring_onboarding_step', 'app');
-              sessionStorage.setItem('redstring_first_link_prompt', 'true');
-
-              // Close modal before redirect
-              setShowOnboardingModal(false);
-
-              // Redirect to GitHub App installation
-              window.location.href = url;
-            } catch (err) {
-              console.error('[NodeCanvas] GitHub App launch failed:', err);
-            }
-          } else if (step === 'complete') {
-            console.log('[NodeCanvas] Complete setup - opening Git Federation panel');
-            // Close modal and let user complete setup in Git Federation panel
-            setShowOnboardingModal(false);
-            try { sessionStorage.setItem('redstring_first_link_prompt', 'true'); } catch { }
-          } else if (step === 'use-existing') {
-            console.log('[NodeCanvas] Using existing GitHub connections for Git-based universe');
-
-            try {
-              // Import universe backend to try loading Git universe
-              const { default: universeBackend } = await import('./services/universeBackend.js');
-
-              // Try to load from the active universe
-              const activeUniverse = universeBackend.getActiveUniverse();
-              if (activeUniverse && activeUniverse.gitRepo && activeUniverse.gitRepo.enabled) {
-                console.log('[NodeCanvas] Found existing Git universe, attempting to load:', activeUniverse.slug);
-                const storeState = await universeBackend.loadUniverseData(activeUniverse);
-                if (storeState) {
-                  storeActions.loadUniverseFromFile(storeState);
-                  console.log('[NodeCanvas] ✅ Successfully restored Git-based universe from:', activeUniverse.slug);
-                } else {
-                  console.log('[NodeCanvas] Git universe exists but no data found, using empty state');
-                  storeActions.setUniverseLoaded(true, true);
-                }
-              } else {
-                console.log('[NodeCanvas] No Git universe configured, creating empty state for Git-based storage');
-                storeActions.setUniverseLoaded(true, true);
-              }
-            } catch (error) {
-              console.warn('[NodeCanvas] Failed to restore Git universe, falling back to empty state:', error);
-              // Still mark as loaded to prevent modal reopening
-              storeActions.setUniverseLoaded(true, true);
-            }
-
-            // Close onboarding modal and open Git Federation panel
-            setShowOnboardingModal(false);
-            try { sessionStorage.setItem('redstring_first_link_prompt', 'true'); } catch { }
-
-            console.log('[NodeCanvas] ✅ Git-based storage mode activated, opening Git Federation panel');
+            console.error('[NodeCanvas] Browser storage setup failed:', error);
+            storeActions.setUniverseError(`Failed to set up browser storage: ${error.message}`);
           }
         }}
       />

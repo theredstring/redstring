@@ -180,3 +180,151 @@ export const getFileName = async (fileHandleOrPath) => {
   }
 };
 
+/**
+ * Pick a folder (directory)
+ * @param {Object} options - Folder picker options
+ * @param {string} options.suggestedName - Suggested folder name (Electron only)
+ * @param {string} options.defaultPath - Default path (Electron only)
+ * @returns {Promise<DirectoryHandle|string>} - Browser: DirectoryHandle, Electron: folder path string
+ */
+export const pickFolder = async (options = {}) => {
+  if (isElectron()) {
+    const folderPath = await window.electron.fileSystem.pickFolder(options);
+    return folderPath;
+  } else if ('showDirectoryPicker' in window) {
+    const directoryHandle = await window.showDirectoryPicker({
+      mode: 'readwrite',
+      ...options
+    });
+    return directoryHandle;
+  } else {
+    throw new Error('Directory Picker API not available. Use Electron build or modern browser.');
+  }
+};
+
+/**
+ * List files in a folder matching a pattern
+ * @param {DirectoryHandle|string} folderHandleOrPath - Browser: DirectoryHandle, Electron: folder path
+ * @param {string} pattern - File pattern to match (e.g., '*.redstring')
+ * @returns {Promise<Array<{name: string, handle: FileHandle|string}>>} - List of files
+ */
+export const listFilesInFolder = async (folderHandleOrPath, pattern = '*') => {
+  if (isElectron()) {
+    // Electron: use fs to list files
+    const files = await window.electron.fileSystem.listFiles(folderHandleOrPath, pattern);
+    return files.map(fileName => ({
+      name: fileName,
+      handle: `${folderHandleOrPath}/${fileName}` // Full path as handle
+    }));
+  } else {
+    // Browser: iterate DirectoryHandle
+    const files = [];
+    for await (const entry of folderHandleOrPath.values()) {
+      if (entry.kind === 'file') {
+        // Simple pattern matching (e.g., '*.redstring')
+        if (pattern === '*' || entry.name.endsWith(pattern.replace('*', ''))) {
+          files.push({
+            name: entry.name,
+            handle: entry // FileHandle
+          });
+        }
+      }
+    }
+    return files;
+  }
+};
+
+/**
+ * Get or create a file in a folder
+ * @param {DirectoryHandle|string} folderHandleOrPath - Browser: DirectoryHandle, Electron: folder path
+ * @param {string} filename - Name of the file
+ * @param {boolean} create - Whether to create if it doesn't exist (default: true)
+ * @returns {Promise<FileHandle|string>} - Browser: FileHandle, Electron: file path string
+ */
+export const getFileInFolder = async (folderHandleOrPath, filename, create = true) => {
+  if (isElectron()) {
+    // Electron: construct full path
+    const filePath = `${folderHandleOrPath}/${filename}`;
+
+    // Check if file exists
+    const exists = await window.electron.fileSystem.fileExists(filePath);
+
+    if (!exists && create) {
+      // Create empty file
+      await window.electron.fileSystem.writeFile(filePath, '');
+    }
+
+    return filePath;
+  } else {
+    // Browser: get FileHandle from DirectoryHandle
+    const fileHandle = await folderHandleOrPath.getFileHandle(filename, { create });
+    return fileHandle;
+  }
+};
+
+/**
+ * Validate folder access (check read/write permissions)
+ * Web only - Electron always has access
+ * @param {DirectoryHandle|string} folderHandleOrPath - Browser: DirectoryHandle, Electron: folder path
+ * @returns {Promise<boolean>} - True if folder is accessible
+ */
+export const validateFolderAccess = async (folderHandleOrPath) => {
+  if (isElectron()) {
+    // Electron: check if folder exists and is accessible
+    try {
+      const exists = await window.electron.fileSystem.folderExists(folderHandleOrPath);
+      return exists;
+    } catch (error) {
+      console.error('[FileAccessAdapter] Folder validation failed:', error);
+      return false;
+    }
+  } else {
+    // Browser: check permission state
+    try {
+      const permission = await folderHandleOrPath.queryPermission({ mode: 'readwrite' });
+      return permission === 'granted';
+    } catch (error) {
+      console.error('[FileAccessAdapter] Folder permission check failed:', error);
+      return false;
+    }
+  }
+};
+
+/**
+ * Request folder permissions (for restored DirectoryHandles)
+ * Web only - Electron doesn't need permission requests
+ * @param {DirectoryHandle|string} folderHandleOrPath - Browser: DirectoryHandle, Electron: folder path
+ * @returns {Promise<boolean>} - True if permission granted
+ */
+export const requestFolderPermission = async (folderHandleOrPath) => {
+  if (isElectron()) {
+    // Electron: no permission needed, just validate folder exists
+    return await validateFolderAccess(folderHandleOrPath);
+  } else {
+    // Browser: request permission
+    try {
+      const permission = await folderHandleOrPath.requestPermission({ mode: 'readwrite' });
+      return permission === 'granted';
+    } catch (error) {
+      console.error('[FileAccessAdapter] Permission request failed:', error);
+      return false;
+    }
+  }
+};
+
+/**
+ * Get folder name from handle/path
+ * @param {DirectoryHandle|string} folderHandleOrPath - Browser: DirectoryHandle, Electron: folder path
+ * @returns {Promise<string>} - Folder name
+ */
+export const getFolderName = async (folderHandleOrPath) => {
+  if (isElectron()) {
+    // Electron: extract folder name from path
+    const parts = folderHandleOrPath.split(/[/\\]/);
+    return parts[parts.length - 1] || parts[parts.length - 2]; // Handle trailing slash
+  } else {
+    // Browser: get name from DirectoryHandle
+    return folderHandleOrPath.name;
+  }
+};
+

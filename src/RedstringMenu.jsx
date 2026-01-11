@@ -263,7 +263,30 @@ const RedstringMenu = ({
                         onMouseEnter={handleTopLevelSubmenuEnter}
                         onMouseLeave={handleTopLevelMenuLeave}
                       >
-                        {/* Universe operations removed - UniverseManager eliminated */}
+                        {/* Workspace operations */}
+                        <div
+                          className="submenu-item"
+                          onMouseEnter={handleRegularSubmenuItemHover}
+                          onClick={async () => {
+                            try {
+                              const { pickFolder } = await import('./utils/fileAccessAdapter.js');
+                              const { storeFolderHandle } = await import('./services/folderPersistence.js');
+
+                              const folderHandle = await pickFolder();
+                              if (folderHandle) {
+                                await storeFolderHandle(folderHandle);
+                                console.log('[RedstringMenu] Workspace folder changed');
+                                window.location.reload();
+                              }
+                            } catch (error) {
+                              console.error('[RedstringMenu] Failed to change workspace folder:', error);
+                            }
+                          }}
+                          style={{ cursor: 'pointer' }}
+                        >
+                          <FolderOpen size={16} style={{ marginRight: '8px', minWidth: '16px', flexShrink: 0 }} />
+                          Change Workspace Folder...
+                        </div>
                         <div
                           className="submenu-item"
                           onMouseEnter={handleRegularSubmenuItemHover}

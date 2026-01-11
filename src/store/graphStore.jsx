@@ -173,6 +173,17 @@ const saveCoordinatorMiddleware = (config) => {
   let pendingNotification = null;
   let batchedContext = { type: 'unknown' };
 
+  // History batching variables
+  let historyTimeout = null;
+  let historyBatch = {
+    patches: [],
+    inversePatches: [],
+    descriptions: [],
+    domain: null,
+    actionTypes: new Set(),
+    timestamp: 0
+  };
+
   // Lazy load SaveCoordinator to avoid circular dependencies
   const getSaveCoordinator = async () => {
     if (!saveCoordinator) {
@@ -189,11 +200,6 @@ const saveCoordinatorMiddleware = (config) => {
   return (set, get, api) => {
     // Enhance the set function to track change context and capture patches
     const enhancedSet = (...args) => {
-      // DEBUG: Trace why actions are duplicated
-      if (changeContext.type !== 'node_update') { // Filter out noise if needed, or just log all
-        console.log(`[GraphStore] Action: ${changeContext.type}`, new Error().stack.split('\n')[2]);
-      }
-
       // 1. Capture patches via the global listener (hooked into our custom produce wrapper)
       let currentPatches = null;
       let currentInverse = null;
@@ -208,8 +214,7 @@ const saveCoordinatorMiddleware = (config) => {
       // 3. Initialize cleanup and reset listener immediately
       patchListener = null;
 
-      // --- History Recording ---
-      // Record significant actions to the history store
+      // --- History Recording (Batched) ---
       const recordableTypes = new Set([
         'node_place', 'node_delete', 'node_type_change', 'node_update',
         'edge_create', 'edge_delete', 'edge_update', 'edge_type_change',
@@ -218,7 +223,6 @@ const saveCoordinatorMiddleware = (config) => {
         'position_update', 'node_position',
         'graph_create', 'graph_delete', 'graph_update'
       ]);
-
 
       if (changeContext.ignore) {
         // Explicitly skip recording
@@ -235,30 +239,83 @@ const saveCoordinatorMiddleware = (config) => {
             ? 'global'
             : `graph-${changeContext.graphId || get().activeGraphId}`; // Fallback to active graph
 
-          // Push to history with patches (ONLY if changes actually occurred)
+          // Accumulate into batch if patches exist
           if (currentPatches && currentPatches.length > 0) {
-            useHistoryStore.getState().pushAction({
-              domain,
-              actionType: changeContext.type,
-              description: generateDescription(changeContext, get()),
-              patches: currentPatches,
-              inversePatches: currentInverse
-            });
+            // Check if we should flush previous batch due to major context switch (e.g. domain change)
+            if (historyBatch.patches.length > 0 && historyBatch.domain !== domain) {
+              // Flush immediately
+              flushHistoryBatch();
+            }
+
+            if (historyBatch.patches.length === 0) {
+              historyBatch.domain = domain;
+              historyBatch.timestamp = Date.now();
+            }
+
+            historyBatch.patches.push(...currentPatches);
+            // Inverse patches prepend: (Revert New, then Revert Old)
+            historyBatch.inversePatches.unshift(...currentInverse);
+
+            const desc = generateDescription(changeContext, get());
+            historyBatch.descriptions.push(desc);
+            historyBatch.actionTypes.add(changeContext.type);
+
+            // Debounce flush
+            if (historyTimeout) clearTimeout(historyTimeout);
+            historyTimeout = setTimeout(flushHistoryBatch, 50); // 50ms batch window
           }
         }
       }
-      // -------------------------
 
-      // Batch multiple rapid state changes into a single notification
-      // This prevents excessive hash calculations during rapid operations
+      // Helper to flush batch
+      function flushHistoryBatch() {
+        if (!historyBatch.patches.length) return;
+
+        // Generate combined description
+        let finalDescription = historyBatch.descriptions[0];
+        if (historyBatch.descriptions.length > 1) {
+          // Check for homogenous batch
+          const uniqueTypes = historyBatch.actionTypes;
+          if (uniqueTypes.has('edge_update') && uniqueTypes.size > 1) {
+            // E.g. Update Node + Update Edge(s)
+            finalDescription = `${historyBatch.descriptions[0]} (+ related updates)`;
+          } else if (historyBatch.descriptions.length > 3) {
+            finalDescription = `${historyBatch.descriptions[0]} (+ ${historyBatch.descriptions.length - 1} actions)`;
+          } else {
+            // Join distinct descriptions if few
+            const uniqueDescs = [...new Set(historyBatch.descriptions)];
+            finalDescription = uniqueDescs.join(', ');
+          }
+        }
+
+        useHistoryStore.getState().pushAction({
+          domain: historyBatch.domain,
+          actionType: Array.from(historyBatch.actionTypes).join('+'), // 'node_update+edge_update'
+          description: finalDescription,
+          patches: [...historyBatch.patches],
+          inversePatches: [...historyBatch.inversePatches],
+          timestamp: historyBatch.timestamp
+        });
+
+        // Reset
+        historyBatch = {
+          patches: [],
+          inversePatches: [],
+          descriptions: [],
+          domain: null,
+          actionTypes: new Set(),
+          timestamp: 0
+        };
+        historyTimeout = null;
+      }
+
+      // Batch multiple rapid state changes into a single notification (Send to SaveCoordinator)
       if (pendingNotification) {
         clearTimeout(pendingNotification);
       }
 
-      // Merge context from multiple rapid changes
       batchedContext = { ...batchedContext, ...changeContext };
 
-      // Notify SaveCoordinator of state changes with micro-batching
       pendingNotification = setTimeout(async () => {
         try {
           const coordinator = await getSaveCoordinator();
@@ -267,7 +324,6 @@ const saveCoordinatorMiddleware = (config) => {
             coordinator.onStateChange(currentState, batchedContext);
           }
 
-          // Reset contexts for next batch
           changeContext = { type: 'unknown' };
           batchedContext = { type: 'unknown' };
           pendingNotification = null;

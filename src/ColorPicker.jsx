@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Palette } from 'lucide-react';
+import { cssColorToHex } from './utils/colorUtils';
 
 const ColorPicker = ({
   isVisible,
@@ -64,12 +65,17 @@ const ColorPicker = ({
 
   // Initialize with current color
   useEffect(() => {
-    if (currentColor && currentColor.startsWith('#')) {
-      const hsv = hexToHsv(currentColor);
-      setSelectedHue(hsv.h);
-      setSelectedSaturation(Math.round(hsv.s * 100));
-      setSelectedBrightness(Math.round(hsv.v * 100));
-      setHexInput(currentColor);
+    if (currentColor) {
+      // Normalize color (handle CSS names, 3-digit hex, etc.)
+      const normalizedColor = cssColorToHex(currentColor);
+
+      if (normalizedColor && normalizedColor.startsWith('#')) {
+        const hsv = hexToHsv(normalizedColor);
+        setSelectedHue(hsv.h);
+        setSelectedSaturation(Math.round(hsv.s * 100));
+        setSelectedBrightness(Math.round(hsv.v * 100));
+        setHexInput(normalizedColor);
+      }
     }
   }, [currentColor, hexToHsv]);
 
