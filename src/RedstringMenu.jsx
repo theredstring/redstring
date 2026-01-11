@@ -747,6 +747,36 @@ const RedstringMenu = ({
 
                         <div
                           className="submenu-item"
+                          onClick={async () => {
+                            try {
+                              // Clear onboarding flag
+                              localStorage.removeItem('redstring-alpha-welcome-seen');
+
+                              // Clear folder storage
+                              localStorage.removeItem('redstring_workspace_folder_path');
+
+                              // Clear IndexedDB folder storage
+                              indexedDB.deleteDatabase('RedstringFolderStorage');
+
+                              // Clear session flags
+                              sessionStorage.clear();
+
+                              console.log('[Debug] Onboarding state reset - reloading...');
+
+                              // Reload to trigger first-time flow
+                              window.location.reload();
+                            } catch (error) {
+                              console.error('[Debug] Failed to reset onboarding:', error);
+                            }
+                          }}
+                          style={{ cursor: 'pointer' }}
+                        >
+                          <RefreshCw size={14} style={{ marginRight: '8px' }} />
+                          Reset Onboarding Flow
+                        </div>
+
+                        <div
+                          className="submenu-item"
                           onMouseEnter={handleRegularSubmenuItemHover}
                           onClick={() => onToggleShowClusterHulls?.()}
                           style={{ cursor: 'pointer', opacity: showClusterHulls ? 1 : 0.8 }}

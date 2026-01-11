@@ -18,13 +18,14 @@ const StorageSetupModal = ({
     width: typeof window !== 'undefined' ? window.innerWidth : 1200,
     height: typeof window !== 'undefined' ? window.innerHeight : 900
   }));
-  const isCompactLayout = viewportSize.width <= 768;
+  // Only use compact layout on truly small screens (mobile)
+  const isCompactLayout = viewportSize.width <= 500;
   const modalWidth = isCompactLayout
     ? Math.min(Math.max(viewportSize.width - 24, 320), 540)
     : 600;
   const modalHeight = isCompactLayout
     ? Math.min(Math.max(viewportSize.height * 0.85, 400), 550)
-    : 550;
+    : 520;
 
   const showBrowserStorageOption = !isElectron();
 
