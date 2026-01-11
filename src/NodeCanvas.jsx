@@ -42,6 +42,7 @@ import useGraphStore, {
   getEdgesForGraph,
   getNodePrototypeById, // New selector for prototypes
 } from "./store/graphStore.jsx";
+import useHistoryStore from './store/historyStore.js';
 import { shallow } from 'zustand/shallow';
 
 import {
@@ -90,6 +91,8 @@ import OrbitOverlay from './components/OrbitOverlay.jsx';
 import AlphaOnboardingModal from './components/AlphaOnboardingModal.jsx';
 import HelpModal from './components/HelpModal.jsx';
 import CanvasConfirmDialog from './components/shared/CanvasConfirmDialog.jsx';
+
+
 
 
 const SPAWNABLE_NODE = 'spawnable_node';
@@ -208,6 +211,32 @@ function NodeCanvas() {
         toggleShowClusterHulls: () => { }
       };
     }
+  }, []);
+
+  // Global Keyboard Shortcuts for Undo/Redo
+  useEffect(() => {
+    const handleKeyDown = (e) => {
+      // Check for Ctrl+Z or Cmd+Z
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z') {
+        const isRedo = e.shiftKey;
+
+        // Prevent default browser undo/redo
+        e.preventDefault();
+        e.stopPropagation();
+
+        const { undo, redo, canUndo, canRedo } = useHistoryStore.getState();
+        const { applyPatches } = useGraphStore.getState();
+
+        if (isRedo) {
+          if (canRedo()) redo(applyPatches);
+        } else {
+          if (canUndo()) undo(applyPatches);
+        }
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
   }, []);
 
   // Panel overlay resizers rendered in canvas (do not overlap panel DOM)

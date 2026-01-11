@@ -1,9 +1,10 @@
 import { create } from 'zustand';
 import { v4 as uuidv4 } from 'uuid';
+import { applyPatches } from 'immer';
 
 /**
  * History store for managing undo/redo stack.
- * Stores a single linear timeline of actions with domain tagging.
+ * Stores a single linear timeline of actions with patch-based undo/redo.
  */
 const useHistoryStore = create((set, get) => ({
     // Single linear timeline
@@ -11,10 +12,9 @@ const useHistoryStore = create((set, get) => ({
     currentIndex: -1,      // Points to "now" (-1 = at end)
     maxHistorySize: 100,
 
-    // Push a new action
+    // Push a new action with patches
     pushAction: (entry) => set(state => {
         // If we're not at the end, truncate redo history
-        // This happens when you undo some actions and then perform a new action
         const newHistory = state.currentIndex === -1
             ? state.history
             : state.history.slice(0, state.history.length + state.currentIndex + 1);
@@ -25,7 +25,7 @@ const useHistoryStore = create((set, get) => ({
         const action = {
             id: uuidv4(),
             timestamp: Date.now(),
-            ...entry,
+            ...entry, // This now includes patches, inversePatches, description, etc.
             domain
         };
 
@@ -48,42 +48,69 @@ const useHistoryStore = create((set, get) => ({
         return history.filter(h => h.domain === domain);
     },
 
-    // Undo within a domain - Placeholder for Phase 2
-    undoInDomain: (domain) => {
-        // TODO: Implement with Immer patches
-        console.log(`[History] Undo requested for domain: ${domain}`);
+    // Undo action (generic)
+    // The application logic needs to pass a callback to apply the patches to the correct store
+    undo: (applyFn) => {
+        const { history, currentIndex } = get();
+        // Calculate the effective index of the item we want to undo
+        // currentIndex = -1 means we are at the end, so we want to undo the LAST item (index history.length - 1)
+        // currentIndex = -2 means we already undid the last item, so want to undo (history.length - 2)
+
+        const effectiveIndex = history.length + currentIndex;
+
+        if (effectiveIndex < 0) {
+            console.warn('[History] Nothing to undo');
+            return;
+        }
+
+        const entry = history[effectiveIndex];
+
+        if (!entry.inversePatches) {
+            console.warn('[History] No inverse patches for this action', entry);
+            return;
+        }
+
+        console.log(`[History] Undoing: ${entry.description}`);
+
+        // callback to apply patches to the relevant store (graphStore)
+        applyFn(entry.inversePatches);
+
+        set({ currentIndex: currentIndex - 1 });
     },
 
-    // Redo within a domain - Placeholder for Phase 2
-    redoInDomain: (domain) => {
-        // TODO: Implement with Immer patches
-        console.log(`[History] Redo requested for domain: ${domain}`);
+    // Redo action
+    redo: (applyFn) => {
+        const { history, currentIndex } = get();
+
+        // If currentIndex is -1, there is nothing to redo (we are at current head)
+        if (currentIndex >= -1) {
+            console.warn('[History] Nothing to redo');
+            return;
+        }
+
+        // currentIndex is e.g. -2 (we are behind by 1 step). The item to REDO is the next one.
+        // effective index of current state is history.length - 2.
+        // next item is at history.length - 2 + 1 = history.length - 1.
+
+        const nextEffectiveIndex = history.length + currentIndex + 1;
+        const entry = history[nextEffectiveIndex];
+
+        if (!entry.patches) {
+            console.warn('[History] No patches for this action', entry);
+            return;
+        }
+
+        console.log(`[History] Redoing: ${entry.description}`);
+
+        applyFn(entry.patches);
+
+        set({ currentIndex: currentIndex + 1 });
     },
 
     // Helpers mainly for UI state
     canUndo: () => {
         const { history, currentIndex } = get();
-        // If currentIndex is -1, we are at the end, so we can undo if history is not empty
-        if (currentIndex === -1) return history.length > 0;
-        // If currentIndex is < -1, we are traversing back. 
-        // e.g. -2 means we undid the last action.
-        // The index represents the pointer RELATIVE TO THE END.
-        // Actually, let's rethink the indexing to be absolute or standard pointer.
-
-        // Standard approach:
-        // history = [A, B, C]
-        // pointer = 2 (pointing at C). Undo -> pointer = 1.
-        // 
-        // Let's keep the `currentIndex` as a relative pointer from the end for simplicity in adding items?
-        // "currentIndex: -1 (Points to 'now' (-1 = at end))" from the plan.
-        // If history length is 5.
-        // -1 = after last item (current state).
-        // -2 = after 4th item (1 undo performed).
-        // ...
-        // -(length + 1) = before first item.
-
-        const effectiveIndex = history.length + currentIndex + 1;
-        return effectiveIndex > 0;
+        return (history.length + currentIndex) >= 0;
     },
 
     canRedo: () => {

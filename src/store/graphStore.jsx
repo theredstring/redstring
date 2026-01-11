@@ -1,5 +1,31 @@
 import { create } from 'zustand';
-import { produce, enableMapSet } from 'immer';
+import { produce as immerProduce, produceWithPatches, applyPatches, enableMapSet, enablePatches } from 'immer';
+
+// Global listener for patches, used by middleware to capture changes from actions
+let patchListener = null;
+
+/**
+ * Custom produce wrapper to capture patches from existing actions.
+ * This allows us to "spy" on state changes without refactoring all 3500+ lines of action code.
+ */
+const produce = (arg1, arg2) => {
+  // Overload 1: Curried producer -> produce(recipe) => (state) => newState
+  // This is the pattern used by 99% of actions: set(produce(draft => ...))
+  if (typeof arg1 === 'function' && typeof arg2 === 'undefined') {
+    const recipe = arg1;
+    return (state) => {
+      const [next, patches, inverse] = produceWithPatches(state, recipe);
+      if (patchListener) patchListener(patches, inverse);
+      return next;
+    }
+  }
+  // Overload 2: Direct producer -> produce(state, recipe) => newState
+  else {
+    const [next, patches, inverse] = produceWithPatches(arg1, arg2);
+    if (patchListener) patchListener(patches, inverse);
+    return next;
+  }
+};
 import { v4 as uuidv4 } from 'uuid';
 import { NODE_WIDTH, NODE_HEIGHT, NODE_DEFAULT_COLOR } from '../constants.js';
 import { getFileStatus, restoreLastSession, clearSession, notifyChanges } from './fileStorage.js';
@@ -9,8 +35,9 @@ import { debugLogSync } from '../utils/debugLogger.js';
 import useHistoryStore from './historyStore.js';
 import { generateDescription } from '../utils/actionDescriptions.js';
 
-// Enable Immer Map/Set plugin support
+// Enable Immer plugins
 enableMapSet();
+enablePatches();
 
 const getDefaultAutoLayoutSettings = () => ({
   defaultSpacing: 15,
@@ -160,39 +187,55 @@ const saveCoordinatorMiddleware = (config) => {
   };
 
   return (set, get, api) => {
-    // Enhance the set function to track change context
+    // Enhance the set function to track change context and capture patches
     const enhancedSet = (...args) => {
+      // 1. Capture patches via the global listener (hooked into our custom produce wrapper)
+      let currentPatches = null;
+      let currentInverse = null;
+      patchListener = (p, i) => {
+        currentPatches = p;
+        currentInverse = i;
+      };
+
+      // 2. Execute the state update
       set(...args);
+
+      // 3. Initialize cleanup and reset listener immediately
+      patchListener = null;
 
       // --- History Recording ---
       // Record significant actions to the history store
-      // We do this synchronously to capture every distinct action
       const recordableTypes = new Set([
-        'node_place', 'node_delete',
-        'edge_create', 'edge_delete',
-        'group_create', 'group_update', 'group_delete',
+        'node_place', 'node_delete', 'node_type_change',
+        'edge_create', 'edge_delete', 'edge_update', 'edge_type_change',
+        'group_create', 'group_update', 'group_delete', 'group_convert',
         'prototype_create', 'prototype_update', 'prototype_delete',
         'position_update', 'node_position',
         'graph_create', 'graph_delete'
       ]);
 
       if (recordableTypes.has(changeContext.type)) {
-        // Determine domain
-        const isGlobal = changeContext.type.startsWith('prototype_') ||
-          changeContext.type.startsWith('graph_');
+        // Special handling for position updates: only record if finalized (drag end)
+        if ((changeContext.type === 'node_position' || changeContext.type === 'position_update') && !changeContext.finalize) {
+          // Skip recording intermediate drag states
+        } else {
+          // Determine domain
+          const isGlobal = changeContext.type.startsWith('prototype_') ||
+            changeContext.type.startsWith('graph_');
 
-        const domain = isGlobal
-          ? 'global'
-          : `graph-${changeContext.graphId || get().activeGraphId}`; // Fallback to active graph
+          const domain = isGlobal
+            ? 'global'
+            : `graph-${changeContext.graphId || get().activeGraphId}`; // Fallback to active graph
 
-        useHistoryStore.getState().pushAction({
-          domain,
-          actionType: changeContext.type,
-          description: generateDescription(changeContext, get()),
-          // Phase 2: patches will serve as the undo mechanism
-          // forwardPatch: ...,
-          // inversePatch: ...
-        });
+          // Push to history with patches
+          useHistoryStore.getState().pushAction({
+            domain,
+            actionType: changeContext.type,
+            description: generateDescription(changeContext, get()),
+            patches: currentPatches,
+            inversePatches: currentInverse
+          });
+        }
       }
       // -------------------------
 
@@ -3425,6 +3468,9 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
 
       console.log(`[Store cleanupOrphanedGraphs] Cleanup complete. Deleted ${orphanedGraphs.length} orphaned graphs.`);
     })),
+
+    // Apply Immer patches to the state (used by Undo/Redo)
+    applyPatches: (patches) => set((state) => applyPatches(state, patches)),
 
   }; // End of returned state and actions object
 })); // End of create function with middleware
