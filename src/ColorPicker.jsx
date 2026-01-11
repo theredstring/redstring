@@ -1,10 +1,10 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Palette } from 'lucide-react';
 
-const ColorPicker = ({ 
-  isVisible, 
-  onClose, 
-  onColorChange, 
+const ColorPicker = ({
+  isVisible,
+  onClose,
+  onColorChange,
   currentColor = '#8B0000',
   position = { x: 0, y: 0 },
   direction = 'down-left', // 'down-left' or 'down-right'
@@ -103,14 +103,14 @@ const ColorPicker = ({
   // Handle hex input change
   const handleHexInputChange = (e) => {
     let value = e.target.value;
-    
+
     // Allow typing without # and add it automatically
     if (!value.startsWith('#') && value.length > 0) {
       value = '#' + value;
     }
-    
+
     setHexInput(value);
-    
+
     // Validate and apply color if valid
     if (/^#[0-9A-Fa-f]{6}$/.test(value)) {
       const hsv = hexToHsv(value);
@@ -126,7 +126,7 @@ const ColorPicker = ({
     const handleClickAway = (e) => {
       // Check if click is outside the color picker
       const isOutsidePicker = pickerRef.current && !pickerRef.current.contains(e.target);
-      
+
       // Close whenever clicking outside the picker itself, regardless of parent container
       if (isOutsidePicker) {
         onClose();
@@ -162,50 +162,50 @@ const ColorPicker = ({
     const pickerWidth = 240; // minWidth from the picker style
     // Update pickerHeight estimate for new sliders
     const pickerHeight = 320;
-    
+
     let left, right, top;
-    
+
     // Always try to align the right edge of the color picker with the right edge of the icon
     // This gives a nice visual alignment
     right = window.innerWidth - position.x;
     left = undefined;
-    
+
     top = position.y + offset;
-    
+
     // Check if picker would go off the left edge when right-aligned
     if (window.innerWidth - right < pickerWidth) {
       // Switch to left-aligned positioning
       left = position.x + offset;
       right = undefined;
-      
+
       // Ensure left-aligned version doesn't go off the right edge
       if (left + pickerWidth > window.innerWidth) {
         left = window.innerWidth - pickerWidth - offset;
       }
     }
-    
+
     // Check if picker would go off the bottom edge
     if (top + pickerHeight > window.innerHeight) {
       top = position.y - pickerHeight - offset; // Position above the trigger
     }
-    
+
     // Ensure we don't go off the top edge
     if (top < 0) {
       top = offset;
     }
-    
+
     const style = {
       position: 'fixed',
       top: Math.max(0, top),
       zIndex: 30000
     };
-    
+
     if (left !== undefined) {
       style.left = Math.max(0, left);
     } else {
       style.right = Math.max(0, right);
     }
-    
+
     return style;
   };
 
@@ -213,11 +213,11 @@ const ColorPicker = ({
 
   // Generate gradient colors for saturation slider (gray to fully saturated at current hue/brightness)
   const saturationGradientStart = hsvToHex(selectedHue, 0, selectedBrightness / 100);
-  const saturationGradientEnd = hsvToHex(selectedHue, 100, selectedBrightness / 100);
+  const saturationGradientEnd = hsvToHex(selectedHue, 1, selectedBrightness / 100);
 
   // Generate gradient colors for brightness slider (black to white at current hue/saturation)
   const brightnessGradientStart = hsvToHex(selectedHue, selectedSaturation / 100, 0);
-  const brightnessGradientEnd = hsvToHex(selectedHue, selectedSaturation / 100, 100);
+  const brightnessGradientEnd = hsvToHex(selectedHue, selectedSaturation / 100, 1);
 
   return (
     <div
@@ -236,11 +236,11 @@ const ColorPicker = ({
       }}
     >
       {/* Color preview */}
-      <div style={{ 
-        display: 'flex', 
-        alignItems: 'center', 
-        gap: '8px', 
-        marginBottom: '12px' 
+      <div style={{
+        display: 'flex',
+        alignItems: 'center',
+        gap: '8px',
+        marginBottom: '12px'
       }}>
         <div
           style={{
@@ -258,12 +258,12 @@ const ColorPicker = ({
 
       {/* Hue slider */}
       <div style={{ marginBottom: '12px' }}>
-        <label style={{ 
-          display: 'block', 
-          color: '#260000', 
-          fontSize: '12px', 
-          fontWeight: 'bold', 
-          marginBottom: '4px' 
+        <label style={{
+          display: 'block',
+          color: '#260000',
+          fontSize: '12px',
+          fontWeight: 'bold',
+          marginBottom: '4px'
         }}>
           Hue
         </label>
@@ -324,12 +324,12 @@ const ColorPicker = ({
 
       {/* Saturation slider */}
       <div style={{ marginBottom: '12px' }}>
-        <label style={{ 
-          display: 'block', 
-          color: '#260000', 
-          fontSize: '12px', 
-          fontWeight: 'bold', 
-          marginBottom: '4px' 
+        <label style={{
+          display: 'block',
+          color: '#260000',
+          fontSize: '12px',
+          fontWeight: 'bold',
+          marginBottom: '4px'
         }}>
           Saturation
         </label>
@@ -382,12 +382,12 @@ const ColorPicker = ({
 
       {/* Brightness slider */}
       <div style={{ marginBottom: '12px' }}>
-        <label style={{ 
-          display: 'block', 
-          color: '#260000', 
-          fontSize: '12px', 
-          fontWeight: 'bold', 
-          marginBottom: '4px' 
+        <label style={{
+          display: 'block',
+          color: '#260000',
+          fontSize: '12px',
+          fontWeight: 'bold',
+          marginBottom: '4px'
         }}>
           Brightness
         </label>
@@ -440,12 +440,12 @@ const ColorPicker = ({
 
       {/* Hex input */}
       <div>
-        <label style={{ 
-          display: 'block', 
-          color: '#260000', 
-          fontSize: '12px', 
-          fontWeight: 'bold', 
-          marginBottom: '4px' 
+        <label style={{
+          display: 'block',
+          color: '#260000',
+          fontSize: '12px',
+          fontWeight: 'bold',
+          marginBottom: '4px'
         }}>
           Hex Code
         </label>
