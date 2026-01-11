@@ -56,6 +56,9 @@ const ConnectionText = ({
           transform={`rotate(${adjustedAngle}, ${midX}, ${midY})`}
           stroke={(() => {
             const raw = connection.color || '#000000';
+            // Check if getTextColor suggests a dark color (returns something other than #bdb5b5)
+            // If raw is light (e.g. yellow), getTextColor returns dark.
+            // We should use that dark color for the stroke to be visible.
             const suggested = getTextColor(raw);
             return suggested === '#bdb5b5' ? raw : suggested;
           })()}
@@ -83,6 +86,9 @@ const ConnectionText = ({
         transform={`rotate(${adjustedAngle}, ${midX}, ${midY})`}
         stroke={(() => {
           const raw = connection.color || '#000000';
+          // Check if getTextColor suggests a dark color (returns something other than #bdb5b5)
+          // If raw is light (e.g. yellow), getTextColor returns dark.
+          // We should use that dark color for the stroke to be visible.
           const suggested = getTextColor(raw);
           return suggested === '#bdb5b5' ? raw : suggested;
         })()}

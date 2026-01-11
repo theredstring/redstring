@@ -3,6 +3,7 @@ import { useDrag } from 'react-dnd';
 import { getEmptyImage } from 'react-dnd-html5-backend';
 import { Search, Bookmark } from 'lucide-react';
 import useGraphStore from '../../../store/graphStore.jsx';
+import { getTextColor } from '../../../utils/colorUtils';
 
 const ItemTypes = {
   SPAWNABLE_NODE: 'spawnable_node'
@@ -112,7 +113,7 @@ const DraggableConceptCard = ({ concept, index = 0, onMaterialize, onUnsave, onS
         <Search
           size={32}
           style={{
-            color: '#BDB5B5', // Panel background color
+            color: getTextColor(concept.color), // Panel background color
             pointerEvents: 'none' // Allow clicks/hover to pass through to container
           }}
         />
@@ -145,8 +146,8 @@ const DraggableConceptCard = ({ concept, index = 0, onMaterialize, onUnsave, onS
         <Bookmark
           size={32}
           style={{
-            color: '#BDB5B5', // Panel background color stroke
-            fill: isBookmarked ? '#BDB5B5' : 'transparent', // Filled when saved, transparent when unsaved
+            color: getTextColor(concept.color), // Panel background color stroke
+            fill: isBookmarked ? getTextColor(concept.color) : 'transparent', // Filled when saved, transparent when unsaved
             pointerEvents: 'none' // Allow clicks/hover to pass through to container
           }}
         />
@@ -154,7 +155,7 @@ const DraggableConceptCard = ({ concept, index = 0, onMaterialize, onUnsave, onS
 
       {/* Node Name */}
       <div style={{
-        color: '#bdb5b5',
+        color: getTextColor(concept.color),
         fontFamily: "'EmOne', sans-serif",
         fontSize: '16px', // Larger title
         fontWeight: 'bold',
@@ -172,7 +173,7 @@ const DraggableConceptCard = ({ concept, index = 0, onMaterialize, onUnsave, onS
 
       {/* Truncated Description */}
       <div style={{
-        color: '#bdb5b5',
+        color: getTextColor(concept.color),
         fontFamily: "'EmOne', sans-serif",
         fontSize: '11px',
         lineHeight: '1.4',
@@ -191,7 +192,7 @@ const DraggableConceptCard = ({ concept, index = 0, onMaterialize, onUnsave, onS
       {/* Bottom Info Bar */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <div style={{
-          color: '#bdb5b5',
+          color: getTextColor(concept.color),
           fontFamily: "'EmOne', sans-serif",
           fontSize: '10px', // Larger for better readability
           opacity: 0.8,
@@ -208,7 +209,7 @@ const DraggableConceptCard = ({ concept, index = 0, onMaterialize, onUnsave, onS
 
         {/* Visual Drag Indicator */}
         <div style={{
-          color: '#bdb5b5',
+          color: getTextColor(concept.color),
           fontSize: '10px',
           opacity: 0.5
         }}>

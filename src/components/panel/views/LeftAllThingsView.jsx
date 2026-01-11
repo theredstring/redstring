@@ -3,6 +3,7 @@ import { Merge } from 'lucide-react';
 import DuplicateManager from '../../DuplicateManager.jsx';
 import AllThingsNodeItem from '../items/AllThingsNodeItem.jsx';
 import StandardDivider from '../../StandardDivider.jsx';
+import { getTextColor } from '../../../utils/colorUtils';
 import { showContextMenu } from '../../GlobalContextMenu.jsx';
 
 // Internal Left All Things View (All Nodes)
@@ -90,7 +91,7 @@ const LeftAllThingsView = ({
                     backgroundColor: typeInfo.color,
                     padding: '8px 12px',
                     cursor: 'pointer',
-                    color: '#bdb5b5',
+                    color: getTextColor(typeInfo.color),
                     fontWeight: 'bold',
                     userSelect: 'none',
                     display: 'flex',

@@ -3,6 +3,7 @@ import { Merge } from 'lucide-react';
 import DuplicateManager from '../../DuplicateManager.jsx';
 import SavedNodeItem from '../items/SavedNodeItem.jsx';
 import StandardDivider from '../../StandardDivider.jsx';
+import { getTextColor } from '../../../utils/colorUtils';
 import { showContextMenu } from '../../GlobalContextMenu.jsx';
 
 // Internal Left Library View (Saved Things)
@@ -82,7 +83,7 @@ const LeftLibraryView = ({
                     backgroundColor: typeInfo.color,
                     padding: '8px 12px',
                     cursor: 'pointer',
-                    color: '#bdb5b5',
+                    color: getTextColor(typeInfo.color),
                     fontWeight: 'bold',
                     userSelect: 'none',
                     display: 'flex',

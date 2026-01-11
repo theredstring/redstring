@@ -3,6 +3,7 @@ import { useDrag } from 'react-dnd';
 import { getEmptyImage } from 'react-dnd-html5-backend';
 import { XCircle } from 'lucide-react';
 import { NODE_DEFAULT_COLOR, PANEL_CLOSE_ICON_SIZE } from '../../../constants';
+import { getTextColor } from '../../../utils/colorUtils';
 
 const ItemTypes = {
   SPAWNABLE_NODE: 'spawnable_node'
@@ -45,7 +46,7 @@ const SavedNodeItem = ({ node, onClick, onDoubleClick, onUnsave, isActive }) => 
       style={{
         position: 'relative',
         backgroundColor: node.semanticMetadata?.isSemanticNode ? getSemanticNodeColor(node) : (node.color || NODE_DEFAULT_COLOR),
-        color: '#bdb5b5',
+        color: getTextColor(node.semanticMetadata?.isSemanticNode ? getSemanticNodeColor(node) : (node.color || NODE_DEFAULT_COLOR)),
         borderRadius: '10px',
         padding: '4px 6px',
         fontSize: '0.8rem',

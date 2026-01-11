@@ -1559,11 +1559,41 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
     },
 
     // Adds a NEW edge connecting two instances.
+    // Adds a NEW edge connecting two instances.
     addEdge: (graphId, newEdgeData, contextOptions = {}) => {
       // #region agent log
       debugLogSync('graphStore.jsx:addEdge', 'addEdge called', { graphId, edgeId: newEdgeData?.id, sourceId: newEdgeData?.sourceId, destId: newEdgeData?.destinationId, stack: new Error().stack?.split('\n').slice(1, 5) }, 'debug-session', 'A-B');
       // #endregion
-      api.setChangeContext({ type: 'edge_create', target: 'edge', finalize: true, ...contextOptions });
+
+      // Resolve names for history
+      const state = get();
+      const graph = state.graphs.get(graphId);
+      let sourceName = 'Unknown';
+      let targetName = 'Unknown';
+
+      if (graph && graph.instances) {
+        const sourceInst = graph.instances.get(newEdgeData.sourceId);
+        const destInst = graph.instances.get(newEdgeData.destinationId);
+
+        if (sourceInst) {
+          const proto = state.nodePrototypes.get(sourceInst.prototypeId);
+          sourceName = proto?.name || 'Node';
+        }
+        if (destInst) {
+          const proto = state.nodePrototypes.get(destInst.prototypeId);
+          targetName = proto?.name || 'Node';
+        }
+      }
+
+      api.setChangeContext({
+        type: 'edge_create',
+        target: 'edge',
+        finalize: true,
+        sourceName,
+        targetName,
+        ...contextOptions
+      });
+
       return set(produce((draft) => {
         const graph = draft.graphs.get(graphId);
         if (!graph) {
@@ -2188,1307 +2218,1308 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
         } else {
           console.warn(`updateGraph: Graph ${graphId} not found.`);
         }
-      })),
+      }));
+    },
 
-        // --- Right Panel Tab Management Actions ---
-        openRightPanelNodeTab: (nodeId, nodeNameFallback = 'Node Details') => set(produce((draft) => {
-          // Find prototype data to get the title
-          const prototypeData = draft.nodePrototypes.get(nodeId);
-          if (!prototypeData) {
-            console.warn(`openRightPanelNodeTab: Node prototype with id ${nodeId} not found.`);
-            return;
+    // --- Right Panel Tab Management Actions ---
+    openRightPanelNodeTab: (nodeId, nodeNameFallback = 'Node Details') => set(produce((draft) => {
+      // Find prototype data to get the title
+      const prototypeData = draft.nodePrototypes.get(nodeId);
+      if (!prototypeData) {
+        console.warn(`openRightPanelNodeTab: Node prototype with id ${nodeId} not found.`);
+        return;
+      }
+
+      // Check if tab already exists
+      const existingTabIndex = draft.rightPanelTabs.findIndex(tab =>
+        tab.type === 'node' && tab.nodeId === nodeId
+      );
+
+      // Set all tabs to inactive
+      draft.rightPanelTabs.forEach(tab => { tab.isActive = false; });
+
+      if (existingTabIndex > -1) {
+        // Tab exists, just activate it
+        draft.rightPanelTabs[existingTabIndex].isActive = true;
+      } else {
+        // Create new tab
+        draft.rightPanelTabs.push({
+          type: 'node',
+          nodeId,
+          title: prototypeData.name || nodeNameFallback,
+          isActive: true
+        });
+      }
+    })),
+
+    activateRightPanelTab: (index) => set(produce((draft) => {
+      if (index < 0 || index >= draft.rightPanelTabs.length) {
+        console.warn(`activateRightPanelTab: Tab index ${index} out of bounds.`);
+        return;
+      }
+
+      // Set all tabs to inactive, then activate the selected tab
+      draft.rightPanelTabs.forEach(tab => { tab.isActive = false; });
+      draft.rightPanelTabs[index].isActive = true;
+    })),
+
+    closeRightPanelTab: (nodeIdToClose) => set(produce((draft) => {
+      // Find the index of the tab with the matching nodeId
+      const index = draft.rightPanelTabs.findIndex(tab => tab.nodeId === nodeIdToClose);
+
+      // Check if found and it's not the home tab (index 0)
+      if (index === -1 || index === 0) {
+        console.warn(`closeRightPanelTab: Tab with node ID ${nodeIdToClose} not found or is home tab.`);
+        return;
+      }
+
+      const wasActive = draft.rightPanelTabs[index].isActive;
+
+      // Remove the tab
+      draft.rightPanelTabs.splice(index, 1);
+
+      // If the closed tab was active, activate the home tab
+      if (wasActive && draft.rightPanelTabs.length > 0) {
+        draft.rightPanelTabs[0].isActive = true;
+      }
+    })),
+
+    moveRightPanelTab: (dragIndex, hoverIndex) => set(produce((draft) => {
+      // Convert to absolute indices (drag and hover are 0-based from the UI but we need to add 1 for the home tab)
+      const sourceDragIndex = dragIndex + 1;
+      const sourceHoverIndex = hoverIndex + 1;
+
+      if (sourceDragIndex <= 0 || sourceHoverIndex <= 0 ||
+        sourceDragIndex >= draft.rightPanelTabs.length || sourceHoverIndex >= draft.rightPanelTabs.length) {
+        console.warn(`moveRightPanelTab: Invalid indices drag=${sourceDragIndex}, hover=${sourceHoverIndex}`);
+        return;
+      }
+
+      // Move the tab
+      const [movedTab] = draft.rightPanelTabs.splice(sourceDragIndex, 1);
+      draft.rightPanelTabs.splice(sourceHoverIndex, 0, movedTab);
+    })),
+
+    closeGraph: (graphId) => set(produce((draft) => {
+      console.log(`[Store closeGraph] Called with graphId: ${graphId}`);
+      const index = draft.openGraphIds.indexOf(graphId);
+      if (index === -1) {
+        console.warn(`[Store closeGraph] Graph ID ${graphId} not found in openGraphIds.`);
+        return; // Graph not open, nothing to close
+      }
+
+      const wasActive = draft.activeGraphId === graphId;
+      let newActiveId = draft.activeGraphId;
+
+      // Remove the graph ID from the list
+      draft.openGraphIds.splice(index, 1);
+
+      // Determine the new active graph ONLY if the closed one was active
+      if (wasActive) {
+        if (draft.openGraphIds.length === 0) {
+          // No graphs left
+          newActiveId = null;
+        } else if (index > 0) {
+          // There was a graph above the closed one, try to activate it
+          // Note: The index before splicing corresponds to the item now *at* index-1
+          newActiveId = draft.openGraphIds[index - 1];
+        } else {
+          // Closed the first graph (index 0), activate the new first graph
+          newActiveId = draft.openGraphIds[0];
+        }
+      }
+
+      // Set the new active ID
+      draft.activeGraphId = newActiveId;
+      if (draft.activeGraphId === null) {
+        console.log('[Store closeGraph] Active graph became null, setting activeDefinitionNodeId to null');
+        draft.activeDefinitionNodeId = null;
+      }
+
+      // <<< Also remove from expanded set if closed >>>
+      draft.expandedGraphIds.delete(graphId);
+
+      // Schedule cleanup after closing a graph
+      console.log(`[Store closeGraph] Graph ${graphId} closed, scheduling cleanup...`);
+      setTimeout(() => {
+        const currentState = get();
+        currentState.cleanupOrphanedData();
+      }, 100);
+    })),
+
+    // <<< Add action to toggle expanded state >>>
+    toggleGraphExpanded: (graphId) => set(produce((draft) => {
+      console.log(`[Store toggleGraphExpanded] Called for ${graphId}. Current state:`, new Set(draft.expandedGraphIds)); // <<< Log entry
+      if (draft.expandedGraphIds.has(graphId)) {
+        draft.expandedGraphIds.delete(graphId);
+        console.log(`[Store toggleGraphExpanded] Removed ${graphId}. New state:`, new Set(draft.expandedGraphIds)); // <<< Log after delete
+      } else {
+        draft.expandedGraphIds.add(graphId);
+        console.log(`[Store toggleGraphExpanded] Added ${graphId}. New state:`, new Set(draft.expandedGraphIds)); // <<< Log after add
+      }
+    })),
+
+    // Toggle node bookmark status in savedNodeIds set
+    toggleSavedNode: (nodeId) => set(produce((draft) => {
+      const wasRemoved = draft.savedNodeIds.has(nodeId);
+      if (wasRemoved) {
+        draft.savedNodeIds.delete(nodeId);
+      } else {
+        draft.savedNodeIds.add(nodeId);
+      }
+      // Replace with a new Set instance to ensure reference change
+      draft.savedNodeIds = new Set(draft.savedNodeIds);
+
+      // If we removed a saved node, trigger cleanup after a short delay
+      if (wasRemoved) {
+        console.log(`[Store toggleSavedNode] Node ${nodeId} was unsaved, scheduling cleanup...`);
+        // Use setTimeout to trigger cleanup after the current state update completes
+        setTimeout(() => {
+          const currentState = get();
+          currentState.cleanupOrphanedData();
+        }, 100);
+      }
+    })),
+
+    // Toggle graph bookmark status by saving/unsaving its defining node
+    toggleSavedGraph: (graphId) => set(produce((draft) => {
+      const graph = draft.graphs.get(graphId);
+      if (!graph) {
+        console.warn(`[Store toggleSavedGraph] Graph ${graphId} not found.`);
+        return;
+      }
+
+      // Get the defining node ID (the node this graph defines)
+      let definingNodeId = graph.definingNodeIds?.[0];
+
+      // If no defining node exists, create one to represent this graph
+      if (!definingNodeId) {
+        console.log(`[Store toggleSavedGraph] Graph ${graphId} has no defining node. Creating one.`);
+
+        // Create a new node to represent this graph
+        definingNodeId = uuidv4();
+        const definingNodeData = {
+          id: definingNodeId,
+          name: graph.name || 'Untitled Graph',
+          description: graph.description || '',
+          picture: '',
+          color: NODE_DEFAULT_COLOR,
+          // No positional data in prototype
+          definitionGraphIds: [graphId], // This node defines the current graph
+          createdAt: new Date().toISOString()
+        };
+
+        // Add the defining node to the nodes map
+        draft.nodePrototypes.set(definingNodeId, definingNodeData);
+
+        // Set this node as the defining node for the graph
+        if (!graph.definingNodeIds) {
+          graph.definingNodeIds = [];
+        }
+        graph.definingNodeIds.unshift(definingNodeId); // Add to beginning
+
+        console.log(`[Store toggleSavedGraph] Created defining node ${definingNodeId} for graph ${graphId}.`);
+      }
+
+      const wasNodeSaved = draft.savedNodeIds.has(definingNodeId);
+      if (wasNodeSaved) {
+        draft.savedNodeIds.delete(definingNodeId);
+        console.log(`[Store toggleSavedGraph] Removed defining node ${definingNodeId} from saved nodes (bookmarked graph ${graphId}).`);
+      } else {
+        draft.savedNodeIds.add(definingNodeId);
+        console.log(`[Store toggleSavedGraph] Added defining node ${definingNodeId} to saved nodes (bookmarked graph ${graphId}).`);
+      }
+      // Replace with a new Set instance to ensure reference change
+      draft.savedNodeIds = new Set(draft.savedNodeIds);
+    })),
+
+    // Toggle connection names visibility
+    toggleShowConnectionNames: () => set(produce((draft) => {
+      draft.showConnectionNames = !draft.showConnectionNames;
+    })),
+
+    // Grid settings actions
+    setGridMode: (mode) => set(produce((draft) => {
+      const allowed = ['off', 'hover', 'always'];
+      if (!draft.gridSettings) draft.gridSettings = { mode: 'off', size: 200 };
+      if (allowed.includes(mode)) {
+        draft.gridSettings.mode = mode;
+        try { localStorage.setItem('redstring_grid_mode', mode); } catch (_) { }
+      } else {
+        console.warn(`[setGridMode] Invalid mode: ${mode}`);
+      }
+    })),
+    setGridSize: (value) => set(produce((draft) => {
+      if (!draft.gridSettings) draft.gridSettings = { mode: 'off', size: 200 };
+      const v = Number(value);
+      if (!Number.isFinite(v)) {
+        console.warn(`[setGridSize] Invalid value: ${value}`);
+        return;
+      }
+      const clamped = Math.max(20, Math.min(400, Math.round(v)));
+      draft.gridSettings.size = clamped;
+      try { localStorage.setItem('redstring_grid_size', String(clamped)); } catch (_) { }
+    })),
+
+    // Toggle global auto-routing enablement
+    toggleEnableAutoRouting: () => set(produce((draft) => {
+      if (!draft.autoLayoutSettings) {
+        draft.autoLayoutSettings = getDefaultAutoLayoutSettings();
+      }
+      draft.autoLayoutSettings.enableAutoRouting = !draft.autoLayoutSettings.enableAutoRouting;
+    })),
+
+    // Set the global routing style
+    setGroupLayoutAlgorithm: (algorithm) => set(produce((draft) => {
+      if (!draft.autoLayoutSettings) {
+        draft.autoLayoutSettings = getDefaultAutoLayoutSettings();
+      }
+      draft.autoLayoutSettings.groupLayoutAlgorithm = algorithm;
+      console.log(`[Store] Group layout algorithm set to: ${algorithm}`);
+    })),
+
+    toggleShowClusterHulls: () => set(produce((draft) => {
+      if (!draft.autoLayoutSettings) {
+        draft.autoLayoutSettings = getDefaultAutoLayoutSettings();
+      }
+      draft.autoLayoutSettings.showClusterHulls = !draft.autoLayoutSettings.showClusterHulls;
+      console.log(`[Store] Show cluster hulls set to: ${draft.autoLayoutSettings.showClusterHulls}`);
+    })),
+
+    setRoutingStyle: (style) => set(produce((draft) => {
+      if (!draft.autoLayoutSettings) {
+        draft.autoLayoutSettings = getDefaultAutoLayoutSettings();
+      }
+      if (style === 'straight' || style === 'manhattan' || style === 'clean') {
+        draft.autoLayoutSettings.routingStyle = style;
+      } else {
+        console.warn(`[setRoutingStyle] Invalid routing style: ${style}`);
+      }
+    })),
+
+    // Set number of bends preference for Manhattan routing
+    setManhattanBends: (mode) => set(produce((draft) => {
+      if (!draft.autoLayoutSettings) {
+        draft.autoLayoutSettings = getDefaultAutoLayoutSettings();
+      }
+      if (mode === 'auto' || mode === 'one' || mode === 'two') {
+        draft.autoLayoutSettings.manhattanBends = mode;
+      } else {
+        console.warn(`[setManhattanBends] Invalid bends mode: ${mode}`);
+      }
+    })),
+
+    // Set lane spacing for clean routing
+    setCleanLaneSpacing: (value) => set(produce((draft) => {
+      if (!draft.autoLayoutSettings) {
+        draft.autoLayoutSettings = getDefaultAutoLayoutSettings();
+      }
+      const v = Number(value);
+      if (!Number.isFinite(v)) {
+        console.warn(`[setCleanLaneSpacing] Invalid value: ${value}`);
+        return;
+      }
+      // Clamp for sanity with new generous range
+      const clamped = Math.max(100, Math.min(400, Math.round(v)));
+      draft.autoLayoutSettings.cleanLaneSpacing = clamped;
+    })),
+
+    setLayoutScalePreset: (preset) => set(produce((draft) => {
+      if (!draft.autoLayoutSettings) {
+        draft.autoLayoutSettings = getDefaultAutoLayoutSettings();
+      }
+      if (!VALID_LAYOUT_SCALE_PRESETS.includes(preset)) {
+        console.warn(`[setLayoutScalePreset] Invalid preset: ${preset}`);
+        return;
+      }
+      draft.autoLayoutSettings.layoutScale = preset;
+    })),
+
+    setLayoutScaleMultiplier: (value) => set(produce((draft) => {
+      if (!draft.autoLayoutSettings) {
+        draft.autoLayoutSettings = getDefaultAutoLayoutSettings();
+      }
+      const numeric = Number(value);
+      if (!Number.isFinite(numeric)) {
+        console.warn(`[setLayoutScaleMultiplier] Invalid multiplier: ${value}`);
+        return;
+      }
+      const clamped = Math.max(0.5, Math.min(MAX_LAYOUT_SCALE_MULTIPLIER, Number(numeric.toFixed(2))));
+      draft.autoLayoutSettings.layoutScaleMultiplier = clamped;
+    })),
+
+    setLayoutIterationPreset: (preset) => set(produce((draft) => {
+      if (!draft.autoLayoutSettings) {
+        draft.autoLayoutSettings = getDefaultAutoLayoutSettings();
+      }
+      if (!VALID_LAYOUT_ITERATION_PRESETS.includes(preset)) {
+        console.warn(`[setLayoutIterationPreset] Invalid preset: ${preset}`);
+        return;
+      }
+      draft.autoLayoutSettings.layoutIterations = preset;
+    })),
+
+    setForceTunerScalePreset: (preset) => set(produce((draft) => {
+      if (!draft.forceTunerSettings) {
+        draft.forceTunerSettings = getDefaultForceTunerSettings();
+      }
+      if (!VALID_LAYOUT_SCALE_PRESETS.includes(preset)) {
+        console.warn(`[setForceTunerScalePreset] Invalid preset: ${preset}`);
+        return;
+      }
+      draft.forceTunerSettings.layoutScale = preset;
+    })),
+
+    setForceTunerScaleMultiplier: (value) => set(produce((draft) => {
+      if (!draft.forceTunerSettings) {
+        draft.forceTunerSettings = getDefaultForceTunerSettings();
+      }
+      const numeric = Number(value);
+      if (!Number.isFinite(numeric)) {
+        console.warn(`[setForceTunerScaleMultiplier] Invalid multiplier: ${value}`);
+        return;
+      }
+      const clamped = Math.max(0.2, Math.min(MAX_LAYOUT_SCALE_MULTIPLIER, Number(numeric.toFixed(2))));
+      draft.forceTunerSettings.layoutScaleMultiplier = clamped;
+    })),
+
+    setForceTunerIterationPreset: (preset) => set(produce((draft) => {
+      if (!draft.forceTunerSettings) {
+        draft.forceTunerSettings = getDefaultForceTunerSettings();
+      }
+      if (!VALID_LAYOUT_ITERATION_PRESETS.includes(preset)) {
+        console.warn(`[setForceTunerIterationPreset] Invalid preset: ${preset}`);
+        return;
+      }
+      draft.forceTunerSettings.layoutIterations = preset;
+    })),
+
+    copyForceTunerSettingsToAutoLayout: () => set(produce((draft) => {
+      if (!draft.forceTunerSettings) return;
+
+      // Copy settings from tuner to auto-layout
+      draft.autoLayoutSettings.layoutScale = draft.forceTunerSettings.layoutScale;
+      draft.autoLayoutSettings.layoutScaleMultiplier = draft.forceTunerSettings.layoutScaleMultiplier;
+      draft.autoLayoutSettings.layoutIterations = draft.forceTunerSettings.layoutIterations;
+
+      console.log('[GraphStore] Copied force tuner settings to auto-layout:', {
+        scale: draft.autoLayoutSettings.layoutScale,
+        multiplier: draft.autoLayoutSettings.layoutScaleMultiplier,
+        iterations: draft.autoLayoutSettings.layoutIterations
+      });
+    })),
+
+
+    // Explicitly set active definition node (e.g., when switching graphs)
+    setActiveDefinitionNode: (nodeId) => {
+      console.log(`[Store Action] Explicitly setting activeDefinitionNodeId to: ${nodeId}`);
+      set({ activeDefinitionNodeId: nodeId });
+    },
+
+    // Set the currently selected edge for editing
+    setSelectedEdgeId: (edgeId) => {
+      console.log(`[Store Action] Setting selectedEdgeId to: ${edgeId}`);
+      set({ selectedEdgeId: edgeId });
+    },
+
+    // Set multiple selected edges
+    setSelectedEdgeIds: (edgeIds) => {
+      console.log(`[Store Action] Setting selectedEdgeIds to:`, edgeIds);
+      set({ selectedEdgeIds: new Set(edgeIds) });
+    },
+
+    // Add edge to selection
+    addSelectedEdgeId: (edgeId) => set(produce((draft) => {
+      draft.selectedEdgeIds.add(edgeId);
+      console.log(`[Store Action] Added edge ${edgeId} to selection`);
+    })),
+
+    // Remove edge from selection
+    removeSelectedEdgeId: (edgeId) => set(produce((draft) => {
+      draft.selectedEdgeIds.delete(edgeId);
+      console.log(`[Store Action] Removed edge ${edgeId} from selection`);
+    })),
+
+    // Clear all selected edges
+    clearSelectedEdgeIds: () => set(produce((draft) => {
+      draft.selectedEdgeIds.clear();
+      console.log(`[Store Action] Cleared all selected edges`);
+    })),
+
+    // Set TypeList mode
+    setTypeListMode: (mode) => {
+      console.log(`[Store Action] Setting typeListMode to: ${mode}`);
+      set({ typeListMode: mode });
+    },
+
+    // Set the type of a node prototype (duplicate removed; use earlier guarded version)
+
+    // Remove a definition graph from a node and delete the graph if it's no longer referenced
+    removeDefinitionFromNode: (nodeId, graphId) => set(produce((draft) => {
+      const node = draft.nodePrototypes.get(nodeId);
+      if (!node) {
+        console.warn(`[Store removeDefinitionFromNode] Node prototype ${nodeId} not found.`);
+        return;
+      }
+
+      // Remove the graph ID from the node's definition list
+      if (Array.isArray(node.definitionGraphIds)) {
+        const index = node.definitionGraphIds.indexOf(graphId);
+        if (index > -1) {
+          node.definitionGraphIds.splice(index, 1);
+          console.log(`[Store removeDefinitionFromNode] Removed graph ${graphId} from node ${nodeId} definitions.`);
+        } else {
+          console.warn(`[Store removeDefinitionFromNode] Graph ${graphId} not found in node ${nodeId} definitions.`);
+          return;
+        }
+      }
+
+      // Check if any other nodes still reference this graph as a definition
+      let isGraphStillReferenced = false;
+      for (const otherNode of draft.nodePrototypes.values()) {
+        if (otherNode.id !== nodeId && Array.isArray(otherNode.definitionGraphIds) && otherNode.definitionGraphIds.includes(graphId)) {
+          isGraphStillReferenced = true;
+          break;
+        }
+      }
+
+      // If no other nodes reference this graph, delete it completely
+      if (!isGraphStillReferenced) {
+        console.log(`[Store removeDefinitionFromNode] Graph ${graphId} is no longer referenced, deleting it.`);
+
+        // Remove from graphs map
+        draft.graphs.delete(graphId);
+
+        // Close the graph tab if it's open
+        const openIndex = draft.openGraphIds.indexOf(graphId);
+        if (openIndex > -1) {
+          draft.openGraphIds.splice(openIndex, 1);
+
+          // If this was the active graph, switch to another one
+          if (draft.activeGraphId === graphId) {
+            draft.activeGraphId = draft.openGraphIds.length > 0 ? draft.openGraphIds[0] : null;
+            if (draft.activeGraphId === null) {
+              draft.activeDefinitionNodeId = null;
+            }
           }
+        }
 
-          // Check if tab already exists
-          const existingTabIndex = draft.rightPanelTabs.findIndex(tab =>
-            tab.type === 'node' && tab.nodeId === nodeId
-          );
+        // Remove from expanded set
+        draft.expandedGraphIds.delete(graphId);
 
-          // Set all tabs to inactive
-          draft.rightPanelTabs.forEach(tab => { tab.isActive = false; });
+        // Delete all instances that belong to this graph is complex.
+        // The graph is gone, so its instances are implicitly gone.
+        // We might need a more robust cleanup later.
 
-          if (existingTabIndex > -1) {
-            // Tab exists, just activate it
-            draft.rightPanelTabs[existingTabIndex].isActive = true;
-          } else {
-            // Create new tab
-            draft.rightPanelTabs.push({
-              type: 'node',
-              nodeId,
-              title: prototypeData.name || nodeNameFallback,
-              isActive: true
+        console.log(`[Store removeDefinitionFromNode] Deleted graph ${graphId}.`);
+      } else {
+        console.log(`[Store removeDefinitionFromNode] Graph ${graphId} is still referenced by other nodes, keeping it.`);
+      }
+    })),
+
+    // Open a graph tab and bring it to the top (similar to Panel.jsx double-click behavior)
+    openGraphTabAndBringToTop: (graphId, definitionNodeId = null) => set(produce((draft) => {
+      console.log(`[Store openGraphTabAndBringToTop] Called with graphId: ${graphId}, definitionNodeId: ${definitionNodeId}`);
+      if (!draft.graphs.has(graphId)) {
+        console.warn(`[Store openGraphTabAndBringToTop] Graph ${graphId} not found.`);
+        return;
+      }
+
+      // Check if graph is already open
+      const existingIndex = draft.openGraphIds.indexOf(graphId);
+
+      if (existingIndex > -1) {
+        // Graph is already open, move it to the front
+        draft.openGraphIds.splice(existingIndex, 1); // Remove from current position
+        draft.openGraphIds.unshift(graphId); // Add to front
+        console.log(`[Store openGraphTabAndBringToTop] Moved existing graph ${graphId} to front.`);
+      } else {
+        // Graph is not open, add it to the front
+        draft.openGraphIds.unshift(graphId);
+        console.log(`[Store openGraphTabAndBringToTop] Added new graph ${graphId} to front.`);
+      }
+
+      // Set this graph as the active one
+      draft.activeGraphId = graphId;
+      console.log(`[Store openGraphTabAndBringToTop] Set activeGraphId to: ${graphId}`);
+
+      // Set the definition node ID if provided
+      if (definitionNodeId) {
+        console.log(`[Store openGraphTabAndBringToTop] Setting activeDefinitionNodeId to: ${definitionNodeId}`);
+        draft.activeDefinitionNodeId = definitionNodeId;
+      } else {
+        console.log(`[Store openGraphTabAndBringToTop] No definitionNodeId provided, clearing activeDefinitionNodeId.`);
+        draft.activeDefinitionNodeId = null;
+      }
+
+      // Ensure the opened graph is expanded in the list
+      draft.expandedGraphIds.add(graphId);
+      console.log(`[Store openGraphTabAndBringToTop] Added ${graphId} to expanded set.`);
+    })),
+
+    // Clean up orphaned nodes and graphs that are no longer referenced
+    cleanupOrphanedData: () => set(produce((draft) => {
+      console.log('[Store cleanupOrphanedData] Starting cleanup of orphaned data...');
+
+      // UI reference hygiene before deeper cleanup
+      // 1) Drop right panel node tabs that reference missing prototypes
+      if (Array.isArray(draft.rightPanelTabs)) {
+        const originalTabs = draft.rightPanelTabs.slice();
+        draft.rightPanelTabs = draft.rightPanelTabs.filter(tab => {
+          if (!tab || tab.type !== 'node') return true; // keep non-node tabs (e.g., home)
+          return draft.nodePrototypes.has(tab.nodeId);
+        });
+        if (draft.rightPanelTabs.length !== originalTabs.length) {
+          console.log('[Store cleanupOrphanedData] Pruned stale rightPanelTabs referencing deleted prototypes');
+        }
+        // Ensure there is at least a home tab and one active tab
+        if (draft.rightPanelTabs.length === 0 || draft.rightPanelTabs[0]?.type !== 'home') {
+          draft.rightPanelTabs.unshift({ type: 'home', isActive: true });
+        }
+        // Ensure one tab is active
+        if (!draft.rightPanelTabs.some(t => t && t.isActive)) {
+          draft.rightPanelTabs[0].isActive = true;
+        }
+      }
+
+      // 2) Clear activeDefinitionNodeId if it references a missing prototype
+      if (draft.activeDefinitionNodeId && !draft.nodePrototypes.has(draft.activeDefinitionNodeId)) {
+        console.log(`[Store cleanupOrphanedData] Clearing stale activeDefinitionNodeId ${draft.activeDefinitionNodeId}`);
+        draft.activeDefinitionNodeId = null;
+      }
+
+      // Step 1: Find all referenced prototypes and instances
+      const referencedPrototypeIds = new Set();
+
+      // Protect explicitly registered prototypes (e.g., Orbit catalog)
+      if (draft.protectedPrototypeIds) {
+        draft.protectedPrototypeIds.forEach((id) => referencedPrototypeIds.add(id));
+      }
+
+      // Add saved prototypes
+      draft.savedNodeIds.forEach(prototypeId => referencedPrototypeIds.add(prototypeId));
+
+      // Add prototypes that have open tabs (they're being viewed/edited)
+      if (Array.isArray(draft.rightPanelTabs)) {
+        draft.rightPanelTabs.forEach(tab => {
+          if (tab && tab.type === 'node' && tab.nodeId) {
+            referencedPrototypeIds.add(tab.nodeId);
+          }
+        });
+      }
+
+      // Add prototypes from all instances in open graphs
+      draft.openGraphIds.forEach(graphId => {
+        const graph = draft.graphs.get(graphId);
+        if (!graph) {
+          return;
+        }
+
+        if (graph.instances) {
+          graph.instances.forEach(instance => referencedPrototypeIds.add(instance.prototypeId));
+        }
+
+        if (Array.isArray(graph.definingNodeIds)) {
+          graph.definingNodeIds.forEach(nodeId => {
+            if (draft.nodePrototypes.has(nodeId)) {
+              referencedPrototypeIds.add(nodeId);
+            }
+          });
+        }
+      });
+
+      // Add prototypes that are being used as types by other prototypes
+      for (const prototype of draft.nodePrototypes.values()) {
+        if (prototype.typeNodeId) {
+          referencedPrototypeIds.add(prototype.typeNodeId);
+        }
+      }
+
+      // Add prototypes that back node-groups (groups with linkedNodePrototypeId)
+      draft.graphs.forEach(graph => {
+        if (graph.groups) {
+          graph.groups.forEach(group => {
+            if (group.linkedNodePrototypeId) {
+              referencedPrototypeIds.add(group.linkedNodePrototypeId);
+            }
+          });
+        }
+      });
+
+      // Add prototypes that are referenced by edges (connection types)
+      for (const [edgeId, edge] of draft.edges.entries()) {
+        // Check definitionNodeIds (new approach)
+        if (edge.definitionNodeIds && Array.isArray(edge.definitionNodeIds)) {
+          edge.definitionNodeIds.forEach(nodeId => referencedPrototypeIds.add(nodeId));
+        }
+        // Check typeNodeId (legacy approach)
+        if (edge.typeNodeId) {
+          referencedPrototypeIds.add(edge.typeNodeId);
+        }
+      }
+
+      // Recursively add prototypes from definition graphs
+      const addDefinitionPrototypes = (prototypeId) => {
+        const prototype = draft.nodePrototypes.get(prototypeId);
+        if (prototype && Array.isArray(prototype.definitionGraphIds)) {
+          prototype.definitionGraphIds.forEach(graphId => {
+            const defGraph = draft.graphs.get(graphId);
+            if (defGraph && defGraph.instances) {
+              defGraph.instances.forEach(instance => {
+                if (!referencedPrototypeIds.has(instance.prototypeId)) {
+                  referencedPrototypeIds.add(instance.prototypeId);
+                  addDefinitionPrototypes(instance.prototypeId); // Recurse
+                }
+              });
+            }
+          });
+        }
+      };
+
+      Array.from(referencedPrototypeIds).forEach(prototypeId => addDefinitionPrototypes(prototypeId));
+
+      // Step 2: Find all referenced graphs
+      const referencedGraphIds = new Set();
+
+      // Add open graphs
+      draft.openGraphIds.forEach(graphId => referencedGraphIds.add(graphId));
+
+      // Add definition graphs from referenced prototypes
+      referencedPrototypeIds.forEach(prototypeId => {
+        const prototype = draft.nodePrototypes.get(prototypeId);
+        if (prototype && Array.isArray(prototype.definitionGraphIds)) {
+          prototype.definitionGraphIds.forEach(graphId => referencedGraphIds.add(graphId));
+        }
+      });
+
+      // Ensure defining prototypes for referenced graphs are also retained.
+      const collectDefiningPrototypes = () => {
+        const discovered = [];
+        referencedGraphIds.forEach(graphId => {
+          const graph = draft.graphs.get(graphId);
+          if (graph && Array.isArray(graph.definingNodeIds)) {
+            graph.definingNodeIds.forEach(nodeId => {
+              if (draft.nodePrototypes.has(nodeId) && !referencedPrototypeIds.has(nodeId)) {
+                referencedPrototypeIds.add(nodeId);
+                discovered.push(nodeId);
+              }
             });
           }
-        })),
+        });
+        return discovered;
+      };
 
-          activateRightPanelTab: (index) => set(produce((draft) => {
-            if (index < 0 || index >= draft.rightPanelTabs.length) {
-              console.warn(`activateRightPanelTab: Tab index ${index} out of bounds.`);
+      let newlyDiscovered = collectDefiningPrototypes();
+      while (newlyDiscovered.length > 0) {
+        newlyDiscovered.forEach(prototypeId => {
+          addDefinitionPrototypes(prototypeId);
+          const prototype = draft.nodePrototypes.get(prototypeId);
+          if (prototype && Array.isArray(prototype.definitionGraphIds)) {
+            prototype.definitionGraphIds.forEach(graphId => {
+              if (draft.graphs.has(graphId)) {
+                referencedGraphIds.add(graphId);
+              }
+            });
+          }
+        });
+        newlyDiscovered = collectDefiningPrototypes();
+      }
+
+      // Step 3: Remove orphaned prototypes
+      const orphanedPrototypes = [];
+      for (const prototypeId of draft.nodePrototypes.keys()) {
+        if (!referencedPrototypeIds.has(prototypeId)) {
+          orphanedPrototypes.push(prototypeId);
+        }
+      }
+
+      orphanedPrototypes.forEach(prototypeId => {
+        console.log(`[Store cleanupOrphanedData] Removing orphaned prototype: ${prototypeId}`);
+        draft.nodePrototypes.delete(prototypeId);
+      });
+
+      // Step 4: Remove orphaned graphs (and their instances/edges)
+      const orphanedGraphs = [];
+      for (const graphId of draft.graphs.keys()) {
+        if (!referencedGraphIds.has(graphId)) {
+          orphanedGraphs.push(graphId);
+        }
+      }
+
+      orphanedGraphs.forEach(graphId => {
+        console.log(`[Store cleanupOrphanedData] Removing orphaned graph: ${graphId}`);
+        draft.graphs.delete(graphId);
+
+        // Also clean up related state
+        draft.expandedGraphIds.delete(graphId);
+
+        // Remove from right panel tabs if open
+        draft.rightPanelTabs = draft.rightPanelTabs.filter(tab =>
+          tab.type !== 'graph' || tab.graphId !== graphId
+        );
+      });
+
+      // Step 5: Remove orphaned edges
+      const orphanedEdges = [];
+      const allInstanceIds = new Set();
+      draft.graphs.forEach(g => {
+        if (g.instances) {
+          g.instances.forEach(inst => allInstanceIds.add(inst.id));
+        }
+      });
+
+      for (const [edgeId, edge] of draft.edges.entries()) {
+        const sourceExists = allInstanceIds.has(edge.sourceId);
+        const destExists = allInstanceIds.has(edge.destinationId);
+        if (!sourceExists || !destExists) {
+          orphanedEdges.push(edgeId);
+        }
+      }
+
+      orphanedEdges.forEach(edgeId => {
+        console.log(`[Store cleanupOrphanedData] Removing orphaned edge: ${edgeId}`);
+        draft.edges.delete(edgeId);
+      });
+
+      // Step 6: Clean up edge references in remaining graphs
+      referencedGraphIds.forEach(graphId => {
+        const graph = draft.graphs.get(graphId);
+        if (graph && Array.isArray(graph.edgeIds)) {
+          const originalLength = graph.edgeIds.length;
+          graph.edgeIds = graph.edgeIds.filter(edgeId => draft.edges.has(edgeId));
+          if (graph.edgeIds.length !== originalLength) {
+            console.log(`[Store cleanupOrphanedData] Cleaned edge references in graph ${graphId}`);
+          }
+        }
+      });
+
+      console.log(`[Store cleanupOrphanedData] Cleanup complete. Removed ${orphanedPrototypes.length} prototypes, ${orphanedGraphs.length} graphs, ${orphanedEdges.length} edges.`);
+    })),
+
+    // Restore from last session (automatic) - now only returns universe file data
+    restoreFromSession: async () => {
+      try {
+        const result = await restoreLastSession();
+        return result; // Return the result object for the component to handle
+      } catch (error) {
+        console.error('[Store] Error restoring from session:', error);
+        return { success: false, error: error.message };
+      }
+    },
+
+    // Get file status
+    getFileStatus: () => getFileStatus(),
+
+    // Universe file management actions
+    loadUniverseFromFile: (dataToLoad) => {
+      try {
+        // CRITICAL: Prevent concurrent loads - check if a load is already in progress
+        const currentState = api.getState();
+        if (currentState._isLoadingUniverse) {
+          console.warn("[graphStore] Load already in progress, ignoring concurrent load attempt");
+          return false;
+        }
+
+        // Set loading lock
+        set({ _isLoadingUniverse: true });
+
+        // If dataToLoad already contains Maps (i.e., was returned by importFromRedstring earlier) we can use it directly.
+        const isAlreadyDeserialized = dataToLoad && dataToLoad.graphs instanceof Map;
+
+        let storeState;
+        if (isAlreadyDeserialized) {
+          storeState = dataToLoad;
+        } else {
+          // Use the centralized import function to correctly deserialize the data
+          const { storeState: importedState, errors } = importFromRedstring(dataToLoad);
+          if (errors && errors.length > 0) {
+            console.error("[graphStore] Errors importing from Redstring:", errors);
+            // Don't return here, continue with the imported state even if there were errors
+          }
+          storeState = importedState;
+        }
+
+        // Validate that we have a valid storeState
+        if (!storeState || typeof storeState !== 'object') {
+          console.error("[graphStore] Invalid storeState after import:", storeState);
+          set({
+            isUniverseLoaded: true,
+            isUniverseLoading: false,
+            universeLoadingError: "Failed to load universe: Invalid data format",
+            hasUniverseFile: false,
+            _isLoadingUniverse: false,
+          });
+          return false;
+        }
+
+        // Normalize all edge directionality to ensure arrowsToward is always a Set
+        if (storeState.edges) {
+          for (const [edgeId, edgeData] of storeState.edges.entries()) {
+            try {
+              edgeData.directionality = normalizeEdgeDirectionality(edgeData.directionality);
+            } catch (error) {
+              console.warn(`[graphStore] Error normalizing edge ${edgeId} directionality:`, error);
+              // Set a safe default
+              edgeData.directionality = { arrowsToward: new Set() };
+            }
+          }
+        }
+
+        // Sanitize UI references: drop node tabs pointing to non-existent prototypes
+        if (Array.isArray(storeState.rightPanelTabs)) {
+          try {
+            const tabs = storeState.rightPanelTabs.filter(tab => {
+              if (!tab || tab.type !== 'node') return true; // keep non-node tabs (e.g., home)
+              return storeState.nodePrototypes?.has?.(tab.nodeId);
+            });
+            // Ensure a home tab exists and is active if none active
+            if (tabs.length === 0 || tabs[0]?.type !== 'home') {
+              tabs.unshift({ type: 'home', isActive: true });
+            }
+            if (!tabs.some(t => t && t.isActive)) {
+              tabs[0].isActive = true;
+            }
+            storeState.rightPanelTabs = tabs;
+          } catch (e) {
+            console.warn('[graphStore] Failed to sanitize rightPanelTabs during load:', e);
+            storeState.rightPanelTabs = [{ type: 'home', isActive: true }];
+          }
+        }
+
+        // Sanitize saved sets to remove references to missing prototypes
+        try {
+          if (storeState.savedNodeIds instanceof Set) {
+            storeState.savedNodeIds = new Set(Array.from(storeState.savedNodeIds).filter(id => storeState.nodePrototypes?.has?.(id)));
+          }
+          if (storeState.savedGraphIds instanceof Set) {
+            storeState.savedGraphIds = new Set(Array.from(storeState.savedGraphIds).filter(id => storeState.nodePrototypes?.has?.(id)));
+          }
+        } catch (e) {
+          console.warn('[graphStore] Failed to sanitize saved sets during load:', e);
+        }
+
+        console.log("[graphStore] Loading universe with", {
+          nodes: storeState.nodePrototypes?.size || 0,
+          graphs: storeState.graphs?.size || 0,
+          edges: storeState.edges?.size || 0
+        });
+
+        set({
+          ...storeState,
+          isUniverseLoaded: true,
+          isUniverseLoading: false,
+          universeLoadingError: null,
+          hasUniverseFile: true,
+          _isLoadingUniverse: false,
+        });
+
+        return true;
+      } catch (error) {
+        console.error("[graphStore] Critical error in loadUniverseFromFile:", error);
+        set({
+          isUniverseLoaded: true,
+          isUniverseLoading: false,
+          universeLoadingError: `Failed to load universe: ${error.message}`,
+          hasUniverseFile: false,
+          _isLoadingUniverse: false,
+        });
+        return false;
+      }
+    },
+
+    setUniverseError: (error) => set({
+      isUniverseLoaded: true, // Loading is complete, but with an error
+      isUniverseLoading: false,
+      universeLoadingError: error,
+      hasUniverseFile: false
+    }),
+
+    // --- Simple Abstraction Actions ---
+
+    // Add a node above (more specific) or below (more general) in a dimension chain
+    addToAbstractionChain: (nodeId, dimension, direction, newNodeId, insertRelativeToNodeId) => set(produce((draft) => {
+      console.log(`[Store] addToAbstractionChain called with:`, {
+        nodeId,
+        dimension,
+        direction,
+        newNodeId,
+        insertRelativeToNodeId
+      });
+
+      const node = draft.nodePrototypes.get(nodeId);
+      if (!node) {
+        console.error(`Node ${nodeId} not found`);
+        return;
+      }
+
+      console.log(`[Store] Found chain owner node:`, {
+        id: node.id,
+        name: node.name,
+        hasAbstractionChains: !!node.abstractionChains,
+        existingChain: node.abstractionChains?.[dimension]
+      });
+
+      // Initialize abstraction chains if they don't exist
+      if (!node.abstractionChains) {
+        node.abstractionChains = {};
+      }
+
+      // Initialize this dimension if it doesn't exist
+      if (!node.abstractionChains[dimension]) {
+        node.abstractionChains[dimension] = [nodeId]; // Start with just this node
+      }
+
+      const chain = node.abstractionChains[dimension];
+
+      // Prevent duplicate entries of the node being added
+      if (chain.includes(newNodeId)) {
+        console.log(`[Store] Skipping addToAbstractionChain: ${newNodeId} already in ${dimension} chain for ${nodeId}`);
+      } else {
+
+        // If insertRelativeToNodeId is provided, insert relative to that node
+        if (insertRelativeToNodeId && insertRelativeToNodeId !== nodeId) {
+          const relativeIndex = chain.indexOf(insertRelativeToNodeId);
+          if (relativeIndex !== -1) {
+            if (direction === 'above') {
+              // More specific - insert before the relative node
+              chain.splice(relativeIndex, 0, newNodeId);
+            } else {
+              // More general - insert after the relative node
+              chain.splice(relativeIndex + 1, 0, newNodeId);
+            }
+            console.log(`Added ${newNodeId} ${direction} ${insertRelativeToNodeId} in ${dimension} dimension. Chain:`, chain);
+            return;
+          } else {
+            console.warn(`Relative node ${insertRelativeToNodeId} not found in chain, inserting both nodes`);
+            // If the relative node isn't in the chain yet, we need to handle this case
+            // Insert both the relative node and the new node in the correct order
+            const chainOwnerIndex = chain.indexOf(nodeId);
+            if (chainOwnerIndex !== -1) {
+              if (direction === 'above') {
+                // Insert relative node at chain owner position, then new node above it
+                chain.splice(chainOwnerIndex, 0, newNodeId, insertRelativeToNodeId);
+              } else {
+                // Insert relative node at chain owner position, then new node below it  
+                chain.splice(chainOwnerIndex, 0, insertRelativeToNodeId, newNodeId);
+              }
+              console.log(`Added relative node ${insertRelativeToNodeId} and new node ${newNodeId} ${direction} it. Chain:`, chain);
               return;
             }
-
-            // Set all tabs to inactive, then activate the selected tab
-            draft.rightPanelTabs.forEach(tab => { tab.isActive = false; });
-            draft.rightPanelTabs[index].isActive = true;
-          })),
-
-            closeRightPanelTab: (nodeIdToClose) => set(produce((draft) => {
-              // Find the index of the tab with the matching nodeId
-              const index = draft.rightPanelTabs.findIndex(tab => tab.nodeId === nodeIdToClose);
-
-              // Check if found and it's not the home tab (index 0)
-              if (index === -1 || index === 0) {
-                console.warn(`closeRightPanelTab: Tab with node ID ${nodeIdToClose} not found or is home tab.`);
-                return;
-              }
-
-              const wasActive = draft.rightPanelTabs[index].isActive;
-
-              // Remove the tab
-              draft.rightPanelTabs.splice(index, 1);
-
-              // If the closed tab was active, activate the home tab
-              if (wasActive && draft.rightPanelTabs.length > 0) {
-                draft.rightPanelTabs[0].isActive = true;
-              }
-            })),
-
-              moveRightPanelTab: (dragIndex, hoverIndex) => set(produce((draft) => {
-                // Convert to absolute indices (drag and hover are 0-based from the UI but we need to add 1 for the home tab)
-                const sourceDragIndex = dragIndex + 1;
-                const sourceHoverIndex = hoverIndex + 1;
-
-                if (sourceDragIndex <= 0 || sourceHoverIndex <= 0 ||
-                  sourceDragIndex >= draft.rightPanelTabs.length || sourceHoverIndex >= draft.rightPanelTabs.length) {
-                  console.warn(`moveRightPanelTab: Invalid indices drag=${sourceDragIndex}, hover=${sourceHoverIndex}`);
-                  return;
-                }
-
-                // Move the tab
-                const [movedTab] = draft.rightPanelTabs.splice(sourceDragIndex, 1);
-                draft.rightPanelTabs.splice(sourceHoverIndex, 0, movedTab);
-              })),
-
-                closeGraph: (graphId) => set(produce((draft) => {
-                  console.log(`[Store closeGraph] Called with graphId: ${graphId}`);
-                  const index = draft.openGraphIds.indexOf(graphId);
-                  if (index === -1) {
-                    console.warn(`[Store closeGraph] Graph ID ${graphId} not found in openGraphIds.`);
-                    return; // Graph not open, nothing to close
-                  }
-
-                  const wasActive = draft.activeGraphId === graphId;
-                  let newActiveId = draft.activeGraphId;
-
-                  // Remove the graph ID from the list
-                  draft.openGraphIds.splice(index, 1);
-
-                  // Determine the new active graph ONLY if the closed one was active
-                  if (wasActive) {
-                    if (draft.openGraphIds.length === 0) {
-                      // No graphs left
-                      newActiveId = null;
-                    } else if (index > 0) {
-                      // There was a graph above the closed one, try to activate it
-                      // Note: The index before splicing corresponds to the item now *at* index-1
-                      newActiveId = draft.openGraphIds[index - 1];
-                    } else {
-                      // Closed the first graph (index 0), activate the new first graph
-                      newActiveId = draft.openGraphIds[0];
-                    }
-                  }
-
-                  // Set the new active ID
-                  draft.activeGraphId = newActiveId;
-                  if (draft.activeGraphId === null) {
-                    console.log('[Store closeGraph] Active graph became null, setting activeDefinitionNodeId to null');
-                    draft.activeDefinitionNodeId = null;
-                  }
-
-                  // <<< Also remove from expanded set if closed >>>
-                  draft.expandedGraphIds.delete(graphId);
-
-                  // Schedule cleanup after closing a graph
-                  console.log(`[Store closeGraph] Graph ${graphId} closed, scheduling cleanup...`);
-                  setTimeout(() => {
-                    const currentState = get();
-                    currentState.cleanupOrphanedData();
-                  }, 100);
-                })),
-
-                  // <<< Add action to toggle expanded state >>>
-                  toggleGraphExpanded: (graphId) => set(produce((draft) => {
-                    console.log(`[Store toggleGraphExpanded] Called for ${graphId}. Current state:`, new Set(draft.expandedGraphIds)); // <<< Log entry
-                    if (draft.expandedGraphIds.has(graphId)) {
-                      draft.expandedGraphIds.delete(graphId);
-                      console.log(`[Store toggleGraphExpanded] Removed ${graphId}. New state:`, new Set(draft.expandedGraphIds)); // <<< Log after delete
-                    } else {
-                      draft.expandedGraphIds.add(graphId);
-                      console.log(`[Store toggleGraphExpanded] Added ${graphId}. New state:`, new Set(draft.expandedGraphIds)); // <<< Log after add
-                    }
-                  })),
-
-                    // Toggle node bookmark status in savedNodeIds set
-                    toggleSavedNode: (nodeId) => set(produce((draft) => {
-                      const wasRemoved = draft.savedNodeIds.has(nodeId);
-                      if (wasRemoved) {
-                        draft.savedNodeIds.delete(nodeId);
-                      } else {
-                        draft.savedNodeIds.add(nodeId);
-                      }
-                      // Replace with a new Set instance to ensure reference change
-                      draft.savedNodeIds = new Set(draft.savedNodeIds);
-
-                      // If we removed a saved node, trigger cleanup after a short delay
-                      if (wasRemoved) {
-                        console.log(`[Store toggleSavedNode] Node ${nodeId} was unsaved, scheduling cleanup...`);
-                        // Use setTimeout to trigger cleanup after the current state update completes
-                        setTimeout(() => {
-                          const currentState = get();
-                          currentState.cleanupOrphanedData();
-                        }, 100);
-                      }
-                    })),
-
-                      // Toggle graph bookmark status by saving/unsaving its defining node
-                      toggleSavedGraph: (graphId) => set(produce((draft) => {
-                        const graph = draft.graphs.get(graphId);
-                        if (!graph) {
-                          console.warn(`[Store toggleSavedGraph] Graph ${graphId} not found.`);
-                          return;
-                        }
-
-                        // Get the defining node ID (the node this graph defines)
-                        let definingNodeId = graph.definingNodeIds?.[0];
-
-                        // If no defining node exists, create one to represent this graph
-                        if (!definingNodeId) {
-                          console.log(`[Store toggleSavedGraph] Graph ${graphId} has no defining node. Creating one.`);
-
-                          // Create a new node to represent this graph
-                          definingNodeId = uuidv4();
-                          const definingNodeData = {
-                            id: definingNodeId,
-                            name: graph.name || 'Untitled Graph',
-                            description: graph.description || '',
-                            picture: '',
-                            color: NODE_DEFAULT_COLOR,
-                            // No positional data in prototype
-                            definitionGraphIds: [graphId], // This node defines the current graph
-                            createdAt: new Date().toISOString()
-                          };
-
-                          // Add the defining node to the nodes map
-                          draft.nodePrototypes.set(definingNodeId, definingNodeData);
-
-                          // Set this node as the defining node for the graph
-                          if (!graph.definingNodeIds) {
-                            graph.definingNodeIds = [];
-                          }
-                          graph.definingNodeIds.unshift(definingNodeId); // Add to beginning
-
-                          console.log(`[Store toggleSavedGraph] Created defining node ${definingNodeId} for graph ${graphId}.`);
-                        }
-
-                        const wasNodeSaved = draft.savedNodeIds.has(definingNodeId);
-                        if (wasNodeSaved) {
-                          draft.savedNodeIds.delete(definingNodeId);
-                          console.log(`[Store toggleSavedGraph] Removed defining node ${definingNodeId} from saved nodes (bookmarked graph ${graphId}).`);
-                        } else {
-                          draft.savedNodeIds.add(definingNodeId);
-                          console.log(`[Store toggleSavedGraph] Added defining node ${definingNodeId} to saved nodes (bookmarked graph ${graphId}).`);
-                        }
-                        // Replace with a new Set instance to ensure reference change
-                        draft.savedNodeIds = new Set(draft.savedNodeIds);
-                      })),
-
-                        // Toggle connection names visibility
-                        toggleShowConnectionNames: () => set(produce((draft) => {
-                          draft.showConnectionNames = !draft.showConnectionNames;
-                        })),
-
-                          // Grid settings actions
-                          setGridMode: (mode) => set(produce((draft) => {
-                            const allowed = ['off', 'hover', 'always'];
-                            if (!draft.gridSettings) draft.gridSettings = { mode: 'off', size: 200 };
-                            if (allowed.includes(mode)) {
-                              draft.gridSettings.mode = mode;
-                              try { localStorage.setItem('redstring_grid_mode', mode); } catch (_) { }
-                            } else {
-                              console.warn(`[setGridMode] Invalid mode: ${mode}`);
-                            }
-                          })),
-                            setGridSize: (value) => set(produce((draft) => {
-                              if (!draft.gridSettings) draft.gridSettings = { mode: 'off', size: 200 };
-                              const v = Number(value);
-                              if (!Number.isFinite(v)) {
-                                console.warn(`[setGridSize] Invalid value: ${value}`);
-                                return;
-                              }
-                              const clamped = Math.max(20, Math.min(400, Math.round(v)));
-                              draft.gridSettings.size = clamped;
-                              try { localStorage.setItem('redstring_grid_size', String(clamped)); } catch (_) { }
-                            })),
-
-                              // Toggle global auto-routing enablement
-                              toggleEnableAutoRouting: () => set(produce((draft) => {
-                                if (!draft.autoLayoutSettings) {
-                                  draft.autoLayoutSettings = getDefaultAutoLayoutSettings();
-                                }
-                                draft.autoLayoutSettings.enableAutoRouting = !draft.autoLayoutSettings.enableAutoRouting;
-                              })),
-
-                                // Set the global routing style
-                                setGroupLayoutAlgorithm: (algorithm) => set(produce((draft) => {
-                                  if (!draft.autoLayoutSettings) {
-                                    draft.autoLayoutSettings = getDefaultAutoLayoutSettings();
-                                  }
-                                  draft.autoLayoutSettings.groupLayoutAlgorithm = algorithm;
-                                  console.log(`[Store] Group layout algorithm set to: ${algorithm}`);
-                                })),
-
-                                  toggleShowClusterHulls: () => set(produce((draft) => {
-                                    if (!draft.autoLayoutSettings) {
-                                      draft.autoLayoutSettings = getDefaultAutoLayoutSettings();
-                                    }
-                                    draft.autoLayoutSettings.showClusterHulls = !draft.autoLayoutSettings.showClusterHulls;
-                                    console.log(`[Store] Show cluster hulls set to: ${draft.autoLayoutSettings.showClusterHulls}`);
-                                  })),
-
-                                    setRoutingStyle: (style) => set(produce((draft) => {
-                                      if (!draft.autoLayoutSettings) {
-                                        draft.autoLayoutSettings = getDefaultAutoLayoutSettings();
-                                      }
-                                      if (style === 'straight' || style === 'manhattan' || style === 'clean') {
-                                        draft.autoLayoutSettings.routingStyle = style;
-                                      } else {
-                                        console.warn(`[setRoutingStyle] Invalid routing style: ${style}`);
-                                      }
-                                    })),
-
-                                      // Set number of bends preference for Manhattan routing
-                                      setManhattanBends: (mode) => set(produce((draft) => {
-                                        if (!draft.autoLayoutSettings) {
-                                          draft.autoLayoutSettings = getDefaultAutoLayoutSettings();
-                                        }
-                                        if (mode === 'auto' || mode === 'one' || mode === 'two') {
-                                          draft.autoLayoutSettings.manhattanBends = mode;
-                                        } else {
-                                          console.warn(`[setManhattanBends] Invalid bends mode: ${mode}`);
-                                        }
-                                      })),
-
-                                        // Set lane spacing for clean routing
-                                        setCleanLaneSpacing: (value) => set(produce((draft) => {
-                                          if (!draft.autoLayoutSettings) {
-                                            draft.autoLayoutSettings = getDefaultAutoLayoutSettings();
-                                          }
-                                          const v = Number(value);
-                                          if (!Number.isFinite(v)) {
-                                            console.warn(`[setCleanLaneSpacing] Invalid value: ${value}`);
-                                            return;
-                                          }
-                                          // Clamp for sanity with new generous range
-                                          const clamped = Math.max(100, Math.min(400, Math.round(v)));
-                                          draft.autoLayoutSettings.cleanLaneSpacing = clamped;
-                                        })),
-
-                                          setLayoutScalePreset: (preset) => set(produce((draft) => {
-                                            if (!draft.autoLayoutSettings) {
-                                              draft.autoLayoutSettings = getDefaultAutoLayoutSettings();
-                                            }
-                                            if (!VALID_LAYOUT_SCALE_PRESETS.includes(preset)) {
-                                              console.warn(`[setLayoutScalePreset] Invalid preset: ${preset}`);
-                                              return;
-                                            }
-                                            draft.autoLayoutSettings.layoutScale = preset;
-                                          })),
-
-                                            setLayoutScaleMultiplier: (value) => set(produce((draft) => {
-                                              if (!draft.autoLayoutSettings) {
-                                                draft.autoLayoutSettings = getDefaultAutoLayoutSettings();
-                                              }
-                                              const numeric = Number(value);
-                                              if (!Number.isFinite(numeric)) {
-                                                console.warn(`[setLayoutScaleMultiplier] Invalid multiplier: ${value}`);
-                                                return;
-                                              }
-                                              const clamped = Math.max(0.5, Math.min(MAX_LAYOUT_SCALE_MULTIPLIER, Number(numeric.toFixed(2))));
-                                              draft.autoLayoutSettings.layoutScaleMultiplier = clamped;
-                                            })),
-
-                                              setLayoutIterationPreset: (preset) => set(produce((draft) => {
-                                                if (!draft.autoLayoutSettings) {
-                                                  draft.autoLayoutSettings = getDefaultAutoLayoutSettings();
-                                                }
-                                                if (!VALID_LAYOUT_ITERATION_PRESETS.includes(preset)) {
-                                                  console.warn(`[setLayoutIterationPreset] Invalid preset: ${preset}`);
-                                                  return;
-                                                }
-                                                draft.autoLayoutSettings.layoutIterations = preset;
-                                              })),
-
-                                                setForceTunerScalePreset: (preset) => set(produce((draft) => {
-                                                  if (!draft.forceTunerSettings) {
-                                                    draft.forceTunerSettings = getDefaultForceTunerSettings();
-                                                  }
-                                                  if (!VALID_LAYOUT_SCALE_PRESETS.includes(preset)) {
-                                                    console.warn(`[setForceTunerScalePreset] Invalid preset: ${preset}`);
-                                                    return;
-                                                  }
-                                                  draft.forceTunerSettings.layoutScale = preset;
-                                                })),
-
-                                                  setForceTunerScaleMultiplier: (value) => set(produce((draft) => {
-                                                    if (!draft.forceTunerSettings) {
-                                                      draft.forceTunerSettings = getDefaultForceTunerSettings();
-                                                    }
-                                                    const numeric = Number(value);
-                                                    if (!Number.isFinite(numeric)) {
-                                                      console.warn(`[setForceTunerScaleMultiplier] Invalid multiplier: ${value}`);
-                                                      return;
-                                                    }
-                                                    const clamped = Math.max(0.2, Math.min(MAX_LAYOUT_SCALE_MULTIPLIER, Number(numeric.toFixed(2))));
-                                                    draft.forceTunerSettings.layoutScaleMultiplier = clamped;
-                                                  })),
-
-                                                    setForceTunerIterationPreset: (preset) => set(produce((draft) => {
-                                                      if (!draft.forceTunerSettings) {
-                                                        draft.forceTunerSettings = getDefaultForceTunerSettings();
-                                                      }
-                                                      if (!VALID_LAYOUT_ITERATION_PRESETS.includes(preset)) {
-                                                        console.warn(`[setForceTunerIterationPreset] Invalid preset: ${preset}`);
-                                                        return;
-                                                      }
-                                                      draft.forceTunerSettings.layoutIterations = preset;
-                                                    })),
-
-                                                      copyForceTunerSettingsToAutoLayout: () => set(produce((draft) => {
-                                                        if (!draft.forceTunerSettings) return;
-
-                                                        // Copy settings from tuner to auto-layout
-                                                        draft.autoLayoutSettings.layoutScale = draft.forceTunerSettings.layoutScale;
-                                                        draft.autoLayoutSettings.layoutScaleMultiplier = draft.forceTunerSettings.layoutScaleMultiplier;
-                                                        draft.autoLayoutSettings.layoutIterations = draft.forceTunerSettings.layoutIterations;
-
-                                                        console.log('[GraphStore] Copied force tuner settings to auto-layout:', {
-                                                          scale: draft.autoLayoutSettings.layoutScale,
-                                                          multiplier: draft.autoLayoutSettings.layoutScaleMultiplier,
-                                                          iterations: draft.autoLayoutSettings.layoutIterations
-                                                        });
-                                                      })),
-
-
-                                                        // Explicitly set active definition node (e.g., when switching graphs)
-                                                        setActiveDefinitionNode: (nodeId) => {
-                                                          console.log(`[Store Action] Explicitly setting activeDefinitionNodeId to: ${nodeId}`);
-                                                          set({ activeDefinitionNodeId: nodeId });
-                                                        },
-
-                                                          // Set the currently selected edge for editing
-                                                          setSelectedEdgeId: (edgeId) => {
-                                                            console.log(`[Store Action] Setting selectedEdgeId to: ${edgeId}`);
-                                                            set({ selectedEdgeId: edgeId });
-                                                          },
-
-                                                            // Set multiple selected edges
-                                                            setSelectedEdgeIds: (edgeIds) => {
-                                                              console.log(`[Store Action] Setting selectedEdgeIds to:`, edgeIds);
-                                                              set({ selectedEdgeIds: new Set(edgeIds) });
-                                                            },
-
-                                                              // Add edge to selection
-                                                              addSelectedEdgeId: (edgeId) => set(produce((draft) => {
-                                                                draft.selectedEdgeIds.add(edgeId);
-                                                                console.log(`[Store Action] Added edge ${edgeId} to selection`);
-                                                              })),
-
-                                                                // Remove edge from selection
-                                                                removeSelectedEdgeId: (edgeId) => set(produce((draft) => {
-                                                                  draft.selectedEdgeIds.delete(edgeId);
-                                                                  console.log(`[Store Action] Removed edge ${edgeId} from selection`);
-                                                                })),
-
-                                                                  // Clear all selected edges
-                                                                  clearSelectedEdgeIds: () => set(produce((draft) => {
-                                                                    draft.selectedEdgeIds.clear();
-                                                                    console.log(`[Store Action] Cleared all selected edges`);
-                                                                  })),
-
-                                                                    // Set TypeList mode
-                                                                    setTypeListMode: (mode) => {
-                                                                      console.log(`[Store Action] Setting typeListMode to: ${mode}`);
-                                                                      set({ typeListMode: mode });
-                                                                    },
-
-                                                                      // Set the type of a node prototype (duplicate removed; use earlier guarded version)
-
-                                                                      // Remove a definition graph from a node and delete the graph if it's no longer referenced
-                                                                      removeDefinitionFromNode: (nodeId, graphId) => set(produce((draft) => {
-                                                                        const node = draft.nodePrototypes.get(nodeId);
-                                                                        if (!node) {
-                                                                          console.warn(`[Store removeDefinitionFromNode] Node prototype ${nodeId} not found.`);
-                                                                          return;
-                                                                        }
-
-                                                                        // Remove the graph ID from the node's definition list
-                                                                        if (Array.isArray(node.definitionGraphIds)) {
-                                                                          const index = node.definitionGraphIds.indexOf(graphId);
-                                                                          if (index > -1) {
-                                                                            node.definitionGraphIds.splice(index, 1);
-                                                                            console.log(`[Store removeDefinitionFromNode] Removed graph ${graphId} from node ${nodeId} definitions.`);
-                                                                          } else {
-                                                                            console.warn(`[Store removeDefinitionFromNode] Graph ${graphId} not found in node ${nodeId} definitions.`);
-                                                                            return;
-                                                                          }
-                                                                        }
-
-                                                                        // Check if any other nodes still reference this graph as a definition
-                                                                        let isGraphStillReferenced = false;
-                                                                        for (const otherNode of draft.nodePrototypes.values()) {
-                                                                          if (otherNode.id !== nodeId && Array.isArray(otherNode.definitionGraphIds) && otherNode.definitionGraphIds.includes(graphId)) {
-                                                                            isGraphStillReferenced = true;
-                                                                            break;
-                                                                          }
-                                                                        }
-
-                                                                        // If no other nodes reference this graph, delete it completely
-                                                                        if (!isGraphStillReferenced) {
-                                                                          console.log(`[Store removeDefinitionFromNode] Graph ${graphId} is no longer referenced, deleting it.`);
-
-                                                                          // Remove from graphs map
-                                                                          draft.graphs.delete(graphId);
-
-                                                                          // Close the graph tab if it's open
-                                                                          const openIndex = draft.openGraphIds.indexOf(graphId);
-                                                                          if (openIndex > -1) {
-                                                                            draft.openGraphIds.splice(openIndex, 1);
-
-                                                                            // If this was the active graph, switch to another one
-                                                                            if (draft.activeGraphId === graphId) {
-                                                                              draft.activeGraphId = draft.openGraphIds.length > 0 ? draft.openGraphIds[0] : null;
-                                                                              if (draft.activeGraphId === null) {
-                                                                                draft.activeDefinitionNodeId = null;
-                                                                              }
-                                                                            }
-                                                                          }
-
-                                                                          // Remove from expanded set
-                                                                          draft.expandedGraphIds.delete(graphId);
-
-                                                                          // Delete all instances that belong to this graph is complex.
-                                                                          // The graph is gone, so its instances are implicitly gone.
-                                                                          // We might need a more robust cleanup later.
-
-                                                                          console.log(`[Store removeDefinitionFromNode] Deleted graph ${graphId}.`);
-                                                                        } else {
-                                                                          console.log(`[Store removeDefinitionFromNode] Graph ${graphId} is still referenced by other nodes, keeping it.`);
-                                                                        }
-                                                                      })),
-
-                                                                        // Open a graph tab and bring it to the top (similar to Panel.jsx double-click behavior)
-                                                                        openGraphTabAndBringToTop: (graphId, definitionNodeId = null) => set(produce((draft) => {
-                                                                          console.log(`[Store openGraphTabAndBringToTop] Called with graphId: ${graphId}, definitionNodeId: ${definitionNodeId}`);
-                                                                          if (!draft.graphs.has(graphId)) {
-                                                                            console.warn(`[Store openGraphTabAndBringToTop] Graph ${graphId} not found.`);
-                                                                            return;
-                                                                          }
-
-                                                                          // Check if graph is already open
-                                                                          const existingIndex = draft.openGraphIds.indexOf(graphId);
-
-                                                                          if (existingIndex > -1) {
-                                                                            // Graph is already open, move it to the front
-                                                                            draft.openGraphIds.splice(existingIndex, 1); // Remove from current position
-                                                                            draft.openGraphIds.unshift(graphId); // Add to front
-                                                                            console.log(`[Store openGraphTabAndBringToTop] Moved existing graph ${graphId} to front.`);
-                                                                          } else {
-                                                                            // Graph is not open, add it to the front
-                                                                            draft.openGraphIds.unshift(graphId);
-                                                                            console.log(`[Store openGraphTabAndBringToTop] Added new graph ${graphId} to front.`);
-                                                                          }
-
-                                                                          // Set this graph as the active one
-                                                                          draft.activeGraphId = graphId;
-                                                                          console.log(`[Store openGraphTabAndBringToTop] Set activeGraphId to: ${graphId}`);
-
-                                                                          // Set the definition node ID if provided
-                                                                          if (definitionNodeId) {
-                                                                            console.log(`[Store openGraphTabAndBringToTop] Setting activeDefinitionNodeId to: ${definitionNodeId}`);
-                                                                            draft.activeDefinitionNodeId = definitionNodeId;
-                                                                          } else {
-                                                                            console.log(`[Store openGraphTabAndBringToTop] No definitionNodeId provided, clearing activeDefinitionNodeId.`);
-                                                                            draft.activeDefinitionNodeId = null;
-                                                                          }
-
-                                                                          // Ensure the opened graph is expanded in the list
-                                                                          draft.expandedGraphIds.add(graphId);
-                                                                          console.log(`[Store openGraphTabAndBringToTop] Added ${graphId} to expanded set.`);
-                                                                        })),
-
-                                                                          // Clean up orphaned nodes and graphs that are no longer referenced
-                                                                          cleanupOrphanedData: () => set(produce((draft) => {
-                                                                            console.log('[Store cleanupOrphanedData] Starting cleanup of orphaned data...');
-
-                                                                            // UI reference hygiene before deeper cleanup
-                                                                            // 1) Drop right panel node tabs that reference missing prototypes
-                                                                            if (Array.isArray(draft.rightPanelTabs)) {
-                                                                              const originalTabs = draft.rightPanelTabs.slice();
-                                                                              draft.rightPanelTabs = draft.rightPanelTabs.filter(tab => {
-                                                                                if (!tab || tab.type !== 'node') return true; // keep non-node tabs (e.g., home)
-                                                                                return draft.nodePrototypes.has(tab.nodeId);
-                                                                              });
-                                                                              if (draft.rightPanelTabs.length !== originalTabs.length) {
-                                                                                console.log('[Store cleanupOrphanedData] Pruned stale rightPanelTabs referencing deleted prototypes');
-                                                                              }
-                                                                              // Ensure there is at least a home tab and one active tab
-                                                                              if (draft.rightPanelTabs.length === 0 || draft.rightPanelTabs[0]?.type !== 'home') {
-                                                                                draft.rightPanelTabs.unshift({ type: 'home', isActive: true });
-                                                                              }
-                                                                              // Ensure one tab is active
-                                                                              if (!draft.rightPanelTabs.some(t => t && t.isActive)) {
-                                                                                draft.rightPanelTabs[0].isActive = true;
-                                                                              }
-                                                                            }
-
-                                                                            // 2) Clear activeDefinitionNodeId if it references a missing prototype
-                                                                            if (draft.activeDefinitionNodeId && !draft.nodePrototypes.has(draft.activeDefinitionNodeId)) {
-                                                                              console.log(`[Store cleanupOrphanedData] Clearing stale activeDefinitionNodeId ${draft.activeDefinitionNodeId}`);
-                                                                              draft.activeDefinitionNodeId = null;
-                                                                            }
-
-                                                                            // Step 1: Find all referenced prototypes and instances
-                                                                            const referencedPrototypeIds = new Set();
-
-                                                                            // Protect explicitly registered prototypes (e.g., Orbit catalog)
-                                                                            if (draft.protectedPrototypeIds) {
-                                                                              draft.protectedPrototypeIds.forEach((id) => referencedPrototypeIds.add(id));
-                                                                            }
-
-                                                                            // Add saved prototypes
-                                                                            draft.savedNodeIds.forEach(prototypeId => referencedPrototypeIds.add(prototypeId));
-
-                                                                            // Add prototypes that have open tabs (they're being viewed/edited)
-                                                                            if (Array.isArray(draft.rightPanelTabs)) {
-                                                                              draft.rightPanelTabs.forEach(tab => {
-                                                                                if (tab && tab.type === 'node' && tab.nodeId) {
-                                                                                  referencedPrototypeIds.add(tab.nodeId);
-                                                                                }
-                                                                              });
-                                                                            }
-
-                                                                            // Add prototypes from all instances in open graphs
-                                                                            draft.openGraphIds.forEach(graphId => {
-                                                                              const graph = draft.graphs.get(graphId);
-                                                                              if (!graph) {
-                                                                                return;
-                                                                              }
-
-                                                                              if (graph.instances) {
-                                                                                graph.instances.forEach(instance => referencedPrototypeIds.add(instance.prototypeId));
-                                                                              }
-
-                                                                              if (Array.isArray(graph.definingNodeIds)) {
-                                                                                graph.definingNodeIds.forEach(nodeId => {
-                                                                                  if (draft.nodePrototypes.has(nodeId)) {
-                                                                                    referencedPrototypeIds.add(nodeId);
-                                                                                  }
-                                                                                });
-                                                                              }
-                                                                            });
-
-                                                                            // Add prototypes that are being used as types by other prototypes
-                                                                            for (const prototype of draft.nodePrototypes.values()) {
-                                                                              if (prototype.typeNodeId) {
-                                                                                referencedPrototypeIds.add(prototype.typeNodeId);
-                                                                              }
-                                                                            }
-
-                                                                            // Add prototypes that back node-groups (groups with linkedNodePrototypeId)
-                                                                            draft.graphs.forEach(graph => {
-                                                                              if (graph.groups) {
-                                                                                graph.groups.forEach(group => {
-                                                                                  if (group.linkedNodePrototypeId) {
-                                                                                    referencedPrototypeIds.add(group.linkedNodePrototypeId);
-                                                                                  }
-                                                                                });
-                                                                              }
-                                                                            });
-
-                                                                            // Add prototypes that are referenced by edges (connection types)
-                                                                            for (const [edgeId, edge] of draft.edges.entries()) {
-                                                                              // Check definitionNodeIds (new approach)
-                                                                              if (edge.definitionNodeIds && Array.isArray(edge.definitionNodeIds)) {
-                                                                                edge.definitionNodeIds.forEach(nodeId => referencedPrototypeIds.add(nodeId));
-                                                                              }
-                                                                              // Check typeNodeId (legacy approach)
-                                                                              if (edge.typeNodeId) {
-                                                                                referencedPrototypeIds.add(edge.typeNodeId);
-                                                                              }
-                                                                            }
-
-                                                                            // Recursively add prototypes from definition graphs
-                                                                            const addDefinitionPrototypes = (prototypeId) => {
-                                                                              const prototype = draft.nodePrototypes.get(prototypeId);
-                                                                              if (prototype && Array.isArray(prototype.definitionGraphIds)) {
-                                                                                prototype.definitionGraphIds.forEach(graphId => {
-                                                                                  const defGraph = draft.graphs.get(graphId);
-                                                                                  if (defGraph && defGraph.instances) {
-                                                                                    defGraph.instances.forEach(instance => {
-                                                                                      if (!referencedPrototypeIds.has(instance.prototypeId)) {
-                                                                                        referencedPrototypeIds.add(instance.prototypeId);
-                                                                                        addDefinitionPrototypes(instance.prototypeId); // Recurse
-                                                                                      }
-                                                                                    });
-                                                                                  }
-                                                                                });
-                                                                              }
-                                                                            };
-
-                                                                            Array.from(referencedPrototypeIds).forEach(prototypeId => addDefinitionPrototypes(prototypeId));
-
-                                                                            // Step 2: Find all referenced graphs
-                                                                            const referencedGraphIds = new Set();
-
-                                                                            // Add open graphs
-                                                                            draft.openGraphIds.forEach(graphId => referencedGraphIds.add(graphId));
-
-                                                                            // Add definition graphs from referenced prototypes
-                                                                            referencedPrototypeIds.forEach(prototypeId => {
-                                                                              const prototype = draft.nodePrototypes.get(prototypeId);
-                                                                              if (prototype && Array.isArray(prototype.definitionGraphIds)) {
-                                                                                prototype.definitionGraphIds.forEach(graphId => referencedGraphIds.add(graphId));
-                                                                              }
-                                                                            });
-
-                                                                            // Ensure defining prototypes for referenced graphs are also retained.
-                                                                            const collectDefiningPrototypes = () => {
-                                                                              const discovered = [];
-                                                                              referencedGraphIds.forEach(graphId => {
-                                                                                const graph = draft.graphs.get(graphId);
-                                                                                if (graph && Array.isArray(graph.definingNodeIds)) {
-                                                                                  graph.definingNodeIds.forEach(nodeId => {
-                                                                                    if (draft.nodePrototypes.has(nodeId) && !referencedPrototypeIds.has(nodeId)) {
-                                                                                      referencedPrototypeIds.add(nodeId);
-                                                                                      discovered.push(nodeId);
-                                                                                    }
-                                                                                  });
-                                                                                }
-                                                                              });
-                                                                              return discovered;
-                                                                            };
-
-                                                                            let newlyDiscovered = collectDefiningPrototypes();
-                                                                            while (newlyDiscovered.length > 0) {
-                                                                              newlyDiscovered.forEach(prototypeId => {
-                                                                                addDefinitionPrototypes(prototypeId);
-                                                                                const prototype = draft.nodePrototypes.get(prototypeId);
-                                                                                if (prototype && Array.isArray(prototype.definitionGraphIds)) {
-                                                                                  prototype.definitionGraphIds.forEach(graphId => {
-                                                                                    if (draft.graphs.has(graphId)) {
-                                                                                      referencedGraphIds.add(graphId);
-                                                                                    }
-                                                                                  });
-                                                                                }
-                                                                              });
-                                                                              newlyDiscovered = collectDefiningPrototypes();
-                                                                            }
-
-                                                                            // Step 3: Remove orphaned prototypes
-                                                                            const orphanedPrototypes = [];
-                                                                            for (const prototypeId of draft.nodePrototypes.keys()) {
-                                                                              if (!referencedPrototypeIds.has(prototypeId)) {
-                                                                                orphanedPrototypes.push(prototypeId);
-                                                                              }
-                                                                            }
-
-                                                                            orphanedPrototypes.forEach(prototypeId => {
-                                                                              console.log(`[Store cleanupOrphanedData] Removing orphaned prototype: ${prototypeId}`);
-                                                                              draft.nodePrototypes.delete(prototypeId);
-                                                                            });
-
-                                                                            // Step 4: Remove orphaned graphs (and their instances/edges)
-                                                                            const orphanedGraphs = [];
-                                                                            for (const graphId of draft.graphs.keys()) {
-                                                                              if (!referencedGraphIds.has(graphId)) {
-                                                                                orphanedGraphs.push(graphId);
-                                                                              }
-                                                                            }
-
-                                                                            orphanedGraphs.forEach(graphId => {
-                                                                              console.log(`[Store cleanupOrphanedData] Removing orphaned graph: ${graphId}`);
-                                                                              draft.graphs.delete(graphId);
-
-                                                                              // Also clean up related state
-                                                                              draft.expandedGraphIds.delete(graphId);
-
-                                                                              // Remove from right panel tabs if open
-                                                                              draft.rightPanelTabs = draft.rightPanelTabs.filter(tab =>
-                                                                                tab.type !== 'graph' || tab.graphId !== graphId
-                                                                              );
-                                                                            });
-
-                                                                            // Step 5: Remove orphaned edges
-                                                                            const orphanedEdges = [];
-                                                                            const allInstanceIds = new Set();
-                                                                            draft.graphs.forEach(g => {
-                                                                              if (g.instances) {
-                                                                                g.instances.forEach(inst => allInstanceIds.add(inst.id));
-                                                                              }
-                                                                            });
-
-                                                                            for (const [edgeId, edge] of draft.edges.entries()) {
-                                                                              const sourceExists = allInstanceIds.has(edge.sourceId);
-                                                                              const destExists = allInstanceIds.has(edge.destinationId);
-                                                                              if (!sourceExists || !destExists) {
-                                                                                orphanedEdges.push(edgeId);
-                                                                              }
-                                                                            }
-
-                                                                            orphanedEdges.forEach(edgeId => {
-                                                                              console.log(`[Store cleanupOrphanedData] Removing orphaned edge: ${edgeId}`);
-                                                                              draft.edges.delete(edgeId);
-                                                                            });
-
-                                                                            // Step 6: Clean up edge references in remaining graphs
-                                                                            referencedGraphIds.forEach(graphId => {
-                                                                              const graph = draft.graphs.get(graphId);
-                                                                              if (graph && Array.isArray(graph.edgeIds)) {
-                                                                                const originalLength = graph.edgeIds.length;
-                                                                                graph.edgeIds = graph.edgeIds.filter(edgeId => draft.edges.has(edgeId));
-                                                                                if (graph.edgeIds.length !== originalLength) {
-                                                                                  console.log(`[Store cleanupOrphanedData] Cleaned edge references in graph ${graphId}`);
-                                                                                }
-                                                                              }
-                                                                            });
-
-                                                                            console.log(`[Store cleanupOrphanedData] Cleanup complete. Removed ${orphanedPrototypes.length} prototypes, ${orphanedGraphs.length} graphs, ${orphanedEdges.length} edges.`);
-                                                                          })),
-
-                                                                            // Restore from last session (automatic) - now only returns universe file data
-                                                                            restoreFromSession: async () => {
-                                                                              try {
-                                                                                const result = await restoreLastSession();
-                                                                                return result; // Return the result object for the component to handle
-                                                                              } catch (error) {
-                                                                                console.error('[Store] Error restoring from session:', error);
-                                                                                return { success: false, error: error.message };
-                                                                              }
-                                                                            },
-
-                                                                              // Get file status
-                                                                              getFileStatus: () => getFileStatus(),
-
-                                                                                // Universe file management actions
-                                                                                loadUniverseFromFile: (dataToLoad) => {
-                                                                                  try {
-                                                                                    // CRITICAL: Prevent concurrent loads - check if a load is already in progress
-                                                                                    const currentState = api.getState();
-                                                                                    if (currentState._isLoadingUniverse) {
-                                                                                      console.warn("[graphStore] Load already in progress, ignoring concurrent load attempt");
-                                                                                      return false;
-                                                                                    }
-
-                                                                                    // Set loading lock
-                                                                                    set({ _isLoadingUniverse: true });
-
-                                                                                    // If dataToLoad already contains Maps (i.e., was returned by importFromRedstring earlier) we can use it directly.
-                                                                                    const isAlreadyDeserialized = dataToLoad && dataToLoad.graphs instanceof Map;
-
-                                                                                    let storeState;
-                                                                                    if (isAlreadyDeserialized) {
-                                                                                      storeState = dataToLoad;
-                                                                                    } else {
-                                                                                      // Use the centralized import function to correctly deserialize the data
-                                                                                      const { storeState: importedState, errors } = importFromRedstring(dataToLoad);
-                                                                                      if (errors && errors.length > 0) {
-                                                                                        console.error("[graphStore] Errors importing from Redstring:", errors);
-                                                                                        // Don't return here, continue with the imported state even if there were errors
-                                                                                      }
-                                                                                      storeState = importedState;
-                                                                                    }
-
-                                                                                    // Validate that we have a valid storeState
-                                                                                    if (!storeState || typeof storeState !== 'object') {
-                                                                                      console.error("[graphStore] Invalid storeState after import:", storeState);
-                                                                                      set({
-                                                                                        isUniverseLoaded: true,
-                                                                                        isUniverseLoading: false,
-                                                                                        universeLoadingError: "Failed to load universe: Invalid data format",
-                                                                                        hasUniverseFile: false,
-                                                                                        _isLoadingUniverse: false,
-                                                                                      });
-                                                                                      return false;
-                                                                                    }
-
-                                                                                    // Normalize all edge directionality to ensure arrowsToward is always a Set
-                                                                                    if (storeState.edges) {
-                                                                                      for (const [edgeId, edgeData] of storeState.edges.entries()) {
-                                                                                        try {
-                                                                                          edgeData.directionality = normalizeEdgeDirectionality(edgeData.directionality);
-                                                                                        } catch (error) {
-                                                                                          console.warn(`[graphStore] Error normalizing edge ${edgeId} directionality:`, error);
-                                                                                          // Set a safe default
-                                                                                          edgeData.directionality = { arrowsToward: new Set() };
-                                                                                        }
-                                                                                      }
-                                                                                    }
-
-                                                                                    // Sanitize UI references: drop node tabs pointing to non-existent prototypes
-                                                                                    if (Array.isArray(storeState.rightPanelTabs)) {
-                                                                                      try {
-                                                                                        const tabs = storeState.rightPanelTabs.filter(tab => {
-                                                                                          if (!tab || tab.type !== 'node') return true; // keep non-node tabs (e.g., home)
-                                                                                          return storeState.nodePrototypes?.has?.(tab.nodeId);
-                                                                                        });
-                                                                                        // Ensure a home tab exists and is active if none active
-                                                                                        if (tabs.length === 0 || tabs[0]?.type !== 'home') {
-                                                                                          tabs.unshift({ type: 'home', isActive: true });
-                                                                                        }
-                                                                                        if (!tabs.some(t => t && t.isActive)) {
-                                                                                          tabs[0].isActive = true;
-                                                                                        }
-                                                                                        storeState.rightPanelTabs = tabs;
-                                                                                      } catch (e) {
-                                                                                        console.warn('[graphStore] Failed to sanitize rightPanelTabs during load:', e);
-                                                                                        storeState.rightPanelTabs = [{ type: 'home', isActive: true }];
-                                                                                      }
-                                                                                    }
-
-                                                                                    // Sanitize saved sets to remove references to missing prototypes
-                                                                                    try {
-                                                                                      if (storeState.savedNodeIds instanceof Set) {
-                                                                                        storeState.savedNodeIds = new Set(Array.from(storeState.savedNodeIds).filter(id => storeState.nodePrototypes?.has?.(id)));
-                                                                                      }
-                                                                                      if (storeState.savedGraphIds instanceof Set) {
-                                                                                        storeState.savedGraphIds = new Set(Array.from(storeState.savedGraphIds).filter(id => storeState.nodePrototypes?.has?.(id)));
-                                                                                      }
-                                                                                    } catch (e) {
-                                                                                      console.warn('[graphStore] Failed to sanitize saved sets during load:', e);
-                                                                                    }
-
-                                                                                    console.log("[graphStore] Loading universe with", {
-                                                                                      nodes: storeState.nodePrototypes?.size || 0,
-                                                                                      graphs: storeState.graphs?.size || 0,
-                                                                                      edges: storeState.edges?.size || 0
-                                                                                    });
-
-                                                                                    set({
-                                                                                      ...storeState,
-                                                                                      isUniverseLoaded: true,
-                                                                                      isUniverseLoading: false,
-                                                                                      universeLoadingError: null,
-                                                                                      hasUniverseFile: true,
-                                                                                      _isLoadingUniverse: false,
-                                                                                    });
-
-                                                                                    return true;
-                                                                                  } catch (error) {
-                                                                                    console.error("[graphStore] Critical error in loadUniverseFromFile:", error);
-                                                                                    set({
-                                                                                      isUniverseLoaded: true,
-                                                                                      isUniverseLoading: false,
-                                                                                      universeLoadingError: `Failed to load universe: ${error.message}`,
-                                                                                      hasUniverseFile: false,
-                                                                                      _isLoadingUniverse: false,
-                                                                                    });
-                                                                                    return false;
-                                                                                  }
-                                                                                },
-
-                                                                                  setUniverseError: (error) => set({
-                                                                                    isUniverseLoaded: true, // Loading is complete, but with an error
-                                                                                    isUniverseLoading: false,
-                                                                                    universeLoadingError: error,
-                                                                                    hasUniverseFile: false
-                                                                                  }),
-
-                                                                                    // --- Simple Abstraction Actions ---
-
-                                                                                    // Add a node above (more specific) or below (more general) in a dimension chain
-                                                                                    addToAbstractionChain: (nodeId, dimension, direction, newNodeId, insertRelativeToNodeId) => set(produce((draft) => {
-                                                                                      console.log(`[Store] addToAbstractionChain called with:`, {
-                                                                                        nodeId,
-                                                                                        dimension,
-                                                                                        direction,
-                                                                                        newNodeId,
-                                                                                        insertRelativeToNodeId
-                                                                                      });
-
-                                                                                      const node = draft.nodePrototypes.get(nodeId);
-                                                                                      if (!node) {
-                                                                                        console.error(`Node ${nodeId} not found`);
-                                                                                        return;
-                                                                                      }
-
-                                                                                      console.log(`[Store] Found chain owner node:`, {
-                                                                                        id: node.id,
-                                                                                        name: node.name,
-                                                                                        hasAbstractionChains: !!node.abstractionChains,
-                                                                                        existingChain: node.abstractionChains?.[dimension]
-                                                                                      });
-
-                                                                                      // Initialize abstraction chains if they don't exist
-                                                                                      if (!node.abstractionChains) {
-                                                                                        node.abstractionChains = {};
-                                                                                      }
-
-                                                                                      // Initialize this dimension if it doesn't exist
-                                                                                      if (!node.abstractionChains[dimension]) {
-                                                                                        node.abstractionChains[dimension] = [nodeId]; // Start with just this node
-                                                                                      }
-
-                                                                                      const chain = node.abstractionChains[dimension];
-
-                                                                                      // Prevent duplicate entries of the node being added
-                                                                                      if (chain.includes(newNodeId)) {
-                                                                                        console.log(`[Store] Skipping addToAbstractionChain: ${newNodeId} already in ${dimension} chain for ${nodeId}`);
-                                                                                      } else {
-
-                                                                                        // If insertRelativeToNodeId is provided, insert relative to that node
-                                                                                        if (insertRelativeToNodeId && insertRelativeToNodeId !== nodeId) {
-                                                                                          const relativeIndex = chain.indexOf(insertRelativeToNodeId);
-                                                                                          if (relativeIndex !== -1) {
-                                                                                            if (direction === 'above') {
-                                                                                              // More specific - insert before the relative node
-                                                                                              chain.splice(relativeIndex, 0, newNodeId);
-                                                                                            } else {
-                                                                                              // More general - insert after the relative node
-                                                                                              chain.splice(relativeIndex + 1, 0, newNodeId);
-                                                                                            }
-                                                                                            console.log(`Added ${newNodeId} ${direction} ${insertRelativeToNodeId} in ${dimension} dimension. Chain:`, chain);
-                                                                                            return;
-                                                                                          } else {
-                                                                                            console.warn(`Relative node ${insertRelativeToNodeId} not found in chain, inserting both nodes`);
-                                                                                            // If the relative node isn't in the chain yet, we need to handle this case
-                                                                                            // Insert both the relative node and the new node in the correct order
-                                                                                            const chainOwnerIndex = chain.indexOf(nodeId);
-                                                                                            if (chainOwnerIndex !== -1) {
-                                                                                              if (direction === 'above') {
-                                                                                                // Insert relative node at chain owner position, then new node above it
-                                                                                                chain.splice(chainOwnerIndex, 0, newNodeId, insertRelativeToNodeId);
-                                                                                              } else {
-                                                                                                // Insert relative node at chain owner position, then new node below it  
-                                                                                                chain.splice(chainOwnerIndex, 0, insertRelativeToNodeId, newNodeId);
-                                                                                              }
-                                                                                              console.log(`Added relative node ${insertRelativeToNodeId} and new node ${newNodeId} ${direction} it. Chain:`, chain);
-                                                                                              return;
-                                                                                            }
-                                                                                          }
-                                                                                        }
-
-                                                                                        // Fallback: insert relative to the chain owner (original behavior)
-                                                                                        const currentIndex = chain.indexOf(nodeId);
-
-                                                                                        if (currentIndex === -1) {
-                                                                                          // Node not in chain, add it first
-                                                                                          chain.push(nodeId);
-                                                                                        }
-
-                                                                                        // Add new node in the right position relative to chain owner
-                                                                                        const updatedCurrentIndex = chain.indexOf(nodeId);
-                                                                                        if (direction === 'above') {
-                                                                                          // More specific - insert before the chain owner
-                                                                                          chain.splice(updatedCurrentIndex, 0, newNodeId);
-                                                                                        } else {
-                                                                                          // More general - insert after the chain owner
-                                                                                          chain.splice(updatedCurrentIndex + 1, 0, newNodeId);
-                                                                                        }
-
-                                                                                        console.log(`Added ${newNodeId} ${direction} ${nodeId} in ${dimension} dimension. Chain:`, chain);
-                                                                                      }
-                                                                                    })),
-
-                                                                                      // Remove a node from an abstraction chain
-                                                                                      removeFromAbstractionChain: (nodeId, dimension, nodeToRemove) => set(produce((draft) => {
-                                                                                        const node = draft.nodePrototypes.get(nodeId);
-                                                                                        if (!node?.abstractionChains?.[dimension]) return;
-
-                                                                                        const chain = node.abstractionChains[dimension];
-                                                                                        const index = chain.indexOf(nodeToRemove);
-                                                                                        if (index > -1) {
-                                                                                          chain.splice(index, 1);
-                                                                                          console.log(`Removed ${nodeToRemove} from ${nodeId}'s ${dimension} chain`);
-                                                                                        }
-                                                                                      })),
-
-                                                                                        // Replace a node in the canvas with one from the abstraction chain
-                                                                                        swapNodeInChain: (currentNodeId, newNodeId) => set(produce((draft) => {
-                                                                                          // This will be used by the swap button in the carousel
-                                                                                          // For now, just log the action - the actual swap will happen in the UI layer
-                                                                                          console.log(`Swapping ${currentNodeId} with ${newNodeId}`);
-                                                                                        })),
-
-                                                                                          clearUniverse: () => set(() => ({
-                                                                                            graphs: new Map(),
-                                                                                            nodePrototypes: new Map(),
-                                                                                            edges: new Map(),
-                                                                                            pendingDeletions: new Map(),
-                                                                                            gracePeriodMs: 5 * 60 * 1000, // Reset to default
-                                                                                            openGraphIds: [],
-                                                                                            activeGraphId: null,
-                                                                                            activeDefinitionNodeId: null,
-                                                                                            rightPanelTabs: [{ type: 'home', isActive: true }],
-                                                                                            expandedGraphIds: new Set(),
-                                                                                            savedNodeIds: new Set(),
-                                                                                            savedGraphIds: new Set(),
-                                                                                            isUniverseLoaded: false,
-                                                                                            isUniverseLoading: false,
-                                                                                            universeLoadingError: null,
-                                                                                            hasUniverseFile: false,
-                                                                                          })),
-
-                                                                                            setUniverseConnected: (hasFile = true) => set(state => ({
-                                                                                              ...state,
-                                                                                              hasUniverseFile: hasFile
-                                                                                            })),
-
-                                                                                              setUniverseLoaded: (loaded = true, hasFile = true) => set(state => ({
-                                                                                                ...state,
-                                                                                                isUniverseLoaded: loaded,
-                                                                                                isUniverseLoading: false,
-                                                                                                hasUniverseFile: hasFile,
-                                                                                                universeLoadingError: null
-                                                                                              })),
-
-                                                                                                // Storage mode actions
-                                                                                                setStorageMode: (mode) => set(state => ({
-                                                                                                  ...state,
-                                                                                                  storageMode: mode
-                                                                                                })),
-                                                                                                  updateGitSettings: (settings) => set(state => ({
-                                                                                                    ...state,
-                                                                                                    gitSettings: { ...state.gitSettings, ...settings }
-                                                                                                  })),
-
-                                                                                                    updateGraphView: (graphId, panOffset, zoomLevel) => {
-                                                                                                      // #region agent log
-                                                                                                      debugLogSync('graphStore.jsx:updateGraphView', 'updateGraphView called', { graphId, zoomLevel: zoomLevel?.toFixed?.(3) }, 'debug-session', 'C');
-                                                                                                      // #endregion
-                                                                                                      api.setChangeContext({ type: 'viewport', target: 'graph' });
-                                                                                                      set(produce((draft) => {
-                                                                                                        const graph = draft.graphs.get(graphId);
-                                                                                                        if (graph) {
-                                                                                                          graph.panOffset = panOffset;
-                                                                                                          graph.zoomLevel = zoomLevel;
-                                                                                                        }
-                                                                                                      }));
-                                                                                                    },
-
-                                                                                                      // Git Federation Actions
-                                                                                                      setGitConnection: (connectionConfig) => {
-                                                                                                        set(produce((draft) => {
-                                                                                                          draft.gitConnection = connectionConfig;
-                                                                                                          // Persist to localStorage
-                                                                                                          localStorage.setItem('redstring_git_connection', JSON.stringify(connectionConfig));
-                                                                                                        }));
-                                                                                                      },
-
-                                                                                                        clearGitConnection: () => {
-                                                                                                          set(produce((draft) => {
-                                                                                                            draft.gitConnection = null;
-                                                                                                            draft.gitSyncEngine = null;
-                                                                                                            // Clear from localStorage
-                                                                                                            localStorage.removeItem('redstring_git_connection');
-                                                                                                          }));
-                                                                                                        },
-
-                                                                                                          setGitSyncEngine: (syncEngine) => {
-                                                                                                            set(produce((draft) => {
-                                                                                                              draft.gitSyncEngine = syncEngine;
-                                                                                                            }));
-                                                                                                          },
-
-                                                                                                            setGitSourceOfTruth: (sourceOfTruth) => {
-                                                                                                              set(produce((draft) => {
-                                                                                                                draft.gitSourceOfTruth = sourceOfTruth;
-                                                                                                                // Persist to localStorage
-                                                                                                                localStorage.setItem('redstring_git_source_of_truth', sourceOfTruth);
-                                                                                                              }));
-                                                                                                            },
-
-                                                                                                              // Delete a node prototype and all its related data
-                                                                                                              deleteNodePrototype: (prototypeId) => set(produce((draft) => {
-                                                                                                                console.log(`[Store deleteNodePrototype] Deleting prototype: ${prototypeId}`);
-
-                                                                                                                // Check if this is the base "Thing" or "Connection" type - prevent deletion
-                                                                                                                if (prototypeId === 'base-thing-prototype') {
-                                                                                                                  console.warn(`[Store deleteNodePrototype] Cannot delete base "Thing" type.`);
-                                                                                                                  return;
-                                                                                                                }
-                                                                                                                if (prototypeId === 'base-connection-prototype') {
-                                                                                                                  console.warn(`[Store deleteNodePrototype] Cannot delete base "Connection" type.`);
-                                                                                                                  return;
-                                                                                                                }
-
-                                                                                                                const prototype = draft.nodePrototypes.get(prototypeId);
-                                                                                                                if (!prototype) {
-                                                                                                                  console.warn(`[Store deleteNodePrototype] Prototype ${prototypeId} not found.`);
-                                                                                                                  return;
-                                                                                                                }
-
-                                                                                                                // Find and clean up graphs that reference this prototype as their defining node
-                                                                                                                const graphsToDelete = [];
-                                                                                                                draft.graphs.forEach((graph, graphId) => {
-                                                                                                                  if (graph.definingNodeIds?.includes(prototypeId)) {
-                                                                                                                    graphsToDelete.push(graphId);
-                                                                                                                    console.log(`[Store deleteNodePrototype] Marking orphaned graph for deletion: ${graphId}`);
-                                                                                                                  }
-                                                                                                                });
-
-                                                                                                                // Delete orphaned graphs (this will also clean up their instances and edges)
-                                                                                                                graphsToDelete.forEach(graphId => {
-                                                                                                                  const graph = draft.graphs.get(graphId);
-                                                                                                                  if (graph) {
-                                                                                                                    // Remove from open graphs
-                                                                                                                    draft.openGraphIds = draft.openGraphIds.filter(id => id !== graphId);
-
-                                                                                                                    // Remove from expanded graphs
-                                                                                                                    draft.expandedGraphIds.delete(graphId);
-
-                                                                                                                    // Clear active graph if it was this one
-                                                                                                                    if (draft.activeGraphId === graphId) {
-                                                                                                                      draft.activeGraphId = draft.openGraphIds.length > 0 ? draft.openGraphIds[0] : null;
-                                                                                                                    }
-
-                                                                                                                    // Remove from right panel tabs if open
-                                                                                                                    draft.rightPanelTabs = draft.rightPanelTabs.filter(tab =>
-                                                                                                                      tab.type !== 'graph' || tab.graphId !== graphId
-                                                                                                                    );
-
-                                                                                                                    // Delete all edges in this graph
-                                                                                                                    if (graph.edgeIds) {
-                                                                                                                      graph.edgeIds.forEach(edgeId => {
-                                                                                                                        draft.edges.delete(edgeId);
-                                                                                                                      });
-                                                                                                                    }
-
-                                                                                                                    // Delete the graph
-                                                                                                                    draft.graphs.delete(graphId);
-                                                                                                                    console.log(`[Store deleteNodePrototype] Deleted orphaned graph: ${graphId}`);
-                                                                                                                  }
-                                                                                                                });
-
-                                                                                                                // Remove from saved nodes if it's saved
-                                                                                                                draft.savedNodeIds.delete(prototypeId);
-
-                                                                                                                // Remove from right panel tabs if open
-                                                                                                                draft.rightPanelTabs = draft.rightPanelTabs.filter(tab => tab.nodeId !== prototypeId);
-
-                                                                                                                // Clear active definition node if it was this one
-                                                                                                                if (draft.activeDefinitionNodeId === prototypeId) {
-                                                                                                                  draft.activeDefinitionNodeId = null;
-                                                                                                                }
-
-                                                                                                                // Delete the prototype
-                                                                                                                draft.nodePrototypes.delete(prototypeId);
-
-                                                                                                                console.log(`[Store deleteNodePrototype] Successfully deleted prototype: ${prototypeId} and ${graphsToDelete.length} orphaned graphs`);
-                                                                                                              })),
-
-                                                                                                                // Delete a graph and all its related data
-                                                                                                                deleteGraph: (graphId) => set(produce((draft) => {
-                                                                                                                  console.log(`[Store deleteGraph] Deleting graph: ${graphId}`);
-
-                                                                                                                  const graph = draft.graphs.get(graphId);
-                                                                                                                  if (!graph) {
-                                                                                                                    console.warn(`[Store deleteGraph] Graph ${graphId} not found.`);
-                                                                                                                    return;
-                                                                                                                  }
-
-                                                                                                                  // Remove from open graphs
-                                                                                                                  draft.openGraphIds = draft.openGraphIds.filter(id => id !== graphId);
-
-                                                                                                                  // Remove from expanded graphs
-                                                                                                                  draft.expandedGraphIds.delete(graphId);
-
-                                                                                                                  // Clear active graph if it was this one
-                                                                                                                  if (draft.activeGraphId === graphId) {
-                                                                                                                    draft.activeGraphId = draft.openGraphIds.length > 0 ? draft.openGraphIds[0] : null;
-                                                                                                                  }
-
-                                                                                                                  // Clear active definition node if it was defined by this graph
-                                                                                                                  if (draft.activeDefinitionNodeId && graph.definingNodeIds?.includes(draft.activeDefinitionNodeId)) {
-                                                                                                                    draft.activeDefinitionNodeId = null;
-                                                                                                                  }
-
-                                                                                                                  // Remove from right panel tabs if open
-                                                                                                                  draft.rightPanelTabs = draft.rightPanelTabs.filter(tab =>
-                                                                                                                    tab.type !== 'graph' || tab.graphId !== graphId
-                                                                                                                  );
-
-                                                                                                                  // Delete all edges in this graph
-                                                                                                                  if (graph.edgeIds) {
-                                                                                                                    graph.edgeIds.forEach(edgeId => {
-                                                                                                                      draft.edges.delete(edgeId);
-                                                                                                                    });
-                                                                                                                  }
-
-                                                                                                                  // Delete the graph (this will also delete all instances)
-                                                                                                                  draft.graphs.delete(graphId);
-
-                                                                                                                  console.log(`[Store deleteGraph] Successfully deleted graph: ${graphId}`);
-                                                                                                                })),
-
-                                                                                                                  // Clean up any orphaned graphs that reference non-existent prototypes
-                                                                                                                  cleanupOrphanedGraphs: () => set(produce((draft) => {
-                                                                                                                    console.log('[Store cleanupOrphanedGraphs] Starting cleanup...');
-
-                                                                                                                    const orphanedGraphs = [];
-                                                                                                                    draft.graphs.forEach((graph, graphId) => {
-                                                                                                                      if (graph.definingNodeIds) {
-                                                                                                                        const hasOrphanedReferences = graph.definingNodeIds.some(nodeId =>
-                                                                                                                          !draft.nodePrototypes.has(nodeId)
-                                                                                                                        );
-
-                                                                                                                        if (hasOrphanedReferences) {
-                                                                                                                          orphanedGraphs.push(graphId);
-                                                                                                                          console.log(`[Store cleanupOrphanedGraphs] Found orphaned graph: ${graphId}`);
-                                                                                                                        }
-                                                                                                                      }
-                                                                                                                    });
-
-                                                                                                                    // Delete orphaned graphs
-                                                                                                                    orphanedGraphs.forEach(graphId => {
-                                                                                                                      const graph = draft.graphs.get(graphId);
-                                                                                                                      if (graph) {
-                                                                                                                        // Remove from open graphs
-                                                                                                                        draft.openGraphIds = draft.openGraphIds.filter(id => id !== graphId);
-
-                                                                                                                        // Remove from expanded graphs
-                                                                                                                        draft.expandedGraphIds.delete(graphId);
-
-                                                                                                                        // Clear active graph if it was this one
-                                                                                                                        if (draft.activeGraphId === graphId) {
-                                                                                                                          draft.activeGraphId = draft.openGraphIds.length > 0 ? draft.openGraphIds[0] : null;
-                                                                                                                        }
-
-                                                                                                                        // Remove from right panel tabs if open
-                                                                                                                        draft.rightPanelTabs = draft.rightPanelTabs.filter(tab =>
-                                                                                                                          tab.type !== 'graph' || tab.graphId !== graphId
-                                                                                                                        );
-
-                                                                                                                        // Delete all edges in this graph
-                                                                                                                        if (graph.edgeIds) {
-                                                                                                                          graph.edgeIds.forEach(edgeId => {
-                                                                                                                            draft.edges.delete(edgeId);
-                                                                                                                          });
-                                                                                                                        }
-
-                                                                                                                        // Delete the graph
-                                                                                                                        draft.graphs.delete(graphId);
-                                                                                                                        console.log(`[Store cleanupOrphanedGraphs] Deleted orphaned graph: ${graphId}`);
-                                                                                                                      }
-                                                                                                                    });
-
-                                                                                                                    console.log(`[Store cleanupOrphanedGraphs] Cleanup complete. Deleted ${orphanedGraphs.length} orphaned graphs.`);
-                                                                                                                  })),
-
-                                                                                                                    // Apply Immer patches to the state (used by Undo/Redo)
-                                                                                                                    applyPatches: (patches) => set((state) => applyPatches(state, patches)),
+          }
+        }
+
+        // Fallback: insert relative to the chain owner (original behavior)
+        const currentIndex = chain.indexOf(nodeId);
+
+        if (currentIndex === -1) {
+          // Node not in chain, add it first
+          chain.push(nodeId);
+        }
+
+        // Add new node in the right position relative to chain owner
+        const updatedCurrentIndex = chain.indexOf(nodeId);
+        if (direction === 'above') {
+          // More specific - insert before the chain owner
+          chain.splice(updatedCurrentIndex, 0, newNodeId);
+        } else {
+          // More general - insert after the chain owner
+          chain.splice(updatedCurrentIndex + 1, 0, newNodeId);
+        }
+
+        console.log(`Added ${newNodeId} ${direction} ${nodeId} in ${dimension} dimension. Chain:`, chain);
+      }
+    })),
+
+    // Remove a node from an abstraction chain
+    removeFromAbstractionChain: (nodeId, dimension, nodeToRemove) => set(produce((draft) => {
+      const node = draft.nodePrototypes.get(nodeId);
+      if (!node?.abstractionChains?.[dimension]) return;
+
+      const chain = node.abstractionChains[dimension];
+      const index = chain.indexOf(nodeToRemove);
+      if (index > -1) {
+        chain.splice(index, 1);
+        console.log(`Removed ${nodeToRemove} from ${nodeId}'s ${dimension} chain`);
+      }
+    })),
+
+    // Replace a node in the canvas with one from the abstraction chain
+    swapNodeInChain: (currentNodeId, newNodeId) => set(produce((draft) => {
+      // This will be used by the swap button in the carousel
+      // For now, just log the action - the actual swap will happen in the UI layer
+      console.log(`Swapping ${currentNodeId} with ${newNodeId}`);
+    })),
+
+    clearUniverse: () => set(() => ({
+      graphs: new Map(),
+      nodePrototypes: new Map(),
+      edges: new Map(),
+      pendingDeletions: new Map(),
+      gracePeriodMs: 5 * 60 * 1000, // Reset to default
+      openGraphIds: [],
+      activeGraphId: null,
+      activeDefinitionNodeId: null,
+      rightPanelTabs: [{ type: 'home', isActive: true }],
+      expandedGraphIds: new Set(),
+      savedNodeIds: new Set(),
+      savedGraphIds: new Set(),
+      isUniverseLoaded: false,
+      isUniverseLoading: false,
+      universeLoadingError: null,
+      hasUniverseFile: false,
+    })),
+
+    setUniverseConnected: (hasFile = true) => set(state => ({
+      ...state,
+      hasUniverseFile: hasFile
+    })),
+
+    setUniverseLoaded: (loaded = true, hasFile = true) => set(state => ({
+      ...state,
+      isUniverseLoaded: loaded,
+      isUniverseLoading: false,
+      hasUniverseFile: hasFile,
+      universeLoadingError: null
+    })),
+
+    // Storage mode actions
+    setStorageMode: (mode) => set(state => ({
+      ...state,
+      storageMode: mode
+    })),
+    updateGitSettings: (settings) => set(state => ({
+      ...state,
+      gitSettings: { ...state.gitSettings, ...settings }
+    })),
+
+    updateGraphView: (graphId, panOffset, zoomLevel) => {
+      // #region agent log
+      debugLogSync('graphStore.jsx:updateGraphView', 'updateGraphView called', { graphId, zoomLevel: zoomLevel?.toFixed?.(3) }, 'debug-session', 'C');
+      // #endregion
+      api.setChangeContext({ type: 'viewport', target: 'graph' });
+      set(produce((draft) => {
+        const graph = draft.graphs.get(graphId);
+        if (graph) {
+          graph.panOffset = panOffset;
+          graph.zoomLevel = zoomLevel;
+        }
+      }));
+    },
+
+    // Git Federation Actions
+    setGitConnection: (connectionConfig) => {
+      set(produce((draft) => {
+        draft.gitConnection = connectionConfig;
+        // Persist to localStorage
+        localStorage.setItem('redstring_git_connection', JSON.stringify(connectionConfig));
+      }));
+    },
+
+    clearGitConnection: () => {
+      set(produce((draft) => {
+        draft.gitConnection = null;
+        draft.gitSyncEngine = null;
+        // Clear from localStorage
+        localStorage.removeItem('redstring_git_connection');
+      }));
+    },
+
+    setGitSyncEngine: (syncEngine) => {
+      set(produce((draft) => {
+        draft.gitSyncEngine = syncEngine;
+      }));
+    },
+
+    setGitSourceOfTruth: (sourceOfTruth) => {
+      set(produce((draft) => {
+        draft.gitSourceOfTruth = sourceOfTruth;
+        // Persist to localStorage
+        localStorage.setItem('redstring_git_source_of_truth', sourceOfTruth);
+      }));
+    },
+
+    // Delete a node prototype and all its related data
+    deleteNodePrototype: (prototypeId) => set(produce((draft) => {
+      console.log(`[Store deleteNodePrototype] Deleting prototype: ${prototypeId}`);
+
+      // Check if this is the base "Thing" or "Connection" type - prevent deletion
+      if (prototypeId === 'base-thing-prototype') {
+        console.warn(`[Store deleteNodePrototype] Cannot delete base "Thing" type.`);
+        return;
+      }
+      if (prototypeId === 'base-connection-prototype') {
+        console.warn(`[Store deleteNodePrototype] Cannot delete base "Connection" type.`);
+        return;
+      }
+
+      const prototype = draft.nodePrototypes.get(prototypeId);
+      if (!prototype) {
+        console.warn(`[Store deleteNodePrototype] Prototype ${prototypeId} not found.`);
+        return;
+      }
+
+      // Find and clean up graphs that reference this prototype as their defining node
+      const graphsToDelete = [];
+      draft.graphs.forEach((graph, graphId) => {
+        if (graph.definingNodeIds?.includes(prototypeId)) {
+          graphsToDelete.push(graphId);
+          console.log(`[Store deleteNodePrototype] Marking orphaned graph for deletion: ${graphId}`);
+        }
+      });
+
+      // Delete orphaned graphs (this will also clean up their instances and edges)
+      graphsToDelete.forEach(graphId => {
+        const graph = draft.graphs.get(graphId);
+        if (graph) {
+          // Remove from open graphs
+          draft.openGraphIds = draft.openGraphIds.filter(id => id !== graphId);
+
+          // Remove from expanded graphs
+          draft.expandedGraphIds.delete(graphId);
+
+          // Clear active graph if it was this one
+          if (draft.activeGraphId === graphId) {
+            draft.activeGraphId = draft.openGraphIds.length > 0 ? draft.openGraphIds[0] : null;
+          }
+
+          // Remove from right panel tabs if open
+          draft.rightPanelTabs = draft.rightPanelTabs.filter(tab =>
+            tab.type !== 'graph' || tab.graphId !== graphId
+          );
+
+          // Delete all edges in this graph
+          if (graph.edgeIds) {
+            graph.edgeIds.forEach(edgeId => {
+              draft.edges.delete(edgeId);
+            });
+          }
+
+          // Delete the graph
+          draft.graphs.delete(graphId);
+          console.log(`[Store deleteNodePrototype] Deleted orphaned graph: ${graphId}`);
+        }
+      });
+
+      // Remove from saved nodes if it's saved
+      draft.savedNodeIds.delete(prototypeId);
+
+      // Remove from right panel tabs if open
+      draft.rightPanelTabs = draft.rightPanelTabs.filter(tab => tab.nodeId !== prototypeId);
+
+      // Clear active definition node if it was this one
+      if (draft.activeDefinitionNodeId === prototypeId) {
+        draft.activeDefinitionNodeId = null;
+      }
+
+      // Delete the prototype
+      draft.nodePrototypes.delete(prototypeId);
+
+      console.log(`[Store deleteNodePrototype] Successfully deleted prototype: ${prototypeId} and ${graphsToDelete.length} orphaned graphs`);
+    })),
+
+    // Delete a graph and all its related data
+    deleteGraph: (graphId) => set(produce((draft) => {
+      console.log(`[Store deleteGraph] Deleting graph: ${graphId}`);
+
+      const graph = draft.graphs.get(graphId);
+      if (!graph) {
+        console.warn(`[Store deleteGraph] Graph ${graphId} not found.`);
+        return;
+      }
+
+      // Remove from open graphs
+      draft.openGraphIds = draft.openGraphIds.filter(id => id !== graphId);
+
+      // Remove from expanded graphs
+      draft.expandedGraphIds.delete(graphId);
+
+      // Clear active graph if it was this one
+      if (draft.activeGraphId === graphId) {
+        draft.activeGraphId = draft.openGraphIds.length > 0 ? draft.openGraphIds[0] : null;
+      }
+
+      // Clear active definition node if it was defined by this graph
+      if (draft.activeDefinitionNodeId && graph.definingNodeIds?.includes(draft.activeDefinitionNodeId)) {
+        draft.activeDefinitionNodeId = null;
+      }
+
+      // Remove from right panel tabs if open
+      draft.rightPanelTabs = draft.rightPanelTabs.filter(tab =>
+        tab.type !== 'graph' || tab.graphId !== graphId
+      );
+
+      // Delete all edges in this graph
+      if (graph.edgeIds) {
+        graph.edgeIds.forEach(edgeId => {
+          draft.edges.delete(edgeId);
+        });
+      }
+
+      // Delete the graph (this will also delete all instances)
+      draft.graphs.delete(graphId);
+
+      console.log(`[Store deleteGraph] Successfully deleted graph: ${graphId}`);
+    })),
+
+    // Clean up any orphaned graphs that reference non-existent prototypes
+    cleanupOrphanedGraphs: () => set(produce((draft) => {
+      console.log('[Store cleanupOrphanedGraphs] Starting cleanup...');
+
+      const orphanedGraphs = [];
+      draft.graphs.forEach((graph, graphId) => {
+        if (graph.definingNodeIds) {
+          const hasOrphanedReferences = graph.definingNodeIds.some(nodeId =>
+            !draft.nodePrototypes.has(nodeId)
+          );
+
+          if (hasOrphanedReferences) {
+            orphanedGraphs.push(graphId);
+            console.log(`[Store cleanupOrphanedGraphs] Found orphaned graph: ${graphId}`);
+          }
+        }
+      });
+
+      // Delete orphaned graphs
+      orphanedGraphs.forEach(graphId => {
+        const graph = draft.graphs.get(graphId);
+        if (graph) {
+          // Remove from open graphs
+          draft.openGraphIds = draft.openGraphIds.filter(id => id !== graphId);
+
+          // Remove from expanded graphs
+          draft.expandedGraphIds.delete(graphId);
+
+          // Clear active graph if it was this one
+          if (draft.activeGraphId === graphId) {
+            draft.activeGraphId = draft.openGraphIds.length > 0 ? draft.openGraphIds[0] : null;
+          }
+
+          // Remove from right panel tabs if open
+          draft.rightPanelTabs = draft.rightPanelTabs.filter(tab =>
+            tab.type !== 'graph' || tab.graphId !== graphId
+          );
+
+          // Delete all edges in this graph
+          if (graph.edgeIds) {
+            graph.edgeIds.forEach(edgeId => {
+              draft.edges.delete(edgeId);
+            });
+          }
+
+          // Delete the graph
+          draft.graphs.delete(graphId);
+          console.log(`[Store cleanupOrphanedGraphs] Deleted orphaned graph: ${graphId}`);
+        }
+      });
+
+      console.log(`[Store cleanupOrphanedGraphs] Cleanup complete. Deleted ${orphanedGraphs.length} orphaned graphs.`);
+    })),
+
+    // Apply Immer patches to the state (used by Undo/Redo)
+    applyPatches: (patches) => set((state) => applyPatches(state, patches)),
 
   }; // End of returned state and actions object
-  })); // End of create function with middleware
+})); // End of create function with middleware
 
 // --- Selectors --- (Return plain data, add edge selector)
 

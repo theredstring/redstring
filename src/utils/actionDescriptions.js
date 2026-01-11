@@ -62,11 +62,26 @@ export function generateDescription(context, state) {
             if (targetId) {
                 // Check active graph first
                 const graph = state.graphs?.get(state.activeGraphId);
-                const node = graph?.nodes?.find(n => n.id === targetId);
-                const protoId = node?.prototypeId;
-                const proto = state.nodePrototypes?.get(protoId);
-                const name = proto?.name || 'node';
-                return `Moved "${name}"`;
+
+                // 1. Try finding as Node Instance
+                const instance = graph?.instances?.get(targetId);
+                if (instance) {
+                    const protoId = instance.prototypeId;
+                    const proto = state.nodePrototypes?.get(protoId);
+
+                    // Special case: If it's a Node Group, try to get the real group name
+                    // (Assuming we can link back or just use proto name which might be the group name if synced)
+                    const name = proto?.name || 'node';
+                    return `Moved "${name}"`;
+                }
+
+                // 2. Try finding as Group (if groups can be moved directly and logged as node_position)
+                const group = graph?.groups?.get(targetId);
+                if (group) {
+                    return `Moved group "${group.name}"`;
+                }
+
+                return `Moved item`;
             }
             return `Moved node`;
         }

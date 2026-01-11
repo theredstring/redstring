@@ -9,44 +9,9 @@ import { normalizeToCandidate, candidateToConcept } from '../../../services/cand
 import { ingestOrbitIndexEntries } from '../../../services/orbitLocalIndex.js';
 import useGraphStore from '../../../store/graphStore.jsx';
 import { markPrototypesProtected } from '../../../services/prototypeProtection.js';
+import { generateConceptColor } from '../../../utils/colorUtils';
 
-// Generate deterministic concept colors (matches Panel view)
-const generateConceptColor = (name) => {
-  const hues = [0, 25, 90, 140, 200, 260, 300];
-
-  const hsvToHex = (h, s, v) => {
-    const c = v * s;
-    const x = c * (1 - Math.abs(((h / 60) % 2) - 1));
-    const m = v - c;
-
-    let r; let g; let b;
-    if (h >= 0 && h < 60) { r = c; g = x; b = 0; }
-    else if (h >= 60 && h < 120) { r = x; g = c; b = 0; }
-    else if (h >= 120 && h < 180) { r = 0; g = c; b = x; }
-    else if (h >= 180 && h < 240) { r = 0; g = x; b = c; }
-    else if (h >= 240 && h < 300) { r = x; g = 0; b = c; }
-    else { r = c; g = 0; b = x; }
-
-    r = Math.round((r + m) * 255);
-    g = Math.round((g + m) * 255);
-    b = Math.round((b + m) * 255);
-
-    return `#${r.toString(16).padStart(2, '0')}${g.toString(16).padStart(2, '0')}${b.toString(16).padStart(2, '0')}`;
-  };
-
-  const targetSaturation = 1.0;
-  const targetBrightness = 0.545;
-
-  let hash = 0;
-  for (let i = 0; i < name.length; i++) {
-    hash = ((hash << 5) - hash + name.charCodeAt(i)) & 0xffffffff;
-  }
-
-  const hueIndex = Math.abs(hash) % hues.length;
-  const hue = hues[hueIndex];
-
-  return hsvToHex(hue, targetSaturation, targetBrightness);
-};
+// Left Semantic Discovery View - Concept Discovery Engine
 
 const STARTER_PACK = [
   {
@@ -435,7 +400,7 @@ const LeftSemanticDiscoveryView = ({ storeActions, nodePrototypesMap, openRightP
         }));
         setSearchHistory(parsed);
       }
-      
+
       const resultsRaw = localStorage.getItem('redstring_semantic_search_results');
       if (resultsRaw) {
         const results = JSON.parse(resultsRaw);
@@ -473,12 +438,12 @@ const LeftSemanticDiscoveryView = ({ storeActions, nodePrototypesMap, openRightP
   // Get dual context (panel + graph)
   const getContexts = () => {
     const contexts = { panel: null, graph: null };
-    
+
     // Panel context: active tab in right panel
     const activeTab = rightPanelTabs?.find(tab => tab.isActive);
     if (activeTab && activeTab.nodeId) {
       const nodeData = nodePrototypesMap.get(activeTab.nodeId);
-      
+
       // Only create panel context if the node actually exists
       if (nodeData && nodeData.name) {
         contexts.panel = {
@@ -492,16 +457,16 @@ const LeftSemanticDiscoveryView = ({ storeActions, nodePrototypesMap, openRightP
         console.warn(`[SemanticDiscovery] Stale panel tab nodeId: ${activeTab.nodeId} - prototype not found or missing name`);
       }
     }
-    
+
     // Graph context: active definition node (what's highlighted in header)
     if (activeDefinitionNodeId && activeDefinitionNodeId !== contexts.panel?.nodeId) {
       const nodeData = nodePrototypesMap.get(activeDefinitionNodeId);
-      
+
       // Only create graph context if the node actually exists
       if (nodeData && nodeData.name) {
         contexts.graph = {
           nodeId: activeDefinitionNodeId,
-          nodeName: nodeData.name, 
+          nodeName: nodeData.name,
           nodeData: nodeData,
           type: 'graph'
         };
@@ -516,16 +481,16 @@ const LeftSemanticDiscoveryView = ({ storeActions, nodePrototypesMap, openRightP
         // Note: This would require access to storeActions to actually clear it
       }
     }
-    
+
     return contexts;
   };
 
   const contexts = getContexts();
   const primaryContext = contexts.panel || contexts.graph;
   const searchQuery = primaryContext?.nodeName || '';
-  
+
   // Get selected node information from canvas
-  const selectedNode = selectedInstanceIds.size === 1 
+  const selectedNode = selectedInstanceIds.size === 1
     ? hydratedNodes.find(node => selectedInstanceIds.has(node.id))
     : null;
 
@@ -556,27 +521,27 @@ const LeftSemanticDiscoveryView = ({ storeActions, nodePrototypesMap, openRightP
           console.log(`[SemanticExpansion] Progress: ${progress.stage} - ${progress.entity} (level ${progress.level})`);
         }
       });
-      
+
       // Convert to expansion results with proper positioning info
       const expansionResults = Array.from(results.entities.entries()).map(([entityName, entityData]) => {
         // Skip the seed entity itself
         if (entityName === nodeName) return null;
-        
+
         // Get relationships for this entity
         const entityRelationships = results.relationships
           .filter(rel => rel.source === entityName || rel.target === entityName)
           .slice(0, 3);
-        
+
         // Get the best description from available sources
         const bestDescription = entityData.descriptions && entityData.descriptions.length > 0
           ? entityData.descriptions[0].text
           : `Related to ${nodeName}`;
-        
+
         // Get the best type from available sources
         const bestType = entityData.types && entityData.types.length > 0
           ? entityData.types[0]
           : 'Thing';
-        
+
         return {
           id: `expansion-${entityName.replace(/\s+/g, '_')}`,
           name: cleanTitle(entityName),
@@ -601,10 +566,10 @@ const LeftSemanticDiscoveryView = ({ storeActions, nodePrototypesMap, openRightP
           discoveredAt: new Date().toISOString()
         };
       }).filter(Boolean); // Remove null entries
-      
+
       console.log(`[SemanticExpansion] Found ${expansionResults.length} expansion concepts`);
       setSemanticExpansionResults(expansionResults);
-      
+
     } catch (error) {
       console.error('[SemanticExpansion] Failed:', error);
     } finally {
@@ -643,7 +608,7 @@ const LeftSemanticDiscoveryView = ({ storeActions, nodePrototypesMap, openRightP
     if (!name) return true;
     const n = name.toLowerCase();
     return n.startsWith('category:') || n.startsWith('template:') || n.startsWith('list of ') ||
-           n.includes('disambiguation') || n.startsWith('wikipedia:') || n.startsWith('wikimedia');
+      n.includes('disambiguation') || n.startsWith('wikipedia:') || n.startsWith('wikimedia');
   };
 
   const isJunkType = (t) => {
@@ -746,23 +711,23 @@ const LeftSemanticDiscoveryView = ({ storeActions, nodePrototypesMap, openRightP
   // Common search logic with normalization, variants, shallow-first, caching, ranking
   const performSearch = async (rawQuery) => {
     const variants = generateQueryVariants(rawQuery);
-    const token = `search-${Date.now()}-${Math.random().toString(36).slice(2,8)}`;
+    const token = `search-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
     latestSearchTokenRef.current = token;
     setIsSearching(true);
     setDiscoveredConcepts([]);
     setSelectedConcept(null);
     setSearchProgress('Initializing search...');
-    
+
     try {
       console.log(`[SemanticDiscovery] Starting search for "${rawQuery}" (token: ${token})`);
       setSearchProgress('Pulling strings...');
-      
+
       // Shallow, fast searches for all variants in parallel
       const variantPromises = variants.map(v => fetchFederatedConcepts(v, { maxDepth: 1, maxEntitiesPerLevel: 15 }));
       const variantResults = await Promise.allSettled(variantPromises);
-      
+
       setSearchProgress('Processing and ranking results...');
-      
+
       let combined = [];
       variantResults.forEach((res, idx) => {
         if (res.status === 'fulfilled' && Array.isArray(res.value)) {
@@ -797,38 +762,38 @@ const LeftSemanticDiscoveryView = ({ storeActions, nodePrototypesMap, openRightP
       }
     }
   };
-  
+
   // Function to trigger search from individual concept cards
   const triggerSearchFromConcept = async (conceptName) => {
     console.log(`[SemanticDiscovery] Triggering search for concept: "${conceptName}"`);
     setManualQuery(conceptName);
     await performSearch(conceptName);
   };
-  
+
   // Expose search function globally for concept card search buttons
   useEffect(() => {
     if (typeof window !== 'undefined') {
       window.triggerSemanticSearch = triggerSearchFromConcept;
     }
-    
+
     return () => {
       if (typeof window !== 'undefined') {
         delete window.triggerSemanticSearch;
       }
     };
   }, []);
-  
+
   // Clean and capitalize titles from semantic web
   const cleanTitle = (name) => {
     if (!name) return 'Unknown';
-    
+
     // Remove common prefixes and clean up
     let cleaned = name
       .replace(/^(Q\d+|P\d+)\s*-?\s*/i, '') // Remove Wikidata IDs
       .replace(/\(disambiguation\)/gi, '') // Remove disambiguation markers
       .replace(/\s+/g, ' ') // Normalize whitespace
       .trim();
-    
+
     // Capitalize properly - handle acronyms and proper nouns
     cleaned = cleaned
       .split(' ')
@@ -843,29 +808,29 @@ const LeftSemanticDiscoveryView = ({ storeActions, nodePrototypesMap, openRightP
         return word.charAt(0).toUpperCase() + word.slice(1).toLowerCase();
       })
       .join(' ');
-    
+
     return cleaned || 'Unknown Concept';
   };
 
   // Create Redstring node prototype from discovered concept
   const materializeConcept = (concept) => {
     // Check if this semantic concept already exists as a prototype
-    const existingPrototype = Array.from(nodePrototypesMap.values()).find(proto => 
-      proto.semanticMetadata?.isSemanticNode && 
+    const existingPrototype = Array.from(nodePrototypesMap.values()).find(proto =>
+      proto.semanticMetadata?.isSemanticNode &&
       proto.name === concept.name &&
       proto.semanticMetadata?.originMetadata?.source === concept.source &&
       proto.semanticMetadata?.originMetadata?.originalUri === concept.semanticMetadata?.originalUri
     );
-    
+
     if (existingPrototype) {
       // Use existing prototype
       console.log(`[SemanticDiscovery] Reusing existing semantic prototype: ${concept.name} (ID: ${existingPrototype.id})`);
       return existingPrototype.id;
     }
-    
+
     // Create new prototype
     const newNodeId = `semantic-node-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
-    
+
     // Build origin metadata for the bio section
     const originInfo = {
       source: concept.source,
@@ -875,33 +840,33 @@ const LeftSemanticDiscoveryView = ({ storeActions, nodePrototypesMap, openRightP
       originalUri: concept.semanticMetadata?.originalUri,
       relationships: concept.relationships || []
     };
-    
+
     // Use regular addNodePrototype since addNodePrototypeWithDeduplication may not be available
     if (storeActions?.addNodePrototype) {
       storeActions.addNodePrototype({
-      id: newNodeId,
-      name: concept.name,
-      description: '', // No custom bio - will show origin info instead
-      color: concept.color,
-      typeNodeId: 'base-thing-prototype',
-      definitionGraphIds: [],
-      semanticMetadata: {
-        ...concept.semanticMetadata,
-        relationships: concept.relationships,
-        originMetadata: originInfo,
-        isSemanticNode: true,
-        generatedColor: concept.color // Store the generated color for consistency
-      },
-      // Store the original description for potential use
-      originalDescription: concept.description
+        id: newNodeId,
+        name: concept.name,
+        description: '', // No custom bio - will show origin info instead
+        color: concept.color,
+        typeNodeId: 'base-thing-prototype',
+        definitionGraphIds: [],
+        semanticMetadata: {
+          ...concept.semanticMetadata,
+          relationships: concept.relationships,
+          originMetadata: originInfo,
+          isSemanticNode: true,
+          generatedColor: concept.color // Store the generated color for consistency
+        },
+        // Store the original description for potential use
+        originalDescription: concept.description
       });
-      
+
       // Auto-save semantic nodes to Library
       storeActions?.toggleSavedNode(newNodeId);
     } else {
       console.error('[SemanticDiscovery] storeActions.addNodePrototype is not available');
     }
-    
+
     console.log(`[SemanticDiscovery] Created/merged semantic prototype: ${concept.name} (ID: ${newNodeId})`);
     return newNodeId;
   };
@@ -909,13 +874,13 @@ const LeftSemanticDiscoveryView = ({ storeActions, nodePrototypesMap, openRightP
   // Remove saved semantic concept from the graph
   const unsaveConcept = (concept) => {
     // Find the existing prototype for this concept
-    const existingPrototype = Array.from(nodePrototypesMap.values()).find(proto => 
-      proto.semanticMetadata?.isSemanticNode && 
+    const existingPrototype = Array.from(nodePrototypesMap.values()).find(proto =>
+      proto.semanticMetadata?.isSemanticNode &&
       proto.name === concept.name &&
       proto.semanticMetadata?.originMetadata?.source === concept.source &&
       proto.semanticMetadata?.originMetadata?.originalUri === concept.semanticMetadata?.originalUri
     );
-    
+
     if (existingPrototype) {
       // Unsave the node from Library
       if (storeActions?.toggleSavedNode) {
@@ -988,782 +953,782 @@ const LeftSemanticDiscoveryView = ({ storeActions, nodePrototypesMap, openRightP
           }
         `}
       </style>
-      
+
       <div className="panel-content-inner semantic-discovery-panel" style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
         {/* Header */}
-      <div className="semantic-discovery-header" style={{ marginBottom: '16px' }}>
-        <h2 style={{ margin: 0, color: '#260000', userSelect: 'none', fontSize: '1.1rem', fontWeight: 'bold', fontFamily: "'EmOne', sans-serif", marginBottom: '12px' }}>
-          Semantic Discovery
-        </h2>
-        <Dropdown
-          options={[
-            { value: 'discover', label: 'Discover' },
-            { value: 'catalog', label: 'Catalog' },
-            { value: 'history', label: `History${searchHistory.length ? ` (${searchHistory.length})` : ''}` }
-          ]}
-          value={viewMode}
-          onChange={setViewMode}
-        />
-      </div>
+        <div className="semantic-discovery-header" style={{ marginBottom: '16px' }}>
+          <h2 style={{ margin: 0, color: '#260000', userSelect: 'none', fontSize: '1.1rem', fontWeight: 'bold', fontFamily: "'EmOne', sans-serif", marginBottom: '12px' }}>
+            Semantic Discovery
+          </h2>
+          <Dropdown
+            options={[
+              { value: 'discover', label: 'Discover' },
+              { value: 'catalog', label: 'Catalog' },
+              { value: 'history', label: `History${searchHistory.length ? ` (${searchHistory.length})` : ''}` }
+            ]}
+            value={viewMode}
+            onChange={setViewMode}
+          />
+        </div>
 
-      {viewMode === 'catalog' && (
-        <div
-          style={{
-            border: '1px solid rgba(38,0,0,0.18)',
-            borderRadius: 12,
-            padding: '10px 12px',
-            background: 'transparent',
-            marginBottom: 14,
-            boxShadow: '0 6px 18px rgba(0,0,0,0.04)',
-            flex: 1,
-            display: 'flex',
-            flexDirection: 'column',
-            gap: 12
-          }}
-        >
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <div style={{ fontSize: 12, fontWeight: 'bold', color: '#260000', fontFamily: "'EmOne', sans-serif" }}>
-              Wikidata Slice (feeds Orbit & All Things)
+        {viewMode === 'catalog' && (
+          <div
+            style={{
+              border: '1px solid rgba(38,0,0,0.18)',
+              borderRadius: 12,
+              padding: '10px 12px',
+              background: 'transparent',
+              marginBottom: 14,
+              boxShadow: '0 6px 18px rgba(0,0,0,0.04)',
+              flex: 1,
+              display: 'flex',
+              flexDirection: 'column',
+              gap: 12
+            }}
+          >
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <div style={{ fontSize: 12, fontWeight: 'bold', color: '#260000', fontFamily: "'EmOne', sans-serif" }}>
+                Wikidata Slice (feeds Orbit & All Things)
+              </div>
+              {catalogLoading && (
+                <div style={{ fontSize: 11, color: '#260000', background: '#f0e6e3', padding: '4px 8px', borderRadius: 10 }}>
+                  Loading…
+                </div>
+              )}
+              <button
+                onClick={handleLoadCatalog}
+                disabled={isSearching || catalogLoading}
+                style={{
+                  background: isSearching || catalogLoading ? '#a88c87' : '#260000',
+                  color: '#EFE8E5',
+                  border: 'none',
+                  borderRadius: 10,
+                  padding: '6px 12px',
+                  fontSize: 11,
+                  minWidth: 140,
+                  cursor: isSearching || catalogLoading ? 'wait' : 'pointer',
+                  boxShadow: '0 2px 6px rgba(0,0,0,0.12)',
+                  opacity: isSearching || catalogLoading ? 0.7 : 1
+                }}
+                title="Load a scoped Wikidata slice into the local catalog"
+              >
+                {catalogLoading ? 'Loading…' : 'Load Wikidata slice'}
+              </button>
+            </div>
+            <div style={{ fontSize: 11, color: availableSeedCount > 0 ? '#4b3732' : '#8B0000', marginTop: -6 }}>
+              {availableSeedCount > 0
+                ? `Available seeds from current graphs: ${availableSeedCount}`
+                : 'No graph seeds found — loader may start empty until you add nodes or supply a query.'}
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+              <label style={{ display: 'flex', flexDirection: 'column', fontSize: 11, color: '#260000', gap: 6 }}>
+                <span style={{ display: 'flex', justifyContent: 'space-between' }}>
+                  <span>Seeds from graph</span>
+                  <span style={{ fontWeight: 'bold' }}>{catalogParams.seedCount}</span>
+                </span>
+                <input
+                  type="range"
+                  min={1}
+                  max={500}
+                  value={catalogParams.seedCount}
+                  onChange={(e) => handleParamChange('seedCount', Number(e.target.value))}
+                  style={{ accentColor: '#8B0000', background: 'transparent' }}
+                  title="How many current prototypes to seed the slice with"
+                />
+                <span style={{ fontSize: 10, color: '#5a403a' }}>Start with top N prototypes from the active web/selection.</span>
+              </label>
+              <label style={{ display: 'flex', flexDirection: 'column', fontSize: 11, color: '#260000', gap: 6 }}>
+                <span style={{ display: 'flex', justifyContent: 'space-between' }}>
+                  <span>Max depth</span>
+                  <span style={{ fontWeight: 'bold' }}>{catalogParams.maxDepth}</span>
+                </span>
+                <input
+                  type="range"
+                  min={1}
+                  max={3}
+                  value={catalogParams.maxDepth}
+                  onChange={(e) => handleParamChange('maxDepth', Number(e.target.value))}
+                  style={{ accentColor: '#8B0000', background: 'transparent' }}
+                  title="How many hops away to pull related entities"
+                />
+                <span style={{ fontSize: 10, color: '#5a403a' }}>Expansion hops from each seed.</span>
+              </label>
+              <label style={{ display: 'flex', flexDirection: 'column', fontSize: 11, color: '#260000', gap: 6 }}>
+                <span style={{ display: 'flex', justifyContent: 'space-between' }}>
+                  <span>Entities per level</span>
+                  <span style={{ fontWeight: 'bold' }}>{catalogParams.maxEntitiesPerLevel}</span>
+                </span>
+                <input
+                  type="range"
+                  min={5}
+                  max={50}
+                  value={catalogParams.maxEntitiesPerLevel}
+                  onChange={(e) => handleParamChange('maxEntitiesPerLevel', Number(e.target.value))}
+                  style={{ accentColor: '#8B0000', background: 'transparent' }}
+                  title="Max related entities collected per hop"
+                />
+                <span style={{ fontSize: 10, color: '#5a403a' }}>Per-hop breadth cap.</span>
+              </label>
+              <label style={{ display: 'flex', flexDirection: 'column', fontSize: 11, color: '#260000', gap: 6 }}>
+                <span style={{ display: 'flex', justifyContent: 'space-between' }}>
+                  <span>Predicate cap</span>
+                  <span style={{ fontWeight: 'bold' }}>{catalogParams.predicateCap}</span>
+                </span>
+                <input
+                  type="range"
+                  min={3}
+                  max={20}
+                  value={catalogParams.predicateCap}
+                  onChange={(e) => handleParamChange('predicateCap', Number(e.target.value))}
+                  style={{ accentColor: '#8B0000', background: 'transparent' }}
+                  title="Max properties kept per entity"
+                />
+                <span style={{ fontSize: 10, color: '#5a403a' }}>Keeps only the top predicates per entity.</span>
+              </label>
+              <label style={{ display: 'flex', flexDirection: 'column', fontSize: 11, color: '#260000', gap: 6 }}>
+                <span style={{ display: 'flex', justifyContent: 'space-between' }}>
+                  <span>Entity cap</span>
+                  <span style={{ fontWeight: 'bold' }}>{catalogParams.entityCap.toLocaleString()}</span>
+                </span>
+                <input
+                  type="range"
+                  min={500}
+                  max={500000}
+                  step={500}
+                  value={catalogParams.entityCap}
+                  onChange={(e) => handleParamChange('entityCap', Number(e.target.value))}
+                  style={{ accentColor: '#8B0000', background: 'transparent' }}
+                  title="Hard stop on total entities ingested"
+                />
+                <span style={{ fontSize: 10, color: '#5a403a' }}>Global limit to keep the slice lean.</span>
+              </label>
+              <label style={{ display: 'flex', flexDirection: 'column', fontSize: 11, color: '#260000', gap: 6 }}>
+                <span style={{ display: 'flex', justifyContent: 'space-between' }}>
+                  <span>Seed strategy</span>
+                  <span style={{ fontWeight: 'bold' }}>{catalogParams.seedStrategy === 'graph' ? 'From graph' : 'Random primer'}</span>
+                </span>
+                <div style={{ display: 'flex', gap: 6 }}>
+                  <button
+                    onClick={() => handleParamChange('seedStrategy', 'graph')}
+                    style={{
+                      flex: 1,
+                      padding: '6px 8px',
+                      borderRadius: 8,
+                      border: '1px solid #8B0000',
+                      background: catalogParams.seedStrategy === 'graph' ? '#8B0000' : 'transparent',
+                      color: catalogParams.seedStrategy === 'graph' ? '#EFE8E5' : '#260000',
+                      cursor: 'pointer',
+                      fontSize: 12
+                    }}
+                    title="Seed from current graph/selection nodes"
+                  >
+                    From graph
+                  </button>
+                  <button
+                    onClick={() => handleParamChange('seedStrategy', 'random')}
+                    style={{
+                      flex: 1,
+                      padding: '6px 8px',
+                      borderRadius: 8,
+                      border: '1px solid #8B0000',
+                      background: catalogParams.seedStrategy === 'random' ? '#8B0000' : 'transparent',
+                      color: catalogParams.seedStrategy === 'random' ? '#EFE8E5' : '#260000',
+                      cursor: 'pointer',
+                      fontSize: 12
+                    }}
+                    title="Seed using a random primer when the graph is sparse"
+                  >
+                    Random primer
+                  </button>
+                </div>
+                <span style={{ fontSize: 10, color: '#5a403a' }}>
+                  Use current web as seeds or let the loader pick a random primer if the graph is empty.
+                </span>
+              </label>
+            </div>
+            <div style={{ fontSize: 11, color: '#4b3732', display: 'flex', gap: 12, flexWrap: 'wrap' }}>
+              <div title="Estimated unique entities ingested">≈ {estimateCatalog.entities.toLocaleString()} entities</div>
+              <div title="Estimated statements stored locally">≈ {estimateCatalog.triples.toLocaleString()} triples</div>
+              <div title="Approximate on-disk footprint">~ {estimateCatalog.sizeMB} MB on disk</div>
+              <div title="Likely results surfaced per search in this slice">~ {estimateCatalog.perSearchResults} results / search</div>
+              {catalogStatus && <div style={{ color: '#260000', fontWeight: 'bold' }}>{catalogStatus}</div>}
             </div>
             {catalogLoading && (
-              <div style={{ fontSize: 11, color: '#260000', background: '#f0e6e3', padding: '4px 8px', borderRadius: 10 }}>
-                Loading…
-              </div>
-            )}
-            <button
-              onClick={handleLoadCatalog}
-              disabled={isSearching || catalogLoading}
-              style={{
-                background: isSearching || catalogLoading ? '#a88c87' : '#260000',
-                color: '#EFE8E5',
-                border: 'none',
-                borderRadius: 10,
-                padding: '6px 12px',
-                fontSize: 11,
-                minWidth: 140,
-                cursor: isSearching || catalogLoading ? 'wait' : 'pointer',
-                boxShadow: '0 2px 6px rgba(0,0,0,0.12)',
-                opacity: isSearching || catalogLoading ? 0.7 : 1
-              }}
-              title="Load a scoped Wikidata slice into the local catalog"
-            >
-              {catalogLoading ? 'Loading…' : 'Load Wikidata slice'}
-            </button>
-          </div>
-          <div style={{ fontSize: 11, color: availableSeedCount > 0 ? '#4b3732' : '#8B0000', marginTop: -6 }}>
-            {availableSeedCount > 0
-              ? `Available seeds from current graphs: ${availableSeedCount}`
-              : 'No graph seeds found — loader may start empty until you add nodes or supply a query.'}
-          </div>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-            <label style={{ display: 'flex', flexDirection: 'column', fontSize: 11, color: '#260000', gap: 6 }}>
-              <span style={{ display: 'flex', justifyContent: 'space-between' }}>
-                <span>Seeds from graph</span>
-                <span style={{ fontWeight: 'bold' }}>{catalogParams.seedCount}</span>
-              </span>
-              <input
-                type="range"
-                min={1}
-                max={500}
-                value={catalogParams.seedCount}
-                onChange={(e) => handleParamChange('seedCount', Number(e.target.value))}
-                style={{ accentColor: '#8B0000', background: 'transparent' }}
-                title="How many current prototypes to seed the slice with"
-              />
-              <span style={{ fontSize: 10, color: '#5a403a' }}>Start with top N prototypes from the active web/selection.</span>
-            </label>
-            <label style={{ display: 'flex', flexDirection: 'column', fontSize: 11, color: '#260000', gap: 6 }}>
-              <span style={{ display: 'flex', justifyContent: 'space-between' }}>
-                <span>Max depth</span>
-                <span style={{ fontWeight: 'bold' }}>{catalogParams.maxDepth}</span>
-              </span>
-              <input
-                type="range"
-                min={1}
-                max={3}
-                value={catalogParams.maxDepth}
-                onChange={(e) => handleParamChange('maxDepth', Number(e.target.value))}
-                style={{ accentColor: '#8B0000', background: 'transparent' }}
-                title="How many hops away to pull related entities"
-              />
-              <span style={{ fontSize: 10, color: '#5a403a' }}>Expansion hops from each seed.</span>
-            </label>
-            <label style={{ display: 'flex', flexDirection: 'column', fontSize: 11, color: '#260000', gap: 6 }}>
-              <span style={{ display: 'flex', justifyContent: 'space-between' }}>
-                <span>Entities per level</span>
-                <span style={{ fontWeight: 'bold' }}>{catalogParams.maxEntitiesPerLevel}</span>
-              </span>
-              <input
-                type="range"
-                min={5}
-                max={50}
-                value={catalogParams.maxEntitiesPerLevel}
-                onChange={(e) => handleParamChange('maxEntitiesPerLevel', Number(e.target.value))}
-                style={{ accentColor: '#8B0000', background: 'transparent' }}
-                title="Max related entities collected per hop"
-              />
-              <span style={{ fontSize: 10, color: '#5a403a' }}>Per-hop breadth cap.</span>
-            </label>
-            <label style={{ display: 'flex', flexDirection: 'column', fontSize: 11, color: '#260000', gap: 6 }}>
-              <span style={{ display: 'flex', justifyContent: 'space-between' }}>
-                <span>Predicate cap</span>
-                <span style={{ fontWeight: 'bold' }}>{catalogParams.predicateCap}</span>
-              </span>
-              <input
-                type="range"
-                min={3}
-                max={20}
-                value={catalogParams.predicateCap}
-                onChange={(e) => handleParamChange('predicateCap', Number(e.target.value))}
-                style={{ accentColor: '#8B0000', background: 'transparent' }}
-                title="Max properties kept per entity"
-              />
-              <span style={{ fontSize: 10, color: '#5a403a' }}>Keeps only the top predicates per entity.</span>
-            </label>
-            <label style={{ display: 'flex', flexDirection: 'column', fontSize: 11, color: '#260000', gap: 6 }}>
-              <span style={{ display: 'flex', justifyContent: 'space-between' }}>
-                <span>Entity cap</span>
-                <span style={{ fontWeight: 'bold' }}>{catalogParams.entityCap.toLocaleString()}</span>
-              </span>
-              <input
-                type="range"
-                min={500}
-                max={500000}
-                step={500}
-                value={catalogParams.entityCap}
-                onChange={(e) => handleParamChange('entityCap', Number(e.target.value))}
-                style={{ accentColor: '#8B0000', background: 'transparent' }}
-                title="Hard stop on total entities ingested"
-              />
-              <span style={{ fontSize: 10, color: '#5a403a' }}>Global limit to keep the slice lean.</span>
-            </label>
-            <label style={{ display: 'flex', flexDirection: 'column', fontSize: 11, color: '#260000', gap: 6 }}>
-              <span style={{ display: 'flex', justifyContent: 'space-between' }}>
-                <span>Seed strategy</span>
-                <span style={{ fontWeight: 'bold' }}>{catalogParams.seedStrategy === 'graph' ? 'From graph' : 'Random primer'}</span>
-              </span>
-              <div style={{ display: 'flex', gap: 6 }}>
-                <button
-                  onClick={() => handleParamChange('seedStrategy', 'graph')}
-                  style={{
-                    flex: 1,
-                    padding: '6px 8px',
-                    borderRadius: 8,
-                    border: '1px solid #8B0000',
-                    background: catalogParams.seedStrategy === 'graph' ? '#8B0000' : 'transparent',
-                    color: catalogParams.seedStrategy === 'graph' ? '#EFE8E5' : '#260000',
-                    cursor: 'pointer',
-                    fontSize: 12
-                  }}
-                  title="Seed from current graph/selection nodes"
-                >
-                  From graph
-                </button>
-                <button
-                  onClick={() => handleParamChange('seedStrategy', 'random')}
-                  style={{
-                    flex: 1,
-                    padding: '6px 8px',
-                    borderRadius: 8,
-                    border: '1px solid #8B0000',
-                    background: catalogParams.seedStrategy === 'random' ? '#8B0000' : 'transparent',
-                    color: catalogParams.seedStrategy === 'random' ? '#EFE8E5' : '#260000',
-                    cursor: 'pointer',
-                    fontSize: 12
-                  }}
-                  title="Seed using a random primer when the graph is sparse"
-                >
-                  Random primer
-                </button>
-              </div>
-              <span style={{ fontSize: 10, color: '#5a403a' }}>
-                Use current web as seeds or let the loader pick a random primer if the graph is empty.
-              </span>
-            </label>
-          </div>
-          <div style={{ fontSize: 11, color: '#4b3732', display: 'flex', gap: 12, flexWrap: 'wrap' }}>
-            <div title="Estimated unique entities ingested">≈ {estimateCatalog.entities.toLocaleString()} entities</div>
-            <div title="Estimated statements stored locally">≈ {estimateCatalog.triples.toLocaleString()} triples</div>
-            <div title="Approximate on-disk footprint">~ {estimateCatalog.sizeMB} MB on disk</div>
-            <div title="Likely results surfaced per search in this slice">~ {estimateCatalog.perSearchResults} results / search</div>
-            {catalogStatus && <div style={{ color: '#260000', fontWeight: 'bold' }}>{catalogStatus}</div>}
-          </div>
-          {catalogLoading && (
-            <div style={{ marginTop: 6 }}>
-              <div style={{ height: 8, borderRadius: 10, background: 'rgba(139,0,0,0.15)', overflow: 'hidden' }}>
-                <div
-                  style={{
-                    height: '100%',
-                    width: `${Math.round((catalogProgress ?? 0.1) * 100)}%`,
-                    background: '#8B0000',
-                    transition: 'width 0.4s ease',
-                  }}
-                />
-              </div>
-            </div>
-          )}
-          {(catalogLoading || catalogLog.length > 0) && (
-            <div
-              style={{
-                marginTop: 8,
-                border: '1px solid rgba(38,0,0,0.12)',
-                borderRadius: 10,
-                padding: '8px 10px',
-                background: '#f8f4f2',
-                maxHeight: 150,
-                overflow: 'auto'
-              }}
-            >
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
-                <div style={{ fontSize: 11, fontWeight: 'bold', color: '#260000' }}>
-                  Import log
-                </div>
-                <button
-                  onClick={() => {
-                    const text = catalogLog.map((e) => `${e.ts.toISOString()} - ${e.msg}`).join('\n');
-                    if (text && navigator.clipboard?.writeText) {
-                      navigator.clipboard.writeText(text).catch(() => {});
-                    }
-                  }}
-                  style={{
-                    background: 'transparent',
-                    border: '1px solid #8B0000',
-                    color: '#8B0000',
-                    borderRadius: 8,
-                    padding: '4px 8px',
-                    fontSize: 10,
-                    cursor: 'pointer'
-                  }}
-                  title="Copy import log to clipboard"
-                >
-                  Copy
-                </button>
-              </div>
-              {catalogLog.length === 0 && (
-                <div style={{ fontSize: 11, color: '#5a403a' }}>Waiting for events…</div>
-              )}
-              {catalogLog.length > 0 && (
-                <ul style={{ listStyle: 'none', padding: 0, margin: 0, display: 'flex', flexDirection: 'column', gap: 4 }}>
-                  {catalogLog.slice().reverse().map((entry, idx) => (
-                    <li
-                      key={`${entry.ts.toISOString()}-${idx}`}
-                      style={{ fontSize: 11, color: '#3a2723', background: '#fff', borderRadius: 8, padding: '6px 8px', boxShadow: '0 1px 2px rgba(0,0,0,0.06)' }}
-                    >
-                      <div style={{ fontSize: 10, color: '#7a615c' }}>{entry.ts.toLocaleTimeString()}</div>
-                      <div>{entry.msg}</div>
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </div>
-          )}
-        </div>
-      )}
-
-      {viewMode === 'discover' && (
-        <>
-          {/* Enhanced Context Display */}
-          {(contexts.panel || contexts.graph || selectedNode) && (
-            <div className="contexts-display" style={{ marginBottom: '16px' }}>
-              <div style={{ fontSize: '11px', color: '#260000', fontFamily: "'EmOne', sans-serif", marginBottom: '8px', fontWeight: 'bold' }}>
-                Quick Search
-              </div>
-              
-              {/* Enhanced Action Grid - node-style representations */}
-              <div style={{ display: 'grid', gap: '6px', marginBottom: '12px' }}>
-                {contexts.panel && (
+              <div style={{ marginTop: 6 }}>
+                <div style={{ height: 8, borderRadius: 10, background: 'rgba(139,0,0,0.15)', overflow: 'hidden' }}>
                   <div
-                    onClick={() => {
-                      const query = contexts.panel.nodeName;
-                      if (query.trim()) {
-                        performSearch(query);
-                      }
-                    }}
                     style={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'space-between',
-                      flexWrap: 'wrap',
-                      padding: '2px 0',
-                      cursor: isSearching ? 'wait' : 'pointer',
-                      userSelect: 'none'
-                    }}
-                    title="Quick search from Panel context"
-                  >
-                    <div style={{ display: 'flex', alignItems: 'center', minWidth: 0 }}>
-                      <div style={{
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: 6,
-                        padding: '6px 10px',
-                        borderRadius: '12px',
-                        background: contexts.panel.nodeData?.color || '#8B0000'
-                      }}>
-                        <Search size={14} style={{ color: '#EFE8E5' }} />
-                        <span style={{ color: '#EFE8E5', fontFamily: "'EmOne', sans-serif", fontSize: 12, fontWeight: 'bold', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: 220 }}>
-                          {contexts.panel.nodeName}
-                        </span>
-                      </div>
-                    </div>
-                    <div style={{ fontSize: 11, color: '#260000', fontFamily: "'EmOne', sans-serif", marginLeft: 0, paddingBottom: 6 }}>from Panel</div>
-                  </div>
-                )}
-
-                {contexts.graph && (
-                  <div
-                    onClick={() => {
-                      const query = contexts.graph.nodeName;
-                      if (query.trim()) {
-                        performSearch(query);
-                      }
-                    }}
-                    style={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'space-between',
-                      flexWrap: 'wrap',
-                      padding: '2px 0',
-                      cursor: isSearching ? 'wait' : 'pointer',
-                      userSelect: 'none'
-                    }}
-                    title="Quick search from Graph context"
-                  >
-                    <div style={{ display: 'flex', alignItems: 'center', minWidth: 0 }}>
-                      <div style={{
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: 6,
-                        padding: '6px 10px',
-                        borderRadius: '12px',
-                        background: contexts.graph.nodeData?.color || '#4B0082'
-                      }}>
-                        <Search size={14} style={{ color: '#EFE8E5' }} />
-                        <span style={{ color: '#EFE8E5', fontFamily: "'EmOne', sans-serif", fontSize: 12, fontWeight: 'bold', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: 220 }}>
-                          {contexts.graph.nodeName}
-                        </span>
-                      </div>
-                    </div>
-                    <div style={{ fontSize: 11, color: '#260000', fontFamily: "'EmOne', sans-serif", marginLeft: 0, paddingBottom: 6 }}>from Active Web</div>
-                  </div>
-                )}
-
-                {selectedNode && (
-                  <div
-                    onClick={() => {
-                      const nodePrototype = nodePrototypesMap.get(selectedNode.prototypeId);
-                      if (nodePrototype?.name) {
-                        performSearch(nodePrototype.name);
-                      }
-                    }}
-                    style={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'space-between',
-                      flexWrap: 'wrap',
-                      padding: '2px 0',
-                      cursor: isSearching ? 'wait' : 'pointer',
-                      userSelect: 'none'
-                    }}
-                    title="Quick search from Selected"
-                  >
-                    <div style={{ display: 'flex', alignItems: 'center', minWidth: 0 }}>
-                      <div style={{
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: 6,
-                        padding: '6px 10px',
-                        borderRadius: '12px',
-                        background: (nodePrototypesMap.get(selectedNode.prototypeId)?.color) || '#228B22'
-                      }}>
-                        <Search size={14} style={{ color: '#EFE8E5' }} />
-                        <span style={{ color: '#EFE8E5', fontFamily: "'EmOne', sans-serif", fontSize: 12, fontWeight: 'bold', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: 220 }}>
-                          {nodePrototypesMap.get(selectedNode.prototypeId)?.name || 'Selected'}
-                        </span>
-                      </div>
-                    </div>
-                    <div style={{ fontSize: 11, color: '#260000', fontFamily: "'EmOne', sans-serif", marginLeft: 0, paddingBottom: 6 }}>from Selected</div>
-                  </div>
-                )}
-              </div>
-            </div>
-          )}
-          
-          {/* Manual Search Bar - Always visible */}
-          <div style={{ marginBottom: '16px' }}>
-            <div style={{ fontSize: '11px', color: '#260000', fontFamily: "'EmOne', sans-serif", marginBottom: '8px', fontWeight: 'bold' }}>
-              Search Semantic Web
-            </div>
-            <div style={{ display: 'flex', gap: '6px' }}>
-              <input
-                type="text"
-                value={manualQuery}
-                onChange={(e) => setManualQuery(e.target.value)}
-                onKeyPress={(e) => e.key === 'Enter' && handleManualSearch()}
-                placeholder="Search semantic web..."
-                style={{
-                  flex: 1,
-                  padding: '6px 8px',
-                  border: '1px solid #260000',
-                  borderRadius: '4px',
-                  fontSize: '11px',
-                  fontFamily: "'EmOne', sans-serif",
-                  background: 'transparent',
-                  color: '#260000'
-                }}
-              />
-              <button
-                onClick={handleManualSearch}
-                disabled={isSearching || !manualQuery?.trim()}
-                style={{
-                  padding: '6px 12px',
-                  border: '1px solid #260000',
-                  borderRadius: '4px',
-                  background: 'transparent',
-                  color: '#260000',
-                  fontSize: '11px',
-                  fontFamily: "'EmOne', sans-serif",
-                  cursor: isSearching ? 'wait' : 'pointer',
-                  fontWeight: 'bold',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center'
-                }}
-              >
-                {isSearching ? (
-                  <Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} />
-                ) : (
-                  <Search size={14} />
-                )}
-              </button>
-            </div>
-          </div>
-          
-
-
-          {/* Concept Results - Regular Search */}
-          {discoveredConcepts.length > 0 && !semanticExpansionResults.length && (
-            <div className="discovered-concepts" style={{ flex: 1, overflow: 'auto' }}>
-              <div style={{ marginBottom: '12px', fontSize: '12px', color: '#260000', fontFamily: "'EmOne', sans-serif", fontWeight: 'bold' }}>
-                Discovered Concepts ({discoveredConcepts.length})
-              </div>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: '8px' }}>
-                {discoveredConcepts.map((concept, index) => (
-                  <DraggableConceptCard
-                    key={concept.id}
-                    concept={concept}
-                    index={index}
-                    onMaterialize={materializeConcept}
-                    onUnsave={unsaveConcept}
-                    onSelect={setSelectedConcept}
-                    isSelected={selectedConcept?.id === concept.id}
-                  />
-                ))}
-              </div>
-              
-              {/* Load More Button */}
-              {discoveredConcepts.length >= 10 && (
-                <div style={{ marginTop: '12px', textAlign: 'center' }}>
-                  <button
-                    onClick={async () => {
-                      const lastSearch = searchHistory[0];
-                      if (!lastSearch) return;
-                      try {
-                        setIsSearching(true);
-                        console.log(`[SemanticDiscovery] Loading more results for "${lastSearch.query}" with staged deeper search`);
-                        const variants = generateQueryVariants(lastSearch.query);
-                        const promises = variants.map(v => fetchFederatedConcepts(v, { maxDepth: 2, maxEntitiesPerLevel: 35 }));
-                        const settled = await Promise.allSettled(promises);
-                        let combined = [];
-                        settled.forEach((res) => { if (res.status === 'fulfilled') combined = combined.concat(res.value || []); });
-                        // Rank and dedup globally
-                        const ranked = filterRankDedup(combined, lastSearch.query);
-                        // Remove concepts already shown
-                        const existingKeys = new Set(discoveredConcepts.map(c => canonicalKey(c.name)));
-                        const normalizedAdditions = ranked
-                          .filter(c => !existingKeys.has(canonicalKey(c.name)))
-                          .slice(0, 40)
-                          .map(r => candidateToConcept(normalizeToCandidate(r)));
-                        console.log(`[SemanticDiscovery] Loaded ${normalizedAdditions.length} additional concepts (from ${combined.length} raw)`);
-                        setDiscoveredConcepts(prev => [...prev, ...normalizedAdditions]);
-                      } catch (error) {
-                        console.error('[SemanticDiscovery] Load more failed:', error);
-                      } finally {
-                        setIsSearching(false);
-                      }
-                    }}
-                    disabled={isSearching}
-                    style={{
-                      padding: '8px 16px',
-                      border: '1px solid #666',
-                      borderRadius: '6px',
-                      background: isSearching ? '#333' : 'transparent',
-                      color: isSearching ? '#888' : '#666',
-                      fontSize: '10px',
-                      cursor: isSearching ? 'wait' : 'pointer',
-                      fontFamily: "'EmOne', sans-serif",
-                      transition: 'all 0.2s ease'
-                    }}
-                    onMouseEnter={(e) => {
-                      if (!isSearching) {
-                        e.target.style.background = 'rgba(102, 102, 102, 0.1)';
-                        e.target.style.borderColor = '#888';
-                      }
-                    }}
-                    onMouseLeave={(e) => {
-                      if (!isSearching) {
-                        e.target.style.background = 'transparent';
-                        e.target.style.borderColor = '#666';
-                      }
-                    }}
-                  >
-                    {isSearching ? 'Loading...' : 'Load More'}
-                  </button>
-                </div>
-              )}
-            </div>
-          )}
-
-          {/* Loading indicator for regular search */}
-          {isSearching && !expandingNodeId && discoveredConcepts.length === 0 && (
-            <div className="semantic-search-loading" style={{ flex: 1, overflow: 'auto', display: 'flex', alignItems: 'center', justifyContent: 'center', flexDirection: 'column', padding: '20px' }}>
-              <div style={{
-                width: '32px',
-                height: '32px',
-                border: '3px solid #bdb5b5',
-                borderTop: '3px solid #7A0000',
-                borderRadius: '50%',
-                animation: 'spin 1s linear infinite',
-                marginBottom: '12px',
-                flexShrink: 0
-              }} />
-              <div style={{ 
-                fontSize: '12px', 
-                color: '#260000', 
-                fontFamily: "'EmOne', sans-serif", 
-                fontWeight: 'bold',
-                marginBottom: '8px'
-              }}>
-                Searching semantic web...
-              </div>
-              <div style={{ 
-                fontSize: '10px', 
-                color: '#666',
-                fontFamily: "'EmOne', sans-serif",
-                textAlign: 'center'
-              }}>
-                {searchProgress || 'Please wait while we find related concepts'}
-              </div>
-            </div>
-          )}
-
-          {/* Loading indicator for semantic expansion */}
-          {isSearching && expandingNodeId && semanticExpansionResults.length === 0 && (
-            <div className="semantic-expansion-loading" style={{ flex: 1, overflow: 'auto', display: 'flex', alignItems: 'center', justifyContent: 'center', flexDirection: 'column' }}>
-              <div style={{ 
-                fontSize: '24px', 
-                marginBottom: '8px',
-                animation: 'pulse 1.5s ease-in-out infinite'
-              }}>
-                ⚡
-              </div>
-              <div style={{ 
-                fontSize: '12px', 
-                color: '#228B22', 
-                fontFamily: "'EmOne', sans-serif", 
-                fontWeight: 'bold',
-                marginBottom: '4px'
-              }}>
-                Expanding semantic web...
-              </div>
-              <div style={{ 
-                fontSize: '10px', 
-                color: '#666',
-                fontFamily: "'EmOne', sans-serif"
-              }}>
-                Finding related concepts for {nodePrototypesMap.get(expandingNodeId)?.name}
-              </div>
-            </div>
-          )}
-
-          {/* Semantic Expansion Results - Ghost Node Halo */}
-          {semanticExpansionResults.length > 0 && expandingNodeId && (
-            <div className="semantic-expansion-halo" style={{ flex: 1, overflow: 'auto' }}>
-              <div style={{ marginBottom: '12px', fontSize: '12px', color: '#228B22', fontFamily: "'EmOne', sans-serif", fontWeight: 'bold' }}>
-                ⭐ Semantic Expansion ({semanticExpansionResults.length} related concepts)
-              </div>
-              
-              {/* Expanding Node Info */}
-              <div style={{ 
-                marginBottom: '12px', 
-                padding: '8px', 
-                background: 'rgba(34,139,34,0.1)', 
-                borderRadius: '6px',
-                border: '1px solid rgba(34,139,34,0.2)'
-              }}>
-                <div style={{ fontSize: '10px', color: '#228B22', fontFamily: "'EmOne', sans-serif", fontWeight: 'bold' }}>
-                  Expanding: {nodePrototypesMap.get(expandingNodeId)?.name || 'Selected Node'}
-                </div>
-                <div style={{ fontSize: '9px', color: '#666', marginTop: '2px' }}>
-                  Drag concepts to canvas or click to add to library
-                </div>
-              </div>
-
-              {/* Ghost Node Grid */}
-              <div style={{ 
-                display: 'grid', 
-                gridTemplateColumns: 'repeat(auto-fit, minmax(100px, 1fr))', 
-                gap: '8px',
-                marginBottom: '12px'
-              }}>
-                {semanticExpansionResults.map((concept, index) => (
-                  <GhostSemanticNode
-                    key={concept.id}
-                    concept={concept}
-                    index={index}
-                    onMaterialize={materializeConcept}
-                    onSelect={() => {
-                      // Auto-materialize on selection
-                      materializeConcept(concept);
+                      height: '100%',
+                      width: `${Math.round((catalogProgress ?? 0.1) * 100)}%`,
+                      background: '#8B0000',
+                      transition: 'width 0.4s ease',
                     }}
                   />
-                ))}
+                </div>
               </div>
-
-              {/* Controls */}
-              <div style={{ display: 'flex', gap: '8px', justifyContent: 'center' }}>
-                <button
-                  onClick={() => {
-                    // Clear expansion results
-                    setSemanticExpansionResults([]);
-                    setExpandingNodeId(null);
-                  }}
-                  style={{
-                    padding: '6px 12px',
-                    border: '1px solid #666',
-                    borderRadius: '4px',
-                    background: 'transparent',
-                    color: '#666',
-                    fontSize: '10px',
-                    cursor: 'pointer',
-                    fontFamily: "'EmOne', sans-serif"
-                  }}
-                >
-                  Clear Expansion
-                </button>
-                <button
-                  onClick={() => {
-                    // Materialize all concepts
-                    semanticExpansionResults.forEach(concept => materializeConcept(concept));
-                    setSemanticExpansionResults([]);
-                    setExpandingNodeId(null);
-                  }}
-                  style={{
-                    padding: '6px 12px',
-                    border: '1px solid #228B22',
-                    borderRadius: '4px',
-                    background: '#228B22',
-                    color: '#EFE8E5',
-                    fontSize: '10px',
-                    cursor: 'pointer',
-                    fontFamily: "'EmOne', sans-serif",
-                    fontWeight: 'bold'
-                  }}
-                >
-                  Add All to Library
-                </button>
-              </div>
-            </div>
-          )}
-        </>
-      )}
-
-
-      {viewMode === 'history' && (
-        <div className="search-history-view" style={{ flex: 1, overflow: 'auto' }}>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '12px' }}>
-            <div style={{ fontSize: '12px', color: '#260000', fontFamily: "'EmOne', sans-serif", fontWeight: 'bold' }}>
-              Discovery History ({searchHistory.length})
-            </div>
-            {searchHistory.length > 0 && (
-              <button
-                title="Clear all history"
-                onClick={handleClearHistory}
+            )}
+            {(catalogLoading || catalogLog.length > 0) && (
+              <div
                 style={{
-                  background: 'transparent',
-                  border: 'none',
-                  color: '#666',
-                  width: '24px',
-                  height: '24px',
-                  lineHeight: 1,
-                  cursor: 'pointer',
-                  fontSize: '18px',
-                  outline: 'none',
-                  padding: 0
+                  marginTop: 8,
+                  border: '1px solid rgba(38,0,0,0.12)',
+                  borderRadius: 10,
+                  padding: '8px 10px',
+                  background: '#f8f4f2',
+                  maxHeight: 150,
+                  overflow: 'auto'
                 }}
               >
-                ×
-              </button>
-            )}
-          </div>
-          {searchHistory.length === 0 ? (
-            <div style={{ padding: '20px', textAlign: 'center', color: '#666', fontSize: '11px', fontFamily: "'EmOne', sans-serif" }}>
-              No discoveries yet. Open a node and search for related concepts.
-            </div>
-          ) : (
-            searchHistory.map(historyItem => (
-              <div key={historyItem.id} style={{
-                padding: '8px',
-                marginBottom: '8px',
-                background: 'rgba(255,255,255,0.02)',
-                border: '1px solid #333',
-                borderRadius: '6px'
-              }}>
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                  <div style={{ fontSize: '11px', color: '#260000', fontWeight: 'bold' }}>{historyItem.query}</div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+                  <div style={{ fontSize: 11, fontWeight: 'bold', color: '#260000' }}>
+                    Import log
+                  </div>
                   <button
-                    title="Remove from history"
-                    onClick={() => handleDeleteHistoryItem(historyItem.id)}
+                    onClick={() => {
+                      const text = catalogLog.map((e) => `${e.ts.toISOString()} - ${e.msg}`).join('\n');
+                      if (text && navigator.clipboard?.writeText) {
+                        navigator.clipboard.writeText(text).catch(() => { });
+                      }
+                    }}
                     style={{
                       background: 'transparent',
-                      border: 'none',
-                      color: '#999',
-                      cursor: 'pointer',
-                      padding: 0,
-                      lineHeight: 1,
-                      fontSize: '20px'
+                      border: '1px solid #8B0000',
+                      color: '#8B0000',
+                      borderRadius: 8,
+                      padding: '4px 8px',
+                      fontSize: 10,
+                      cursor: 'pointer'
                     }}
+                    title="Copy import log to clipboard"
                   >
-                    ×
+                    Copy
                   </button>
                 </div>
-                <div style={{ fontSize: '9px', color: '#666', marginTop: '2px' }}>
-                  {historyItem.timestamp.toLocaleString()} • {historyItem.resultCount} concepts
+                {catalogLog.length === 0 && (
+                  <div style={{ fontSize: 11, color: '#5a403a' }}>Waiting for events…</div>
+                )}
+                {catalogLog.length > 0 && (
+                  <ul style={{ listStyle: 'none', padding: 0, margin: 0, display: 'flex', flexDirection: 'column', gap: 4 }}>
+                    {catalogLog.slice().reverse().map((entry, idx) => (
+                      <li
+                        key={`${entry.ts.toISOString()}-${idx}`}
+                        style={{ fontSize: 11, color: '#3a2723', background: '#fff', borderRadius: 8, padding: '6px 8px', boxShadow: '0 1px 2px rgba(0,0,0,0.06)' }}
+                      >
+                        <div style={{ fontSize: 10, color: '#7a615c' }}>{entry.ts.toLocaleTimeString()}</div>
+                        <div>{entry.msg}</div>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            )}
+          </div>
+        )}
+
+        {viewMode === 'discover' && (
+          <>
+            {/* Enhanced Context Display */}
+            {(contexts.panel || contexts.graph || selectedNode) && (
+              <div className="contexts-display" style={{ marginBottom: '16px' }}>
+                <div style={{ fontSize: '11px', color: '#260000', fontFamily: "'EmOne', sans-serif", marginBottom: '8px', fontWeight: 'bold' }}>
+                  Quick Search
                 </div>
-                <button
-                  onClick={() => {
-                    setDiscoveredConcepts(historyItem.concepts);
-                    setViewMode('discover');
-                  }}
+
+                {/* Enhanced Action Grid - node-style representations */}
+                <div style={{ display: 'grid', gap: '6px', marginBottom: '12px' }}>
+                  {contexts.panel && (
+                    <div
+                      onClick={() => {
+                        const query = contexts.panel.nodeName;
+                        if (query.trim()) {
+                          performSearch(query);
+                        }
+                      }}
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                        flexWrap: 'wrap',
+                        padding: '2px 0',
+                        cursor: isSearching ? 'wait' : 'pointer',
+                        userSelect: 'none'
+                      }}
+                      title="Quick search from Panel context"
+                    >
+                      <div style={{ display: 'flex', alignItems: 'center', minWidth: 0 }}>
+                        <div style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: 6,
+                          padding: '6px 10px',
+                          borderRadius: '12px',
+                          background: contexts.panel.nodeData?.color || '#8B0000'
+                        }}>
+                          <Search size={14} style={{ color: '#EFE8E5' }} />
+                          <span style={{ color: '#EFE8E5', fontFamily: "'EmOne', sans-serif", fontSize: 12, fontWeight: 'bold', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: 220 }}>
+                            {contexts.panel.nodeName}
+                          </span>
+                        </div>
+                      </div>
+                      <div style={{ fontSize: 11, color: '#260000', fontFamily: "'EmOne', sans-serif", marginLeft: 0, paddingBottom: 6 }}>from Panel</div>
+                    </div>
+                  )}
+
+                  {contexts.graph && (
+                    <div
+                      onClick={() => {
+                        const query = contexts.graph.nodeName;
+                        if (query.trim()) {
+                          performSearch(query);
+                        }
+                      }}
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                        flexWrap: 'wrap',
+                        padding: '2px 0',
+                        cursor: isSearching ? 'wait' : 'pointer',
+                        userSelect: 'none'
+                      }}
+                      title="Quick search from Graph context"
+                    >
+                      <div style={{ display: 'flex', alignItems: 'center', minWidth: 0 }}>
+                        <div style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: 6,
+                          padding: '6px 10px',
+                          borderRadius: '12px',
+                          background: contexts.graph.nodeData?.color || '#4B0082'
+                        }}>
+                          <Search size={14} style={{ color: '#EFE8E5' }} />
+                          <span style={{ color: '#EFE8E5', fontFamily: "'EmOne', sans-serif", fontSize: 12, fontWeight: 'bold', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: 220 }}>
+                            {contexts.graph.nodeName}
+                          </span>
+                        </div>
+                      </div>
+                      <div style={{ fontSize: 11, color: '#260000', fontFamily: "'EmOne', sans-serif", marginLeft: 0, paddingBottom: 6 }}>from Active Web</div>
+                    </div>
+                  )}
+
+                  {selectedNode && (
+                    <div
+                      onClick={() => {
+                        const nodePrototype = nodePrototypesMap.get(selectedNode.prototypeId);
+                        if (nodePrototype?.name) {
+                          performSearch(nodePrototype.name);
+                        }
+                      }}
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                        flexWrap: 'wrap',
+                        padding: '2px 0',
+                        cursor: isSearching ? 'wait' : 'pointer',
+                        userSelect: 'none'
+                      }}
+                      title="Quick search from Selected"
+                    >
+                      <div style={{ display: 'flex', alignItems: 'center', minWidth: 0 }}>
+                        <div style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: 6,
+                          padding: '6px 10px',
+                          borderRadius: '12px',
+                          background: (nodePrototypesMap.get(selectedNode.prototypeId)?.color) || '#228B22'
+                        }}>
+                          <Search size={14} style={{ color: '#EFE8E5' }} />
+                          <span style={{ color: '#EFE8E5', fontFamily: "'EmOne', sans-serif", fontSize: 12, fontWeight: 'bold', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: 220 }}>
+                            {nodePrototypesMap.get(selectedNode.prototypeId)?.name || 'Selected'}
+                          </span>
+                        </div>
+                      </div>
+                      <div style={{ fontSize: 11, color: '#260000', fontFamily: "'EmOne', sans-serif", marginLeft: 0, paddingBottom: 6 }}>from Selected</div>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* Manual Search Bar - Always visible */}
+            <div style={{ marginBottom: '16px' }}>
+              <div style={{ fontSize: '11px', color: '#260000', fontFamily: "'EmOne', sans-serif", marginBottom: '8px', fontWeight: 'bold' }}>
+                Search Semantic Web
+              </div>
+              <div style={{ display: 'flex', gap: '6px' }}>
+                <input
+                  type="text"
+                  value={manualQuery}
+                  onChange={(e) => setManualQuery(e.target.value)}
+                  onKeyPress={(e) => e.key === 'Enter' && handleManualSearch()}
+                  placeholder="Search semantic web..."
                   style={{
-                    marginTop: '6px',
-                    padding: '6px 10px',
-                    border: 'none',
-                    borderRadius: '12px',
-                    background: '#260000',
-                    color: '#EFE8E5',
-                    fontSize: '10px',
+                    flex: 1,
+                    padding: '6px 8px',
+                    border: '1px solid #260000',
+                    borderRadius: '4px',
+                    fontSize: '11px',
+                    fontFamily: "'EmOne', sans-serif",
+                    background: 'transparent',
+                    color: '#260000'
+                  }}
+                />
+                <button
+                  onClick={handleManualSearch}
+                  disabled={isSearching || !manualQuery?.trim()}
+                  style={{
+                    padding: '6px 12px',
+                    border: '1px solid #260000',
+                    borderRadius: '4px',
+                    background: 'transparent',
+                    color: '#260000',
+                    fontSize: '11px',
+                    fontFamily: "'EmOne', sans-serif",
+                    cursor: isSearching ? 'wait' : 'pointer',
                     fontWeight: 'bold',
-                    cursor: 'pointer',
-                    fontFamily: "'EmOne', sans-serif"
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center'
                   }}
                 >
-                  View Results
+                  {isSearching ? (
+                    <Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} />
+                  ) : (
+                    <Search size={14} />
+                  )}
                 </button>
               </div>
-            ))
-          )}
-        </div>
-      )}
+            </div>
+
+
+
+            {/* Concept Results - Regular Search */}
+            {discoveredConcepts.length > 0 && !semanticExpansionResults.length && (
+              <div className="discovered-concepts" style={{ flex: 1, overflow: 'auto' }}>
+                <div style={{ marginBottom: '12px', fontSize: '12px', color: '#260000', fontFamily: "'EmOne', sans-serif", fontWeight: 'bold' }}>
+                  Discovered Concepts ({discoveredConcepts.length})
+                </div>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: '8px' }}>
+                  {discoveredConcepts.map((concept, index) => (
+                    <DraggableConceptCard
+                      key={concept.id}
+                      concept={concept}
+                      index={index}
+                      onMaterialize={materializeConcept}
+                      onUnsave={unsaveConcept}
+                      onSelect={setSelectedConcept}
+                      isSelected={selectedConcept?.id === concept.id}
+                    />
+                  ))}
+                </div>
+
+                {/* Load More Button */}
+                {discoveredConcepts.length >= 10 && (
+                  <div style={{ marginTop: '12px', textAlign: 'center' }}>
+                    <button
+                      onClick={async () => {
+                        const lastSearch = searchHistory[0];
+                        if (!lastSearch) return;
+                        try {
+                          setIsSearching(true);
+                          console.log(`[SemanticDiscovery] Loading more results for "${lastSearch.query}" with staged deeper search`);
+                          const variants = generateQueryVariants(lastSearch.query);
+                          const promises = variants.map(v => fetchFederatedConcepts(v, { maxDepth: 2, maxEntitiesPerLevel: 35 }));
+                          const settled = await Promise.allSettled(promises);
+                          let combined = [];
+                          settled.forEach((res) => { if (res.status === 'fulfilled') combined = combined.concat(res.value || []); });
+                          // Rank and dedup globally
+                          const ranked = filterRankDedup(combined, lastSearch.query);
+                          // Remove concepts already shown
+                          const existingKeys = new Set(discoveredConcepts.map(c => canonicalKey(c.name)));
+                          const normalizedAdditions = ranked
+                            .filter(c => !existingKeys.has(canonicalKey(c.name)))
+                            .slice(0, 40)
+                            .map(r => candidateToConcept(normalizeToCandidate(r)));
+                          console.log(`[SemanticDiscovery] Loaded ${normalizedAdditions.length} additional concepts (from ${combined.length} raw)`);
+                          setDiscoveredConcepts(prev => [...prev, ...normalizedAdditions]);
+                        } catch (error) {
+                          console.error('[SemanticDiscovery] Load more failed:', error);
+                        } finally {
+                          setIsSearching(false);
+                        }
+                      }}
+                      disabled={isSearching}
+                      style={{
+                        padding: '8px 16px',
+                        border: '1px solid #666',
+                        borderRadius: '6px',
+                        background: isSearching ? '#333' : 'transparent',
+                        color: isSearching ? '#888' : '#666',
+                        fontSize: '10px',
+                        cursor: isSearching ? 'wait' : 'pointer',
+                        fontFamily: "'EmOne', sans-serif",
+                        transition: 'all 0.2s ease'
+                      }}
+                      onMouseEnter={(e) => {
+                        if (!isSearching) {
+                          e.target.style.background = 'rgba(102, 102, 102, 0.1)';
+                          e.target.style.borderColor = '#888';
+                        }
+                      }}
+                      onMouseLeave={(e) => {
+                        if (!isSearching) {
+                          e.target.style.background = 'transparent';
+                          e.target.style.borderColor = '#666';
+                        }
+                      }}
+                    >
+                      {isSearching ? 'Loading...' : 'Load More'}
+                    </button>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Loading indicator for regular search */}
+            {isSearching && !expandingNodeId && discoveredConcepts.length === 0 && (
+              <div className="semantic-search-loading" style={{ flex: 1, overflow: 'auto', display: 'flex', alignItems: 'center', justifyContent: 'center', flexDirection: 'column', padding: '20px' }}>
+                <div style={{
+                  width: '32px',
+                  height: '32px',
+                  border: '3px solid #bdb5b5',
+                  borderTop: '3px solid #7A0000',
+                  borderRadius: '50%',
+                  animation: 'spin 1s linear infinite',
+                  marginBottom: '12px',
+                  flexShrink: 0
+                }} />
+                <div style={{
+                  fontSize: '12px',
+                  color: '#260000',
+                  fontFamily: "'EmOne', sans-serif",
+                  fontWeight: 'bold',
+                  marginBottom: '8px'
+                }}>
+                  Searching semantic web...
+                </div>
+                <div style={{
+                  fontSize: '10px',
+                  color: '#666',
+                  fontFamily: "'EmOne', sans-serif",
+                  textAlign: 'center'
+                }}>
+                  {searchProgress || 'Please wait while we find related concepts'}
+                </div>
+              </div>
+            )}
+
+            {/* Loading indicator for semantic expansion */}
+            {isSearching && expandingNodeId && semanticExpansionResults.length === 0 && (
+              <div className="semantic-expansion-loading" style={{ flex: 1, overflow: 'auto', display: 'flex', alignItems: 'center', justifyContent: 'center', flexDirection: 'column' }}>
+                <div style={{
+                  fontSize: '24px',
+                  marginBottom: '8px',
+                  animation: 'pulse 1.5s ease-in-out infinite'
+                }}>
+                  ⚡
+                </div>
+                <div style={{
+                  fontSize: '12px',
+                  color: '#228B22',
+                  fontFamily: "'EmOne', sans-serif",
+                  fontWeight: 'bold',
+                  marginBottom: '4px'
+                }}>
+                  Expanding semantic web...
+                </div>
+                <div style={{
+                  fontSize: '10px',
+                  color: '#666',
+                  fontFamily: "'EmOne', sans-serif"
+                }}>
+                  Finding related concepts for {nodePrototypesMap.get(expandingNodeId)?.name}
+                </div>
+              </div>
+            )}
+
+            {/* Semantic Expansion Results - Ghost Node Halo */}
+            {semanticExpansionResults.length > 0 && expandingNodeId && (
+              <div className="semantic-expansion-halo" style={{ flex: 1, overflow: 'auto' }}>
+                <div style={{ marginBottom: '12px', fontSize: '12px', color: '#228B22', fontFamily: "'EmOne', sans-serif", fontWeight: 'bold' }}>
+                  ⭐ Semantic Expansion ({semanticExpansionResults.length} related concepts)
+                </div>
+
+                {/* Expanding Node Info */}
+                <div style={{
+                  marginBottom: '12px',
+                  padding: '8px',
+                  background: 'rgba(34,139,34,0.1)',
+                  borderRadius: '6px',
+                  border: '1px solid rgba(34,139,34,0.2)'
+                }}>
+                  <div style={{ fontSize: '10px', color: '#228B22', fontFamily: "'EmOne', sans-serif", fontWeight: 'bold' }}>
+                    Expanding: {nodePrototypesMap.get(expandingNodeId)?.name || 'Selected Node'}
+                  </div>
+                  <div style={{ fontSize: '9px', color: '#666', marginTop: '2px' }}>
+                    Drag concepts to canvas or click to add to library
+                  </div>
+                </div>
+
+                {/* Ghost Node Grid */}
+                <div style={{
+                  display: 'grid',
+                  gridTemplateColumns: 'repeat(auto-fit, minmax(100px, 1fr))',
+                  gap: '8px',
+                  marginBottom: '12px'
+                }}>
+                  {semanticExpansionResults.map((concept, index) => (
+                    <GhostSemanticNode
+                      key={concept.id}
+                      concept={concept}
+                      index={index}
+                      onMaterialize={materializeConcept}
+                      onSelect={() => {
+                        // Auto-materialize on selection
+                        materializeConcept(concept);
+                      }}
+                    />
+                  ))}
+                </div>
+
+                {/* Controls */}
+                <div style={{ display: 'flex', gap: '8px', justifyContent: 'center' }}>
+                  <button
+                    onClick={() => {
+                      // Clear expansion results
+                      setSemanticExpansionResults([]);
+                      setExpandingNodeId(null);
+                    }}
+                    style={{
+                      padding: '6px 12px',
+                      border: '1px solid #666',
+                      borderRadius: '4px',
+                      background: 'transparent',
+                      color: '#666',
+                      fontSize: '10px',
+                      cursor: 'pointer',
+                      fontFamily: "'EmOne', sans-serif"
+                    }}
+                  >
+                    Clear Expansion
+                  </button>
+                  <button
+                    onClick={() => {
+                      // Materialize all concepts
+                      semanticExpansionResults.forEach(concept => materializeConcept(concept));
+                      setSemanticExpansionResults([]);
+                      setExpandingNodeId(null);
+                    }}
+                    style={{
+                      padding: '6px 12px',
+                      border: '1px solid #228B22',
+                      borderRadius: '4px',
+                      background: '#228B22',
+                      color: '#EFE8E5',
+                      fontSize: '10px',
+                      cursor: 'pointer',
+                      fontFamily: "'EmOne', sans-serif",
+                      fontWeight: 'bold'
+                    }}
+                  >
+                    Add All to Library
+                  </button>
+                </div>
+              </div>
+            )}
+          </>
+        )}
+
+
+        {viewMode === 'history' && (
+          <div className="search-history-view" style={{ flex: 1, overflow: 'auto' }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '12px' }}>
+              <div style={{ fontSize: '12px', color: '#260000', fontFamily: "'EmOne', sans-serif", fontWeight: 'bold' }}>
+                Discovery History ({searchHistory.length})
+              </div>
+              {searchHistory.length > 0 && (
+                <button
+                  title="Clear all history"
+                  onClick={handleClearHistory}
+                  style={{
+                    background: 'transparent',
+                    border: 'none',
+                    color: '#666',
+                    width: '24px',
+                    height: '24px',
+                    lineHeight: 1,
+                    cursor: 'pointer',
+                    fontSize: '18px',
+                    outline: 'none',
+                    padding: 0
+                  }}
+                >
+                  ×
+                </button>
+              )}
+            </div>
+            {searchHistory.length === 0 ? (
+              <div style={{ padding: '20px', textAlign: 'center', color: '#666', fontSize: '11px', fontFamily: "'EmOne', sans-serif" }}>
+                No discoveries yet. Open a node and search for related concepts.
+              </div>
+            ) : (
+              searchHistory.map(historyItem => (
+                <div key={historyItem.id} style={{
+                  padding: '8px',
+                  marginBottom: '8px',
+                  background: 'rgba(255,255,255,0.02)',
+                  border: '1px solid #333',
+                  borderRadius: '6px'
+                }}>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                    <div style={{ fontSize: '11px', color: '#260000', fontWeight: 'bold' }}>{historyItem.query}</div>
+                    <button
+                      title="Remove from history"
+                      onClick={() => handleDeleteHistoryItem(historyItem.id)}
+                      style={{
+                        background: 'transparent',
+                        border: 'none',
+                        color: '#999',
+                        cursor: 'pointer',
+                        padding: 0,
+                        lineHeight: 1,
+                        fontSize: '20px'
+                      }}
+                    >
+                      ×
+                    </button>
+                  </div>
+                  <div style={{ fontSize: '9px', color: '#666', marginTop: '2px' }}>
+                    {historyItem.timestamp.toLocaleString()} • {historyItem.resultCount} concepts
+                  </div>
+                  <button
+                    onClick={() => {
+                      setDiscoveredConcepts(historyItem.concepts);
+                      setViewMode('discover');
+                    }}
+                    style={{
+                      marginTop: '6px',
+                      padding: '6px 10px',
+                      border: 'none',
+                      borderRadius: '12px',
+                      background: '#260000',
+                      color: '#EFE8E5',
+                      fontSize: '10px',
+                      fontWeight: 'bold',
+                      cursor: 'pointer',
+                      fontFamily: "'EmOne', sans-serif"
+                    }}
+                  >
+                    View Results
+                  </button>
+                </div>
+              ))
+            )}
+          </div>
+        )}
       </div>
     </>
   );

@@ -143,6 +143,45 @@ export const getTextColor = (backgroundColor) => {
   }
 };
 
+// Generate consistent color based on node name
+export const generateConceptColor = (name) => {
+  // Hue values that create pleasant, readable colors with maroon's saturation/brightness
+  const hues = [0, 25, 90, 140, 200, 260, 300]; // Red, Orange-Red, Green, Cyan-Green, Blue, Purple, Magenta
+
+  // Convert HSV to hex (same logic as ColorPicker)
+  const hsvToHex = (h, s, v) => {
+    const c = v * s;
+    const x = c * (1 - Math.abs(((h / 60) % 2) - 1));
+    const m = v - c;
+
+    let r, g, b;
+    if (h >= 0 && h < 60) { r = c; g = x; b = 0; }
+    else if (h >= 60 && h < 120) { r = x; g = c; b = 0; }
+    else if (h >= 120 && h < 180) { r = 0; g = c; b = x; }
+    else if (h >= 180 && h < 240) { r = 0; g = x; b = c; }
+    else if (h >= 240 && h < 300) { r = x; g = 0; b = c; }
+    else { r = c; g = 0; b = x; }
+
+    r = Math.round((r + m) * 255);
+    g = Math.round((g + m) * 255);
+    b = Math.round((b + m) * 255);
+
+    return `#${r.toString(16).padStart(2, '0')}${g.toString(16).padStart(2, '0')}${b.toString(16).padStart(2, '0')}`;
+  };
+
+  // Use maroon's saturation (1.0) and brightness (~0.545) for consistency
+  const targetSaturation = 1.0;
+  const targetBrightness = 0.545;
+
+  let hash = 0;
+  for (let i = 0; i < name.length; i++) {
+    hash = ((hash << 5) - hash + name.charCodeAt(i)) & 0xffffffff;
+  }
+
+  const selectedHue = hues[Math.abs(hash) % hues.length];
+  return hsvToHex(selectedHue, targetSaturation, targetBrightness);
+};
+
 /**
  * Generates a progressive color for abstraction levels
  */

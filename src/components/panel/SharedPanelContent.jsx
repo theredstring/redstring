@@ -4,6 +4,7 @@ import { getEmptyImage } from 'react-dnd-html5-backend';
 import { Palette, ArrowUpFromDot, ImagePlus, BookOpen, ExternalLink, Trash2, Bookmark, TextSearch } from 'lucide-react';
 import { NODE_CORNER_RADIUS, NODE_DEFAULT_COLOR, THUMBNAIL_MAX_DIMENSION } from '../../constants.js';
 import { generateThumbnail } from '../../utils.js';
+import { getTextColor } from '../../utils/colorUtils';
 import CollapsibleSection from '../CollapsibleSection.jsx';
 import SemanticEditor from '../SemanticEditor.jsx';
 import ConnectionBrowser from '../ConnectionBrowser.jsx';
@@ -1013,7 +1014,7 @@ const DraggableNodeComponent = ({ node, onOpenNode }) => {
       style={{
         position: 'relative',
         backgroundColor: node.color || NODE_DEFAULT_COLOR,
-        color: '#bdb5b5',
+        color: getTextColor(node.color || NODE_DEFAULT_COLOR),
         borderRadius: '12px',
         padding: '6px 6px',
         fontSize: '0.8rem',
@@ -1073,7 +1074,7 @@ const DraggableTitleComponent = ({
       <div style={{
         position: 'relative',
         backgroundColor: nodeData.color || NODE_DEFAULT_COLOR,
-        color: '#bdb5b5',
+        color: getTextColor(nodeData.color || NODE_DEFAULT_COLOR),
         borderRadius: '12px',
         paddingTop: '10px',
         paddingBottom: '8px',
@@ -1102,7 +1103,7 @@ const DraggableTitleComponent = ({
           style={{
             backgroundColor: 'transparent',
             border: 'none',
-            color: '#bdb5b5',
+            color: getTextColor(nodeData.color || NODE_DEFAULT_COLOR),
             fontSize: '1.1rem',
             fontWeight: 'bold',
             fontFamily: "'EmOne', sans-serif",
@@ -1125,7 +1126,7 @@ const DraggableTitleComponent = ({
       style={{
         position: 'relative',
         backgroundColor: nodeData.color || NODE_DEFAULT_COLOR,
-        color: '#bdb5b5',
+        color: getTextColor(nodeData.color || NODE_DEFAULT_COLOR),
         borderRadius: '12px',
         paddingTop: '10px',
         paddingBottom: '8px',

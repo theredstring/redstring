@@ -2,6 +2,7 @@ import React, { useEffect } from 'react';
 import { useDrag } from 'react-dnd';
 import { getEmptyImage } from 'react-dnd-html5-backend';
 import { Search } from 'lucide-react';
+import { getTextColor } from '../../../utils/colorUtils';
 
 const ItemTypes = {
   SPAWNABLE_NODE: 'spawnable_node'
@@ -75,7 +76,7 @@ const GhostSemanticNode = ({ concept, index, onMaterialize, onSelect }) => {
         right: '3px',
         fontSize: '8px',
         opacity: 0.6,
-        color: '#bdb5b5'
+        color: getTextColor(concept.color)
       }}>
         ✨
       </div>
@@ -112,14 +113,14 @@ const GhostSemanticNode = ({ concept, index, onMaterialize, onSelect }) => {
         <Search
           size={10}
           style={{
-            color: concept.color // Icon in result's background color
+            color: getTextColor(concept.color) // Icon in result's background color
           }}
         />
       </div>
 
       {/* Compact node content */}
       <div style={{
-        color: '#bdb5b5',
+        color: getTextColor(concept.color),
         fontFamily: "'EmOne', sans-serif",
         fontSize: '9px',
         fontWeight: 'bold',
@@ -137,7 +138,7 @@ const GhostSemanticNode = ({ concept, index, onMaterialize, onSelect }) => {
       {concept.semanticMetadata?.confidence && (
         <div style={{
           fontSize: '6px',
-          color: '#bdb5b5',
+          color: getTextColor(concept.color),
           opacity: 0.6,
           fontFamily: "'EmOne', sans-serif"
         }}>
@@ -151,7 +152,7 @@ const GhostSemanticNode = ({ concept, index, onMaterialize, onSelect }) => {
         bottom: '2px',
         left: '3px',
         fontSize: '6px',
-        color: '#bdb5b5',
+        color: getTextColor(concept.color),
         opacity: 0.5,
         fontFamily: "'EmOne', sans-serif"
       }}>

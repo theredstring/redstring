@@ -1,6 +1,7 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { X, Palette, Plus } from 'lucide-react';
 import { NODE_DEFAULT_COLOR, MODAL_CLOSE_ICON_SIZE } from './constants';
+import { getTextColor } from './utils/colorUtils';
 import useGraphStore from "./store/graphStore.jsx";
 import ColorPicker from './ColorPicker';
 import useViewportBounds from './hooks/useViewportBounds';
@@ -140,12 +141,12 @@ const UnifiedSelector = ({
   const containerMaxWidth = isMobilePortrait
     ? Math.min(mobileState.width - 16, overlayWidth)
     : Math.min(overlayWidth, Math.max(600, Math.floor(bounds.windowWidth * 0.9)));
-  
+
   // UPDATED: Increased dialog width and limits
   const dialogWidth = isSmallScreen
     ? containerMaxWidth
     : Math.min(containerMaxWidth * 0.75, Math.max(500, Math.floor(bounds.windowWidth * 0.5)));
-    
+
   const gridOuterWidth = containerMaxWidth;
   const gridInnerPadding = isMobilePortrait ? 10 : (isSmallScreen ? 12 : 16);
 
@@ -427,7 +428,7 @@ const UnifiedSelector = ({
                         )}
                         <span
                           style={{
-                            color: '#bdb5b5',
+                            color: getTextColor(prototype.color || '#8B0000'),
                             fontWeight: 'bold',
                             fontFamily: "'EmOne', sans-serif",
                             textAlign: 'center',

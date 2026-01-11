@@ -5,6 +5,7 @@ import { XCircle } from 'lucide-react'; // <<< Import XCircle
 import { useDrag } from 'react-dnd';
 import { getEmptyImage } from 'react-dnd-html5-backend';
 import useGraphStore from './store/graphStore.jsx';
+import { getTextColor } from './utils/colorUtils';
 // import './GraphListItem.css'; // We'll create this later
 
 const SPAWNABLE_NODE = 'spawnable_node';
@@ -21,7 +22,7 @@ const GraphListItem = forwardRef(({
 }, ref) => {
   const [isHovered, setIsHovered] = useState(false);
   const nodePrototypes = useGraphStore(state => state.nodePrototypes);
-  
+
   // Get the defining node's name for fallback matching
   const definingNodeName = useMemo(() => {
     const definingNodeId = graphData.definingNodeIds?.[0];
@@ -31,10 +32,10 @@ const GraphListItem = forwardRef(({
     }
     return null;
   }, [graphData.definingNodeIds, nodePrototypes]);
-  
+
   const [{ isDragging }, drag, preview] = useDrag(() => ({
     type: SPAWNABLE_NODE,
-    item: { 
+    item: {
       prototypeId: graphData.definingNodeIds?.[0],
       nodeName: definingNodeName // Include node name for fallback matching
     },
@@ -60,7 +61,7 @@ const GraphListItem = forwardRef(({
   const handleDoubleClick = useCallback(() => {
     // <<< Remove Log for double click >>>
     // console.log(`[GraphListItem ${graphData.id}] handleDoubleClick called, calling onToggleExpand.`);
-    onToggleExpand?.(graphData.id); 
+    onToggleExpand?.(graphData.id);
     // Potentially call onDoubleClick prop if needed for other actions
     // onDoubleClick?.(graphData.id); 
   }, [graphData.id, onToggleExpand]); // <<< Add dependencies
@@ -82,12 +83,12 @@ const GraphListItem = forwardRef(({
     // aspectRatio: isExpanded ? '1 / 1' : undefined, // REMOVE aspect-ratio
     // FIX: Set static background/color, only border changes
     backgroundColor: graphData.color || 'maroon', // Always maroon
-    color: '#bdb5b5', // Always light text
+    color: getTextColor(graphData.color || 'maroon'),
     // FIX: Use margin for spacing, remove marginBottom
     // marginBottom: '10px',
     margin: '5px 0', // Equal top/bottom margin
     // FIX: Increase border radius
-    borderRadius: '12px', 
+    borderRadius: '12px',
     boxSizing: 'border-box',
     cursor: 'pointer',
     display: 'flex',
@@ -113,13 +114,13 @@ const GraphListItem = forwardRef(({
     width: '85%',
     // height: '80%', // REMOVE fixed height
     // FIX: Animate maxHeight and opacity directly
-    maxHeight: isExpanded ? '80%' : '0px', 
+    maxHeight: isExpanded ? '80%' : '0px',
     opacity: isExpanded ? 1 : 0,
     marginTop: '0',
     marginBottom: '0',
     backgroundColor: '#bdb5b5',
     borderRadius: '4px',
-    overflow: 'hidden', 
+    overflow: 'hidden',
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
@@ -145,21 +146,21 @@ const GraphListItem = forwardRef(({
       title={graphData.name} // Tooltip with full name
     >
       {/* Graph Name - Add padding here */}
-      <div 
+      <div
         style={{
-           fontWeight: 'bold',
-           whiteSpace: 'nowrap',
-           overflow: 'hidden',
-           textOverflow: 'ellipsis',
-           padding: isExpanded ? '5px 10px' : '10px',
-           textAlign: 'center',
-           width: '100%',
-           boxSizing: 'border-box',
-           // FIX: Remove auto margins when expanded
-           marginTop: isExpanded ? '0' : 'auto',
-           marginBottom: isExpanded ? '10px' : 'auto',
-           userSelect: 'none',
-           fontFamily: "'EmOne', sans-serif",
+          fontWeight: 'bold',
+          whiteSpace: 'nowrap',
+          overflow: 'hidden',
+          textOverflow: 'ellipsis',
+          padding: isExpanded ? '5px 10px' : '10px',
+          textAlign: 'center',
+          width: '100%',
+          boxSizing: 'border-box',
+          // FIX: Remove auto margins when expanded
+          marginTop: isExpanded ? '0' : 'auto',
+          marginBottom: isExpanded ? '10px' : 'auto',
+          userSelect: 'none',
+          fontFamily: "'EmOne', sans-serif",
         }}
       >
         {graphData.name}
@@ -168,15 +169,15 @@ const GraphListItem = forwardRef(({
       {/* Conditional Preview Area - Animate container directly */}
       <div style={previewContainerStyle}>
         {/* <div style={previewWrapperStyle}> REMOVE Wrapper */}
-          {/* Render the actual preview only when expanded to avoid rendering cost? */}
-          {isExpanded && (
-            <GraphPreview 
-              nodes={graphData.nodes}
-              edges={graphData.edges}
-              width={itemStyle.width === '100%' ? 100 : (currentItemWidth) * 0.85} 
-              height={itemStyle.width === '100%' ? 100 : (currentItemWidth) * 0.80} 
-            />
-          )}
+        {/* Render the actual preview only when expanded to avoid rendering cost? */}
+        {isExpanded && (
+          <GraphPreview
+            nodes={graphData.nodes}
+            edges={graphData.edges}
+            width={itemStyle.width === '100%' ? 100 : (currentItemWidth) * 0.85}
+            height={itemStyle.width === '100%' ? 100 : (currentItemWidth) * 0.80}
+          />
+        )}
         {/* </div> */}
       </div>
 
