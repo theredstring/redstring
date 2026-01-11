@@ -107,6 +107,32 @@ const useHistoryStore = create((set, get) => ({
         set({ currentIndex: currentIndex + 1 });
     },
 
+    // Jump to a specific point in time
+    jumpTo: (targetIndex, applyFn) => {
+        const { history, currentIndex } = get();
+        const currentEffective = history.length + currentIndex;
+
+        if (targetIndex === currentEffective) return;
+
+        const maxSteps = 100;
+        let steps = 0;
+
+        // Note: We use get().currentIndex in loop because standard closure 'currentIndex' won't update
+        if (targetIndex < currentEffective) {
+            // Undo back to target
+            while ((get().history.length + get().currentIndex) > targetIndex && steps < maxSteps) {
+                get().undo(applyFn);
+                steps++;
+            }
+        } else {
+            // Redo forward to target
+            while ((get().history.length + get().currentIndex) < targetIndex && steps < maxSteps) {
+                get().redo(applyFn);
+                steps++;
+            }
+        }
+    },
+
     // Helpers mainly for UI state
     canUndo: () => {
         const { history, currentIndex } = get();

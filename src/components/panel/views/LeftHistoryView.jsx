@@ -1,17 +1,24 @@
 import React, { useState, useMemo } from 'react';
-import useHistoryStore from '../../../store/historyStore.js';
+import useHistoryStore from '../../../store/historyStore';
 import useGraphStore from '../../../store/graphStore.jsx';
+import { generateDescription } from '../../../utils/actionDescriptions';
 import { Clock, Globe, Filter, LayoutGrid } from 'lucide-react';
 import './LeftHistoryView.css';
 
 const LeftHistoryView = () => {
     const history = useHistoryStore(state => state.history);
+    const currentIndex = useHistoryStore(state => state.currentIndex);
+    const jumpTo = useHistoryStore(state => state.jumpTo);
     const activeGraphId = useGraphStore(state => state.activeGraphId);
+    const applyPatches = useGraphStore(state => state.applyPatches);
     const [filter, setFilter] = useState('all'); // 'all', 'graph', 'global'
 
+    const effectiveIndex = history.length + currentIndex;
+
     const filteredHistory = useMemo(() => {
-        // Reverse to show newest first
-        const reversed = history.slice().reverse();
+        // Tag with original index then reverse
+        const withIndices = history.map((h, i) => ({ ...h, originalIndex: i }));
+        const reversed = withIndices.reverse();
 
         if (filter === 'all') return reversed;
         if (filter === 'global') return reversed.filter(h => h.domain === 'global');
@@ -22,12 +29,16 @@ const LeftHistoryView = () => {
         return reversed;
     }, [history, filter, activeGraphId]);
 
+    const handleJumpTo = (index) => {
+        jumpTo(index, applyPatches);
+    };
+
     return (
         <div className="left-history-view">
             <div className="history-header">
                 <h2>Action History</h2>
                 <div className="history-stats">
-                    {history.length} actions recorded
+                    {history.length} actions • {currentIndex === -1 ? 'Latest' : `${Math.abs(currentIndex) - 1} steps back`}
                 </div>
             </div>
 
@@ -45,7 +56,7 @@ const LeftHistoryView = () => {
                     onClick={() => setFilter('graph')}
                     className={`filter-tab ${filter === 'graph' ? 'active' : ''}`}
                     disabled={!activeGraphId}
-                    title="Show history for current graph"
+                    title="Show local history"
                 >
                     <LayoutGrid size={14} />
                     <span>Graph</span>
@@ -70,7 +81,13 @@ const LeftHistoryView = () => {
                     </div>
                 ) : (
                     filteredHistory.map(entry => (
-                        <HistoryItem key={entry.id} entry={entry} />
+                        <HistoryItem
+                            key={entry.id}
+                            entry={entry}
+                            isActive={entry.originalIndex <= effectiveIndex}
+                            isHead={entry.originalIndex === effectiveIndex}
+                            onClick={() => handleJumpTo(entry.originalIndex)}
+                        />
                     ))
                 )}
             </div>
@@ -78,24 +95,29 @@ const LeftHistoryView = () => {
     );
 };
 
-const HistoryItem = ({ entry }) => {
+const HistoryItem = ({ entry, isActive, isHead, onClick }) => {
     const isGlobal = entry.domain === 'global';
     const timeAgo = formatTimeAgo(entry.timestamp);
 
     return (
-        <div className={`history-item ${isGlobal ? 'global' : 'graph'}`}>
+        <div
+            className={`history-item ${isGlobal ? 'global' : 'graph'} ${isActive ? 'active' : 'undone'} ${isHead ? 'head' : ''}`}
+            onClick={onClick}
+            title={isActive ? "Restore state to this point" : "Redo to this point"}
+        >
             <div className="history-item-icon">
                 {isGlobal ? <Globe size={14} /> : <LayoutGrid size={14} />}
             </div>
             <div className="history-item-content">
-                <div className="history-item-description" title={entry.description}>
+                <div className="history-item-description">
                     {entry.description}
                 </div>
                 <div className="history-item-meta">
                     <span className="history-time">{timeAgo}</span>
-                    {/* <span className="history-type">{entry.actionType}</span> */}
                 </div>
             </div>
+            {/* Visual indicator for current state head */}
+            {isHead && <div className="history-head-indicator" title="Current State"></div>}
         </div>
     );
 };

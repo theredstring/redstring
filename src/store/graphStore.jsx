@@ -1487,7 +1487,7 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
 
     // Update a prototype's data using Immer's recipe. This affects all its instances.
     updateNodePrototype: (prototypeId, recipe) => {
-      api.setChangeContext({ type: 'prototype_update', target: 'prototype' });
+      api.setChangeContext({ type: 'prototype_update', target: 'prototype', prototypeId });
       return set(produce((draft) => {
         const prototype = draft.nodePrototypes.get(prototypeId);
         if (prototype) {

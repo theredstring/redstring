@@ -117,17 +117,46 @@
     background-color: rgba(139, 0, 0, 0.04);
 }
 
+.history-item.undone {
+    opacity: 0.5;
+    background-color: rgba(0, 0, 0, 0.02);
+}
+
+.history-item.head {
+    background-color: rgba(255, 255, 255, 0.7);
+    border-left: 3px solid #8B0000;
+    padding-left: 13px;
+    /* Adjust for border width */
+}
+
+/* Head indicator dot on the right? Or border left? Doing border left above. 
+   Also can add the dot. */
+.history-head-indicator {
+    position: absolute;
+    right: 12px;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background-color: #8B0000;
+    box-shadow: 0 0 0 2px rgba(139, 0, 0, 0.2);
+}
+
 .history-item-icon {
-    margin-top: 3px;
-    color: rgba(38, 0, 0, 0.3);
     display: flex;
     align-items: center;
     justify-content: center;
+    width: 24px;
+    height: 24px;
+    border-radius: 6px;
+    background-color: rgba(38, 0, 0, 0.05);
+    color: #554444;
 }
 
 .history-item.global .history-item-icon {
-    color: #8B0000;
-    opacity: 0.7;
+    background-color: rgba(139, 69, 19, 0.1);
+    color: #8B4513;
 }
 
 .history-item-content {
@@ -137,15 +166,26 @@
 
 .history-item-description {
     font-size: 13px;
+    font-weight: 500;
     color: #260000;
-    line-height: 1.4;
-    word-break: break-word;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.history-item.undone .history-item-description {
+    text-decoration: line-through;
+    opacity: 0.7;
 }
 
 .history-item-meta {
     display: flex;
-    justify-content: space-between;
-    font-size: 11px;
-    color: rgba(38, 0, 0, 0.4);
+    align-items: center;
+    gap: 8px;
     margin-top: 2px;
+}
+
+.history-time {
+    font-size: 11px;
+    color: rgba(38, 0, 0, 0.5);
 }

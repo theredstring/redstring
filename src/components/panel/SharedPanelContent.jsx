@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useDrag } from 'react-dnd';
 import { getEmptyImage } from 'react-dnd-html5-backend';
 import { Palette, ArrowUpFromDot, ImagePlus, BookOpen, ExternalLink, Trash2, Bookmark, TextSearch } from 'lucide-react';
@@ -28,29 +28,29 @@ const searchWikipedia = async (query) => {
     console.log(`[Wikipedia Images] 📡 Fetching Wikipedia summary for: "${query}"`);
     const summaryResponse = await fetch(
       `https://en.wikipedia.org/api/rest_v1/page/summary/${encodeURIComponent(query)}`,
-      { 
-        headers: { 
-          'Api-User-Agent': 'Redstring/1.0 (https://redstring.ai) Claude/1.0' 
+      {
+        headers: {
+          'Api-User-Agent': 'Redstring/1.0 (https://redstring.ai) Claude/1.0'
         }
       }
     );
 
     if (summaryResponse.ok) {
       const summaryData = await summaryResponse.json();
-      
+
       // Check if this is a disambiguation page
-      const isDisambiguation = summaryData.type === 'disambiguation' || 
-                               summaryData.title?.includes('(disambiguation)') ||
-                               summaryData.description?.toLowerCase().includes('disambiguation');
-      
+      const isDisambiguation = summaryData.type === 'disambiguation' ||
+        summaryData.title?.includes('(disambiguation)') ||
+        summaryData.description?.toLowerCase().includes('disambiguation');
+
       if (isDisambiguation) {
         console.log(`[Wikipedia Images] 🔀 Disambiguation detected, fetching alternatives...`);
         // If it's a disambiguation page, search for alternatives
         const searchResponse = await fetch(
           `https://en.wikipedia.org/w/api.php?action=query&list=search&srsearch=${encodeURIComponent(query)}&format=json&origin=*&srlimit=8`,
-          { 
-            headers: { 
-              'Api-User-Agent': 'Redstring/1.0 (https://redstring.ai) Claude/1.0' 
+          {
+            headers: {
+              'Api-User-Agent': 'Redstring/1.0 (https://redstring.ai) Claude/1.0'
             }
           }
         );
@@ -70,12 +70,12 @@ const searchWikipedia = async (query) => {
           }
         }
       }
-      
+
       // Direct match found - fetch full page data with images using getWikipediaPage
       console.log(`[Wikipedia Images] ✅ Direct match found: "${summaryData.title}"`);
       console.log(`[Wikipedia Images] 🔄 Calling getWikipediaPage to fetch complete data with images...`);
       const fullPageData = await getWikipediaPage(summaryData.title);
-      
+
       if (fullPageData) {
         console.log(`[Wikipedia Images] ✅ Got full page data from getWikipediaPage`);
         return {
@@ -99,9 +99,9 @@ const searchWikipedia = async (query) => {
     // If direct lookup fails, search for similar pages
     const searchResponse = await fetch(
       `https://en.wikipedia.org/w/api.php?action=query&list=search&srsearch=${encodeURIComponent(query)}&format=json&origin=*&srlimit=8`,
-      { 
-        headers: { 
-          'Api-User-Agent': 'Redstring/1.0 (https://redstring.ai) Claude/1.0' 
+      {
+        headers: {
+          'Api-User-Agent': 'Redstring/1.0 (https://redstring.ai) Claude/1.0'
         }
       }
     );
@@ -122,22 +122,22 @@ const searchWikipedia = async (query) => {
   } catch (error) {
     console.warn('[Wikipedia] Search failed:', error);
   }
-  
+
   return { type: 'not_found' };
 };
 
 // Helper to get additional images from Wikipedia article (using action API)
 const getWikipediaImages = async (pageTitle) => {
   console.log(`[Wikipedia Images] 🔍 Fetching images for article: "${pageTitle}"`);
-  
+
   try {
     // Use the action API to get all images from the article
     const imagesUrl = `https://en.wikipedia.org/w/api.php?action=query&format=json&origin=*&prop=images&titles=${encodeURIComponent(pageTitle)}&imlimit=10`;
     console.log(`[Wikipedia Images] 📡 API call 1/2: Fetching image list from article`);
-    
-    const imagesResponse = await fetch(imagesUrl, { 
-      headers: { 
-        'Api-User-Agent': 'Redstring/1.0 (https://redstring.ai) Claude/1.0' 
+
+    const imagesResponse = await fetch(imagesUrl, {
+      headers: {
+        'Api-User-Agent': 'Redstring/1.0 (https://redstring.ai) Claude/1.0'
       }
     });
 
@@ -148,18 +148,18 @@ const getWikipediaImages = async (pageTitle) => {
         console.log(`[Wikipedia Images] ⚠️ No pages in response`);
         return [];
       }
-      
+
       const page = Object.values(pages)[0];
       if (!page.images) {
         console.log(`[Wikipedia Images] ⚠️ No images found in article`);
         return [];
       }
-      
+
       console.log(`[Wikipedia Images] 📸 Found ${page.images.length} total images in article`);
       console.log(`[Wikipedia Images] 📋 Raw image titles:`, page.images.map(img => img.title));
-      
+
       // Filter out common non-content images and get image info
-      const contentImages = page.images.filter(img => 
+      const contentImages = page.images.filter(img =>
         !img.title.toLowerCase().includes('edit') &&
         !img.title.toLowerCase().includes('icon') &&
         !img.title.toLowerCase().includes('magnify') &&
@@ -167,11 +167,11 @@ const getWikipediaImages = async (pageTitle) => {
         !img.title.toLowerCase().includes('wikimedia') &&
         !img.title.toLowerCase().includes('flag') &&
         !img.title.toLowerCase().includes('symbol') &&
-        (img.title.toLowerCase().endsWith('.jpg') || 
-         img.title.toLowerCase().endsWith('.jpeg') || 
-         img.title.toLowerCase().endsWith('.png') ||
-         img.title.toLowerCase().endsWith('.gif') ||
-         img.title.toLowerCase().endsWith('.webp'))
+        (img.title.toLowerCase().endsWith('.jpg') ||
+          img.title.toLowerCase().endsWith('.jpeg') ||
+          img.title.toLowerCase().endsWith('.png') ||
+          img.title.toLowerCase().endsWith('.gif') ||
+          img.title.toLowerCase().endsWith('.webp'))
       );
 
       console.log(`[Wikipedia Images] ✅ Filtered to ${contentImages.length} content images`);
@@ -183,17 +183,17 @@ const getWikipediaImages = async (pageTitle) => {
         console.log(`[Wikipedia Images] ⚠️ No content images to fetch URLs for`);
         return [];
       }
-      
+
       console.log(`[Wikipedia Images] 📡 API call 2/2: Fetching URLs and dimensions for ${contentImages.slice(0, 5).length} images`);
       const imageInfoResponse = await fetch(
         `https://en.wikipedia.org/w/api.php?action=query&format=json&origin=*&prop=imageinfo&iiprop=url|size&titles=${encodeURIComponent(imageTitles)}`,
         {
-          headers: { 
-            'Api-User-Agent': 'Redstring/1.0 (https://redstring.ai) Claude/1.0' 
+          headers: {
+            'Api-User-Agent': 'Redstring/1.0 (https://redstring.ai) Claude/1.0'
           }
         }
       );
-      
+
       if (imageInfoResponse.ok) {
         const imageInfoData = await imageInfoResponse.json();
         const imagePages = imageInfoData.query?.pages;
@@ -201,7 +201,7 @@ const getWikipediaImages = async (pageTitle) => {
           console.log(`[Wikipedia Images] ⚠️ No image info pages in response`);
           return [];
         }
-        
+
         // Extract image data with dimensions
         const imageData = Object.values(imagePages)
           .filter(p => p.imageinfo && p.imageinfo.length > 0)
@@ -216,25 +216,25 @@ const getWikipediaImages = async (pageTitle) => {
             };
           })
           .filter(img => img.url);
-        
+
         console.log(`[Wikipedia Images] 📊 Image data with dimensions:`, imageData.map(img => ({
           title: img.title,
           url: img.url,
           dimensions: `${img.width}x${img.height}`
         })));
-        
+
         // Apply Wikipedia's pageimages scoring algorithm
         // See: https://www.mediawiki.org/wiki/Extension:PageImages#How_are_images_scored?
         const scoredImages = imageData.map((img, index) => {
           let score = 0;
-          
+
           // Position scoring: Only first 4 images are favored (Wikipedia standard)
           if (index < 4) {
             score += 8; // Bonus for being in first 4
           } else {
             score -= 10; // Penalty for being after first 4
           }
-          
+
           // Width scoring (heavily favor Wikipedia's ideal 400-600px range)
           if (img.width < 119) {
             score -= 100; // Strongly penalize tiny images
@@ -247,7 +247,7 @@ const getWikipediaImages = async (pageTitle) => {
           } else if (img.width > 1000) {
             score += 2; // Too large, probably full-res upload
           }
-          
+
           // Aspect ratio scoring (Wikipedia allows 0.4 to 3.1, prefers 0.6 to 2.1)
           const ratio = img.width / img.height;
           if (ratio >= 0.6 && ratio <= 2.1) {
@@ -257,17 +257,17 @@ const getWikipediaImages = async (pageTitle) => {
           } else {
             score -= 100; // Bad ratio
           }
-          
+
           console.log(`[Wikipedia Images] 📊 Image ${index + 1}: ${img.title} (${img.width}x${img.height}, ratio ${ratio.toFixed(2)}) = Score: ${score}`);
-          
+
           return { ...img, score };
         });
-        
+
         // Sort by score (highest first) and filter out negative scores
         const contentSizedImages = scoredImages
           .filter(img => img.score > 0)
           .sort((a, b) => b.score - a.score);
-        
+
         console.log(`[Wikipedia Images] ✅ After scoring: ${contentSizedImages.length} valid images`);
         if (contentSizedImages.length > 0) {
           console.log(`[Wikipedia Images] 🏆 Top scored images:`, contentSizedImages.slice(0, 3).map(img => ({
@@ -276,15 +276,15 @@ const getWikipediaImages = async (pageTitle) => {
             dimensions: `${img.width}x${img.height}`
           })));
         }
-        
+
         // Take top 3 scored images
         const finalImages = contentSizedImages.slice(0, 3);
-        
+
         if (finalImages.length > 0) {
           console.log(`[Wikipedia Images] 🎯 FIRST IMAGE SELECTED: ${finalImages[0].title} (${finalImages[0].width}x${finalImages[0].height})`);
           console.log(`[Wikipedia Images] 🖼️ First image URL: ${finalImages[0].url}`);
         }
-        
+
         console.log(`[Wikipedia Images] ✅ Returning ${finalImages.length} images`);
         return finalImages;
       } else {
@@ -296,26 +296,26 @@ const getWikipediaImages = async (pageTitle) => {
   } catch (error) {
     console.warn('[Wikipedia Images] ❌ Image list fetch failed:', error);
   }
-  
+
   console.log(`[Wikipedia Images] ⚠️ Returning empty array`);
   return [];
 };
 
 const getWikipediaPage = async (title) => {
   console.log(`[Wikipedia Images] 🌐 Starting Wikipedia page fetch for: "${title}"`);
-  
+
   try {
     // Check if this is a section link (contains #)
     const [pageTitle, sectionId] = title.includes('#') ? title.split('#') : [title, null];
     console.log(`[Wikipedia Images] 📄 Page: "${pageTitle}"${sectionId ? `, Section: "${sectionId}"` : ''}`);
-    
+
     // Fetch basic summary from REST API
     console.log(`[Wikipedia Images] 📡 Fetching REST API summary...`);
     const summaryResponse = await fetch(
       `https://en.wikipedia.org/api/rest_v1/page/summary/${encodeURIComponent(pageTitle)}`,
-      { 
-        headers: { 
-          'Api-User-Agent': 'Redstring/1.0 (https://redstring.ai) Claude/1.0' 
+      {
+        headers: {
+          'Api-User-Agent': 'Redstring/1.0 (https://redstring.ai) Claude/1.0'
         }
       }
     );
@@ -327,12 +327,12 @@ const getWikipediaPage = async (title) => {
       let originalImage = summaryData.originalimage?.source;
       let thumbnail = summaryData.thumbnail?.source;
       let additionalImages = [];
-      
+
       console.log(`[Wikipedia Images] ✅ REST API summary fetched`);
       console.log(`[Wikipedia Images] 🖼️ Summary has main image: ${!!(originalImage || thumbnail)}`);
       if (originalImage) console.log(`[Wikipedia Images] 📸 Original image from summary: ${originalImage}`);
       if (thumbnail) console.log(`[Wikipedia Images] 🖼️ Thumbnail from summary: ${thumbnail}`);
-      
+
       // If no main image from REST API, try to get it from action API
       if (!originalImage && !thumbnail) {
         console.log(`[Wikipedia Images] 🔄 No image in summary, trying action API pageimages...`);
@@ -340,12 +340,12 @@ const getWikipediaPage = async (title) => {
           const pageImageResponse = await fetch(
             `https://en.wikipedia.org/w/api.php?action=query&format=json&origin=*&prop=pageimages&piprop=original&titles=${encodeURIComponent(pageTitle)}`,
             {
-              headers: { 
-                'Api-User-Agent': 'Redstring/1.0 (https://redstring.ai) Claude/1.0' 
+              headers: {
+                'Api-User-Agent': 'Redstring/1.0 (https://redstring.ai) Claude/1.0'
               }
             }
           );
-          
+
           if (pageImageResponse.ok) {
             const pageImageData = await pageImageResponse.json();
             const pages = pageImageData.query?.pages;
@@ -364,7 +364,7 @@ const getWikipediaPage = async (title) => {
           console.warn('[Wikipedia Images] ❌ Main image fetch from action API failed:', error);
         }
       }
-      
+
       // If still no image, fetch images from the article content
       if (!originalImage && !thumbnail) {
         console.log(`[Wikipedia Images] 🔄 Still no main image, fetching all article images...`);
@@ -385,7 +385,7 @@ const getWikipediaPage = async (title) => {
         additionalImages = await getWikipediaImages(pageTitle);
         console.log(`[Wikipedia Images] 📋 Additional images found: ${additionalImages.length}`);
       }
-      
+
       // If this is a section link, try to get section-specific content
       if (sectionId) {
         try {
@@ -401,7 +401,7 @@ const getWikipediaPage = async (title) => {
           console.warn('[Wikipedia] Section content fetch failed, using page summary:', error);
         }
       }
-      
+
       const result = {
         title: summaryData.title,
         description: description,
@@ -412,7 +412,7 @@ const getWikipediaPage = async (title) => {
         isSection: !!sectionId,
         sectionId: sectionId
       };
-      
+
       console.log(`[Wikipedia Images] ✅ FINAL RESULT for "${pageTitle}":`);
       console.log(`[Wikipedia Images]    - Title: ${result.title}`);
       console.log(`[Wikipedia Images]    - thumbnail: ${result.thumbnail || 'NONE'}`);
@@ -423,13 +423,13 @@ const getWikipediaPage = async (title) => {
       if (result.additionalImages.length > 0) {
         console.log(`[Wikipedia Images]    - Additional image URLs:`, result.additionalImages.map(img => img.url));
       }
-      
+
       return result;
     }
   } catch (error) {
     console.warn('[Wikipedia Images] ❌ Page fetch failed:', error);
   }
-  
+
   console.log(`[Wikipedia Images] ❌ Returning null - no data found`);
   return null;
 };
@@ -439,13 +439,13 @@ const getWikipediaSection = async (pageTitle, sectionId) => {
     // Get full page content to extract section
     const response = await fetch(
       `https://en.wikipedia.org/w/api.php?action=parse&page=${encodeURIComponent(pageTitle)}&format=json&origin=*&section=${encodeURIComponent(sectionId)}`,
-      { 
-        headers: { 
-          'Api-User-Agent': 'Redstring/1.0 (https://redstring.ai) Claude/1.0' 
+      {
+        headers: {
+          'Api-User-Agent': 'Redstring/1.0 (https://redstring.ai) Claude/1.0'
         }
       }
     );
-    
+
     if (response.ok) {
       const data = await response.json();
       if (data.parse?.text?.['*']) {
@@ -453,7 +453,7 @@ const getWikipediaSection = async (pageTitle, sectionId) => {
         const htmlContent = data.parse.text['*'];
         const tempDiv = document.createElement('div');
         tempDiv.innerHTML = htmlContent;
-        
+
         // Find first paragraph with substantial content
         const paragraphs = tempDiv.querySelectorAll('p');
         for (const p of paragraphs) {
@@ -467,7 +467,7 @@ const getWikipediaSection = async (pageTitle, sectionId) => {
   } catch (error) {
     console.warn('[Wikipedia] Section parsing failed:', error);
   }
-  
+
   return null;
 };
 
@@ -486,7 +486,7 @@ const WikipediaEnrichment = ({ nodeData, onUpdateNode }) => {
       const result = await searchWikipedia(nodeData.name);
       console.log(`[Wikipedia Images] 📦 Search result type: ${result.type}`);
       setSearchResult(result);
-      
+
       if (result.type === 'direct') {
         console.log(`[Wikipedia Images] ✅ Direct match found, applying Wikipedia data...`);
         // Directly apply the Wikipedia data
@@ -512,15 +512,15 @@ const WikipediaEnrichment = ({ nodeData, onUpdateNode }) => {
       hasOriginalImage: !!pageData.originalImage,
       additionalImagesCount: pageData.additionalImages?.length || 0
     });
-    
+
     const updates = {};
-    
+
     // Add description if node doesn't have one
     if (!nodeData.description && pageData.description) {
       updates.description = pageData.description;
       console.log(`[Wikipedia Images] 📝 Adding description (${pageData.description.length} chars)`);
     }
-    
+
     // Add Wikipedia metadata
     updates.semanticMetadata = {
       ...nodeData.semanticMetadata,
@@ -546,14 +546,14 @@ const WikipediaEnrichment = ({ nodeData, onUpdateNode }) => {
 
     // Add Wikipedia link to external links (stored directly on nodeData.externalLinks)
     const currentExternalLinks = nodeData.externalLinks || [];
-    
+
     // Check if Wikipedia link already exists
-    const hasWikipediaLink = currentExternalLinks.some(link => 
-      typeof link === 'string' ? 
-        link.includes('wikipedia.org') : 
+    const hasWikipediaLink = currentExternalLinks.some(link =>
+      typeof link === 'string' ?
+        link.includes('wikipedia.org') :
         link.url?.includes('wikipedia.org')
     );
-    
+
     if (!hasWikipediaLink && pageData.url) {
       // Add the Wikipedia URL directly to the externalLinks array
       updates.externalLinks = [pageData.url, ...currentExternalLinks];
@@ -629,13 +629,13 @@ const WikipediaEnrichment = ({ nodeData, onUpdateNode }) => {
 
   // Show the enrichment button only if node has no meaningful description AND no Wikipedia link
   // Be more strict about what constitutes "meaningful" content to reduce intrusiveness
-  const hasMeaningfulDescription = nodeData.description && 
-    nodeData.description.trim() !== '' && 
+  const hasMeaningfulDescription = nodeData.description &&
+    nodeData.description.trim() !== '' &&
     nodeData.description !== 'Double-click to add a bio...' &&
     nodeData.description.trim().length > 10; // Require at least 10 characters
-  
+
   const hasWikipediaLink = nodeData.semanticMetadata?.wikipediaUrl;
-  
+
   // Only show enrichment button if BOTH conditions are true:
   // 1. No meaningful description exists
   // 2. No Wikipedia link exists
@@ -816,12 +816,12 @@ const WikipediaEnrichment = ({ nodeData, onUpdateNode }) => {
 
               // Also remove Wikipedia link from externalLinks
               const currentExternalLinks = nodeData.externalLinks || [];
-              const filteredLinks = currentExternalLinks.filter(link => 
-                typeof link === 'string' ? 
-                  !link.includes('wikipedia.org') : 
+              const filteredLinks = currentExternalLinks.filter(link =>
+                typeof link === 'string' ?
+                  !link.includes('wikipedia.org') :
                   !link.url?.includes('wikipedia.org')
               );
-              
+
               if (filteredLinks.length !== currentExternalLinks.length) {
                 updates.externalLinks = filteredLinks;
               }
@@ -894,7 +894,7 @@ const WikipediaEnrichment = ({ nodeData, onUpdateNode }) => {
                 onMouseEnter={(e) => e.currentTarget.style.background = 'rgba(139,0,0,0.05)'}
                 onMouseLeave={(e) => e.currentTarget.style.background = 'white'}
               >
-                <img 
+                <img
                   src={nodeData.semanticMetadata?.wikipediaThumbnail || nodeData.semanticMetadata?.wikipediaOriginalImage}
                   alt="Main"
                   style={{
@@ -936,7 +936,7 @@ const WikipediaEnrichment = ({ nodeData, onUpdateNode }) => {
                 onMouseEnter={(e) => e.currentTarget.style.background = 'rgba(139,0,0,0.05)'}
                 onMouseLeave={(e) => e.currentTarget.style.background = 'white'}
               >
-                <img 
+                <img
                   src={img.thumbnail || img.url}
                   alt={`Image ${index + 1}`}
                   style={{
@@ -991,10 +991,10 @@ const ItemTypes = {
 const DraggableNodeComponent = ({ node, onOpenNode }) => {
   const [{ isDragging }, drag, preview] = useDrag(() => ({
     type: ItemTypes.SPAWNABLE_NODE,
-    item: { 
-      prototypeId: node.prototypeId || node.id, 
-      nodeId: node.prototypeId || node.id, 
-      nodeName: node.name, 
+    item: {
+      prototypeId: node.prototypeId || node.id,
+      nodeId: node.prototypeId || node.id,
+      nodeName: node.name,
       nodeColor: node.color || NODE_DEFAULT_COLOR,
       fromPanel: true
     },
@@ -1040,21 +1040,21 @@ const DraggableNodeComponent = ({ node, onOpenNode }) => {
 };
 
 // Draggable title component - using same pattern as DraggableNodeComponent
-const DraggableTitleComponent = ({ 
-  nodeData, 
-  isEditingTitle, 
-  tempTitle, 
-  onTempTitleChange, 
-  onTitleDoubleClick, 
-  onTitleKeyPress, 
-  onTitleSave 
+const DraggableTitleComponent = ({
+  nodeData,
+  isEditingTitle,
+  tempTitle,
+  onTempTitleChange,
+  onTitleDoubleClick,
+  onTitleKeyPress,
+  onTitleSave
 }) => {
   const [{ isDragging }, drag, preview] = useDrag(() => ({
     type: ItemTypes.SPAWNABLE_NODE,
-    item: { 
-      prototypeId: nodeData.id, 
-      nodeId: nodeData.id, 
-      nodeName: nodeData.name, 
+    item: {
+      prototypeId: nodeData.id,
+      nodeId: nodeData.id,
+      nodeName: nodeData.name,
       nodeColor: nodeData.color || NODE_DEFAULT_COLOR,
       fromPanel: true
     },
@@ -1165,7 +1165,7 @@ const SharedPanelContent = ({
   activeGraphNodes = [],
   componentOfNodes = [],
   nodePrototypes, // Add this to get type names
-  
+
   // Actions
   onNodeUpdate,
   onImageAdd,
@@ -1175,12 +1175,12 @@ const SharedPanelContent = ({
   onNavigateDefinition,
   onTypeSelect,
   onMaterializeConnection,
-  
+
   // UI state
   isUltraSlim = false,
   showExpandButton = true,
   expandButtonDisabled = false,
-  
+
   // Type determination
   isHomeTab = false
 }) => {
@@ -1188,6 +1188,7 @@ const SharedPanelContent = ({
   const [tempBio, setTempBio] = useState('');
   const [isEditingTitle, setIsEditingTitle] = useState(false);
   const [tempTitle, setTempTitle] = useState('');
+  const isSavingBioRef = useRef(false);
 
   // Auto-enrich external links (but not bio descriptions) on mount if none exist
   useEffect(() => {
@@ -1248,12 +1249,13 @@ const SharedPanelContent = ({
         };
       }
       await onNodeUpdate(updates);
-    } catch (_) {}
+    } catch (_) { }
   };
 
   const handleBioDoubleClick = () => {
     setTempBio(nodeData.description || '');
     setIsEditingBio(true);
+    isSavingBioRef.current = false; // Reset lock on open
     // Trigger auto-resize after a short delay to ensure DOM is updated
     setTimeout(() => {
       const textarea = document.querySelector('textarea');
@@ -1265,8 +1267,11 @@ const SharedPanelContent = ({
   };
 
   const handleBioSave = () => {
+    if (isSavingBioRef.current) return;
+    isSavingBioRef.current = true;
     onNodeUpdate({ ...nodeData, description: tempBio });
     setIsEditingBio(false);
+    setTimeout(() => { isSavingBioRef.current = false; }, 200);
   };
 
   const handleBioCancel = () => {
@@ -1321,9 +1326,9 @@ const SharedPanelContent = ({
 
   // Action buttons for header
   const actionButtons = (
-    <div style={{ 
-      display: 'flex', 
-      alignItems: 'center', 
+    <div style={{
+      display: 'flex',
+      alignItems: 'center',
       gap: '8px',
       flexWrap: isUltraSlim ? 'wrap' : 'nowrap'
     }}>
@@ -1364,13 +1369,13 @@ const SharedPanelContent = ({
       if (typeof window !== 'undefined' && typeof window.triggerSemanticSearch === 'function') {
         window.triggerSemanticSearch(query);
       }
-    } catch {}
+    } catch { }
   };
 
   const secondaryButtons = (
-    <div style={{ 
-      display: 'flex', 
-      alignItems: 'center', 
+    <div style={{
+      display: 'flex',
+      alignItems: 'center',
       gap: '8px',
       flexWrap: 'nowrap'
     }}>
@@ -1393,14 +1398,14 @@ const SharedPanelContent = ({
   return (
     <div className="shared-panel-content">
       {/* Header Section */}
-      <div style={{ 
-        display: 'flex', 
-        justifyContent: 'space-between', 
-        alignItems: 'center', 
-        marginBottom: '8px' 
+      <div style={{
+        display: 'flex',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        marginBottom: '8px'
       }}>
-        <DraggableTitleComponent 
-          nodeData={nodeData} 
+        <DraggableTitleComponent
+          nodeData={nodeData}
           isEditingTitle={isEditingTitle}
           tempTitle={tempTitle}
           onTempTitleChange={setTempTitle}
@@ -1408,7 +1413,7 @@ const SharedPanelContent = ({
           onTitleKeyPress={handleTitleKeyPress}
           onTitleSave={handleTitleSave}
         />
-        
+
         {!isUltraSlim && (
           <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '8px', alignSelf: 'center' }}>
             {actionButtons}
@@ -1420,10 +1425,10 @@ const SharedPanelContent = ({
       {/* Type Section - under title */}
       {(() => {
         // Get the type name
-        const typeName = nodeData.typeNodeId && nodePrototypes 
+        const typeName = nodeData.typeNodeId && nodePrototypes
           ? nodePrototypes.get(nodeData.typeNodeId)?.name || 'Type'
           : 'Thing';
-        
+
         return (
           <div style={{
             marginBottom: isUltraSlim ? '16px' : '12px'
@@ -1444,7 +1449,7 @@ const SharedPanelContent = ({
                     Is {getArticleFor(typeName)}
                   </span>
                 </div>
-                
+
                 <div style={{
                   marginBottom: '12px'
                 }}>
@@ -1466,7 +1471,7 @@ const SharedPanelContent = ({
                     {typeName}
                   </button>
                 </div>
-                
+
                 <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: '8px', marginLeft: '2px' }}>
                   <div style={{ display: 'flex', gap: '8px' }}>{actionButtons}</div>
                   <div style={{ display: 'flex', gap: '8px' }}>{secondaryButtons}</div>
@@ -1514,10 +1519,10 @@ const SharedPanelContent = ({
 
       {/* Dividing line above Bio section */}
       <StandardDivider margin="20px 0" />
-      
+
       {/* Bio Section */}
-      <CollapsibleSection 
-        title="Bio" 
+      <CollapsibleSection
+        title="Bio"
         defaultExpanded={true}
       >
         {isEditingBio ? (
@@ -1553,7 +1558,7 @@ const SharedPanelContent = ({
             />
           </div>
         ) : (
-          <div 
+          <div
             onDoubleClick={handleBioDoubleClick}
             style={{
               marginRight: '15px',
@@ -1573,10 +1578,10 @@ const SharedPanelContent = ({
             {nodeData.description || 'Double-click to add a bio...'}
           </div>
         )}
-        
+
         {/* Wikipedia Enrichment - moved inside Bio section */}
         <div style={{ marginTop: '12px' }}>
-          <WikipediaEnrichment 
+          <WikipediaEnrichment
             nodeData={nodeData}
             onUpdateNode={onNodeUpdate}
           />
@@ -1585,25 +1590,25 @@ const SharedPanelContent = ({
 
       {/* Dividing line above Origin section */}
       <StandardDivider margin="20px 0" />
-      
+
       {/* Origin Section - Always show, with semantic data if available */}
-      <CollapsibleSection 
-        title="Origin" 
+      <CollapsibleSection
+        title="Origin"
         defaultExpanded={true}
       >
         {nodeData.semanticMetadata?.isSemanticNode && nodeData.semanticMetadata?.originMetadata ? (
           // Semantic web origin data
-          <div style={{ 
-            fontSize: '11px', 
+          <div style={{
+            fontSize: '11px',
             fontFamily: "'EmOne', sans-serif",
             color: '#260000',
             marginBottom: '12px'
           }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px' }}>
-              <div style={{ 
-                padding: '2px 6px', 
-                background: '#8B0000', 
-                borderRadius: '4px', 
+              <div style={{
+                padding: '2px 6px',
+                background: '#8B0000',
+                borderRadius: '4px',
                 color: '#EFE8E5',
                 fontSize: '9px',
                 fontWeight: 'bold'
@@ -1614,11 +1619,11 @@ const SharedPanelContent = ({
                 Confidence: {Math.round(nodeData.semanticMetadata.originMetadata.confidence * 100)}%
               </div>
             </div>
-            
+
             {nodeData.originalDescription && (
-              <div style={{ 
-                marginBottom: '8px', 
-                padding: '8px', 
+              <div style={{
+                marginBottom: '8px',
+                padding: '8px',
                 background: 'rgba(139,0,0,0.05)',
                 borderRadius: '4px',
                 fontSize: '10px',
@@ -1627,17 +1632,17 @@ const SharedPanelContent = ({
                 {nodeData.originalDescription}
               </div>
             )}
-            
+
             <div style={{ fontSize: '9px', color: '#666', marginBottom: '4px' }}>
               Discovered: {new Date(nodeData.semanticMetadata.originMetadata.discoveredAt).toLocaleDateString()}
             </div>
-            
+
             {nodeData.semanticMetadata.originMetadata.searchQuery && (
               <div style={{ fontSize: '9px', color: '#666', marginBottom: '4px' }}>
                 Search: "{nodeData.semanticMetadata.originMetadata.searchQuery}"
               </div>
             )}
-            
+
             {nodeData.semanticMetadata.originMetadata.originalUri && (
               <div style={{ marginTop: '8px' }}>
                 <button
@@ -1660,8 +1665,8 @@ const SharedPanelContent = ({
           </div>
         ) : (
           // Default origin information for all nodes
-          <div style={{ 
-            fontSize: '11px', 
+          <div style={{
+            fontSize: '11px',
             fontFamily: "'EmOne', sans-serif",
             color: '#666',
             marginBottom: '12px'
@@ -1791,9 +1796,9 @@ const SharedPanelContent = ({
                   })()}
 
                   {!(hasWikipedia || hasWikidata || hasDBpedia) && (
-                    <div style={{ 
-                      fontSize: '10px', 
-                      color: '#999', 
+                    <div style={{
+                      fontSize: '10px',
+                      color: '#999',
                       fontStyle: 'italic',
                       marginTop: '8px'
                     }}>
@@ -1809,17 +1814,17 @@ const SharedPanelContent = ({
 
       {/* Dividing line above Image section */}
       {nodeData.imageSrc && <StandardDivider margin="20px 0" />}
-      
+
       {/* Image Section */}
       {nodeData.imageSrc && (
-        <CollapsibleSection 
+        <CollapsibleSection
           title={(
             <span style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
               <span>Image</span>
             </span>
           )}
           rightAdornment={(
-            <Trash2 
+            <Trash2
               size={14}
               style={{ cursor: 'pointer', marginRight: '8px', color: 'inherit' }}
               title="Delete image"
@@ -1845,15 +1850,15 @@ const SharedPanelContent = ({
               }}
             />
           </div>
-      </CollapsibleSection>
+        </CollapsibleSection>
       )}
 
       {/* Dividing line above Components section */}
       <StandardDivider margin="20px 0" />
-      
+
       {/* Components Section */}
-      <CollapsibleSection 
-        title="Components" 
+      <CollapsibleSection
+        title="Components"
         count={activeGraphNodes.length}
         defaultExpanded={true}
       >
@@ -1875,10 +1880,10 @@ const SharedPanelContent = ({
             ))}
           </div>
         ) : (
-          <div style={{ 
+          <div style={{
             marginRight: '15px',
-            color: '#999', 
-            fontSize: '0.9rem', 
+            color: '#999',
+            fontSize: '0.9rem',
             fontFamily: "'EmOne', sans-serif",
             textAlign: 'left',
             padding: '20px 0 20px 15px'
@@ -1915,10 +1920,10 @@ const SharedPanelContent = ({
             ))}
           </div>
         ) : (
-          <div style={{ 
+          <div style={{
             marginRight: '15px',
-            color: '#999', 
-            fontSize: '0.9rem', 
+            color: '#999',
+            fontSize: '0.9rem',
             fontFamily: "'EmOne', sans-serif",
             textAlign: 'left',
             padding: '20px 0 20px 15px'
@@ -1930,13 +1935,13 @@ const SharedPanelContent = ({
 
       {/* Dividing line above Connections section */}
       <StandardDivider margin="20px 0" />
-      
+
       {/* Connections Section - Native Redstring connections */}
-      <CollapsibleSection 
-        title="Connections" 
+      <CollapsibleSection
+        title="Connections"
         defaultExpanded={false}
       >
-        <ConnectionBrowser 
+        <ConnectionBrowser
           nodeData={nodeData}
           onMaterializeConnection={onMaterializeConnection}
           isUltraSlim={isUltraSlim}
@@ -1945,10 +1950,10 @@ const SharedPanelContent = ({
 
       {/* Dividing line above Agent section */}
       <StandardDivider margin="20px 0" />
-      
+
       {/* Agent Configuration Section */}
-      <CollapsibleSection 
-        title="Agent" 
+      <CollapsibleSection
+        title="Agent"
         defaultExpanded={false}
       >
         <AgentConfigEditor
@@ -1963,13 +1968,13 @@ const SharedPanelContent = ({
 
       {/* Dividing line above Semantic Web section */}
       <StandardDivider margin="20px 0" />
-      
+
       {/* Semantic Web Section - unified external links + RDF schema */}
-      <CollapsibleSection 
-        title="Semantic Web" 
+      <CollapsibleSection
+        title="Semantic Web"
         defaultExpanded={false}
       >
-        <SemanticEditor 
+        <SemanticEditor
           nodeData={nodeData}
           onUpdate={onNodeUpdate}
           isUltraSlim={isUltraSlim}

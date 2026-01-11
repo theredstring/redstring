@@ -41,8 +41,10 @@ export function generateDescription(context, state) {
         // Prototype Actions (Global)
         case 'prototype_create':
             return `Created type "${prototypeName || 'Type'}"`;
-        case 'prototype_update':
-            return `Updated type "${prototypeName || 'Type'}"`;
+        case 'prototype_update': {
+            const proto = state.nodePrototypes?.get(prototypeId);
+            return `Updated "${proto?.name || prototypeName || 'Type'}"`;
+        }
         case 'prototype_delete':
             return `Deleted type`;
 

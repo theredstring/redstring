@@ -2197,6 +2197,12 @@ function NodeCanvas() {
 
 
   // Edge Panning Effect
+  // Ref to hold the latest performDragUpdate function to avoid restarting the pan loop
+  const performDragUpdateRef = useRef(performDragUpdate);
+  useEffect(() => {
+    performDragUpdateRef.current = performDragUpdate;
+  }, [performDragUpdate]);
+
   useEffect(() => {
     if (!draggingNodeInfo) return;
 
@@ -2213,36 +2219,41 @@ function NodeCanvas() {
 
       const { x: mouseX, y: mouseY } = mousePositionRef.current;
       const bounds = viewportBoundsRef.current;
-      const margin = 150; // Larger edge zone for better responsiveness
-      const maxSpeed = 25; // Faster max speed
+      // TUNED SENSITIVITY:
+      // Reduced margin from 150 to 75 for less aggressive activation
+      const margin = 75;
+      // Reduced maxSpeed from 25 to 15 for more control
+      const maxSpeed = 15;
 
       let dx = 0;
       let dy = 0;
+
+      // Used power 1.5 instead of 2 for a slightly more linear response curve
 
       // Left
       if (mouseX < bounds.x + margin) {
         const dist = (bounds.x + margin) - mouseX;
         const ratio = Math.min(1, dist / margin); // Cap at 1 (max speed)
-        dx = -maxSpeed * Math.pow(ratio, 2);
+        dx = -maxSpeed * Math.pow(ratio, 1.5);
       }
       // Right
       else if (mouseX > bounds.x + bounds.width - margin) {
         const dist = mouseX - (bounds.x + bounds.width - margin);
         const ratio = Math.min(1, dist / margin);
-        dx = maxSpeed * Math.pow(ratio, 2);
+        dx = maxSpeed * Math.pow(ratio, 1.5);
       }
 
       // Top
       if (mouseY < bounds.y + margin) {
         const dist = (bounds.y + margin) - mouseY;
         const ratio = Math.min(1, dist / margin);
-        dy = -maxSpeed * Math.pow(ratio, 2);
+        dy = -maxSpeed * Math.pow(ratio, 1.5);
       }
       // Bottom
       else if (mouseY > bounds.y + bounds.height - margin) {
         const dist = mouseY - (bounds.y + bounds.height - margin);
         const ratio = Math.min(1, dist / margin);
-        dy = maxSpeed * Math.pow(ratio, 2);
+        dy = maxSpeed * Math.pow(ratio, 1.5);
       }
 
       if (dx !== 0 || dy !== 0) {
@@ -2278,7 +2289,8 @@ function NodeCanvas() {
           setPanOffset(newPan);
 
           // Force update node position with new pan to keep it under mouse
-          performDragUpdate(mouseX, mouseY, newPan, currentZoom, draggingNodeInfoRef.current);
+          // Use the REF version of performDragUpdate to avoid dependency on the changed callback
+          performDragUpdateRef.current(mouseX, mouseY, newPan, currentZoom, draggingNodeInfoRef.current);
         }
       } else {
         // Not in edge zone - allow handleMouseMove RAF to update node position
@@ -2290,7 +2302,7 @@ function NodeCanvas() {
 
     animationFrameId = requestAnimationFrame(panLoop);
     return () => cancelAnimationFrame(animationFrameId);
-  }, [draggingNodeInfo, performDragUpdate]);
+  }, [draggingNodeInfo]); // Removed performDragUpdate from dependencies to prevent loop restart on every frame
 
   const stopPanMomentum = useCallback(() => {
     const { animationId } = panMomentumRef.current;
