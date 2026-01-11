@@ -206,7 +206,7 @@ const saveCoordinatorMiddleware = (config) => {
       // --- History Recording ---
       // Record significant actions to the history store
       const recordableTypes = new Set([
-        'node_place', 'node_delete', 'node_type_change',
+        'node_place', 'node_delete', 'node_type_change', 'node_update',
         'edge_create', 'edge_delete', 'edge_update', 'edge_type_change',
         'group_create', 'group_update', 'group_delete', 'group_convert',
         'prototype_create', 'prototype_update', 'prototype_delete',
@@ -214,7 +214,10 @@ const saveCoordinatorMiddleware = (config) => {
         'graph_create', 'graph_delete'
       ]);
 
-      if (recordableTypes.has(changeContext.type)) {
+
+      if (changeContext.ignore) {
+        // Explicitly skip recording
+      } else if (recordableTypes.has(changeContext.type)) {
         // Special handling for position updates: only record if finalized (drag end)
         if ((changeContext.type === 'node_position' || changeContext.type === 'position_update') && !changeContext.finalize) {
           // Skip recording intermediate drag states
@@ -1484,7 +1487,7 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
 
     // Update a prototype's data using Immer's recipe. This affects all its instances.
     updateNodePrototype: (prototypeId, recipe) => {
-      api.setChangeContext({ type: 'prototype_change', target: 'prototype' });
+      api.setChangeContext({ type: 'prototype_update', target: 'prototype' });
       return set(produce((draft) => {
         const prototype = draft.nodePrototypes.get(prototypeId);
         if (prototype) {
@@ -1517,7 +1520,7 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
 
     // Update an instance's unique data (e.g., position)
     updateNodeInstance: (graphId, instanceId, recipe, contextOptions = {}) => {
-      api.setChangeContext({ type: 'node_position', target: 'instance', ...contextOptions });
+      api.setChangeContext({ type: contextOptions.type || 'node_update', target: 'instance', ...contextOptions });
       return set(produce((draft) => {
         const graph = draft.graphs.get(graphId);
         if (graph && graph.instances) {

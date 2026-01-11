@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import MaroonSlider from './components/MaroonSlider.jsx';
-import { ChevronRight, FileText, FolderOpen, Save, Clock, Globe, Bug, BookOpen, Home, LayoutGrid, Activity, RefreshCw } from 'lucide-react';
+import { ChevronRight, FileText, FolderOpen, Save, Clock, Globe, Bug, BookOpen, Home, LayoutGrid, Activity, RefreshCw, Undo2, Redo2 } from 'lucide-react';
 import './RedstringMenu.css';
 import DebugOverlay from './DebugOverlay';
 import * as fileStorage from './store/fileStorage.js';
@@ -369,6 +369,7 @@ const RedstringMenu = ({
                           }}
                           style={{ cursor: 'pointer', opacity: useHistoryStore.getState().canUndo() ? 1 : 0.5 }}
                         >
+                          <Undo2 size={16} style={{ marginRight: '8px', minWidth: '16px', flexShrink: 0 }} />
                           <div style={{ display: 'flex', justifyContent: 'space-between', width: '100%' }}>
                             <span>Undo</span>
                             <span style={{ opacity: 0.5, fontSize: '11px' }}>Ctrl+Z</span>
@@ -383,6 +384,7 @@ const RedstringMenu = ({
                           }}
                           style={{ cursor: 'pointer', opacity: useHistoryStore.getState().canRedo() ? 1 : 0.5 }}
                         >
+                          <Redo2 size={16} style={{ marginRight: '8px', minWidth: '16px', flexShrink: 0 }} />
                           <div style={{ display: 'flex', justifyContent: 'space-between', width: '100%' }}>
                             <span>Redo</span>
                             <span style={{ opacity: 0.5, fontSize: '11px' }}>Ctrl+Shift+Z</span>

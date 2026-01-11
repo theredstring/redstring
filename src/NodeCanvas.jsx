@@ -2191,7 +2191,7 @@ function NodeCanvas() {
       storeActions.updateNodeInstance(activeGraphId, instanceId, draft => {
         draft.x = newX;
         draft.y = newY;
-      }, { isDragging: true, phase: 'move' });
+      }, { isDragging: true, phase: 'move', type: 'node_position' });
     }
   }, [activeGraphId, nodeById, gridMode, gridSize, storeActions]);
 
@@ -5061,7 +5061,7 @@ function NodeCanvas() {
     const mouseCanvasX = (clientX - rect.left - panOffset.x) / zoomLevel + canvasSize.offsetX;
     const mouseCanvasY = (clientY - rect.top - panOffset.y) / zoomLevel + canvasSize.offsetY;
     const offset = { x: mouseCanvasX - nodeData.x, y: mouseCanvasY - nodeData.y };
-    setDraggingNodeInfo({ instanceId, offset });
+    setDraggingNodeInfo({ instanceId, offset, initialPos: { x: nodeData.x, y: nodeData.y } });
 
 
 
@@ -6727,6 +6727,50 @@ function NodeCanvas() {
 
     // Reset scale for dragged nodes
     if (draggingNodeInfo) {
+      // --- Manual History Recording for Drag ---
+      const patches = [];
+      const inversePatches = [];
+      const movedNodeCount = 0;
+
+      // Helper to record patch if moved
+      const checkAndRecord = (id, initX, initY) => {
+        const node = nodes.find(n => n.id === id);
+        if (node && (Math.abs(node.x - initX) > 0.01 || Math.abs(node.y - initY) > 0.01)) {
+          patches.push({ op: 'replace', path: ['graphs', activeGraphId, 'instances', id, 'x'], value: node.x });
+          patches.push({ op: 'replace', path: ['graphs', activeGraphId, 'instances', id, 'y'], value: node.y });
+          inversePatches.push({ op: 'replace', path: ['graphs', activeGraphId, 'instances', id, 'x'], value: initX });
+          inversePatches.push({ op: 'replace', path: ['graphs', activeGraphId, 'instances', id, 'y'], value: initY });
+          return true;
+        }
+        return false;
+      };
+
+      if (draggingNodeInfo.relativeOffsets) {
+        // Multi-drag
+        checkAndRecord(draggingNodeInfo.primaryId, draggingNodeInfo.initialPrimaryPos.x, draggingNodeInfo.initialPrimaryPos.y);
+        Object.entries(draggingNodeInfo.relativeOffsets).forEach(([id, rel]) => {
+          checkAndRecord(id, draggingNodeInfo.initialPrimaryPos.x + rel.offsetX, draggingNodeInfo.initialPrimaryPos.y + rel.offsetY);
+        });
+      } else if (draggingNodeInfo.initialPos) { // Ensure we have initialPos (added in startDrag)
+        // Single drag
+        checkAndRecord(draggingNodeInfo.instanceId, draggingNodeInfo.initialPos.x, draggingNodeInfo.initialPos.y);
+      }
+      // Group member drag logic is complex and handled via memberOffsets - skipping exact history for grouped drag for now or assuming it relies on standard updates?
+      // Group member drag uses 'memberOffsets' in performDragUpdate. It updates positions. 
+      // If we want to support that, we need initial positions there too. 
+      // For now, focusing on standard node drag.
+
+      if (patches.length > 0) {
+        useHistoryStore.getState().pushAction({
+          domain: `graph-${activeGraphId}`,
+          actionType: 'node_position',
+          description: `Moved ${patches.length / 2} Node(s)`,
+          patches,
+          inversePatches
+        });
+      }
+      // -----------------------------------------
+
       const instanceIdsToReset = new Set();
       if (draggingNodeInfo.relativeOffsets) {
         instanceIdsToReset.add(draggingNodeInfo.primaryId);
@@ -6751,7 +6795,7 @@ function NodeCanvas() {
               activeGraphId,
               id,
               draft => { draft.scale = 1; },
-              { phase: 'end', isDragging: false, finalize: shouldFinalize }
+              { phase: 'end', isDragging: false, finalize: shouldFinalize, ignore: true } // Ignore this scale update in history
             );
             if (shouldFinalize) finalizeSent = true;
           }
