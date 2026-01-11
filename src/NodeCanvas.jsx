@@ -123,8 +123,7 @@ const TOUCH_PAN_MOMENTUM_BOOST = 1.5;           // minimal boost for natural tou
 const TRACKPAD_PAN_MOMENTUM_BOOST = 1.1;        // marginally higher boost for precision trackpads
 
 // Movement Zoom-Out constants
-const DRAG_ZOOM_OUT_FACTOR = 0.65;            // Zoom to 65% of current (35% reduction)
-const DRAG_ZOOM_MIN = 0.3;                    // Don't zoom out beyond this
+const DRAG_ZOOM_MIN = 0.3;                    // Don't zoom out beyond this (absolute minimum)
 const DRAG_ZOOM_ANIMATION_DURATION = 250;     // ms (slightly increased for smoothness)
 
 function NodeCanvas() {
@@ -1413,6 +1412,7 @@ function NodeCanvas() {
   const showConnectionNames = useGraphStore(state => state.showConnectionNames);
   const gridMode = useGraphStore(state => state.gridSettings?.mode || 'off');
   const gridSize = useGraphStore(state => state.gridSettings?.size || 200);
+  const dragZoomSettings = useGraphStore(state => state.dragZoomSettings || { enabled: true, zoomAmount: 0.35 });
   const enableAutoRouting = useGraphStore(state => state.autoLayoutSettings?.enableAutoRouting);
   const routingStyle = useGraphStore(state => state.autoLayoutSettings?.routingStyle || 'straight');
   const manhattanBends = useGraphStore(state => state.autoLayoutSettings?.manhattanBends || 'auto');
@@ -5099,6 +5099,11 @@ function NodeCanvas() {
   }, []);
 
   const triggerDragZoomOut = useCallback((clientX, clientY) => {
+    // Check if drag zoom is enabled
+    if (!dragZoomSettings.enabled) {
+      return; // Feature disabled, skip zoom-out
+    }
+
     // Movement Zoom-Out: Trigger after a tiny delay to ensure state is settled
     // This prevents zoom reset during the movement threshold delay while still triggering reliably
     const currentZoom = zoomLevel;
@@ -5107,13 +5112,19 @@ function NodeCanvas() {
       setPreDragZoomLevel(currentZoom);
       // Store original pan offset for proper restore (avoids anchor drift)
       preDragPanOffsetRef.current = { ...panOffset };
-      const targetZoom = Math.max(DRAG_ZOOM_MIN, currentZoom * DRAG_ZOOM_OUT_FACTOR);
+
+      // Calculate zoom factor from zoom amount
+      // zoomAmount 0.0 = no zoom (factor 1.0)
+      // zoomAmount 0.35 = zoom out 35% (factor 0.65)
+      // zoomAmount 0.9 = zoom out 90% (factor 0.1)
+      const zoomFactor = 1.0 - dragZoomSettings.zoomAmount;
+      const targetZoom = Math.max(DRAG_ZOOM_MIN, currentZoom * zoomFactor);
 
       // Start animation immediately (synchronously) to avoid 1-frame delay/glitch
       // We pass the current panOffset explicitly to ensure the anchor calculation matches the current view
       animateZoomToTarget(targetZoom, { clientX, clientY }, currentZoom, { ...panOffset });
     }
-  }, [zoomLevel, panOffset, animateZoomToTarget]);
+  }, [zoomLevel, panOffset, animateZoomToTarget, dragZoomSettings]);
 
   const startDragForNode = useCallback((nodeData, clientX, clientY) => {
     if (!nodeData || !activeGraphId) return false;
@@ -6591,12 +6602,13 @@ function NodeCanvas() {
     if (draggingNodeInfo) {
       // Movement Zoom-Out: Trigger when drag actually starts moving (not on mousedown)
       // This ensures zoom-out happens after movement threshold, preventing reset during delay
-      if (!zoomOutInitiatedRef.current) {
+      if (!zoomOutInitiatedRef.current && dragZoomSettings.enabled) {
         const currentZoom = zoomLevel;
         if (currentZoom > DRAG_ZOOM_MIN) {
           zoomOutInitiatedRef.current = true;
           setPreDragZoomLevel(currentZoom);
-          const targetZoom = Math.max(DRAG_ZOOM_MIN, currentZoom * DRAG_ZOOM_OUT_FACTOR);
+          const zoomFactor = 1.0 - dragZoomSettings.zoomAmount;
+          const targetZoom = Math.max(DRAG_ZOOM_MIN, currentZoom * zoomFactor);
           animateZoomToTarget(targetZoom, { clientX: e.clientX, clientY: e.clientY }, currentZoom, { ...panOffset });
         }
       }
@@ -6986,7 +6998,8 @@ function NodeCanvas() {
 
       // Movement Zoom-Out: Restore zoom level if we were dragging
       // Prevent double calls - only process if not already restoring
-      if (preDragZoomLevel !== null && !restoreInProgressRef.current) {
+      // Only restore if drag zoom was enabled and zoom was actually changed
+      if (preDragZoomLevel !== null && dragZoomSettings.enabled && !restoreInProgressRef.current) {
         restoreInProgressRef.current = true;
 
         // Target Zoom: Always go back to the original level
@@ -9253,6 +9266,12 @@ function NodeCanvas() {
         onSetGridMode={(m) => useGraphStore.getState().setGridMode(m)}
         gridSize={gridSize}
         onSetGridSize={(v) => useGraphStore.getState().setGridSize(v)}
+
+        // Drag zoom controls
+        dragZoomEnabled={dragZoomSettings.enabled}
+        dragZoomAmount={dragZoomSettings.zoomAmount}
+        onToggleDragZoom={() => useGraphStore.getState().toggleDragZoomEnabled()}
+        onSetDragZoomAmount={(v) => useGraphStore.getState().setDragZoomAmount(v)}
 
         onGenerateTestGraph={() => {
           setAutoGraphModalVisible(true);

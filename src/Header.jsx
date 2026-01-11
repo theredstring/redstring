@@ -55,6 +55,11 @@ const Header = ({
   onSetGridMode,
   gridSize,
   onSetGridSize,
+  // Drag zoom controls
+  dragZoomEnabled,
+  dragZoomAmount,
+  onToggleDragZoom,
+  onSetDragZoomAmount,
   // File management actions
   onNewUniverse,
   onOpenUniverse,
@@ -327,6 +332,10 @@ const Header = ({
             onSetGridMode={onSetGridMode}
             gridSize={gridSize}
             onSetGridSize={onSetGridSize}
+            dragZoomEnabled={dragZoomEnabled}
+            dragZoomAmount={dragZoomAmount}
+            onToggleDragZoom={onToggleDragZoom}
+            onSetDragZoomAmount={onSetDragZoomAmount}
             onNewUniverse={onNewUniverse}
             onOpenUniverse={onOpenUniverse}
             onSaveUniverse={onSaveUniverse}
@@ -410,6 +419,10 @@ const Header = ({
           onSetGridMode={onSetGridMode}
           gridSize={gridSize}
           onSetGridSize={onSetGridSize}
+          dragZoomEnabled={dragZoomEnabled}
+          dragZoomAmount={dragZoomAmount}
+          onToggleDragZoom={onToggleDragZoom}
+          onSetDragZoomAmount={onSetDragZoomAmount}
           onNewUniverse={onNewUniverse}
           onOpenUniverse={onOpenUniverse}
           onSaveUniverse={onSaveUniverse}

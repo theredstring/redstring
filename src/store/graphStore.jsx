@@ -518,6 +518,20 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
         return { mode: 'off', size: 200 };
       }
     })(),
+    // Drag zoom settings
+    dragZoomSettings: (() => {
+      try {
+        const enabledRaw = localStorage.getItem('redstring_drag_zoom_enabled');
+        const amountRaw = localStorage.getItem('redstring_drag_zoom_amount');
+        const enabled = enabledRaw ? enabledRaw === 'true' : true;
+        let amount = parseFloat(amountRaw);
+        if (!Number.isFinite(amount)) amount = 0.35;
+        amount = Math.max(0.0, Math.min(0.9, amount));
+        return { enabled, zoomAmount: amount };
+      } catch (_) {
+        return { enabled: true, zoomAmount: 0.35 };
+      }
+    })(),
     // Connections visualization/layout settings
     autoLayoutSettings: getDefaultAutoLayoutSettings(),
     forceTunerSettings: getDefaultForceTunerSettings(),
@@ -2515,6 +2529,33 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
       const clamped = Math.max(20, Math.min(400, Math.round(v)));
       draft.gridSettings.size = clamped;
       try { localStorage.setItem('redstring_grid_size', String(clamped)); } catch (_) { }
+    })),
+
+    // Drag zoom settings actions
+    toggleDragZoomEnabled: () => set(produce((draft) => {
+      if (!draft.dragZoomSettings) {
+        draft.dragZoomSettings = { enabled: true, zoomAmount: 0.35 };
+      }
+      draft.dragZoomSettings.enabled = !draft.dragZoomSettings.enabled;
+      try {
+        localStorage.setItem('redstring_drag_zoom_enabled', String(draft.dragZoomSettings.enabled));
+      } catch (_) { }
+    })),
+    setDragZoomAmount: (value) => set(produce((draft) => {
+      if (!draft.dragZoomSettings) {
+        draft.dragZoomSettings = { enabled: true, zoomAmount: 0.35 };
+      }
+      const v = Number(value);
+      if (!Number.isFinite(v)) {
+        console.warn(`[setDragZoomAmount] Invalid value: ${value}`);
+        return;
+      }
+      // Clamp between 0.0 (no zoom) and 0.9 (zoom out by 90%)
+      const clamped = Math.max(0.0, Math.min(0.9, v));
+      draft.dragZoomSettings.zoomAmount = clamped;
+      try {
+        localStorage.setItem('redstring_drag_zoom_amount', String(clamped));
+      } catch (_) { }
     })),
 
     // Toggle global auto-routing enablement

@@ -70,6 +70,12 @@ function stopAgentServer() {
 // Check for dev mode - either NODE_ENV or if running from source (not packaged)
 const isDev = process.env.NODE_ENV === 'development' || !app.isPackaged;
 
+// Check for --test flag in command-line arguments
+const isTestMode = process.argv.includes('--test');
+if (isTestMode) {
+  console.log('[Electron] Test mode enabled via --test flag');
+}
+
 let mainWindow = null;
 
 // ============================================================
@@ -163,11 +169,17 @@ function createWindow() {
   if (isDev) {
     // Wait for Vite to be ready (handled by script usually, but good to have fallback)
     // The port 4001 is from the existing vite.config.js
-    mainWindow.loadURL('http://localhost:4001');
+    const devUrl = isTestMode ? 'http://localhost:4001?test=true' : 'http://localhost:4001';
+    mainWindow.loadURL(devUrl);
     mainWindow.webContents.openDevTools();
   } else {
     // In production, load the built index.html
-    mainWindow.loadFile(path.join(__dirname, '../dist/index.html'));
+    const indexPath = path.join(__dirname, '../dist/index.html');
+    if (isTestMode) {
+      mainWindow.loadFile(indexPath, { query: { test: 'true' } });
+    } else {
+      mainWindow.loadFile(indexPath);
+    }
   }
 }
 

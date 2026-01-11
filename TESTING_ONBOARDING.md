@@ -18,12 +18,12 @@ This will:
 - Not interfere with your main session
 
 #### Electron
-Launch Electron with a test flag (you'll need to add command-line argument support):
+Launch Electron with the test flag:
 ```bash
 npm run electron -- --test
 ```
 
-Or manually add `?test=true` to the initial URL in your Electron main process.
+This will automatically append `?test=true` to the initial URL, activating test mode.
 
 ### What Test Mode Does
 

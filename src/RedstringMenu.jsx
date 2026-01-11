@@ -39,6 +39,11 @@ const RedstringMenu = ({
   onSetGridMode,
   gridSize,
   onSetGridSize,
+  // Drag zoom controls
+  dragZoomEnabled,
+  dragZoomAmount,
+  onToggleDragZoom,
+  onSetDragZoomAmount,
   // Universe management actions
   onNewUniverse,
   onOpenUniverse,
@@ -445,6 +450,57 @@ const RedstringMenu = ({
                           style={{ cursor: 'pointer' }}
                         >
                           Merge Duplicates
+                        </div>
+                        <div className="submenu-divider" style={{ margin: '8px 0', borderTop: '1px solid #444', opacity: 0.3 }} />
+                        <div
+                          className={`submenu-item has-submenu ${isNestedSubmenuOpen('DragZoom') ? 'active-submenu-parent' : ''}`}
+                          onMouseEnter={() => handleNestedSubmenuItemHover('DragZoom')}
+                          onMouseLeave={handleNestedSubmenuItemLeave}
+                          style={{ cursor: 'pointer' }}
+                        >
+                          Zoom on Drag
+                          <ChevronRight size={14} style={{ marginLeft: 'auto', opacity: 0.7 }} />
+
+                          {isNestedSubmenuOpen('DragZoom') && (
+                            <div
+                              className="submenu-container"
+                              onMouseEnter={handleNestedSubmenuEnter}
+                              onMouseLeave={handleNestedSubmenuItemLeave}
+                              style={{ left: '100%', top: 0 }}
+                            >
+                              <div
+                                className="submenu-item"
+                                onClick={() => onToggleDragZoom?.()}
+                                style={{ cursor: 'pointer', opacity: dragZoomEnabled ? 1 : 0.8 }}
+                              >
+                                {dragZoomEnabled ? 'Enabled ✓' : 'Disabled'}
+                              </div>
+                              <div
+                                style={{ padding: '6px 6px 0 6px', width: '100%' }}
+                                onMouseDown={(e) => e.stopPropagation()}
+                                onMouseUp={(e) => e.stopPropagation()}
+                                onClick={(e) => e.stopPropagation()}
+                                onPointerDown={(e) => e.stopPropagation()}
+                                onPointerUp={(e) => e.stopPropagation()}
+                                onTouchStart={(e) => e.stopPropagation()}
+                                onTouchEnd={(e) => e.stopPropagation()}
+                              >
+                                <MaroonSlider
+                                  label="Zoom Amount"
+                                  value={dragZoomAmount}
+                                  min={0.0}
+                                  max={0.9}
+                                  step={0.05}
+                                  suffix=""
+                                  onChange={(v) => onSetDragZoomAmount?.(v)}
+                                  disabled={!dragZoomEnabled}
+                                />
+                              </div>
+                              <div style={{ padding: '4px 12px', fontSize: '10px', opacity: 0.6, lineHeight: '1.3' }}>
+                                {dragZoomAmount < 0.2 ? 'Minimal zoom' : dragZoomAmount < 0.5 ? 'Moderate zoom' : 'Strong zoom out'}
+                              </div>
+                            </div>
+                          )}
                         </div>
                       </div>
                     )}
