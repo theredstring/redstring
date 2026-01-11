@@ -189,6 +189,11 @@ const saveCoordinatorMiddleware = (config) => {
   return (set, get, api) => {
     // Enhance the set function to track change context and capture patches
     const enhancedSet = (...args) => {
+      // DEBUG: Trace why actions are duplicated
+      if (changeContext.type !== 'node_update') { // Filter out noise if needed, or just log all
+        console.log(`[GraphStore] Action: ${changeContext.type}`, new Error().stack.split('\n')[2]);
+      }
+
       // 1. Capture patches via the global listener (hooked into our custom produce wrapper)
       let currentPatches = null;
       let currentInverse = null;

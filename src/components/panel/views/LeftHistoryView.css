@@ -6,6 +6,7 @@
     background-color: #bdb5b5;
     color: #260000;
     overflow: hidden;
+    font-family: 'EmOne', sans-serif;
 }
 
 /* Header - matches other panels */
@@ -23,12 +24,14 @@
     font-weight: 600;
     color: #260000;
     letter-spacing: -0.01em;
+    font-family: 'EmOne', sans-serif;
 }
 
 .history-stats {
     font-size: 11px;
     opacity: 0.5;
     font-weight: 500;
+    font-family: 'EmOne', sans-serif;
 }
 
 /* Filter Tabs */
@@ -98,14 +101,39 @@
 
 .history-item {
     display: flex;
-    padding: 8px 16px;
-    transition: background-color 0.1s ease;
-    align-items: flex-start;
-    gap: 10px;
+    align-items: center;
+    padding: 7px 12px;
+    gap: 12px;
+    /* Use transparent border to reserve space for the active state/head */
+    border: 3px solid transparent;
+    border-bottom: 3px solid transparent;
+    /* Override bottom separataor? */
+    border-radius: 8px;
+    /* Always rounded */
+
+    margin: 3px 12px;
+    /* Increased margin for better clearance */
+    /* Consistent margin inside container, added vertical spacing */
+    box-sizing: border-box;
+    /* Ensure padding/border don't overflow width */
+    width: auto;
+    /* Let it fill available space minus margins */
+
+    transition: background-color 0.15s ease, border-color 0.15s ease;
+    cursor: pointer;
+    /* Interactive */
+    position: relative;
+    user-select: none;
 }
 
+/* We need a separator line, but border-radius messes with border-bottom full width. 
+   So we might need a pseudo-element for the separator line if we want it?
+   Or just accept the spaced styling. 
+   Let's remove the old border-bottom separator and just rely on spacing or hover. 
+*/
+
 .history-item:hover {
-    background-color: rgba(38, 0, 0, 0.03);
+    background-color: rgba(255, 255, 255, 0.4);
 }
 
 /* Subtly distinguish global actions */
@@ -118,20 +146,21 @@
 }
 
 .history-item.undone {
-    opacity: 0.5;
-    background-color: rgba(0, 0, 0, 0.02);
+    opacity: 0.4;
+    background-color: transparent;
 }
 
 .history-item.head {
-    background-color: rgba(255, 255, 255, 0.7);
-    border-left: 3px solid #8B0000;
-    padding-left: 13px;
-    /* Adjust for border width */
+    background-color: transparent;
+    border-color: #8B0000;
+    /* Padding/margin already handled by base class */
 }
 
 /* Head indicator dot on the right? Or border left? Doing border left above. 
    Also can add the dot. */
 .history-head-indicator {
+    display: none;
+    /* Hide dot since we have the box outline */
     position: absolute;
     right: 12px;
     top: 50%;
@@ -171,10 +200,11 @@
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
+    font-family: 'EmOne', sans-serif;
 }
 
 .history-item.undone .history-item-description {
-    text-decoration: line-through;
+    text-decoration: none;
     opacity: 0.7;
 }
 

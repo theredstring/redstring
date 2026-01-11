@@ -132,6 +132,7 @@ function NodeCanvas() {
   const wrapperRef = useRef(null);
   const [orbitData, setOrbitData] = useState({ inner: [], outer: [], all: [] });
   const wasDraggingRef = useRef(false); // Track if a drag just occurred to prevent click events
+  const dragHistoryRecordedRef = useRef(false); // Guard against double recording of drag events
 
   // Helper to measure text width accurately for the group labels
   // We use a cached canvas context to avoid creating it repeatedly
@@ -5060,10 +5061,11 @@ function NodeCanvas() {
         primaryId: instanceId
       });
 
+      dragHistoryRecordedRef.current = false; // Reset history guard
       triggerDragZoomOut(clientX, clientY);
 
       selectedInstanceIds.forEach(id => {
-        storeActions.updateNodeInstance(activeGraphId, id, draft => { draft.scale = 1.15; }, { isDragging: true, phase: 'start' });
+        storeActions.updateNodeInstance(activeGraphId, id, draft => { draft.scale = 1.15; }, { isDragging: true, phase: 'start', ignore: true });
       });
       return true;
     }
@@ -5075,11 +5077,9 @@ function NodeCanvas() {
     const offset = { x: mouseCanvasX - nodeData.x, y: mouseCanvasY - nodeData.y };
     setDraggingNodeInfo({ instanceId, offset, initialPos: { x: nodeData.x, y: nodeData.y } });
 
-
-
+    dragHistoryRecordedRef.current = false; // Reset history guard
     triggerDragZoomOut(clientX, clientY);
-
-    storeActions.updateNodeInstance(activeGraphId, instanceId, draft => { draft.scale = 1.15; }, { isDragging: true, phase: 'start' });
+    storeActions.updateNodeInstance(activeGraphId, instanceId, draft => { draft.scale = 1.15; }, { isDragging: true, phase: 'start', ignore: true });
     return true;
   }, [
     activeGraphId,
@@ -6738,7 +6738,7 @@ function NodeCanvas() {
     }
 
     // Reset scale for dragged nodes
-    if (draggingNodeInfo) {
+    if (draggingNodeInfo && !dragHistoryRecordedRef.current) {
       // --- Manual History Recording for Drag ---
       const patches = [];
       const inversePatches = [];
@@ -6780,7 +6780,13 @@ function NodeCanvas() {
           patches,
           inversePatches
         });
+        dragHistoryRecordedRef.current = true; // Mark as recorded for this drag session
       }
+    }
+
+    // Common finalization logic (always run even if history recorded)
+    if (draggingNodeInfo) {
+      // -----------------------------------------
       // -----------------------------------------
 
       const instanceIdsToReset = new Set();
