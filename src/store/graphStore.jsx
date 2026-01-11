@@ -235,14 +235,16 @@ const saveCoordinatorMiddleware = (config) => {
             ? 'global'
             : `graph-${changeContext.graphId || get().activeGraphId}`; // Fallback to active graph
 
-          // Push to history with patches
-          useHistoryStore.getState().pushAction({
-            domain,
-            actionType: changeContext.type,
-            description: generateDescription(changeContext, get()),
-            patches: currentPatches,
-            inversePatches: currentInverse
-          });
+          // Push to history with patches (ONLY if changes actually occurred)
+          if (currentPatches && currentPatches.length > 0) {
+            useHistoryStore.getState().pushAction({
+              domain,
+              actionType: changeContext.type,
+              description: generateDescription(changeContext, get()),
+              patches: currentPatches,
+              inversePatches: currentInverse
+            });
+          }
         }
       }
       // -------------------------

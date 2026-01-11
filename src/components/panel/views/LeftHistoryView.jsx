@@ -8,7 +8,6 @@ import './LeftHistoryView.css';
 const LeftHistoryView = () => {
     const history = useHistoryStore(state => state.history);
     const currentIndex = useHistoryStore(state => state.currentIndex);
-    const jumpTo = useHistoryStore(state => state.jumpTo);
     const activeGraphId = useGraphStore(state => state.activeGraphId);
     const applyPatches = useGraphStore(state => state.applyPatches);
     const [filter, setFilter] = useState('all'); // 'all', 'graph', 'global'
@@ -30,7 +29,13 @@ const LeftHistoryView = () => {
     }, [history, filter, activeGraphId]);
 
     const handleJumpTo = (index) => {
-        jumpTo(index, applyPatches);
+        // Get jumpTo directly from store to ensure we have the latest function reference
+        const jumpTo = useHistoryStore.getState().jumpTo;
+        if (typeof jumpTo === 'function') {
+            jumpTo(index, applyPatches);
+        } else {
+            console.error('[LeftHistoryView] jumpTo is not a function:', jumpTo);
+        }
     };
 
     return (

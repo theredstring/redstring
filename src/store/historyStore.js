@@ -22,19 +22,14 @@ const useHistoryStore = create((set, get) => ({
         // Deduplication Logic:
         // Check if the new entry is identical to the last one (double-fire protection)
         const lastAction = newHistory[newHistory.length - 1];
-        console.log('[History] pushAction called:', entry.actionType, entry.description);
         if (lastAction) {
             const isSameType = lastAction.actionType === entry.actionType;
             const isSameDesc = lastAction.description === entry.description;
             const isRecent = (Date.now() - lastAction.timestamp) < 500; // Within 500ms
-            const timeDiff = Date.now() - lastAction.timestamp;
-
-            console.log('[History] Dedup check:', { isSameType, isSameDesc, isRecent, timeDiff });
 
             if (isSameType && isSameDesc && isRecent) {
                 // deep check patches
                 const isSamePatches = JSON.stringify(lastAction.patches) === JSON.stringify(entry.patches);
-                console.log('[History] Patches comparison:', { isSamePatches, lastPatchCount: lastAction.patches?.length, newPatchCount: entry.patches?.length });
                 if (isSamePatches) {
                     console.warn('[History] Duplicate action ignored:', entry.description);
                     return state; // No change
