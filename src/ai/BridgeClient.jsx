@@ -177,6 +177,9 @@ const BridgeClient = () => {
   });
   // Track last telemetry timestamp sent to UI to avoid spam
   const lastTelemetryTsRef = useRef(0);
+  // Track last user activity to throttle polling when idle
+  // Initialized to now so we start in fast mode
+  const lastActivityRef = useRef(Date.now());
 
   useEffect(() => {
     mountedRef.current = true;
@@ -383,7 +386,11 @@ const BridgeClient = () => {
         // Store the actual functions in a global variable that the bridge server can access
         if (typeof window !== 'undefined') {
           window.redstringStoreActions = {
+            // Helper to mark activity
+            _markActive: () => { lastActivityRef.current = Date.now(); },
+
             ensureGraph: async (graphId, initialData) => {
+              lastActivityRef.current = Date.now();
               console.log('MCPBridge: Calling ensureGraph', graphId, initialData);
               const st = useGraphStore.getState();
               if (!st.graphs.has(graphId)) {
@@ -588,6 +595,7 @@ const BridgeClient = () => {
               return { success: true };
             },
             chat: async (message, context) => {
+              lastActivityRef.current = Date.now();
               console.log('MCPBridge: Forwarding chat message to AI model', { message, context });
               // The actual chat handling happens in the MCP server
               return { success: true, message, context };
@@ -597,22 +605,22 @@ const BridgeClient = () => {
               // options: { mode, nodeIds, graphId, coordinates, zoom }
               console.log('MCPBridge: Navigating to', options);
               const { navigateToNodes, navigateToFitContent, navigateToCoordinates } = await import('../services/canvasNavigationService.js');
-              
+
               if (options.nodeIds && options.nodeIds.length > 0) {
-                navigateToNodes(options.nodeIds, { 
+                navigateToNodes(options.nodeIds, {
                   graphId: options.graphId,
-                  delay: options.delay || 150 
+                  delay: options.delay || 150
                 });
               } else if (options.coordinates) {
                 navigateToCoordinates(
-                  options.coordinates.x, 
-                  options.coordinates.y, 
+                  options.coordinates.x,
+                  options.coordinates.y,
                   { zoom: options.zoom, delay: options.delay || 150 }
                 );
               } else {
-                navigateToFitContent({ 
+                navigateToFitContent({
                   graphId: options.graphId,
-                  delay: options.delay || 150 
+                  delay: options.delay || 150
                 });
               }
               return { success: true, navigated: true };
@@ -1226,6 +1234,8 @@ const BridgeClient = () => {
         if (actionsResponse.ok) {
           const actionsData = await actionsResponse.json();
           if (actionsData.pendingActions && actionsData.pendingActions.length > 0) {
+            // Activity detected! Reset idle timer
+            lastActivityRef.current = Date.now();
             console.log('✅ MCP Bridge: Found pending actions:', actionsData.pendingActions.length);
             // Execute actions in a stable dependency-friendly order
             const priority = (act) => {
@@ -1533,9 +1543,29 @@ const BridgeClient = () => {
     };
 
     // Check for bridge updates every 1s; guard with mountedRef to auto-resume after remounts
-    bridgeIntervalRef.current = setInterval(() => {
-      if (mountedRef.current) checkForBridgeUpdates();
-    }, 1000);
+    // Adaptive polling loop
+    const pollingLoop = async () => {
+      if (!mountedRef.current) return;
+
+      const now = Date.now();
+      const timeSinceActivity = now - lastActivityRef.current;
+      const isIdle = timeSinceActivity > 30000; // 30 seconds idle
+
+      // Fast poll (1s) if active, slow poll (5s) if idle
+      const interval = isIdle ? 5000 : 1000;
+
+      await checkForBridgeUpdates();
+
+      if (mountedRef.current && connectionStateRef.current.isConnected) {
+        bridgeIntervalRef.current = setTimeout(pollingLoop, interval);
+      } else if (mountedRef.current) {
+        // If disconnected, check less frequently but keep checking to resume
+        bridgeIntervalRef.current = setTimeout(pollingLoop, 5000);
+      }
+    };
+
+    // Start the loop
+    pollingLoop();
 
     // Cleanup function
     return () => {

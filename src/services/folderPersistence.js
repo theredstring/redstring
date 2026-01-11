@@ -8,18 +8,27 @@
 
 import { isElectron, validateFolderAccess } from '../utils/fileAccessAdapter.js';
 
-// Storage keys
-const FOLDER_HANDLE_DB_NAME = 'RedstringFolderStorage';
+// Check if we're in test mode (via URL parameter)
+const isTestMode = () => {
+  if (typeof window === 'undefined') return false;
+  const params = new URLSearchParams(window.location.search);
+  return params.get('test') === 'true';
+};
+
+// Storage keys - prefixed with 'test_' when in test mode
+const getStorageKey = (baseKey) => isTestMode() ? `test_${baseKey}` : baseKey;
+
+const FOLDER_HANDLE_DB_NAME = () => getStorageKey('RedstringFolderStorage');
 const FOLDER_HANDLE_STORE_NAME = 'folderHandles';
 const FOLDER_HANDLE_KEY = 'workspaceFolder';
-const LOCALSTORAGE_FOLDER_KEY = 'redstring_workspace_folder_path';
+const LOCALSTORAGE_FOLDER_KEY = () => getStorageKey('redstring_workspace_folder_path');
 
 /**
  * Open IndexedDB for folder handle storage (web only)
  */
 const openFolderHandleDB = () => {
   return new Promise((resolve, reject) => {
-    const request = indexedDB.open(FOLDER_HANDLE_DB_NAME, 1);
+    const request = indexedDB.open(FOLDER_HANDLE_DB_NAME(), 1);
 
     request.onupgradeneeded = (event) => {
       const db = event.target.result;
@@ -44,8 +53,8 @@ export const storeFolderHandle = async (folderHandleOrPath) => {
     if (typeof folderHandleOrPath !== 'string') {
       throw new Error('Electron requires folder path as string');
     }
-    localStorage.setItem(LOCALSTORAGE_FOLDER_KEY, folderHandleOrPath);
-    console.log('[FolderPersistence] Stored folder path in localStorage:', folderHandleOrPath);
+    localStorage.setItem(LOCALSTORAGE_FOLDER_KEY(), folderHandleOrPath);
+    console.log('[FolderPersistence] Stored folder path in localStorage:', folderHandleOrPath, isTestMode() ? '(TEST MODE)' : '');
   } else {
     // Web: Store DirectoryHandle in IndexedDB
     try {
@@ -80,9 +89,9 @@ export const storeFolderHandle = async (folderHandleOrPath) => {
 export const getFolderHandle = async () => {
   if (isElectron()) {
     // Electron: Retrieve path from localStorage
-    const folderPath = localStorage.getItem(LOCALSTORAGE_FOLDER_KEY);
+    const folderPath = localStorage.getItem(LOCALSTORAGE_FOLDER_KEY());
     if (folderPath) {
-      console.log('[FolderPersistence] Retrieved folder path from localStorage:', folderPath);
+      console.log('[FolderPersistence] Retrieved folder path from localStorage:', folderPath, isTestMode() ? '(TEST MODE)' : '');
       return folderPath;
     }
     return null;
@@ -121,8 +130,8 @@ export const getFolderHandle = async () => {
 export const clearFolderHandle = async () => {
   if (isElectron()) {
     // Electron: Clear from localStorage
-    localStorage.removeItem(LOCALSTORAGE_FOLDER_KEY);
-    console.log('[FolderPersistence] Cleared folder path from localStorage');
+    localStorage.removeItem(LOCALSTORAGE_FOLDER_KEY());
+    console.log('[FolderPersistence] Cleared folder path from localStorage', isTestMode() ? '(TEST MODE)' : '');
   } else {
     // Web: Clear from IndexedDB
     try {

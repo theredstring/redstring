@@ -17,9 +17,9 @@ import useGraphStore from '../../../store/graphStore.jsx';
  */
 function applyToolResultToStore(toolName, result) {
   if (!result || result.error) return;
-  
+
   const store = useGraphStore.getState();
-  
+
   // Handle createPopulatedGraph
   if (result.action === 'createPopulatedGraph' && result.spec) {
     console.log('[Wizard] Applying createPopulatedGraph to store:', result.graphName);
@@ -27,18 +27,18 @@ function applyToolResultToStore(toolName, result) {
     console.log('[Wizard] Nodes count:', result.spec.nodes?.length || 0);
     console.log('[Wizard] Edges count:', result.spec.edges?.length || 0);
     console.log('[Wizard] Groups count:', result.spec.groups?.length || 0);
-    
+
     // 1. Create the graph first
     const graphId = store.createNewGraph({
       id: result.graphId,
       name: result.graphName,
       description: result.description || ''
     });
-    
+
     // 2. Prepare bulk updates - use unique IDs for each node
     const nodeNames = (result.spec.nodes || []).map(n => n.name);
     console.log('[Wizard] Node names being created:', nodeNames);
-    
+
     const bulkData = {
       nodes: result.spec.nodes.map((n, idx) => ({
         name: n.name,
@@ -60,12 +60,12 @@ function applyToolResultToStore(toolName, result) {
       }),
       groups: result.spec.groups || []
     };
-    
+
     console.log('[Wizard] Edges being passed to store:', bulkData.edges);
-    
+
     // 3. Apply bulk updates in one transaction
     store.applyBulkGraphUpdates(graphId, bulkData);
-    
+
     console.log('[Wizard] Successfully populated graph:', graphId);
   }
 }
@@ -405,6 +405,11 @@ const LeftAIView = ({ compact = false, activeGraphId, graphsMap, edgesMap }) => 
 
   const handleSendMessage = async () => {
     if (!currentInput.trim() || isProcessing) return;
+
+    // Trigger active mode for faster polling
+    if (window.redstringStoreActions && window.redstringStoreActions._markActive) {
+      window.redstringStoreActions._markActive();
+    }
     const userMessage = currentInput.trim();
 
     // Handle slash commands
@@ -420,12 +425,12 @@ const LeftAIView = ({ compact = false, activeGraphId, graphsMap, edgesMap }) => 
         try {
           // Determine test mode from args
           const mode = args.includes('--auto-discover') ? 'auto' :
-                      args.includes('--dry-run') ? 'dry' :
-                      'full';
+            args.includes('--dry-run') ? 'dry' :
+              'full';
 
           const modeDesc = mode === 'auto' ? 'Auto-discovery mode (testing all 12 tools)' :
-                          mode === 'dry' ? 'Dry-run mode (connectivity check only)' :
-                          'Full test mode (intent detection tests)';
+            mode === 'dry' ? 'Dry-run mode (connectivity check only)' :
+              'Full test mode (intent detection tests)';
 
           addMessage('system', `🧪 Running wizard tests in ${modeDesc}...`);
 
@@ -540,7 +545,7 @@ const LeftAIView = ({ compact = false, activeGraphId, graphsMap, edgesMap }) => 
       }
       const abortController = new AbortController();
       setCurrentAgentRequest(abortController);
-      
+
       // Send recent conversation history for context memory
       const recentMessages = messages.slice(-10).map(msg => ({
         role: msg.sender === 'user' ? 'user' : msg.sender === 'ai' ? 'assistant' : 'system',
@@ -600,7 +605,7 @@ const LeftAIView = ({ compact = false, activeGraphId, graphsMap, edgesMap }) => 
             : Array.isArray(g.instances)
               ? g.instances
               : Object.values(g.instances || {});
-          
+
           return {
             id: g.id,
             name: g.name,
@@ -645,10 +650,10 @@ const LeftAIView = ({ compact = false, activeGraphId, graphsMap, edgesMap }) => 
         activeGraphId: activeGraphId || null
       };
 
-      console.log('[Wizard] Starting request to /api/wizard', { 
-        apiKey: apiKey ? 'present' : 'missing', 
+      console.log('[Wizard] Starting request to /api/wizard', {
+        apiKey: apiKey ? 'present' : 'missing',
         apiConfig,
-        historyLength: recentMessages.length 
+        historyLength: recentMessages.length
       });
 
       // Use new Wizard endpoint with SSE streaming
@@ -699,12 +704,12 @@ const LeftAIView = ({ compact = false, activeGraphId, graphsMap, edgesMap }) => 
               const data = line.slice(6);
               try {
                 const event = JSON.parse(data);
-                
+
                 // Generate unique event ID for deduplication
                 const eventId = `${event.type}-${event.id || eventCounter++}-${event.content?.length || 0}`;
                 if (processedEvents.has(eventId)) continue;
                 processedEvents.add(eventId);
-                
+
                 // Update streaming message based on event type
                 setMessages(prev => {
                   const updated = [...prev];
@@ -757,7 +762,7 @@ const LeftAIView = ({ compact = false, activeGraphId, graphsMap, edgesMap }) => 
                         result: event.result,
                         error: event.result?.error
                       };
-                      
+
                       // Apply tool result to store (bridge server-side tools to client-side store)
                       applyToolResultToStore(event.name, event.result);
                     }
@@ -1072,7 +1077,7 @@ const LeftAIView = ({ compact = false, activeGraphId, graphsMap, edgesMap }) => 
               // Find the streaming message to check if it has content
               const streamingMsg = messages.find(m => m.isStreaming);
               const hasStreamingContent = streamingMsg && (streamingMsg.content || (streamingMsg.toolCalls && streamingMsg.toolCalls.length > 0));
-              
+
               // Only show thinking dots if no streaming content yet
               if (!hasStreamingContent) {
                 return (

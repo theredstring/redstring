@@ -1839,6 +1839,13 @@ function NodeCanvas() {
   // Help modal state
   const [showHelpModal, setShowHelpModal] = useState(false);
 
+  // Helper to get storage key with test mode support
+  const getStorageKey = (key) => {
+    const params = new URLSearchParams(window.location.search);
+    const isTestMode = params.get('test') === 'true';
+    return isTestMode ? `test_${key}` : key;
+  };
+
   // Check for stored folder on app startup and attempt to restore
   useEffect(() => {
     let isMounted = true;
@@ -1911,7 +1918,7 @@ function NodeCanvas() {
     let hasCompletedOnboarding = false;
     try {
       if (typeof window !== 'undefined') {
-        hasCompletedOnboarding = localStorage.getItem('redstring-alpha-welcome-seen') === 'true';
+        hasCompletedOnboarding = localStorage.getItem(getStorageKey('redstring-alpha-welcome-seen')) === 'true';
       }
     } catch { }
 
@@ -13257,7 +13264,7 @@ function NodeCanvas() {
           // Mark onboarding as complete when user closes the modal
           try {
             if (typeof window !== 'undefined') {
-              localStorage.setItem('redstring-alpha-welcome-seen', 'true');
+              localStorage.setItem(getStorageKey('redstring-alpha-welcome-seen'), 'true');
             }
           } catch { }
           setShowOnboardingModal(false);
@@ -13271,7 +13278,7 @@ function NodeCanvas() {
           // Mark onboarding as complete
           try {
             if (typeof window !== 'undefined') {
-              localStorage.setItem('redstring-alpha-welcome-seen', 'true');
+              localStorage.setItem(getStorageKey('redstring-alpha-welcome-seen'), 'true');
             }
           } catch { }
 
@@ -13310,7 +13317,7 @@ function NodeCanvas() {
 
             // Mark onboarding as complete
             if (typeof window !== 'undefined') {
-              localStorage.setItem('redstring-alpha-welcome-seen', 'true');
+              localStorage.setItem(getStorageKey('redstring-alpha-welcome-seen'), 'true');
             }
 
             // Close storage setup modal
@@ -13376,7 +13383,7 @@ function NodeCanvas() {
 
             // Mark onboarding as complete
             if (typeof window !== 'undefined') {
-              localStorage.setItem('redstring-alpha-welcome-seen', 'true');
+              localStorage.setItem(getStorageKey('redstring-alpha-welcome-seen'), 'true');
             }
 
             // Close storage setup modal

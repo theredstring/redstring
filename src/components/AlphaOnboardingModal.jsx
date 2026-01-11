@@ -39,7 +39,10 @@ const AlphaOnboardingModal = ({
 
   const handleClose = () => {
     if (typeof window !== 'undefined') {
-      localStorage.setItem('redstring-alpha-welcome-seen', 'true');
+      const params = new URLSearchParams(window.location.search);
+      const isTestMode = params.get('test') === 'true';
+      const key = isTestMode ? 'test_redstring-alpha-welcome-seen' : 'redstring-alpha-welcome-seen';
+      localStorage.setItem(key, 'true');
     }
     onClose();
   };

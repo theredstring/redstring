@@ -24,7 +24,7 @@ function getDefaultConfig() {
  */
 function normalizeTools(tools) {
   if (!tools || tools.length === 0) return undefined;
-  
+
   return tools.map(tool => ({
     type: 'function',
     function: {
@@ -167,10 +167,19 @@ async function* streamOpenRouter(messages, tools, { endpoint, model, apiKey, tem
             // Finish tool call if done
             if (choice.finish_reason === 'tool_calls' && currentToolCall) {
               console.log('[LLMClient:OpenRouter] Yielding tool_call (finish):', currentToolCall.function?.name);
+
+              let parsedArgs = {};
+              try {
+                parsedArgs = JSON.parse(currentToolCall.function?.arguments || '{}');
+              } catch (e) {
+                console.warn('[LLMClient:OpenRouter] Failed to parse finished tool args:', e);
+                parsedArgs = { error: 'The spell was cut short! (Response truncated)' };
+              }
+
               yield {
                 type: 'tool_call',
                 name: currentToolCall.function?.name,
-                args: JSON.parse(currentToolCall.function?.arguments || '{}'),
+                args: parsedArgs,
                 id: currentToolCall.id
               };
               currentToolCall = null;
@@ -189,10 +198,20 @@ async function* streamOpenRouter(messages, tools, { endpoint, model, apiKey, tem
       // #region agent log
       debugLogSync('LLMClient.js:streamOpenRouter:TOOL_CALL_FLUSH', 'Flushing tool call', { name: currentToolCall.function?.name, hasArgs: !!currentToolCall.function?.arguments }, 'debug-session', 'H');
       // #endregion
+
+      let parsedArgs = {};
+      try {
+        parsedArgs = JSON.parse(currentToolCall.function?.arguments || '{}');
+      } catch (e) {
+        console.warn('[LLMClient:OpenRouter] Failed to parse flushed tool args (likely truncated):', e);
+        // Return a special error result that the UI can handle gracefully
+        parsedArgs = { error: 'The spell was cut short! (Response truncated)' };
+      }
+
       yield {
         type: 'tool_call',
         name: currentToolCall.function?.name,
-        args: JSON.parse(currentToolCall.function?.arguments || '{}'),
+        args: parsedArgs,
         id: currentToolCall.id
       };
     }
@@ -259,7 +278,7 @@ async function* streamAnthropic(messages, tools, { endpoint, model, apiKey, temp
 
           try {
             const chunk = JSON.parse(data);
-            
+
             // Text content
             if (chunk.type === 'content_block_delta' && chunk.delta?.type === 'text') {
               yield { type: 'text', content: chunk.delta.text };
