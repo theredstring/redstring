@@ -2,7 +2,7 @@ import React, { useState, useEffect, forwardRef, useImperativeHandle, useRef, us
 import { useDrag, useDrop, useDragLayer } from 'react-dnd';
 import { getEmptyImage } from 'react-dnd-html5-backend'; // Import for hiding default preview
 import { HEADER_HEIGHT, NODE_CORNER_RADIUS, THUMBNAIL_MAX_DIMENSION, NODE_DEFAULT_COLOR, PANEL_CLOSE_ICON_SIZE } from './constants';
-import { ArrowLeftFromLine, ArrowRightFromLine, Info, ImagePlus, XCircle, BookOpen, LayoutGrid, Plus, Bookmark, ArrowUpFromDot, Palette, ArrowBigRightDash, X, Globe, Settings, RotateCcw, Send, Bot, User, Key, Square, Search, Merge, Copy, Loader2, TextSearch, Sparkles } from 'lucide-react';
+import { ArrowLeftFromLine, ArrowRightFromLine, Info, ImagePlus, XCircle, BookOpen, LayoutGrid, Plus, Bookmark, ArrowUpFromDot, Palette, ArrowBigRightDash, X, Globe, Settings, RotateCcw, Send, Bot, User, Key, Square, Search, Merge, Copy, Loader2, TextSearch, Sparkles, History } from 'lucide-react';
 import ToggleSlider from './components/ToggleSlider.jsx';
 import { v4 as uuidv4 } from 'uuid';
 import './Panel.css'
@@ -51,6 +51,7 @@ import LeftAllThingsView from './components/panel/views/LeftAllThingsView.jsx';
 import LeftSemanticDiscoveryView from './components/panel/views/LeftSemanticDiscoveryView.jsx';
 import LeftGridView from './components/panel/views/LeftGridView.jsx';
 import LeftAIView from './components/panel/views/LeftAIView.jsx';
+import LeftHistoryView from './components/panel/views/LeftHistoryView.jsx';
 
 // Generate color for concept based on name hash - unified color system
 // Uses the same saturation and brightness as maroon (#8B0000) but with different hues
@@ -1668,6 +1669,8 @@ const Panel = memo(forwardRef(
             edgesMap={edgesMap}
           />
         );
+      } else if (leftViewActive === 'history') {
+        panelContent = <LeftHistoryView />;
       }
     } else { // side === 'right'
       if (!activeRightPanelTab) {
@@ -1915,6 +1918,15 @@ const Panel = memo(forwardRef(
                   onClick={() => setLeftViewActive('ai')}
                 >
                   <Sparkles size={20} color="#260000" />
+                </div>
+
+                {/* History Button */}
+                <div
+                  title="Action History"
+                  style={{ /* Common Button Styles */ width: 40, height: 40, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', backgroundColor: leftViewActive === 'history' ? '#bdb5b5' : '#979090', zIndex: 2 }}
+                  onClick={() => setLeftViewActive('history')}
+                >
+                  <History size={20} color="#260000" />
                 </div>
               </div>
             ) : (

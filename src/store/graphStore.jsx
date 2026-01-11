@@ -6,6 +6,8 @@ import { getFileStatus, restoreLastSession, clearSession, notifyChanges } from '
 import { importFromRedstring } from '../formats/redstringFormat.js';
 import { MAX_LAYOUT_SCALE_MULTIPLIER } from '../services/graphLayoutService.js';
 import { debugLogSync } from '../utils/debugLogger.js';
+import useHistoryStore from './historyStore.js';
+import { generateDescription } from '../utils/actionDescriptions.js';
 
 // Enable Immer Map/Set plugin support
 enableMapSet();
@@ -161,6 +163,38 @@ const saveCoordinatorMiddleware = (config) => {
     // Enhance the set function to track change context
     const enhancedSet = (...args) => {
       set(...args);
+
+      // --- History Recording ---
+      // Record significant actions to the history store
+      // We do this synchronously to capture every distinct action
+      const recordableTypes = new Set([
+        'node_place', 'node_delete',
+        'edge_create', 'edge_delete',
+        'group_create', 'group_update', 'group_delete',
+        'prototype_create', 'prototype_update', 'prototype_delete',
+        'position_update', 'node_position',
+        'graph_create', 'graph_delete'
+      ]);
+
+      if (recordableTypes.has(changeContext.type)) {
+        // Determine domain
+        const isGlobal = changeContext.type.startsWith('prototype_') ||
+          changeContext.type.startsWith('graph_');
+
+        const domain = isGlobal
+          ? 'global'
+          : `graph-${changeContext.graphId || get().activeGraphId}`; // Fallback to active graph
+
+        useHistoryStore.getState().pushAction({
+          domain,
+          actionType: changeContext.type,
+          description: generateDescription(changeContext, get()),
+          // Phase 2: patches will serve as the undo mechanism
+          // forwardPatch: ...,
+          // inversePatch: ...
+        });
+      }
+      // -------------------------
 
       // Batch multiple rapid state changes into a single notification
       // This prevents excessive hash calculations during rapid operations
@@ -1245,72 +1279,92 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
     },
 
     // Remove instance immediately (hard delete) and clean up connected edges
-    removeNodeInstance: (graphId, instanceId) => set(produce((draft) => {
-      const graph = draft.graphs.get(graphId);
-      if (!graph || !graph.instances?.has(instanceId)) {
-        console.warn(`[removeNodeInstance] Instance ${instanceId} not found in graph ${graphId}.`);
-        return;
-      }
+    removeNodeInstance: (graphId, instanceId) => {
+      // Get prototype ID for description context BEFORE entering Immer if possible, or just pass instanceId
+      // Ideally we want to know what we are deleting. We can't easily access state outside of set unless we use get().
+      const state = get();
+      const graph = state.graphs.get(graphId);
+      const instance = graph?.instances?.get(instanceId);
+      const prototypeId = instance?.prototypeId;
 
-      // Delete connected edges first
-      const edgesToDelete = [];
-      for (const [edgeId, edge] of draft.edges.entries()) {
-        if (edge.sourceId === instanceId || edge.destinationId === instanceId) {
-          edgesToDelete.push(edgeId);
+      api.setChangeContext({ type: 'node_delete', target: 'instance', graphId, prototypeId });
+
+      set(produce((draft) => {
+        const graph = draft.graphs.get(graphId);
+        if (!graph || !graph.instances?.has(instanceId)) {
+          console.warn(`[removeNodeInstance] Instance ${instanceId} not found in graph ${graphId}.`);
+          return;
         }
-      }
-      edgesToDelete.forEach(edgeId => {
-        draft.edges.delete(edgeId);
-        if (graph.edgeIds) {
-          const index = graph.edgeIds.indexOf(edgeId);
-          if (index > -1) graph.edgeIds.splice(index, 1);
-        }
-      });
 
-      // Delete the instance
-      graph.instances.delete(instanceId);
-
-      // Ensure any soft-deletion bookkeeping is cleared
-      draft.pendingDeletions.delete(instanceId);
-
-      console.log(`[removeNodeInstance] Permanently deleted instance ${instanceId} and ${edgesToDelete.length} connected edges`);
-    })),
-
-    // Immediately and permanently deletes a node instance (bypasses grace period)
-    forceDeleteNodeInstance: (graphId, instanceId) => set(produce((draft) => {
-      const graph = draft.graphs.get(graphId);
-      if (!graph || !graph.instances?.has(instanceId)) {
-        console.warn(`[forceDeleteNodeInstance] Instance ${instanceId} not found in graph ${graphId}.`);
-        return;
-      }
-
-      // 1. Delete the instance from the graph
-      graph.instances.delete(instanceId);
-
-      // 2. Find all edges connected to this instance and delete them
-      const edgesToDelete = [];
-      for (const [edgeId, edge] of draft.edges.entries()) {
-        if (edge.sourceId === instanceId || edge.destinationId === instanceId) {
-          edgesToDelete.push(edgeId);
-        }
-      }
-
-      edgesToDelete.forEach(edgeId => {
-        draft.edges.delete(edgeId);
-        // Also remove from the graph's edgeIds list
-        if (graph.edgeIds) {
-          const index = graph.edgeIds.indexOf(edgeId);
-          if (index > -1) {
-            graph.edgeIds.splice(index, 1);
+        // Delete connected edges first
+        const edgesToDelete = [];
+        for (const [edgeId, edge] of draft.edges.entries()) {
+          if (edge.sourceId === instanceId || edge.destinationId === instanceId) {
+            edgesToDelete.push(edgeId);
           }
         }
-      });
+        edgesToDelete.forEach(edgeId => {
+          draft.edges.delete(edgeId);
+          if (graph.edgeIds) {
+            const index = graph.edgeIds.indexOf(edgeId);
+            if (index > -1) graph.edgeIds.splice(index, 1);
+          }
+        });
 
-      // Remove from pending deletions if it was there
-      draft.pendingDeletions.delete(instanceId);
+        // Delete the instance
+        graph.instances.delete(instanceId);
 
-      console.log(`[forceDeleteNodeInstance] Permanently deleted instance ${instanceId}`);
-    })),
+        // Ensure any soft-deletion bookkeeping is cleared
+        draft.pendingDeletions.delete(instanceId);
+
+        console.log(`[removeNodeInstance] Permanently deleted instance ${instanceId} and ${edgesToDelete.length} connected edges`);
+      }));
+    },
+
+    // Immediately and permanently deletes a node instance (bypasses grace period)
+    forceDeleteNodeInstance: (graphId, instanceId) => {
+      const state = get();
+      const graph = state.graphs.get(graphId);
+      const instance = graph?.instances?.get(instanceId);
+      const prototypeId = instance?.prototypeId;
+
+      api.setChangeContext({ type: 'node_delete', target: 'instance', graphId, prototypeId });
+
+      set(produce((draft) => {
+        const graph = draft.graphs.get(graphId);
+        if (!graph || !graph.instances?.has(instanceId)) {
+          console.warn(`[forceDeleteNodeInstance] Instance ${instanceId} not found in graph ${graphId}.`);
+          return;
+        }
+
+        // 1. Delete the instance from the graph
+        graph.instances.delete(instanceId);
+
+        // 2. Find all edges connected to this instance and delete them
+        const edgesToDelete = [];
+        for (const [edgeId, edge] of draft.edges.entries()) {
+          if (edge.sourceId === instanceId || edge.destinationId === instanceId) {
+            edgesToDelete.push(edgeId);
+          }
+        }
+
+        edgesToDelete.forEach(edgeId => {
+          draft.edges.delete(edgeId);
+          // Also remove from the graph's edgeIds list
+          if (graph.edgeIds) {
+            const index = graph.edgeIds.indexOf(edgeId);
+            if (index > -1) {
+              graph.edgeIds.splice(index, 1);
+            }
+          }
+        });
+
+        // Remove from pending deletions if it was there
+        draft.pendingDeletions.delete(instanceId);
+
+        console.log(`[forceDeleteNodeInstance] Permanently deleted instance ${instanceId}`);
+      }));
+    },
 
     // Restores a node instance from pending deletion
     restoreNodeInstance: (instanceId) => set(produce((draft) => {
@@ -1478,7 +1532,7 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
 
         // #region agent log
         // Check for existing edges between same nodes
-        const existingEdges = Array.from(draft.edges.values()).filter(e => 
+        const existingEdges = Array.from(draft.edges.values()).filter(e =>
           (e.sourceId === sourceInstanceId && e.destinationId === destInstanceId) ||
           (e.sourceId === destInstanceId && e.destinationId === sourceInstanceId)
         );
@@ -1773,11 +1827,11 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
         console.log(`[applyBulkGraphUpdates] Processing ${edges.length} edges...`);
         edges.forEach((edge, idx) => {
           console.log(`[applyBulkGraphUpdates] Edge ${idx}: source="${edge.source}", target="${edge.target}", type="${edge.type}"`);
-          
+
           // Try exact match first, then normalized match
           let sourceId = edge.sourceId || nodeIdMap.get(edge.source) || nodeIdMapNormalized.get(normalizeName(edge.source));
           let destId = edge.destinationId || edge.targetId || nodeIdMap.get(edge.target) || nodeIdMapNormalized.get(normalizeName(edge.target));
-          
+
           console.log(`[applyBulkGraphUpdates] Edge ${idx}: sourceId=${sourceId ? 'FOUND' : 'NOT_FOUND'}, destId=${destId ? 'FOUND' : 'NOT_FOUND'}`);
 
           if (sourceId && destId && graph.instances.has(sourceId) && graph.instances.has(destId)) {
@@ -1785,7 +1839,7 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
             if (!draft.edges.has(edgeId)) {
               // Handle connection definition node - create a prototype for the connection type
               let definitionNodeIds = [];
-              
+
               // Get connection name from definitionNode object or type field
               const defNode = edge.definitionNode;
               const connectionTypeName = toTitleCase(
@@ -1793,7 +1847,7 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
               );
               const connectionColor = defNode?.color || edge.color || null;
               const connectionDescription = defNode?.description || '';
-              
+
               if (connectionTypeName && connectionTypeName !== 'Connection' && connectionTypeName !== 'Relates To') {
                 // Check cache first
                 if (connectionProtoCache.has(connectionTypeName)) {
