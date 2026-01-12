@@ -1628,6 +1628,33 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
       }));
     },
 
+    // Paste nodes and edges as a single atomic operation
+    pasteNodesAndEdges: (graphId, nodes, edges, contextOptions = {}) => {
+      api.setChangeContext({ type: 'paste', target: 'batch', ...contextOptions });
+      return set(produce((draft) => {
+        const graph = draft.graphs.get(graphId);
+        if (!graph) return;
+
+        // Add all node instances
+        for (const node of nodes) {
+          graph.instances.set(node.instanceId, {
+            id: node.instanceId,
+            prototypeId: node.prototypeId,
+            x: node.x,
+            y: node.y,
+            scale: node.scale || 1
+          });
+        }
+
+        // Add all edges
+        for (const edge of edges) {
+          const edgeId = edge.id;
+          draft.edges.set(edgeId, edge);
+          graph.edgeIds.push(edgeId);
+        }
+      }));
+    },
+
     // Adds a NEW edge connecting two instances.
     // Adds a NEW edge connecting two instances.
     addEdge: (graphId, newEdgeData, contextOptions = {}) => {

@@ -20,6 +20,7 @@ import HoverVisionAid from './components/HoverVisionAid.jsx'; // Import the Hove
 import { getNodeDimensions } from './utils.js';
 import { getTextColor, hexToHsl } from './utils/colorUtils.js';
 import { getPrototypeIdFromItem } from './utils/abstraction.js';
+import { copySelection, pasteClipboard } from './utils/clipboard.js';
 import { analyzeNodeDistribution, getClusterBoundingBox } from './utils/clusterAnalysis.js';
 import { v4 as uuidv4 } from 'uuid'; // Import UUID generator
 import { Edit3, Trash2, Link, Package, PackageOpen, Expand, ArrowUpFromDot, Triangle, Layers, ArrowLeft, SendToBack, ArrowBigRightDash, Palette, MoreHorizontal, Bookmark, Plus, CornerUpLeft, CornerDownLeft, Merge, Undo2, Clock } from 'lucide-react'; // Icons for PieMenu
@@ -1831,6 +1832,9 @@ function NodeCanvas() {
 
   // --- Local UI State (Keep these) ---
   const [selectedInstanceIds, setSelectedInstanceIds] = useState(new Set());
+
+  // Clipboard ref for copy/paste operations
+  const clipboardRef = useRef(null);
 
   // Onboarding modal state
   const [showOnboardingModal, setShowOnboardingModal] = useState(false);
@@ -8076,6 +8080,85 @@ function NodeCanvas() {
         }
       }
 
+      const isMac = navigator.platform.toUpperCase().indexOf('MAC') >= 0;
+      const cmdOrCtrl = isMac ? e.metaKey : e.ctrlKey;
+
+      // Copy (Ctrl/Cmd+C)
+      if (cmdOrCtrl && e.key === 'c' && selectedInstanceIds.size > 0) {
+        e.preventDefault();
+        const currentGraph = graphsMap.get(activeGraphId);
+        if (currentGraph) {
+          const copied = copySelection(selectedInstanceIds, currentGraph, nodePrototypesMap, edgesMap);
+          clipboardRef.current = copied;
+        }
+        return;
+      }
+
+      // Paste (Ctrl/Cmd+V)
+      if (cmdOrCtrl && e.key === 'v' && clipboardRef.current) {
+        e.preventDefault();
+        const currentGraph = graphsMap.get(activeGraphId);
+        if (currentGraph) {
+          // Determine target position
+          let targetPos;
+          const svgElement = document.querySelector('.node-canvas-svg');
+          const rect = svgElement?.getBoundingClientRect();
+
+          if (rect && !isTouchDeviceRef.current && mousePositionRef.current) {
+            // Desktop: use mouse position converted to canvas coords
+            const clientX = mousePositionRef.current.x;
+            const clientY = mousePositionRef.current.y;
+            targetPos = {
+              x: (clientX - rect.left - panOffset.x) / zoomLevel + canvasSize.offsetX,
+              y: (clientY - rect.top - panOffset.y) / zoomLevel + canvasSize.offsetY
+            };
+          } else {
+            // Mobile fallback: offset from original center
+            targetPos = {
+              x: clipboardRef.current.originalCenter.x + 50,
+              y: clipboardRef.current.originalCenter.y + 50
+            };
+          }
+
+          const result = pasteClipboard(
+            clipboardRef.current,
+            activeGraphId,
+            targetPos,
+            storeActions,
+            currentGraph,
+            getNodeDimensions
+          );
+          setSelectedInstanceIds(new Set(result.newInstanceIds));
+        }
+        return;
+      }
+
+      // Duplicate (Ctrl/Cmd+D)
+      if (cmdOrCtrl && e.key === 'd' && selectedInstanceIds.size > 0) {
+        e.preventDefault();
+        const currentGraph = graphsMap.get(activeGraphId);
+        if (currentGraph) {
+          const copied = copySelection(selectedInstanceIds, currentGraph, nodePrototypesMap, edgesMap);
+          if (copied) {
+            // Paste immediately with fixed offset
+            const targetPos = {
+              x: copied.originalCenter.x + 50,
+              y: copied.originalCenter.y + 50
+            };
+            const result = pasteClipboard(
+              copied,
+              activeGraphId,
+              targetPos,
+              storeActions,
+              currentGraph,
+              getNodeDimensions
+            );
+            setSelectedInstanceIds(new Set(result.newInstanceIds));
+          }
+        }
+        return;
+      }
+
       const isDeleteKey = e.key === 'Delete' || e.key === 'Backspace';
       const nodesSelected = selectedInstanceIds.size > 0;
       const edgeSelected = selectedEdgeId !== null || selectedEdgeIds.size > 0;
@@ -8121,7 +8204,7 @@ function NodeCanvas() {
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [selectedInstanceIds, selectedEdgeId, selectedEdgeIds, isHeaderEditing, isRightPanelInputFocused, isLeftPanelInputFocused, nodeNamePrompt.visible, connectionNamePrompt.visible, activeGraphId, storeActions.removeNodeInstance, storeActions.removeEdge, storeActions.clearSelectedEdgeIds]);
+  }, [selectedInstanceIds, selectedEdgeId, selectedEdgeIds, isHeaderEditing, isRightPanelInputFocused, isLeftPanelInputFocused, nodeNamePrompt.visible, connectionNamePrompt.visible, activeGraphId, storeActions, graphsMap, nodePrototypesMap, edgesMap, panOffset, zoomLevel, canvasSize]);
 
   const handleProjectTitleChange = (newTitle) => {
     // Get CURRENT activeGraphId directly from store
