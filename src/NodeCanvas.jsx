@@ -8133,32 +8133,6 @@ function NodeCanvas() {
         return;
       }
 
-      // Duplicate (Ctrl/Cmd+D)
-      if (cmdOrCtrl && e.key === 'd' && selectedInstanceIds.size > 0) {
-        e.preventDefault();
-        const currentGraph = graphsMap.get(activeGraphId);
-        if (currentGraph) {
-          const copied = copySelection(selectedInstanceIds, currentGraph, nodePrototypesMap, edgesMap);
-          if (copied) {
-            // Paste immediately with fixed offset
-            const targetPos = {
-              x: copied.originalCenter.x + 50,
-              y: copied.originalCenter.y + 50
-            };
-            const result = pasteClipboard(
-              copied,
-              activeGraphId,
-              targetPos,
-              storeActions,
-              currentGraph,
-              getNodeDimensions
-            );
-            setSelectedInstanceIds(new Set(result.newInstanceIds));
-          }
-        }
-        return;
-      }
-
       const isDeleteKey = e.key === 'Delete' || e.key === 'Backspace';
       const nodesSelected = selectedInstanceIds.size > 0;
       const edgeSelected = selectedEdgeId !== null || selectedEdgeIds.size > 0;
