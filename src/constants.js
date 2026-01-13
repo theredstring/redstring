@@ -18,7 +18,7 @@ export const NAME_AREA_FACTOR = 0.7; // Determines effective height for name pos
 export const EXPANDED_NODE_WIDTH = 300; // Width when image is present
 export const AVERAGE_CHAR_WIDTH = 12; // Approx width per char for 20px bold font
 export const WRAPPED_NODE_HEIGHT = 110; // Height for text-only nodes when text wraps
-export const LINE_HEIGHT_ESTIMATE = 32; // Approx height of one line of text (px)
+export const LINE_HEIGHT_ESTIMATE = 28; // Approx height of one line of text (px) - reduced from 32 for tighter spacing
 
 export const EDGE_MARGIN = 75; // Pixels from viewport edge for decomposed view placement
 

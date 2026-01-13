@@ -535,6 +535,17 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
     // Connections visualization/layout settings
     autoLayoutSettings: getDefaultAutoLayoutSettings(),
     forceTunerSettings: getDefaultForceTunerSettings(),
+    // Text appearance settings
+    textSettings: (() => {
+      try {
+        return {
+          fontSize: parseFloat(localStorage.getItem('redstring_text_font_size')) || 1.0,
+          lineSpacing: parseFloat(localStorage.getItem('redstring_text_line_spacing')) || 1.0,
+        };
+      } catch (_) {
+        return { fontSize: 1.0, lineSpacing: 1.0 };
+      }
+    })(),
 
     // Git Federation State
     gitConnection: (() => {
@@ -2646,6 +2657,31 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
       // Clamp for sanity with new generous range
       const clamped = Math.max(100, Math.min(400, Math.round(v)));
       draft.autoLayoutSettings.cleanLaneSpacing = clamped;
+    })),
+
+    // Text appearance settings
+    setTextFontSize: (value) => set(produce((draft) => {
+      const v = Number(value);
+      if (!Number.isFinite(v) || v < 0.7 || v > 1.4) {
+        console.warn(`[setTextFontSize] Invalid value: ${value}`);
+        return;
+      }
+      draft.textSettings.fontSize = v;
+      try {
+        localStorage.setItem('redstring_text_font_size', String(v));
+      } catch (_) {}
+    })),
+
+    setTextLineSpacing: (value) => set(produce((draft) => {
+      const v = Number(value);
+      if (!Number.isFinite(v) || v < 0.7 || v > 1.0) {
+        console.warn(`[setTextLineSpacing] Invalid value: ${value}`);
+        return;
+      }
+      draft.textSettings.lineSpacing = v;
+      try {
+        localStorage.setItem('redstring_text_line_spacing', String(v));
+      } catch (_) {}
     })),
 
     setLayoutScalePreset: (preset) => set(produce((draft) => {

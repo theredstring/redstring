@@ -648,6 +648,68 @@ const RedstringMenu = ({
                           <RefreshCw size={14} style={{ marginRight: '8px' }} />
                           Condense Nodes
                         </div>
+
+                        {/* Text Size Submenu */}
+                        <div
+                          className={`submenu-item has-submenu ${isNestedSubmenuOpen('textSize') ? 'active-submenu-parent' : ''}`}
+                          onMouseEnter={() => handleNestedSubmenuItemHover('textSize')}
+                          onMouseLeave={handleNestedSubmenuItemLeave}
+                          style={{ position: 'relative' }}
+                        >
+                          <span>Text Size</span>
+                          <ChevronRight size={14} className="nested-chevron" />
+                          {isNestedSubmenuOpen('textSize') && (
+                            <div
+                              className="submenu-container"
+                              onMouseEnter={handleNestedSubmenuEnter}
+                              onMouseLeave={handleNestedSubmenuItemLeave}
+                              style={{ left: '100%', top: 0 }}
+                              onMouseDown={(e) => {
+                                e.stopPropagation();
+                                setIsInteracting(true);
+                              }}
+                              onMouseUp={(e) => {
+                                e.stopPropagation();
+                                setIsInteracting(false);
+                              }}
+                              onPointerDown={(e) => {
+                                e.stopPropagation();
+                                setIsInteracting(true);
+                              }}
+                              onPointerUp={(e) => {
+                                e.stopPropagation();
+                                setIsInteracting(false);
+                              }}
+                              onTouchStart={(e) => {
+                                e.stopPropagation();
+                                setIsInteracting(true);
+                              }}
+                              onTouchEnd={(e) => {
+                                e.stopPropagation();
+                                setIsInteracting(false);
+                              }}
+                            >
+                              <MaroonSlider
+                                label="Font Size"
+                                value={useGraphStore.getState().textSettings.fontSize}
+                                min={0.7}
+                                max={1.4}
+                                step={0.05}
+                                onChange={(v) => useGraphStore.getState().setTextFontSize(v)}
+                                suffix="x"
+                              />
+                              <MaroonSlider
+                                label="Line Spacing"
+                                value={useGraphStore.getState().textSettings.lineSpacing}
+                                min={0.7}
+                                max={1.0}
+                                step={0.05}
+                                onChange={(v) => useGraphStore.getState().setTextLineSpacing(v)}
+                                suffix="x"
+                              />
+                            </div>
+                          )}
+                        </div>
                       </div>
                     )}
                   </div>

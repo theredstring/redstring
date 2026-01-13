@@ -149,6 +149,7 @@ const Node = ({
   const hasAnyDefinitions = definitionGraphIds.length > 0;
   // Access store state before any memoizations that depend on it
   const storeState = useGraphStore();
+  const textSettings = useGraphStore((state) => state.textSettings);
 
   // Determine display title: prefer current graph title in preview, else node name
   const currentGraphName = useMemo(() => {
@@ -182,11 +183,12 @@ const Node = ({
     const availableWidth = currentWidth - (2 * singleLineSidePadding);
 
     // Quick character-based estimation (more accurate than previous method)
-    const averageCharWidth = 12; // From constants
+    // Account for font size scaling when calculating char width
+    const averageCharWidth = 12 * textSettings.fontSize; // Scale with font size
     const charsPerLine = Math.floor(availableWidth / averageCharWidth);
 
     return displayTitle.length > charsPerLine;
-  }, [displayTitle, currentWidth, isPreviewing, hasAnyDefinitions]);
+  }, [displayTitle, currentWidth, isPreviewing, hasAnyDefinitions, textSettings.fontSize]);
 
   // Get the currently displayed graph ID
   const currentGraphId = definitionGraphIds[currentDefinitionIndex] || definitionGraphIds[0];
@@ -393,10 +395,10 @@ const Node = ({
             <span
               className="node-name-text"
               style={{
-                fontSize: '20px',
+                fontSize: `${20 * textSettings.fontSize}px`,
                 fontWeight: 'bold',
                 color: nodeTextColor,
-                lineHeight: '32px', // Increased line spacing for better readability
+                lineHeight: `${28 * textSettings.lineSpacing}px`, // Base line height changed from 32 to 28
                 whiteSpace: 'normal',
                 overflowWrap: 'break-word',
                 wordBreak: 'break-word',
@@ -508,7 +510,8 @@ const Node = ({
                       scaleMode="fit"
                       minNodeSize={60}
                       renderContext="decomposition"
-                      nodeFontScale={1.4}
+                      nodeFontScale={1.4 * textSettings.fontSize}
+                      nodeLineHeightScale={textSettings.lineSpacing}
                       cornerRadiusMultiplier={64}
                       onNodeHover={(nodeData, isHovering) => {
                         if (isHovering) {
@@ -612,10 +615,10 @@ const Node = ({
               height: '100%',
               padding: '4px 8px',
               boxSizing: 'border-box',
-              fontSize: '20px',
+              fontSize: `${20 * textSettings.fontSize}px`,
               color: nodeTextColor,
               fontWeight: 'normal',
-              lineHeight: '24px',
+              lineHeight: `${24 * textSettings.lineSpacing}px`, // Tighter for description
               textAlign: 'center',
               wordWrap: 'break-word',
               overflowWrap: 'break-word',

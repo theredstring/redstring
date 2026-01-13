@@ -184,7 +184,8 @@ const AbstractionCarousel = ({
   // Store bindings
   const nodePrototypesMap = useGraphStore((state) => state.nodePrototypes);
   const thingNodeId = useGraphStore((state) => state.thingNodeId);
-  
+  const textSettings = useGraphStore((state) => state.textSettings);
+
   // Pre-calculate the abstraction chain and base dimensions for each node
   const abstractionChainWithDims = useMemo(() => {
     if (!selectedNode) return [];
@@ -1197,7 +1198,7 @@ const AbstractionCarousel = ({
                       padding: `20px ${(() => {
                         const singleLineSidePadding = 22;
                         const availableWidth = unscaledWidth - (2 * singleLineSidePadding);
-                        const averageCharWidth = 12; // Keep consistent with Node.jsx
+                        const averageCharWidth = 12 * textSettings.fontSize; // Scale with font size
                         const charsPerLine = Math.floor(availableWidth / averageCharWidth);
                         const isMultiline = (item.name || '').length > charsPerLine;
                         return isMultiline ? 30 : 22;
@@ -1209,11 +1210,11 @@ const AbstractionCarousel = ({
                   >
                     <span
                       style={{
-                        fontSize: '20px',
+                        fontSize: `${20 * textSettings.fontSize}px`,
                         fontWeight: 'bold',
                         fontFamily: "'EmOne', sans-serif",
                         color: item.textColor || getTextColor(nodeColor),
-                        lineHeight: '32px',
+                        lineHeight: `${28 * textSettings.lineSpacing}px`, // Base changed from 32 to 28
                         whiteSpace: 'normal',
                         overflowWrap: 'break-word',
                         wordBreak: 'break-word',

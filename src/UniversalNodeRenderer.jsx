@@ -151,6 +151,7 @@ const UniversalNodeRenderer = ({
   className = '',
   connectionFontScale = 1,
   nodeFontScale = 1,
+  nodeLineHeightScale = 1,
   connectionStrokeScale = 1, // Allow manual override of connection stroke width scaling
   renderContext = 'full', // 'full' | 'decomposition' | 'preview' - affects stroke/text rendering
 
@@ -1013,7 +1014,7 @@ const UniversalNodeRenderer = ({
           } else {
             // Full canvas view: use Node.jsx's proportions
             baseFontSize = node.isGroup ? 24 : 20;
-            baseLineHeight = node.isGroup ? 28 : 32; // Reduced line height for groups (was 32)
+            baseLineHeight = node.isGroup ? 28 : 28; // Default line height (changed from 32 to 28)
             baseVerticalPadding = node.isGroup ? 10 : 20; // Drastically reduced vertical padding for groups (was 18)
             baseSingleLineSidePadding = node.isGroup ? 30 : 22; // Match Node.jsx side padding
             baseMultiLineSidePadding = node.isGroup ? 36 : 30; // Match Node.jsx multiline padding
@@ -1022,7 +1023,7 @@ const UniversalNodeRenderer = ({
 
           // Apply transform scale to all measurements
           const computedFontSize = Math.max(8, baseFontSize * transform.scale * nodeFontScale);
-          const computedLineHeight = Math.max(10, baseLineHeight * transform.scale * nodeFontScale);
+          const computedLineHeight = Math.max(10, baseLineHeight * transform.scale * nodeFontScale * nodeLineHeightScale);
           let verticalPadding = baseVerticalPadding * transform.scale;
           const singleLineSidePadding = baseSingleLineSidePadding * transform.scale;
           const multiLineSidePadding = baseMultiLineSidePadding * transform.scale;
