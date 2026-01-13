@@ -539,11 +539,11 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
     textSettings: (() => {
       try {
         return {
-          fontSize: parseFloat(localStorage.getItem('redstring_text_font_size')) || 1.0,
+          fontSize: parseFloat(localStorage.getItem('redstring_text_font_size')) || 1.2,
           lineSpacing: parseFloat(localStorage.getItem('redstring_text_line_spacing')) || 1.0,
         };
       } catch (_) {
-        return { fontSize: 1.0, lineSpacing: 1.0 };
+        return { fontSize: 1.2, lineSpacing: 1.0 };
       }
     })(),
 
