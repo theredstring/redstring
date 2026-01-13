@@ -357,7 +357,7 @@ console.log(match.shouldMerge); // true
 ## Testing Checklist
 
 - [x] Orbit resolver imports work without errors
-- [ ] Property-path queries return results in <3 seconds
+- [ ] Property-path queries return results in \<3 seconds
 - [ ] Entity deduplication merges obvious duplicates
 - [ ] Radial layout has no node overlaps
 - [ ] Connection routing avoids node collisions

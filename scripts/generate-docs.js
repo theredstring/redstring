@@ -190,12 +190,12 @@ class DocumentationGenerator {
    */
   isReactComponent(content) {
     return content.includes('import React') ||
-           content.includes('from "react"') ||
-           content.includes('from \'react\'') ||
-           content.includes('jsx') ||
-           content.includes('return (') ||
-           content.includes('useState') ||
-           content.includes('useEffect');
+      content.includes('from "react"') ||
+      content.includes('from \'react\'') ||
+      content.includes('jsx') ||
+      content.includes('return (') ||
+      content.includes('useState') ||
+      content.includes('useEffect');
   }
 
   /**
@@ -316,6 +316,17 @@ class DocumentationGenerator {
   }
 
   /**
+   * Sanitize text for MDX body to prevent parsing errors
+   */
+  sanitizeForMdx(text) {
+    if (!text) return '';
+    return text
+      .replace(/<([0-9])/g, '\\<$1') // Escape < when followed by a digit
+      .replace(/{/g, '\\{')         // Escape { to prevent MDX expression parsing
+      .replace(/}/g, '\\}');        // Escape }
+  }
+
+  /**
    * Generate API reference documentation
    */
   async generateApiDocs() {
@@ -337,7 +348,7 @@ This documentation is automatically generated from the Redstring source code.
 
 <CardGroup cols={2}>
 ${this.extractedData.classes.map(cls => `  <Card title="${cls.name}" href="/api/${cls.name.toLowerCase()}">
-    ${cls.description || `${cls.name} class documentation`}
+    ${this.sanitizeForMdx(cls.description) || `${cls.name} class documentation`}
   </Card>`).join('\n')}
 </CardGroup>
 
@@ -345,7 +356,7 @@ ${this.extractedData.classes.map(cls => `  <Card title="${cls.name}" href="/api/
 
 <CardGroup cols={2}>
 ${this.extractedData.services.map(service => `  <Card title="${service.name}" href="/api/${service.name.toLowerCase()}">
-    ${service.description || `${service.name} service documentation`}
+    ${this.sanitizeForMdx(service.description) || `${service.name} service documentation`}
   </Card>`).join('\n')}
 </CardGroup>
 
@@ -353,7 +364,7 @@ ${this.extractedData.services.map(service => `  <Card title="${service.name}" hr
 
 <CardGroup cols={2}>
 ${this.extractedData.components.map(comp => `  <Card title="${comp.name}" href="/components/${comp.name.toLowerCase()}">
-    ${comp.description || `${comp.name} component documentation`}
+    ${this.sanitizeForMdx(comp.description) || `${comp.name} component documentation`}
   </Card>`).join('\n')}
 </CardGroup>
 
@@ -377,7 +388,7 @@ description: "React component: ${component.description || component.name}"
 
 # ${component.name}
 
-${component.description || `The ${component.name} component.`}
+${this.sanitizeForMdx(component.description) || `The ${component.name} component.`}
 
 ## Location
 \`${component.filePath}\`
@@ -419,7 +430,7 @@ description: "Service: ${service.description || service.name}"
 
 # ${service.name}
 
-${service.description || `The ${service.name} service.`}
+${this.sanitizeForMdx(service.description) || `The ${service.name} service.`}
 
 ## Location
 \`${service.filePath}\`
@@ -433,7 +444,7 @@ ${service.functions.length > 0 ? service.functions.map(func => `
 ${func.signature}
 \`\`\`
 
-${func.description || 'No description available.'}
+${this.sanitizeForMdx(func.description) || 'No description available.'}
 `).join('\n') : 'No functions detected.'}
 
 ---

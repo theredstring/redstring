@@ -1455,6 +1455,50 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
       }));
     },
 
+    // Remove multiple instances and their connected edges in a single transaction
+    removeMultipleNodeInstances: (graphId, instanceIds) => {
+      if (!instanceIds || (instanceIds instanceof Set ? instanceIds.size === 0 : instanceIds.length === 0)) return;
+
+      const instanceIdSet = instanceIds instanceof Set ? instanceIds : new Set(instanceIds);
+
+      api.setChangeContext({
+        type: 'node_delete_batch',
+        target: 'instance',
+        graphId,
+        count: instanceIdSet.size
+      });
+
+      set(produce((draft) => {
+        const graph = draft.graphs.get(graphId);
+        if (!graph) return;
+
+        // Find all edges connected to any of the instances being removed
+        const edgesToDelete = [];
+        for (const [edgeId, edge] of draft.edges.entries()) {
+          if (instanceIdSet.has(edge.sourceId) || instanceIdSet.has(edge.destinationId)) {
+            edgesToDelete.push(edgeId);
+          }
+        }
+
+        // Delete the edges
+        edgesToDelete.forEach(edgeId => {
+          draft.edges.delete(edgeId);
+          if (graph.edgeIds) {
+            const index = graph.edgeIds.indexOf(edgeId);
+            if (index > -1) graph.edgeIds.splice(index, 1);
+          }
+        });
+
+        // Delete the instances
+        instanceIdSet.forEach(instanceId => {
+          graph.instances.delete(instanceId);
+          draft.pendingDeletions.delete(instanceId);
+        });
+
+        console.log(`[removeMultipleNodeInstances] Deleted ${instanceIdSet.size} instances and ${edgesToDelete.length} edges`);
+      }));
+    },
+
     // Immediately and permanently deletes a node instance (bypasses grace period)
     forceDeleteNodeInstance: (graphId, instanceId) => {
       const state = get();
@@ -2669,7 +2713,7 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
       draft.textSettings.fontSize = v;
       try {
         localStorage.setItem('redstring_text_font_size', String(v));
-      } catch (_) {}
+      } catch (_) { }
     })),
 
     setTextLineSpacing: (value) => set(produce((draft) => {
@@ -2681,7 +2725,7 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
       draft.textSettings.lineSpacing = v;
       try {
         localStorage.setItem('redstring_text_line_spacing', String(v));
-      } catch (_) {}
+      } catch (_) { }
     })),
 
     setLayoutScalePreset: (preset) => set(produce((draft) => {

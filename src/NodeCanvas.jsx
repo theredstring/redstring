@@ -2158,19 +2158,17 @@ function NodeCanvas() {
 
   const mousePositionRef = useRef({ x: 0, y: 0 });
 
-  // Document-level mouse tracking during drag (captures events even over panels)
+  // Document-level mouse tracking (captures events even over panels or when propagation is stopped)
   useEffect(() => {
-    if (!draggingNodeInfo) return;
-
     const handleDocumentMouseMove = (e) => {
       mousePositionRef.current = { x: e.clientX, y: e.clientY };
     };
 
-    document.addEventListener('mousemove', handleDocumentMouseMove);
+    document.addEventListener('mousemove', handleDocumentMouseMove, { passive: true });
     return () => {
       document.removeEventListener('mousemove', handleDocumentMouseMove);
     };
-  }, [draggingNodeInfo]);
+  }, []);
 
   // --- Grid Snapping Helpers ---
   const snapToGrid = (mouseX, mouseY, nodeWidth, nodeHeight) => {
@@ -8090,6 +8088,27 @@ function NodeCanvas() {
         if (currentGraph) {
           const copied = copySelection(selectedInstanceIds, currentGraph, nodePrototypesMap, edgesMap);
           clipboardRef.current = copied;
+          console.log(`[NodeCanvas] Copied ${selectedInstanceIds.size} nodes to clipboard`);
+        }
+        return;
+      }
+
+      // Cut (Ctrl/Cmd+X)
+      if (cmdOrCtrl && e.key === 'x' && selectedInstanceIds.size > 0) {
+        e.preventDefault();
+        const currentGraph = graphsMap.get(activeGraphId);
+        if (currentGraph) {
+          // First copy
+          const copied = copySelection(selectedInstanceIds, currentGraph, nodePrototypesMap, edgesMap);
+          clipboardRef.current = copied;
+
+          // Then remove
+          storeActions.removeMultipleNodeInstances(activeGraphId, selectedInstanceIds);
+
+          // Clear selection
+          setSelectedInstanceIds(new Set());
+
+          console.log(`[NodeCanvas] Cut ${selectedInstanceIds.size} nodes to clipboard`);
         }
         return;
       }
@@ -8101,10 +8120,10 @@ function NodeCanvas() {
         if (currentGraph) {
           // Determine target position
           let targetPos;
-          const svgElement = document.querySelector('.node-canvas-svg');
+          const svgElement = document.querySelector('.canvas');
           const rect = svgElement?.getBoundingClientRect();
 
-          if (rect && !isTouchDeviceRef.current && mousePositionRef.current) {
+          if (rect && mousePositionRef.current) {
             // Desktop: use mouse position converted to canvas coords
             const clientX = mousePositionRef.current.x;
             const clientY = mousePositionRef.current.y;
@@ -8112,12 +8131,14 @@ function NodeCanvas() {
               x: (clientX - rect.left - panOffset.x) / zoomLevel + canvasSize.offsetX,
               y: (clientY - rect.top - panOffset.y) / zoomLevel + canvasSize.offsetY
             };
+            console.log(`[NodeCanvas] Pasting at mouse position:`, targetPos, { clientX, clientY, rectLeft: rect.left, rectTop: rect.top, panX: panOffset.x, panY: panOffset.y, zoom: zoomLevel });
           } else {
             // Mobile fallback: offset from original center
             targetPos = {
               x: clipboardRef.current.originalCenter.x + 50,
               y: clipboardRef.current.originalCenter.y + 50
             };
+            console.log(`[NodeCanvas] Pasting at fallback position:`, targetPos);
           }
 
           const result = pasteClipboard(
@@ -8139,15 +8160,7 @@ function NodeCanvas() {
 
       if (isDeleteKey && nodesSelected) {
         e.preventDefault();
-        const idsToDelete = new Set(selectedInstanceIds); // Use local selection state
-
-        // Call removeNodeInstance action for each selected ID
-        idsToDelete.forEach(id => {
-          storeActions.removeNodeInstance(activeGraphId, id);
-        });
-
-        // Clear local selection state AFTER dispatching actions
-
+        storeActions.removeMultipleNodeInstances(activeGraphId, selectedInstanceIds);
         setSelectedInstanceIds(new Set());
       } else if (isDeleteKey && edgeSelected) {
         console.log('[NodeCanvas] Delete key pressed with edge selected:', {
