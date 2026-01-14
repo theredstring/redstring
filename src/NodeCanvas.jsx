@@ -4562,25 +4562,52 @@ function NodeCanvas() {
             const nodeData = nodes.find(n => n.id === instanceId);
             if (nodeData) {
               const prototypeId = nodeData.prototypeId;
-              if (nodeData.definitionGraphIds && nodeData.definitionGraphIds.length > 0) {
+              const currentState = useGraphStore.getState();
+              const prototypeData = currentState.nodePrototypes.get(prototypeId);
+
+              if (prototypeData?.definitionGraphIds && prototypeData.definitionGraphIds.length > 0) {
                 // Node has definitions - start hurtle animation to first one
-                const graphIdToOpen = nodeData.definitionGraphIds[0];
+                const graphIdToOpen = prototypeData.definitionGraphIds[0];
                 startHurtleAnimation(instanceId, graphIdToOpen, prototypeId);
               } else {
-                // Node has no definitions - create one first, then start hurtle animation
-                const sourceGraphId = activeGraphId; // Capture current graph before it changes
-                storeActions.createAndAssignGraphDefinitionWithoutActivation(prototypeId);
-
-                setTimeout(() => {
-                  const currentState = useGraphStore.getState();
-                  const updatedNodeData = currentState.nodePrototypes.get(prototypeId);
-                  if (updatedNodeData?.definitionGraphIds?.length > 0) {
-                    const newGraphId = updatedNodeData.definitionGraphIds[updatedNodeData.definitionGraphIds.length - 1];
-                    startHurtleAnimation(instanceId, newGraphId, prototypeId, sourceGraphId);
-                  } else {
-
+                // No definitions recorded. Self-heal: find any existing graph that defines this prototype
+                const sourceGraphId = activeGraphId;
+                let orphanGraphId = null;
+                try {
+                  for (const [gId, g] of currentState.graphs.entries()) {
+                    if (Array.isArray(g.definingNodeIds) && g.definingNodeIds.includes(prototypeId)) {
+                      orphanGraphId = gId;
+                      break;
+                    }
                   }
-                }, 50);
+                } catch (_) { }
+
+                if (orphanGraphId) {
+                  console.log('[Expand] Found orphan definition graph. Repairing and opening.', {
+                    prototypeId,
+                    orphanGraphId
+                  });
+                  // Self-heal: add to prototype.definitionGraphIds
+                  storeActions.updateNodePrototype(prototypeId, draft => {
+                    draft.definitionGraphIds = Array.isArray(draft.definitionGraphIds) ? draft.definitionGraphIds : [];
+                    if (!draft.definitionGraphIds.includes(orphanGraphId)) {
+                      draft.definitionGraphIds.push(orphanGraphId);
+                    }
+                  });
+                  startHurtleAnimation(instanceId, orphanGraphId, prototypeId, sourceGraphId);
+                } else {
+                  // No existing definition anywhere - create one
+                  storeActions.createAndAssignGraphDefinitionWithoutActivation(prototypeId);
+
+                  setTimeout(() => {
+                    const updatedState = useGraphStore.getState();
+                    const updatedNodeData = updatedState.nodePrototypes.get(prototypeId);
+                    if (updatedNodeData?.definitionGraphIds?.length > 0) {
+                      const newGraphId = updatedNodeData.definitionGraphIds[updatedNodeData.definitionGraphIds.length - 1];
+                      startHurtleAnimation(instanceId, newGraphId, prototypeId, sourceGraphId);
+                    }
+                  }, 50);
+                }
               }
             }
           }
