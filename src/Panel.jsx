@@ -359,6 +359,7 @@ const INITIAL_PANEL_WIDTH = 280; // Match NodeCanvas default
 
 // Feature flag: toggle visibility of the "All Things" tab in the left panel header
 const ENABLE_ALL_THINGS_TAB = true;
+const ENABLE_AI_AGENT = false;
 
 // Helper to read width from storage
 const getInitialWidth = (side, defaultValue) => {
@@ -1660,7 +1661,7 @@ const Panel = memo(forwardRef(
             onLoadWikidataCatalog={handleLoadWikidataCatalog}
           />
         );
-      } else if (leftViewActive === 'ai') {
+      } else if (ENABLE_AI_AGENT && leftViewActive === 'ai') {
         panelContent = (
           <LeftAIView
             compact={panelWidth < 300}
@@ -1912,13 +1913,15 @@ const Panel = memo(forwardRef(
                 </div>
 
                 {/* AI Wizard Button */}
-                <div
-                  title="AI Wizard"
-                  style={{ /* Common Button Styles */ width: 40, height: 40, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', backgroundColor: leftViewActive === 'ai' ? '#bdb5b5' : '#979090', zIndex: 2 }}
-                  onClick={() => setLeftViewActive('ai')}
-                >
-                  <Sparkles size={20} color="#260000" />
-                </div>
+                {ENABLE_AI_AGENT && (
+                  <div
+                    title="AI Wizard"
+                    style={{ /* Common Button Styles */ width: 40, height: 40, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', backgroundColor: leftViewActive === 'ai' ? '#bdb5b5' : '#979090', zIndex: 2 }}
+                    onClick={() => setLeftViewActive('ai')}
+                  >
+                    <Sparkles size={20} color="#260000" />
+                  </div>
+                )}
 
                 {/* History Button */}
                 <div

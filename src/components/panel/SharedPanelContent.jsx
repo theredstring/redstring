@@ -1663,6 +1663,13 @@ const SharedPanelContent = ({
                 </button>
               </div>
             )}
+
+            <div style={{ marginTop: '8px', fontSize: '9px', color: '#999', fontFamily: "'EmOne', sans-serif" }}>
+              {isHomeTab && graphData?.id && (
+                <div style={{ marginBottom: '2px' }}>Graph ID: {graphData.id}</div>
+              )}
+              ID: {nodeData.id}
+            </div>
           </div>
         ) : (
           // Default origin information for all nodes
@@ -1809,6 +1816,13 @@ const SharedPanelContent = ({
                 </>
               );
             })()}
+
+            <div style={{ marginTop: '8px', fontSize: '9px', color: '#999', fontFamily: "'EmOne', sans-serif" }}>
+              {isHomeTab && graphData?.id && (
+                <div style={{ marginBottom: '2px' }}>Graph ID: {graphData.id}</div>
+              )}
+              ID: {nodeData.id}
+            </div>
           </div>
         )}
       </CollapsibleSection>

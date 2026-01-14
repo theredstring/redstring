@@ -4716,9 +4716,8 @@ function NodeCanvas() {
 
   // Keep currentPieMenuData.buttons in sync with targetPieMenuButtons so UI reflects state changes (e.g., Save/Unsave) immediately
   useEffect(() => {
-    if (!currentPieMenuData) return;
     setCurrentPieMenuData(prev => prev ? { ...prev, buttons: targetPieMenuButtons } : prev);
-  }, [targetPieMenuButtons, currentPieMenuData]);
+  }, [targetPieMenuButtons]);
 
   // Effect to restore view state on graph change or center if no stored state
   useLayoutEffect(() => {
@@ -6631,6 +6630,9 @@ function NodeCanvas() {
 
     // Dragging Node or Group Logic (only after long-press has set draggingNodeInfo)
     if (draggingNodeInfo) {
+      if (!mouseMoved.current) {
+        mouseMoved.current = true;
+      }
       // Movement Zoom-Out: Trigger when drag actually starts moving (not on mousedown)
       // This ensures zoom-out happens after movement threshold, preventing reset during delay
       if (!zoomOutInitiatedRef.current && dragZoomSettings.enabled) {

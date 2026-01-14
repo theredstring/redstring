@@ -84,7 +84,7 @@ const DebugOverlay = ({ debugData, hideOverlay }) => {
   }, [resizing, resizeInitial, size]);
 
   return (
-    <div 
+    <div
       className="debug-overlay"
       style={{
         position: 'fixed',
@@ -102,7 +102,7 @@ const DebugOverlay = ({ debugData, hideOverlay }) => {
         borderRadius: '10px'
       }}
     >
-      <div 
+      <div
         className="drag-handle"
         style={{
           width: '60px',
@@ -114,10 +114,10 @@ const DebugOverlay = ({ debugData, hideOverlay }) => {
         }}
         onMouseDown={handleMouseDown}
       />
-      <div style={{ 
-        position: 'sticky', 
-        top: 0, 
-        backgroundColor: 'rgba(0, 0, 0, 0.9)', 
+      <div style={{
+        position: 'sticky',
+        top: 0,
+        backgroundColor: 'rgba(0, 0, 0, 0.9)',
         padding: '5px 10px',
         marginBottom: '10px',
         borderBottom: '1px solid rgba(255,255,255,0.2)',
@@ -126,12 +126,12 @@ const DebugOverlay = ({ debugData, hideOverlay }) => {
         alignItems: 'center'
       }}>
         <strong>Debug Mode</strong>
-        <button 
-          onClick={hideOverlay} 
-          style={{ 
-            background: 'none', 
-            border: 'none', 
-            color: '#EFE8E5', 
+        <button
+          onClick={hideOverlay}
+          style={{
+            background: 'none',
+            border: 'none',
+            color: '#EFE8E5',
             cursor: 'pointer',
             padding: 0
           }}
@@ -141,22 +141,26 @@ const DebugOverlay = ({ debugData, hideOverlay }) => {
         </button>
       </div>
 
-      {debugData && typeof debugData === 'object' && Object.entries(debugData).map(([key, value]) => (
-        <div key={key} style={{ 
-          borderBottom: '1px solid rgba(255,255,255,0.1)',
-          padding: '5px 0',
-          marginBottom: '5px'
-        }}>
-          <strong style={{ color: '#66d9ef' }}>{key}:</strong>
-          <pre style={{ 
-            margin: '5px 0',
-            whiteSpace: 'pre-wrap',
-            wordBreak: 'break-all'
+
+
+      {
+        debugData && typeof debugData === 'object' && Object.entries(debugData).map(([key, value]) => (
+          <div key={key} style={{
+            borderBottom: '1px solid rgba(255,255,255,0.1)',
+            padding: '5px 0',
+            marginBottom: '5px'
           }}>
-            {typeof value === 'object' ? JSON.stringify(value, null, 2) : value}
-          </pre>
-        </div>
-      ))}
+            <strong style={{ color: '#66d9ef' }}>{key}:</strong>
+            <pre style={{
+              margin: '5px 0',
+              whiteSpace: 'pre-wrap',
+              wordBreak: 'break-all'
+            }}>
+              {typeof value === 'object' ? JSON.stringify(value, null, 2) : value}
+            </pre>
+          </div>
+        ))
+      }
       <div style={{ marginTop: '10px', borderTop: '1px solid rgba(255,255,255,0.2)', paddingTop: '10px' }}>
         <strong>Full Debug Data:</strong>
         <pre style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-all', margin: 0, fontFamily: "'EmOne', sans-serif", fontSize: '12px' }}>
@@ -176,7 +180,7 @@ const DebugOverlay = ({ debugData, hideOverlay }) => {
         }}
         onMouseDown={handleResizeMouseDown}
       />
-    </div>
+    </div >
   );
 };
 

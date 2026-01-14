@@ -196,8 +196,20 @@ const Node = ({
   // Filter nodes and edges for the current graph definition
   const currentGraphNodes = useMemo(() => {
     if (!isPreviewing || !currentGraphId) return [];
-    return getHydratedNodesForGraph(currentGraphId)(storeState);
-  }, [isPreviewing, currentGraphId, storeState]);
+    const nodes = getHydratedNodesForGraph(currentGraphId)(storeState);
+    // Diagnostic logging
+    console.log('[Node Decompose Debug]', {
+      nodeName,
+      prototypeId,
+      definitionGraphIds,
+      currentGraphId,
+      graphData: storeState.graphs.get(currentGraphId),
+      instanceCount: storeState.graphs.get(currentGraphId)?.instances?.size || 0,
+      hydratedNodeCount: nodes.length,
+      nodes: nodes.map(n => ({ id: n.id, name: n.name, prototypeId: n.prototypeId }))
+    });
+    return nodes;
+  }, [isPreviewing, currentGraphId, storeState, nodeName, prototypeId, definitionGraphIds]);
 
   const currentGraphEdges = useMemo(() => {
     if (!isPreviewing || !currentGraphId) return [];
@@ -228,41 +240,7 @@ const Node = ({
     }
   }, [isPreviewing]);
 
-  // Self-healing effect: when previewing starts but no definitions found, search for orphan graphs
-  useEffect(() => {
-    if (!isPreviewing || !prototypeId || !storeActions) return;
-
-    // Check if we already have definitions (from prototype spread)
-    if (definitionGraphIds.length > 0) return;
-
-    // No definitions on the hydrated node - check if there are orphan graphs
-    const currentState = useGraphStore.getState();
-    const graphs = currentState.graphs;
-
-    let orphanGraphId = null;
-    try {
-      for (const [gId, g] of graphs.entries()) {
-        if (Array.isArray(g.definingNodeIds) && g.definingNodeIds.includes(prototypeId)) {
-          orphanGraphId = gId;
-          break;
-        }
-      }
-    } catch (_) { }
-
-    if (orphanGraphId) {
-      console.log('[Node] Self-healing: Found orphan definition graph. Repairing link.', {
-        prototypeId,
-        orphanGraphId
-      });
-      // Repair the link
-      storeActions.updateNodePrototype(prototypeId, draft => {
-        draft.definitionGraphIds = Array.isArray(draft.definitionGraphIds) ? draft.definitionGraphIds : [];
-        if (!draft.definitionGraphIds.includes(orphanGraphId)) {
-          draft.definitionGraphIds.push(orphanGraphId);
-        }
-      });
-    }
-  }, [isPreviewing, prototypeId, definitionGraphIds.length, storeActions]);
+  // (Self-healing removed - issue is not orphan graphs but empty definition graphs)
 
   // Navigation functions
   const navigateToPreviousDefinition = () => {

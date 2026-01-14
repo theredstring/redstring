@@ -895,6 +895,19 @@ const RedstringMenu = ({
 
                         <div
                           className="submenu-item"
+                          onClick={() => {
+                            console.log('[Debug] Repair Graph Links clicked');
+                            closeAllMenus();
+                            useGraphStore.getState().repairGraphLinkages();
+                          }}
+                          style={{ cursor: 'pointer' }}
+                        >
+                          <RefreshCw size={14} style={{ marginRight: '8px' }} />
+                          Repair Broken Graph Links
+                        </div>
+
+                        <div
+                          className="submenu-item"
                           onMouseEnter={handleRegularSubmenuItemHover}
                           onClick={() => onToggleShowClusterHulls?.()}
                           style={{ cursor: 'pointer', opacity: showClusterHulls ? 1 : 0.8 }}

@@ -754,6 +754,12 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
           }
         });
 
+        // Validate: don't create empty definition graphs
+        if (memberInstances.length === 0) {
+          console.warn(`[convertGroupToNodeGroup] Group ${groupId} has no valid members. Aborting conversion to prevent empty definition.`);
+          return;
+        }
+
         memberInstances.forEach(({ instId, instance }) => {
           const newInstId = uuidv4();
           instanceIdMap.set(instId, newInstId);
@@ -1448,6 +1454,16 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
         // Delete the instance
         graph.instances.delete(instanceId);
 
+        // Clean up group membership - remove this instance from any groups it belongs to
+        if (graph.groups) {
+          for (const [groupId, group] of graph.groups.entries()) {
+            if (group.memberInstanceIds?.includes(instanceId)) {
+              group.memberInstanceIds = group.memberInstanceIds.filter(id => id !== instanceId);
+              console.log(`[removeNodeInstance] Removed instance ${instanceId} from group ${groupId}`);
+            }
+          }
+        }
+
         // Ensure any soft-deletion bookkeeping is cleared
         draft.pendingDeletions.delete(instanceId);
 
@@ -1494,6 +1510,19 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
           graph.instances.delete(instanceId);
           draft.pendingDeletions.delete(instanceId);
         });
+
+        // Clean up group membership for all deleted instances
+        if (graph.groups) {
+          for (const [groupId, group] of graph.groups.entries()) {
+            if (group.memberInstanceIds) {
+              const originalLength = group.memberInstanceIds.length;
+              group.memberInstanceIds = group.memberInstanceIds.filter(id => !instanceIdSet.has(id));
+              if (group.memberInstanceIds.length !== originalLength) {
+                console.log(`[removeMultipleNodeInstances] Cleaned up ${originalLength - group.memberInstanceIds.length} stale members from group ${groupId}`);
+              }
+            }
+          }
+        }
 
         console.log(`[removeMultipleNodeInstances] Deleted ${instanceIdSet.size} instances and ${edgesToDelete.length} edges`);
       }));
@@ -2268,6 +2297,46 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
       draft.activeGraphId = graphId;
       console.log(`[Store createGraphWithId] Created and activated graph ${graphId} ('${name}')`);
     })),
+
+    // Repair tool to re-sync bidirectional links between graphs and their defining nodes
+    repairGraphLinkages: () => {
+      console.log('[Repair Tool] Starting bidirectional link repair...');
+      set(produce((draft) => {
+        let repairCount = 0;
+
+        // Iterate all graphs
+        for (const [graphId, graph] of draft.graphs.entries()) {
+          // Check if graph defines any nodes
+          const definingNodeIds = graph.definingNodeIds || [];
+
+          definingNodeIds.forEach(prototypeId => {
+            const prototype = draft.nodePrototypes.get(prototypeId);
+            if (!prototype) {
+              console.warn(`[Repair Tool] Graph "${graph.name}" (${graphId}) defines missing prototype ${prototypeId}`);
+              return;
+            }
+
+            // Ensure prototype links back to this graph
+            if (!Array.isArray(prototype.definitionGraphIds)) {
+              prototype.definitionGraphIds = [];
+            }
+
+            if (!prototype.definitionGraphIds.includes(graphId)) {
+              prototype.definitionGraphIds.push(graphId);
+              console.log(`[Repair Tool] 🛠️ FIXED: Linked Node "${prototype.name}" back to definition Graph "${graph.name}"`);
+              repairCount++;
+            }
+          });
+        }
+
+        if (repairCount > 0) {
+          console.log(`[Repair Tool] ✅ Completed with ${repairCount} repairs.`);
+          // Force a store update trigger if needed, though Immer should handle it
+        } else {
+          console.log('[Repair Tool] No broken links found.');
+        }
+      }));
+    },
 
     // Creates a new graph, assigns it as a definition to a prototype, and makes it active
     createAndAssignGraphDefinition: (prototypeId) => {
