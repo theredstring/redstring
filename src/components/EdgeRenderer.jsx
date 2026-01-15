@@ -193,14 +193,14 @@ export default function EdgeRenderer({
       {showConnectionNames && connectionName && (
         <g>
           <text
-            x={midX}
-            y={midY}
+            x={useCurve ? parallelPath.apexX : midX}
+            y={useCurve ? parallelPath.apexY : midY}
             fill="#bdb5b5"
             fontSize="24"
             fontWeight="bold"
             textAnchor="middle"
             dominantBaseline="middle"
-            transform={`rotate(${angle > 90 || angle < -90 ? angle + 180 : angle}, ${midX}, ${midY})`}
+            transform={`rotate(${angle > 90 || angle < -90 ? angle + 180 : angle}, ${useCurve ? parallelPath.apexX : midX}, ${useCurve ? parallelPath.apexY : midY})`}
             stroke={edgeColor}
             strokeWidth="6"
             strokeLinecap="round"

@@ -2361,6 +2361,7 @@ function NodeCanvas() {
           // CRITICAL: Update ref synchronously BEFORE setPanOffset
           // This ensures handleMouseMove's RAF sees the new value immediately
           // (useEffect that syncs ref from state runs AFTER RAF callbacks)
+          console.log('[PanLoop] Updating panOffsetRef:', newPan);
           panOffsetRef.current = newPan;
 
           // Use setPanOffset directly to allow React to batch this update with the 
@@ -5208,7 +5209,9 @@ function NodeCanvas() {
     zoomLevel,
     canvasSize.offsetX,
     canvasSize.offsetY,
-    storeActions
+    canvasSize.offsetY,
+    storeActions,
+    triggerDragZoomOut
   ]);
 
   const handleNodeMouseDown = (nodeData, e) => { // nodeData is now a hydrated node (instance + prototype)
@@ -7104,16 +7107,26 @@ function NodeCanvas() {
         const dropWorldX = (dropX - currentPan.x) / currentZoom + canvasSizeRef.current.offsetX;
         const dropWorldY = (dropY - currentPan.y) / currentZoom + canvasSizeRef.current.offsetY;
 
-        // 2. Calculate NEW pan to keep that world point at the CENTER of the viewport using TARGET zoom
+        // 2. Calculate NEW pan to keep that world point under the MOUSE CURSOR using TARGET zoom
         // panX = screenX - (worldX - offsetX) * zoom
-        const viewportCenterX = rect.width / 2;
-        const viewportCenterY = rect.height / 2;
-        const targetPanX = viewportCenterX - (dropWorldX - canvasSizeRef.current.offsetX) * targetZoom;
-        const targetPanY = viewportCenterY - (dropWorldY - canvasSizeRef.current.offsetY) * targetZoom;
+        // This prevents "snapping" to the center if the node was at the edge
+        const targetPanX = dropX - (dropWorldX - canvasSizeRef.current.offsetX) * targetZoom;
+        const targetPanY = dropY - (dropWorldY - canvasSizeRef.current.offsetY) * targetZoom;
 
-        // Clamp the new pan to bounds
-        const minPanX = viewportSizeRef.current.width - canvasSizeRef.current.width * targetZoom;
-        const minPanY = viewportSizeRef.current.height - canvasSizeRef.current.height * targetZoom;
+        console.log('[ZoomRestore] Debug:', {
+          dropX, dropY,
+          currentPan, currentZoom,
+          dropWorldX, dropWorldY,
+          targetZoom,
+          targetPanX, targetPanY,
+          viewportSize: viewportSizeRef.current
+        });
+
+        // Relaxed clamping - prevent aggressive snap-back by allowing full canvas traverse
+        // If node was dragged to edge, targetPan might briefly exceed standard bounds logic
+        const minPanX = -(canvasSizeRef.current.width * targetZoom);
+        const minPanY = -(canvasSizeRef.current.height * targetZoom);
+
         const clampedTargetPanX = Math.min(0, Math.max(targetPanX, minPanX));
         const clampedTargetPanY = Math.min(0, Math.max(targetPanY, minPanY));
 
@@ -10597,9 +10610,11 @@ function NodeCanvas() {
                                 const curveInfo = edgeCurveInfo.get(edge.id);
                                 if (curveInfo && curveInfo.totalInPair > 1) {
                                   const { pairIndex, totalInPair } = curveInfo;
-                                  const curveSpacing = 40;
-                                  const offsetIndex = pairIndex - (totalInPair - 1) / 2;
-                                  const perpOffset = offsetIndex * curveSpacing;
+                                  const curveSpacing = 100;
+                                  // Alternating direction logic matching utils
+                                  const direction = pairIndex % 2 === 0 ? 1 : -1;
+                                  const offsetMagnitude = Math.floor((pairIndex + 1) / 2) * curveSpacing;
+                                  const perpOffset = direction * offsetMagnitude;
                                   const edgeDx = endX - startX;
                                   const edgeDy = endY - startY;
                                   const edgeLen = Math.sqrt(edgeDx * edgeDx + edgeDy * edgeDy);
@@ -10667,10 +10682,10 @@ function NodeCanvas() {
                               if (curveInfo && curveInfo.totalInPair > 1) {
                                 // Calculate curve offset for parallel edges
                                 const { pairIndex, totalInPair } = curveInfo;
-                                const curveSpacing = 40; // Pixels between parallel edge curves
-                                // Center the curves: offset from -half to +half of total spread
-                                const offsetIndex = pairIndex - (totalInPair - 1) / 2;
-                                const perpOffset = offsetIndex * curveSpacing;
+                                const curveSpacing = 100; // Exaggerated curves
+                                const direction = pairIndex % 2 === 0 ? 1 : -1;
+                                const offsetMagnitude = Math.floor((pairIndex + 1) / 2) * curveSpacing;
+                                const perpOffset = direction * offsetMagnitude;
 
                                 // Calculate perpendicular direction
                                 const edgeDx = endX - startX;
@@ -10728,9 +10743,31 @@ function NodeCanvas() {
                                   angle = 90;
                                 }
                               } else {
-                                midX = (x1 + x2) / 2;
-                                midY = (y1 + y2) / 2;
-                                angle = Math.atan2(y2 - y1, x2 - x1) * (180 / Math.PI);
+                                // Curve apex logic for labels
+                                const curveInfo = edgeCurveInfo.get(edge.id);
+                                if (curveInfo && curveInfo.totalInPair > 1) {
+                                  const { pairIndex } = curveInfo;
+                                  const curveSpacing = 100;
+                                  const direction = pairIndex % 2 === 0 ? 1 : -1;
+                                  const offsetMagnitude = Math.floor((pairIndex + 1) / 2) * curveSpacing;
+                                  const perpOffset = direction * offsetMagnitude;
+                                  const edgeDx = endX - startX;
+                                  const edgeDy = endY - startY;
+                                  const edgeLen = Math.sqrt(edgeDx * edgeDx + edgeDy * edgeDy);
+                                  const perpX = edgeLen > 0 ? -edgeDy / edgeLen : 0;
+                                  const perpY = edgeLen > 0 ? edgeDx / edgeLen : 0;
+                                  const curveMidX = (startX + endX) / 2;
+                                  const curveMidY = (startY + endY) / 2;
+                                  const ctrlX = curveMidX + perpX * perpOffset;
+                                  const ctrlY = curveMidY + perpY * perpOffset;
+                                  midX = 0.25 * startX + 0.5 * ctrlX + 0.25 * endX;
+                                  midY = 0.25 * startY + 0.5 * ctrlY + 0.25 * endY;
+                                  angle = Math.atan2(edgeDy, edgeDx) * (180 / Math.PI);
+                                } else {
+                                  midX = (x1 + x2) / 2;
+                                  midY = (y1 + y2) / 2;
+                                  angle = Math.atan2(y2 - y1, x2 - x1) * (180 / Math.PI);
+                                }
                               }
 
                               // Determine connection name to display
@@ -11728,9 +11765,11 @@ function NodeCanvas() {
                                 const curveInfo = edgeCurveInfo.get(edge.id);
                                 if (curveInfo && curveInfo.totalInPair > 1) {
                                   const { pairIndex, totalInPair } = curveInfo;
-                                  const curveSpacing = 40;
-                                  const offsetIndex = pairIndex - (totalInPair - 1) / 2;
-                                  const perpOffset = offsetIndex * curveSpacing;
+                                  const curveSpacing = 100;
+                                  // Alternating direction logic matching utils
+                                  const direction = pairIndex % 2 === 0 ? 1 : -1;
+                                  const offsetMagnitude = Math.floor((pairIndex + 1) / 2) * curveSpacing;
+                                  const perpOffset = direction * offsetMagnitude;
                                   const edgeDx = endX - startX;
                                   const edgeDy = endY - startY;
                                   const edgeLen = Math.sqrt(edgeDx * edgeDx + edgeDy * edgeDy);
@@ -11798,10 +11837,11 @@ function NodeCanvas() {
                               if (curveInfo && curveInfo.totalInPair > 1) {
                                 // Calculate curve offset for parallel edges
                                 const { pairIndex, totalInPair } = curveInfo;
-                                const curveSpacing = 40; // Pixels between parallel edge curves
-                                // Center the curves: offset from -half to +half of total spread
-                                const offsetIndex = pairIndex - (totalInPair - 1) / 2;
-                                const perpOffset = offsetIndex * curveSpacing;
+                                const curveSpacing = 100; // Pixels between parallel edge curves
+                                // Alternating direction logic matching utils
+                                const direction = pairIndex % 2 === 0 ? 1 : -1;
+                                const offsetMagnitude = Math.floor((pairIndex + 1) / 2) * curveSpacing;
+                                const perpOffset = direction * offsetMagnitude;
 
                                 // Calculate perpendicular direction
                                 const edgeDx = endX - startX;
@@ -11859,9 +11899,35 @@ function NodeCanvas() {
                                   angle = 90;
                                 }
                               } else {
-                                midX = (x1 + x2) / 2;
-                                midY = (y1 + y2) / 2;
-                                angle = Math.atan2(y2 - y1, x2 - x1) * (180 / Math.PI);
+                                // Default Straight / Curve logic
+                                const curveInfo = edgeCurveInfo.get(edge.id);
+                                if (curveInfo && curveInfo.totalInPair > 1) {
+                                  // Curve Apex Logic for Labels
+                                  const { pairIndex } = curveInfo;
+                                  const curveSpacing = 100;
+                                  const direction = pairIndex % 2 === 0 ? 1 : -1;
+                                  const offsetMagnitude = Math.floor((pairIndex + 1) / 2) * curveSpacing;
+                                  const perpOffset = direction * offsetMagnitude;
+
+                                  const edgeDx = endX - startX;
+                                  const edgeDy = endY - startY;
+                                  const edgeLen = Math.sqrt(edgeDx * edgeDx + edgeDy * edgeDy);
+                                  const perpX = edgeLen > 0 ? -edgeDy / edgeLen : 0;
+                                  const perpY = edgeLen > 0 ? edgeDx / edgeLen : 0;
+                                  const curveMidX = (startX + endX) / 2;
+                                  const curveMidY = (startY + endY) / 2;
+                                  const ctrlX = curveMidX + perpX * perpOffset;
+                                  const ctrlY = curveMidY + perpY * perpOffset;
+
+                                  // Apex at t=0.5
+                                  midX = 0.25 * startX + 0.5 * ctrlX + 0.25 * endX;
+                                  midY = 0.25 * startY + 0.5 * ctrlY + 0.25 * endY;
+                                  angle = Math.atan2(edgeDy, edgeDx) * (180 / Math.PI); // Tangent at apex is parallel to edge
+                                } else {
+                                  midX = (x1 + x2) / 2;
+                                  midY = (y1 + y2) / 2;
+                                  angle = Math.atan2(y2 - y1, x2 - x1) * (180 / Math.PI);
+                                }
                               }
 
                               // Determine connection name to display
