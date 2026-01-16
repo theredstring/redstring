@@ -4,6 +4,9 @@
  * and provides fallbacks when localStorage is disabled or unavailable
  */
 
+// Import getStorageKey for session isolation
+import { getStorageKey } from './storageUtils.js';
+
 // Import after the module is defined to avoid circular dependencies
 let debugConfig = null;
 const getDebugConfig = async () => {
@@ -12,7 +15,7 @@ const getDebugConfig = async () => {
     if (typeof window !== 'undefined' && window.__REDSTRING_DEBUG_CONFIG__) {
       return window.__REDSTRING_DEBUG_CONFIG__;
     }
-  } catch (_) {}
+  } catch (_) { }
 
   // If we already cached a config, return it
   if (debugConfig) return debugConfig;
@@ -31,7 +34,7 @@ class StorageWrapper {
     this.memoryStorage = new Map(); // Fallback storage
     this.debugConfig = null;
     this.isDisabledForDebug = false;
-    
+
     // Initialize debug config check
     this.initializeDebugCheck();
   }
@@ -40,7 +43,7 @@ class StorageWrapper {
     try {
       this.debugConfig = await getDebugConfig();
       this.isDisabledForDebug = !!this.debugConfig.isLocalStorageDisabled?.();
-      
+
       if (this.isDisabledForDebug) {
         console.warn('[StorageWrapper] Local storage disabled for debugging - using memory storage (data not persisted)');
       }
@@ -70,7 +73,7 @@ class StorageWrapper {
   setItem(key, value) {
     if (this.shouldUseMemoryStorage()) {
       this.memoryStorage.set(key, value);
-      
+
       if (this.debugConfig?.isDebugMode?.()) {
         console.log(`[StorageWrapper] Stored in memory: ${key}`);
       }
@@ -78,7 +81,9 @@ class StorageWrapper {
     }
 
     try {
-      localStorage.setItem(key, value);
+      // Apply session scoping
+      const scopedKey = getStorageKey(key);
+      localStorage.setItem(scopedKey, value);
     } catch (error) {
       console.warn(`[StorageWrapper] localStorage.setItem failed for ${key}, falling back to memory:`, error);
       this.memoryStorage.set(key, value);
@@ -88,16 +93,18 @@ class StorageWrapper {
   getItem(key) {
     if (this.shouldUseMemoryStorage()) {
       const value = this.memoryStorage.get(key);
-      
+
       if (this.debugConfig?.isDebugMode?.()) {
         console.log(`[StorageWrapper] Retrieved from memory: ${key} = ${value ? 'found' : 'not found'}`);
       }
-      
+
       return value || null;
     }
 
     try {
-      return localStorage.getItem(key);
+      // Apply session scoping
+      const scopedKey = getStorageKey(key);
+      return localStorage.getItem(scopedKey);
     } catch (error) {
       console.warn(`[StorageWrapper] localStorage.getItem failed for ${key}, checking memory:`, error);
       return this.memoryStorage.get(key) || null;
@@ -107,7 +114,7 @@ class StorageWrapper {
   removeItem(key) {
     if (this.shouldUseMemoryStorage()) {
       this.memoryStorage.delete(key);
-      
+
       if (this.debugConfig?.isDebugMode?.()) {
         console.log(`[StorageWrapper] Removed from memory: ${key}`);
       }
@@ -115,11 +122,13 @@ class StorageWrapper {
     }
 
     try {
-      localStorage.removeItem(key);
+      // Apply session scoping
+      const scopedKey = getStorageKey(key);
+      localStorage.removeItem(scopedKey);
     } catch (error) {
       console.warn(`[StorageWrapper] localStorage.removeItem failed for ${key}:`, error);
     }
-    
+
     // Also remove from memory storage in case it was stored there as fallback
     this.memoryStorage.delete(key);
   }
@@ -127,7 +136,7 @@ class StorageWrapper {
   clear() {
     if (this.shouldUseMemoryStorage()) {
       this.memoryStorage.clear();
-      
+
       if (this.debugConfig?.isDebugMode?.()) {
         console.log('[StorageWrapper] Cleared memory storage');
       }
@@ -135,11 +144,39 @@ class StorageWrapper {
     }
 
     try {
-      localStorage.clear();
+      // Cannot properly clear only session items without iterating everything
+      // For now, doing a real clear() wipes everything, which matches legacy behavior
+      // but ideally we would filter.
+      // However, `localStorage.clear()` is historically aggressive.
+      // SAFEGUARD: Only clear if NO session is active? 
+      // Actually, if we are in a session, we might want to clear ONLY session items.
+
+      // Check for session param
+      let sessionParam = null;
+      if (typeof window !== 'undefined') {
+        sessionParam = new URLSearchParams(window.location.search).get('session');
+      }
+
+      if (sessionParam) {
+        // Clear only session scoped items
+        const prefix = `session_${sessionParam}_`;
+        const keysToRemove = [];
+        for (let i = 0; i < localStorage.length; i++) {
+          const k = localStorage.key(i);
+          if (k && k.startsWith(prefix)) {
+            keysToRemove.push(k);
+          }
+        }
+        keysToRemove.forEach(k => localStorage.removeItem(k));
+        console.log(`[StorageWrapper] Cleared ${keysToRemove.length} session-scoped items for '${sessionParam}'`);
+      } else {
+        localStorage.clear();
+      }
+
     } catch (error) {
       console.warn('[StorageWrapper] localStorage.clear failed:', error);
     }
-    
+
     // Also clear memory storage
     this.memoryStorage.clear();
   }
