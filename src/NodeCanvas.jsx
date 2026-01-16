@@ -93,7 +93,6 @@ import SaveStatusDisplay from './SaveStatusDisplay'; // Import the save status d
 import NodeSelectionGrid from './NodeSelectionGrid'; // Import the new node selection grid
 import UnifiedSelector from './UnifiedSelector'; // Import the new unified selector
 import OrbitOverlay from './components/OrbitOverlay.jsx';
-import AlphaOnboardingModal from './components/AlphaOnboardingModal.jsx';
 import StorageSetupModal from './components/StorageSetupModal.jsx';
 import HelpModal from './components/HelpModal.jsx';
 import CanvasConfirmDialog from './components/shared/CanvasConfirmDialog.jsx';
@@ -1838,8 +1837,7 @@ function NodeCanvas() {
   // Clipboard ref for copy/paste operations
   const clipboardRef = useRef(null);
 
-  // Onboarding modal state
-  const [showOnboardingModal, setShowOnboardingModal] = useState(false);
+  // Onboarding / Storage Setup state
   const [showStorageSetupModal, setShowStorageSetupModal] = useState(false);
 
   // Help modal state
@@ -1932,8 +1930,8 @@ function NodeCanvas() {
             }
           } else {
             // ONLY show onboarding if NOT seen
-            console.log('[NodeCanvas] Fresh start. Showing onboarding.');
-            setShowOnboardingModal(true);
+            console.log('[NodeCanvas] Fresh start. Showing onboarding (StorageSetupModal).');
+            setShowStorageSetupModal(true);
           }
         }
 
@@ -1980,10 +1978,10 @@ function NodeCanvas() {
         !!universeLoadingError
       );
 
-    if (shouldShowOnboarding && !showOnboardingModal) {
-      setShowOnboardingModal(true);
+    if (shouldShowOnboarding && !showStorageSetupModal) {
+      setShowStorageSetupModal(true);
     }
-  }, [isUniverseLoading, hasUniverseFile, isUniverseLoaded, universeLoadingError, showOnboardingModal]);
+  }, [isUniverseLoading, hasUniverseFile, isUniverseLoaded, universeLoadingError, showStorageSetupModal]);
 
   // Open Federation panel when global event is dispatched (from SaveStatusDisplay CTA)
   useEffect(() => {
@@ -13382,50 +13380,7 @@ function NodeCanvas() {
 
 
 
-      {/* Onboarding Modal - Welcome Screen */}
-      <AlphaOnboardingModal
-        isVisible={showOnboardingModal}
-        onClose={() => {
-          // Mark onboarding as complete when user closes the modal
-          try {
-            if (typeof window !== 'undefined') {
-              localStorage.setItem(getStorageKey('redstring-alpha-welcome-seen'), 'true');
-            }
-          } catch { }
-          setShowOnboardingModal(false);
-        }}
-        onGetStarted={() => {
-          // Close welcome modal and show storage setup
-          setShowOnboardingModal(false);
-          setShowStorageSetupModal(true);
-        }}
-        onUseWithoutSaving={async () => {
-          // Mark onboarding as complete
-          try {
-            if (typeof window !== 'undefined') {
-              localStorage.setItem(getStorageKey('redstring-alpha-welcome-seen'), 'true');
-            }
-          } catch { }
 
-          // Close modal
-          setShowOnboardingModal(false);
-
-          // Load empty universe in browser storage mode
-          console.log('[NodeCanvas] Using browser storage mode (no persistence)');
-          storeActions.setStorageMode('browser');
-          storeActions.setUniverseLoaded(true, false);
-
-          // Open the Universes (grid) tab in left panel
-          setLeftPanelExpanded(true);
-          // Open the Universes (federation) tab in left panel
-          setLeftPanelExpanded(true);
-          setTimeout(() => {
-            if (leftPanelRef.current) {
-              leftPanelRef.current.setActiveView('federation');
-            }
-          }, 100);
-        }}
-      />
 
       {/* Storage Setup Modal */}
       <StorageSetupModal

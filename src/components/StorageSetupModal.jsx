@@ -26,7 +26,7 @@ const StorageSetupModal = ({
 
   // Step state: 'selection' | 'naming'
   const [step, setStep] = useState('selection');
-  const [universeName, setUniverseName] = useState('MyUniverse');
+  const [universeName, setUniverseName] = useState('Universe');
   // Temporary storage for the selected folder path/handle while we ask for the name
   const [tempFolderHandle, setTempFolderHandle] = useState(null);
 
@@ -37,7 +37,7 @@ const StorageSetupModal = ({
     : 600;
   const modalHeight = isCompactLayout
     ? Math.min(Math.max(viewportSize.height * 0.85, 400), 550)
-    : 520;
+    : 600;
 
   const showBrowserStorageOption = !isElectron();
 
@@ -103,13 +103,12 @@ const StorageSetupModal = ({
         <h1 style={{
           margin: '0 0 4px 0',
           color: '#8B0000',
-          fontSize: isCompactLayout ? '0.9rem' : '1rem',
+          fontSize: isCompactLayout ? '1.5rem' : '1.8rem',
           fontWeight: '600',
           fontFamily: "'EmOne', sans-serif",
-          textTransform: 'uppercase',
           letterSpacing: '0.05em'
         }}>
-          Welcome To Redstring
+          Welcome to Redstring
         </h1>
         <h2 style={{
           margin: '0 0 8px 0',
@@ -118,16 +117,16 @@ const StorageSetupModal = ({
           fontWeight: 'bold',
           fontFamily: "'EmOne', sans-serif"
         }}>
-          Where should we save your work?
+          Where should we save your universes?
         </h2>
       </div>
 
       {/* Start Button Options */}
-      <div style={{ flex: 1, overflowY: 'auto' }}>
+      <div style={{ flexShrink: 0 }}>
         {/* Option A: Choose a Folder */}
         <div
           style={{
-            backgroundColor: '#f8f8f8',
+            backgroundColor: '#DEDADA',
             border: '2px solid #260000',
             borderRadius: '8px',
             padding: isCompactLayout ? '16px' : '20px',
@@ -138,10 +137,10 @@ const StorageSetupModal = ({
           onClick={handleFolderChoice}
           onMouseEnter={(e) => {
             e.currentTarget.style.backgroundColor = '#fff';
-            e.currentTarget.style.borderColor = '#8B0000';
+            e.currentTarget.style.borderColor = '#260000';
           }}
           onMouseLeave={(e) => {
-            e.currentTarget.style.backgroundColor = '#f8f8f8';
+            e.currentTarget.style.backgroundColor = '#DEDADA';
             e.currentTarget.style.borderColor = '#260000';
           }}
         >
@@ -173,7 +172,7 @@ const StorageSetupModal = ({
                   marginLeft: '8px',
                   fontSize: '0.85rem',
                   fontWeight: '600',
-                  color: '#8B0000',
+                  color: '#260000',
                   fontFamily: "'EmOne', sans-serif"
                 }}>
                   (Recommended)
@@ -182,7 +181,7 @@ const StorageSetupModal = ({
               <p style={{
                 margin: '4px 0 0 0',
                 fontSize: isCompactLayout ? '0.85rem' : '0.9rem',
-                color: '#555',
+                color: '#260000',
                 lineHeight: '1.4'
               }}>
                 Save all universes in one place. Works across sessions.
@@ -197,7 +196,7 @@ const StorageSetupModal = ({
             style={{
               width: '100%',
               padding: isCompactLayout ? '10px' : '12px',
-              backgroundColor: '#8B0000',
+              backgroundColor: '#260000',
               color: '#EFE8E5',
               border: 'none',
               borderRadius: '6px',
@@ -215,8 +214,8 @@ const StorageSetupModal = ({
         {showBrowserStorageOption && (
           <div
             style={{
-              backgroundColor: '#f8f8f8',
-              border: '2px solid #ccc',
+              backgroundColor: '#DEDADA',
+              border: '2px solid #260000',
               borderRadius: '8px',
               padding: isCompactLayout ? '16px' : '20px',
               cursor: 'pointer',
@@ -225,11 +224,11 @@ const StorageSetupModal = ({
             onClick={handleBrowserStorageChoice}
             onMouseEnter={(e) => {
               e.currentTarget.style.backgroundColor = '#fff';
-              e.currentTarget.style.borderColor = '#999';
+              e.currentTarget.style.borderColor = '#260000';
             }}
             onMouseLeave={(e) => {
-              e.currentTarget.style.backgroundColor = '#f8f8f8';
-              e.currentTarget.style.borderColor = '#ccc';
+              e.currentTarget.style.backgroundColor = '#DEDADA';
+              e.currentTarget.style.borderColor = '#260000';
             }}
           >
             <div style={{
@@ -240,7 +239,7 @@ const StorageSetupModal = ({
             }}>
               <div style={{
                 flexShrink: 0,
-                color: '#666',
+                color: '#260000',
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center'
@@ -260,7 +259,7 @@ const StorageSetupModal = ({
                 <div style={{
                   marginBottom: '6px',
                   fontStyle: 'italic',
-                  color: '#666',
+                  color: '#260000',
                   fontSize: '0.85rem'
                 }}>
                   Finish Set Up on the Universes Tab in the Left Panel
@@ -276,8 +275,8 @@ const StorageSetupModal = ({
                 width: '100%',
                 padding: isCompactLayout ? '10px' : '12px',
                 backgroundColor: 'transparent',
-                color: '#666',
-                border: '2px solid #ddd',
+                color: '#260000',
+                border: '2px solid #260000',
                 borderRadius: '6px',
                 cursor: 'pointer',
                 fontSize: isCompactLayout ? '0.9rem' : '1rem',
@@ -295,7 +294,7 @@ const StorageSetupModal = ({
 
   const renderNamingStep = () => (
     <>
-      <div style={{ textAlign: 'center', marginBottom: '32px', flexShrink: 0 }}>
+      <div style={{ textAlign: 'center', marginBottom: '44px', flexShrink: 0, marginTop: '-40px' }}>
         <h2 style={{
           margin: '0 0 8px 0',
           color: '#260000',
@@ -305,16 +304,13 @@ const StorageSetupModal = ({
         }}>
           Name Your Universe
         </h2>
-        <p style={{ color: '#666', margin: 0, fontSize: '0.95rem' }}>
+        <p style={{ color: '#260000', margin: 0, fontSize: '0.95rem' }}>
           This will be the name of your first .redstring file.
         </p>
       </div>
 
       <div style={{
-        flex: 1,
-        display: 'flex',
-        flexDirection: 'column',
-        justifyContent: 'center',
+        flexShrink: 0,
         padding: '0 20px'
       }}>
         <label style={{
@@ -330,7 +326,7 @@ const StorageSetupModal = ({
           type="text"
           value={universeName}
           onChange={(e) => setUniverseName(e.target.value)}
-          placeholder="MyUniverse"
+          placeholder="Universe"
           autoFocus
           style={{
             width: '100%',
@@ -338,8 +334,9 @@ const StorageSetupModal = ({
             fontSize: '1.1rem',
             borderRadius: '8px',
             border: '2px solid #260000',
-            backgroundColor: '#fff',
+            backgroundColor: '#DEDADA',
             color: '#260000',
+            boxSizing: 'border-box',
             fontFamily: "'EmOne', sans-serif",
             marginBottom: '24px',
             outline: 'none'
@@ -357,7 +354,7 @@ const StorageSetupModal = ({
           style={{
             width: '100%',
             padding: '14px',
-            backgroundColor: universeName.trim() ? '#8B0000' : '#ccc',
+            backgroundColor: universeName.trim() ? '#260000' : '#ccc',
             color: '#EFE8E5',
             border: 'none',
             borderRadius: '8px',
@@ -376,23 +373,6 @@ const StorageSetupModal = ({
           <ArrowRight size={20} />
         </button>
 
-        <button
-          onClick={() => {
-            setStep('selection');
-            setTempFolderHandle(null);
-          }}
-          style={{
-            marginTop: '16px',
-            background: 'none',
-            border: 'none',
-            color: '#666',
-            cursor: 'pointer',
-            fontSize: '0.9rem',
-            textDecoration: 'underline'
-          }}
-        >
-          Back to Folder Selection
-        </button>
       </div>
     </>
   );
@@ -414,6 +394,7 @@ const StorageSetupModal = ({
         height: '100%',
         display: 'flex',
         flexDirection: 'column',
+        justifyContent: 'center',
         position: 'relative'
       }}>
         {/* Close button - always available */}
@@ -435,7 +416,7 @@ const StorageSetupModal = ({
             zIndex: 10
           }}
           onMouseEnter={(e) => e.currentTarget.style.color = '#260000'}
-          onMouseLeave={(e) => e.currentTarget.style.color = '#666'}
+          onMouseLeave={(e) => e.currentTarget.style.color = '#260000'}
         >
           ✕
         </button>
