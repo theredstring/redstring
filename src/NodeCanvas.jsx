@@ -33,7 +33,7 @@ import * as fileStorage from './store/fileStorage.js';
 import * as folderPersistence from './services/folderPersistence.js';
 import workspaceService from './services/WorkspaceService.js';
 import gitFederationService from './services/gitFederationService.js';
-import { pickFolder, getFileInFolder, listFilesInFolder } from './utils/fileAccessAdapter.js';
+import { pickFolder, getFileInFolder, listFilesInFolder, writeFile } from './utils/fileAccessAdapter.js';
 import AutoGraphModal from './components/AutoGraphModal';
 import ForceSimulationModal from './components/ForceSimulationModal';
 import { parseInputData, generateGraph } from './services/autoGraphGenerator';
@@ -13392,32 +13392,77 @@ function NodeCanvas() {
         onFolderSelected={async (folderPath, universeName) => {
           try {
             if (folderPath) {
-              // 1. Link the folder using WorkspaceService
+              // 1. Link the folder using WorkspaceService (for config persistence)
               await workspaceService.linkFolder(folderPath);
 
-              // 2. Create Universe using gitFederationService so it appears in UniversesList
+              // 2. Create the .redstring file in the user's selected folder
               const safeName = (universeName && universeName.trim()) ? universeName.trim() : "Universe";
+              const filename = `${safeName}.redstring`;
 
-              // This registers the universe with universeBackendBridge
+              // Create empty universe state
+              const emptyState = {
+                graph: { id: 'root', nodes: new Map(), edges: new Map() },
+                nodePrototypes: new Map(),
+                graphRegistry: new Map([['root', { id: 'root', nodes: new Map(), edges: new Map() }]]),
+                nodeDefinitionIndices: new Map()
+              };
+
+              // Create the file in the folder
+              const fileHandleResult = await getFileInFolder(folderPath, filename, true);
+              const fileHandle = fileHandleResult.handle || fileHandleResult;
+
+              // Write initial empty state to the file
+              await writeFile(fileHandle, JSON.stringify({
+                version: "1.0",
+                nodes: [],
+                edges: [],
+                graphs: [{ id: 'root', name: 'Root', nodes: [], edges: [] }],
+                prototypes: [],
+                metadata: { name: safeName, created: new Date().toISOString() }
+              }, null, 2));
+
+              console.log('[NodeCanvas] Created universe file:', filename);
+
+              // 3. Create Universe in gitFederationService so it appears in UniversesList
               const result = await gitFederationService.createUniverse(safeName, {
                 enableLocal: true,
                 enableGit: false,
                 sourceOfTruth: 'local'
               });
 
+              const universeSlug = result?.createdUniverse?.slug || safeName.toLowerCase().replace(/\s+/g, '-');
               console.log('[NodeCanvas] Universe created via gitFederationService:', result);
 
-              // 3. Update store state
+              // 4. Register the file handle with universeBackend so it can save to the file
+              // Use the bridge's sendCommand to set the file handle
+              try {
+                const { default: universeBackend } = await import('./services/universeBackend.js');
+                await universeBackend.setFileHandle(universeSlug, fileHandle, {
+                  displayPath: filename,
+                  fileName: filename,
+                  suppressNotification: true
+                });
+                console.log('[NodeCanvas] Registered file handle with universeBackend');
+              } catch (handleError) {
+                console.warn('[NodeCanvas] Could not register file handle:', handleError);
+              }
+
+              // 5. Update store state
               storeActions.setStorageMode('folder');
               storeActions.setUniverseConnected(true);
-              storeActions.setUniverseLoaded(true, true); // Set hasUniverseFile=true to exit loading screen
+              storeActions.setUniverseLoaded(true, true);
 
-              // 4. Mark onboarding as complete
+              // 6. Update WorkspaceService config
+              workspaceService.config.activeUniverse = filename;
+              workspaceService.config.lastOpened = Date.now();
+              await workspaceService.saveConfig();
+
+              // 7. Mark onboarding as complete
               if (typeof window !== 'undefined') {
                 localStorage.setItem(getStorageKey('redstring-alpha-welcome-seen'), 'true');
               }
 
-              // 5. Close modal and open Panel
+              // 8. Close modal and open Panel
               setShowStorageSetupModal(false);
               setLeftPanelExpanded(true);
 
