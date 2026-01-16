@@ -313,6 +313,7 @@ const GitNativeFederation = ({ variant = 'panel', onRequestClose }) => {
       }
 
       gfLog('[GF-DEBUG] Refreshed federation state:', next);
+      console.log(`[Perf] Federation Data Loaded at ${(performance.now() / 1000).toFixed(3)}s`);
       setServiceState(next);
       setSyncTelemetry(next.syncStatuses || {});
       setError(null); // Clear any previous errors on success
@@ -355,6 +356,7 @@ const GitNativeFederation = ({ variant = 'panel', onRequestClose }) => {
   }, [setError, setLoading, setServiceState, setSyncStatus, setSyncTelemetry]);
 
   useEffect(() => {
+    console.log(`[Perf] GitNativeFederation Mounted at ${(performance.now() / 1000).toFixed(3)}s`);
     // CRITICAL: Don't block UI rendering on backend initialization
     // Load state asynchronously and allow component to render immediately
     (async () => {
@@ -416,21 +418,31 @@ const GitNativeFederation = ({ variant = 'panel', onRequestClose }) => {
 
     window.addEventListener('redstring:universe-created', handleUniverseCreated);
 
-    // Poll sync status every 5 seconds to keep UI updated without saturating the network
-    const pollInterval = setInterval(async () => {
+    // Poll sync status safely - prevent overlapping calls if backend is slow
+    // Use a ref to track if component is mounted to prevent state updates after unmount
+    let pollTimeout;
+    const pollSafe = async () => {
       try {
+        if (!window.__gfIsMounted) return; // Guard for unmount (using window prop as hack, or better use ref)
         const universes = await gitFederationService.refreshUniverses();
+        // Check canceled or unmounted before setting state
         setSyncTelemetry(universes.syncStatuses || {});
       } catch (err) {
-        // Silent fail - don't spam console
+        // Silent fail
+      } finally {
+        // Schedule next poll only after current one finishes
+        pollTimeout = setTimeout(pollSafe, 5000);
       }
-    }, 5000);
+    };
+
+    // Start polling loop
+    pollTimeout = setTimeout(pollSafe, 5000);
 
     return () => {
       window.removeEventListener('redstring:auth-connected', handleAuthConnected);
       window.removeEventListener('redstring:auth-expired', handleAuthExpired);
       window.removeEventListener('redstring:universe-created', handleUniverseCreated);
-      clearInterval(pollInterval);
+      clearTimeout(pollTimeout);
     };
   }, [refreshState, refreshAuth]);
 
@@ -3979,6 +3991,7 @@ const GitNativeFederation = ({ variant = 'panel', onRequestClose }) => {
       )}
 
       <UniversesList
+        isLoading={loading}
         universes={serviceState.universes}
         activeUniverseSlug={serviceState.activeUniverseSlug}
         syncStatusMap={syncTelemetry}

@@ -4,6 +4,85 @@
  */
 
 /**
+ * Calculate minimum distance from point (px, py) to quadratic Bezier curve
+ * Uses sampling approach for simplicity (exact solution requires solving cubic)
+ * @param {number} px - Point X coordinate
+ * @param {number} py - Point Y coordinate
+ * @param {number} x0 - Start point X (P0)
+ * @param {number} y0 - Start point Y (P0)
+ * @param {number} cx - Control point X (P1)
+ * @param {number} cy - Control point Y (P1)
+ * @param {number} x1 - End point X (P2)
+ * @param {number} y1 - End point Y (P2)
+ * @param {number} samples - Number of samples along the curve (default 20)
+ * @returns {number} Minimum distance from point to curve
+ */
+export function distanceToQuadraticBezier(px, py, x0, y0, cx, cy, x1, y1, samples = 20) {
+  let minDist = Infinity;
+
+  for (let i = 0; i <= samples; i++) {
+    const t = i / samples;
+    // Quadratic Bezier: B(t) = (1-t)^2*P0 + 2(1-t)t*P1 + t^2*P2
+    const invT = 1 - t;
+    const bx = invT * invT * x0 + 2 * invT * t * cx + t * t * x1;
+    const by = invT * invT * y0 + 2 * invT * t * cy + t * t * y1;
+
+    const dx = px - bx;
+    const dy = py - by;
+    const dist = Math.sqrt(dx * dx + dy * dy);
+
+    if (dist < minDist) minDist = dist;
+  }
+
+  return minDist;
+}
+
+/**
+ * Calculate the control point for a curved parallel edge
+ * @param {number} startX - Start X coordinate
+ * @param {number} startY - Start Y coordinate
+ * @param {number} endX - End X coordinate
+ * @param {number} endY - End Y coordinate
+ * @param {Object} curveInfo - Curve info: { pairIndex, totalInPair }
+ * @returns {Object|null} Control point { ctrlX, ctrlY } or null if straight line
+ */
+export function calculateCurveControlPoint(startX, startY, endX, endY, curveInfo) {
+  if (!curveInfo || curveInfo.totalInPair <= 1) {
+    return null;
+  }
+
+  const { pairIndex, totalInPair } = curveInfo;
+  const curveSpacing = 100;
+
+  const edgeDx = endX - startX;
+  const edgeDy = endY - startY;
+  const edgeLen = Math.sqrt(edgeDx * edgeDx + edgeDy * edgeDy);
+
+  if (edgeLen === 0) {
+    return null;
+  }
+
+  const centerIndex = (totalInPair - 1) / 2;
+  const offsetSteps = pairIndex - centerIndex;
+  const perpOffset = offsetSteps * curveSpacing;
+
+  // Normalize perpendicular direction for consistent curve direction
+  const useCanonical = startX !== endX ? (startX <= endX) : (startY <= endY);
+  const normDx = useCanonical ? edgeDx : -edgeDx;
+  const normDy = useCanonical ? edgeDy : -edgeDy;
+
+  const perpX = -normDy / edgeLen;
+  const perpY = normDx / edgeLen;
+
+  const midX = (startX + endX) / 2;
+  const midY = (startY + endY) / 2;
+  const ctrlX = midX + perpX * perpOffset;
+  const ctrlY = midY + perpY * perpOffset;
+
+  return { ctrlX, ctrlY };
+}
+
+/**
  * Calculate the path for an edge, applying curve offset if it's part of a parallel edge pair
  * @param {number} startX - Start X coordinate
  * @param {number} startY - Start Y coordinate

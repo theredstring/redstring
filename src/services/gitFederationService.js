@@ -244,12 +244,12 @@ function buildSyncInfo(universe, syncStatus) {
     // Check if auth is available
     const authStatus = persistentAuth.getAuthStatus();
     const hasAuth = authStatus?.isAuthenticated;
-    
+
     return {
       state: 'standby',
       label: hasAuth ? 'Awaiting sync engine' : 'Connect GitHub to sync',
       tone: hasAuth ? '#ef6c00' : '#c62828',
-      description: hasAuth 
+      description: hasAuth
         ? 'Sync engine not initialized yet. It will start automatically once activity is detected.'
         : 'GitHub authentication required. Click "Connect GitHub" in Accounts & Access to enable sync.',
       engine: null,
@@ -379,9 +379,22 @@ async function buildSyncStatusMap(universes) {
     return {};
   }
 
+  // Optimize: Only fetch sync status for universes that have Git enabled or linked
+  const relevantUniverses = universes.filter(u => u.gitRepo?.enabled || u.gitRepo?.linkedRepo);
+
+  if (relevantUniverses.length === 0) {
+    return {};
+  }
+
+  console.time('[GF-DEBUG] buildSyncStatusMap');
   const entries = await Promise.all(universes.map(async (universe) => {
     if (!universe?.slug) {
       return [null, null];
+    }
+
+    // Skip sync status check if git is not relevant to avoid IPC overhead
+    if (!universe.gitRepo?.enabled && !universe.gitRepo?.linkedRepo) {
+      return [universe.slug, null];
     }
 
     try {
@@ -392,6 +405,7 @@ async function buildSyncStatusMap(universes) {
       return [universe.slug, null];
     }
   }));
+  console.timeEnd('[GF-DEBUG] buildSyncStatusMap');
 
   return entries.reduce((acc, [slug, status]) => {
     if (slug) acc[slug] = status;
@@ -400,6 +414,8 @@ async function buildSyncStatusMap(universes) {
 }
 
 async function loadBackendState() {
+  console.log(`[Perf] loadBackendState Start at ${(performance.now() / 1000).toFixed(3)}s`);
+  console.time('[GF-DEBUG] loadBackendState');
   const [universes = [], activeUniverse, gitDashboard] = await Promise.all([
     universeBackendBridge.getAllUniverses(),
     universeBackendBridge.getActiveUniverse(),
@@ -409,13 +425,16 @@ async function loadBackendState() {
   const syncStatusMap = await buildSyncStatusMap(universes);
   const activeSlug = activeUniverse?.slug || null;
 
-  return {
+  const mapped = {
     universes: universes.map(universe => mapUniverse(universe, activeSlug, syncStatusMap)),
     activeUniverseSlug: activeSlug,
     activeUniverse: activeSlug ? universes.find(u => u.slug === activeSlug) : null,
     syncStatuses: syncStatusMap,
     gitDashboard: gitDashboard || null
   };
+  console.timeEnd('[GF-DEBUG] loadBackendState');
+  console.log(`[Perf] loadBackendState End at ${(performance.now() / 1000).toFixed(3)}s`);
+  return mapped;
 }
 
 async function fetchAuthState() {
@@ -572,7 +591,7 @@ export const gitFederationService = {
     // CRITICAL: Respect existing sourceOfTruth to support 2-slot system
     // Only default to 'git' if there's no existing sourceOfTruth preference
     // This allows local-file-only universes to add Git as backup without losing local data
-    const preservedSourceOfTruth = universe.raw.sourceOfTruth || 
+    const preservedSourceOfTruth = universe.raw.sourceOfTruth ||
       (universe.raw.localFile?.enabled ? 'local' : 'git');
 
     await universeBackendBridge.updateUniverse(slug, {
@@ -620,7 +639,7 @@ export const gitFederationService = {
 
     const linkedRepo = normalizeRepository(universe.raw.gitRepo?.linkedRepo);
     const wasLinkedRepo = linkedRepo && linkedRepo.user.toLowerCase() === repo.user.toLowerCase() && linkedRepo.repo.toLowerCase() === repo.repo.toLowerCase();
-    
+
     if (wasLinkedRepo) {
       payload.gitRepo = {
         ...universe.raw.gitRepo,
@@ -631,7 +650,7 @@ export const gitFederationService = {
     }
 
     await universeBackendBridge.updateUniverse(slug, payload);
-    
+
     // If this was the active linked repo, reload the universe from the new source of truth
     if (wasLinkedRepo) {
       gfLog(`[GitFederationService] Reloading universe ${slug} from new source: ${payload.sourceOfTruth}`);
@@ -641,7 +660,7 @@ export const gitFederationService = {
         gfWarn(`[GitFederationService] Failed to reload universe after detach:`, error);
       }
     }
-    
+
     return this.refreshUniverses();
   },
 

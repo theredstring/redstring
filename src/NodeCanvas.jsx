@@ -87,7 +87,7 @@ import { getPortPosition, calculateStaggeredPosition } from './utils/canvas/port
 import { computeCleanPolylineFromPorts, generateManhattanRoutingPath, generateCleanRoutingPath } from './utils/canvas/edgeRouting.js';
 import * as GeometryUtils from './utils/canvas/geometryUtils.js';
 import EdgeRenderer from './components/EdgeRenderer.jsx';
-import { calculateParallelEdgePath } from './utils/canvas/parallelEdgeUtils.js';
+import { calculateParallelEdgePath, distanceToQuadraticBezier, calculateCurveControlPoint } from './utils/canvas/parallelEdgeUtils.js';
 import Panel from './Panel'; // This is now used for both sides
 import TypeList from './TypeList'; // Re-add TypeList component
 import SaveStatusDisplay from './SaveStatusDisplay'; // Import the save status display
@@ -3163,6 +3163,29 @@ function NodeCanvas() {
       return new Map();
     }
   }, [enableAutoRouting, routingStyle, visibleEdges, nodeById, baseDimsById, nodes]);
+
+  // Memoize edgeCurveInfo for parallel edge detection (used by both rendering and hover detection)
+  const edgeCurveInfo = useMemo(() => {
+    const edgePairGroups = new Map();
+    const curveInfoMap = new Map();
+
+    visibleEdges.forEach(edge => {
+      const key = [edge.sourceId, edge.destinationId].sort().join('-');
+      if (!edgePairGroups.has(key)) {
+        edgePairGroups.set(key, []);
+      }
+      edgePairGroups.get(key).push(edge.id);
+    });
+
+    edgePairGroups.forEach((edgeIds) => {
+      const total = edgeIds.length;
+      edgeIds.forEach((edgeId, idx) => {
+        curveInfoMap.set(edgeId, { pairIndex: idx, totalInPair: total });
+      });
+    });
+
+    return curveInfoMap;
+  }, [visibleEdges]);
 
   const [debugMode, setDebugMode] = useState(false); // Debug mode disabled
   // Debug data state removed - debug mode disabled
@@ -6487,21 +6510,37 @@ function NodeCanvas() {
               }
               distance = minSegmentDistance;
             } else {
-              const A = currentX - x1;
-              const B = currentY - y1;
-              const C = x2 - x1;
-              const D = y2 - y1;
-              const dot = A * C + B * D;
-              const lenSq = C * C + D * D;
-              if (lenSq > 0) {
-                let param = dot / lenSq;
-                if (param < 0) param = 0;
-                else if (param > 1) param = 1;
-                const xx = x1 + param * C;
-                const yy = y1 + param * D;
-                const dx = currentX - xx;
-                const dy = currentY - yy;
-                distance = Math.sqrt(dx * dx + dy * dy);
+              // Check if this edge is curved (parallel edge)
+              const curveInfo = edgeCurveInfo.get(edge.id);
+              if (curveInfo && curveInfo.totalInPair > 1) {
+                // Calculate distance to quadratic Bézier curve
+                const ctrlPoint = calculateCurveControlPoint(x1, y1, x2, y2, curveInfo);
+                if (ctrlPoint) {
+                  distance = distanceToQuadraticBezier(
+                    currentX, currentY,
+                    x1, y1,           // P0 (start)
+                    ctrlPoint.ctrlX, ctrlPoint.ctrlY,  // P1 (control point)
+                    x2, y2            // P2 (end)
+                  );
+                }
+              } else {
+                // Straight line distance
+                const A = currentX - x1;
+                const B = currentY - y1;
+                const C = x2 - x1;
+                const D = y2 - y1;
+                const dot = A * C + B * D;
+                const lenSq = C * C + D * D;
+                if (lenSq > 0) {
+                  let param = dot / lenSq;
+                  if (param < 0) param = 0;
+                  else if (param > 1) param = 1;
+                  const xx = x1 + param * C;
+                  const yy = y1 + param * D;
+                  const dx = currentX - xx;
+                  const dy = currentY - yy;
+                  distance = Math.sqrt(dx * dx + dy * dy);
+                }
               }
             }
 

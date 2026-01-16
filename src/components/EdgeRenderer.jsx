@@ -229,6 +229,18 @@ export default function EdgeRenderer({
           onClick={onEdgeClick}
           onDoubleClick={onEdgeDoubleClick}
         />
+      ) : useCurve ? (
+        <path
+          d={parallelPath.path}
+          fill="none"
+          stroke="transparent"
+          strokeWidth="40"
+          style={{ cursor: 'pointer' }}
+          onPointerDown={onEdgePointerDown}
+          onTouchStart={onEdgeTouchStart}
+          onClick={onEdgeClick}
+          onDoubleClick={onEdgeDoubleClick}
+        />
       ) : (
         <line
           x1={x1}
