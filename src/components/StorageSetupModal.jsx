@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import CanvasModal from './CanvasModal';
 import { isElectron } from '../utils/fileAccessAdapter.js';
+import { FolderOpen, ArrowRightCircle } from 'lucide-react';
 
 /**
  * Storage Setup Modal
@@ -128,11 +129,13 @@ const StorageSetupModal = ({
             marginBottom: '12px'
           }}>
             <div style={{
-              fontSize: '2rem',
-              lineHeight: '1',
-              flexShrink: 0
+              flexShrink: 0,
+              color: '#260000',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center'
             }}>
-              📁
+              <FolderOpen size={32} />
             </div>
             <div style={{ flex: 1 }}>
               <h3 style={{
@@ -213,11 +216,13 @@ const StorageSetupModal = ({
               marginBottom: '12px'
             }}>
               <div style={{
-                fontSize: '2rem',
-                lineHeight: '1',
-                flexShrink: 0
+                flexShrink: 0,
+                color: '#666',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center'
               }}>
-                💾
+                <ArrowRightCircle size={32} />
               </div>
               <div style={{ flex: 1 }}>
                 <h3 style={{
@@ -227,19 +232,15 @@ const StorageSetupModal = ({
                   color: '#260000',
                   fontFamily: "'EmOne', sans-serif"
                 }}>
-                  Browser Storage
+                  Skip Folder Setup
                 </h3>
                 <div style={{
-                  display: 'inline-block',
-                  padding: '2px 8px',
-                  backgroundColor: '#fff3cd',
-                  border: '1px solid #ffc107',
-                  borderRadius: '4px',
-                  fontSize: '0.75rem',
-                  color: '#856404',
-                  marginBottom: '6px'
+                  marginBottom: '6px',
+                  fontStyle: 'italic',
+                  color: '#666',
+                  fontSize: '0.85rem'
                 }}>
-                  Not recommended for important work
+                  Finish Set Up on the Universes Tab in the Left Panel
                 </div>
                 <p style={{
                   margin: '4px 0 0 0',
@@ -247,7 +248,7 @@ const StorageSetupModal = ({
                   color: '#555',
                   lineHeight: '1.4'
                 }}>
-                  Quick start. Data stays in this browser only.
+                  Quick start.
                 </p>
               </div>
             </div>
@@ -269,7 +270,7 @@ const StorageSetupModal = ({
                 fontFamily: "'EmOne', sans-serif"
               }}
             >
-              Use Browser Storage
+              Skip For Now
             </button>
           </div>
         )}

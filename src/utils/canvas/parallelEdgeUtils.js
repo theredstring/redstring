@@ -39,9 +39,6 @@ export function calculateParallelEdgePath(startX, startY, endX, endY, curveInfo)
   const { pairIndex, totalInPair } = curveInfo;
   const curveSpacing = 100; // Pixels between parallel edge curves
 
-  // DEBUG: Log curve info
-  console.log('[parallelEdgeUtils] curveInfo:', { pairIndex, totalInPair, centerIndex: (totalInPair - 1) / 2, offsetSteps: pairIndex - (totalInPair - 1) / 2 });
-
   // SYMMETRICAL DISTRIBUTION: Distribute edges symmetrically around the center axis
   // For 2 edges: centerIndex=0.5, offsets=[-0.5, +0.5] * spacing
   // For 3 edges: centerIndex=1, offsets=[-1, 0, +1] * spacing
@@ -67,9 +64,17 @@ export function calculateParallelEdgePath(startX, startY, endX, endY, curveInfo)
     };
   }
 
-  // Perpendicular unit vector (rotated 90 degrees counter-clockwise)
-  const perpX = -edgeDy / edgeLen;
-  const perpY = edgeDx / edgeLen;
+  // CRITICAL: Normalize perpendicular direction so all edges in a pair curve consistently
+  // Without this, edges going A→B vs B→A would have opposite perpendicular vectors
+  // and would curve in the same visual direction instead of opposite
+  // We use a canonical direction: always compute perp as if going from min(start,end) to max
+  const useCanonical = startX !== endX ? (startX <= endX) : (startY <= endY);
+  const normDx = useCanonical ? edgeDx : -edgeDx;
+  const normDy = useCanonical ? edgeDy : -edgeDy;
+
+  // Perpendicular unit vector (rotated 90 degrees counter-clockwise from canonical direction)
+  const perpX = -normDy / edgeLen;
+  const perpY = normDx / edgeLen;
 
   // Control point at midpoint, offset perpendicular to edge
   const midX = (startX + endX) / 2;

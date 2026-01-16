@@ -1156,6 +1156,11 @@ const Panel = memo(forwardRef(
 
     useImperativeHandle(ref, () => ({
       openNodeTab,
+      setActiveView: (viewName) => {
+        if (side === 'left') {
+          setLeftViewActive(viewName);
+        }
+      }
     }));
 
     // --- Resize Handlers (Reordered definitions) ---

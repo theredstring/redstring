@@ -3,10 +3,11 @@ const { contextBridge, ipcRenderer } = require('electron');
 contextBridge.exposeInMainWorld('electron', {
   // Platform check
   isElectron: true,
-  
+
   // File System Access
   fileSystem: {
     pickFile: (options) => ipcRenderer.invoke('file:pick', options),
+    pickFolder: (options) => ipcRenderer.invoke('file:pickFolder', options),
     saveAs: (options) => ipcRenderer.invoke('file:saveAs', options),
     readFile: (filePath) => ipcRenderer.invoke('file:read', filePath),
     writeFile: (filePath, content) => ipcRenderer.invoke('file:write', filePath, content),

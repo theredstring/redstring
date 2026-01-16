@@ -322,6 +322,20 @@ ipcMain.handle('file:pick', async (event, options = {}) => {
   return result.filePaths[0];
 });
 
+ipcMain.handle('file:pickFolder', async (event, options = {}) => {
+  const result = await dialog.showOpenDialog(mainWindow, {
+    properties: ['openDirectory', 'createDirectory'],
+    defaultPath: options.defaultPath || getRedstringDocumentsPath(),
+    ...options
+  });
+
+  if (result.canceled) {
+    return null; // Return null on cancellation consistent with expectation
+  }
+
+  return result.filePaths[0];
+});
+
 ipcMain.handle('file:saveAs', async (event, options = {}) => {
   const { suggestedName } = options;
   // Default to Redstring documents folder with suggested name

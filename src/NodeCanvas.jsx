@@ -1854,24 +1854,6 @@ function NodeCanvas() {
     const initializeFromFolder = async () => {
       try {
         console.log('[NodeCanvas] Checking for stored folder on startup...');
-        console.log('[NodeCanvas Debug] Session Param:', new URLSearchParams(window.location.search).get('session'));
-
-        // Validate stored folder
-        const validationResult = await folderPersistence.validateStoredFolder();
-        const { valid, folderHandle } = validationResult;
-        console.log('[NodeCanvas Debug] Folder Validation Result:', JSON.stringify(validationResult));
-
-        // Dump all localStorage keys to see what is going on
-        if (typeof window !== 'undefined') {
-          const keys = Object.keys(localStorage).filter(k => k.includes('redstring'));
-          console.log('[NodeCanvas Debug] LocalStorage Keys:', keys);
-          keys.forEach(k => {
-            if (k.includes('redstring_workspace_folder_path')) {
-              console.log(`[NodeCanvas Debug] Key: ${k}, Value: ${localStorage.getItem(k)}`);
-            }
-          });
-        }
-
         if (!valid || !folderHandle) {
           console.log('[NodeCanvas] No valid stored folder found');
           return;
@@ -1958,27 +1940,7 @@ function NodeCanvas() {
         !!universeLoadingError
       );
 
-    // Debug logging for onboarding state
-    if (typeof window !== 'undefined') {
-      const params = new URLSearchParams(window.location.search);
-      console.log('[NodeCanvas Debug] Onboarding State Check:', {
-        url: window.location.href,
-        search: window.location.search,
-        sessionParam: params.get('session'),
-        storageKey: getStorageKey('redstring-alpha-welcome-seen'),
-        rawValue: localStorage.getItem(getStorageKey('redstring-alpha-welcome-seen')),
-        hasCompletedOnboarding,
-        suppressForGitFlow,
-        isUniverseLoading,
-        hasUniverseFile,
-        isUniverseLoaded,
-        universeLoadingError,
-        shouldShowOnboarding
-      });
-    }
-
     if (shouldShowOnboarding && !showOnboardingModal) {
-      console.log('[NodeCanvas Debug] Showing onboarding modal!');
       setShowOnboardingModal(true);
     }
   }, [isUniverseLoading, hasUniverseFile, isUniverseLoaded, universeLoadingError, showOnboardingModal]);
@@ -10621,11 +10583,6 @@ function NodeCanvas() {
                         const parallelPath = calculateParallelEdgePath(startX, startY, endX, endY, curveInfo);
                         const useCurve = parallelPath.type === 'curve';
 
-                        // DEBUG: Log edge rendering
-                        if (curveInfo && curveInfo.totalInPair > 1) {
-                          console.log('[NodeCanvas] Rendering edge:', edge.id, 'curveInfo:', curveInfo, 'parallelPath.ctrlY:', parallelPath.ctrlY);
-                        }
-
                         return (
                           <g key={`edge-above-${edge.id}-${idx}`}>
                             {/* Main edge line - always same thickness */}
@@ -11715,11 +11672,6 @@ function NodeCanvas() {
                         const curveInfo = edgeCurveInfo.get(edge.id);
                         const parallelPath = calculateParallelEdgePath(startX, startY, endX, endY, curveInfo);
                         const useCurve = parallelPath.type === 'curve';
-
-                        // DEBUG: Log edge rendering
-                        if (curveInfo && curveInfo.totalInPair > 1) {
-                          console.log('[NodeCanvas] Rendering edge:', edge.id, 'curveInfo:', curveInfo, 'parallelPath.ctrlY:', parallelPath.ctrlY);
-                        }
 
                         return (
                           <g key={`edge-above-${edge.id}-${idx}`}>
@@ -13438,6 +13390,14 @@ function NodeCanvas() {
           console.log('[NodeCanvas] Using browser storage mode (no persistence)');
           storeActions.setStorageMode('browser');
           storeActions.setUniverseLoaded(true, false);
+
+          // Open the Universes (grid) tab in left panel
+          setLeftPanelExpanded(true);
+          setTimeout(() => {
+            if (leftPanelRef.current) {
+              leftPanelRef.current.setActiveView('grid');
+            }
+          }, 100);
         }}
       />
 
@@ -13472,55 +13432,34 @@ function NodeCanvas() {
             // Close storage setup modal
             setShowStorageSetupModal(false);
 
-            // Check if folder has any existing .redstring files
-            const files = await listFilesInFolder(folderHandle, '*.redstring');
+            // Set storage mode to folder but don't auto-load content
+            storeActions.setStorageMode('folder');
 
-            if (files.length > 0) {
-              console.log(`[NodeCanvas] Found ${files.length} existing universe(s) in folder`);
+            // Mark universe as connected/ready but let user choose/create
+            // We set it as loaded with empty/default state so the UI renders
+            // but the user is directed to the Universes tab
+            const emptyState = {
+              graph: {
+                id: 'root',
+                nodes: new Map(),
+                edges: new Map()
+              },
+              nodePrototypes: new Map(),
+              graphRegistry: new Map([['root', { id: 'root', nodes: new Map(), edges: new Map() }]]),
+              nodeDefinitionIndices: new Map()
+            };
+            storeActions.loadUniverseFromFile(emptyState);
+            storeActions.setUniverseConnected(true);
 
-              // Load the first universe file found
-              const firstFile = files[0];
-              console.log('[NodeCanvas] Loading universe from:', firstFile.name);
+            // Open the Universes (grid) tab in left panel
+            setLeftPanelExpanded(true);
+            setTimeout(() => {
+              if (leftPanelRef.current) {
+                leftPanelRef.current.setActiveView('grid');
+              }
+            }, 100);
 
-              const { readFile } = await import('./utils/fileAccessAdapter.js');
-              const content = await readFile(firstFile.handle);
-              const data = JSON.parse(content);
-
-              storeActions.loadUniverseFromFile(data);
-              storeActions.setStorageMode('folder');
-              storeActions.setUniverseConnected(true);
-
-              console.log('[NodeCanvas] Successfully loaded universe from folder');
-            } else {
-              console.log('[NodeCanvas] No existing universes found, creating default.redstring');
-
-              // Create default.redstring file
-              const defaultFileName = 'default.redstring';
-              const fileHandle = await getFileInFolder(folderHandle, defaultFileName, true);
-
-              // Create empty universe state
-              const emptyState = {
-                graph: {
-                  id: 'root',
-                  nodes: new Map(),
-                  edges: new Map()
-                },
-                nodePrototypes: new Map(),
-                graphRegistry: new Map([['root', { id: 'root', nodes: new Map(), edges: new Map() }]]),
-                nodeDefinitionIndices: new Map()
-              };
-
-              // Write to file
-              const { writeFile } = await import('./utils/fileAccessAdapter.js');
-              await writeFile(fileHandle, JSON.stringify(emptyState, null, 2));
-
-              // Load the new universe
-              storeActions.loadUniverseFromFile(emptyState);
-              storeActions.setStorageMode('folder');
-              storeActions.setUniverseConnected(true);
-
-              console.log('[NodeCanvas] Created and loaded default universe');
-            }
+            console.log('[NodeCanvas] Folder configured, directed user to Universes tab');
           } catch (error) {
             console.error('[NodeCanvas] Folder setup failed:', error);
             storeActions.setUniverseError(`Failed to set up folder: ${error.message}`);
@@ -13541,6 +13480,14 @@ function NodeCanvas() {
             // Load empty universe in browser storage mode
             storeActions.setStorageMode('browser');
             storeActions.setUniverseLoaded(true, false);
+
+            // Open the Universes (grid) tab in left panel
+            setLeftPanelExpanded(true);
+            setTimeout(() => {
+              if (leftPanelRef.current) {
+                leftPanelRef.current.setActiveView('grid');
+              }
+            }, 100);
 
             console.log('[NodeCanvas] Browser storage mode activated');
           } catch (error) {
