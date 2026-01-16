@@ -87,7 +87,7 @@ import { getPortPosition, calculateStaggeredPosition } from './utils/canvas/port
 import { computeCleanPolylineFromPorts, generateManhattanRoutingPath, generateCleanRoutingPath } from './utils/canvas/edgeRouting.js';
 import * as GeometryUtils from './utils/canvas/geometryUtils.js';
 import EdgeRenderer from './components/EdgeRenderer.jsx';
-import { calculateParallelEdgePath, distanceToQuadraticBezier, calculateCurveControlPoint, getTrimmedBezierPath } from './utils/canvas/parallelEdgeUtils.js';
+import { calculateParallelEdgePath, distanceToQuadraticBezier, calculateCurveControlPoint, getTrimmedBezierPath, getPointOnQuadraticBezier } from './utils/canvas/parallelEdgeUtils.js';
 import Panel from './Panel'; // This is now used for both sides
 import TypeList from './TypeList'; // Re-add TypeList component
 import SaveStatusDisplay from './SaveStatusDisplay'; // Import the save status display
@@ -10517,13 +10517,13 @@ function NodeCanvas() {
                         const isCurvedEdge = curveInfo && curveInfo.totalInPair > 1;
 
                         // Only shorten connections at ends with arrows or hover state
-                        // For curved edges, never shorten for hover - only for arrows
-                        // This ensures the curve shape stays consistent when hovered
+                        // For curved edges, NEVER change endpoints - we use trimmed paths instead
+                        // This ensures the curve shape stays consistent
                         let shouldShortenSource = isCurvedEdge
-                          ? arrowsToward.has(sourceNode.id)
+                          ? false  // Never change curve endpoints
                           : (isHovered || arrowsToward.has(sourceNode.id));
                         let shouldShortenDest = isCurvedEdge
-                          ? arrowsToward.has(destNode.id)
+                          ? false  // Never change curve endpoints
                           : (isHovered || arrowsToward.has(destNode.id));
                         if (enableAutoRouting && routingStyle === 'manhattan') {
                           // In Manhattan mode, never shorten for hover—only for actual arrows
@@ -10699,10 +10699,12 @@ function NodeCanvas() {
                         const parallelPath = calculateParallelEdgePath(startX, startY, endX, endY, curveInfo);
                         const useCurve = parallelPath.type === 'curve';
 
-                        // For hover effect on curved edges, trim the curve to create "shorten" visual
+                        // For hover effect or arrows on curved edges, trim the curve to create "shorten" visual
                         // This keeps the curve shape consistent but renders a shorter portion
                         let trimmedPath = null;
-                        if (useCurve && isHovered && parallelPath.ctrlX !== null) {
+                        const shouldTrimCurve = useCurve && parallelPath.ctrlX !== null &&
+                          (isHovered || arrowsToward.has(sourceNode.id) || arrowsToward.has(destNode.id));
+                        if (shouldTrimCurve) {
                           trimmedPath = getTrimmedBezierPath(
                             parallelPath.startX, parallelPath.startY,
                             parallelPath.ctrlX, parallelPath.ctrlY,
@@ -11187,7 +11189,57 @@ function NodeCanvas() {
                               // Calculate arrow positions (use fallback if intersections fail)
                               let sourceArrowX, sourceArrowY, destArrowX, destArrowY, sourceArrowAngle, destArrowAngle;
 
-                              if (enableAutoRouting && routingStyle === 'clean') {
+                              // For curved edges, calculate arrow/dot positions along the curve
+                              if (useCurve && parallelPath.ctrlX !== null) {
+                                const tSource = 0.08; // Position near source (8% along curve)
+                                const tDest = 0.92;   // Position near dest (92% along curve)
+
+                                // Get positions along the curve
+                                const sourcePoint = getPointOnQuadraticBezier(
+                                  tSource,
+                                  parallelPath.startX, parallelPath.startY,
+                                  parallelPath.ctrlX, parallelPath.ctrlY,
+                                  parallelPath.endX, parallelPath.endY
+                                );
+                                const destPoint = getPointOnQuadraticBezier(
+                                  tDest,
+                                  parallelPath.startX, parallelPath.startY,
+                                  parallelPath.ctrlX, parallelPath.ctrlY,
+                                  parallelPath.endX, parallelPath.endY
+                                );
+
+                                sourceArrowX = sourcePoint.x;
+                                sourceArrowY = sourcePoint.y;
+                                destArrowX = destPoint.x;
+                                destArrowY = destPoint.y;
+
+                                // Calculate tangent angles at these points
+                                // Derivative of quadratic Bézier: B'(t) = 2(1-t)(P1-P0) + 2t(P2-P1)
+                                const calcTangentAngle = (t, x0, y0, cx, cy, x1, y1) => {
+                                  const invT = 1 - t;
+                                  const tangentX = 2 * invT * (cx - x0) + 2 * t * (x1 - cx);
+                                  const tangentY = 2 * invT * (cy - y0) + 2 * t * (y1 - cy);
+                                  return Math.atan2(tangentY, tangentX) * (180 / Math.PI);
+                                };
+
+                                // Source arrow points backward (toward source node)
+                                const sourceTangent = calcTangentAngle(
+                                  tSource,
+                                  parallelPath.startX, parallelPath.startY,
+                                  parallelPath.ctrlX, parallelPath.ctrlY,
+                                  parallelPath.endX, parallelPath.endY
+                                );
+                                sourceArrowAngle = sourceTangent + 180; // Point back toward source
+
+                                // Dest arrow points forward (toward dest node)
+                                const destTangent = calcTangentAngle(
+                                  tDest,
+                                  parallelPath.startX, parallelPath.startY,
+                                  parallelPath.ctrlX, parallelPath.ctrlY,
+                                  parallelPath.endX, parallelPath.endY
+                                );
+                                destArrowAngle = destTangent; // Point toward dest
+                              } else if (enableAutoRouting && routingStyle === 'clean') {
                                 // Clean mode: use actual port assignments for proper arrow positioning
                                 const offset = showConnectionNames ? 6 : (shouldShortenSource || shouldShortenDest ? 3 : 5);
                                 const portAssignment = cleanLaneOffsets.get(edge.id);
@@ -11515,8 +11567,8 @@ function NodeCanvas() {
                                     </g>
                                   )}
 
-                                  {/* Hover Dots - only visible when hovering and using straight routing */}
-                                  {isHovered && (!enableAutoRouting || routingStyle === 'straight') && (
+                                  {/* Hover Dots - visible when hovering straight edges or curved parallel edges */}
+                                  {isHovered && (!enableAutoRouting || routingStyle === 'straight' || useCurve) && (
                                     <>
                                       {/* Source Dot - only show if arrow not pointing toward source */}
                                       {!arrowsToward.has(sourceNode.id) && (
@@ -11677,13 +11729,13 @@ function NodeCanvas() {
                         const isCurvedEdge = curveInfo && curveInfo.totalInPair > 1;
 
                         // Only shorten connections at ends with arrows or hover state
-                        // For curved edges, never shorten for hover - only for arrows
-                        // This ensures the curve shape stays consistent when hovered
+                        // For curved edges, NEVER change endpoints - we use trimmed paths instead
+                        // This ensures the curve shape stays consistent
                         let shouldShortenSource = isCurvedEdge
-                          ? arrowsToward.has(sourceNode.id)
+                          ? false  // Never change curve endpoints
                           : (isHovered || arrowsToward.has(sourceNode.id));
                         let shouldShortenDest = isCurvedEdge
-                          ? arrowsToward.has(destNode.id)
+                          ? false  // Never change curve endpoints
                           : (isHovered || arrowsToward.has(destNode.id));
                         if (enableAutoRouting && routingStyle === 'manhattan') {
                           // In Manhattan mode, never shorten for hover—only for actual arrows
@@ -11859,10 +11911,12 @@ function NodeCanvas() {
                         const parallelPath = calculateParallelEdgePath(startX, startY, endX, endY, curveInfo);
                         const useCurve = parallelPath.type === 'curve';
 
-                        // For hover effect on curved edges, trim the curve to create "shorten" visual
+                        // For hover effect or arrows on curved edges, trim the curve to create "shorten" visual
                         // This keeps the curve shape consistent but renders a shorter portion
                         let trimmedPath = null;
-                        if (useCurve && isHovered && parallelPath.ctrlX !== null) {
+                        const shouldTrimCurve = useCurve && parallelPath.ctrlX !== null &&
+                          (isHovered || arrowsToward.has(sourceNode.id) || arrowsToward.has(destNode.id));
+                        if (shouldTrimCurve) {
                           trimmedPath = getTrimmedBezierPath(
                             parallelPath.startX, parallelPath.startY,
                             parallelPath.ctrlX, parallelPath.ctrlY,
@@ -12212,7 +12266,57 @@ function NodeCanvas() {
                               // Calculate arrow positions (use fallback if intersections fail)
                               let sourceArrowX, sourceArrowY, destArrowX, destArrowY, sourceArrowAngle, destArrowAngle;
 
-                              if (enableAutoRouting && routingStyle === 'clean') {
+                              // For curved edges, calculate arrow/dot positions along the curve
+                              if (useCurve && parallelPath.ctrlX !== null) {
+                                const tSource = 0.08; // Position near source (8% along curve)
+                                const tDest = 0.92;   // Position near dest (92% along curve)
+
+                                // Get positions along the curve
+                                const sourcePoint = getPointOnQuadraticBezier(
+                                  tSource,
+                                  parallelPath.startX, parallelPath.startY,
+                                  parallelPath.ctrlX, parallelPath.ctrlY,
+                                  parallelPath.endX, parallelPath.endY
+                                );
+                                const destPoint = getPointOnQuadraticBezier(
+                                  tDest,
+                                  parallelPath.startX, parallelPath.startY,
+                                  parallelPath.ctrlX, parallelPath.ctrlY,
+                                  parallelPath.endX, parallelPath.endY
+                                );
+
+                                sourceArrowX = sourcePoint.x;
+                                sourceArrowY = sourcePoint.y;
+                                destArrowX = destPoint.x;
+                                destArrowY = destPoint.y;
+
+                                // Calculate tangent angles at these points
+                                // Derivative of quadratic Bézier: B'(t) = 2(1-t)(P1-P0) + 2t(P2-P1)
+                                const calcTangentAngle = (t, x0, y0, cx, cy, x1, y1) => {
+                                  const invT = 1 - t;
+                                  const tangentX = 2 * invT * (cx - x0) + 2 * t * (x1 - cx);
+                                  const tangentY = 2 * invT * (cy - y0) + 2 * t * (y1 - cy);
+                                  return Math.atan2(tangentY, tangentX) * (180 / Math.PI);
+                                };
+
+                                // Source arrow points backward (toward source node)
+                                const sourceTangent = calcTangentAngle(
+                                  tSource,
+                                  parallelPath.startX, parallelPath.startY,
+                                  parallelPath.ctrlX, parallelPath.ctrlY,
+                                  parallelPath.endX, parallelPath.endY
+                                );
+                                sourceArrowAngle = sourceTangent + 180; // Point back toward source
+
+                                // Dest arrow points forward (toward dest node)
+                                const destTangent = calcTangentAngle(
+                                  tDest,
+                                  parallelPath.startX, parallelPath.startY,
+                                  parallelPath.ctrlX, parallelPath.ctrlY,
+                                  parallelPath.endX, parallelPath.endY
+                                );
+                                destArrowAngle = destTangent; // Point toward dest
+                              } else if (enableAutoRouting && routingStyle === 'clean') {
                                 // Clean mode: use actual port assignments for proper arrow positioning
                                 const offset = showConnectionNames ? 6 : (shouldShortenSource || shouldShortenDest ? 3 : 5);
                                 const portAssignment = cleanLaneOffsets.get(edge.id);
@@ -12540,8 +12644,8 @@ function NodeCanvas() {
                                     </g>
                                   )}
 
-                                  {/* Hover Dots - only visible when hovering and using straight routing */}
-                                  {isHovered && (!enableAutoRouting || routingStyle === 'straight') && (
+                                  {/* Hover Dots - visible when hovering straight edges or curved parallel edges */}
+                                  {isHovered && (!enableAutoRouting || routingStyle === 'straight' || useCurve) && (
                                     <>
                                       {/* Source Dot - only show if arrow not pointing toward source */}
                                       {!arrowsToward.has(sourceNode.id) && (
