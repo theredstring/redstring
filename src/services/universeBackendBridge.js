@@ -128,6 +128,7 @@ class UniverseBackendBridge {
 
   flushQueuedCommandsWithError(error) {
     console.warn('[UniverseBackendBridge] Flushing queued commands with error:', error.message);
+    this.isBackendReady = false; // Reset backend readiness on critical error
     while (this.commandQueue.length > 0) {
       const queuedCommand = this.commandQueue.shift();
       queuedCommand.reject(error);
@@ -254,7 +255,12 @@ class UniverseBackendBridge {
       }
 
       // Execute command immediately if backend is ready
-      await this.executeCommand(commandData);
+      try {
+        await this.executeCommand(commandData);
+      } catch (error) {
+        // If execution fails, reject immediately
+        reject(error);
+      }
     });
   }
 
