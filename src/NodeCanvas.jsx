@@ -13430,13 +13430,20 @@ function NodeCanvas() {
                 sourceOfTruth: 'local'
               });
 
-              const universeSlug = result?.createdUniverse?.slug || safeName.toLowerCase().replace(/\s+/g, '-');
+              const universeSlug = result?.createdUniverse?.slug;
               console.log('[NodeCanvas] Universe created via gitFederationService:', result);
+              console.log('[NodeCanvas] Created universe slug:', universeSlug);
+              console.log('[NodeCanvas] Created universe object:', result?.createdUniverse);
+
+              if (!universeSlug) {
+                console.error('[NodeCanvas] No slug returned from createUniverse!');
+              }
 
               // 4. Register the file handle with universeBackend so it can save to the file
               // Use the bridge's sendCommand to set the file handle
               try {
                 const { default: universeBackend } = await import('./services/universeBackend.js');
+                console.log('[NodeCanvas] Calling setFileHandle with slug:', universeSlug);
                 await universeBackend.setFileHandle(universeSlug, fileHandle, {
                   displayPath: filename,
                   fileName: filename,
@@ -13471,6 +13478,14 @@ function NodeCanvas() {
                   leftPanelRef.current.setActiveView('federation');
                 }
               }, 100);
+
+              // 9. Notify GitNativeFederation to refresh its state
+              if (typeof window !== 'undefined') {
+                window.dispatchEvent(new CustomEvent('redstring:universe-created', {
+                  detail: { slug: universeSlug, name: safeName }
+                }));
+                console.log('[NodeCanvas] Dispatched universe-created event');
+              }
 
               console.log('[NodeCanvas] Workspace setup complete. Active universe:', safeName);
             }

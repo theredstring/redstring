@@ -405,6 +405,18 @@ const GitNativeFederation = ({ variant = 'panel', onRequestClose }) => {
 
     window.addEventListener('redstring:auth-expired', handleAuthExpired);
 
+    // Handle universe creation events from onboarding flow
+    const handleUniverseCreated = async () => {
+      try {
+        gfLog('[GF-DEBUG] Universe created event received, refreshing state...');
+        await refreshState();
+      } catch (err) {
+        gfWarn('[GF-DEBUG] Universe created handler refresh failed:', err);
+      }
+    };
+
+    window.addEventListener('redstring:universe-created', handleUniverseCreated);
+
     // Poll sync status every 5 seconds to keep UI updated without saturating the network
     const pollInterval = setInterval(async () => {
       try {
@@ -418,6 +430,7 @@ const GitNativeFederation = ({ variant = 'panel', onRequestClose }) => {
     return () => {
       window.removeEventListener('redstring:auth-connected', handleAuthConnected);
       window.removeEventListener('redstring:auth-expired', handleAuthExpired);
+      window.removeEventListener('redstring:universe-created', handleUniverseCreated);
       clearInterval(pollInterval);
     };
   }, [refreshState, refreshAuth]);
