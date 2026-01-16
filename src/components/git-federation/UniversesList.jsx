@@ -473,16 +473,12 @@ const UniversesList = ({
               </div>
             </div>
             <div style={{ display: 'flex', gap: 4, flexShrink: 0 }}>
-              <button
+              <PanelIconButton
+                icon={workspaceFolder ? FolderOpen : Folder}
+                size={18}
                 onClick={handlePickWorkspaceFolder}
-                style={{
-                  ...buttonStyle('outline'),
-                  fontSize: '0.65rem',
-                  padding: '4px 8px'
-                }}
-              >
-                {workspaceFolder ? 'Change' : 'Choose'}
-              </button>
+                title={workspaceFolder ? 'Change workspace folder' : 'Choose workspace folder'}
+              />
               {workspaceFolder && (
                 <PanelIconButton
                   icon={X}
