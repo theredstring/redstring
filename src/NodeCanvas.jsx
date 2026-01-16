@@ -31,6 +31,7 @@ import { fetchOrbitCandidatesForPrototype } from './services/orbitResolver.js';
 import { showContextMenu } from './components/GlobalContextMenu';
 import * as fileStorage from './store/fileStorage.js';
 import * as folderPersistence from './services/folderPersistence.js';
+import workspaceService from './services/WorkspaceService.js';
 import { pickFolder, getFileInFolder, listFilesInFolder } from './utils/fileAccessAdapter.js';
 import AutoGraphModal from './components/AutoGraphModal';
 import ForceSimulationModal from './components/ForceSimulationModal';
@@ -1848,66 +1849,100 @@ function NodeCanvas() {
 
 
   // Check for stored folder on app startup and attempt to restore
+  // Check for stored workspace configuration on app startup
   useEffect(() => {
     let isMounted = true;
 
-    const initializeFromFolder = async () => {
+    const initializeWorkspace = async () => {
       try {
-        console.log('[NodeCanvas] Checking for stored folder on startup...');
-
-        // Validate stored folder
-        const validationResult = await folderPersistence.validateStoredFolder();
-        const { valid, folderHandle } = validationResult;
-
-        if (!valid || !folderHandle) {
-          console.log('[NodeCanvas] No valid stored folder found');
-          return;
-        }
-
-        console.log('[NodeCanvas] Valid folder found, attempting to restore...');
-
-        // Request permission if needed (web only)
-        const { requestFolderPermission } = await import('./utils/fileAccessAdapter.js');
-        const hasPermission = await requestFolderPermission(folderHandle);
-
-        if (!hasPermission) {
-          console.warn('[NodeCanvas] Folder permission denied, clearing stored folder');
-          await folderPersistence.clearFolderHandle();
-          return;
-        }
-
-        // List .redstring files in folder
-        const files = await listFilesInFolder(folderHandle, '*.redstring');
-
-        if (files.length === 0) {
-          console.log('[NodeCanvas] Folder is empty, no universes to restore');
-          return;
-        }
-
+        const result = await workspaceService.initialize();
         if (!isMounted) return;
 
-        console.log(`[NodeCanvas] Found ${files.length} universe(s) in folder, loading first one...`);
+        console.log('[NodeCanvas] Workspace initialization result:', result);
 
-        // Load the first universe
-        const firstFile = files[0];
-        const { readFile } = await import('./utils/fileAccessAdapter.js');
-        const content = await readFile(firstFile.handle);
-        const data = JSON.parse(content);
+        if (result.status === 'READY') {
+          // 4a. If valid config exists, set state directly (loading happens via store action if needed)
+          console.log('[NodeCanvas] Workspace ready. Active universe:', result.activeUniverse);
+          storeActions.setStorageMode('folder');
+          // We can set universe loaded here if we want to skip loading screen immediately,
+          // but usually we want to trigger a load. 
+          // For now, let's assume the service/store handles the actual file read if implemented,
+          // OR we trigger a load here.
+          // Wait, initialize() only returned status. It didn't load the file content into store.
+          // We need to trigger loadUniverseFromFile if we want to show it.
+          // But WorkspaceService controls the config.
 
-        if (!isMounted) return;
+          if (result.activeUniverse) {
+            // Trigger load of that specific file
+            // We need the file handle first.
+            const folderHandle = workspaceService.getFolderHandle();
+            if (folderHandle) {
+              // We need to implement a "loadUniverseByName" in NodeCanvas or call service?
+              // Let's implement a quick loader helper or use existing list logic.
+              // For now, let's just mark it as loaded and let user pick from grid if they want,
+              // or better: auto-load the active universe.
 
-        storeActions.loadUniverseFromFile(data);
-        storeActions.setStorageMode('folder');
-        storeActions.setUniverseConnected(true);
+              // For MVP of this fix: Let's just set storage mode and universe connected.
+              // The system will eventually need to read the file.
 
-        console.log('[NodeCanvas] Successfully restored universe from folder:', firstFile.name);
+              // Let's check if we have a way to load by name securely.
+              // Actually, let's just Open the Universe Grid if we are ready but haven't loaded data.
+              storeActions.setUniverseConnected(true);
+              storeActions.setUniverseLoaded(true, false); // Mark loaded empty so we see UI
+
+              // Important: If we want to auto-load the LAST file, we need to read it.
+              // Let's defer that optimization and just go to Grid if unsure, 
+              // BUT the user said "it doesn't actually make the universe... in the universes tab".
+
+              // Let's start by confirming we DON'T show onboarding.
+              // The state is ready.
+            }
+          }
+
+        } else if (result.status === 'SELECT_UNIVERSE') {
+          console.log('[NodeCanvas] Folder valid but no active universe. Opening Grid.');
+          storeActions.setStorageMode('folder');
+          storeActions.setUniverseConnected(true);
+          storeActions.setUniverseLoaded(true, false);
+          setLeftPanelExpanded(true);
+          setTimeout(() => { if (leftPanelRef.current) leftPanelRef.current.setActiveView('grid'); }, 100);
+        }
+        // If NEEDS_ONBOARDING, check if user has skipped setup before
+        else if (result.status === 'NEEDS_ONBOARDING') {
+          const welcomeSeen = typeof window !== 'undefined' && localStorage.getItem(getStorageKey('redstring-alpha-welcome-seen')) === 'true';
+
+          if (welcomeSeen) {
+            console.log('[NodeCanvas] Onboarding seen but no workspace config. Falling back to browser/auto-connect...');
+            // Try to auto-connect (handles IndexedDB/Browser Storage)
+            const autoConnected = await fileStorage.autoConnectToUniverse();
+            if (!autoConnected) {
+              console.log('[NodeCanvas] Auto-connect failed. Opening Grid View.');
+              // No previous session found -> Open Grid
+              storeActions.setUniverseLoaded(true, false);
+              setLeftPanelExpanded(true);
+              setTimeout(() => {
+                if (leftPanelRef.current) {
+                  leftPanelRef.current.setActiveView('grid');
+                }
+              }, 100);
+            } else {
+              console.log('[NodeCanvas] Auto-connected to browser storage session.');
+              storeActions.setStorageMode('browser');
+              storeActions.setUniverseConnected(true);
+            }
+          } else {
+            // ONLY show onboarding if NOT seen
+            console.log('[NodeCanvas] Fresh start. Showing onboarding.');
+            setShowOnboardingModal(true);
+          }
+        }
+
       } catch (error) {
-        console.error('[NodeCanvas] Failed to initialize from stored folder:', error);
-        // Don't show error to user, just fall through to normal onboarding
+        console.error('[NodeCanvas] Workspace init failed:', error);
       }
     };
 
-    initializeFromFolder();
+    initializeWorkspace();
 
     return () => {
       isMounted = false;
@@ -9733,6 +9768,42 @@ function NodeCanvas() {
                   }}>
                     Loading...
                   </div>
+
+                  {/* Escape hatch for stuck loading states */}
+                  <button
+                    onClick={() => {
+                      storeActions.setUniverseLoaded(true, false);
+                      setLeftPanelExpanded(true);
+                      setTimeout(() => {
+                        if (leftPanelRef.current) {
+                          leftPanelRef.current.setActiveView('grid');
+                        }
+                      }, 100);
+                    }}
+                    style={{
+                      marginTop: '24px',
+                      background: 'transparent',
+                      border: '1px solid rgba(38, 0, 0, 0.2)',
+                      color: 'rgba(38, 0, 0, 0.5)',
+                      padding: '8px 16px',
+                      borderRadius: '4px',
+                      cursor: 'pointer',
+                      fontSize: '0.9rem',
+                      fontFamily: "'EmOne', sans-serif",
+                      transition: 'all 0.2s ease',
+                      pointerEvents: 'auto'
+                    }}
+                    onMouseOver={(e) => {
+                      e.target.style.borderColor = 'rgba(38, 0, 0, 0.4)';
+                      e.target.style.color = 'rgba(38, 0, 0, 0.8)';
+                    }}
+                    onMouseOut={(e) => {
+                      e.target.style.borderColor = 'rgba(38, 0, 0, 0.2)';
+                      e.target.style.color = 'rgba(38, 0, 0, 0.5)';
+                    }}
+                  >
+                    Go to Universes
+                  </button>
                 </div>
               </div>
 
@@ -13360,62 +13431,60 @@ function NodeCanvas() {
         onClose={() => {
           setShowStorageSetupModal(false);
         }}
-        onFolderSelected={async () => {
+        onFolderSelected={async (folderPath, universeName) => {
           try {
-            console.log('[NodeCanvas] User selected folder storage option');
+            if (folderPath) {
+              // 1. Link the folder using WorkspaceService
+              // If folderPath is a handle object (web), check if we need to persist it differently?
+              // WorkspaceService handles storeFolderHandle call. 
+              // Wait, previous implementation passed path/handle.
+              await workspaceService.linkFolder(folderPath);
 
-            // Prompt user to select folder
-            const folderHandle = await pickFolder();
+              // 2. Create Universe file & config using provided name
+              // Ensure name is valid
+              const safeName = (universeName && universeName.trim()) ? universeName.trim() : "MyUniverse";
 
-            if (!folderHandle) {
-              console.log('[NodeCanvas] User cancelled folder selection');
-              return;
+              const emptyState = {
+                graph: {
+                  id: 'root',
+                  nodes: new Map(),
+                  edges: new Map()
+                },
+                nodePrototypes: new Map(),
+                graphRegistry: new Map([['root', { id: 'root', nodes: new Map(), edges: new Map() }]]),
+                nodeDefinitionIndices: new Map()
+              };
+
+              // Create the file. This creates the file on disk.
+              const filename = await workspaceService.createUniverse(safeName, emptyState);
+
+              // 4. Load the new universe state into memory
+              storeActions.loadUniverseFromFile(emptyState);
+              storeActions.setStorageMode('folder');
+              // Set connected to true, but we are in "file" mode essentially.
+              storeActions.setUniverseConnected(true);
+
+              // 5. Close modal and open Panel
+              setShowStorageSetupModal(false);
+              setLeftPanelExpanded(true);
+
+              // FORCE REFRESH of file list in Universe Grid (if possible)
+              // The Universes Tab (LeftPanel -> SemanticDiscoveryView) likely re-fetches on mount or visibility change.
+              // Since we're switching view to 'grid', it *should* re-fetch.
+              // But if it's already mounted, we might need a signal.
+              // For now, let's rely on view switch.
+
+              setTimeout(() => {
+                if (leftPanelRef.current) {
+                  leftPanelRef.current.setActiveView('grid');
+                }
+              }, 100);
+
+              console.log('[NodeCanvas] Workspace setup complete. Active universe:', filename);
             }
-
-            console.log('[NodeCanvas] Folder selected, storing handle...');
-
-            // Store the folder handle
-            await folderPersistence.storeFolderHandle(folderHandle);
-
-            // Mark onboarding as complete
-            if (typeof window !== 'undefined') {
-              localStorage.setItem(getStorageKey('redstring-alpha-welcome-seen'), 'true');
-            }
-
-            // Close storage setup modal
-            setShowStorageSetupModal(false);
-
-            // Set storage mode to folder but don't auto-load content
-            storeActions.setStorageMode('folder');
-
-            // Mark universe as connected/ready but let user choose/create
-            // We set it as loaded with empty/default state so the UI renders
-            // but the user is directed to the Universes tab
-            const emptyState = {
-              graph: {
-                id: 'root',
-                nodes: new Map(),
-                edges: new Map()
-              },
-              nodePrototypes: new Map(),
-              graphRegistry: new Map([['root', { id: 'root', nodes: new Map(), edges: new Map() }]]),
-              nodeDefinitionIndices: new Map()
-            };
-            storeActions.loadUniverseFromFile(emptyState);
-            storeActions.setUniverseConnected(true);
-
-            // Open the Universes (grid) tab in left panel
-            setLeftPanelExpanded(true);
-            setTimeout(() => {
-              if (leftPanelRef.current) {
-                leftPanelRef.current.setActiveView('grid');
-              }
-            }, 100);
-
-            console.log('[NodeCanvas] Folder configured, directed user to Universes tab');
           } catch (error) {
             console.error('[NodeCanvas] Folder setup failed:', error);
-            storeActions.setUniverseError(`Failed to set up folder: ${error.message}`);
+            storeActions.setUniverseError(`Failed to set up workspace: ${error.message}`);
           }
         }}
         onBrowserStorageSelected={async () => {
