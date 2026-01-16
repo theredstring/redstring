@@ -214,7 +214,7 @@ function buttonStyle(variant = 'outline') {
 const GitNativeFederation = ({ variant = 'panel', onRequestClose }) => {
   const [serviceState, setServiceState] = useState(blankState);
   const [loading, setLoading] = useState(false);
-  const [initializing, setInitializing] = useState(true);
+  const [initializing, setInitializing] = useState(false); // Start false - don't block UI on load
   const [syncStatus, setSyncStatus] = useState(null);
   const [error, setError] = useState(null);
   const [isConnecting, setIsConnecting] = useState(false);
@@ -288,7 +288,7 @@ const GitNativeFederation = ({ variant = 'panel', onRequestClose }) => {
   }, []);
 
   const refreshState = useCallback(async (options = {}) => {
-    const { silent = false, timeoutMs = 2000 } = options; // Reduced from 8000ms to improve responsiveness
+    const { silent = false, timeoutMs = 5000 } = options; // 5s timeout for better reliability
     const timerApi = typeof window !== 'undefined' ? window : globalThis;
     let timeoutId = null;
     let didTimeout = false;
@@ -361,7 +361,8 @@ const GitNativeFederation = ({ variant = 'panel', onRequestClose }) => {
     // Load state asynchronously and allow component to render immediately
     (async () => {
       try {
-        await refreshState();
+        // Use silent mode for initial load to avoid showing loading state
+        await refreshState({ silent: true });
       } finally {
         setInitializing(false);
       }
@@ -4542,39 +4543,7 @@ const GitNativeFederation = ({ variant = 'panel', onRequestClose }) => {
         </div>
       </Modal>
 
-      {/* General loading overlay - centered spinner */}
-      {(initializing || loading) && !isConnecting && (
-        <>
-          <style>
-            {`
-            @keyframes spin {
-              0% { transform: rotate(0deg); }
-              100% { transform: rotate(360deg); }
-            }
-          `}
-          </style>
-          <div
-            style={{
-              position: 'fixed',
-              top: 0,
-              left: 0,
-              right: 0,
-              bottom: 0,
-              backgroundColor: 'rgba(0,0,0,0.3)',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              zIndex: 999
-            }}
-          >
-            <Loader2
-              size={48}
-              color="#8B0000"
-              style={{ animation: 'spin 1s linear infinite' }}
-            />
-          </div>
-        </>
-      )}
+      {/* Loading overlay removed - content renders immediately while data loads in background */}
 
       {/* Connecting screen - inline, scrollable, PieMenu-style */}
       {isConnecting && (

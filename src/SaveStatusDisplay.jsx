@@ -52,7 +52,7 @@ const SaveStatusDisplay = () => {
         const pendingCommits = Number(engine?.pendingCommits || 0);
         const isCommitting = engine?.isRunning || false;
         const hasUnsavedChanges = engine?.hasChanges || false;
-        
+
         // Check SaveCoordinator for immediate dirty flag (includes drag operations)
         const coordinatorHasUnsaved = saveCoordinator.hasUnsavedChanges();
         const coordinatorIsSaving = saveCoordinator.isSaving;
@@ -98,9 +98,17 @@ const SaveStatusDisplay = () => {
     // Initial poll
     poll();
 
+    // Listen for universe creation events to refresh immediately
+    const handleUniverseCreated = () => {
+      console.log('[SaveStatusDisplay] Universe created, refreshing status...');
+      poll();
+    };
+    window.addEventListener('redstring:universe-created', handleUniverseCreated);
+
     return () => {
       cancelled = true;
       if (pollInterval) clearTimeout(pollInterval);
+      window.removeEventListener('redstring:universe-created', handleUniverseCreated);
     };
   }, []);
 
@@ -135,7 +143,7 @@ const SaveStatusDisplay = () => {
         if (isCTA) {
           try {
             window.dispatchEvent(new CustomEvent('redstring:open-federation'));
-          } catch {}
+          } catch { }
         }
       }}
       onMouseEnter={(e) => {
@@ -143,13 +151,13 @@ const SaveStatusDisplay = () => {
         try {
           e.currentTarget.style.transform = 'scale(1.06)';
           e.currentTarget.style.transition = 'transform 120ms ease';
-        } catch {}
+        } catch { }
       }}
       onMouseLeave={(e) => {
         if (!isCTA) return;
         try {
           e.currentTarget.style.transform = 'scale(1)';
-        } catch {}
+        } catch { }
       }}
     >
       {statusText}
