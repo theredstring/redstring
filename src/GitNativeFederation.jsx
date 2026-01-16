@@ -213,7 +213,7 @@ function buttonStyle(variant = 'outline') {
 
 const GitNativeFederation = ({ variant = 'panel', onRequestClose }) => {
   const [serviceState, setServiceState] = useState(blankState);
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
   const [initializing, setInitializing] = useState(false); // Start false - don't block UI on load
   const [syncStatus, setSyncStatus] = useState(null);
   const [error, setError] = useState(null);
@@ -418,20 +418,24 @@ const GitNativeFederation = ({ variant = 'panel', onRequestClose }) => {
 
     window.addEventListener('redstring:universe-created', handleUniverseCreated);
 
+    // Track mount state nicely
+    const isMounted = { current: true };
+
     // Poll sync status safely - prevent overlapping calls if backend is slow
-    // Use a ref to track if component is mounted to prevent state updates after unmount
     let pollTimeout;
     const pollSafe = async () => {
       try {
-        if (!window.__gfIsMounted) return; // Guard for unmount (using window prop as hack, or better use ref)
+        if (!isMounted.current) return;
         const universes = await gitFederationService.refreshUniverses();
-        // Check canceled or unmounted before setting state
-        setSyncTelemetry(universes.syncStatuses || {});
+        if (isMounted.current) {
+          setSyncTelemetry(universes.syncStatuses || {});
+        }
       } catch (err) {
         // Silent fail
       } finally {
-        // Schedule next poll only after current one finishes
-        pollTimeout = setTimeout(pollSafe, 5000);
+        if (isMounted.current) {
+          pollTimeout = setTimeout(pollSafe, 5000);
+        }
       }
     };
 
@@ -439,6 +443,7 @@ const GitNativeFederation = ({ variant = 'panel', onRequestClose }) => {
     pollTimeout = setTimeout(pollSafe, 5000);
 
     return () => {
+      isMounted.current = false;
       window.removeEventListener('redstring:auth-connected', handleAuthConnected);
       window.removeEventListener('redstring:auth-expired', handleAuthExpired);
       window.removeEventListener('redstring:universe-created', handleUniverseCreated);
