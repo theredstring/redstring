@@ -1905,7 +1905,7 @@ function NodeCanvas() {
           storeActions.setUniverseConnected(true);
           storeActions.setUniverseLoaded(true, false);
           setLeftPanelExpanded(true);
-          setTimeout(() => { if (leftPanelRef.current) leftPanelRef.current.setActiveView('grid'); }, 100);
+          setTimeout(() => { if (leftPanelRef.current) leftPanelRef.current.setActiveView('federation'); }, 100);
         }
         // If NEEDS_ONBOARDING, check if user has skipped setup before
         else if (result.status === 'NEEDS_ONBOARDING') {
@@ -1922,7 +1922,7 @@ function NodeCanvas() {
               setLeftPanelExpanded(true);
               setTimeout(() => {
                 if (leftPanelRef.current) {
-                  leftPanelRef.current.setActiveView('grid');
+                  leftPanelRef.current.setActiveView('federation');
                 }
               }, 100);
             } else {
@@ -9776,7 +9776,7 @@ function NodeCanvas() {
                       setLeftPanelExpanded(true);
                       setTimeout(() => {
                         if (leftPanelRef.current) {
-                          leftPanelRef.current.setActiveView('grid');
+                          leftPanelRef.current.setActiveView('federation');
                         }
                       }, 100);
                     }}
@@ -13417,9 +13417,11 @@ function NodeCanvas() {
 
           // Open the Universes (grid) tab in left panel
           setLeftPanelExpanded(true);
+          // Open the Universes (federation) tab in left panel
+          setLeftPanelExpanded(true);
           setTimeout(() => {
             if (leftPanelRef.current) {
-              leftPanelRef.current.setActiveView('grid');
+              leftPanelRef.current.setActiveView('federation');
             }
           }, 100);
         }}
@@ -13476,7 +13478,7 @@ function NodeCanvas() {
 
               setTimeout(() => {
                 if (leftPanelRef.current) {
-                  leftPanelRef.current.setActiveView('grid');
+                  leftPanelRef.current.setActiveView('federation');
                 }
               }, 100);
 
@@ -13507,7 +13509,7 @@ function NodeCanvas() {
             setLeftPanelExpanded(true);
             setTimeout(() => {
               if (leftPanelRef.current) {
-                leftPanelRef.current.setActiveView('grid');
+                leftPanelRef.current.setActiveView('federation');
               }
             }, 100);
 
