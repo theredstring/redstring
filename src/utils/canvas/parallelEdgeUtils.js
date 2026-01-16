@@ -39,6 +39,9 @@ export function calculateParallelEdgePath(startX, startY, endX, endY, curveInfo)
   const { pairIndex, totalInPair } = curveInfo;
   const curveSpacing = 100; // Pixels between parallel edge curves
 
+  // DEBUG: Log curve info
+  console.log('[parallelEdgeUtils] curveInfo:', { pairIndex, totalInPair, centerIndex: (totalInPair - 1) / 2, offsetSteps: pairIndex - (totalInPair - 1) / 2 });
+
   // SYMMETRICAL DISTRIBUTION: Distribute edges symmetrically around the center axis
   // For 2 edges: centerIndex=0.5, offsets=[-0.5, +0.5] * spacing
   // For 3 edges: centerIndex=1, offsets=[-1, 0, +1] * spacing
