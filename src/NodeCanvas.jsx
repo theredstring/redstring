@@ -1854,6 +1854,11 @@ function NodeCanvas() {
     const initializeFromFolder = async () => {
       try {
         console.log('[NodeCanvas] Checking for stored folder on startup...');
+
+        // Validate stored folder
+        const validationResult = await folderPersistence.validateStoredFolder();
+        const { valid, folderHandle } = validationResult;
+
         if (!valid || !folderHandle) {
           console.log('[NodeCanvas] No valid stored folder found');
           return;
@@ -10791,34 +10796,8 @@ function NodeCanvas() {
                                     angle = 0;
                                   }
                                 }
-                              } else {
-                                // Straight line: reuse cached placement when available to prevent flicker (except during dragging)
-                                const cached = placedLabelsRef.current.get(edge.id);
-                                if (cached && cached.position && !draggingNodeInfo) {
-                                  const stabilized = stabilizeLabelPosition(edge.id, cached.position.x, cached.position.y, cached.position.angle || Math.atan2(y2 - y1, x2 - x1) * (180 / Math.PI));
-                                  midX = stabilized.x;
-                                  midY = stabilized.y;
-                                  angle = stabilized.angle || Math.atan2(y2 - y1, x2 - x1) * (180 / Math.PI);
-                                } else {
-                                  // Fallback to original behavior
-                                  midX = (x1 + x2) / 2;
-                                  midY = (y1 + y2) / 2;
-                                  angle = Math.atan2(y2 - y1, x2 - x1) * (180 / Math.PI);
-
-                                  // Cache this position for future reuse
-                                  const labelRect = {
-                                    minX: midX - estimateTextWidth(connectionName, 24) / 2,
-                                    maxX: midX + estimateTextWidth(connectionName, 24) / 2,
-                                    minY: midY - 24 * 1.1 / 2,
-                                    maxY: midY + 24 * 1.1 / 2,
-                                  };
-                                  const stabilized = stabilizeLabelPosition(edge.id, midX, midY, angle);
-                                  placedLabelsRef.current.set(edge.id, {
-                                    rect: labelRect,
-                                    position: { x: stabilized.x, y: stabilized.y, angle: stabilized.angle }
-                                  });
-                                }
                               }
+                              // For straight/curved routing, midX/midY/angle are already set from parallelPath above
 
                               // Adjust angle to keep text readable (never upside down)
                               const adjustedAngle = (angle > 90 || angle < -90) ? angle + 180 : angle;
@@ -11881,34 +11860,8 @@ function NodeCanvas() {
                                     angle = 0;
                                   }
                                 }
-                              } else {
-                                // Straight line: reuse cached placement when available to prevent flicker (except during dragging)
-                                const cached = placedLabelsRef.current.get(edge.id);
-                                if (cached && cached.position && !draggingNodeInfo) {
-                                  const stabilized = stabilizeLabelPosition(edge.id, cached.position.x, cached.position.y, cached.position.angle || Math.atan2(y2 - y1, x2 - x1) * (180 / Math.PI));
-                                  midX = stabilized.x;
-                                  midY = stabilized.y;
-                                  angle = stabilized.angle || Math.atan2(y2 - y1, x2 - x1) * (180 / Math.PI);
-                                } else {
-                                  // Fallback to original behavior
-                                  midX = (x1 + x2) / 2;
-                                  midY = (y1 + y2) / 2;
-                                  angle = Math.atan2(y2 - y1, x2 - x1) * (180 / Math.PI);
-
-                                  // Cache this position for future reuse
-                                  const labelRect = {
-                                    minX: midX - estimateTextWidth(connectionName, 24) / 2,
-                                    maxX: midX + estimateTextWidth(connectionName, 24) / 2,
-                                    minY: midY - 24 * 1.1 / 2,
-                                    maxY: midY + 24 * 1.1 / 2,
-                                  };
-                                  const stabilized = stabilizeLabelPosition(edge.id, midX, midY, angle);
-                                  placedLabelsRef.current.set(edge.id, {
-                                    rect: labelRect,
-                                    position: { x: stabilized.x, y: stabilized.y, angle: stabilized.angle }
-                                  });
-                                }
                               }
+                              // For straight/curved routing, midX/midY/angle are already set from parallelPath above
 
                               // Adjust angle to keep text readable (never upside down)
                               const adjustedAngle = (angle > 90 || angle < -90) ? angle + 180 : angle;
