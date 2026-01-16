@@ -2,10 +2,9 @@ import universeBackendBridge from './universeBackendBridge.js';
 import { persistentAuth } from './persistentAuth.js';
 import { oauthUrl } from './bridgeConfig.js';
 import { formatUniverseNameFromRepo, buildUniqueUniverseName } from '../utils/universeNaming.js';
-const GF_TAG = '[GF-DEBUG]';
 const { log: __gfNativeLog, warn: __gfNativeWarn } = console;
-const gfLog = (...args) => __gfNativeLog.call(console, GF_TAG, ...args);
-const gfWarn = (...args) => __gfNativeWarn.call(console, GF_TAG, ...args);
+const gfLog = (...args) => __gfNativeLog.call(console, '[gitFederationService]', ...args);
+const gfWarn = (...args) => __gfNativeWarn.call(console, '[gitFederationService]', ...args);
 
 const STORAGE_TYPES = {
   GIT: 'git',
@@ -386,7 +385,7 @@ async function buildSyncStatusMap(universes) {
     return {};
   }
 
-  console.time('[GF-DEBUG] buildSyncStatusMap');
+
   const entries = await Promise.all(universes.map(async (universe) => {
     if (!universe?.slug) {
       return [null, null];
@@ -405,7 +404,7 @@ async function buildSyncStatusMap(universes) {
       return [universe.slug, null];
     }
   }));
-  console.timeEnd('[GF-DEBUG] buildSyncStatusMap');
+
 
   return entries.reduce((acc, [slug, status]) => {
     if (slug) acc[slug] = status;
@@ -414,43 +413,19 @@ async function buildSyncStatusMap(universes) {
 }
 
 let _pendingLoadPromise = null;
-let _loadCounter = 0;
 
 async function loadBackendState() {
   // Deduplicate requests: if a load is already in progress, reuse the existing promise
   if (_pendingLoadPromise) {
-    // console.log('[Perf] Reusing in-flight loadBackendState promise');
     return _pendingLoadPromise;
   }
 
-  const loadId = ++_loadCounter;
-  const label = `[GF-DEBUG:${loadId}]`;
-
   _pendingLoadPromise = (async () => {
-    // console.log(`[Perf] loadBackendState #${loadId} Start at ${(performance.now() / 1000).toFixed(3)}s`);
-    console.time(`${label} loadBackendState`);
-
     try {
       const [universes = [], activeUniverse, gitDashboard] = await Promise.all([
-        (async () => {
-          console.time(`${label} getAllUniverses`);
-          const res = await universeBackendBridge.getAllUniverses();
-          console.timeEnd(`${label} getAllUniverses`);
-          return res;
-        })(),
-        (async () => {
-          console.time(`${label} getActiveUniverse`);
-          const res = await universeBackendBridge.getActiveUniverse();
-          console.timeEnd(`${label} getActiveUniverse`);
-          return res;
-        })(),
-        (async () => {
-          if (!universeBackendBridge.getGitStatusDashboard) return null;
-          console.time(`${label} getGitStatusDashboard`);
-          const res = await universeBackendBridge.getGitStatusDashboard();
-          console.timeEnd(`${label} getGitStatusDashboard`);
-          return res;
-        })()
+        universeBackendBridge.getAllUniverses(),
+        universeBackendBridge.getActiveUniverse(),
+        universeBackendBridge.getGitStatusDashboard?.()
       ]);
 
       const syncStatusMap = await buildSyncStatusMap(universes);
@@ -463,16 +438,6 @@ async function loadBackendState() {
         syncStatuses: syncStatusMap,
         gitDashboard: gitDashboard || null
       };
-
-      console.timeEnd(`${label} loadBackendState`);
-      // console.log(`[Perf] loadBackendState #${loadId} End at ${(performance.now() / 1000).toFixed(3)}s`);
-
-      // DEBUG: Inspect what we are returning to the UI
-      if (mapped.universes.length === 0) {
-        console.warn(`${label} loadBackendState returning 0 universes!`);
-      } else {
-        console.log(`${label} loadBackendState loaded ${mapped.universes.length} universes`);
-      }
 
       return mapped;
     } finally {

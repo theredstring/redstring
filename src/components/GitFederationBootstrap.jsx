@@ -33,9 +33,8 @@ export default function GitFederationBootstrap({ enableEagerInit = false }) {
           try {
             await new Promise(resolve => setTimeout(resolve, 0));
             console.log('[GitFederationBootstrap] Importing universeBackend...');
-            console.time('[GF-DEBUG] universeBackend import');
+
             const module = await import('../services/universeBackend.js');
-            console.timeEnd('[GF-DEBUG] universeBackend import');
             const backend = module.default || module.universeBackend;
 
             console.log('[GitFederationBootstrap] Backend imported, wiring bridge and starting initialization...');

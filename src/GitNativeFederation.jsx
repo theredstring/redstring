@@ -28,11 +28,10 @@ import { HEADER_HEIGHT } from './constants.js';
 import useGraphStore from './store/graphStore.jsx';
 import { getStorageKey } from './utils/storageUtils.js';
 
-const GF_TAG = '[GF-DEBUG]';
 const { log: __gfNativeLog, warn: __gfNativeWarn, error: __gfNativeError } = console;
-const gfLog = (...args) => __gfNativeLog.call(console, GF_TAG, ...args);
-const gfWarn = (...args) => __gfNativeWarn.call(console, GF_TAG, ...args);
-const gfError = (...args) => __gfNativeError.call(console, GF_TAG, ...args);
+const gfLog = (...args) => __gfNativeLog.call(console, '[GitNativeFederation]', ...args);
+const gfWarn = (...args) => __gfNativeWarn.call(console, '[GitNativeFederation]', ...args);
+const gfError = (...args) => __gfNativeError.call(console, '[GitNativeFederation]', ...args);
 import { persistentAuth } from './services/persistentAuth.js';
 import { oauthFetch } from './services/bridgeConfig.js';
 import universeBackend from './services/universeBackend.js';
@@ -313,7 +312,7 @@ const GitNativeFederation = ({ variant = 'panel', onRequestClose }) => {
       }
 
       gfLog('[GF-DEBUG] Refreshed federation state:', next);
-      console.log(`[Perf] Federation Data Loaded at ${(performance.now() / 1000).toFixed(3)}s`);
+
       setServiceState(next);
       setSyncTelemetry(next.syncStatuses || {});
       setError(null); // Clear any previous errors on success
@@ -324,24 +323,24 @@ const GitNativeFederation = ({ variant = 'panel', onRequestClose }) => {
       }
 
       if (didTimeout) {
-        gfWarn('[GF-DEBUG] Federation state refresh timed out, continuing without blocking UI');
+        gfWarn('Federation state refresh timed out, continuing without blocking UI');
         // Warning removed per user request - silent degradation
         // setSyncStatus({ ... });
         setError(null);
 
         statePromise
           .then((next) => {
-            gfLog('[GF-DEBUG] Late federation state response applied:', next);
+            gfLog('Late federation state response applied:', next);
             setServiceState(next);
             setSyncTelemetry(next.syncStatuses || {});
             setError(null);
           })
           .catch((lateErr) => {
-            gfError('[GF-DEBUG] Late federation state refresh failed:', lateErr);
+            gfError('Late federation state refresh failed:', lateErr);
             setError('Unable to load Git federation state – please retry.');
           });
       } else {
-        gfError('[GF-DEBUG] Failed to load state:', err);
+        gfError('Failed to load state:', err);
         setError('Unable to load Git federation state – please retry.');
       }
     } finally {
@@ -356,7 +355,7 @@ const GitNativeFederation = ({ variant = 'panel', onRequestClose }) => {
   }, [setError, setLoading, setServiceState, setSyncStatus, setSyncTelemetry]);
 
   useEffect(() => {
-    console.log(`[Perf] GitNativeFederation Mounted at ${(performance.now() / 1000).toFixed(3)}s`);
+
     // CRITICAL: Don't block UI rendering on backend initialization
     // Load state asynchronously and allow component to render immediately
     (async () => {
@@ -377,7 +376,7 @@ const GitNativeFederation = ({ variant = 'panel', onRequestClose }) => {
         setServiceState((prev) => ({ ...prev, ...universes }));
         setSyncTelemetry(universes.syncStatuses || {});
       } catch (err) {
-        gfWarn('[GF-DEBUG] Auth connected refresh failed:', err);
+        gfWarn('Auth connected refresh failed:', err);
       }
     };
 
@@ -387,7 +386,7 @@ const GitNativeFederation = ({ variant = 'panel', onRequestClose }) => {
     const handleAuthExpired = async (event) => {
       try {
         const detail = event.detail || {};
-        gfWarn('[GF-DEBUG] Authentication expired:', detail);
+        gfWarn('Authentication expired:', detail);
 
         // Clear any stale state
         await refreshAuth();
@@ -401,7 +400,7 @@ const GitNativeFederation = ({ variant = 'panel', onRequestClose }) => {
         // Clear any success status
         setSyncStatus(null);
       } catch (err) {
-        gfWarn('[GF-DEBUG] Auth expired handler failed:', err);
+        gfWarn('Auth expired handler failed:', err);
       }
     };
 
@@ -410,10 +409,10 @@ const GitNativeFederation = ({ variant = 'panel', onRequestClose }) => {
     // Handle universe creation events from onboarding flow
     const handleUniverseCreated = async () => {
       try {
-        gfLog('[GF-DEBUG] Universe created event received, refreshing state...');
+        gfLog('Universe created event received, refreshing state...');
         await refreshState();
       } catch (err) {
-        gfWarn('[GF-DEBUG] Universe created handler refresh failed:', err);
+        gfWarn('Universe created handler refresh failed:', err);
       }
     };
 
@@ -429,7 +428,7 @@ const GitNativeFederation = ({ variant = 'panel', onRequestClose }) => {
         if (!isMounted.current) return;
         const universes = await gitFederationService.refreshUniverses();
         if (isMounted.current) {
-          gfLog('[GF-DEBUG] Poll updated state');
+          gfLog('Poll updated state');
           setServiceState((prev) => ({ ...prev, ...universes })); // Fix: Update full state
           setSyncTelemetry(universes.syncStatuses || {});
         }
@@ -783,7 +782,7 @@ const GitNativeFederation = ({ variant = 'panel', onRequestClose }) => {
         return true;
       } catch (err) {
         if (!cancelled) {
-          gfError('[GF-DEBUG] OAuth callback failed:', err);
+          gfError('OAuth callback failed:', err);
           setError(`GitHub OAuth failed: ${err.message}`);
         }
         return false;
