@@ -168,15 +168,6 @@ const StorageSetupModal = ({
                 fontFamily: "'EmOne', sans-serif"
               }}>
                 Choose a Folder
-                <span style={{
-                  marginLeft: '8px',
-                  fontSize: '0.85rem',
-                  fontWeight: '600',
-                  color: '#260000',
-                  fontFamily: "'EmOne', sans-serif"
-                }}>
-                  (Recommended)
-                </span>
               </h3>
               <p style={{
                 margin: '4px 0 0 0',

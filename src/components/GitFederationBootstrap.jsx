@@ -113,11 +113,11 @@ export default function GitFederationBootstrap({ enableEagerInit = false }) {
     // Command handler that dynamically loads backend only when first command arrives
     const handleBackendCommand = async (event) => {
       const { command, payload, id } = event.detail;
-      console.log(`[Bootstrap:TRACE] Received command: ${command} (${id})`);
+
 
       try {
         const backend = await ensureBackendReady();
-        console.log(`[Bootstrap:TRACE] Backend ready, executing: ${command} (${id})`);
+
 
         let result;
 
@@ -189,7 +189,7 @@ export default function GitFederationBootstrap({ enableEagerInit = false }) {
             throw new Error(`Unknown command: ${command}`);
         }
 
-        console.log(`[Bootstrap:TRACE] Dispatching response for ${command} (${id})`);
+
         window.dispatchEvent(new CustomEvent(`universe-backend-response-${id}`, {
           detail: { result }
         }));

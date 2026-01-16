@@ -166,7 +166,7 @@ class UniverseBackendBridge {
   }
 
   async executeCommand({ command, payload, id, resolve, reject }) {
-    console.log(`[Bridge:TRACE] executeCommand START: ${command} (${id})`);
+
     try {
       const responseEvent = `${RESPONSE_EVENT_PREFIX}${id}`;
       let timeoutId = null;
@@ -179,7 +179,7 @@ class UniverseBackendBridge {
       };
 
       const handleResponse = (event) => {
-        console.log(`[Bridge:TRACE] RESPONSE received for ${command} (${id})`);
+
         cleanup();
         const detail = event?.detail;
         if (detail?.error) {
@@ -190,21 +190,21 @@ class UniverseBackendBridge {
       };
 
       window.addEventListener(responseEvent, handleResponse, { once: true });
-      console.log(`[Bridge:TRACE] Listener attached for ${responseEvent}`);
+
 
       timeoutId = window.setTimeout(() => {
-        console.warn(`[Bridge:TRACE] TIMEOUT for ${command} (${id}) after ${this.timeoutMs}ms`);
+
         cleanup();
         reject(new Error(`Backend command "${command}" timed out after ${this.timeoutMs}ms`));
       }, this.timeoutMs);
 
-      console.log(`[Bridge:TRACE] Dispatching universe-backend-command: ${command} (${id})`);
+
       window.dispatchEvent(new CustomEvent(COMMAND_EVENT, {
         detail: { command, payload, id }
       }));
-      console.log(`[Bridge:TRACE] Command dispatched: ${command} (${id})`);
+
     } catch (error) {
-      console.error(`[Bridge:TRACE] executeCommand FAILED: ${command} (${id})`, error);
+
       reject(error);
     }
   }

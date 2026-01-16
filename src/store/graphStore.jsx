@@ -574,7 +574,17 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
       return saved === 'git' ? 'git' : 'local'; // Default to 'local'
     })(),
 
+    // Panel State
+    leftPanelExpanded: false,
+    rightPanelExpanded: false,
+
     // --- Actions --- (Operating on plain data)
+    // Panel actions
+    setLeftPanelExpanded: (expanded) => set({ leftPanelExpanded: expanded }),
+    setRightPanelExpanded: (expanded) => set({ rightPanelExpanded: expanded }),
+    toggleLeftPanel: () => set(state => ({ leftPanelExpanded: !state.leftPanelExpanded })),
+    toggleRightPanel: () => set(state => ({ rightPanelExpanded: !state.rightPanelExpanded })),
+
     // Grouping actions
     createGroup: (graphId, { name = 'Group', color = '#8B0000', memberInstanceIds = [] } = {}, contextOptions = {}) => {
       api.setChangeContext({ type: 'group_create', target: 'group', ...contextOptions });
