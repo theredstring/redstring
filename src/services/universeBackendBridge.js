@@ -136,11 +136,10 @@ class UniverseBackendBridge {
   }
 
   async processQueuedCommands() {
-    console.log(`[UniverseBackendBridge] Processing ${this.commandQueue.length} queued commands`);
-
     if (this.useDirectBackend) {
-      while (this.commandQueue.length > 0) {
-        const queuedCommand = this.commandQueue.shift();
+      const pending = this.commandQueue.splice(0, this.commandQueue.length);
+      // Execute in parallel but handle errors individually
+      pending.forEach(async (queuedCommand) => {
         try {
           const result = await this.executeDirectCommand(queuedCommand.command, queuedCommand.payload);
           queuedCommand.resolve(result);
@@ -148,19 +147,22 @@ class UniverseBackendBridge {
           console.error('[UniverseBackendBridge] Queued command failed during direct fallback:', error);
           queuedCommand.reject(error);
         }
-      }
+      });
       return;
     }
 
-    while (this.commandQueue.length > 0) {
-      const queuedCommand = this.commandQueue.shift();
+    const pending = this.commandQueue.splice(0, this.commandQueue.length);
+    // Execute all queued commands in parallel
+    // We don't await the results here because each command handles its own resolution/rejection
+    // and we don't want one slow command to block others.
+    pending.forEach(async (queuedCommand) => {
       try {
         await this.executeCommand(queuedCommand);
       } catch (error) {
         console.error('[UniverseBackendBridge] Queued command failed:', error);
         queuedCommand.reject(error);
       }
-    }
+    });
   }
 
   async executeCommand({ command, payload, id, resolve, reject }) {
