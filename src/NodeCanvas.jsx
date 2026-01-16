@@ -1854,9 +1854,12 @@ function NodeCanvas() {
     const initializeFromFolder = async () => {
       try {
         console.log('[NodeCanvas] Checking for stored folder on startup...');
+        console.log('[NodeCanvas Debug] Session Param:', new URLSearchParams(window.location.search).get('session'));
 
         // Validate stored folder
-        const { valid, folderHandle } = await folderPersistence.validateStoredFolder();
+        const validationResult = await folderPersistence.validateStoredFolder();
+        const { valid, folderHandle } = validationResult;
+        console.log('[NodeCanvas Debug] Folder Validation Result:', validationResult);
 
         if (!valid || !folderHandle) {
           console.log('[NodeCanvas] No valid stored folder found');
@@ -1944,7 +1947,27 @@ function NodeCanvas() {
         !!universeLoadingError
       );
 
+    // Debug logging for onboarding state
+    if (typeof window !== 'undefined') {
+      const params = new URLSearchParams(window.location.search);
+      console.log('[NodeCanvas Debug] Onboarding State Check:', {
+        url: window.location.href,
+        search: window.location.search,
+        sessionParam: params.get('session'),
+        storageKey: getStorageKey('redstring-alpha-welcome-seen'),
+        rawValue: localStorage.getItem(getStorageKey('redstring-alpha-welcome-seen')),
+        hasCompletedOnboarding,
+        suppressForGitFlow,
+        isUniverseLoading,
+        hasUniverseFile,
+        isUniverseLoaded,
+        universeLoadingError,
+        shouldShowOnboarding
+      });
+    }
+
     if (shouldShowOnboarding && !showOnboardingModal) {
+      console.log('[NodeCanvas Debug] Showing onboarding modal!');
       setShowOnboardingModal(true);
     }
   }, [isUniverseLoading, hasUniverseFile, isUniverseLoaded, universeLoadingError, showOnboardingModal]);
@@ -10581,6 +10604,12 @@ function NodeCanvas() {
                           manhattanSourceSide = sSide;
                           manhattanDestSide = dSide;
                         }
+
+                        // Calculate parallel edge path using centralized utility
+                        const curveInfo = edgeCurveInfo.get(edge.id);
+                        const parallelPath = calculateParallelEdgePath(startX, startY, endX, endY, curveInfo);
+                        const useCurve = parallelPath.type === 'curve';
+
                         return (
                           <g key={`edge-above-${edge.id}-${idx}`}>
                             {/* Main edge line - always same thickness */}
@@ -10602,54 +10631,32 @@ function NodeCanvas() {
                                   }}
                                   strokeLinecap="round"
                                 />
-                              ) : (() => {
-                                // Glow effect also needs curve for multi-edge pairs
-                                const curveInfo = edgeCurveInfo.get(edge.id);
-                                if (curveInfo && curveInfo.totalInPair > 1) {
-                                  const { pairIndex, totalInPair } = curveInfo;
-                                  const curveSpacing = 100;
-                                  // Alternating direction logic matching utils
-                                  const direction = pairIndex % 2 === 0 ? 1 : -1;
-                                  const offsetMagnitude = Math.floor((pairIndex + 1) / 2) * curveSpacing;
-                                  const perpOffset = direction * offsetMagnitude;
-                                  const edgeDx = endX - startX;
-                                  const edgeDy = endY - startY;
-                                  const edgeLen = Math.sqrt(edgeDx * edgeDx + edgeDy * edgeDy);
-                                  const perpX = edgeLen > 0 ? -edgeDy / edgeLen : 0;
-                                  const perpY = edgeLen > 0 ? edgeDx / edgeLen : 0;
-                                  const curveMidX = (startX + endX) / 2;
-                                  const curveMidY = (startY + endY) / 2;
-                                  const ctrlX = curveMidX + perpX * perpOffset;
-                                  const ctrlY = curveMidY + perpY * perpOffset;
-                                  return (
-                                    <path
-                                      d={`M ${startX} ${startY} Q ${ctrlX} ${ctrlY} ${endX} ${endY}`}
-                                      fill="none"
-                                      stroke={edgeColor}
-                                      strokeWidth="12"
-                                      opacity={isSelected ? "0.3" : "0.2"}
-                                      style={{
-                                        filter: `blur(3px) drop-shadow(0 0 8px ${edgeColor})`
-                                      }}
-                                      strokeLinecap="round"
-                                    />
-                                  );
-                                }
-                                return (
-                                  <line
-                                    x1={startX}
-                                    y1={startY}
-                                    x2={endX}
-                                    y2={endY}
-                                    stroke={edgeColor}
-                                    strokeWidth="12"
-                                    opacity={isSelected ? "0.3" : "0.2"}
-                                    style={{
-                                      filter: `blur(3px) drop-shadow(0 0 8px ${edgeColor})`
-                                    }}
-                                  />
-                                );
-                              })()
+                              ) : useCurve ? (
+                                <path
+                                  d={parallelPath.path}
+                                  fill="none"
+                                  stroke={edgeColor}
+                                  strokeWidth="12"
+                                  opacity={isSelected ? "0.3" : "0.2"}
+                                  style={{
+                                    filter: `blur(3px) drop-shadow(0 0 8px ${edgeColor})`
+                                  }}
+                                  strokeLinecap="round"
+                                />
+                              ) : (
+                                <line
+                                  x1={startX}
+                                  y1={startY}
+                                  x2={endX}
+                                  y2={endY}
+                                  stroke={edgeColor}
+                                  strokeWidth="12"
+                                  opacity={isSelected ? "0.3" : "0.2"}
+                                  style={{
+                                    filter: `blur(3px) drop-shadow(0 0 8px ${edgeColor})`
+                                  }}
+                                />
+                              )
                             )}
 
                             {(enableAutoRouting && (routingStyle === 'manhattan' || routingStyle === 'clean')) ? (
@@ -10673,54 +10680,26 @@ function NodeCanvas() {
                                   strokeLinecap="round"
                                 />
                               </>
-                            ) : (() => {
-                              // Check if this edge needs curve offset (multiple edges between same nodes)
-                              const curveInfo = edgeCurveInfo.get(edge.id);
-                              if (curveInfo && curveInfo.totalInPair > 1) {
-                                // Calculate curve offset for parallel edges
-                                const { pairIndex, totalInPair } = curveInfo;
-                                const curveSpacing = 100; // Exaggerated curves
-                                const direction = pairIndex % 2 === 0 ? 1 : -1;
-                                const offsetMagnitude = Math.floor((pairIndex + 1) / 2) * curveSpacing;
-                                const perpOffset = direction * offsetMagnitude;
-
-                                // Calculate perpendicular direction
-                                const edgeDx = endX - startX;
-                                const edgeDy = endY - startY;
-                                const edgeLen = Math.sqrt(edgeDx * edgeDx + edgeDy * edgeDy);
-                                const perpX = edgeLen > 0 ? -edgeDy / edgeLen : 0;
-                                const perpY = edgeLen > 0 ? edgeDx / edgeLen : 0;
-
-                                // Control point at midpoint, offset perpendicular to edge
-                                const curveMidX = (startX + endX) / 2;
-                                const curveMidY = (startY + endY) / 2;
-                                const ctrlX = curveMidX + perpX * perpOffset;
-                                const ctrlY = curveMidY + perpY * perpOffset;
-
-                                return (
-                                  <path
-                                    d={`M ${startX} ${startY} Q ${ctrlX} ${ctrlY} ${endX} ${endY}`}
-                                    fill="none"
-                                    stroke={edgeColor}
-                                    strokeWidth={showConnectionNames ? "16" : "6"}
-                                    style={{ transition: 'stroke 0.2s ease' }}
-                                    strokeLinecap="round"
-                                  />
-                                );
-                              }
-                              // Single edge - render as straight line
-                              return (
-                                <line
-                                  x1={startX}
-                                  y1={startY}
-                                  x2={endX}
-                                  y2={endY}
-                                  stroke={edgeColor}
-                                  strokeWidth={showConnectionNames ? "16" : "6"}
-                                  style={{ transition: 'stroke 0.2s ease' }}
-                                />
-                              );
-                            })()}
+                            ) : useCurve ? (
+                              <path
+                                d={parallelPath.path}
+                                fill="none"
+                                stroke={edgeColor}
+                                strokeWidth={showConnectionNames ? "16" : "6"}
+                                style={{ transition: 'stroke 0.2s ease' }}
+                                strokeLinecap="round"
+                              />
+                            ) : (
+                              <line
+                                x1={startX}
+                                y1={startY}
+                                x2={endX}
+                                y2={endY}
+                                stroke={edgeColor}
+                                strokeWidth={showConnectionNames ? "16" : "6"}
+                                style={{ transition: 'stroke 0.2s ease' }}
+                              />
+                            )}
 
                             {/* Connection name text - only show when enabled */}
                             {showConnectionNames && (() => {
@@ -10740,31 +10719,10 @@ function NodeCanvas() {
                                   angle = 90;
                                 }
                               } else {
-                                // Curve apex logic for labels
-                                const curveInfo = edgeCurveInfo.get(edge.id);
-                                if (curveInfo && curveInfo.totalInPair > 1) {
-                                  const { pairIndex } = curveInfo;
-                                  const curveSpacing = 100;
-                                  const direction = pairIndex % 2 === 0 ? 1 : -1;
-                                  const offsetMagnitude = Math.floor((pairIndex + 1) / 2) * curveSpacing;
-                                  const perpOffset = direction * offsetMagnitude;
-                                  const edgeDx = endX - startX;
-                                  const edgeDy = endY - startY;
-                                  const edgeLen = Math.sqrt(edgeDx * edgeDx + edgeDy * edgeDy);
-                                  const perpX = edgeLen > 0 ? -edgeDy / edgeLen : 0;
-                                  const perpY = edgeLen > 0 ? edgeDx / edgeLen : 0;
-                                  const curveMidX = (startX + endX) / 2;
-                                  const curveMidY = (startY + endY) / 2;
-                                  const ctrlX = curveMidX + perpX * perpOffset;
-                                  const ctrlY = curveMidY + perpY * perpOffset;
-                                  midX = 0.25 * startX + 0.5 * ctrlX + 0.25 * endX;
-                                  midY = 0.25 * startY + 0.5 * ctrlY + 0.25 * endY;
-                                  angle = Math.atan2(edgeDy, edgeDx) * (180 / Math.PI);
-                                } else {
-                                  midX = (x1 + x2) / 2;
-                                  midY = (y1 + y2) / 2;
-                                  angle = Math.atan2(y2 - y1, x2 - x1) * (180 / Math.PI);
-                                }
+                                // Use utility-calculated apex for curves, midpoint for lines
+                                midX = parallelPath.apexX;
+                                midY = parallelPath.apexY;
+                                angle = parallelPath.labelAngle;
                               }
 
                               // Determine connection name to display
@@ -11736,6 +11694,12 @@ function NodeCanvas() {
                           manhattanSourceSide = sSide;
                           manhattanDestSide = dSide;
                         }
+
+                        // Calculate parallel edge path using centralized utility
+                        const curveInfo = edgeCurveInfo.get(edge.id);
+                        const parallelPath = calculateParallelEdgePath(startX, startY, endX, endY, curveInfo);
+                        const useCurve = parallelPath.type === 'curve';
+
                         return (
                           <g key={`edge-above-${edge.id}-${idx}`}>
                             {/* Main edge line - always same thickness */}
@@ -11757,54 +11721,32 @@ function NodeCanvas() {
                                   }}
                                   strokeLinecap="round"
                                 />
-                              ) : (() => {
-                                // Glow effect also needs curve for multi-edge pairs
-                                const curveInfo = edgeCurveInfo.get(edge.id);
-                                if (curveInfo && curveInfo.totalInPair > 1) {
-                                  const { pairIndex, totalInPair } = curveInfo;
-                                  const curveSpacing = 100;
-                                  // Alternating direction logic matching utils
-                                  const direction = pairIndex % 2 === 0 ? 1 : -1;
-                                  const offsetMagnitude = Math.floor((pairIndex + 1) / 2) * curveSpacing;
-                                  const perpOffset = direction * offsetMagnitude;
-                                  const edgeDx = endX - startX;
-                                  const edgeDy = endY - startY;
-                                  const edgeLen = Math.sqrt(edgeDx * edgeDx + edgeDy * edgeDy);
-                                  const perpX = edgeLen > 0 ? -edgeDy / edgeLen : 0;
-                                  const perpY = edgeLen > 0 ? edgeDx / edgeLen : 0;
-                                  const curveMidX = (startX + endX) / 2;
-                                  const curveMidY = (startY + endY) / 2;
-                                  const ctrlX = curveMidX + perpX * perpOffset;
-                                  const ctrlY = curveMidY + perpY * perpOffset;
-                                  return (
-                                    <path
-                                      d={`M ${startX} ${startY} Q ${ctrlX} ${ctrlY} ${endX} ${endY}`}
-                                      fill="none"
-                                      stroke={edgeColor}
-                                      strokeWidth="12"
-                                      opacity={isSelected ? "0.3" : "0.2"}
-                                      style={{
-                                        filter: `blur(3px) drop-shadow(0 0 8px ${edgeColor})`
-                                      }}
-                                      strokeLinecap="round"
-                                    />
-                                  );
-                                }
-                                return (
-                                  <line
-                                    x1={startX}
-                                    y1={startY}
-                                    x2={endX}
-                                    y2={endY}
-                                    stroke={edgeColor}
-                                    strokeWidth="12"
-                                    opacity={isSelected ? "0.3" : "0.2"}
-                                    style={{
-                                      filter: `blur(3px) drop-shadow(0 0 8px ${edgeColor})`
-                                    }}
-                                  />
-                                );
-                              })()
+                              ) : useCurve ? (
+                                <path
+                                  d={parallelPath.path}
+                                  fill="none"
+                                  stroke={edgeColor}
+                                  strokeWidth="12"
+                                  opacity={isSelected ? "0.3" : "0.2"}
+                                  style={{
+                                    filter: `blur(3px) drop-shadow(0 0 8px ${edgeColor})`
+                                  }}
+                                  strokeLinecap="round"
+                                />
+                              ) : (
+                                <line
+                                  x1={startX}
+                                  y1={startY}
+                                  x2={endX}
+                                  y2={endY}
+                                  stroke={edgeColor}
+                                  strokeWidth="12"
+                                  opacity={isSelected ? "0.3" : "0.2"}
+                                  style={{
+                                    filter: `blur(3px) drop-shadow(0 0 8px ${edgeColor})`
+                                  }}
+                                />
+                              )
                             )}
 
                             {(enableAutoRouting && (routingStyle === 'manhattan' || routingStyle === 'clean')) ? (

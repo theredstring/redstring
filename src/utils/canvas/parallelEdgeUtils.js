@@ -13,42 +13,54 @@
  * @returns {Object} Path object with type ('line' or 'curve'), path string, and control point
  */
 export function calculateParallelEdgePath(startX, startY, endX, endY, curveInfo) {
+  // Calculate edge vector for angle calculation (needed for both line and curve)
+  const edgeDx = endX - startX;
+  const edgeDy = endY - startY;
+  const edgeLen = Math.sqrt(edgeDx * edgeDx + edgeDy * edgeDy);
+  const labelAngle = Math.atan2(edgeDy, edgeDx) * (180 / Math.PI);
+
   if (!curveInfo || curveInfo.totalInPair <= 1) {
-    // Single edge - return straight line
+    // Single edge - return straight line with midpoint for label
     return {
       type: 'line',
+      path: `M ${startX} ${startY} L ${endX} ${endY}`,
       startX,
       startY,
       endX,
-      endY
+      endY,
+      ctrlX: null,
+      ctrlY: null,
+      apexX: (startX + endX) / 2,
+      apexY: (startY + endY) / 2,
+      labelAngle
     };
   }
 
   const { pairIndex, totalInPair } = curveInfo;
-  const curveSpacing = 100; // Pixels between parallel edge curves - EXAGGERATED CURVES
-  console.log('calculateParallelEdgePath called with spacing:', curveSpacing, 'curveInfo:', curveInfo);
+  const curveSpacing = 100; // Pixels between parallel edge curves
 
-  // KEY FIX: Alternate curve direction based on index
-  // Even indices (0, 2, 4...) curve one way, odd indices (1, 3, 5...) curve the opposite way
-  const direction = pairIndex % 2 === 0 ? 1 : -1;
-
-  // Calculate offset magnitude: 0, 1, 2... for pairs (0,1), (2,3), (4,5)...
-  const offsetMagnitude = Math.floor((pairIndex + 1) / 2) * curveSpacing;
-  const perpOffset = direction * offsetMagnitude;
-
-  // Calculate perpendicular direction vector
-  const edgeDx = endX - startX;
-  const edgeDy = endY - startY;
-  const edgeLen = Math.sqrt(edgeDx * edgeDx + edgeDy * edgeDy);
+  // SYMMETRICAL DISTRIBUTION: Distribute edges symmetrically around the center axis
+  // For 2 edges: centerIndex=0.5, offsets=[-0.5, +0.5] * spacing
+  // For 3 edges: centerIndex=1, offsets=[-1, 0, +1] * spacing
+  // For 4 edges: centerIndex=1.5, offsets=[-1.5, -0.5, +0.5, +1.5] * spacing
+  const centerIndex = (totalInPair - 1) / 2;
+  const offsetSteps = pairIndex - centerIndex;
+  const perpOffset = offsetSteps * curveSpacing;
 
   if (edgeLen === 0) {
     // Degenerate case - same start and end point
     return {
       type: 'line',
+      path: `M ${startX} ${startY} L ${endX} ${endY}`,
       startX,
       startY,
       endX,
-      endY
+      endY,
+      ctrlX: null,
+      ctrlY: null,
+      apexX: startX,
+      apexY: startY,
+      labelAngle: 0
     };
   }
 
@@ -80,7 +92,8 @@ export function calculateParallelEdgePath(startX, startY, endX, endY, curveInfo)
     endX,
     endY,
     apexX,
-    apexY
+    apexY,
+    labelAngle
   };
 }
 
