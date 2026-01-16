@@ -466,6 +466,14 @@ async function loadBackendState() {
 
       console.timeEnd(`${label} loadBackendState`);
       // console.log(`[Perf] loadBackendState #${loadId} End at ${(performance.now() / 1000).toFixed(3)}s`);
+
+      // DEBUG: Inspect what we are returning to the UI
+      if (mapped.universes.length === 0) {
+        console.warn(`${label} loadBackendState returning 0 universes!`);
+      } else {
+        console.log(`${label} loadBackendState loaded ${mapped.universes.length} universes`);
+      }
+
       return mapped;
     } finally {
       _pendingLoadPromise = null;

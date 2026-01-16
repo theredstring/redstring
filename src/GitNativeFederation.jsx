@@ -288,7 +288,7 @@ const GitNativeFederation = ({ variant = 'panel', onRequestClose }) => {
   }, []);
 
   const refreshState = useCallback(async (options = {}) => {
-    const { silent = false, timeoutMs = 5000 } = options; // 5s timeout for better reliability
+    const { silent = false, timeoutMs = 15000 } = options; // 15s timeout to match bridge
     const timerApi = typeof window !== 'undefined' ? window : globalThis;
     let timeoutId = null;
     let didTimeout = false;
@@ -428,6 +428,8 @@ const GitNativeFederation = ({ variant = 'panel', onRequestClose }) => {
         if (!isMounted.current) return;
         const universes = await gitFederationService.refreshUniverses();
         if (isMounted.current) {
+          gfLog('[GF-DEBUG] Poll updated state');
+          setServiceState((prev) => ({ ...prev, ...universes })); // Fix: Update full state
           setSyncTelemetry(universes.syncStatuses || {});
         }
       } catch (err) {

@@ -166,6 +166,7 @@ class UniverseBackendBridge {
   }
 
   async executeCommand({ command, payload, id, resolve, reject }) {
+    console.log(`[Bridge:TRACE] executeCommand START: ${command} (${id})`);
     try {
       const responseEvent = `${RESPONSE_EVENT_PREFIX}${id}`;
       let timeoutId = null;
@@ -178,6 +179,7 @@ class UniverseBackendBridge {
       };
 
       const handleResponse = (event) => {
+        console.log(`[Bridge:TRACE] RESPONSE received for ${command} (${id})`);
         cleanup();
         const detail = event?.detail;
         if (detail?.error) {
@@ -188,16 +190,21 @@ class UniverseBackendBridge {
       };
 
       window.addEventListener(responseEvent, handleResponse, { once: true });
+      console.log(`[Bridge:TRACE] Listener attached for ${responseEvent}`);
 
       timeoutId = window.setTimeout(() => {
+        console.warn(`[Bridge:TRACE] TIMEOUT for ${command} (${id}) after ${this.timeoutMs}ms`);
         cleanup();
         reject(new Error(`Backend command "${command}" timed out after ${this.timeoutMs}ms`));
       }, this.timeoutMs);
 
+      console.log(`[Bridge:TRACE] Dispatching universe-backend-command: ${command} (${id})`);
       window.dispatchEvent(new CustomEvent(COMMAND_EVENT, {
         detail: { command, payload, id }
       }));
+      console.log(`[Bridge:TRACE] Command dispatched: ${command} (${id})`);
     } catch (error) {
+      console.error(`[Bridge:TRACE] executeCommand FAILED: ${command} (${id})`, error);
       reject(error);
     }
   }
@@ -257,6 +264,23 @@ class UniverseBackendBridge {
       }
 
       // Execute command immediately if backend is ready
+      // BUT check if it was already processed by processQueuedCommands (removed from queue)
+      const stillInQueue = this.commandQueue.includes(commandData);
+
+      if (!this.isBackendReady && !stillInQueue) {
+        // It was processed by the queue handler already - do not execute again
+        // commandData.resolve/reject would have been called by processQueuedCommands
+        return;
+      }
+
+      // If it's still in the queue, remove it so we don't execute it twice
+      if (stillInQueue) {
+        const index = this.commandQueue.indexOf(commandData);
+        if (index > -1) {
+          this.commandQueue.splice(index, 1);
+        }
+      }
+
       try {
         await this.executeCommand(commandData);
       } catch (error) {
