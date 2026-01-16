@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Plus, Trash2, ChevronDown, Github, Upload, Download, X, Edit, Star, Save, Activity, Link, FileText, ArrowRightLeft } from 'lucide-react';
+import { Plus, Trash2, ChevronDown, Github, Upload, Download, X, Edit, Star, Save, Activity, Link, FileText, ArrowRightLeft, FolderOpen, Folder } from 'lucide-react';
 import SectionCard from './shared/SectionCard.jsx';
 import PanelIconButton from '../shared/PanelIconButton.jsx';
 
@@ -54,6 +54,54 @@ function formatWhen(timestamp) {
   }
 }
 
+// IndexedDB helpers for persisting workspace folder handle
+const WORKSPACE_DB_NAME = 'redstring-workspace';
+const WORKSPACE_STORE_NAME = 'folder-handles';
+
+function openWorkspaceDB() {
+  return new Promise((resolve, reject) => {
+    const request = indexedDB.open(WORKSPACE_DB_NAME, 1);
+    request.onupgradeneeded = (event) => {
+      const db = event.target.result;
+      if (!db.objectStoreNames.contains(WORKSPACE_STORE_NAME)) {
+        db.createObjectStore(WORKSPACE_STORE_NAME, { keyPath: 'id' });
+      }
+    };
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error);
+  });
+}
+
+function saveWorkspaceHandleToDB(db, handle) {
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(WORKSPACE_STORE_NAME, 'readwrite');
+    const store = tx.objectStore(WORKSPACE_STORE_NAME);
+    store.put({ id: 'workspace', handle });
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+  });
+}
+
+function getWorkspaceHandleFromDB(db) {
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(WORKSPACE_STORE_NAME, 'readonly');
+    const store = tx.objectStore(WORKSPACE_STORE_NAME);
+    const request = store.get('workspace');
+    request.onsuccess = () => resolve(request.result?.handle || null);
+    request.onerror = () => reject(request.error);
+  });
+}
+
+function clearWorkspaceHandleFromDB(db) {
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(WORKSPACE_STORE_NAME, 'readwrite');
+    const store = tx.objectStore(WORKSPACE_STORE_NAME);
+    store.delete('workspace');
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+  });
+}
+
 const UniversesList = ({
   universes = [],
   activeUniverseSlug,
@@ -84,10 +132,34 @@ const UniversesList = ({
   const [showNewMenu, setShowNewMenu] = useState(false);
   const [showLocalFileMenu, setShowLocalFileMenu] = useState(null); // Track which universe's menu is open
   const [isHeaderSlim, setIsHeaderSlim] = useState(false); // Track if header should stack at < 400px
+  const [workspaceFolder, setWorkspaceFolder] = useState(() => {
+    try {
+      return localStorage.getItem('redstring_workspace_folder_name') || null;
+    } catch {
+      return null;
+    }
+  });
+  const [workspaceFolderHandle, setWorkspaceFolderHandle] = useState(null);
   const loadMenuRef = useRef(null);
   const newMenuRef = useRef(null);
   const localFileMenuRef = useRef(null);
   const containerRef = useRef(null);
+
+  // Try to restore workspace folder handle from IndexedDB on mount
+  useEffect(() => {
+    (async () => {
+      try {
+        const db = await openWorkspaceDB();
+        const handle = await getWorkspaceHandleFromDB(db);
+        if (handle) {
+          setWorkspaceFolderHandle(handle);
+          setWorkspaceFolder(handle.name);
+        }
+      } catch (e) {
+        console.warn('[UniversesList] Failed to restore workspace folder handle:', e);
+      }
+    })();
+  }, []);
 
   // Track container width for responsive header layout
   useEffect(() => {
@@ -124,6 +196,38 @@ const UniversesList = ({
       return () => document.removeEventListener('mousedown', handleClickOutside);
     }
   }, [showLoadMenu, showNewMenu, showLocalFileMenu]);
+
+  // Workspace folder picker
+  const handlePickWorkspaceFolder = async () => {
+    if (!('showDirectoryPicker' in window)) {
+      alert('Directory picker is not supported in this browser.');
+      return;
+    }
+    try {
+      const handle = await window.showDirectoryPicker({ mode: 'readwrite' });
+      setWorkspaceFolderHandle(handle);
+      setWorkspaceFolder(handle.name);
+      localStorage.setItem('redstring_workspace_folder_name', handle.name);
+      const db = await openWorkspaceDB();
+      await saveWorkspaceHandleToDB(db, handle);
+    } catch (e) {
+      if (e.name !== 'AbortError') {
+        console.error('[UniversesList] Failed to pick workspace folder:', e);
+      }
+    }
+  };
+
+  const handleClearWorkspaceFolder = async () => {
+    setWorkspaceFolderHandle(null);
+    setWorkspaceFolder(null);
+    localStorage.removeItem('redstring_workspace_folder_name');
+    try {
+      const db = await openWorkspaceDB();
+      await clearWorkspaceHandleFromDB(db);
+    } catch (e) {
+      console.warn('[UniversesList] Failed to clear workspace folder from DB:', e);
+    }
+  };
 
   const triggerLocalFilePicker = () => {
     const input = document.createElement('input');
@@ -336,6 +440,60 @@ const UniversesList = ({
         }
       >
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+          {/* Workspace Folder Section */}
+          <div style={{
+            padding: '10px 12px',
+            backgroundColor: '#cfc6c6',
+            borderRadius: 6,
+            border: workspaceFolder ? '2px solid #7A0000' : '2px dashed #979090',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            gap: 10
+          }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, flex: 1, minWidth: 0 }}>
+              {workspaceFolder ? (
+                <FolderOpen size={18} color="#7A0000" />
+              ) : (
+                <Folder size={18} color="#666" />
+              )}
+              <div style={{ display: 'flex', flexDirection: 'column', minWidth: 0 }}>
+                <span style={{ fontSize: '0.72rem', fontWeight: 600, color: '#260000' }}>
+                  Workspace Folder
+                </span>
+                <span style={{
+                  fontSize: '0.65rem',
+                  color: workspaceFolder ? '#444' : '#888',
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis',
+                  whiteSpace: 'nowrap'
+                }}>
+                  {workspaceFolder || 'Not linked — files may lose permissions on reload'}
+                </span>
+              </div>
+            </div>
+            <div style={{ display: 'flex', gap: 4, flexShrink: 0 }}>
+              <button
+                onClick={handlePickWorkspaceFolder}
+                style={{
+                  ...buttonStyle('outline'),
+                  fontSize: '0.65rem',
+                  padding: '4px 8px'
+                }}
+              >
+                {workspaceFolder ? 'Change' : 'Choose'}
+              </button>
+              {workspaceFolder && (
+                <PanelIconButton
+                  icon={X}
+                  size={16}
+                  onClick={handleClearWorkspaceFolder}
+                  title="Unlink workspace folder"
+                />
+              )}
+            </div>
+          </div>
+
           {isLoading ? (
             <div style={{
               display: 'flex',
