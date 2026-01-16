@@ -38,6 +38,97 @@ export function distanceToQuadraticBezier(px, py, x0, y0, cx, cy, x1, y1, sample
 }
 
 /**
+ * Get point at parameter t on quadratic Bézier curve
+ * @param {number} t - Parameter value (0 to 1)
+ * @param {number} x0 - Start point X (P0)
+ * @param {number} y0 - Start point Y (P0)
+ * @param {number} cx - Control point X (P1)
+ * @param {number} cy - Control point Y (P1)
+ * @param {number} x1 - End point X (P2)
+ * @param {number} y1 - End point Y (P2)
+ * @returns {Object} Point { x, y } at parameter t
+ */
+export function getPointOnQuadraticBezier(t, x0, y0, cx, cy, x1, y1) {
+  const invT = 1 - t;
+  return {
+    x: invT * invT * x0 + 2 * invT * t * cx + t * t * x1,
+    y: invT * invT * y0 + 2 * invT * t * cy + t * t * y1
+  };
+}
+
+/**
+ * Generate a trimmed Bézier path from t=tStart to t=tEnd
+ * Uses de Casteljau's algorithm to subdivide the curve while maintaining the same shape
+ * @param {number} x0 - Start point X (P0)
+ * @param {number} y0 - Start point Y (P0)
+ * @param {number} cx - Control point X (P1)
+ * @param {number} cy - Control point Y (P1)
+ * @param {number} x1 - End point X (P2)
+ * @param {number} y1 - End point Y (P2)
+ * @param {number} tStart - Start parameter (0 to 1)
+ * @param {number} tEnd - End parameter (0 to 1)
+ * @returns {Object} Trimmed path info
+ */
+export function getTrimmedBezierPath(x0, y0, cx, cy, x1, y1, tStart = 0, tEnd = 1) {
+  // Handle edge cases
+  if (tStart >= tEnd || tStart < 0 || tEnd > 1) {
+    return {
+      path: `M ${x0} ${y0} Q ${cx} ${cy} ${x1} ${y1}`,
+      startX: x0,
+      startY: y0,
+      ctrlX: cx,
+      ctrlY: cy,
+      endX: x1,
+      endY: y1
+    };
+  }
+
+  // De Casteljau's algorithm: First trim from 0 to tEnd, then from relative tStart to 1
+  // This gives us the subcurve from tStart to tEnd
+
+  // Step 1: Split at tEnd to get curve from 0 to tEnd
+  // First level of subdivision
+  const p01x_end = x0 + tEnd * (cx - x0);
+  const p01y_end = y0 + tEnd * (cy - y0);
+  const p12x_end = cx + tEnd * (x1 - cx);
+  const p12y_end = cy + tEnd * (y1 - cy);
+  // Second level - the point at tEnd
+  const endPtX = p01x_end + tEnd * (p12x_end - p01x_end);
+  const endPtY = p01y_end + tEnd * (p12y_end - p01y_end);
+
+  // The curve from 0 to tEnd has control point p01_end
+  const newCx_0toEnd = p01x_end;
+  const newCy_0toEnd = p01y_end;
+
+  // Step 2: Now split this subcurve (from 0 to tEnd) at relative position tStart/tEnd
+  const relT = tStart / tEnd;
+
+  // First level for the 0-to-tEnd curve
+  const q01x = x0 + relT * (newCx_0toEnd - x0);
+  const q01y = y0 + relT * (newCy_0toEnd - y0);
+  const q12x = newCx_0toEnd + relT * (endPtX - newCx_0toEnd);
+  const q12y = newCy_0toEnd + relT * (endPtY - newCy_0toEnd);
+
+  // Second level - the point at tStart on original curve
+  const startPtX = q01x + relT * (q12x - q01x);
+  const startPtY = q01y + relT * (q12y - q01y);
+
+  // The curve from tStart to tEnd uses q12 as its control point
+  const finalCx = q12x;
+  const finalCy = q12y;
+
+  return {
+    path: `M ${startPtX} ${startPtY} Q ${finalCx} ${finalCy} ${endPtX} ${endPtY}`,
+    startX: startPtX,
+    startY: startPtY,
+    ctrlX: finalCx,
+    ctrlY: finalCy,
+    endX: endPtX,
+    endY: endPtY
+  };
+}
+
+/**
  * Calculate the control point for a curved parallel edge
  * @param {number} startX - Start X coordinate
  * @param {number} startY - Start Y coordinate

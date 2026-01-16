@@ -11,7 +11,7 @@ const STATUS_EVENT = 'universe-backend-status';
 const RESPONSE_EVENT_PREFIX = 'universe-backend-response-';
 
 class UniverseBackendBridge {
-  constructor(timeoutMs = 6000) {
+  constructor(timeoutMs = 30000) {
     this.timeoutMs = timeoutMs;
     this.commandQueue = [];
     this.isBackendReady = false;
@@ -21,14 +21,14 @@ class UniverseBackendBridge {
     this.directBackendPromise = null;
     this.directBackendInitialized = false;
     this.directStatusUnsubscribe = null;
-    
+
     // Listen for backend ready signal
     this.setupBackendReadyListener();
   }
-  
+
   setupBackendReadyListener() {
     if (typeof window === 'undefined') return;
-    
+
     // Check if backend is ALREADY ready (for components that load late)
     if (window._universeBackendReady === true) {
       console.log('[UniverseBackendBridge] Backend was already ready (late initialization)');
@@ -39,7 +39,7 @@ class UniverseBackendBridge {
       }
       return;
     }
-    
+
     // Listen for backend initialization completion
     window.addEventListener('universe-backend-ready', (event) => {
       console.log('[UniverseBackendBridge] Backend ready signal received');
@@ -54,7 +54,7 @@ class UniverseBackendBridge {
       this.processQueuedCommands();
     });
   }
-  
+
   async waitForBackendReady() {
     if (this.isBackendReady || (typeof window !== 'undefined' && window._universeBackendReady === true)) {
       // If a late global flag is present, pick it up and mark ready
@@ -92,7 +92,7 @@ class UniverseBackendBridge {
                   message: 'Backend is still starting up. Large universes may take a little longer to load.'
                 }
               }));
-            } catch (_) {}
+            } catch (_) { }
           }, warningDelay);
         };
 
@@ -133,7 +133,7 @@ class UniverseBackendBridge {
       queuedCommand.reject(error);
     }
   }
-  
+
   async processQueuedCommands() {
     console.log(`[UniverseBackendBridge] Processing ${this.commandQueue.length} queued commands`);
 
@@ -150,7 +150,7 @@ class UniverseBackendBridge {
       }
       return;
     }
-    
+
     while (this.commandQueue.length > 0) {
       const queuedCommand = this.commandQueue.shift();
       try {
@@ -161,7 +161,7 @@ class UniverseBackendBridge {
       }
     }
   }
-  
+
   async executeCommand({ command, payload, id, resolve, reject }) {
     try {
       const responseEvent = `${RESPONSE_EVENT_PREFIX}${id}`;
@@ -222,14 +222,14 @@ class UniverseBackendBridge {
 
     return new Promise(async (resolve, reject) => {
       const id = `${Date.now()}-${Math.random().toString(16).slice(2)}`;
-      
+
       const commandData = { command, payload, id, resolve, reject };
-      
+
       // If backend is not ready, queue the command
       if (!this.isBackendReady && !(typeof window !== 'undefined' && window._universeBackendReady === true)) {
         console.log(`[UniverseBackendBridge] Backend not ready, queueing command: ${command}`);
         this.commandQueue.push(commandData);
-        
+
         // Wait for backend to be ready
         try {
           await this.waitForBackendReady();
@@ -242,7 +242,7 @@ class UniverseBackendBridge {
             // Don't reject - just return and let that resolution stand
             return;
           }
-          
+
           // Backend is still not ready, remove from queue and reject
           const index = this.commandQueue.indexOf(commandData);
           if (index > -1) {
@@ -252,7 +252,7 @@ class UniverseBackendBridge {
           return;
         }
       }
-      
+
       // Execute command immediately if backend is ready
       await this.executeCommand(commandData);
     });
@@ -265,7 +265,7 @@ class UniverseBackendBridge {
     if (typeof window !== 'undefined') {
       try {
         window._universeBackendReady = true;
-      } catch (_) {}
+      } catch (_) { }
     }
 
     // Drain any queued commands using the direct backend
@@ -405,7 +405,7 @@ class UniverseBackendBridge {
 
   onStatusChange(callback) {
     if (typeof window === 'undefined') {
-      return () => {};
+      return () => { };
     }
 
     const handler = (event) => {

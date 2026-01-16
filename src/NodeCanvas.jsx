@@ -87,7 +87,7 @@ import { getPortPosition, calculateStaggeredPosition } from './utils/canvas/port
 import { computeCleanPolylineFromPorts, generateManhattanRoutingPath, generateCleanRoutingPath } from './utils/canvas/edgeRouting.js';
 import * as GeometryUtils from './utils/canvas/geometryUtils.js';
 import EdgeRenderer from './components/EdgeRenderer.jsx';
-import { calculateParallelEdgePath, distanceToQuadraticBezier, calculateCurveControlPoint } from './utils/canvas/parallelEdgeUtils.js';
+import { calculateParallelEdgePath, distanceToQuadraticBezier, calculateCurveControlPoint, getTrimmedBezierPath } from './utils/canvas/parallelEdgeUtils.js';
 import Panel from './Panel'; // This is now used for both sides
 import TypeList from './TypeList'; // Re-add TypeList component
 import SaveStatusDisplay from './SaveStatusDisplay'; // Import the save status display
@@ -10390,25 +10390,17 @@ function NodeCanvas() {
                     nodeGroupMemberIds.has(e.sourceId) || nodeGroupMemberIds.has(e.destinationId)
                   );
 
-                  // Group edges by node pairs to calculate curve offsets for multiple edges between same nodes
-                  const edgePairGroups = new Map();
+                  // edgeCurveInfo is computed via useMemo and available in scope
+                  // (used for parallel edge curve offset calculation)
+
+                  // #region agent log - build edgePairGroups locally just for debug logging
+                  const edgePairGroupsDebug = new Map();
                   visibleEdges.forEach(e => {
-                    const key = [e.sourceId, e.destinationId].sort().join('--');
-                    if (!edgePairGroups.has(key)) edgePairGroups.set(key, []);
-                    edgePairGroups.get(key).push(e.id);
+                    const key = [e.sourceId, e.destinationId].sort().join('-');
+                    if (!edgePairGroupsDebug.has(key)) edgePairGroupsDebug.set(key, []);
+                    edgePairGroupsDebug.get(key).push(e.id);
                   });
-
-                  // Build a map of edge ID -> { pairIndex, totalInPair } for curve offset calculation
-                  const edgeCurveInfo = new Map();
-                  edgePairGroups.forEach((edgeIds, key) => {
-                    const total = edgeIds.length;
-                    edgeIds.forEach((edgeId, idx) => {
-                      edgeCurveInfo.set(edgeId, { pairIndex: idx, totalInPair: total });
-                    });
-                  });
-
-                  // #region agent log
-                  const multiEdgePairs = Array.from(edgePairGroups.entries()).filter(([k, v]) => v.length > 1);
+                  const multiEdgePairs = Array.from(edgePairGroupsDebug.entries()).filter(([k, v]) => v.length > 1);
                   if (multiEdgePairs.length > 0) {
                     debugLogSync('NodeCanvas.jsx:edgeRender', 'Edge rendering info', { totalEdges: visibleEdges.length, multiEdgePairs: multiEdgePairs.map(([k, v]) => ({ pair: k, edgeCount: v.length, edgeIds: v })), enableAutoRouting, routingStyle, willUseCurves: !(enableAutoRouting && (routingStyle === 'manhattan' || routingStyle === 'clean')) }, 'debug-session', 'D-E');
                   }
@@ -10520,9 +10512,19 @@ function NodeCanvas() {
                           ? edge.directionality.arrowsToward
                           : new Set(Array.isArray(edge.directionality?.arrowsToward) ? edge.directionality.arrowsToward : []);
 
+                        // Check if this is a curved edge (parallel edge)
+                        const curveInfo = edgeCurveInfo.get(edge.id);
+                        const isCurvedEdge = curveInfo && curveInfo.totalInPair > 1;
+
                         // Only shorten connections at ends with arrows or hover state
-                        let shouldShortenSource = isHovered || arrowsToward.has(sourceNode.id);
-                        let shouldShortenDest = isHovered || arrowsToward.has(destNode.id);
+                        // For curved edges, never shorten for hover - only for arrows
+                        // This ensures the curve shape stays consistent when hovered
+                        let shouldShortenSource = isCurvedEdge
+                          ? arrowsToward.has(sourceNode.id)
+                          : (isHovered || arrowsToward.has(sourceNode.id));
+                        let shouldShortenDest = isCurvedEdge
+                          ? arrowsToward.has(destNode.id)
+                          : (isHovered || arrowsToward.has(destNode.id));
                         if (enableAutoRouting && routingStyle === 'manhattan') {
                           // In Manhattan mode, never shorten for hover—only for actual arrows
                           shouldShortenSource = arrowsToward.has(sourceNode.id);
@@ -10693,9 +10695,21 @@ function NodeCanvas() {
                         }
 
                         // Calculate parallel edge path using centralized utility
-                        const curveInfo = edgeCurveInfo.get(edge.id);
+                        // Note: curveInfo was already retrieved earlier for shouldShorten logic
                         const parallelPath = calculateParallelEdgePath(startX, startY, endX, endY, curveInfo);
                         const useCurve = parallelPath.type === 'curve';
+
+                        // For hover effect on curved edges, trim the curve to create "shorten" visual
+                        // This keeps the curve shape consistent but renders a shorter portion
+                        let trimmedPath = null;
+                        if (useCurve && isHovered && parallelPath.ctrlX !== null) {
+                          trimmedPath = getTrimmedBezierPath(
+                            parallelPath.startX, parallelPath.startY,
+                            parallelPath.ctrlX, parallelPath.ctrlY,
+                            parallelPath.endX, parallelPath.endY,
+                            0.08, 0.92  // Trim 8% from each end
+                          );
+                        }
 
                         return (
                           <g key={`edge-above-${edge.id}-${idx}`}>
@@ -10720,7 +10734,7 @@ function NodeCanvas() {
                                 />
                               ) : useCurve ? (
                                 <path
-                                  d={parallelPath.path}
+                                  d={trimmedPath ? trimmedPath.path : parallelPath.path}
                                   fill="none"
                                   stroke={edgeColor}
                                   strokeWidth="12"
@@ -10769,7 +10783,7 @@ function NodeCanvas() {
                               </>
                             ) : useCurve ? (
                               <path
-                                d={parallelPath.path}
+                                d={trimmedPath ? trimmedPath.path : parallelPath.path}
                                 fill="none"
                                 stroke={edgeColor}
                                 strokeWidth={showConnectionNames ? "16" : "6"}
@@ -10955,6 +10969,80 @@ function NodeCanvas() {
                                     e.stopPropagation?.();
                                     ignoreCanvasClick.current = true; // suppress canvas click -> plus sign
                                     setLongPressingInstanceId(null); // prevent connection drawing intent
+                                    setDrawingConnectionFrom(null);
+                                    if (e.ctrlKey || e.metaKey) {
+                                      if (selectedEdgeIds.has(edge.id)) {
+                                        storeActions.removeSelectedEdgeId(edge.id);
+                                      } else {
+                                        storeActions.addSelectedEdgeId(edge.id);
+                                      }
+                                    } else {
+                                      storeActions.clearSelectedEdgeIds();
+                                      storeActions.setSelectedEdgeId(edge.id);
+                                    }
+                                  }
+                                  handleEdgePointerDownTouch(edge.id, e);
+                                }}
+                                onTouchStart={(e) => {
+                                  e.preventDefault?.();
+                                  e.stopPropagation?.();
+                                  ignoreCanvasClick.current = true;
+                                  setLongPressingInstanceId(null);
+                                  setDrawingConnectionFrom(null);
+                                  storeActions.clearSelectedEdgeIds();
+                                  storeActions.setSelectedEdgeId(edge.id);
+                                }}
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  ignoreCanvasClick.current = true;
+
+                                  // Handle multiple selection with Ctrl/Cmd key
+                                  if (e.ctrlKey || e.metaKey) {
+                                    // Toggle this edge in the multiple selection
+                                    if (selectedEdgeIds.has(edge.id)) {
+                                      storeActions.removeSelectedEdgeId(edge.id);
+                                    } else {
+                                      storeActions.addSelectedEdgeId(edge.id);
+                                    }
+                                  } else {
+                                    // Single selection - clear multiple selection and set single edge
+                                    storeActions.clearSelectedEdgeIds();
+                                    storeActions.setSelectedEdgeId(edge.id);
+                                  }
+                                }}
+                                onDoubleClick={(e) => {
+                                  e.stopPropagation();
+
+                                  // Find the defining node for this edge's connection type
+                                  let definingNodeId = null;
+
+                                  // Check definitionNodeIds first (for custom connection types)
+                                  if (edge.definitionNodeIds && edge.definitionNodeIds.length > 0) {
+                                    definingNodeId = edge.definitionNodeIds[0];
+                                  } else if (edge.typeNodeId) {
+                                    // Fallback to typeNodeId (for base connection type)
+                                    definingNodeId = edge.typeNodeId;
+                                  }
+
+                                  // Open the panel tab for the defining node
+                                  if (definingNodeId) {
+                                    storeActions.openRightPanelNodeTab(definingNodeId);
+                                  }
+                                }}
+                              />
+                            ) : useCurve ? (
+                              <path
+                                d={parallelPath.path}
+                                fill="none"
+                                stroke="transparent"
+                                strokeWidth="40"
+                                style={{ cursor: 'pointer' }}
+                                onPointerDown={(e) => {
+                                  if (e.pointerType && e.pointerType !== 'mouse') {
+                                    e.preventDefault?.();
+                                    e.stopPropagation?.();
+                                    ignoreCanvasClick.current = true;
+                                    setLongPressingInstanceId(null);
                                     setDrawingConnectionFrom(null);
                                     if (e.ctrlKey || e.metaKey) {
                                       if (selectedEdgeIds.has(edge.id)) {
@@ -11584,9 +11672,19 @@ function NodeCanvas() {
                           ? edge.directionality.arrowsToward
                           : new Set(Array.isArray(edge.directionality?.arrowsToward) ? edge.directionality.arrowsToward : []);
 
+                        // Check if this is a curved edge (parallel edge)
+                        const curveInfo = edgeCurveInfo.get(edge.id);
+                        const isCurvedEdge = curveInfo && curveInfo.totalInPair > 1;
+
                         // Only shorten connections at ends with arrows or hover state
-                        let shouldShortenSource = isHovered || arrowsToward.has(sourceNode.id);
-                        let shouldShortenDest = isHovered || arrowsToward.has(destNode.id);
+                        // For curved edges, never shorten for hover - only for arrows
+                        // This ensures the curve shape stays consistent when hovered
+                        let shouldShortenSource = isCurvedEdge
+                          ? arrowsToward.has(sourceNode.id)
+                          : (isHovered || arrowsToward.has(sourceNode.id));
+                        let shouldShortenDest = isCurvedEdge
+                          ? arrowsToward.has(destNode.id)
+                          : (isHovered || arrowsToward.has(destNode.id));
                         if (enableAutoRouting && routingStyle === 'manhattan') {
                           // In Manhattan mode, never shorten for hover—only for actual arrows
                           shouldShortenSource = arrowsToward.has(sourceNode.id);
@@ -11757,9 +11855,21 @@ function NodeCanvas() {
                         }
 
                         // Calculate parallel edge path using centralized utility
-                        const curveInfo = edgeCurveInfo.get(edge.id);
+                        // Note: curveInfo was already retrieved earlier for shouldShorten logic
                         const parallelPath = calculateParallelEdgePath(startX, startY, endX, endY, curveInfo);
                         const useCurve = parallelPath.type === 'curve';
+
+                        // For hover effect on curved edges, trim the curve to create "shorten" visual
+                        // This keeps the curve shape consistent but renders a shorter portion
+                        let trimmedPath = null;
+                        if (useCurve && isHovered && parallelPath.ctrlX !== null) {
+                          trimmedPath = getTrimmedBezierPath(
+                            parallelPath.startX, parallelPath.startY,
+                            parallelPath.ctrlX, parallelPath.ctrlY,
+                            parallelPath.endX, parallelPath.endY,
+                            0.08, 0.92  // Trim 8% from each end
+                          );
+                        }
 
                         return (
                           <g key={`edge-above-${edge.id}-${idx}`}>
@@ -11784,7 +11894,7 @@ function NodeCanvas() {
                                 />
                               ) : useCurve ? (
                                 <path
-                                  d={parallelPath.path}
+                                  d={trimmedPath ? trimmedPath.path : parallelPath.path}
                                   fill="none"
                                   stroke={edgeColor}
                                   strokeWidth="12"
@@ -11833,7 +11943,7 @@ function NodeCanvas() {
                               </>
                             ) : useCurve ? (
                               <path
-                                d={parallelPath.path}
+                                d={trimmedPath ? trimmedPath.path : parallelPath.path}
                                 fill="none"
                                 stroke={edgeColor}
                                 strokeWidth={showConnectionNames ? "16" : "6"}

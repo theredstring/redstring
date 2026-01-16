@@ -266,6 +266,7 @@ function createLocalFileError(code, message) {
 
 class UniverseBackend {
   constructor() {
+    console.time('[GF-DEBUG] UniverseBackend constructor');
     // Core universe state (from universeManager)
     this.universes = new Map(); // slug -> universe config
     this.activeUniverseSlug = null;
@@ -314,7 +315,9 @@ class UniverseBackend {
     this.restoreHandlesPromise = null;
 
     // Load universes from storage
+    console.time('[GF-DEBUG] loadFromStorage');
     this.loadFromStorage();
+    console.timeEnd('[GF-DEBUG] loadFromStorage');
 
     // Initialize device config after a brief delay
     setTimeout(() => {
@@ -323,6 +326,7 @@ class UniverseBackend {
 
     // Attempt to restore file handles
     this.scheduleRestoreFileHandles();
+    console.timeEnd('[GF-DEBUG] UniverseBackend constructor');
   }
 
   scheduleRestoreFileHandles(delay = 200) {
@@ -1009,18 +1013,23 @@ class UniverseBackend {
 
   async _doInitialize() {
     gfLog('[UniverseBackend] Initializing backend service...');
+    console.time('[GF-DEBUG] _doInitialize');
 
     try {
       gfLog('[UniverseBackend] Ensuring auth state is loaded...');
+      console.time('[GF-DEBUG] ensureAuthStateLoaded');
       await persistentAuth.ensureAuthStateLoaded().catch(err => {
         gfWarn('[UniverseBackend] Failed to load auth state:', err);
       });
+      console.timeEnd('[GF-DEBUG] ensureAuthStateLoaded');
 
       gfLog('[UniverseBackend] Getting authentication status...');
       this.authStatus = persistentAuth.getAuthStatus();
 
       gfLog('[UniverseBackend] Setting up store operations...');
+      console.time('[GF-DEBUG] setupStoreOperations');
       await this.setupStoreOperations();
+      console.timeEnd('[GF-DEBUG] setupStoreOperations');
 
       gfLog('[UniverseBackend] Setting up event listeners...');
       this.setupAuthEvents();
@@ -1030,12 +1039,14 @@ class UniverseBackend {
 
       // Add timeout to prevent hanging
       try {
+        console.time('[GF-DEBUG] initializeBackgroundSync');
         await Promise.race([
           this.initializeBackgroundSync(),
           new Promise((_, reject) =>
             setTimeout(() => reject(new Error('Background sync timeout after 8s')), 8000)
           )
         ]);
+        console.timeEnd('[GF-DEBUG] initializeBackgroundSync');
         const syncEndTime = Date.now();
         gfLog(`[UniverseBackend] Background sync completed in ${syncEndTime - syncStartTime}ms`);
       } catch (error) {
@@ -1048,6 +1059,7 @@ class UniverseBackend {
 
       // CRITICAL: Load active universe data into store
       const activeUniverse = this.getActiveUniverse();
+      console.timeEnd('[GF-DEBUG] _doInitialize');
       if (activeUniverse) {
         gfLog(`[UniverseBackend] Loading active universe into store: ${activeUniverse.name || activeUniverse.slug}`);
         try {
