@@ -32,6 +32,7 @@ import { showContextMenu } from './components/GlobalContextMenu';
 import * as fileStorage from './store/fileStorage.js';
 import * as folderPersistence from './services/folderPersistence.js';
 import workspaceService from './services/WorkspaceService.js';
+import gitFederationService from './services/gitFederationService.js';
 import { pickFolder, getFileInFolder, listFilesInFolder } from './utils/fileAccessAdapter.js';
 import AutoGraphModal from './components/AutoGraphModal';
 import ForceSimulationModal from './components/ForceSimulationModal';
@@ -13392,44 +13393,33 @@ function NodeCanvas() {
           try {
             if (folderPath) {
               // 1. Link the folder using WorkspaceService
-              // If folderPath is a handle object (web), check if we need to persist it differently?
-              // WorkspaceService handles storeFolderHandle call. 
-              // Wait, previous implementation passed path/handle.
               await workspaceService.linkFolder(folderPath);
 
-              // 2. Create Universe file & config using provided name
-              // Ensure name is valid
-              const safeName = (universeName && universeName.trim()) ? universeName.trim() : "MyUniverse";
+              // 2. Create Universe using gitFederationService so it appears in UniversesList
+              const safeName = (universeName && universeName.trim()) ? universeName.trim() : "Universe";
 
-              const emptyState = {
-                graph: {
-                  id: 'root',
-                  nodes: new Map(),
-                  edges: new Map()
-                },
-                nodePrototypes: new Map(),
-                graphRegistry: new Map([['root', { id: 'root', nodes: new Map(), edges: new Map() }]]),
-                nodeDefinitionIndices: new Map()
-              };
+              // This registers the universe with universeBackendBridge
+              const result = await gitFederationService.createUniverse(safeName, {
+                enableLocal: true,
+                enableGit: false,
+                sourceOfTruth: 'local'
+              });
 
-              // Create the file. This creates the file on disk.
-              const filename = await workspaceService.createUniverse(safeName, emptyState);
+              console.log('[NodeCanvas] Universe created via gitFederationService:', result);
 
-              // 4. Load the new universe state into memory
-              storeActions.loadUniverseFromFile(emptyState);
+              // 3. Update store state
               storeActions.setStorageMode('folder');
-              // Set connected to true, but we are in "file" mode essentially.
               storeActions.setUniverseConnected(true);
+              storeActions.setUniverseLoaded(true, true); // Set hasUniverseFile=true to exit loading screen
+
+              // 4. Mark onboarding as complete
+              if (typeof window !== 'undefined') {
+                localStorage.setItem(getStorageKey('redstring-alpha-welcome-seen'), 'true');
+              }
 
               // 5. Close modal and open Panel
               setShowStorageSetupModal(false);
               setLeftPanelExpanded(true);
-
-              // FORCE REFRESH of file list in Universe Grid (if possible)
-              // The Universes Tab (LeftPanel -> SemanticDiscoveryView) likely re-fetches on mount or visibility change.
-              // Since we're switching view to 'grid', it *should* re-fetch.
-              // But if it's already mounted, we might need a signal.
-              // For now, let's rely on view switch.
 
               setTimeout(() => {
                 if (leftPanelRef.current) {
@@ -13437,7 +13427,7 @@ function NodeCanvas() {
                 }
               }, 100);
 
-              console.log('[NodeCanvas] Workspace setup complete. Active universe:', filename);
+              console.log('[NodeCanvas] Workspace setup complete. Active universe:', safeName);
             }
           } catch (error) {
             console.error('[NodeCanvas] Folder setup failed:', error);
