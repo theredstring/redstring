@@ -901,6 +901,30 @@ class UniverseBackend {
       this.fileHandles.delete(slug);
     }
 
+    // If restore failed or no handle existed, try workspace folder as fallback
+    if (!this.fileHandles.get(slug)) {
+      const { getFileFromWorkspace } = await import('./workspaceFolderService.js');
+      const fileName = universe.localFile?.fileName ||
+        universe.localFile?.path?.split(/[/\\]/).pop() ||
+        universe.localFile?.displayPath?.split(/[/\\]/).pop() ||
+        `${universe.slug}.redstring`;
+
+      const workspaceHandle = await getFileFromWorkspace(fileName);
+      if (workspaceHandle) {
+        this.fileHandles.set(slug, workspaceHandle);
+        await this.updateLocalFileState(universe, {
+          fileHandleStatus: 'connected',
+          hadFileHandle: true,
+          reconnectMessage: null,
+          unavailableReason: null,
+          lastAccessed: Date.now()
+        });
+
+        gfLog(`[UniverseBackend] Restored file handle for ${slug} from workspace folder`);
+        return { success: true, handle: workspaceHandle, source: 'workspace' };
+      }
+    }
+
     const restore = await attemptRestoreFileHandle(slug, existingHandle);
     if (restore.success && restore.handle) {
       this.fileHandles.set(slug, restore.handle);
@@ -1614,7 +1638,9 @@ class UniverseBackend {
 
           if (universe?.localFile?.enabled) {
             if (!this.fileHandles.has(slug)) {
-              throw new Error('Local file disconnected. Reconnect the file to resume saving.');
+              // Gracefully handle disconnected file - log warning but don't crash
+              gfWarn(`[UniverseBackend] Local file disconnected for ${slug}. Skipping local save.`);
+              return false;
             }
 
             return this.saveToLinkedLocalFile(slug, state, {
@@ -4321,10 +4347,8 @@ class UniverseBackend {
     const {
       suppressNotification = false
     } = options || {};
-    const handle = this.fileHandles.get(universeSlug);
-    if (!handle) {
-      throw new Error('No linked local file. Pick a file first.');
-    }
+
+    // 1. Prepare data first (needed for potential file creation)
     if (!storeState && this.storeOperations?.getState) {
       storeState = this.storeOperations.getState();
     }
@@ -4333,6 +4357,46 @@ class UniverseBackend {
     }
     const redstringData = exportToRedstring(storeState);
     const jsonString = JSON.stringify(redstringData, null, 2);
+
+    // 2. Get file handle
+    let handle = this.fileHandles.get(universeSlug);
+
+    // Fallback: try workspace folder if no individual handle
+    if (!handle) {
+      const universe = this.getUniverse(universeSlug);
+      const fileName = universe?.localFile?.fileName ||
+        universe?.localFile?.path?.split(/[/\\]/).pop() ||
+        universe?.localFile?.displayPath?.split(/[/\\]/).pop() ||
+        `${universeSlug}.redstring`;
+
+      try {
+        const { getFileFromWorkspace, createFileInWorkspace } = await import('./workspaceFolderService.js');
+
+        // Try getting existing file first
+        handle = await getFileFromWorkspace(fileName);
+
+        // If not found but we have workspace access, create it!
+        if (!handle) {
+          gfLog(`[UniverseBackend] Creating missing file in workspace: ${fileName}`);
+          // Use overwrite: false to prevent clobbering if our previous check failed falsely
+          handle = await createFileInWorkspace(fileName, jsonString, { overwrite: false });
+          // createFileInWorkspace already wrote the content
+        } else {
+          // We found existing file, so we need to write to it below
+          gfLog(`[UniverseBackend] Using workspace file handle for save: ${fileName}`);
+        }
+
+        if (handle) {
+          this.fileHandles.set(universeSlug, handle);
+        }
+      } catch (wsError) {
+        gfWarn('[UniverseBackend] Workspace folder fallback failed:', wsError);
+      }
+    }
+
+    if (!handle) {
+      throw new Error('No linked local file. Pick a file first.');
+    }
 
     // Get filename for display/storage
     const fileName = isElectron() ?
@@ -4527,21 +4591,18 @@ class UniverseBackend {
       // Load the imported state
       this.storeOperations.loadUniverseFromFile(storeState);
 
-      // Enable local file storage for this universe
-      await this.linkLocalFileToUniverse(targetUniverseSlug, file.name, {
-        displayPath: file.path || file.name
+      // DON'T enable local file storage yet - we don't have a persistent handle
+      // Just track that we imported from this file (informational only)
+      await this.updateUniverse(targetUniverseSlug, {
+        localFile: {
+          ...this.getUniverse(targetUniverseSlug)?.localFile,
+          enabled: false,  // NOT enabled until we have an actual handle
+          pendingConnect: true, // Flag that a handle is needed
+          displayPath: file.path || file.name,
+          lastImportedFile: file.name
+        }
       });
 
-      const updatedUniverse = this.getUniverse(targetUniverseSlug);
-      if (updatedUniverse) {
-        await this.updateUniverse(targetUniverseSlug, {
-          localFile: {
-            ...updatedUniverse.localFile,
-            lastSaved: new Date().toISOString(),
-            hadFileHandle: updatedUniverse.localFile?.hadFileHandle ?? false
-          }
-        });
-      }
 
       const nodeCount = storeState?.nodePrototypes ?
         (storeState.nodePrototypes instanceof Map ? storeState.nodePrototypes.size : Object.keys(storeState.nodePrototypes || {}).length) : 0;

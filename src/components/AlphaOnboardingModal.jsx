@@ -1,6 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import CanvasModal from './CanvasModal';
 import { getStorageKey } from '../utils/storageUtils.js';
+import useViewportBounds from '../hooks/useViewportBounds.js';
+import useGraphStore from '../store/graphStore.jsx';
 
 /**
  * Alpha Onboarding Modal
@@ -14,29 +16,32 @@ const AlphaOnboardingModal = ({
   onUseWithoutSaving = null,
   ...canvasModalProps
 }) => {
-  const [viewportSize, setViewportSize] = useState(() => ({
-    width: typeof window !== 'undefined' ? window.innerWidth : 1200,
-    height: typeof window !== 'undefined' ? window.innerHeight : 900
-  }));
-  // Only use compact layout on truly small screens (mobile)
-  const isCompactLayout = viewportSize.width <= 500;
-  const modalWidth = isCompactLayout
-    ? Math.min(Math.max(viewportSize.width - 24, 320), 540)
-    : 600;
-  const modalHeight = isCompactLayout
-    ? Math.min(Math.max(viewportSize.height * 0.85, 400), 550)
-    : 520; // Reduced height for simpler modal
+  /* REMOVED localized viewport tracking in favor of useViewportBounds */
 
-  useEffect(() => {
-    const handleResize = () => {
-      setViewportSize({
-        width: window.innerWidth,
-        height: window.innerHeight
-      });
-    };
-    window.addEventListener('resize', handleResize);
-    return () => window.removeEventListener('resize', handleResize);
-  }, []);
+  // Connect to store for panel state
+  const { leftPanelExpanded, rightPanelExpanded, typeListMode } = useGraphStore();
+
+  // Use the shared hook to get accurate available space
+  const viewportBounds = useViewportBounds(
+    leftPanelExpanded,
+    rightPanelExpanded,
+    typeListMode !== 'closed'
+  );
+
+  // Use the computed bounds width for layout decisions
+  const availableWidth = viewportBounds.width;
+  const availableHeight = viewportBounds.height;
+  // Determine if we are in a "compact" situation (mobile OR panels crushing the view)
+  const isCompactLayout = availableWidth <= 500;
+
+  const modalWidth = isCompactLayout
+    ? Math.min(Math.max(availableWidth - 24, 320), 540)
+    : 600;
+
+  // Dynamic height based on available vertical space
+  const modalHeight = isCompactLayout
+    ? Math.min(Math.max(availableHeight * 0.85, 400), 550)
+    : 520;
 
   const handleClose = () => {
     if (typeof window !== 'undefined') {

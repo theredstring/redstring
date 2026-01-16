@@ -1178,13 +1178,14 @@ const GitNativeFederation = ({ variant = 'panel', onRequestClose }) => {
                 if (handleError?.name === 'AbortError') {
                   setSyncStatus({
                     type: 'warning',
-                    message: 'Universe loaded. Link a local file to enable auto-save.'
+                    message: 'Universe loaded (saved to browser). Pick a file to enable local file sync.'
                   });
                 } else {
+                  // Don't show as error if workspace folder fallback will work
                   gfWarn('[GitNativeFederation] Failed to establish local file handle after import:', handleError);
                   setSyncStatus({
                     type: 'warning',
-                    message: 'Universe loaded, but local file linking failed. Use "Pick File" to connect a file.'
+                    message: 'Universe loaded. Use "Pick File" or set a Workspace Folder to enable auto-save.'
                   });
                 }
               }

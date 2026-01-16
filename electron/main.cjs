@@ -385,6 +385,15 @@ ipcMain.handle('file:exists', async (event, filePath) => {
   }
 });
 
+ipcMain.handle('file:folderExists', async (event, folderPath) => {
+  try {
+    const stats = await fs.stat(folderPath);
+    return stats.isDirectory();
+  } catch {
+    return false;
+  }
+});
+
 // Clipboard IPC Handler
 ipcMain.handle('clipboard:write', async (event, text) => {
   clipboard.writeText(text);

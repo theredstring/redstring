@@ -1903,7 +1903,7 @@ function NodeCanvas() {
           storeActions.setStorageMode('folder');
           storeActions.setUniverseConnected(true);
           storeActions.setUniverseLoaded(true, false);
-          setLeftPanelExpanded(true);
+          storeActions.setLeftPanelExpanded(true);
           setTimeout(() => { if (leftPanelRef.current) leftPanelRef.current.setActiveView('federation'); }, 100);
         }
         // If NEEDS_ONBOARDING, check if user has skipped setup before
@@ -1918,7 +1918,7 @@ function NodeCanvas() {
               console.log('[NodeCanvas] Auto-connect failed. Opening Grid View.');
               // No previous session found -> Open Grid
               storeActions.setUniverseLoaded(true, false);
-              setLeftPanelExpanded(true);
+              storeActions.setLeftPanelExpanded(true);
               setTimeout(() => {
                 if (leftPanelRef.current) {
                   leftPanelRef.current.setActiveView('federation');
@@ -1990,7 +1990,7 @@ function NodeCanvas() {
 
     const handler = () => {
       try {
-        setLeftPanelExpanded(true);
+        storeActions.setLeftPanelExpanded(true);
         setLeftPanelInitialView('federation');
       } catch { }
     };
@@ -2005,7 +2005,7 @@ function NodeCanvas() {
 
     const handler = () => {
       try {
-        setLeftPanelExpanded(true);
+        storeActions.setLeftPanelExpanded(true);
         setLeftPanelInitialView('federation');
       } catch { }
     };
@@ -2050,7 +2050,7 @@ function NodeCanvas() {
       const pendingApp = sessionStorage.getItem('github_app_pending') === 'true';
       const resumeOnboarding = sessionStorage.getItem('redstring_onboarding_resume') === 'true';
       if (pendingOAuth || pendingApp || resumeOnboarding) {
-        setLeftPanelExpanded(true);
+        storeActions.setLeftPanelExpanded(true);
         setLeftPanelInitialView('federation');
         setShowOnboardingModal(false);
       }
@@ -2113,8 +2113,9 @@ function NodeCanvas() {
   }, []);
 
   // Panel expansion states - must be defined before viewport bounds hook
-  const [leftPanelExpanded, setLeftPanelExpanded] = useState(true);
-  const [rightPanelExpanded, setRightPanelExpanded] = useState(true);
+  // Panel expansion states - managed globally
+  const leftPanelExpanded = useGraphStore(state => state.leftPanelExpanded);
+  const rightPanelExpanded = useGraphStore(state => state.rightPanelExpanded);
   const [leftPanelInitialView, setLeftPanelInitialView] = useState(null); // Control which view to open in left panel
 
   // Use proper viewport bounds hook for accurate, live viewport calculations
@@ -4715,7 +4716,7 @@ function NodeCanvas() {
               storeActions.openRightPanelNodeTab(instance.prototypeId, instance.name);
               // Ensure right panel is expanded
               if (!rightPanelExpanded) {
-                setRightPanelExpanded(true);
+                storeActions.setRightPanelExpanded(true);
               }
               // Enable inline editing on canvas using the INSTANCE ID
               setEditingNodeIdOnCanvas(instanceId);
@@ -4779,7 +4780,7 @@ function NodeCanvas() {
   useLayoutEffect(() => {
     // If we're dragging a node or animating zoom, DO NOT restore view from store
     // This prevents the "teleportation" where store state overrides our local interaction state
-    if (draggingNodeInfoRef.current || isAnimatingZoomRef.current) {
+    if (draggingNodeInfoRef.current || isAnimatingZoomRef.current || wasDraggingRef.current) {
       return;
     }
 
@@ -5296,7 +5297,7 @@ function NodeCanvas() {
       storeActions.openRightPanelNodeTab(prototypeId, nodeData.name);
       // Ensure right panel is expanded
       if (!rightPanelExpanded) {
-        setRightPanelExpanded(true);
+        storeActions.setRightPanelExpanded(true);
       }
       return;
     }
@@ -8092,30 +8093,26 @@ function NodeCanvas() {
   const shouldPanelsBeExclusive = windowSize?.width ? windowSize.width <= 1100 : window.innerWidth <= 1100;
 
   const handleToggleRightPanel = useCallback(() => {
-    setRightPanelExpanded(prev => {
-      const next = !prev;
-      if (next && shouldPanelsBeExclusive) {
-        setLeftPanelExpanded(false);
-      }
-      return next;
-    });
-  }, [shouldPanelsBeExclusive]);
+    const next = !rightPanelExpanded;
+    storeActions.setRightPanelExpanded(next);
+    if (next && shouldPanelsBeExclusive) {
+      storeActions.setLeftPanelExpanded(false);
+    }
+  }, [rightPanelExpanded, shouldPanelsBeExclusive, storeActions]);
 
   const handleToggleLeftPanel = useCallback(() => {
-    setLeftPanelExpanded(prev => {
-      const next = !prev;
-      if (next && shouldPanelsBeExclusive) {
-        setRightPanelExpanded(false);
-      }
-      return next;
-    });
-  }, [shouldPanelsBeExclusive]);
+    const next = !leftPanelExpanded;
+    storeActions.setLeftPanelExpanded(next);
+    if (next && shouldPanelsBeExclusive) {
+      storeActions.setRightPanelExpanded(false);
+    }
+  }, [leftPanelExpanded, shouldPanelsBeExclusive, storeActions]);
 
   useEffect(() => {
     if (shouldPanelsBeExclusive && leftPanelExpanded && rightPanelExpanded) {
-      setRightPanelExpanded(false);
+      storeActions.setRightPanelExpanded(false);
     }
-  }, [leftPanelExpanded, rightPanelExpanded, shouldPanelsBeExclusive]);
+  }, [leftPanelExpanded, rightPanelExpanded, shouldPanelsBeExclusive, storeActions]);
 
   // Panel toggle and TypeList keyboard shortcuts - work even when inputs are focused
   useEffect(() => {
@@ -8748,7 +8745,7 @@ function NodeCanvas() {
     setAbstractionCarouselVisible,
     setSelectedNodeIdForPieMenu,
     rightPanelExpanded,
-    setRightPanelExpanded,
+    setRightPanelExpanded: storeActions.setRightPanelExpanded,
     setEditingNodeIdOnCanvas,
     NODE_DEFAULT_COLOR,
     onStartHurtleAnimationFromPanel: startHurtleAnimationFromPanel,
@@ -8965,7 +8962,7 @@ function NodeCanvas() {
           if (instance) {
             storeActions.openRightPanelNodeTab(instance.prototypeId, instance.name);
             if (!rightPanelExpanded) {
-              setRightPanelExpanded(true);
+              storeActions.setRightPanelExpanded(true);
             }
             setEditingNodeIdOnCanvas(instanceId);
           }
@@ -9019,7 +9016,7 @@ function NodeCanvas() {
         }
       }
     ];
-  }, [nodes, savedNodeIds, abstractionCarouselVisible, carouselAnimationState, previewingNodeId, setPreviewingNodeId, setAbstractionCarouselNode, setCarouselAnimationState, setAbstractionCarouselVisible, setSelectedNodeIdForPieMenu, storeActions, activeGraphId, setSelectedInstanceIds, rightPanelExpanded, setRightPanelExpanded, setEditingNodeIdOnCanvas, getNodeDimensions, containerRef, zoomLevel, panOffset, handlePieMenuColorPickerOpen, startHurtleAnimation, useGraphStore, setIsTransitioningPieMenu]);
+  }, [nodes, savedNodeIds, abstractionCarouselVisible, carouselAnimationState, previewingNodeId, setPreviewingNodeId, setAbstractionCarouselNode, setCarouselAnimationState, setAbstractionCarouselVisible, setSelectedNodeIdForPieMenu, storeActions, activeGraphId, setSelectedInstanceIds, rightPanelExpanded, setEditingNodeIdOnCanvas, getNodeDimensions, containerRef, zoomLevel, panOffset, handlePieMenuColorPickerOpen, startHurtleAnimation, useGraphStore, setIsTransitioningPieMenu]);
 
   // Cleanup animation on unmount
   useEffect(() => {
@@ -9811,7 +9808,7 @@ function NodeCanvas() {
                   <button
                     onClick={() => {
                       storeActions.setUniverseLoaded(true, false);
-                      setLeftPanelExpanded(true);
+                      storeActions.setLeftPanelExpanded(true);
                       setTimeout(() => {
                         if (leftPanelRef.current) {
                           leftPanelRef.current.setActiveView('federation');
@@ -13736,7 +13733,7 @@ function NodeCanvas() {
 
               // 8. Close modal and open Panel
               setShowStorageSetupModal(false);
-              setLeftPanelExpanded(true);
+              storeActions.setLeftPanelExpanded(true);
 
               setTimeout(() => {
                 if (leftPanelRef.current) {
@@ -13776,7 +13773,7 @@ function NodeCanvas() {
             storeActions.setUniverseLoaded(true, false);
 
             // Open the Universes (grid) tab in left panel
-            setLeftPanelExpanded(true);
+            storeActions.setLeftPanelExpanded(true);
             setTimeout(() => {
               if (leftPanelRef.current) {
                 leftPanelRef.current.setActiveView('federation');

@@ -101,9 +101,12 @@ export async function clearWorkspaceHandle() {
  * Creates a file in the workspace folder if available
  * @param {string} fileName 
  * @param {string} content 
+ * @param {object} options - Options for creation
+ * @param {boolean} [options.overwrite=true] - Whether to overwrite existing files
  * @returns {Promise<FileSystemFileHandle|null>} The created file handle, or null if no workspace folder
  */
-export async function createFileInWorkspace(fileName, content) {
+export async function createFileInWorkspace(fileName, content, options = {}) {
+    const { overwrite = true } = options;
     const dirHandle = await getWorkspaceHandle();
     if (!dirHandle) return null;
 
@@ -114,6 +117,19 @@ export async function createFileInWorkspace(fileName, content) {
             if (status !== 'granted') throw new Error('Permission denied to workspace folder');
         }
 
+        // Safety check: if not overwriting, check existence first
+        if (!overwrite) {
+            try {
+                // Try to get handle without creating - if successful, file exists
+                await dirHandle.getFileHandle(fileName, { create: false });
+                throw new Error(`File "${fileName}" already exists in workspace. Overwrite prevented.`);
+            } catch (e) {
+                // If NotFoundError, we are good to proceed. If other error (like the one we just threw), rethrow.
+                if (e.message.includes('already exists')) throw e;
+                if (e.name !== 'NotFoundError' && e.name !== 'TypeMismatchError') throw e;
+            }
+        }
+
         const fileHandle = await dirHandle.getFileHandle(fileName, { create: true });
         const writable = await fileHandle.createWritable();
         await writable.write(content);
@@ -121,7 +137,56 @@ export async function createFileInWorkspace(fileName, content) {
         return fileHandle;
     } catch (error) {
         console.error('[WorkspaceFolderService] Failed to create file in workspace:', error);
+        // Propagate specific errors like overwrite protection
+        if (error.message.includes('already exists')) throw error;
         // Return null to allow fallback to system picker
         return null;
     }
+}
+
+/**
+ * Gets a file handle for a file within the workspace folder
+ * @param {string} fileName - The filename to open
+ * @returns {Promise<FileSystemFileHandle|null>}
+ */
+export async function getFileFromWorkspace(fileName) {
+    const dirHandle = await getWorkspaceHandle();
+    if (!dirHandle) return null;
+
+    try {
+        // Check permission if needed
+        if (dirHandle.requestPermission) {
+            // We can't always request permission without user gesture, but if we already have it from
+            // opening the directory, queryPermission might return 'granted'.
+            // If it returns 'prompt', we might need to handle that upstream or rely on a user gesture wrapper.
+            // For now, let's assume if we have the directory handle, we might have access or get it via prompt.
+            const status = await dirHandle.queryPermission({ mode: 'readwrite' });
+            if (status !== 'granted') {
+                // Try requesting (might fail without user gesture context, but worth a try if supported)
+                try {
+                    const reqStatus = await dirHandle.requestPermission({ mode: 'readwrite' });
+                    if (reqStatus !== 'granted') return null;
+                } catch (e) {
+                    // Start fresh if permission check fails
+                    return null;
+                }
+            }
+        }
+
+        // Try to get existing file
+        return await dirHandle.getFileHandle(fileName, { create: false });
+    } catch (error) {
+        // File doesn't exist or permission issue
+        return null;
+    }
+}
+
+/**
+ * Checks if a filename exists in the workspace folder
+ * @param {string} fileName 
+ * @returns {Promise<boolean>}
+ */
+export async function fileExistsInWorkspace(fileName) {
+    const handle = await getFileFromWorkspace(fileName);
+    return handle !== null;
 }
