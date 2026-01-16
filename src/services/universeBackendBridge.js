@@ -563,6 +563,7 @@ const universeBackendBridge = {
   requestLocalFilePermission: (universeSlug) => bridgeInstance.requestLocalFilePermission(universeSlug),
   removeLocalFileLink: (universeSlug) => bridgeInstance.removeLocalFileLink(universeSlug),
   uploadLocalFile: (file, targetUniverseSlug) => bridgeInstance.uploadLocalFile(file, targetUniverseSlug),
+  setupLocalFileHandle: (universeSlug, options) => bridgeInstance.setupLocalFileHandle(universeSlug, options),
   reloadUniverse: (universeSlug) => bridgeInstance.reloadUniverse(universeSlug)
 };
 

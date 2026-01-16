@@ -80,6 +80,9 @@ const createUniverseConfigFromDiscovered = (discoveredUniverse, repoConfig) => {
   return {
     slug: discoveredUniverse.slug,
     name: baseFileName || discoveredUniverse.name,
+    nodeCount: discoveredUniverse.metadata?.nodeCount,
+    connectionCount: discoveredUniverse.metadata?.connectionCount,
+    graphCount: discoveredUniverse.metadata?.graphCount,
     sourceOfTruth: 'git',
     localFile: {
       enabled: false,
@@ -157,18 +160,31 @@ const discoverUniversesWithStats = async (provider) => {
     try {
       const data = JSON.parse(text);
       const storeState = data?.storeState || data; // tolerate plain store dumps
-      const nodeCount = storeState?.nodePrototypes
-        ? (storeState.nodePrototypes instanceof Map
-          ? storeState.nodePrototypes.size
-          : Object.keys(storeState.nodePrototypes || {}).length)
-        : null;
+
+      let nodeCount = 0;
+      if (storeState) {
+        if (Array.isArray(storeState.nodes)) {
+          nodeCount = storeState.nodes.length;
+        } else if (storeState.nodePrototypes) {
+          nodeCount = (storeState.nodePrototypes instanceof Map
+            ? storeState.nodePrototypes.size
+            : Object.keys(storeState.nodePrototypes || {}).length);
+        }
+      }
+
       const graphsVal = storeState?.graphs;
       const graphCount = graphsVal
         ? (graphsVal instanceof Map ? graphsVal.size : Object.keys(graphsVal || {}).length)
         : null;
-      return { nodeCount, graphCount };
+
+      const edgesVal = storeState?.edges;
+      const connectionCount = edgesVal
+        ? (Array.isArray(edgesVal) ? edgesVal.length : Object.keys(edgesVal || {}).length)
+        : 0;
+
+      return { nodeCount, graphCount, connectionCount };
     } catch {
-      return { nodeCount: null, graphCount: null };
+      return { nodeCount: null, graphCount: null, connectionCount: null };
     }
   };
 
@@ -207,6 +223,7 @@ const discoverUniversesWithStats = async (provider) => {
           const metrics = tryParseRedstring(content);
           if (metrics.nodeCount != null) discovered.metadata.nodeCount = metrics.nodeCount;
           if (metrics.graphCount != null) discovered.metadata.graphCount = metrics.graphCount;
+          if (metrics.connectionCount != null) discovered.metadata.connectionCount = metrics.connectionCount;
           stats.valid += 1;
         } catch {
           // File might not be readable (missing or access) — still list it

@@ -758,7 +758,7 @@ const UniversesList = ({
                           )}
 
                           {/* Local File Slot */}
-                          {universe.raw?.localFile?.enabled ? (
+                          {universe.raw?.localFile?.enabled || universe.raw?.localFile?.pendingConnect ? (
                             <div
                               style={{
                                 padding: 8,
@@ -841,6 +841,49 @@ const UniversesList = ({
                                         </span>
                                       </div>
                                     </div>
+
+                                    {localFile.pendingConnect && (
+                                      <div
+                                        style={{
+                                          marginTop: 6,
+                                          padding: '6px 8px',
+                                          borderRadius: 6,
+                                          backgroundColor: '#fff8e1',
+                                          border: '1px solid #ffca28',
+                                          display: 'flex',
+                                          flexDirection: 'column',
+                                          gap: 6
+                                        }}
+                                      >
+                                        <div style={{ display: 'flex', alignItems: 'flex-start', gap: 6 }}>
+                                          <Info size={14} color="#f57c00" style={{ marginTop: 2, flexShrink: 0 }} />
+                                          <span style={{ fontSize: '0.65rem', color: '#f57c00', lineHeight: 1.3 }}>
+                                            File imported but not linked. Connect to enable auto-save.
+                                          </span>
+                                        </div>
+                                        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                                          <button
+                                            onClick={(e) => {
+                                              e.stopPropagation();
+                                              if (onGrantLocalPermission) {
+                                                // Trigger pick/saveAs flow
+                                                onGrantLocalPermission(universe.slug, { mode: 'saveAs', suggestedName: localFile.lastImportedFile || localFile.displayPath });
+                                              }
+                                            }}
+                                            style={{
+                                              ...buttonStyle('solid'),
+                                              fontSize: '0.65rem',
+                                              padding: '4px 8px',
+                                              backgroundColor: '#f57c00',
+                                              border: 'none',
+                                              width: 'auto'
+                                            }}
+                                          >
+                                            Pick File / Save As
+                                          </button>
+                                        </div>
+                                      </div>
+                                    )}
 
                                     {localFile.fileHandleStatus === 'needs_reconnect' && (
                                       <div

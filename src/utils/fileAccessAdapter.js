@@ -33,9 +33,9 @@ if (typeof window !== 'undefined') {
  * Check if we're running in a browser with File System Access API support
  */
 export const hasFileSystemAccess = () => {
-  return typeof window !== 'undefined' && 
-         'showOpenFilePicker' in window && 
-         'showSaveFilePicker' in window;
+  return typeof window !== 'undefined' &&
+    'showOpenFilePicker' in window &&
+    'showSaveFilePicker' in window;
 };
 
 /**
@@ -86,20 +86,16 @@ export const pickSaveLocation = async (options = {}) => {
 
 /**
  * Read file contents
- * @param {FileHandle|string} fileHandleOrPath - Browser: FileHandle, Electron: file path
+ * @param {FileHandle|string} fileHandleOrPath - Browser: FileHandle, Electron: file path or FileHandle
  * @returns {Promise<string>} - File contents as string
  */
 export const readFile = async (fileHandleOrPath) => {
-  if (isElectron()) {
-    // Electron: fileHandleOrPath must be a string path
-    if (typeof fileHandleOrPath !== 'string') {
-      console.error('[FileAccessAdapter] Electron readFile received non-string path:', fileHandleOrPath);
-      throw new Error(`Electron readFile requires a string path, received: ${typeof fileHandleOrPath}`);
-    }
+  if (isElectron() && typeof fileHandleOrPath === 'string') {
+    // Electron string path
     const result = await window.electron.fileSystem.readFile(fileHandleOrPath);
     return result.content;
   } else {
-    // Browser: fileHandleOrPath is a FileHandle
+    // Browser or Electron with FileHandle object
     const file = await fileHandleOrPath.getFile();
     return await file.text();
   }
@@ -107,20 +103,16 @@ export const readFile = async (fileHandleOrPath) => {
 
 /**
  * Write file contents
- * @param {FileHandle|string} fileHandleOrPath - Browser: FileHandle, Electron: file path
+ * @param {FileHandle|string} fileHandleOrPath - Browser: FileHandle, Electron: file path or FileHandle
  * @param {string} content - Content to write
  * @returns {Promise<void>}
  */
 export const writeFile = async (fileHandleOrPath, content) => {
-  if (isElectron()) {
-    // Electron: fileHandleOrPath must be a string path
-    if (typeof fileHandleOrPath !== 'string') {
-      console.error('[FileAccessAdapter] Electron writeFile received non-string path:', fileHandleOrPath);
-      throw new Error(`Electron writeFile requires a string path, received: ${typeof fileHandleOrPath}`);
-    }
+  if (isElectron() && typeof fileHandleOrPath === 'string') {
+    // Electron string path
     await window.electron.fileSystem.writeFile(fileHandleOrPath, content);
   } else {
-    // Browser: fileHandleOrPath is a FileHandle
+    // Browser or Electron with FileHandle object
     const writable = await fileHandleOrPath.createWritable();
     await writable.write(content);
     await writable.close();
@@ -129,19 +121,16 @@ export const writeFile = async (fileHandleOrPath, content) => {
 
 /**
  * Check if a file exists (Electron only, browsers use FileHandle directly)
- * @param {string} filePath - File path
+ * @param {string|FileHandle} fileHandleOrPath - File path or handle
  * @returns {Promise<boolean>}
  */
-export const fileExists = async (filePath) => {
-  if (isElectron()) {
-    if (typeof filePath !== 'string') {
-      console.warn('[FileAccessAdapter] Electron fileExists received non-string path:', filePath);
-      return false;
-    }
-    return await window.electron.fileSystem.fileExists(filePath);
+export const fileExists = async (fileHandleOrPath) => {
+  if (isElectron() && typeof fileHandleOrPath === 'string') {
+    return await window.electron.fileSystem.fileExists(fileHandleOrPath);
   } else {
-    // In browser, if we have a FileHandle, it exists
-    return true;
+    // In browser or with Handle, if we have a FileHandle object, it "exists" in the sense that we have a reference.
+    // For robust checking we might try to getFile(), but usually this suffices.
+    return !!fileHandleOrPath;
   }
 };
 
