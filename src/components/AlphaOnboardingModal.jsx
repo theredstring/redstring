@@ -109,7 +109,7 @@ const AlphaOnboardingModal = ({
           fontFamily: "'EmOne', sans-serif",
           fontWeight: '600'
         }}>
-          Alpha v0.1.0
+          v0.2.0
         </div>
       </div>
 

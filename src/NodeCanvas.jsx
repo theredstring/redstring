@@ -7226,8 +7226,8 @@ function NodeCanvas() {
     // Finalize selection box
     if (selectionStart) {
       const rect = containerRef.current.getBoundingClientRect();
-      const rawX = (e.clientX - rect.left - panOffset.x) / zoomLevel;
-      const rawY = (e.clientY - rect.top - panOffset.y) / zoomLevel;
+      const rawX = (e.clientX - rect.left - panOffset.x) / zoomLevel + canvasSize.offsetX;
+      const rawY = (e.clientY - rect.top - panOffset.y) / zoomLevel + canvasSize.offsetY;
       const { x: currentX, y: currentY } = clampCoordinates(rawX, rawY);
       canvasWorker.calculateSelection({ selectionStart, currentX, currentY })
         .then(selectionRes => {

@@ -41,7 +41,7 @@ class DebugConfig {
       this.isInitialized = true;
       return;
     }
-    
+
     try {
       // Load existing debug settings from localStorage
       this.config = {
@@ -53,16 +53,16 @@ class DebugConfig {
 
       // Check URL parameters for debug overrides
       const urlParams = new URLSearchParams(browserLocationSearch);
-      
+
       if (urlParams.has('debug')) {
         this.config.debugMode = true;
       }
-      
+
       if (urlParams.has('disable-local-storage') || urlParams.get('debug') === 'no-local') {
         this.config.disableLocalStorage = true;
         console.warn('[DebugConfig] Local storage disabled via URL parameter');
       }
-      
+
       if (urlParams.has('force-git-only') || urlParams.get('debug') === 'git-only') {
         this.config.forceGitOnly = true;
         console.warn('[DebugConfig] Forced Git-Only mode via URL parameter');
@@ -158,9 +158,9 @@ class DebugConfig {
     this.config.disableLocalStorage = disabled;
     this.setSetting(DEBUG_STORAGE_KEYS.DISABLE_LOCAL_STORAGE, disabled);
     this.notifyListeners();
-    
+
     console.warn(`[DebugConfig] Local storage ${disabled ? 'DISABLED' : 'ENABLED'} for debugging`);
-    
+
     if (disabled) {
       console.warn('[DebugConfig] ⚠️  All data will be lost on browser reload when local storage is disabled');
     }
@@ -207,14 +207,14 @@ class DebugConfig {
       Object.values(DEBUG_STORAGE_KEYS).forEach(key => {
         this.storage.removeItem(key);
       });
-      
+
       this.config = {
         disableLocalStorage: false,
         debugMode: false,
         forceGitOnly: false,
         logLevel: 'info'
       };
-      
+
       this.notifyListeners();
       console.log('[DebugConfig] All debug settings cleared');
     } catch (error) {
@@ -242,10 +242,10 @@ class DebugConfig {
   // Get debug status summary
   getDebugStatus() {
     return {
-      active: this.config.debugMode || 
-              this.config.disableLocalStorage || 
-              this.config.forceGitOnly ||
-              this.config.logLevel !== 'info',
+      active: this.config.debugMode ||
+        this.config.disableLocalStorage ||
+        this.config.forceGitOnly ||
+        this.config.logLevel !== 'info',
       settings: this.getConfig(),
       urlOverrides: this.getURLOverrides()
     };

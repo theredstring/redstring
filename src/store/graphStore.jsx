@@ -502,7 +502,14 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
     thingNodeId: 'base-thing-prototype',
 
     // UI Settings
-    showConnectionNames: false,
+    showConnectionNames: (() => {
+      try {
+        const saved = localStorage.getItem('redstring_show_connection_names');
+        return saved === null ? true : saved === 'true';
+      } catch (_) {
+        return true;
+      }
+    })(),
     // Grid visualization settings
     gridSettings: (() => {
       try {
@@ -2657,6 +2664,9 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
     // Toggle connection names visibility
     toggleShowConnectionNames: () => set(produce((draft) => {
       draft.showConnectionNames = !draft.showConnectionNames;
+      try {
+        localStorage.setItem('redstring_show_connection_names', draft.showConnectionNames);
+      } catch (_) { }
     })),
 
     // Grid settings actions

@@ -20,10 +20,10 @@ const EdgeGlowIndicator = ({
   // Get TypeList visibility from store
   const typeListMode = useGraphStore(state => state.typeListMode);
   const typeListVisible = typeListMode !== 'closed';
-  
+
   // Use the panel-based viewport bounds for positioning the overlay
   const viewportBounds = useViewportBounds(leftPanelExpanded, rightPanelExpanded, typeListVisible);
-  
+
   // Use the fixed canvas viewport size for coordinate calculations
   const canvasSize = canvasViewportSize || { width: window.innerWidth, height: window.innerHeight };
 
@@ -61,7 +61,7 @@ const EdgeGlowIndicator = ({
       const dims = isNodePreviewing
         ? getNodeDimensions(node, true, null)
         : precomputedDims || getNodeDimensions(node, false, null);
-      
+
       // Calculate the center of the node using the EXACT same pattern as working connections
       // From NodeCanvas.jsx line 6040-6043: const x1 = sourceNode.x + sNodeDims.currentWidth / 2;
       // and line 6041: const y1 = sourceNode.y + (isSNodePreviewing ? NODE_HEIGHT / 2 : sNodeDims.currentHeight / 2);
@@ -74,7 +74,7 @@ const EdgeGlowIndicator = ({
       // Node positions are in canvas coordinates, need to transform to screen coordinates
       const canvasOffsetX = -50000; // From canvasSize.offsetX
       const canvasOffsetY = -50000; // From canvasSize.offsetY
-      
+
       // Transform from canvas coordinates to screen coordinates
       // NodeCanvas transform: translate(panOffset.x - canvasOffsetX * zoomLevel, panOffset.y - canvasOffsetY * zoomLevel) scale(zoomLevel)
       // This means: screenPos = (canvasPos * zoomLevel) + (panOffset + (-canvasOffset) * zoomLevel)
@@ -83,11 +83,11 @@ const EdgeGlowIndicator = ({
       // IMPORTANT: Add rect.left and rect.top like the original working version
       const nodeScreenX = (nodeCenterX + (-canvasOffsetX)) * zoomLevel + panOffset.x + rect.left;
       const nodeScreenY = (nodeCenterY + (-canvasOffsetY)) * zoomLevel + panOffset.y + rect.top;
-      
+
       // Convert to overlay coordinates relative to the viewport bounds
       const nodeOverlayX = nodeScreenX - viewportBounds.x;
       const nodeOverlayY = nodeScreenY - viewportBounds.y;
-      
+
       // Check if the node center is outside the visible viewport area
       // Use viewportBounds for the actual visible area (accounts for panels)
       const isNodeCenterOutsideViewport = (
@@ -125,21 +125,21 @@ const EdgeGlowIndicator = ({
       const containerH = viewportBounds.height;
       const centerX = containerW / 2;
       const centerY = containerH / 2;
-      
+
       // Use the node position from nodeInfo
       const nodePxX = nodeInfo.nodeOverlayX;
       const nodePxY = nodeInfo.nodeOverlayY;
-      
+
       // Calculate direction vector from center to node
       const dx = nodePxX - centerX;
       const dy = nodePxY - centerY;
-      
+
       // Find intersection with viewport rectangle edges
       let screenX, screenY;
-      
+
       // Calculate intersection with each edge and find the valid one
       const intersections = [];
-      
+
       // Left edge (x = 0)
       if (dx !== 0) {
         const t = -centerX / dx;
@@ -148,7 +148,7 @@ const EdgeGlowIndicator = ({
           intersections.push({ x: 0, y, t });
         }
       }
-      
+
       // Right edge (x = containerW)
       if (dx !== 0) {
         const t = (containerW - centerX) / dx;
@@ -157,7 +157,7 @@ const EdgeGlowIndicator = ({
           intersections.push({ x: containerW, y, t });
         }
       }
-      
+
       // Top edge (y = 0)
       if (dy !== 0) {
         const t = -centerY / dy;
@@ -166,7 +166,7 @@ const EdgeGlowIndicator = ({
           intersections.push({ x, y: 0, t });
         }
       }
-      
+
       // Bottom edge (y = containerH)
       if (dy !== 0) {
         const t = (containerH - centerY) / dy;
@@ -175,7 +175,7 @@ const EdgeGlowIndicator = ({
           intersections.push({ x, y: containerH, t });
         }
       }
-      
+
       // Use the intersection with the smallest t (closest to center)
       if (intersections.length > 0) {
         const closestIntersection = intersections.reduce((min, curr) => curr.t < min.t ? curr : min);
@@ -252,7 +252,7 @@ const EdgeGlowIndicator = ({
           }}
         />
       )}
-      
+
       {/* Debug container outline */}
       {showViewportDebug && (
         <div
@@ -269,7 +269,7 @@ const EdgeGlowIndicator = ({
           }}
         />
       )}
-      
+
       {/* Debug direction lines */}
       {showDirectionLines && (
         <svg
@@ -286,13 +286,13 @@ const EdgeGlowIndicator = ({
           {allNodeData.map(nodeInfo => {
             const centerX = viewportBounds.width / 2;
             const centerY = viewportBounds.height / 2;
-            
+
             const nodeOverlayX = nodeInfo.nodeOverlayX;
             const nodeOverlayY = nodeInfo.nodeOverlayY;
-            
+
             // Find the corresponding glow (if any)
             const glow = offScreenGlows.find(g => g.id === nodeInfo.id);
-            
+
             return (
               <g key={`debug-${nodeInfo.id}`}>
                 {/* Line from center to actual node position */}
@@ -332,7 +332,7 @@ const EdgeGlowIndicator = ({
         </svg>
       )}
 
-      
+
       {/* Debug corner labels */}
       {showViewportDebug && (
         <>
@@ -358,7 +358,7 @@ const EdgeGlowIndicator = ({
           ))}
         </>
       )}
-      
+
       {/* Render individual glow dots */}
       {offScreenGlows.map(glow => {
         const { id, screenX, screenY, color, intensity, edge } = glow;
@@ -369,16 +369,16 @@ const EdgeGlowIndicator = ({
 
         // Orientation by edge
         const rotation = edge === 'left' ? 0
-                        : edge === 'right' ? 180
-                        : edge === 'top' ? 90
-                        : -90; // bottom
+          : edge === 'right' ? 180
+            : edge === 'top' ? 90
+              : -90; // bottom
 
         // Position to ride slightly further out from the screen edge (3px offset)
         // The EdgeGlowIndicator container is positioned at viewportBounds.x/y
         // So flares should be positioned at the actual screen edge coordinates
         let translateX = screenX;
         let translateY = screenY;
-        
+
         // Position 3px further out from each edge for better visibility
         if (edge === 'left') translateX = -3; // 3px to the left of left edge
         else if (edge === 'right') translateX = viewportBounds.width + 3; // 3px to the right of right edge

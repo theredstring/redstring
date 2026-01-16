@@ -1,7 +1,7 @@
 {
   "name": "redstring",
   "private": true,
-  "version": "0.1.0-alpha",
+  "version": "0.2.0",
   "description": "Redstring Alpha - A semantic knowledge graph application with visual node-based interface, RDF integration, and AI-powered knowledge discovery",
   "license": "MIT",
   "type": "module",

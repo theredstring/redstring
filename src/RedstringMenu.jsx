@@ -12,6 +12,7 @@ import useGraphStore from './store/graphStore.jsx';
 const RedstringMenu = ({
   isOpen,
   onHoverView,
+  showDebugMenu = false,
   debugMode,
   setDebugMode,
   trackpadZoomEnabled,
@@ -67,10 +68,10 @@ const RedstringMenu = ({
   // Track timeout for nested submenu closing only
   const nestedCloseTimeoutRef = useRef(null);
   const [debugSettings, setDebugSettings] = useState(debugConfig.getConfig());
-  const menuItems = ['File', 'Edit', 'View', 'Connections', 'Debug', 'Help'];
+  const menuItems = ['File', 'Edit', 'View', 'Connections', ...(showDebugMenu ? ['Debug'] : []), 'Help'];
   const menuRef = useRef(null);
 
-  const topLevelMenus = ['File', 'Edit', 'View', 'Connections', 'Debug', 'Help'];
+  const topLevelMenus = ['File', 'Edit', 'View', 'Connections', ...(showDebugMenu ? ['Debug'] : []), 'Help'];
 
   // Helper functions for menu management
   const openTopLevelMenu = (name) => {

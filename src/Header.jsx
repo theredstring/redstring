@@ -1,8 +1,9 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { HEADER_HEIGHT } from './constants';
 import RedstringMenu from './RedstringMenu';
-import { Bookmark, Plus, ScanSearch, HelpCircle } from 'lucide-react';
+import { Bookmark, Plus, ScanSearch, HelpCircle, Bug } from 'lucide-react';
 import HeaderGraphTab from './HeaderGraphTab';
+import { showContextMenu } from './components/GlobalContextMenu';
 
 // Import all logo states
 import logo1 from './assets/redstring_button/header_logo_1.svg';
@@ -13,16 +14,16 @@ import logo5 from './assets/redstring_button/header_logo_5.svg';
 import logo6 from './assets/redstring_button/header_logo_6.svg';
 import logo7 from './assets/redstring_button/header_logo_7.svg';
 
-const Header = ({ 
-  onTitleChange, 
-  onEditingStateChange, 
+const Header = ({
+  onTitleChange,
+  onEditingStateChange,
   headerGraphs,
   onSetActiveGraph,
   // New action props
   onCreateNewThing,
   onOpenComponentSearch,
   // Receive debug props
-  debugMode, 
+  debugMode,
   setDebugMode,
   // View option: trackpad zoom
   trackpadZoomEnabled,
@@ -76,12 +77,37 @@ const Header = ({
   const [currentLogoIndex, setCurrentLogoIndex] = useState(0);
   const [isAnimating, setIsAnimating] = useState(false);
   const [imagesLoaded, setImagesLoaded] = useState(false);
+  // Show/Hide Debug Menu state
+  const [showDebugMenu, setShowDebugMenu] = useState(() => {
+    try {
+      return localStorage.getItem('redstring_show_debug_menu') === 'true';
+    } catch {
+      return false;
+    }
+  });
+
+  const handleLogoContextMenu = (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+
+    showContextMenu(e.clientX, e.clientY, [
+      {
+        label: showDebugMenu ? 'Hide Debug Menu' : 'Show Debug Menu',
+        icon: <Bug size={14} />,
+        action: () => {
+          const newState = !showDebugMenu;
+          setShowDebugMenu(newState);
+          localStorage.setItem('redstring_show_debug_menu', newState);
+        }
+      }
+    ]);
+  };
 
   // Keep local editing state, but text state is now props
   const [isEditing, setIsEditing] = useState(false);
-  
+
   const activeGraph = headerGraphs.find(g => g.isActive);
-  
+
   // Keep consistent order - split the original array around the active graph
   const activeIndex = headerGraphs.findIndex(g => g.isActive);
   const leftGraphs = activeIndex > 0 ? headerGraphs.slice(0, activeIndex) : [];
@@ -146,9 +172,9 @@ const Header = ({
         const borderLeft = parseFloat(style.borderLeftWidth) || 0;
         const borderRight = parseFloat(style.borderRightWidth) || 0;
         let newWidth = textWidth + paddingLeft + paddingRight + borderLeft + borderRight;
-        
+
         // Min width specific to header input, can be adjusted
-        const minWidth = 50; 
+        const minWidth = 50;
         if (newWidth < minWidth) {
           newWidth = minWidth;
         }
@@ -197,7 +223,7 @@ const Header = ({
         }
       };
     } else if (inputRef.current) {
-        inputRef.current.style.width = 'auto'; // Reset if editing becomes false
+      inputRef.current.style.width = 'auto'; // Reset if editing becomes false
     }
   }, [isEditing]);
 
@@ -206,23 +232,23 @@ const Header = ({
   const animateFrames = async (opening) => {
     if (isAnimating || !imagesLoaded) return;
     setIsAnimating(true);
-    
+
     const frames = opening ? [0, 1, 2, 3, 4, 5, 6] : [6, 5, 4, 3, 2, 1, 0];
-    
+
     for (const frame of frames) {
       setCurrentLogoIndex(frame);
       await sleep(30); // 30ms per frame as you preferred
     }
-    
+
     setIsAnimating(false);
     setIsMenuOpen(opening);
   };
 
   const toggleMenu = async () => {
     if (isAnimating) return;
-    
+
     const opening = !isMenuOpen;
-    setIsMenuOpen(opening); 
+    setIsMenuOpen(opening);
     await animateFrames(opening);
   };
 
@@ -234,8 +260,8 @@ const Header = ({
   const handleTitleDoubleClick = () => {
     if (activeGraph) {
       setTempTitle(activeGraph.name); // Start editing with current prop value
-    setIsEditing(true);
-    onEditingStateChange?.(true);
+      setIsEditing(true);
+      onEditingStateChange?.(true);
     }
   };
 
@@ -245,9 +271,9 @@ const Header = ({
 
   // Commit changes using the callback prop
   const commitChange = () => {
-      setIsEditing(false);
-      onEditingStateChange?.(false);
-      onTitleChange(tempTitle); // Call the callback passed from NodeCanvas
+    setIsEditing(false);
+    onEditingStateChange?.(false);
+    onTitleChange(tempTitle); // Call the callback passed from NodeCanvas
   };
 
   const handleTitleBlur = () => {
@@ -273,79 +299,81 @@ const Header = ({
   if (!imagesLoaded) {
     return (
       <header
+        style={{
+          height: `${HEADER_HEIGHT}px`,
+          backgroundColor: '#260000',
+          color: '#bdb5b5',
+          fontFamily: "'EmOne', sans-serif",
+          display: 'flex',
+          alignItems: 'center',
+          flexShrink: 0,
+          position: 'relative',
+          zIndex: 1000,
+        }}
+      >
+        {/* The button stays in the header */}
+        <img
+          src={logos[currentLogoIndex]}
+          alt=""
           style={{
             height: `${HEADER_HEIGHT}px`,
-            backgroundColor: '#260000',
-            color: '#bdb5b5',
-            fontFamily: "'EmOne', sans-serif",
-            display: 'flex',
-            alignItems: 'center',
-            flexShrink: 0,
-            position: 'relative',
-            zIndex: 1000,
+            width: `${HEADER_HEIGHT}px`,
+            objectFit: 'contain',
+            cursor: isAnimating ? 'default' : 'pointer',
           }}
-        >
-          {/* The button stays in the header */}
-          <img 
-            src={logos[currentLogoIndex]}
-            alt=""
-            style={{
-              height: `${HEADER_HEIGHT}px`,
-              width: `${HEADER_HEIGHT}px`,
-              objectFit: 'contain',
-              cursor: isAnimating ? 'default' : 'pointer',
-            }}
-            onClick={toggleMenu}
-          />
-          
-          {/* Pass debug props to RedstringMenu here */}
-          <RedstringMenu 
-            isOpen={isMenuOpen} 
-            onHoverView={(open) => {
-              if (!open) {
-                closeMenu();
-              } else {
-                setIsMenuOpen(true);
-              }
-            }}
-            debugMode={debugMode} 
-            setDebugMode={setDebugMode}
-            trackpadZoomEnabled={trackpadZoomEnabled}
-            onToggleTrackpadZoom={onToggleTrackpadZoom}
-            isFullscreen={isFullscreen}
-            onToggleFullscreen={onToggleFullscreen}
-            showConnectionNames={showConnectionNames}
-            onToggleShowConnectionNames={onToggleShowConnectionNames}
-            enableAutoRouting={enableAutoRouting}
-            routingStyle={routingStyle}
-            manhattanBends={manhattanBends}
-            onToggleEnableAutoRouting={onToggleEnableAutoRouting}
-            onSetRoutingStyle={onSetRoutingStyle}
-            onSetManhattanBends={onSetManhattanBends}
-            onSetCleanLaneSpacing={onSetCleanLaneSpacing}
-            cleanLaneSpacing={cleanLaneSpacing}
-            groupLayoutAlgorithm={groupLayoutAlgorithm}
-            onSetGroupLayoutAlgorithm={onSetGroupLayoutAlgorithm}
-            showClusterHulls={showClusterHulls}
-            onToggleShowClusterHulls={onToggleShowClusterHulls}
-            gridMode={gridMode}
-            onSetGridMode={onSetGridMode}
-            gridSize={gridSize}
-            onSetGridSize={onSetGridSize}
-            dragZoomEnabled={dragZoomEnabled}
-            dragZoomAmount={dragZoomAmount}
-            onToggleDragZoom={onToggleDragZoom}
-            onSetDragZoomAmount={onSetDragZoomAmount}
-            onNewUniverse={onNewUniverse}
-            onOpenUniverse={onOpenUniverse}
-            onSaveUniverse={onSaveUniverse}
-            onExportRdf={onExportRdf}
-            onOpenRecentFile={onOpenRecentFile}
-            onGenerateTestGraph={onGenerateTestGraph}
-            onOpenForceSim={onOpenForceSim}
-            onAutoLayoutGraph={onAutoLayoutGraph}
-            onCondenseNodes={onCondenseNodes}
-          />
+          onClick={toggleMenu}
+          onContextMenu={handleLogoContextMenu}
+        />
+
+        {/* Pass debug props to RedstringMenu here */}
+        <RedstringMenu
+          isOpen={isMenuOpen}
+          onHoverView={(open) => {
+            if (!open) {
+              closeMenu();
+            } else {
+              setIsMenuOpen(true);
+            }
+          }}
+          showDebugMenu={showDebugMenu}
+          debugMode={debugMode}
+          setDebugMode={setDebugMode}
+          trackpadZoomEnabled={trackpadZoomEnabled}
+          onToggleTrackpadZoom={onToggleTrackpadZoom}
+          isFullscreen={isFullscreen}
+          onToggleFullscreen={onToggleFullscreen}
+          showConnectionNames={showConnectionNames}
+          onToggleShowConnectionNames={onToggleShowConnectionNames}
+          enableAutoRouting={enableAutoRouting}
+          routingStyle={routingStyle}
+          manhattanBends={manhattanBends}
+          onToggleEnableAutoRouting={onToggleEnableAutoRouting}
+          onSetRoutingStyle={onSetRoutingStyle}
+          onSetManhattanBends={onSetManhattanBends}
+          onSetCleanLaneSpacing={onSetCleanLaneSpacing}
+          cleanLaneSpacing={cleanLaneSpacing}
+          groupLayoutAlgorithm={groupLayoutAlgorithm}
+          onSetGroupLayoutAlgorithm={onSetGroupLayoutAlgorithm}
+          showClusterHulls={showClusterHulls}
+          onToggleShowClusterHulls={onToggleShowClusterHulls}
+          gridMode={gridMode}
+          onSetGridMode={onSetGridMode}
+          gridSize={gridSize}
+          onSetGridSize={onSetGridSize}
+          dragZoomEnabled={dragZoomEnabled}
+          dragZoomAmount={dragZoomAmount}
+          onToggleDragZoom={onToggleDragZoom}
+          onSetDragZoomAmount={onSetDragZoomAmount}
+          onNewUniverse={onNewUniverse}
+          onOpenUniverse={onOpenUniverse}
+          onSaveUniverse={onSaveUniverse}
+          onExportRdf={onExportRdf}
+          onOpenRecentFile={onOpenRecentFile}
+          onGenerateTestGraph={onGenerateTestGraph}
+          onOpenForceSim={onOpenForceSim}
+          onAutoLayoutGraph={onAutoLayoutGraph}
+          onCondenseNodes={onCondenseNodes}
+        />
       </header>
     );
   }
@@ -365,13 +393,13 @@ const Header = ({
       }}
     >
       {/* Menu button container with explicit height */}
-      <div style={{ 
+      <div style={{
         position: 'relative',
         height: `${HEADER_HEIGHT}px`,
         display: 'flex',
         alignItems: 'center'
       }}>
-          <img 
+        <img
           src={logos[currentLogoIndex]}
           alt=""
           style={{
@@ -384,10 +412,11 @@ const Header = ({
           onClick={toggleMenu}
           onPointerDown={(e) => { if (e.pointerType !== 'mouse') { e.stopPropagation(); toggleMenu(); } }}
           onTouchStart={(e) => { e.stopPropagation(); toggleMenu(); }}
+          onContextMenu={handleLogoContextMenu}
         />
         {/* Pass debug props to RedstringMenu here */}
-        <RedstringMenu 
-          isOpen={isMenuOpen} 
+        <RedstringMenu
+          isOpen={isMenuOpen}
           onHoverView={(open) => {
             if (!open) {
               closeMenu();
@@ -395,7 +424,8 @@ const Header = ({
               setIsMenuOpen(true);
             }
           }}
-          debugMode={debugMode} 
+          showDebugMenu={showDebugMenu}
+          debugMode={debugMode}
           setDebugMode={setDebugMode}
           trackpadZoomEnabled={trackpadZoomEnabled}
           onToggleTrackpadZoom={onToggleTrackpadZoom}
@@ -510,8 +540,8 @@ const Header = ({
         gap: '10px',
       }}>
         {/* Left-side (inactive) tabs - right-aligned in left column */}
-        <div style={{ 
-          display: 'flex', 
+        <div style={{
+          display: 'flex',
           justifyContent: 'flex-end',
           alignItems: 'center',
           gap: '10px',
@@ -537,31 +567,31 @@ const Header = ({
                   ...activeGraph,
                   name: isEditing ? tempTitle : activeGraph.name // Use temp title when editing for dynamic sizing
                 }}
-                onSelect={() => {}}
+                onSelect={() => { }}
                 onDoubleClick={handleTitleDoubleClick}
                 isActive={true}
                 hideText={isEditing} // Hide text when editing to prevent duplicates
               />
               {/* Overlay transparent input when editing */}
               {isEditing && (
-          <input
-            ref={inputRef}
-            type="text"
-            className="editable-title-input"
-            value={tempTitle}
-            onChange={handleTitleChange}
-            onBlur={handleTitleBlur}
-            onKeyDown={handleTitleKeyDown}
-            spellCheck="false"
-            style={{
+                <input
+                  ref={inputRef}
+                  type="text"
+                  className="editable-title-input"
+                  value={tempTitle}
+                  onChange={handleTitleChange}
+                  onBlur={handleTitleBlur}
+                  onKeyDown={handleTitleKeyDown}
+                  spellCheck="false"
+                  style={{
                     position: 'absolute',
                     top: 0,
                     left: '5px', // Account for the 5px left margin of HeaderGraphTab
                     width: 'calc(100% - 10px)', // Account for both left and right 5px margins
                     height: '100%',
                     backgroundColor: 'transparent',
-              color: '#bdb5b5',
-              textAlign: 'center',
+                    color: '#bdb5b5',
+                    textAlign: 'center',
                     boxSizing: 'border-box',
                     padding: '7px 17px',
                     borderRadius: '12px',
@@ -572,17 +602,17 @@ const Header = ({
                     outline: 'none',
                     textShadow: '0 1px 2px rgba(0,0,0,0.5)',
                     cursor: 'text',
-            }}
-            autoFocus
-          />
+                  }}
+                  autoFocus
+                />
               )}
             </div>
           )}
         </div>
-        
+
         {/* Right-side (inactive) tabs - left-aligned in right column */}
-        <div style={{ 
-          display: 'flex', 
+        <div style={{
+          display: 'flex',
           justifyContent: 'flex-start',
           alignItems: 'center',
           gap: '10px',
@@ -718,59 +748,59 @@ const Header = ({
           </div>
         </div>
 
-      <div
-        title={bookmarkActive ? 'Remove Bookmark' : 'Add Bookmark'}
-        style={{
-          height: `${HEADER_HEIGHT}px`,
-          width: `${HEADER_HEIGHT}px`,
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          cursor: 'pointer',
-          backgroundColor: 'transparent'
-        }}
-        onClick={() => {
-          // Log the state received via props just before calling the callback
-          console.log('[Header Bookmark Click] bookmarkActive prop:', bookmarkActive);
-          onBookmarkToggle(); // Call the callback passed from NodeCanvas
-        }}
-        onMouseEnter={(e) => {
-          const circle = e.currentTarget.querySelector('.header-btn-circle');
-          if (circle) {
-            circle.style.transform = 'scale(1.06)';
-            circle.style.boxShadow = '0 2px 6px rgba(0,0,0,0.15)';
-          }
-        }}
-        onMouseLeave={(e) => {
-          const circle = e.currentTarget.querySelector('.header-btn-circle');
-          if (circle) {
-            circle.style.transform = 'scale(1)';
-            circle.style.boxShadow = 'none';
-          }
-        }}
-      >
         <div
-          className="header-btn-circle"
+          title={bookmarkActive ? 'Remove Bookmark' : 'Add Bookmark'}
           style={{
-            width: '36px',
-            height: '36px',
-            borderRadius: '50%',
-            backgroundColor: '#ffffff',
-            border: '3px solid #7A0000',
+            height: `${HEADER_HEIGHT}px`,
+            width: `${HEADER_HEIGHT}px`,
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
-            transition: 'transform 120ms ease, box-shadow 120ms ease'
+            cursor: 'pointer',
+            backgroundColor: 'transparent'
+          }}
+          onClick={() => {
+            // Log the state received via props just before calling the callback
+            console.log('[Header Bookmark Click] bookmarkActive prop:', bookmarkActive);
+            onBookmarkToggle(); // Call the callback passed from NodeCanvas
+          }}
+          onMouseEnter={(e) => {
+            const circle = e.currentTarget.querySelector('.header-btn-circle');
+            if (circle) {
+              circle.style.transform = 'scale(1.06)';
+              circle.style.boxShadow = '0 2px 6px rgba(0,0,0,0.15)';
+            }
+          }}
+          onMouseLeave={(e) => {
+            const circle = e.currentTarget.querySelector('.header-btn-circle');
+            if (circle) {
+              circle.style.transform = 'scale(1)';
+              circle.style.boxShadow = 'none';
+            }
           }}
         >
-          <Bookmark
-            size={22}
-            color="#7A0000"
-            fill={bookmarkActive ? '#7A0000' : 'none'}
-            strokeWidth={3}
-          />
+          <div
+            className="header-btn-circle"
+            style={{
+              width: '36px',
+              height: '36px',
+              borderRadius: '50%',
+              backgroundColor: '#ffffff',
+              border: '3px solid #7A0000',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              transition: 'transform 120ms ease, box-shadow 120ms ease'
+            }}
+          >
+            <Bookmark
+              size={22}
+              color="#7A0000"
+              fill={bookmarkActive ? '#7A0000' : 'none'}
+              strokeWidth={3}
+            />
+          </div>
         </div>
-      </div>
       </div>
     </header>
   );

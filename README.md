@@ -10,20 +10,20 @@ Redstring enables you to create, connect, and explore concepts through an intuit
 
 ## Key Features
 
-### 🧠 Visual Knowledge Graphs
+### Visual Knowledge Graphs
 - **Node-based Interface**: Drag-and-drop concept creation and connection
 - **Hierarchical Organization**: Nodes can expand to reveal internal definition graphs
 - **Contextual Definitions**: Same concept can have different meanings in different contexts
 - **Visual Abstractions**: Multi-dimensional abstraction chains (specific → general)
 
-### 🌐 Semantic Web Integration
+### Semantic Web Integration
 - **W3C Standards Compliant**: Full RDF, OWL, and JSON-LD support
 - **Dual-Format Storage**: Native Redstring format + RDF export for interoperability
 - **External Knowledge Sources**: Direct integration with Wikidata, DBpedia, and Wikipedia
 - **Property-Based Discovery**: Find related concepts through semantic relationships
 - **Cross-Domain Linking**: Connect knowledge across different sources and domains
 
-### 🔄 Local-First Storage Architecture
+### Local-First Storage Architecture
 - **Multi-Storage Sync**: Save to all enabled storage locations simultaneously
   - Local `.redstring` files (first-class, independent storage)
   - Git repositories (GitHub/Gitea/GitLab - opt-in collaboration)
@@ -32,7 +32,7 @@ Redstring enables you to create, connect, and explore concepts through an intuit
 - **Privacy by Design**: Git/GitHub cannot access data unless you explicitly enable it
 - **Resilient**: If one storage method fails, others still succeed
 
-### 🔗 Git Federation
+### Git Federation
 - **Real-Time Sync**: Sub-5-second auto-commits to Git repositories
 - **Hot-Swappable Providers**: Switch between GitHub, GitLab, Gitea, or self-hosted
 - **Multi-Provider Redundancy**: Backup to multiple Git providers simultaneously
@@ -40,14 +40,16 @@ Redstring enables you to create, connect, and explore concepts through an intuit
 - **Version History**: Complete audit trail using Git's native capabilities
 - **Conflict Resolution**: Git merge capabilities for collaborative knowledge building
 
-### 🤖 AI-Powered Tools
-- **First-Class AI Integration**: AI can interact with Redstring like a human user
+### AI-Powered Tools (Experimental - Disabled by Default)
+- **First-Class AI Integration**: AI can interact with Redstring like a human user (requires manual setup)
 - **Model Context Protocol (MCP)**: Comprehensive tool suite for AI agents
 - **Semantic Discovery**: AI-powered exploration of knowledge connections
 - **Enhanced Search**: Multi-source queries (70% DBpedia, 20% Wikidata, 10% Wikipedia)
 - **Transparent Operations**: Full visibility into AI tool calls and actions
 
-### 📦 Format Versioning
+**Note**: AI features are experimental and disabled by default. Users must explicitly enable and configure them.
+
+### Format Versioning
 - **Automatic Migration**: Files from older versions (v1.0.0, v2.0.0) auto-upgrade to v3.0.0
 - **Version Validation**: Clear error messages for incompatible formats
 - **User Feedback**: Migration progress displayed during import
@@ -215,7 +217,17 @@ Redstring supports experimental integration with Solid Pods for decentralized st
 
 **Note**: Solid integration is experimental. Git federation is recommended for production use.
 
-## AI Integration (Experimental)
+## AI Integration (Experimental - Disabled by Default)
+
+**IMPORTANT**: AI integration is experimental and disabled by default. These features require:
+- Manual setup and configuration
+- External AI service credentials
+- Technical knowledge of MCP (Model Context Protocol)
+- Explicit user opt-in to enable functionality
+
+Most users will not use these features. Standard Redstring functionality works completely independently.
+
+---
 
 Redstring treats AI as a **first-class user** with comprehensive tool access via Model Context Protocol (MCP).
 
