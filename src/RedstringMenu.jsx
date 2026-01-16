@@ -5,6 +5,7 @@ import './RedstringMenu.css';
 import DebugOverlay from './DebugOverlay';
 import * as fileStorage from './store/fileStorage.js';
 import { debugConfig } from './utils/debugConfig.js';
+import { getStorageKey } from './utils/storageUtils.js';
 import useHistoryStore from './store/historyStore.js';
 import useGraphStore from './store/graphStore.jsx';
 
@@ -868,13 +869,13 @@ const RedstringMenu = ({
                           onClick={async () => {
                             try {
                               // Clear onboarding flag
-                              localStorage.removeItem('redstring-alpha-welcome-seen');
+                              localStorage.removeItem(getStorageKey('redstring-alpha-welcome-seen'));
 
                               // Clear folder storage
-                              localStorage.removeItem('redstring_workspace_folder_path');
+                              localStorage.removeItem(getStorageKey('redstring_workspace_folder_path'));
 
                               // Clear IndexedDB folder storage
-                              indexedDB.deleteDatabase('RedstringFolderStorage');
+                              indexedDB.deleteDatabase(getStorageKey('RedstringFolderStorage'));
 
                               // Clear session flags
                               sessionStorage.clear();

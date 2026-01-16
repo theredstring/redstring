@@ -26,6 +26,7 @@ import gitFederationService, { STORAGE_TYPES } from './services/gitFederationSer
 import { isElectron, pickFile, pickSaveLocation, readFile, writeFile } from './utils/fileAccessAdapter.js';
 import { HEADER_HEIGHT } from './constants.js';
 import useGraphStore from './store/graphStore.jsx';
+import { getStorageKey } from './utils/storageUtils.js';
 
 const GF_TAG = '[GF-DEBUG]';
 const { log: __gfNativeLog, warn: __gfNativeWarn, error: __gfNativeError } = console;
@@ -219,7 +220,7 @@ const GitNativeFederation = ({ variant = 'panel', onRequestClose }) => {
   const [isConnecting, setIsConnecting] = useState(false);
   const [allowOAuthBackup, setAllowOAuthBackup] = useState(() => {
     try {
-      return localStorage.getItem('allow_oauth_backup') !== 'false';
+      return localStorage.getItem(getStorageKey('allow_oauth_backup')) !== 'false';
     } catch {
       return true;
     }
@@ -227,7 +228,7 @@ const GitNativeFederation = ({ variant = 'panel', onRequestClose }) => {
   const [showRepositoryManager, setShowRepositoryManager] = useState(false);
   const [showConnectionStats, setShowConnectionStats] = useState(() => {
     try {
-      return localStorage.getItem('redstring_show_connection_stats') !== 'false';
+      return localStorage.getItem(getStorageKey('redstring_show_connection_stats')) !== 'false';
     } catch {
       return false; // Collapsed by default
     }
@@ -249,7 +250,7 @@ const GitNativeFederation = ({ variant = 'panel', onRequestClose }) => {
   const [syncTelemetry, setSyncTelemetry] = useState({});
   const [managedRepositories, setManagedRepositories] = useState(() => {
     try {
-      const stored = localStorage.getItem('redstring_managed_repos');
+      const stored = localStorage.getItem(getStorageKey('redstring_managed_repos'));
       return stored ? JSON.parse(stored) : [];
     } catch {
       return [];
@@ -385,16 +386,16 @@ const GitNativeFederation = ({ variant = 'panel', onRequestClose }) => {
       try {
         const detail = event.detail || {};
         gfWarn('[GF-DEBUG] Authentication expired:', detail);
-        
+
         // Clear any stale state
         await refreshAuth();
-        
+
         // Show prominent dialog prompting re-authentication
         setAuthExpiredDialog({
           message: detail.message || 'GitHub authentication has expired.',
           authMethod: detail.authMethod || 'oauth'
         });
-        
+
         // Clear any success status
         setSyncStatus(null);
       } catch (err) {
@@ -421,7 +422,7 @@ const GitNativeFederation = ({ variant = 'panel', onRequestClose }) => {
     };
   }, [refreshState, refreshAuth]);
 
-  
+
 
   // Audit: If both Git and Local slots are enabled and primary is unset or ambiguous, prompt user to choose
   useEffect(() => {
@@ -479,21 +480,21 @@ const GitNativeFederation = ({ variant = 'panel', onRequestClose }) => {
           setRepositoryIntent('attach');
           setRepositoryTargetSlug(slug);
           setShowRepositoryManager(true);
-          try { sessionStorage.removeItem('redstring_first_link_prompt'); } catch {}
+          try { sessionStorage.removeItem('redstring_first_link_prompt'); } catch { }
         },
         onCancel: async () => {
           try {
             // Prefer linking existing local, fall back to create
             await handleLinkLocalFile(slug);
           } catch (_) {
-            try { await handleCreateLocalFile(slug); } catch (__) {}
+            try { await handleCreateLocalFile(slug); } catch (__) { }
           } finally {
-            try { sessionStorage.removeItem('redstring_first_link_prompt'); } catch {}
+            try { sessionStorage.removeItem('redstring_first_link_prompt'); } catch { }
           }
         }
       });
     } else {
-      try { sessionStorage.removeItem('redstring_first_link_prompt'); } catch {}
+      try { sessionStorage.removeItem('redstring_first_link_prompt'); } catch { }
     }
   }, [serviceState.activeUniverseSlug, serviceState.universes]);
 
@@ -636,7 +637,7 @@ const GitNativeFederation = ({ variant = 'panel', onRequestClose }) => {
 
   useEffect(() => {
     try {
-      localStorage.setItem('allow_oauth_backup', allowOAuthBackup ? 'true' : 'false');
+      localStorage.setItem(getStorageKey('allow_oauth_backup'), allowOAuthBackup ? 'true' : 'false');
     } catch {
       // ignore
     }
@@ -737,7 +738,7 @@ const GitNativeFederation = ({ variant = 'panel', onRequestClose }) => {
         const userData = await userResp.json();
         await persistentAuth.storeTokens(tokenData, userData);
 
-            if (!cancelled) {
+        if (!cancelled) {
           await refreshAuth();
           await refreshState();
           setSyncStatus({ type: 'success', message: 'GitHub OAuth connected' });
@@ -746,7 +747,7 @@ const GitNativeFederation = ({ variant = 'panel', onRequestClose }) => {
         try {
           sessionStorage.removeItem('redstring_onboarding_resume');
           sessionStorage.removeItem('redstring_onboarding_step');
-        } catch {}
+        } catch { }
         return true;
       } catch (err) {
         if (!cancelled) {
@@ -852,7 +853,7 @@ const GitNativeFederation = ({ variant = 'panel', onRequestClose }) => {
         try {
           sessionStorage.removeItem('redstring_onboarding_resume');
           sessionStorage.removeItem('redstring_onboarding_step');
-        } catch {}
+        } catch { }
         return true;
       } catch (err) {
         if (!cancelled) {
@@ -895,8 +896,8 @@ const GitNativeFederation = ({ variant = 'panel', onRequestClose }) => {
     setDiscoveryMap((prev) => {
       const next = {};
       activeUniverse.raw.sources.forEach((src) => {
-      if (src.type === 'github' && src.user && src.repo) {
-        const key = `${src.user}/${src.repo}`;
+        if (src.type === 'github' && src.user && src.repo) {
+          const key = `${src.user}/${src.repo}`;
           if (prev[key]) next[key] = prev[key];
         }
       });
@@ -1061,13 +1062,13 @@ const GitNativeFederation = ({ variant = 'panel', onRequestClose }) => {
     try {
       setLoading(true);
       const fileName = file.name.replace('.redstring', '');
-      
+
       // Read the file content
       const text = await file.text();
       const storeState = JSON.parse(text);
-      
+
       setLoading(false);
-      
+
       // Ask for universe name
       setConfirmDialog({
         title: 'Load Universe from File',
@@ -1083,7 +1084,7 @@ const GitNativeFederation = ({ variant = 'panel', onRequestClose }) => {
         onConfirm: async (universeName) => {
           try {
             setLoading(true);
-            
+
             // Create the universe first and get the resulting slug
             const creationResult = await gitFederationService.createUniverse(universeName, {
               enableGit: false,
@@ -1300,7 +1301,7 @@ const GitNativeFederation = ({ variant = 'panel', onRequestClose }) => {
       if (!alreadyManaged) {
         const newList = [...managedRepositories, repo];
         setManagedRepositories(newList);
-        localStorage.setItem('redstring-managed-repositories', JSON.stringify(newList));
+        localStorage.setItem(getStorageKey('redstring-managed-repositories'), JSON.stringify(newList));
         gfLog(`[GitNativeFederation] Auto-added ${repoKey} to managed repositories for import`);
       }
 
@@ -1419,7 +1420,7 @@ const GitNativeFederation = ({ variant = 'panel', onRequestClose }) => {
       if (!alreadyManaged) {
         const newList = [...managedRepositories, repo];
         setManagedRepositories(newList);
-        localStorage.setItem('redstring-managed-repositories', JSON.stringify(newList));
+        localStorage.setItem(getStorageKey('redstring-managed-repositories'), JSON.stringify(newList));
         gfLog(`[GitNativeFederation] Auto-added ${repoKey} to managed repositories`);
       }
 
@@ -1496,7 +1497,7 @@ const GitNativeFederation = ({ variant = 'panel', onRequestClose }) => {
           try {
             sessionStorage.removeItem('redstring_onboarding_resume');
             sessionStorage.removeItem('redstring_onboarding_step');
-          } catch {}
+          } catch { }
         } else {
           // Otherwise, if both slots are enabled, prompt the user to choose Source of Truth
           const state = await gitFederationService.refreshUniverses();
@@ -1549,7 +1550,7 @@ const GitNativeFederation = ({ variant = 'panel', onRequestClose }) => {
 
     try {
       setLoading(true);
-      
+
       // If the file already has a linked universe (slug), load from it
       if (file.slug) {
         gfLog('[GitNativeFederation] Loading from existing universe:', file.slug);
@@ -1653,7 +1654,7 @@ const GitNativeFederation = ({ variant = 'panel', onRequestClose }) => {
           repoFile: selectedFile?.slug || selectedFile?.name || selectedFile?.path
         });
         const repoFileSlug = selectedFile.slug || selectedFile.name;
-        
+
         // Check if name mismatch and show rename dialog
         if (localUniverse && repoFileSlug && localUniverse.slug !== repoFileSlug) {
           setConfirmDialog({
@@ -1677,10 +1678,10 @@ const GitNativeFederation = ({ variant = 'panel', onRequestClose }) => {
           preserveSelectionState = true;
           return;
         }
-        
+
         await finalizeLinkDiscoveredUniverse();
       };
-      
+
       const finalizeLinkDiscoveredUniverse = async () => {
         try {
           setShowUniverseFileSelector(false);
@@ -1861,7 +1862,7 @@ const GitNativeFederation = ({ variant = 'panel', onRequestClose }) => {
 
         const newList = [...managedRepositories, repoObject];
         setManagedRepositories(newList);
-        localStorage.setItem('redstring-managed-repositories', JSON.stringify(newList));
+        localStorage.setItem(getStorageKey('redstring-managed-repositories'), JSON.stringify(newList));
         gfLog(`[GitNativeFederation] Auto-added ${repoKey} to managed repositories`);
       }
 
@@ -1901,7 +1902,7 @@ const GitNativeFederation = ({ variant = 'panel', onRequestClose }) => {
       const raw = u?.raw || {};
       const hasLocal = !!raw.localFile?.enabled;
       const hasRepo = !!(raw.gitRepo?.enabled && raw.gitRepo?.linkedRepo);
-      
+
       if (hasRepo && !hasLocal) {
         await gitFederationService.setPrimaryStorage(targetSlug, STORAGE_TYPES.GIT);
         gfLog(`[GitNativeFederation] Set Git as source of truth: ${targetSlug}`);
@@ -1948,7 +1949,7 @@ const GitNativeFederation = ({ variant = 'panel', onRequestClose }) => {
 
         const newList = [...managedRepositories, repoObject];
         setManagedRepositories(newList);
-        localStorage.setItem('redstring-managed-repositories', JSON.stringify(newList));
+        localStorage.setItem(getStorageKey('redstring-managed-repositories'), JSON.stringify(newList));
         gfLog(`[GitNativeFederation] Auto-added ${repoKey} to managed repositories for import`);
       }
 
@@ -2017,7 +2018,7 @@ const GitNativeFederation = ({ variant = 'panel', onRequestClose }) => {
       if (isEmpty) {
         // Universe is empty - use IMPORT flow (load data from repo)
         gfLog(`[GitNativeFederation] Universe is empty (${nodeCount} nodes), using IMPORT flow to load data from repo`);
-        
+
         // Add repo to managed list
         const alreadyManaged = managedRepositories.some(r =>
           `${r.owner?.login || r.owner}/${r.name}` === repoKey
@@ -2034,7 +2035,7 @@ const GitNativeFederation = ({ variant = 'panel', onRequestClose }) => {
 
           const newList = [...managedRepositories, repoObject];
           setManagedRepositories(newList);
-          localStorage.setItem('redstring-managed-repositories', JSON.stringify(newList));
+          localStorage.setItem(getStorageKey('redstring-managed-repositories'), JSON.stringify(newList));
           gfLog(`[GitNativeFederation] Auto-added ${repoKey} to managed repositories for import`);
         }
 
@@ -2110,7 +2111,7 @@ const GitNativeFederation = ({ variant = 'panel', onRequestClose }) => {
       if (repoHasData) {
         // Both have data - ask user what to do
         gfLog(`[GitNativeFederation] Repository also has ${repoNodeCount} nodes - asking user for direction`);
-        
+
         setConfirmDialog({
           title: 'Both Have Data',
           message: `Your universe has ${nodeCount} nodes and the repository has ${repoNodeCount} nodes.`,
@@ -2169,7 +2170,7 @@ const GitNativeFederation = ({ variant = 'panel', onRequestClose }) => {
 
         const newList = [...managedRepositories, repoObject];
         setManagedRepositories(newList);
-        localStorage.setItem('redstring-managed-repositories', JSON.stringify(newList));
+        localStorage.setItem(getStorageKey('redstring-managed-repositories'), JSON.stringify(newList));
         gfLog(`[GitNativeFederation] Auto-added ${repoKey} to managed repositories (from discovery)`);
       }
 
@@ -2221,7 +2222,7 @@ const GitNativeFederation = ({ variant = 'panel', onRequestClose }) => {
 
         const newList = [...managedRepositories, repoObject];
         setManagedRepositories(newList);
-        localStorage.setItem('redstring-managed-repositories', JSON.stringify(newList));
+        localStorage.setItem(getStorageKey('redstring-managed-repositories'), JSON.stringify(newList));
         gfLog(`[GitNativeFederation] Auto-added ${repoKey} to managed repositories for import`);
       }
 
@@ -2284,7 +2285,7 @@ const GitNativeFederation = ({ variant = 'panel', onRequestClose }) => {
     const newList = [...managedRepositories, repo];
     setManagedRepositories(newList);
     try {
-      localStorage.setItem('redstring_managed_repos', JSON.stringify(newList));
+      localStorage.setItem(getStorageKey('redstring_managed_repos'), JSON.stringify(newList));
       setSyncStatus({ type: 'success', message: `Added ${repoKey} to your repositories` });
     } catch (err) {
       gfError('[GitNativeFederation] Failed to save managed repos:', err);
@@ -2300,7 +2301,7 @@ const GitNativeFederation = ({ variant = 'panel', onRequestClose }) => {
     });
 
     setManagedRepositories(updatedList);
-    localStorage.setItem('redstring-managed-repositories', JSON.stringify(updatedList));
+    localStorage.setItem(getStorageKey('redstring-managed-repositories'), JSON.stringify(updatedList));
 
     setSyncStatus({
       type: 'success',
@@ -2476,7 +2477,7 @@ const GitNativeFederation = ({ variant = 'panel', onRequestClose }) => {
 
       setManagedRepositories(newList);
       try {
-        localStorage.setItem('redstring_managed_repos', JSON.stringify(newList));
+        localStorage.setItem(getStorageKey('redstring_managed_repos'), JSON.stringify(newList));
         setSyncStatus({
           type: 'success',
           message: linkedUniverses.length > 0 ?
@@ -2796,7 +2797,7 @@ const GitNativeFederation = ({ variant = 'panel', onRequestClose }) => {
 
       // Use the file access adapter (works in both browser and Electron)
       const fileHandle = await pickFile();
-      
+
       // Get file name for display
       let fileName;
       if (isElectron() && typeof fileHandle === 'string') {
@@ -2804,7 +2805,7 @@ const GitNativeFederation = ({ variant = 'panel', onRequestClose }) => {
       } else {
         fileName = fileHandle?.name || 'unknown';
       }
-      
+
       gfLog('[GitNativeFederation] File handle obtained:', fileName);
 
       // In Electron, we don't need permission checks
@@ -2889,8 +2890,8 @@ const GitNativeFederation = ({ variant = 'panel', onRequestClose }) => {
       });
 
       // In Electron, displayPath is the full path; in browser, derive from FileHandle
-      const displayPath = isElectron() && typeof fileHandle === 'string' 
-        ? fileHandle 
+      const displayPath = isElectron() && typeof fileHandle === 'string'
+        ? fileHandle
         : (typeof fileHandle?.name === 'string' ? fileHandle.name : fileName);
 
       payload = {
@@ -2942,7 +2943,7 @@ const GitNativeFederation = ({ variant = 'panel', onRequestClose }) => {
     try {
       setLoading(true);
       gfLog('[GitNativeFederation] Creating new local file for universe:', slug);
-      
+
       const universe = serviceState.universes.find(u => u.slug === slug);
       if (!universe) {
         throw new Error('Universe not found');
@@ -2951,24 +2952,24 @@ const GitNativeFederation = ({ variant = 'panel', onRequestClose }) => {
       // Get current store state
       const useGraphStore = (await import('./store/graphStore.jsx')).default;
       const storeState = useGraphStore.getState();
-      
+
       // Export to redstring format
       const { exportToRedstring } = await import('./formats/redstringFormat.js');
       const redstringData = exportToRedstring(storeState);
       const jsonString = JSON.stringify(redstringData, null, 2);
-      
+
       // Prompt user to save file using adapter (works in both browser and Electron)
       const suggestedName = `${universe.name || slug}.redstring`;
       const fileHandle = await pickSaveLocation({ suggestedName });
-      
+
       // Get filename for display
       const fileName = isElectron() && typeof fileHandle === 'string'
         ? fileHandle.split(/[/\\]/).pop()
         : (fileHandle?.name || suggestedName);
-      
+
       // Write data to file using adapter
       await writeFile(fileHandle, jsonString);
-      
+
       // Store the file handle and link to universe
       const displayPath = isElectron() && typeof fileHandle === 'string' ? fileHandle : fileName;
       await universeBackend.setFileHandle(slug, fileHandle, {
@@ -3248,13 +3249,13 @@ const GitNativeFederation = ({ variant = 'panel', onRequestClose }) => {
   const handleGitHubApp = async () => {
     try {
       setIsConnecting(true);
-      
+
       // Check if app is already installed
       if (hasApp && serviceState.githubAppInstallation?.installationId) {
         // App is already installed - go to settings/manage instead of install
         const installationId = serviceState.githubAppInstallation.installationId;
         gfLog('[GitNativeFederation] App already installed, redirecting to management page');
-        
+
         // Try to get installation details to redirect to specific installation
         try {
           const resp = await oauthFetch(`/api/github/app/installation/${installationId}`);
@@ -3271,12 +3272,12 @@ const GitNativeFederation = ({ variant = 'panel', onRequestClose }) => {
         } catch (e) {
           gfWarn('[GitNativeFederation] Could not fetch installation details:', e);
         }
-        
+
         // Fallback: redirect to general installations page
         window.location.href = 'https://github.com/settings/installations';
         return;
       }
-      
+
       // App not installed - proceed with installation flow
       let appName = 'redstring-semantic-sync';
       try {
@@ -3306,7 +3307,7 @@ const GitNativeFederation = ({ variant = 'panel', onRequestClose }) => {
     const isGitSlot = slot.type === STORAGE_TYPES.GIT;
     const isLocalSlot = slot.type === STORAGE_TYPES.LOCAL;
     const storageIcon = isGitSlot ? <GitBranch size={16} /> : isLocalSlot ? <Save size={16} /> : <Cloud size={16} />;
-    
+
     // Get actual status from sync data
     const { lastSaved, status, statusColor, statusHint } = getStorageSlotStatus(universe, slot);
     const lastSavedText = lastSaved ? formatWhen(lastSaved) : 'Never';
@@ -3359,7 +3360,7 @@ const GitNativeFederation = ({ variant = 'panel', onRequestClose }) => {
       );
     }
 
-  return (
+    return (
       <div
         key={slot.id}
         style={{
@@ -3450,10 +3451,10 @@ const GitNativeFederation = ({ variant = 'panel', onRequestClose }) => {
           gap: 8
         }}
       >
-        <div style={{ 
-          display: 'flex', 
+        <div style={{
+          display: 'flex',
           flexDirection: isSlim ? 'column' : 'row',
-          justifyContent: 'space-between', 
+          justifyContent: 'space-between',
           alignItems: isSlim ? 'stretch' : 'center',
           gap: isSlim ? 10 : 0
         }}>
@@ -3499,13 +3500,13 @@ const GitNativeFederation = ({ variant = 'panel', onRequestClose }) => {
             padding: 12,
             border: '1px dashed #979090',
             borderRadius: 6,
-          backgroundColor: '#bdb5b5',
+            backgroundColor: '#bdb5b5',
             color: '#555',
             fontSize: '0.8rem'
           }}
         >
           No repositories linked yet. Add one to enable sync.
-          </div>
+        </div>
       );
     }
 
@@ -3526,10 +3527,10 @@ const GitNativeFederation = ({ variant = 'panel', onRequestClose }) => {
             gap: 8
           }}
         >
-          <div style={{ 
-            display: 'flex', 
+          <div style={{
+            display: 'flex',
             flexDirection: isSlim ? 'column' : 'row',
-            justifyContent: 'space-between', 
+            justifyContent: 'space-between',
             alignItems: isSlim ? 'stretch' : 'center',
             gap: isSlim ? 10 : 0
           }}>
@@ -3543,14 +3544,14 @@ const GitNativeFederation = ({ variant = 'panel', onRequestClose }) => {
               </div>
             </div>
             <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-              <button 
+              <button
                 onClick={() => handleDiscover(source)}
                 style={buttonStyle(discovery.loading ? 'disabled' : 'outline')}
                 disabled={discovery.loading}
               >
                 {discovery.loading ? 'Scanning…' : 'Discover universes'}
               </button>
-              <button 
+              <button
                 onClick={() => handleDetachRepo(universe, source)}
                 style={buttonStyle('danger')}
               >
@@ -3565,7 +3566,7 @@ const GitNativeFederation = ({ variant = 'panel', onRequestClose }) => {
 
           {discovery.items && discovery.items.length > 0 && (
             <div
-                  style={{
+              style={{
                 border: '1px solid #979090',
                 borderRadius: 6,
                 backgroundColor: '#cfc6c6',
@@ -3590,30 +3591,30 @@ const GitNativeFederation = ({ variant = 'panel', onRequestClose }) => {
                     <div style={{ fontWeight: 600, fontSize: '0.78rem' }}>{item.name || item.slug || 'Universe'}</div>
                     <div style={{ fontSize: '0.68rem', color: '#555' }}>{item.path || item.location || 'Unknown path'}</div>
                   </div>
-                <div style={{ display: 'flex', gap: 6 }}>
-                  <button
-                    onClick={() => handleImportDiscovered(item, { user: source.user, repo: source.repo })}
-                    style={{
-                      ...buttonStyle('outline'),
-                      borderColor: '#1565c0',
-                      color: '#1565c0',
-                      backgroundColor: 'rgba(21,101,192,0.12)'
-                    }}
-                  >
-                    Import Copy
-                  </button>
-                  <button
-                    onClick={() => handleLinkDiscovered(item, { user: source.user, repo: source.repo })}
-                    style={{
-                      ...buttonStyle('solid'),
-                      backgroundColor: '#7A0000',
-                      color: '#ffffff',
-                      borderColor: '#7A0000'
-                    }}
-                  >
-                    Sync to Universe
-                  </button>
-                </div>
+                  <div style={{ display: 'flex', gap: 6 }}>
+                    <button
+                      onClick={() => handleImportDiscovered(item, { user: source.user, repo: source.repo })}
+                      style={{
+                        ...buttonStyle('outline'),
+                        borderColor: '#1565c0',
+                        color: '#1565c0',
+                        backgroundColor: 'rgba(21,101,192,0.12)'
+                      }}
+                    >
+                      Import Copy
+                    </button>
+                    <button
+                      onClick={() => handleLinkDiscovered(item, { user: source.user, repo: source.repo })}
+                      style={{
+                        ...buttonStyle('solid'),
+                        backgroundColor: '#7A0000',
+                        color: '#ffffff',
+                        borderColor: '#7A0000'
+                      }}
+                    >
+                      Sync to Universe
+                    </button>
+                  </div>
                 </div>
               ))}
             </div>
@@ -3627,7 +3628,7 @@ const GitNativeFederation = ({ variant = 'panel', onRequestClose }) => {
     if (!activeUniverse) {
       return (
         <div
-                  style={{
+          style={{
             padding: 14,
             border: '1px dashed #979090',
             borderRadius: 6,
@@ -3649,7 +3650,7 @@ const GitNativeFederation = ({ variant = 'panel', onRequestClose }) => {
 
     return (
       <div
-                  style={{
+        style={{
           backgroundColor: '#979090',
           borderRadius: 8,
           padding: 16,
@@ -3658,10 +3659,10 @@ const GitNativeFederation = ({ variant = 'panel', onRequestClose }) => {
           gap: 12
         }}
       >
-        <div style={{ 
-          display: 'flex', 
+        <div style={{
+          display: 'flex',
           flexDirection: isSlim ? 'column' : 'row',
-          justifyContent: 'space-between', 
+          justifyContent: 'space-between',
           alignItems: isSlim ? 'stretch' : 'center',
           gap: isSlim ? 12 : 0
         }}>
@@ -3669,41 +3670,41 @@ const GitNativeFederation = ({ variant = 'panel', onRequestClose }) => {
             <div style={{ fontSize: '1rem', fontWeight: 700 }}>{activeUniverse.name}</div>
             <div style={{ fontSize: '0.75rem', color: '#444' }}>
               Nodes: {activeUniverse.nodeCount ?? '—'} · Last opened {formatWhen(activeUniverse.lastOpenedAt)}
-              </div>
             </div>
+          </div>
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
             <button onClick={() => handleAttachRepo(activeUniverse.slug)} style={buttonStyle('solid')}>
               Link repository
-                </button>
+            </button>
             <button onClick={() => handleForceSave(activeUniverse.slug)} style={buttonStyle('outline')}>
               <Save size={14} /> Save
             </button>
             <button onClick={handleReloadActive} style={buttonStyle('outline')}>
               <RefreshCw size={14} /> Reload
-                </button>
-              </div>
-            </div>
+            </button>
+          </div>
+        </div>
 
         <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-        <div style={{
-          fontSize: '0.82rem',
-          fontWeight: 600,
-          color: '#260000',
-          display: 'flex',
-          flexWrap: 'wrap',
-          gap: 8,
-          alignItems: 'center'
-        }}>
-          <span>Storage slots</span>
-          <span style={{ fontSize: '0.7rem', color: '#444', fontWeight: 500 }}>
-            Primary: {activeUniverse.storage?.primary?.label || 'None'}
-          </span>
-        </div>
+          <div style={{
+            fontSize: '0.82rem',
+            fontWeight: 600,
+            color: '#260000',
+            display: 'flex',
+            flexWrap: 'wrap',
+            gap: 8,
+            alignItems: 'center'
+          }}>
+            <span>Storage slots</span>
+            <span style={{ fontSize: '0.7rem', color: '#444', fontWeight: 500 }}>
+              Primary: {activeUniverse.storage?.primary?.label || 'None'}
+            </span>
+          </div>
           {slots.length === 0 ? (
             <div
               style={{
                 padding: 12,
-                  border: '1px dashed #979090',
+                border: '1px dashed #979090',
                 borderRadius: 6,
                 backgroundColor: '#bdb5b5',
                 color: '#555',
@@ -3711,14 +3712,14 @@ const GitNativeFederation = ({ variant = 'panel', onRequestClose }) => {
               }}
             >
               No storage linked yet. Link a repository or local file to persist data.
-                </div>
-              ) : (
+            </div>
+          ) : (
             <div style={{ display: 'grid', gap: 10 }}>
               {slots.map(({ slot, primary }) => renderStorageSlot(activeUniverse, slot, primary))}
-                            </div>
+            </div>
           )}
           {activeUniverse.hasBrowserFallback && <BrowserFallbackNote />}
-                            </div>
+        </div>
 
         <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
           <div style={{
@@ -3754,85 +3755,85 @@ const GitNativeFederation = ({ variant = 'panel', onRequestClose }) => {
         </div>
 
         {/* Status and Connection Stats moved to dedicated section below Accounts & Access */}
-                          </div>
+      </div>
     );
   };
 
-const renderUniversesList = () => (
-  <div
-                                  style={{
-      backgroundColor: '#979090',
-      borderRadius: 8,
-      padding: 16,
-      display: 'flex',
-      flexDirection: 'column',
-      gap: 10
-    }}
-  >
-    <div style={{ 
-      display: 'flex', 
-      flexDirection: isSlim ? 'column' : 'row',
-      justifyContent: 'space-between', 
-      alignItems: isSlim ? 'stretch' : 'center',
-      gap: isSlim ? 10 : 0
-    }}>
-      <div>
-        <div style={{ fontWeight: 700, fontSize: '1rem' }}>Universes</div>
-        <div style={{ fontSize: '0.75rem', color: '#444' }}>Manage your knowledge spaces</div>
+  const renderUniversesList = () => (
+    <div
+      style={{
+        backgroundColor: '#979090',
+        borderRadius: 8,
+        padding: 16,
+        display: 'flex',
+        flexDirection: 'column',
+        gap: 10
+      }}
+    >
+      <div style={{
+        display: 'flex',
+        flexDirection: isSlim ? 'column' : 'row',
+        justifyContent: 'space-between',
+        alignItems: isSlim ? 'stretch' : 'center',
+        gap: isSlim ? 10 : 0
+      }}>
+        <div>
+          <div style={{ fontWeight: 700, fontSize: '1rem' }}>Universes</div>
+          <div style={{ fontSize: '0.75rem', color: '#444' }}>Manage your knowledge spaces</div>
+        </div>
+        <button onClick={handleCreateUniverse} style={buttonStyle('solid')}>
+          <Plus size={14} /> New
+        </button>
       </div>
-      <button onClick={handleCreateUniverse} style={buttonStyle('solid')}>
-        <Plus size={14} /> New
-                                </button>
-    </div>
 
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-      {serviceState.universes.map((universe) => {
-        const isActive = universe.slug === serviceState.activeUniverseSlug;
-        return (
-          <div
-            key={universe.slug}
-                                  style={{
-              border: isActive ? '2px solid #7A0000' : '1px solid #260000',
-              borderRadius: 8,
-              backgroundColor: '#bdb5b5',
-              padding: 12,
-              display: 'flex',
-              flexDirection: isSlim ? 'column' : 'row',
-              justifyContent: 'space-between',
-              alignItems: isSlim ? 'stretch' : 'center',
-              gap: isSlim ? 10 : 0
-            }}
-          >
-            <div style={{ minWidth: 0, flex: 1 }}>
-              <div style={{ fontWeight: 600, wordBreak: 'break-word' }}>{universe.name}</div>
-              <div style={{ fontSize: '0.72rem', color: '#555' }}>
-                Created {formatWhen(universe.createdAt)} · Updated {formatWhen(universe.updatedAt)}
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+        {serviceState.universes.map((universe) => {
+          const isActive = universe.slug === serviceState.activeUniverseSlug;
+          return (
+            <div
+              key={universe.slug}
+              style={{
+                border: isActive ? '2px solid #7A0000' : '1px solid #260000',
+                borderRadius: 8,
+                backgroundColor: '#bdb5b5',
+                padding: 12,
+                display: 'flex',
+                flexDirection: isSlim ? 'column' : 'row',
+                justifyContent: 'space-between',
+                alignItems: isSlim ? 'stretch' : 'center',
+                gap: isSlim ? 10 : 0
+              }}
+            >
+              <div style={{ minWidth: 0, flex: 1 }}>
+                <div style={{ fontWeight: 600, wordBreak: 'break-word' }}>{universe.name}</div>
+                <div style={{ fontSize: '0.72rem', color: '#555' }}>
+                  Created {formatWhen(universe.createdAt)} · Updated {formatWhen(universe.updatedAt)}
+                </div>
+              </div>
+              <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', width: isSlim ? '100%' : 'auto', flexShrink: 0 }}>
+                {!isActive && (
+                  <button onClick={() => handleSwitchUniverse(universe.slug)} style={buttonStyle('outline')}>
+                    Switch
+                  </button>
+                )}
+                {serviceState.universes.length > 1 && (
+                  <button
+                    onClick={() => handleDeleteUniverse(universe.slug, universe.name)}
+                    style={buttonStyle('danger')}
+                  >
+                    <Trash2 size={12} /> Delete
+                  </button>
+                )}
               </div>
             </div>
-            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', width: isSlim ? '100%' : 'auto', flexShrink: 0 }}>
-              {!isActive && (
-                <button onClick={() => handleSwitchUniverse(universe.slug)} style={buttonStyle('outline')}>
-                  Switch
-                                </button>
-              )}
-              {serviceState.universes.length > 1 && (
-                                <button
-                  onClick={() => handleDeleteUniverse(universe.slug, universe.name)}
-                  style={buttonStyle('danger')}
-                >
-                  <Trash2 size={12} /> Delete
-                </button>
-              )}
-            </div>
-          </div>
-        );
-      })}
+          );
+        })}
+      </div>
     </div>
-  </div>
-);
+  );
 
-const variantStyles = variant === 'modal'
-  ? {
+  const variantStyles = variant === 'modal'
+    ? {
       background: 'rgba(12, 0, 0, 0.9)',
       padding: 20,
       paddingBottom: 20 + bottomSafeArea, // Add TypeList gap spacing
@@ -3841,123 +3842,123 @@ const variantStyles = variant === 'modal'
       height: '100%',
       overflow: 'auto'
     }
-  : {
+    : {
       background: 'transparent',
       padding: 0,
       paddingBottom: bottomSafeArea, // Add TypeList gap spacing for panel variant too
       height: '100%'
     };
 
-// Device message only shown if there are limitations
-const deviceMessage = deviceInfo.gitOnlyMode ? (() => {
-  if (deviceInfo.isMobile) {
+  // Device message only shown if there are limitations
+  const deviceMessage = deviceInfo.gitOnlyMode ? (() => {
+    if (deviceInfo.isMobile) {
+      return {
+        type: 'info',
+        title: 'Mobile Git-Only Mode',
+        message: 'We stick to Git repositories on this device for seamless synchronization.'
+      };
+    }
+    if (deviceInfo.isTablet) {
+      return {
+        type: 'info',
+        title: 'Tablet Git-Only Mode',
+        message: 'Optimized for tablets with Git as the source of truth.'
+      };
+    }
     return {
       type: 'info',
-      title: 'Mobile Git-Only Mode',
-      message: 'We stick to Git repositories on this device for seamless synchronization.'
+      title: 'Git-Only Mode Active',
+      message: 'Local file APIs are unavailable, so we sync directly with Git.'
     };
-  }
-  if (deviceInfo.isTablet) {
-    return {
-      type: 'info',
-      title: 'Tablet Git-Only Mode',
-      message: 'Optimized for tablets with Git as the source of truth.'
-    };
-  }
-  return {
-    type: 'info',
-    title: 'Git-Only Mode Active',
-    message: 'Local file APIs are unavailable, so we sync directly with Git.'
-  };
-})() : null;
+  })() : null;
 
-const isUniverseImportMode = pendingRepoAttachment?.mode === 'import';
-const universeFileRepoLabel = pendingRepoAttachment
-  ? `${pendingRepoAttachment.owner}/${pendingRepoAttachment.repoName}`
-  : 'this repository';
+  const isUniverseImportMode = pendingRepoAttachment?.mode === 'import';
+  const universeFileRepoLabel = pendingRepoAttachment
+    ? `${pendingRepoAttachment.owner}/${pendingRepoAttachment.repoName}`
+    : 'this repository';
 
-return (
-  <div
-    ref={containerRef}
-                                style={{
-      fontFamily: "'EmOne', sans-serif",
-                                  color: '#260000',
-      display: 'flex',
-      flexDirection: 'column',
-      gap: 16,
-      position: 'relative',
-      height: '100%',
-      ...variantStyles
-    }}
-  >
-    {variant === 'modal' && typeof onRequestClose === 'function' && (
-      <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
-        <button onClick={onRequestClose} style={buttonStyle('outline')}>
-          Close
-                              </button>
-                              </div>
-                            )}
-
-    {deviceMessage && (
-      <div
-        style={{
-          borderRadius: 8,
-          border: '1px solid #260000',
-          backgroundColor: '#bdb5b5',
-          padding: 14,
-          display: 'flex',
-          alignItems: 'center',
-          gap: 12
-        }}
-      >
-        <Info size={18} />
-        <div>
-          <div style={{ fontWeight: 700 }}>{deviceMessage.title}</div>
-          <div style={{ fontSize: '0.78rem', color: '#333' }}>{deviceMessage.message}</div>
+  return (
+    <div
+      ref={containerRef}
+      style={{
+        fontFamily: "'EmOne', sans-serif",
+        color: '#260000',
+        display: 'flex',
+        flexDirection: 'column',
+        gap: 16,
+        position: 'relative',
+        height: '100%',
+        ...variantStyles
+      }}
+    >
+      {variant === 'modal' && typeof onRequestClose === 'function' && (
+        <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+          <button onClick={onRequestClose} style={buttonStyle('outline')}>
+            Close
+          </button>
         </div>
-      </div>
-    )}
+      )}
 
-    {syncStatus && (
-      <div
-                                        style={{
-          borderRadius: 8,
-          border: `1px solid ${STATUS_COLORS[syncStatus.type] || STATUS_COLORS.info}`,
-          backgroundColor: 'rgba(255,255,255,0.4)',
-          padding: 12,
-          display: 'flex',
-          alignItems: 'center',
-          gap: 8
-        }}
-      >
-        <AlertCircle size={16} color={STATUS_COLORS[syncStatus.type] || STATUS_COLORS.info} />
-        <span style={{ fontSize: '0.8rem' }}>{syncStatus.message}</span>
-                              </div>
-                            )}
+      {deviceMessage && (
+        <div
+          style={{
+            borderRadius: 8,
+            border: '1px solid #260000',
+            backgroundColor: '#bdb5b5',
+            padding: 14,
+            display: 'flex',
+            alignItems: 'center',
+            gap: 12
+          }}
+        >
+          <Info size={18} />
+          <div>
+            <div style={{ fontWeight: 700 }}>{deviceMessage.title}</div>
+            <div style={{ fontSize: '0.78rem', color: '#333' }}>{deviceMessage.message}</div>
+          </div>
+        </div>
+      )}
+
+      {syncStatus && (
+        <div
+          style={{
+            borderRadius: 8,
+            border: `1px solid ${STATUS_COLORS[syncStatus.type] || STATUS_COLORS.info}`,
+            backgroundColor: 'rgba(255,255,255,0.4)',
+            padding: 12,
+            display: 'flex',
+            alignItems: 'center',
+            gap: 8
+          }}
+        >
+          <AlertCircle size={16} color={STATUS_COLORS[syncStatus.type] || STATUS_COLORS.info} />
+          <span style={{ fontSize: '0.8rem' }}>{syncStatus.message}</span>
+        </div>
+      )}
 
       {error && (
-      <div
-        style={{
-          borderRadius: 8,
-          border: '1px solid #c62828',
-          backgroundColor: '#ffebee',
-          padding: 12,
-          display: 'flex',
-          alignItems: 'center',
-          gap: 8
-        }}
-      >
-        <XCircle size={16} color="#c62828" />
-        <span style={{ fontSize: '0.8rem' }}>{error}</span>
+        <div
+          style={{
+            borderRadius: 8,
+            border: '1px solid #c62828',
+            backgroundColor: '#ffebee',
+            padding: 12,
+            display: 'flex',
+            alignItems: 'center',
+            gap: 8
+          }}
+        >
+          <XCircle size={16} color="#c62828" />
+          <span style={{ fontSize: '0.8rem' }}>{error}</span>
           <button
             onClick={() => setError(null)}
             style={{
               marginLeft: 'auto',
               border: 'none',
-            background: 'transparent',
-            color: '#c62828',
-            cursor: 'pointer',
-            fontSize: '1rem'
+              background: 'transparent',
+              color: '#c62828',
+              cursor: 'pointer',
+              fontSize: '1rem'
             }}
           >
             ×
@@ -3965,229 +3966,229 @@ return (
         </div>
       )}
 
-    <UniversesList
-      universes={serviceState.universes}
-      activeUniverseSlug={serviceState.activeUniverseSlug}
-      syncStatusMap={syncTelemetry}
-      onCreateUniverse={handleCreateUniverse}
-      onSwitchUniverse={handleSwitchUniverse}
-      onDeleteUniverse={handleDeleteUniverse}
-      onLinkRepo={handleAttachRepo}
-      onLinkLocalFile={handleLinkLocalFile}
-      onCreateLocalFile={handleCreateLocalFile}
-      onDownloadLocalFile={handleDownloadLocalFile}
-      onDownloadRepoFile={handleDownloadRepoFile}
-      onRemoveLocalFile={handleRemoveLocalFile}
-      onRemoveRepoSource={handleRemoveRepoSource}
-      onEditRepoSource={handleEditRepoSource}
-      onSetMainRepoSource={handleSetMainRepoSource}
-      onSaveRepoSource={handleSaveRepoSource}
-      onSetPrimarySource={handleSetPrimarySource}
-      onCreateUniverseFromFile={handleCreateUniverseFromLocalFile}
-      onLoadFromLocal={handleLoadFromLocal}
-      onLoadFromRepo={handleLoadFromRepo}
-      onGrantLocalPermission={handleGrantLocalPermission}
-      isSlim={isSlim}
-    />
+      <UniversesList
+        universes={serviceState.universes}
+        activeUniverseSlug={serviceState.activeUniverseSlug}
+        syncStatusMap={syncTelemetry}
+        onCreateUniverse={handleCreateUniverse}
+        onSwitchUniverse={handleSwitchUniverse}
+        onDeleteUniverse={handleDeleteUniverse}
+        onLinkRepo={handleAttachRepo}
+        onLinkLocalFile={handleLinkLocalFile}
+        onCreateLocalFile={handleCreateLocalFile}
+        onDownloadLocalFile={handleDownloadLocalFile}
+        onDownloadRepoFile={handleDownloadRepoFile}
+        onRemoveLocalFile={handleRemoveLocalFile}
+        onRemoveRepoSource={handleRemoveRepoSource}
+        onEditRepoSource={handleEditRepoSource}
+        onSetMainRepoSource={handleSetMainRepoSource}
+        onSaveRepoSource={handleSaveRepoSource}
+        onSetPrimarySource={handleSetPrimarySource}
+        onCreateUniverseFromFile={handleCreateUniverseFromLocalFile}
+        onLoadFromLocal={handleLoadFromLocal}
+        onLoadFromRepo={handleLoadFromRepo}
+        onGrantLocalPermission={handleGrantLocalPermission}
+        isSlim={isSlim}
+      />
 
-    <RepositoriesSection
-      repositories={managedRepositories}
-      discoveryMap={discoveryMap}
-      onBrowseRepositories={() => setShowRepositoryManager(true)}
-      onRemoveRepository={handleRemoveFromManagedList}
-      onSetMainRepository={handleSetMainRepository}
-      onDiscoverRepository={(repoInfo) => handleDiscover(repoInfo)}
-      onImportUniverse={(universe, repoInfo) => handleImportDiscovered(universe, repoInfo)}
-      onSyncUniverse={(universe, repoInfo) => handleLinkDiscovered(universe, repoInfo)}
-    />
+      <RepositoriesSection
+        repositories={managedRepositories}
+        discoveryMap={discoveryMap}
+        onBrowseRepositories={() => setShowRepositoryManager(true)}
+        onRemoveRepository={handleRemoveFromManagedList}
+        onSetMainRepository={handleSetMainRepository}
+        onDiscoverRepository={(repoInfo) => handleDiscover(repoInfo)}
+        onImportUniverse={(universe, repoInfo) => handleImportDiscovered(universe, repoInfo)}
+        onSyncUniverse={(universe, repoInfo) => handleLinkDiscovered(universe, repoInfo)}
+      />
 
-    <AuthSection
-      statusBadge={statusBadge}
-      hasApp={hasApp}
-      hasOAuth={hasOAuth}
-      dataAuthMethod={dataAuthMethod}
-      isConnecting={isConnecting}
-      allowOAuthBackup={allowOAuthBackup}
-      onSetAllowOAuthBackup={setAllowOAuthBackup}
-      onGitHubAuth={handleGitHubAuth}
-      onGitHubApp={handleGitHubApp}
-      activeUniverse={activeUniverse}
-      syncStatus={activeUniverse ? syncStatusFor(activeUniverse.slug) : null}
-      isSlim={isSlim}
-    />
+      <AuthSection
+        statusBadge={statusBadge}
+        hasApp={hasApp}
+        hasOAuth={hasOAuth}
+        dataAuthMethod={dataAuthMethod}
+        isConnecting={isConnecting}
+        allowOAuthBackup={allowOAuthBackup}
+        onSetAllowOAuthBackup={setAllowOAuthBackup}
+        onGitHubAuth={handleGitHubAuth}
+        onGitHubApp={handleGitHubApp}
+        activeUniverse={activeUniverse}
+        syncStatus={activeUniverse ? syncStatusFor(activeUniverse.slug) : null}
+        isSlim={isSlim}
+      />
 
-    {activeUniverse && (
-      <div
-        style={{
-          backgroundColor: '#979090',
-          borderRadius: 8,
-          padding: 16,
-          display: 'flex',
-          flexDirection: 'column',
-          gap: 12
-        }}
-      >
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          <GitBranch size={18} />
-          <div style={{ fontWeight: 700 }}>Status & Sync</div>
-        </div>
-
-        {(() => {
-          const engine = activeUniverse ? (syncStatusFor(activeUniverse.slug) || activeUniverse.sync?.engine || {}) : {};
-          const base = activeUniverse?.sync || {};
-          let displayState = 'idle';
-          let displayLabel = 'All changes saved';
-          let displayTone = '#2e7d32';
-          let displayDesc = '';
-
-          const pendingCommits = Number(engine?.pendingCommits || 0);
-
-          if (engine?.isInErrorBackoff || engine?.isHealthy === false) {
-            displayState = 'error';
-            displayLabel = 'Unable to save changes';
-            displayTone = '#c62828';
-          } else if (engine?.isRunning || pendingCommits > 0) {
-            displayState = 'saving';
-            displayLabel = 'Saving...';
-            displayTone = '#666';
-          } else if (engine?.isPaused) {
-            displayState = 'paused';
-            displayLabel = 'Sync paused';
-            displayTone = '#ef6c00';
-            displayDesc = 'Resume to save changes.';
-          } else if (engine?.hasChanges) {
-            displayState = 'unsaved';
-            displayLabel = 'Unsaved changes';
-            displayTone = '#b85e00';
-          } else if (base?.state && base?.label) {
-            // Fallback to mapped state
-            displayState = base.state;
-            displayLabel = base.label;
-            displayTone = base.tone || displayTone;
-            displayDesc = base.description || '';
-          }
-
-          const lastTime = engine?.lastCommitTime || base?.lastCommitTime;
-          const elapsedText = (() => {
-            try {
-              if (!lastTime) return null;
-              const ts = typeof lastTime === 'string' ? new Date(lastTime).getTime() : lastTime;
-              const diff = Date.now() - ts;
-              if (!Number.isFinite(diff) || diff < 0) return null;
-              if (diff < 60000) return `${Math.max(1, Math.floor(diff / 1000))}s`;
-              if (diff < 3600000) return `${Math.floor(diff / 60000)}m`;
-              if (diff < 43200000) { // < 12h
-                const h = Math.floor(diff / 3600000);
-                const m = Math.floor((diff % 3600000) / 60000);
-                return `${h}h ${m}m`;
-              }
-              return '12h+';
-            } catch {
-              return null;
-            }
-          })();
-
-          return (
+      {activeUniverse && (
         <div
           style={{
-            border: '1px solid #979090',
+            backgroundColor: '#979090',
             borderRadius: 8,
-            backgroundColor: 'rgba(255,255,255,0.35)',
-            padding: '12px 16px',
+            padding: 16,
             display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'space-between',
+            flexDirection: 'column',
             gap: 12
           }}
         >
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10, flex: 1 }}>
-            {displayState === 'saving' && (
-              <RefreshCw size={16} style={{ animation: 'spin 1s linear infinite', color: '#666', flexShrink: 0 }} />
-            )}
-            {displayState === 'error' && (
-              <AlertCircle size={16} style={{ color: '#c62828', flexShrink: 0 }} />
-            )}
-            {displayState === 'unsaved' && (
-              <AlertCircle size={16} style={{ color: '#ef6c00', flexShrink: 0 }} />
-            )}
-            {displayState === 'idle' && (
-              <CheckCircle size={16} style={{ color: '#2e7d32', flexShrink: 0 }} />
-            )}
-            <div style={{ flex: 1 }}>
-              <div style={{ fontSize: '0.9rem', fontWeight: 600, color: displayTone || '#260000' }}>
-                {displayLabel}
-              </div>
-              {(displayDesc || elapsedText) && (
-                <div style={{ fontSize: '0.75rem', color: '#666', marginTop: 2 }}>
-                  {displayDesc}
-                  {elapsedText && (
-                    <span style={{ marginLeft: displayDesc ? 8 : 0 }}>Last save {elapsedText} ago</span>
-                  )}
-                </div>
-              )}
-            </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <GitBranch size={18} />
+            <div style={{ fontWeight: 700 }}>Status & Sync</div>
           </div>
-          {displayState === 'unsaved' && (
-            <button
-              onClick={() => handleForceSave(activeUniverse.slug)}
-              style={{ ...buttonStyle('solid'), flexShrink: 0 }}
-            >
-              <Save size={14} /> Save now
-            </button>
-          )}
-          {lastTime && displayState !== 'saving' && displayState !== 'unsaved' && (
-            <div style={{ 
-              fontSize: '0.7rem', 
-              color: '#666',
-              whiteSpace: 'nowrap',
-              flexShrink: 0
-            }}>
-              {formatWhen(lastTime)}
-            </div>
-          )}
-        </div>
-          );
-        })()}
 
-        <div 
-          style={{ 
-            fontSize: '0.82rem', 
-            fontWeight: 600, 
-            color: '#260000',
-            display: 'flex',
-            alignItems: 'center',
-            gap: 6,
-            cursor: 'pointer',
-            userSelect: 'none'
-          }}
-          onClick={() => {
-            const newValue = !showConnectionStats;
-            setShowConnectionStats(newValue);
-            try {
-              localStorage.setItem('redstring_show_connection_stats', newValue.toString());
-            } catch (e) {
-              gfWarn('Failed to save connection stats visibility:', e);
+          {(() => {
+            const engine = activeUniverse ? (syncStatusFor(activeUniverse.slug) || activeUniverse.sync?.engine || {}) : {};
+            const base = activeUniverse?.sync || {};
+            let displayState = 'idle';
+            let displayLabel = 'All changes saved';
+            let displayTone = '#2e7d32';
+            let displayDesc = '';
+
+            const pendingCommits = Number(engine?.pendingCommits || 0);
+
+            if (engine?.isInErrorBackoff || engine?.isHealthy === false) {
+              displayState = 'error';
+              displayLabel = 'Unable to save changes';
+              displayTone = '#c62828';
+            } else if (engine?.isRunning || pendingCommits > 0) {
+              displayState = 'saving';
+              displayLabel = 'Saving...';
+              displayTone = '#666';
+            } else if (engine?.isPaused) {
+              displayState = 'paused';
+              displayLabel = 'Sync paused';
+              displayTone = '#ef6c00';
+              displayDesc = 'Resume to save changes.';
+            } else if (engine?.hasChanges) {
+              displayState = 'unsaved';
+              displayLabel = 'Unsaved changes';
+              displayTone = '#b85e00';
+            } else if (base?.state && base?.label) {
+              // Fallback to mapped state
+              displayState = base.state;
+              displayLabel = base.label;
+              displayTone = base.tone || displayTone;
+              displayDesc = base.description || '';
             }
-          }}
-        >
-          <ChevronRight 
-            size={16} 
-            style={{ 
-              transition: 'transform 0.2s ease',
-              transform: showConnectionStats ? 'rotate(90deg)' : 'rotate(0deg)'
-            }} 
-          />
-          Connection Stats (Advanced)
+
+            const lastTime = engine?.lastCommitTime || base?.lastCommitTime;
+            const elapsedText = (() => {
+              try {
+                if (!lastTime) return null;
+                const ts = typeof lastTime === 'string' ? new Date(lastTime).getTime() : lastTime;
+                const diff = Date.now() - ts;
+                if (!Number.isFinite(diff) || diff < 0) return null;
+                if (diff < 60000) return `${Math.max(1, Math.floor(diff / 1000))}s`;
+                if (diff < 3600000) return `${Math.floor(diff / 60000)}m`;
+                if (diff < 43200000) { // < 12h
+                  const h = Math.floor(diff / 3600000);
+                  const m = Math.floor((diff % 3600000) / 60000);
+                  return `${h}h ${m}m`;
+                }
+                return '12h+';
+              } catch {
+                return null;
+              }
+            })();
+
+            return (
+              <div
+                style={{
+                  border: '1px solid #979090',
+                  borderRadius: 8,
+                  backgroundColor: 'rgba(255,255,255,0.35)',
+                  padding: '12px 16px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  gap: 12
+                }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10, flex: 1 }}>
+                  {displayState === 'saving' && (
+                    <RefreshCw size={16} style={{ animation: 'spin 1s linear infinite', color: '#666', flexShrink: 0 }} />
+                  )}
+                  {displayState === 'error' && (
+                    <AlertCircle size={16} style={{ color: '#c62828', flexShrink: 0 }} />
+                  )}
+                  {displayState === 'unsaved' && (
+                    <AlertCircle size={16} style={{ color: '#ef6c00', flexShrink: 0 }} />
+                  )}
+                  {displayState === 'idle' && (
+                    <CheckCircle size={16} style={{ color: '#2e7d32', flexShrink: 0 }} />
+                  )}
+                  <div style={{ flex: 1 }}>
+                    <div style={{ fontSize: '0.9rem', fontWeight: 600, color: displayTone || '#260000' }}>
+                      {displayLabel}
+                    </div>
+                    {(displayDesc || elapsedText) && (
+                      <div style={{ fontSize: '0.75rem', color: '#666', marginTop: 2 }}>
+                        {displayDesc}
+                        {elapsedText && (
+                          <span style={{ marginLeft: displayDesc ? 8 : 0 }}>Last save {elapsedText} ago</span>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                </div>
+                {displayState === 'unsaved' && (
+                  <button
+                    onClick={() => handleForceSave(activeUniverse.slug)}
+                    style={{ ...buttonStyle('solid'), flexShrink: 0 }}
+                  >
+                    <Save size={14} /> Save now
+                  </button>
+                )}
+                {lastTime && displayState !== 'saving' && displayState !== 'unsaved' && (
+                  <div style={{
+                    fontSize: '0.7rem',
+                    color: '#666',
+                    whiteSpace: 'nowrap',
+                    flexShrink: 0
+                  }}>
+                    {formatWhen(lastTime)}
+                  </div>
+                )}
+              </div>
+            );
+          })()}
+
+          <div
+            style={{
+              fontSize: '0.82rem',
+              fontWeight: 600,
+              color: '#260000',
+              display: 'flex',
+              alignItems: 'center',
+              gap: 6,
+              cursor: 'pointer',
+              userSelect: 'none'
+            }}
+            onClick={() => {
+              const newValue = !showConnectionStats;
+              setShowConnectionStats(newValue);
+              try {
+                localStorage.setItem(getStorageKey('redstring_show_connection_stats'), newValue.toString());
+              } catch (e) {
+                gfWarn('Failed to save connection stats visibility:', e);
+              }
+            }}
+          >
+            <ChevronRight
+              size={16}
+              style={{
+                transition: 'transform 0.2s ease',
+                transform: showConnectionStats ? 'rotate(90deg)' : 'rotate(0deg)'
+              }}
+            />
+            Connection Stats (Advanced)
+          </div>
+          {showConnectionStats && (
+            <ConnectionStats
+              universe={activeUniverse}
+              syncStatus={syncStatusFor(activeUniverse.slug)}
+              isSlim={isSlim}
+            />
+          )}
         </div>
-        {showConnectionStats && (
-          <ConnectionStats
-            universe={activeUniverse}
-            syncStatus={syncStatusFor(activeUniverse.slug)}
-            isSlim={isSlim}
-          />
-        )}
-      </div>
-    )}
+      )}
 
       <RepositorySelectionModal
         isOpen={showRepositoryManager}
@@ -4354,9 +4355,9 @@ return (
                       <div style={{ fontWeight: 700, marginBottom: 6, color: '#260000', fontSize: '0.9rem' }}>
                         {file.name || file.slug || 'Universe File'}
                       </div>
-                    <div style={{ fontSize: '0.7rem', color: '#666', marginBottom: 4, textDecoration: 'none' }}>
-                      {file.path || file.location || 'Unknown path'}
-                    </div>
+                      <div style={{ fontSize: '0.7rem', color: '#666', marginBottom: 4, textDecoration: 'none' }}>
+                        {file.path || file.location || 'Unknown path'}
+                      </div>
                       <div style={{
                         display: 'flex',
                         gap: 12,
@@ -4422,7 +4423,7 @@ return (
                 </div>
               </button>
 
-          {discoveredUniverseFiles.length > 0 && (
+              {discoveredUniverseFiles.length > 0 && (
                 <>
                   <div style={{
                     fontSize: '0.85rem',
@@ -4455,9 +4456,9 @@ return (
                             <div style={{ fontWeight: 700, marginBottom: 6, color: '#260000', fontSize: '0.9rem' }}>
                               {file.name || file.slug || 'Unnamed Universe'}
                             </div>
-                          <div style={{ fontSize: '0.7rem', color: '#666', marginBottom: 4, textDecoration: 'none' }}>
-                            {file.path || file.location || 'Unknown path'}
-                          </div>
+                            <div style={{ fontSize: '0.7rem', color: '#666', marginBottom: 4, textDecoration: 'none' }}>
+                              {file.path || file.location || 'Unknown path'}
+                            </div>
                             <div style={{
                               display: 'flex',
                               gap: 12,
@@ -4528,146 +4529,146 @@ return (
         </div>
       </Modal>
 
-    {/* General loading overlay - centered spinner */}
-    {(initializing || loading) && !isConnecting && (
-      <>
-        <style>
-          {`
+      {/* General loading overlay - centered spinner */}
+      {(initializing || loading) && !isConnecting && (
+        <>
+          <style>
+            {`
             @keyframes spin {
               0% { transform: rotate(0deg); }
               100% { transform: rotate(360deg); }
             }
           `}
-        </style>
-        <div
-          style={{
-            position: 'fixed',
-            top: 0,
-            left: 0,
-            right: 0,
-            bottom: 0,
-            backgroundColor: 'rgba(0,0,0,0.3)',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            zIndex: 999
-          }}
-        >
-          <Loader2
-            size={48}
-            color="#8B0000"
-            style={{ animation: 'spin 1s linear infinite' }}
-          />
-        </div>
-      </>
-      )}
-
-    {/* Connecting screen - inline, scrollable, PieMenu-style */}
-    {isConnecting && (
-      <>
-        <style>
-          {`
-            @keyframes spin {
-              0% { transform: rotate(0deg); }
-              100% { transform: rotate(360deg); }
-            }
-          `}
-        </style>
-        <div
-          style={{
-            position: 'relative',
-            width: '100%',
-            padding: '20px',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center'
-          }}
-        >
+          </style>
           <div
             style={{
-              backgroundColor: '#DEDADA',
-              border: '3px solid #8B0000',
-              borderRadius: '16px',
-              padding: '16px 24px',
+              position: 'fixed',
+              top: 0,
+              left: 0,
+              right: 0,
+              bottom: 0,
+              backgroundColor: 'rgba(0,0,0,0.3)',
               display: 'flex',
               alignItems: 'center',
-              gap: 12,
-              fontSize: '0.95rem',
-              color: '#8B0000',
-              fontWeight: 600,
-              boxShadow: '0 2px 8px rgba(139, 0, 0, 0.2)'
+              justifyContent: 'center',
+              zIndex: 999
             }}
           >
             <Loader2
-              size={20}
+              size={48}
               color="#8B0000"
-              style={{ animation: 'spin 1s linear infinite', flexShrink: 0 }}
+              style={{ animation: 'spin 1s linear infinite' }}
             />
-            <span>Connecting...</span>
           </div>
-        </div>
-      </>
+        </>
       )}
 
-    {/* Confirmation Dialog */}
-    {confirmDialog && (
-      <ConfirmDialog
-        isOpen={true}
-        onClose={() => setConfirmDialog(null)}
-        {...confirmDialog}
-      />
-    )}
-    {conflictDialog && (
-      <LocalFileConflictDialog
-        isOpen={true}
-        universeName={conflictDialog.universeName}
-        existingOption={conflictDialog.existing}
-        incomingOption={conflictDialog.incoming}
-        onChooseExisting={() => handleResolveLocalConflict('existing')}
-        onChooseIncoming={() => handleResolveLocalConflict('incoming')}
-        onCancel={handleCancelLocalConflict}
-      />
-    )}
-    {slotConflict && (
-      <ConflictResolutionModal
-        isOpen={true}
-        onClose={handleCancelSlotConflict}
-        onSelectLocal={() => handleResolveSlotConflict('local')}
-        onSelectGit={() => handleResolveSlotConflict('git')}
-        localData={slotConflict.localData}
-        gitData={slotConflict.gitData}
-        universeName={slotConflict.universeName}
-        requiresPrimarySelection={slotConflict.requiresPrimarySelection}
-      />
-    )}
-    
-    {/* Auth Expired Dialog */}
-    {authExpiredDialog && (
-      <ConfirmDialog
-        isOpen={true}
-        title="GitHub Authentication Expired"
-        message={authExpiredDialog.message}
-        details="Your GitHub authentication has expired or been revoked. Please reconnect to continue syncing with GitHub."
-        variant="error"
-        confirmLabel="Reconnect Now"
-        cancelLabel="Dismiss"
-        onConfirm={() => {
-          setAuthExpiredDialog(null);
-          // Scroll to auth section to make it visible
-          if (typeof window !== 'undefined') {
-            setTimeout(() => {
-              const authSection = document.querySelector('[data-auth-section="true"]');
-              if (authSection) {
-                authSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
-              }
-            }, 100);
-          }
-        }}
-        onCancel={() => {
-          setAuthExpiredDialog(null);
-        }}
-      />
-    )}
+      {/* Connecting screen - inline, scrollable, PieMenu-style */}
+      {isConnecting && (
+        <>
+          <style>
+            {`
+            @keyframes spin {
+              0% { transform: rotate(0deg); }
+              100% { transform: rotate(360deg); }
+            }
+          `}
+          </style>
+          <div
+            style={{
+              position: 'relative',
+              width: '100%',
+              padding: '20px',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center'
+            }}
+          >
+            <div
+              style={{
+                backgroundColor: '#DEDADA',
+                border: '3px solid #8B0000',
+                borderRadius: '16px',
+                padding: '16px 24px',
+                display: 'flex',
+                alignItems: 'center',
+                gap: 12,
+                fontSize: '0.95rem',
+                color: '#8B0000',
+                fontWeight: 600,
+                boxShadow: '0 2px 8px rgba(139, 0, 0, 0.2)'
+              }}
+            >
+              <Loader2
+                size={20}
+                color="#8B0000"
+                style={{ animation: 'spin 1s linear infinite', flexShrink: 0 }}
+              />
+              <span>Connecting...</span>
+            </div>
+          </div>
+        </>
+      )}
+
+      {/* Confirmation Dialog */}
+      {confirmDialog && (
+        <ConfirmDialog
+          isOpen={true}
+          onClose={() => setConfirmDialog(null)}
+          {...confirmDialog}
+        />
+      )}
+      {conflictDialog && (
+        <LocalFileConflictDialog
+          isOpen={true}
+          universeName={conflictDialog.universeName}
+          existingOption={conflictDialog.existing}
+          incomingOption={conflictDialog.incoming}
+          onChooseExisting={() => handleResolveLocalConflict('existing')}
+          onChooseIncoming={() => handleResolveLocalConflict('incoming')}
+          onCancel={handleCancelLocalConflict}
+        />
+      )}
+      {slotConflict && (
+        <ConflictResolutionModal
+          isOpen={true}
+          onClose={handleCancelSlotConflict}
+          onSelectLocal={() => handleResolveSlotConflict('local')}
+          onSelectGit={() => handleResolveSlotConflict('git')}
+          localData={slotConflict.localData}
+          gitData={slotConflict.gitData}
+          universeName={slotConflict.universeName}
+          requiresPrimarySelection={slotConflict.requiresPrimarySelection}
+        />
+      )}
+
+      {/* Auth Expired Dialog */}
+      {authExpiredDialog && (
+        <ConfirmDialog
+          isOpen={true}
+          title="GitHub Authentication Expired"
+          message={authExpiredDialog.message}
+          details="Your GitHub authentication has expired or been revoked. Please reconnect to continue syncing with GitHub."
+          variant="error"
+          confirmLabel="Reconnect Now"
+          cancelLabel="Dismiss"
+          onConfirm={() => {
+            setAuthExpiredDialog(null);
+            // Scroll to auth section to make it visible
+            if (typeof window !== 'undefined') {
+              setTimeout(() => {
+                const authSection = document.querySelector('[data-auth-section="true"]');
+                if (authSection) {
+                  authSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                }
+              }, 100);
+            }
+          }}
+          onCancel={() => {
+            setAuthExpiredDialog(null);
+          }}
+        />
+      )}
     </div>
   );
 };

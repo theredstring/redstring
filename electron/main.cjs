@@ -18,7 +18,7 @@ function startAgentServer() {
   }
 
   const agentServerPath = path.join(__dirname, '..', 'agent-server.js');
-  
+
   // Check if agent-server.js exists
   if (!fsSync.existsSync(agentServerPath)) {
     console.error('[Electron] Agent server not found at:', agentServerPath);
@@ -26,7 +26,7 @@ function startAgentServer() {
   }
 
   console.log('[Electron] Starting agent server...');
-  
+
   // Fork the agent server as a child process
   // Using fork with execArgv to handle ES modules
   agentServerProcess = fork(agentServerPath, [], {
@@ -76,6 +76,13 @@ if (isTestMode) {
   console.log('[Electron] Test mode enabled via --test flag');
 }
 
+// Check for --session flag in command-line arguments (e.g. --session=mySession)
+const sessionArg = process.argv.find(arg => arg.startsWith('--session='));
+const sessionName = sessionArg ? sessionArg.split('=')[1] : null;
+if (sessionName) {
+  console.log(`[Electron] Starting with isolated session: ${sessionName}`);
+}
+
 let mainWindow = null;
 
 // ============================================================
@@ -96,7 +103,7 @@ const getRedstringDocumentsPath = () => {
 const ensureDirectories = async () => {
   const dataPath = getRedstringDataPath();
   const docsPath = getRedstringDocumentsPath();
-  
+
   try {
     await fs.mkdir(dataPath, { recursive: true });
     await fs.mkdir(docsPath, { recursive: true });
@@ -169,17 +176,25 @@ function createWindow() {
   if (isDev) {
     // Wait for Vite to be ready (handled by script usually, but good to have fallback)
     // The port 4001 is from the existing vite.config.js
-    const devUrl = isTestMode ? 'http://localhost:4001?test=true' : 'http://localhost:4001';
+    let devUrl = 'http://localhost:4001';
+    const params = [];
+    if (isTestMode) params.push('test=true');
+    if (sessionName) params.push(`session=${encodeURIComponent(sessionName)}`);
+
+    if (params.length > 0) {
+      devUrl += '?' + params.join('&');
+    }
+
     mainWindow.loadURL(devUrl);
     mainWindow.webContents.openDevTools();
   } else {
     // In production, load the built index.html
     const indexPath = path.join(__dirname, '../dist/index.html');
-    if (isTestMode) {
-      mainWindow.loadFile(indexPath, { query: { test: 'true' } });
-    } else {
-      mainWindow.loadFile(indexPath);
-    }
+    const query = {};
+    if (isTestMode) query.test = 'true';
+    if (sessionName) query.session = sessionName;
+
+    mainWindow.loadFile(indexPath, { query });
   }
 }
 
@@ -288,7 +303,7 @@ function createMenu() {
 ipcMain.handle('file:pick', async (event, options = {}) => {
   // Default to Redstring documents folder
   const defaultPath = options.defaultPath || getRedstringDocumentsPath();
-  
+
   const result = await dialog.showOpenDialog(mainWindow, {
     properties: ['openFile'],
     defaultPath: defaultPath,
@@ -310,9 +325,9 @@ ipcMain.handle('file:pick', async (event, options = {}) => {
 ipcMain.handle('file:saveAs', async (event, options = {}) => {
   const { suggestedName } = options;
   // Default to Redstring documents folder with suggested name
-  const defaultPath = options.defaultPath || 
+  const defaultPath = options.defaultPath ||
     path.join(getRedstringDocumentsPath(), suggestedName || 'untitled.redstring');
-  
+
   const result = await dialog.showSaveDialog(mainWindow, {
     defaultPath: defaultPath,
     filters: [
@@ -442,11 +457,11 @@ function handleOAuthCallback(url) {
       const code = urlObj.searchParams.get('code');
       const state = urlObj.searchParams.get('state');
       const error = urlObj.searchParams.get('error');
-      
+
       if (mainWindow && !mainWindow.isDestroyed()) {
         mainWindow.webContents.send('oauth:callback', { code, state, error });
       }
-      
+
       if (oauthCallbackResolve) {
         oauthCallbackResolve({ code, state, error });
         oauthCallbackResolve = null;

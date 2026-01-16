@@ -3,6 +3,7 @@ import CanvasModal from './CanvasModal';
 import PanelModal from './PanelModal';
 import AlphaOnboardingModal from './AlphaOnboardingModal';
 import './ModalComponents.css';
+import { getStorageKey } from '../utils/storageUtils.js';
 
 /**
  * Demo component showing how to use CanvasModal and PanelModal
@@ -217,7 +218,7 @@ const ModalDemo = () => {
         <button
           onClick={() => {
             if (typeof window !== 'undefined') {
-              localStorage.removeItem('redstring-alpha-welcome-seen');
+              localStorage.removeItem(getStorageKey('redstring-alpha-welcome-seen'));
               localStorage.removeItem('redstring-has-used-before');
               alert('LocalStorage cleared! Refresh the page to see first-time experience.');
             }

@@ -19,6 +19,7 @@ import BackToCivilization from './BackToCivilization.jsx'; // Import the BackToC
 import HoverVisionAid from './components/HoverVisionAid.jsx'; // Import the HoverVisionAid component
 import { getNodeDimensions } from './utils.js';
 import { getTextColor, hexToHsl } from './utils/colorUtils.js';
+import { getStorageKey } from './utils/storageUtils.js';
 import { getPrototypeIdFromItem } from './utils/abstraction.js';
 import { copySelection, pasteClipboard } from './utils/clipboard.js';
 import { analyzeNodeDistribution, getClusterBoundingBox } from './utils/clusterAnalysis.js';
@@ -1844,11 +1845,7 @@ function NodeCanvas() {
   const [showHelpModal, setShowHelpModal] = useState(false);
 
   // Helper to get storage key with test mode support
-  const getStorageKey = (key) => {
-    const params = new URLSearchParams(window.location.search);
-    const isTestMode = params.get('test') === 'true';
-    return isTestMode ? `test_${key}` : key;
-  };
+
 
   // Check for stored folder on app startup and attempt to restore
   useEffect(() => {

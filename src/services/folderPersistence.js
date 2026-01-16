@@ -7,16 +7,9 @@
  */
 
 import { isElectron, validateFolderAccess } from '../utils/fileAccessAdapter.js';
+import { getStorageKey } from '../utils/storageUtils.js';
 
-// Check if we're in test mode (via URL parameter)
-const isTestMode = () => {
-  if (typeof window === 'undefined') return false;
-  const params = new URLSearchParams(window.location.search);
-  return params.get('test') === 'true';
-};
 
-// Storage keys - prefixed with 'test_' when in test mode
-const getStorageKey = (baseKey) => isTestMode() ? `test_${baseKey}` : baseKey;
 
 const FOLDER_HANDLE_DB_NAME = () => getStorageKey('RedstringFolderStorage');
 const FOLDER_HANDLE_STORE_NAME = 'folderHandles';
@@ -54,7 +47,7 @@ export const storeFolderHandle = async (folderHandleOrPath) => {
       throw new Error('Electron requires folder path as string');
     }
     localStorage.setItem(LOCALSTORAGE_FOLDER_KEY(), folderHandleOrPath);
-    console.log('[FolderPersistence] Stored folder path in localStorage:', folderHandleOrPath, isTestMode() ? '(TEST MODE)' : '');
+    console.log('[FolderPersistence] Stored folder path in localStorage:', folderHandleOrPath);
   } else {
     // Web: Store DirectoryHandle in IndexedDB
     try {
@@ -91,7 +84,7 @@ export const getFolderHandle = async () => {
     // Electron: Retrieve path from localStorage
     const folderPath = localStorage.getItem(LOCALSTORAGE_FOLDER_KEY());
     if (folderPath) {
-      console.log('[FolderPersistence] Retrieved folder path from localStorage:', folderPath, isTestMode() ? '(TEST MODE)' : '');
+      console.log('[FolderPersistence] Retrieved folder path from localStorage:', folderPath);
       return folderPath;
     }
     return null;
@@ -131,7 +124,7 @@ export const clearFolderHandle = async () => {
   if (isElectron()) {
     // Electron: Clear from localStorage
     localStorage.removeItem(LOCALSTORAGE_FOLDER_KEY());
-    console.log('[FolderPersistence] Cleared folder path from localStorage', isTestMode() ? '(TEST MODE)' : '');
+    console.log('[FolderPersistence] Cleared folder path from localStorage');
   } else {
     // Web: Clear from IndexedDB
     try {

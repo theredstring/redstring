@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import CanvasModal from './CanvasModal';
+import { getStorageKey } from '../utils/storageUtils.js';
 
 /**
  * Alpha Onboarding Modal
@@ -39,9 +40,7 @@ const AlphaOnboardingModal = ({
 
   const handleClose = () => {
     if (typeof window !== 'undefined') {
-      const params = new URLSearchParams(window.location.search);
-      const isTestMode = params.get('test') === 'true';
-      const key = isTestMode ? 'test_redstring-alpha-welcome-seen' : 'redstring-alpha-welcome-seen';
+      const key = getStorageKey('redstring-alpha-welcome-seen');
       localStorage.setItem(key, 'true');
     }
     onClose();
