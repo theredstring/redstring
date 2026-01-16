@@ -53,6 +53,8 @@ export default function GitFederationBootstrap({ enableEagerInit = false }) {
             backendRef.current = backend;
             window._universeBackendReady = true;
             window.dispatchEvent(new CustomEvent('universe-backend-ready'));
+            // Safety: Re-dispatch after a tick to catch listeners mounting in same cycle
+            setTimeout(() => window.dispatchEvent(new CustomEvent('universe-backend-ready')), 100);
             console.log('[GitFederationBootstrap] Backend ready for commands (initialization continuing in background)');
 
             // Start initialization in background with a warning if it takes too long

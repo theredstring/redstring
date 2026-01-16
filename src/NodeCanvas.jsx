@@ -10512,9 +10512,15 @@ function NodeCanvas() {
                           ? edge.directionality.arrowsToward
                           : new Set(Array.isArray(edge.directionality?.arrowsToward) ? edge.directionality.arrowsToward : []);
 
-                        // Check if this is a curved edge (parallel edge)
+                        // Check if this is a curved edge (parallel edge with non-zero offset)
+                        // The middle edge in an odd-numbered group has offset 0 and is straight
                         const curveInfo = edgeCurveInfo.get(edge.id);
-                        const isCurvedEdge = curveInfo && curveInfo.totalInPair > 1;
+                        let isCurvedEdge = false;
+                        if (curveInfo && curveInfo.totalInPair > 1) {
+                          const centerIndex = (curveInfo.totalInPair - 1) / 2;
+                          const offsetSteps = curveInfo.pairIndex - centerIndex;
+                          isCurvedEdge = offsetSteps !== 0;
+                        }
 
                         // Only shorten connections at ends with arrows or hover state
                         // For curved edges, NEVER change endpoints - we use trimmed paths instead
@@ -11724,9 +11730,15 @@ function NodeCanvas() {
                           ? edge.directionality.arrowsToward
                           : new Set(Array.isArray(edge.directionality?.arrowsToward) ? edge.directionality.arrowsToward : []);
 
-                        // Check if this is a curved edge (parallel edge)
+                        // Check if this is a curved edge (parallel edge with non-zero offset)
+                        // The middle edge in an odd-numbered group has offset 0 and is straight
                         const curveInfo = edgeCurveInfo.get(edge.id);
-                        const isCurvedEdge = curveInfo && curveInfo.totalInPair > 1;
+                        let isCurvedEdge = false;
+                        if (curveInfo && curveInfo.totalInPair > 1) {
+                          const centerIndex = (curveInfo.totalInPair - 1) / 2;
+                          const offsetSteps = curveInfo.pairIndex - centerIndex;
+                          isCurvedEdge = offsetSteps !== 0;
+                        }
 
                         // Only shorten connections at ends with arrows or hover state
                         // For curved edges, NEVER change endpoints - we use trimmed paths instead
