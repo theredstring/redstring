@@ -54,53 +54,7 @@ function formatWhen(timestamp) {
   }
 }
 
-// IndexedDB helpers for persisting workspace folder handle
-const WORKSPACE_DB_NAME = 'redstring-workspace';
-const WORKSPACE_STORE_NAME = 'folder-handles';
-
-function openWorkspaceDB() {
-  return new Promise((resolve, reject) => {
-    const request = indexedDB.open(WORKSPACE_DB_NAME, 1);
-    request.onupgradeneeded = (event) => {
-      const db = event.target.result;
-      if (!db.objectStoreNames.contains(WORKSPACE_STORE_NAME)) {
-        db.createObjectStore(WORKSPACE_STORE_NAME, { keyPath: 'id' });
-      }
-    };
-    request.onsuccess = () => resolve(request.result);
-    request.onerror = () => reject(request.error);
-  });
-}
-
-function saveWorkspaceHandleToDB(db, handle) {
-  return new Promise((resolve, reject) => {
-    const tx = db.transaction(WORKSPACE_STORE_NAME, 'readwrite');
-    const store = tx.objectStore(WORKSPACE_STORE_NAME);
-    store.put({ id: 'workspace', handle });
-    tx.oncomplete = () => resolve();
-    tx.onerror = () => reject(tx.error);
-  });
-}
-
-function getWorkspaceHandleFromDB(db) {
-  return new Promise((resolve, reject) => {
-    const tx = db.transaction(WORKSPACE_STORE_NAME, 'readonly');
-    const store = tx.objectStore(WORKSPACE_STORE_NAME);
-    const request = store.get('workspace');
-    request.onsuccess = () => resolve(request.result?.handle || null);
-    request.onerror = () => reject(request.error);
-  });
-}
-
-function clearWorkspaceHandleFromDB(db) {
-  return new Promise((resolve, reject) => {
-    const tx = db.transaction(WORKSPACE_STORE_NAME, 'readwrite');
-    const store = tx.objectStore(WORKSPACE_STORE_NAME);
-    store.delete('workspace');
-    tx.oncomplete = () => resolve();
-    tx.onerror = () => reject(tx.error);
-  });
-}
+import { saveWorkspaceHandle, getWorkspaceHandle, clearWorkspaceHandle } from '../../services/workspaceFolderService.js';
 
 const UniversesList = ({
   universes = [],
@@ -149,8 +103,7 @@ const UniversesList = ({
   useEffect(() => {
     (async () => {
       try {
-        const db = await openWorkspaceDB();
-        const handle = await getWorkspaceHandleFromDB(db);
+        const handle = await getWorkspaceHandle();
         if (handle) {
           setWorkspaceFolderHandle(handle);
           setWorkspaceFolder(handle.name);
@@ -207,9 +160,7 @@ const UniversesList = ({
       const handle = await window.showDirectoryPicker({ mode: 'readwrite' });
       setWorkspaceFolderHandle(handle);
       setWorkspaceFolder(handle.name);
-      localStorage.setItem('redstring_workspace_folder_name', handle.name);
-      const db = await openWorkspaceDB();
-      await saveWorkspaceHandleToDB(db, handle);
+      await saveWorkspaceHandle(handle);
     } catch (e) {
       if (e.name !== 'AbortError') {
         console.error('[UniversesList] Failed to pick workspace folder:', e);
@@ -220,13 +171,7 @@ const UniversesList = ({
   const handleClearWorkspaceFolder = async () => {
     setWorkspaceFolderHandle(null);
     setWorkspaceFolder(null);
-    localStorage.removeItem('redstring_workspace_folder_name');
-    try {
-      const db = await openWorkspaceDB();
-      await clearWorkspaceHandleFromDB(db);
-    } catch (e) {
-      console.warn('[UniversesList] Failed to clear workspace folder from DB:', e);
-    }
+    await clearWorkspaceHandle();
   };
 
   const triggerLocalFilePicker = () => {

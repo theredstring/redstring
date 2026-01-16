@@ -1059,10 +1059,40 @@ const GitNativeFederation = ({ variant = 'panel', onRequestClose }) => {
           }
 
           try {
-            await universeBackendBridge.setupLocalFileHandle(createdSlug, {
-              mode: 'saveAs',
-              suggestedName: `${universeName}.redstring`
+            const suggestedName = `${universeName}.redstring`;
+
+            // Try creating in workspace folder first
+            const { createFileInWorkspace } = await import('./services/workspaceFolderService.js');
+            const defaultContent = JSON.stringify({
+              nodes: [],
+              edges: [],
+              viewport: { x: 0, y: 0, zoom: 1 }
+            }, null, 2);
+
+            let fileHandle = await createFileInWorkspace(suggestedName, defaultContent);
+
+            // Fallback to picker if no workspace folder or creation failed
+            if (!fileHandle) {
+              // This mimics saveAs behavior but with explicit control
+              fileHandle = await pickSaveLocation({ suggestedName });
+              await writeFile(fileHandle, defaultContent);
+            }
+
+            // Get filename for display
+            const fileName = isElectron() && typeof fileHandle === 'string'
+              ? fileHandle.split(/[/\\]/).pop()
+              : (fileHandle?.name || suggestedName);
+
+            const displayPath = isElectron() && typeof fileHandle === 'string' ? fileHandle : fileName;
+
+            // Use renderer-side setFileHandle instead of bridge's setupLocalFileHandle
+            // This ensures we register the handle we just obtained/created
+            await universeBackend.setFileHandle(createdSlug, fileHandle, {
+              displayPath,
+              fileName,
+              suppressNotification: true
             });
+
             await universeBackendBridge.saveActiveUniverse();
             setSyncStatus({
               type: 'success',
@@ -2992,15 +3022,22 @@ const GitNativeFederation = ({ variant = 'panel', onRequestClose }) => {
 
       // Prompt user to save file using adapter (works in both browser and Electron)
       const suggestedName = `${universe.name || slug}.redstring`;
-      const fileHandle = await pickSaveLocation({ suggestedName });
+
+      // Try creating in workspace folder first
+      const { createFileInWorkspace } = await import('./services/workspaceFolderService.js');
+      let fileHandle = await createFileInWorkspace(suggestedName, jsonString);
+
+      // Fallback to picker if no workspace folder or creation failed
+      if (!fileHandle) {
+        fileHandle = await pickSaveLocation({ suggestedName });
+        // Write data to file using adapter (only needed for picker path)
+        await writeFile(fileHandle, jsonString);
+      }
 
       // Get filename for display
       const fileName = isElectron() && typeof fileHandle === 'string'
         ? fileHandle.split(/[/\\]/).pop()
         : (fileHandle?.name || suggestedName);
-
-      // Write data to file using adapter
-      await writeFile(fileHandle, jsonString);
 
       // Store the file handle and link to universe
       const displayPath = isElectron() && typeof fileHandle === 'string' ? fileHandle : fileName;
