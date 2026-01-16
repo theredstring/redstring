@@ -417,9 +417,24 @@ async function loadBackendState() {
   console.log(`[Perf] loadBackendState Start at ${(performance.now() / 1000).toFixed(3)}s`);
   console.time('[GF-DEBUG] loadBackendState');
   const [universes = [], activeUniverse, gitDashboard] = await Promise.all([
-    universeBackendBridge.getAllUniverses(),
-    universeBackendBridge.getActiveUniverse(),
-    universeBackendBridge.getGitStatusDashboard?.()
+    (async () => {
+      console.time('[GF-DEBUG] getAllUniverses');
+      const res = await universeBackendBridge.getAllUniverses();
+      console.timeEnd('[GF-DEBUG] getAllUniverses');
+      return res;
+    })(),
+    (async () => {
+      console.time('[GF-DEBUG] getActiveUniverse');
+      const res = await universeBackendBridge.getActiveUniverse();
+      console.timeEnd('[GF-DEBUG] getActiveUniverse');
+      return res;
+    })(),
+    (async () => {
+      console.time('[GF-DEBUG] getGitStatusDashboard');
+      const res = await universeBackendBridge.getGitStatusDashboard?.();
+      console.timeEnd('[GF-DEBUG] getGitStatusDashboard');
+      return res;
+    })()
   ]);
 
   const syncStatusMap = await buildSyncStatusMap(universes);
