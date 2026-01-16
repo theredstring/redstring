@@ -324,10 +324,8 @@ const GitNativeFederation = ({ variant = 'panel', onRequestClose }) => {
 
       if (didTimeout) {
         gfWarn('[GF-DEBUG] Federation state refresh timed out, continuing without blocking UI');
-        setSyncStatus({
-          type: 'warning',
-          message: 'Taking longer than expected to refresh Git federation. UI remains usable; latest data will catch up shortly.'
-        });
+        // Warning removed per user request - silent degradation
+        // setSyncStatus({ ... });
         setError(null);
 
         statePromise

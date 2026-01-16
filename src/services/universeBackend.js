@@ -2895,102 +2895,126 @@ class UniverseBackend {
       }
     }
 
-    // Try primary source first
-    if (sourceOfTruth === SOURCE_OF_TRUTH.GIT && universe.gitRepo.enabled) {
-      try {
-        const gitData = await this.loadFromGit(universe);
-        if (gitData) return this.syncAndReturn(universe, gitData, {
-          force: sourceOfTruth === SOURCE_OF_TRUTH.GIT,
-          source: SOURCE_OF_TRUTH.GIT,
-          allowPermissionPrompt
-        });
-      } catch (error) {
-        gfWarn('[UniverseBackend] Git load failed, trying fallback:', error);
-        // Direct-read fallback when engine isn't configured yet
-        try {
-          const directGitData = await this.loadFromGitDirect(universe);
-          if (directGitData) return this.syncAndReturn(universe, directGitData, {
-            force: sourceOfTruth === SOURCE_OF_TRUTH.GIT,
-            source: SOURCE_OF_TRUTH.GIT,
-            allowPermissionPrompt
-          });
-        } catch (fallbackError) {
-          gfWarn('[UniverseBackend] Direct Git fallback failed:', fallbackError);
-        }
-      }
+    // Race loading strategies for maximum speed
+    // Strategy:
+    // 1. If Local is enabled and has handle, try it immediately (fastest path)
+    // 2. Concurrently try Git if enabled
+    // 3. Concurrently try Browser Storage as backup
+    // 4. Return the first successful 'authoritative' result if possible, or best available
+
+    const loadPromies = [];
+
+    // 1. Local Load (High Priority)
+    if (universe.localFile?.enabled) {
+      loadPromies.push(
+        this.loadFromLocalFile(universe, { allowPermissionPrompt })
+          .then(data => ({ source: SOURCE_OF_TRUTH.LOCAL, data, error: null }))
+          .catch(error => ({ source: SOURCE_OF_TRUTH.LOCAL, data: null, error }))
+      );
     }
 
-    if (sourceOfTruth === SOURCE_OF_TRUTH.LOCAL && universe.localFile.enabled) {
-      try {
-        const localData = await this.loadFromLocalFile(universe, { allowPermissionPrompt });
-        if (localData) return this.syncAndReturn(universe, localData, {
-          force: sourceOfTruth === SOURCE_OF_TRUTH.LOCAL,
+    // 2. Git Load (Medium Priority - Network bound)
+    // Only fetch if Git is explicitly enabled AND has a linked repository
+    const hasLinkedGitRepo = universe.gitRepo?.enabled && universe.gitRepo?.linkedRepo && universe.gitRepo?.repo;
+
+    if (hasLinkedGitRepo) {
+      const gitPromise = this.loadFromGit(universe)
+        .catch(() => this.loadFromGitDirect(universe)) // Try direct fallback
+        .then(data => ({ source: SOURCE_OF_TRUTH.GIT, data, error: null }))
+        .catch(error => ({ source: SOURCE_OF_TRUTH.GIT, data: null, error }));
+      loadPromies.push(gitPromise);
+    }
+
+    // 3. Browser Storage (Low Priority / Backup)
+    if (universe.browserStorage?.enabled) {
+      loadPromies.push(
+        this.loadFromBrowserStorage(universe)
+          .then(data => ({ source: SOURCE_OF_TRUTH.BROWSER, data, error: null }))
+          .catch(error => ({ source: SOURCE_OF_TRUTH.BROWSER, data: null, error }))
+      );
+    }
+
+    if (loadPromies.length === 0) {
+      gfWarn('[UniverseBackend] No storage methods enabled, creating empty state');
+      return this.createEmptyState();
+    }
+
+    // Wait for all attempts to settle, but we can be smart about which one we pick
+    // (In a future iteration we could use Promise.race for even faster UI, but we need to respect Source of Truth)
+    const results = await Promise.all(loadPromies);
+    const resultsMap = new Map(results.map(r => [r.source, r]));
+
+    // Decision Logic:
+
+    // A. If Source of Truth is LOCAL and it succeeded, use it directly.
+    if (sourceOfTruth === SOURCE_OF_TRUTH.LOCAL) {
+      const localRes = resultsMap.get(SOURCE_OF_TRUTH.LOCAL);
+      if (localRes?.data) {
+        return this.syncAndReturn(universe, localRes.data, {
+          force: true,
           source: SOURCE_OF_TRUTH.LOCAL,
           allowPermissionPrompt
         });
-      } catch (error) {
+      } else if (localRes?.error) {
+        // If local failed with specific permission/missing error, rethrow to trigger UI prompt
         if (
-          error?.code === LOCAL_FILE_ERROR.PERMISSION ||
-          error?.code === LOCAL_FILE_ERROR.MISSING ||
-          error?.code === LOCAL_FILE_ERROR.NOT_FOUND
+          localRes.error?.code === LOCAL_FILE_ERROR.PERMISSION ||
+          localRes.error?.code === LOCAL_FILE_ERROR.MISSING ||
+          localRes.error?.code === LOCAL_FILE_ERROR.NOT_FOUND
         ) {
-          gfWarn('[UniverseBackend] Local file load blocked by access issue:', error.message);
-          throw error;
-        }
-        gfWarn('[UniverseBackend] Local file load failed, trying fallback:', error);
-      }
-    }
-
-    // Try fallback sources
-    if (sourceOfTruth !== SOURCE_OF_TRUTH.LOCAL && universe.localFile.enabled) {
-      try {
-        const localData = await this.loadFromLocalFile(universe, { allowPermissionPrompt });
-        if (localData) return this.syncAndReturn(universe, localData, {
-          force: sourceOfTruth === SOURCE_OF_TRUTH.LOCAL,
-          source: SOURCE_OF_TRUTH.LOCAL,
-          allowPermissionPrompt
-        });
-      } catch (error) {
-        if (
-          error?.code === LOCAL_FILE_ERROR.PERMISSION ||
-          error?.code === LOCAL_FILE_ERROR.NOT_FOUND
-        ) {
-          gfWarn('[UniverseBackend] Local fallback skipped due to permission requirement:', error.message);
-        } else {
-          gfWarn('[UniverseBackend] Local fallback failed:', error);
+          gfWarn('[UniverseBackend] Primary Local load blocked:', localRes.error.message);
+          throw localRes.error;
         }
       }
     }
 
-    if (sourceOfTruth !== SOURCE_OF_TRUTH.GIT && universe.gitRepo.enabled) {
-      try {
-        const gitData = await this.loadFromGit(universe);
-        if (gitData) return this.syncAndReturn(universe, gitData, {
+    // B. If Source of Truth is GIT and it succeeded, use it.
+    if (sourceOfTruth === SOURCE_OF_TRUTH.GIT) {
+      const gitRes = resultsMap.get(SOURCE_OF_TRUTH.GIT);
+      if (gitRes?.data) {
+        return this.syncAndReturn(universe, gitRes.data, {
+          force: true,
           source: SOURCE_OF_TRUTH.GIT,
-          throttleMs: 0,
           allowPermissionPrompt
         });
-      } catch (error) {
-        gfWarn('[UniverseBackend] Git fallback failed:', error);
       }
     }
 
-    // Browser storage fallback for mobile
-    if (universe.browserStorage.enabled) {
-      try {
-        const browserData = await this.loadFromBrowserStorage(universe);
-        if (browserData) return this.syncAndReturn(universe, browserData, {
-          source: SOURCE_OF_TRUTH.BROWSER,
-          throttleMs: 0,
-          allowPermissionPrompt
-        });
-      } catch (error) {
-        gfWarn('[UniverseBackend] Browser storage fallback failed:', error);
-      }
+    // C. Fallbacks (Cross-Loading):
+    // If Source of Truth failed, try the backups in order of speed/reliability: Local > Git > Browser
+
+    // Try Local fallback
+    const localRes = resultsMap.get(SOURCE_OF_TRUTH.LOCAL);
+    if (localRes?.data) {
+      gfLog('[UniverseBackend] Using Local fallback (Primary unavailable)');
+      return this.syncAndReturn(universe, localRes.data, {
+        source: SOURCE_OF_TRUTH.LOCAL,
+        allowPermissionPrompt
+      });
     }
 
-    // Return empty state if nothing works
-    gfWarn('[UniverseBackend] All load methods failed, creating empty state');
+    // Try Git fallback
+    const gitRes = resultsMap.get(SOURCE_OF_TRUTH.GIT);
+    if (gitRes?.data) {
+      gfLog('[UniverseBackend] Using Git fallback (Primary unavailable)');
+      return this.syncAndReturn(universe, gitRes.data, {
+        source: SOURCE_OF_TRUTH.GIT,
+        allowPermissionPrompt
+      });
+    }
+
+    // Try Browser fallback
+    const browserRes = resultsMap.get(SOURCE_OF_TRUTH.BROWSER);
+    if (browserRes?.data) {
+      gfLog('[UniverseBackend] Using Browser Storage fallback');
+      return this.syncAndReturn(universe, browserRes.data, {
+        source: SOURCE_OF_TRUTH.BROWSER,
+        allowPermissionPrompt
+      });
+    }
+
+    // Return empty state if absolutely everything failed
+    gfWarn('[UniverseBackend] All parallel load methods failed, creating empty state');
     return this.createEmptyState();
   }
 
