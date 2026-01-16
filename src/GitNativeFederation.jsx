@@ -365,6 +365,7 @@ const GitNativeFederation = ({ variant = 'panel', onRequestClose }) => {
         await refreshState({ silent: true });
       } finally {
         setInitializing(false);
+        setLoading(false); // FIX: Ensure loading ends after initial silent load
       }
     })();
 

@@ -218,6 +218,8 @@ export default function GitFederationBootstrap({ enableEagerInit = false }) {
 
     // Cleanup
     return () => {
+      // CRITICAL: Reset initRef so effect runs again on remount (fixes React StrictMode)
+      initRef.current = false;
       if (commandListenerRef.current) {
         window.removeEventListener('universe-backend-command', commandListenerRef.current);
       }
