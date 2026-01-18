@@ -64,7 +64,8 @@
     "setup:oauth": "node setup-oauth.js",
     "docs:generate": "node scripts/generate-docs.js",
     "docs:dev": "cd docs && npx mintlify dev",
-    "docs:build": "cd docs && npx mintlify build"
+    "docs:build": "cd docs && npx mintlify build",
+    "release": "./scripts/publish-release.sh"
   },
   "dependencies": {
     "@inrupt/solid-client": "^1.23.1",
