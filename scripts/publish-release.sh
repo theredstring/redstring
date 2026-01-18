@@ -10,18 +10,27 @@ TAG="v$VERSION"
 echo "Detected package version: $VERSION"
 echo "Target tag: $TAG"
 
-# Check if tag already exists locally
-if git rev-parse "$TAG" >/dev/null 2>&1; then
-    echo "Error: Tag $TAG already exists locally."
-    echo "Please bump the version in package.json before releasing."
-    exit 1
+# Check if tag already exists (locally or remote)
+TAG_EXISTS=false
+if git rev-parse "$TAG" >/dev/null 2>&1 || git ls-remote origin "refs/tags/$TAG" | grep -q "$TAG"; then
+    TAG_EXISTS=true
 fi
 
-# Check if tag already exists on remote
-if git ls-remote origin "refs/tags/$TAG" | grep -q "$TAG"; then
-    echo "Error: Tag $TAG already exists on remote origin."
-    echo "Please bump the version in package.json before releasing."
-    exit 1
+if [ "$TAG_EXISTS" = true ]; then
+    echo "⚠️  Tag $TAG already exists."
+    echo "To re-release this version, we need to delete the existing tag."
+    read -p "Do you want to delete the existing tag and re-release? (y/N) " -n 1 -r
+    echo ""
+    if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+        echo "Cancelled."
+        exit 1
+    fi
+    
+    echo "Deleting local tag..."
+    git tag -d "$TAG" || true
+    
+    echo "Deleting remote tag..."
+    git push origin :refs/tags/$TAG || true
 fi
 
 echo ""
