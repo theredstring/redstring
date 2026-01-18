@@ -172,9 +172,7 @@ export const getNodeDimensions = (node, isPreviewing = false, descriptionContent
     const textBlockHeight = calculateTextAreaHeight(nodeName, textWidthTarget);
     textAreaHeight = Math.max(NODE_HEIGHT, textBlockHeight + TEXT_V_PADDING_TOTAL);
 
-    // Use consistent 36px padding for inner canvas to account for 12px stroke and maintain 24px gap
-    const GROUP_PADDING = 36;
-    innerNetworkWidth = currentWidth - 2 * GROUP_PADDING;
+    innerNetworkWidth = currentWidth - 2 * NODE_PADDING;
 
     // Calculate description area height dynamically based on actual content
     if (descriptionContent && descriptionContent.trim() && descriptionContent !== 'No description.') {
@@ -207,10 +205,11 @@ export const getNodeDimensions = (node, isPreviewing = false, descriptionContent
     innerNetworkHeight = Math.max(minNetworkHeight, availableHeightForNetwork);
 
     // Final node height: text area + top padding + network + description spacing + description + bottom padding
-    // Add 12px to account for colored border inset (6px) AND stroke width (6px internal)
-    // This ensures the bottom gap matches the 24px top gap
+    // Add 6px to account for colored border inset (rect is inset by 6px on all sides)
+    // Add 8px for spacing between inner canvas and description only if description exists (matches Node.jsx descriptionAreaY calculation)
+    // This makes the colored border rectangle physically taller to accommodate the padding
     const DESCRIPTION_SPACING = descriptionAreaHeight > 0 ? 8 : 0;
-    currentHeight = textAreaHeight + INNER_CANVAS_PADDING + innerNetworkHeight + DESCRIPTION_SPACING + descriptionAreaHeight + INNER_CANVAS_PADDING + 12;
+    currentHeight = textAreaHeight + INNER_CANVAS_PADDING + innerNetworkHeight + DESCRIPTION_SPACING + descriptionAreaHeight + INNER_CANVAS_PADDING + 6;
 
     // Reset image dimensions
     imageWidth = 0;
