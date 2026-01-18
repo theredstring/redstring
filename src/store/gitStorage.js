@@ -27,12 +27,12 @@ export const initializeGitStorage = async (provider) => {
   if (!provider) {
     throw new Error('Provider is required for Git storage');
   }
-  
+
   currentProvider = provider;
   isInitialized = true;
-  
+
   console.log('[GitStorage] Initialized with provider:', provider.name);
-  
+
   // Test connection
   try {
     const isAvailable = await provider.isAvailable();
@@ -67,10 +67,10 @@ export const loadFromGit = async () => {
   if (!isGitStorageInitialized()) {
     throw new Error('Git storage not initialized');
   }
-  
+
   try {
     console.log('[GitStorage] Loading data from Git repository...');
-    
+
     // Try to load the main universe file
     let content;
     try {
@@ -86,11 +86,11 @@ export const loadFromGit = async () => {
         return null; // Return null to indicate no existing data
       }
     }
-    
+
     // Parse the content
     const redstringData = JSON.parse(content);
     console.log('[GitStorage] Successfully parsed Redstring data');
-    
+
     return redstringData;
   } catch (error) {
     console.error('[GitStorage] Failed to load from Git:', error);
@@ -105,26 +105,26 @@ export const saveToGit = async (storeState, showSuccess = true) => {
   if (!isGitStorageInitialized()) {
     throw new Error('Git storage not initialized');
   }
-  
+
   try {
     console.log('[GitStorage] Saving data to Git repository...');
-    
+
     // Export current state to Redstring format
     const redstringData = exportToRedstring(storeState);
     const jsonString = JSON.stringify(redstringData, null, 2);
-    
+
     // Save main file
     await currentProvider.writeSemanticFile(MAIN_FILE_NAME, jsonString);
-    
+
     // Also save a backup
     await currentProvider.writeSemanticFile(BACKUP_FILE_NAME, jsonString);
-    
+
     lastSaveTime = Date.now();
-    
+
     if (showSuccess) {
       console.log('[GitStorage] Successfully saved to Git repository');
     }
-    
+
     return true;
   } catch (error) {
     console.error('[GitStorage] Failed to save to Git:', error);
@@ -140,19 +140,19 @@ export const setupGitAutoSave = (getStoreStateFn) => {
     console.warn('[GitStorage] Cannot setup auto-save: not initialized');
     return;
   }
-  
+
   if (autoSaveInterval) {
     clearInterval(autoSaveInterval);
   }
-  
+
   console.log('[GitStorage] Setting up auto-save (every', AUTO_SAVE_INTERVAL, 'ms)');
-  
+
   autoSaveInterval = setInterval(async () => {
     if (!isAutoSaveEnabled) return;
-    
+
     const timeSinceLastChange = Date.now() - lastChangeTime;
     const timeSinceLastSave = Date.now() - lastSaveTime;
-    
+
     // Only save if enough time has passed since last change and save
     if (timeSinceLastChange > DEBOUNCE_DELAY && timeSinceLastSave > AUTO_SAVE_INTERVAL) {
       try {
@@ -163,7 +163,7 @@ export const setupGitAutoSave = (getStoreStateFn) => {
       }
     }
   }, AUTO_SAVE_INTERVAL);
-  
+
   isAutoSaveEnabled = true;
 };
 
@@ -226,11 +226,11 @@ export const disconnectGitStorage = () => {
     clearInterval(autoSaveInterval);
     autoSaveInterval = null;
   }
-  
+
   currentProvider = null;
   isInitialized = false;
   isAutoSaveEnabled = false;
-  
+
   console.log('[GitStorage] Disconnected from Git storage');
 };
 
@@ -241,9 +241,25 @@ export const importFromGit = async (storeActions) => {
   try {
     const redstringData = await loadFromGit();
     if (redstringData) {
-      importFromRedstring(redstringData, storeActions);
-      console.log('[GitStorage] Successfully imported data from Git');
-      return true;
+      const { storeState, errors } = importFromRedstring(redstringData);
+
+      if (errors && errors.length > 0) {
+        console.warn('[GitStorage] Import had warnings:', errors);
+      }
+
+      if (storeState) {
+        const success = storeActions.loadUniverseFromFile(storeState);
+        if (success) {
+          console.log('[GitStorage] Successfully imported data from Git');
+          return true;
+        } else {
+          console.error('[GitStorage] Failed to apply imported state to store');
+          throw new Error('Failed to apply imported state to store');
+        }
+      } else {
+        console.error('[GitStorage] Import returned no state');
+        throw new Error('Import returned no state');
+      }
     }
     return false; // No existing data
   } catch (error) {
@@ -259,7 +275,7 @@ export const createUniverseInGit = async (storeState) => {
   if (!isGitStorageInitialized()) {
     throw new Error('Git storage not initialized');
   }
-  
+
   try {
     console.log('[GitStorage] Creating initial universe file in Git...');
     await saveToGit(storeState, false);

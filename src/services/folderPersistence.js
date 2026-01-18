@@ -55,7 +55,7 @@ export const storeFolderHandle = async (folderHandleOrPath) => {
       const tx = db.transaction([FOLDER_HANDLE_STORE_NAME], 'readwrite');
       const store = tx.objectStore(FOLDER_HANDLE_STORE_NAME);
 
-      await store.put({
+      store.put({
         id: FOLDER_HANDLE_KEY,
         handle: folderHandleOrPath,
         savedAt: Date.now()

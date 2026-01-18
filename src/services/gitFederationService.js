@@ -657,7 +657,7 @@ export const gitFederationService = {
         enabled: false,
         linkedRepo: null
       };
-      payload.sourceOfTruth = universe.raw.localFile?.fileHandle ? 'local' : 'browser';
+      payload.sourceOfTruth = universe.raw.localFile?.enabled ? 'local' : 'browser';
     }
 
     await universeBackendBridge.updateUniverse(slug, payload);

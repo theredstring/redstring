@@ -2149,7 +2149,8 @@ class UniverseBackend {
     }
 
     // Save current universe before switching (unless explicitly disabled)
-    if (options.saveCurrent !== false && this.activeUniverseSlug) {
+    // Check if active universe actually exists before trying to save (it might have been deleted)
+    if (options.saveCurrent !== false && this.activeUniverseSlug && this.universes.has(this.activeUniverseSlug)) {
       try {
         await this.saveActiveUniverse();
         gfLog('[UniverseBackend] Saved current universe before switching');
@@ -3041,6 +3042,7 @@ class UniverseBackend {
     const localRes = resultsMap.get(SOURCE_OF_TRUTH.LOCAL);
     if (localRes?.data) {
       gfLog('[UniverseBackend] Using Local fallback (Primary unavailable)');
+      this.notifyStatus('warning', 'Primary storage unavailable. Loaded from local backup.');
       return this.syncAndReturn(universe, localRes.data, {
         source: SOURCE_OF_TRUTH.LOCAL,
         allowPermissionPrompt
@@ -3051,6 +3053,7 @@ class UniverseBackend {
     const gitRes = resultsMap.get(SOURCE_OF_TRUTH.GIT);
     if (gitRes?.data) {
       gfLog('[UniverseBackend] Using Git fallback (Primary unavailable)');
+      this.notifyStatus('warning', 'Primary storage unavailable. Loaded from Git backup.');
       return this.syncAndReturn(universe, gitRes.data, {
         source: SOURCE_OF_TRUTH.GIT,
         allowPermissionPrompt
@@ -3061,6 +3064,7 @@ class UniverseBackend {
     const browserRes = resultsMap.get(SOURCE_OF_TRUTH.BROWSER);
     if (browserRes?.data) {
       gfLog('[UniverseBackend] Using Browser Storage fallback');
+      this.notifyStatus('warning', 'Primary storage unavailable. Loaded from browser backup.');
       return this.syncAndReturn(universe, browserRes.data, {
         source: SOURCE_OF_TRUTH.BROWSER,
         allowPermissionPrompt
@@ -3770,17 +3774,33 @@ class UniverseBackend {
     // Remove engine first
     this.removeGitSyncEngine(slug);
 
+    // Identify next universe BEFORE deleting
+    let nextSlug = null;
+    if (this.activeUniverseSlug === key) {
+      const allSlugs = Array.from(this.universes.keys());
+      const idx = allSlugs.indexOf(key);
+      // Pick next or previous, or first available
+      nextSlug = allSlugs.find(s => s !== key);
+    }
+
     // Delete from universes
     this.universes.delete(key);
-    this.fileHandles.delete(key);
-
-    // If we deleted the active universe, switch to another one
-    if (this.activeUniverseSlug === key) {
-      this.activeUniverseSlug = this.universes.keys().next().value;
-    }
+    this.fileHandles.delete(key); // Remove file handle reference
 
     this.saveToStorage();
     this.notifyStatus('info', `Deleted universe: ${universe.name}`);
+
+    // If we deleted the active universe, switch to the next one
+    // CRITICAL: Must use switchActiveUniverse to LOAD the new universe's data
+    // Pass saveCurrent: false because the old active universe is already deleted
+    if (nextSlug) {
+      gfLog(`[UniverseBackend] Active universe deleted, switching to: ${nextSlug}`);
+      // We must handle this async, but deleteUniverse is sync-ish in signature typically.
+      // However, switchActiveUniverse is async. We catch errors to prevent crashing.
+      this.switchActiveUniverse(nextSlug, { saveCurrent: false }).catch(err => {
+        gfError('[UniverseBackend] Failed to switch universe after deletion:', err);
+      });
+    }
   }
 
   /**
