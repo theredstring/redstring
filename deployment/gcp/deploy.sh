@@ -37,7 +37,7 @@ if [ "$ENVIRONMENT" = "prod" ]; then
     # Submit build for production
     gcloud builds submit \
         --config cloudbuild.yaml \
-        --substitutions _REGION=$REGION,_GITHUB_CLIENT_ID=placeholder \
+        --substitutions _REGION=$REGION \
         .
     
     echo -e "${GREEN}✅ Production deployment initiated!${NC}"

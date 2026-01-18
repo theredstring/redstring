@@ -48,7 +48,6 @@ import useGraphStore, {
   getEdgesForGraph,
   getNodePrototypeById, // New selector for prototypes
 } from "./store/graphStore.jsx";
-import { shallow } from 'zustand/shallow';
 import useHistoryStore from './store/historyStore.js';
 
 import {
@@ -1403,82 +1402,41 @@ function NodeCanvas() {
 
   // storeActions is now defined above with defensive initialization
 
-  // <<< OPTIMIZED: Consolidated selector with shallow comparison to prevent unnecessary re-renders >>>
-  const canvasState = useGraphStore(
-    (state) => ({
-      activeGraphId: state.activeGraphId,
-      activeDefinitionNodeId: state.activeDefinitionNodeId,
-      selectedEdgeId: state.selectedEdgeId,
-      selectedEdgeIds: state.selectedEdgeIds,
-      typeListMode: state.typeListMode,
-      graphsMap: state.graphs,
-      nodePrototypesMap: state.nodePrototypes,
-      edgePrototypesMap: state.edgePrototypes,
-      showConnectionNames: state.showConnectionNames,
-      gridMode: state.gridSettings?.mode || 'off',
-      gridSize: state.gridSettings?.size || 200,
-      dragZoomSettings: state.dragZoomSettings || { enabled: true, zoomAmount: 0.35 },
-      enableAutoRouting: state.autoLayoutSettings?.enableAutoRouting,
-      routingStyle: state.autoLayoutSettings?.routingStyle || 'straight',
-      manhattanBends: state.autoLayoutSettings?.manhattanBends || 'auto',
-      cleanLaneSpacing: state.autoLayoutSettings?.cleanLaneSpacing || 24,
-      groupLayoutAlgorithm: state.autoLayoutSettings?.groupLayoutAlgorithm || 'node-driven',
-      showClusterHulls: state.autoLayoutSettings?.showClusterHulls || false,
-      layoutScalePreset: state.autoLayoutSettings?.layoutScale || 'balanced',
-      layoutScaleMultiplier: state.autoLayoutSettings?.layoutScaleMultiplier ?? 1,
-      layoutIterationPreset: state.autoLayoutSettings?.layoutIterations || 'balanced',
-      forceTunerSettings: state.forceTunerSettings || { layoutScale: 'balanced', layoutScaleMultiplier: 1, layoutIterations: 'balanced' },
-      edgesMap: state.edges,
-      savedNodeIds: state.savedNodeIds,
-      savedGraphIds: state.savedGraphIds,
-      openGraphIds: state.openGraphIds,
-      isUniverseLoaded: state.isUniverseLoaded,
-      isUniverseLoading: state.isUniverseLoading,
-      universeLoadingError: state.universeLoadingError,
-      hasUniverseFile: state.hasUniverseFile,
-    }),
-    shallow // Shallow comparison prevents re-renders when reference changes but values are the same
-  );
-
-  // Destructure after selector for cleaner code
-  const {
-    activeGraphId,
-    activeDefinitionNodeId,
-    selectedEdgeId,
-    selectedEdgeIds,
-    typeListMode,
-    graphsMap,
-    nodePrototypesMap,
-    edgePrototypesMap,
-    showConnectionNames,
-    gridMode,
-    gridSize,
-    dragZoomSettings,
-    enableAutoRouting,
-    routingStyle,
-    manhattanBends,
-    cleanLaneSpacing,
-    groupLayoutAlgorithm,
-    showClusterHulls,
-    layoutScalePreset,
-    layoutScaleMultiplier,
-    layoutIterationPreset,
-    forceTunerSettings,
-    edgesMap,
-    savedNodeIds,
-    savedGraphIds,
-    openGraphIds,
-    isUniverseLoaded,
-    isUniverseLoading,
-    universeLoadingError,
-    hasUniverseFile,
-  } = canvasState;
-
-  // Compute derived values from forceTunerSettings
+  // <<< OPTIMIZED: Individual stable subscriptions - Zustand auto-batches these >>>
+  const activeGraphId = useGraphStore(state => state.activeGraphId);
+  const activeDefinitionNodeId = useGraphStore(state => state.activeDefinitionNodeId);
+  const selectedEdgeId = useGraphStore(state => state.selectedEdgeId);
+  const selectedEdgeIds = useGraphStore(state => state.selectedEdgeIds);
+  const typeListMode = useGraphStore(state => state.typeListMode);
+  const graphsMap = useGraphStore(state => state.graphs);
+  const nodePrototypesMap = useGraphStore(state => state.nodePrototypes);
+  const edgePrototypesMap = useGraphStore(state => state.edgePrototypes);
+  const showConnectionNames = useGraphStore(state => state.showConnectionNames);
+  const gridMode = useGraphStore(state => state.gridSettings?.mode || 'off');
+  const gridSize = useGraphStore(state => state.gridSettings?.size || 200);
+  const dragZoomSettings = useGraphStore(state => state.dragZoomSettings || { enabled: true, zoomAmount: 0.35 });
+  const enableAutoRouting = useGraphStore(state => state.autoLayoutSettings?.enableAutoRouting);
+  const routingStyle = useGraphStore(state => state.autoLayoutSettings?.routingStyle || 'straight');
+  const manhattanBends = useGraphStore(state => state.autoLayoutSettings?.manhattanBends || 'auto');
+  const cleanLaneSpacing = useGraphStore(state => state.autoLayoutSettings?.cleanLaneSpacing || 24);
+  const groupLayoutAlgorithm = useGraphStore(state => state.autoLayoutSettings?.groupLayoutAlgorithm || 'node-driven');
+  const showClusterHulls = useGraphStore(state => state.autoLayoutSettings?.showClusterHulls || false);
+  const layoutScalePreset = useGraphStore(state => state.autoLayoutSettings?.layoutScale || 'balanced');
+  const layoutScaleMultiplier = useGraphStore(state => state.autoLayoutSettings?.layoutScaleMultiplier ?? 1);
+  const layoutIterationPreset = useGraphStore(state => state.autoLayoutSettings?.layoutIterations || 'balanced');
   const DEFAULT_FORCE_TUNER_SETTINGS = { layoutScale: 'balanced', layoutScaleMultiplier: 1, layoutIterations: 'balanced' };
+  const forceTunerSettings = useGraphStore(state => state.forceTunerSettings || DEFAULT_FORCE_TUNER_SETTINGS);
   const forceLayoutScalePreset = forceTunerSettings.layoutScale || 'balanced';
   const forceLayoutScaleMultiplier = forceTunerSettings.layoutScaleMultiplier ?? 1;
   const forceLayoutIterationPreset = forceTunerSettings.layoutIterations || 'balanced';
+  const edgesMap = useGraphStore(state => state.edges);
+  const savedNodeIds = useGraphStore(state => state.savedNodeIds);
+  const savedGraphIds = useGraphStore(state => state.savedGraphIds);
+  const openGraphIds = useGraphStore(state => state.openGraphIds);
+  const isUniverseLoaded = useGraphStore(state => state.isUniverseLoaded);
+  const isUniverseLoading = useGraphStore(state => state.isUniverseLoading);
+  const universeLoadingError = useGraphStore(state => state.universeLoadingError);
+  const hasUniverseFile = useGraphStore(state => state.hasUniverseFile);
 
   useEffect(() => {
     const timerApi = typeof window !== 'undefined' ? window : globalThis;
