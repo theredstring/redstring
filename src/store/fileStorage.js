@@ -976,38 +976,14 @@ export const forceGitUniverseLoad = async () => {
 export const saveToFile = async (storeState, showSuccess = true, options = {}) => {
   // Legacy save function - simplified to avoid circular dependency with universeManager
   try {
-    const { preSerialized = false, serializedData = null } = options;
+    const { preSerialized = false, serializedData = null, redstringData: preComputedRedstringData = null } = options;
 
     if (isBrowserStorageMode()) {
       // Save to browser storage
-      // If preSerialized is provided, we might need to parse it back if storeBrowserUniverse expects an object
-      // But storeBrowserUniverse takes `redstringData` which IS an object.
-      // So if serializedData is a string, we'd need to parse it, which defeats the purpose of offloading stringify...
-      // BUT IndexedDB stores structured data, so we don't *need* to stringify for it.
-      // However, if the worker gives us a string, we are stuck with it unless we pass the object back too.
-      // For browser storage, maybe just let main thread do it if performance isn't as critical (IndexedDB is async).
-      // Or pass the raw object back from worker? No, that's heavy serialization.
-      // Let's assume for now we re-export on main thread for browser storage if needed, OR we just store the object.
-      
-      let redstringData;
-      if (preSerialized && serializedData && typeof serializedData === 'string') {
-          // If we have a string but need an object for IDB (cleaner), we have to parse.
-          // OR we could store the string directly?
-          // Existing code: `store.put({ id: BROWSER_KEY, data: redstringData, savedAt: Date.now() });`
-          // If data is a string, next load will need to handle it.
-          // loadBrowserUniverse returns result.data.
-          // importFromRedstring expects an object.
-          // So we should store an object.
-          // Parsing a huge JSON string on main thread is bad.
-          // Maybe we skip worker optimization for Browser Storage mode? It's less common for heavy users.
-          // OR we modify storeBrowserUniverse to accept string.
-          // Let's stick to standard path for BrowserStorageMode for now to avoid regressions there.
-          redstringData = exportToRedstring(storeState);
-      } else {
-          redstringData = exportToRedstring(storeState);
-      }
-      
-      await storeBrowserUniverse(redstringData);
+      // Use pre-computed Redstring object from worker if available to avoid redundant exportToRedstring call
+      const dataToStore = preComputedRedstringData || exportToRedstring(storeState);
+
+      await storeBrowserUniverse(dataToStore);
       lastSaveTime = Date.now();
       if (showSuccess) {
         console.log('[FileStorage] Universe saved to browser storage');
@@ -1027,7 +1003,18 @@ export const saveToFile = async (storeState, showSuccess = true, options = {}) =
       }
       
       const writable = await fileHandle.createWritable();
-      await writable.write(jsonString);
+
+      // Write in chunks to avoid blocking the main thread during large file writes
+      const CHUNK_SIZE = 64 * 1024; // 64KB chunks
+      for (let i = 0; i < jsonString.length; i += CHUNK_SIZE) {
+        const chunk = jsonString.slice(i, i + CHUNK_SIZE);
+        await writable.write(chunk);
+        // Yield to main thread between chunks to prevent blocking
+        if (i + CHUNK_SIZE < jsonString.length) {
+          await new Promise(resolve => setTimeout(resolve, 0));
+        }
+      }
+
       await writable.close();
       lastSaveTime = Date.now();
       if (showSuccess) {

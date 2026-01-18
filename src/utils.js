@@ -199,11 +199,13 @@ export const getNodeDimensions = (node, isPreviewing = false, descriptionContent
         // Calculate network height based on dynamic textAreaHeight and description area, ensuring minimum height
         // Use consistent 24px padding for inner canvas (matching left/right padding from colored border)
         const INNER_CANVAS_PADDING = 24;
-        const availableHeightForNetwork = PREVIEW_NODE_MIN_HEIGHT - textAreaHeight - descriptionAreaHeight - (INNER_CANVAS_PADDING * 2);
+        // Don't reduce available height by padding - we'll add padding to total height instead
+        const availableHeightForNetwork = PREVIEW_NODE_MIN_HEIGHT - textAreaHeight - descriptionAreaHeight;
         const minNetworkHeight = 300; // Increased minimum height for better readability and faithful node representations
         innerNetworkHeight = Math.max(minNetworkHeight, availableHeightForNetwork);
 
         // Final node height: text area + top padding + network + description + bottom padding
+        // This makes the colored border rectangle physically taller to accommodate the padding
         currentHeight = textAreaHeight + INNER_CANVAS_PADDING + innerNetworkHeight + descriptionAreaHeight + INNER_CANVAS_PADDING;
         
         // Reset image dimensions

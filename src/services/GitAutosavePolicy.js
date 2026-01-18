@@ -188,7 +188,9 @@ class GitAutosavePolicy {
 
       // Get current state and check file size
       const currentState = this.getCurrentState();
-      if (!this.checkFileSize(currentState)) {
+      // Use pre-serialized string from SaveCoordinator if available to avoid redundant JSON.stringify
+      const preSerializedString = this.saveCoordinator?.getPendingString?.();
+      if (!this.checkFileSize(currentState, preSerializedString)) {
         throw new Error('File size limit exceeded');
       }
 
@@ -256,8 +258,9 @@ class GitAutosavePolicy {
   /**
    * Check file size constraints
    */
-  checkFileSize(state) {
-    const stateString = JSON.stringify(state);
+  checkFileSize(state, preSerializedString = null) {
+    // Use pre-serialized string if available to avoid redundant JSON.stringify
+    const stateString = preSerializedString || JSON.stringify(state);
     // Use Buffer in Node.js environment, Blob in browser
     const sizeBytes = typeof Buffer !== 'undefined'
       ? Buffer.byteLength(stateString, 'utf8')

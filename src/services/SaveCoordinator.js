@@ -464,6 +464,11 @@ class SaveCoordinator {
     return null;
   }
 
+  // Get pre-serialized string for Git autosave policy (avoids redundant JSON.stringify)
+  getPendingString() {
+    return this.pendingString;
+  }
+
   // Get current status
   getStatus() {
     return {

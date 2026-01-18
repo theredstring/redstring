@@ -48,8 +48,8 @@ import useGraphStore, {
   getEdgesForGraph,
   getNodePrototypeById, // New selector for prototypes
 } from "./store/graphStore.jsx";
-import useHistoryStore from './store/historyStore.js';
 import { shallow } from 'zustand/shallow';
+import useHistoryStore from './store/historyStore.js';
 
 import {
   NODE_WIDTH,
@@ -1403,41 +1403,82 @@ function NodeCanvas() {
 
   // storeActions is now defined above with defensive initialization
 
-  // <<< OPTIMIZED: Individual stable subscriptions - Zustand will optimize these automatically >>>
-  const activeGraphId = useGraphStore(state => state.activeGraphId);
-  const activeDefinitionNodeId = useGraphStore(state => state.activeDefinitionNodeId);
-  const selectedEdgeId = useGraphStore(state => state.selectedEdgeId);
-  const selectedEdgeIds = useGraphStore(state => state.selectedEdgeIds);
-  const typeListMode = useGraphStore(state => state.typeListMode);
-  const graphsMap = useGraphStore(state => state.graphs);
-  const nodePrototypesMap = useGraphStore(state => state.nodePrototypes);
-  const edgePrototypesMap = useGraphStore(state => state.edgePrototypes);
-  const showConnectionNames = useGraphStore(state => state.showConnectionNames);
-  const gridMode = useGraphStore(state => state.gridSettings?.mode || 'off');
-  const gridSize = useGraphStore(state => state.gridSettings?.size || 200);
-  const dragZoomSettings = useGraphStore(state => state.dragZoomSettings || { enabled: true, zoomAmount: 0.35 });
-  const enableAutoRouting = useGraphStore(state => state.autoLayoutSettings?.enableAutoRouting);
-  const routingStyle = useGraphStore(state => state.autoLayoutSettings?.routingStyle || 'straight');
-  const manhattanBends = useGraphStore(state => state.autoLayoutSettings?.manhattanBends || 'auto');
-  const cleanLaneSpacing = useGraphStore(state => state.autoLayoutSettings?.cleanLaneSpacing || 24);
-  const groupLayoutAlgorithm = useGraphStore(state => state.autoLayoutSettings?.groupLayoutAlgorithm || 'node-driven');
-  const showClusterHulls = useGraphStore(state => state.autoLayoutSettings?.showClusterHulls || false);
-  const layoutScalePreset = useGraphStore(state => state.autoLayoutSettings?.layoutScale || 'balanced');
-  const layoutScaleMultiplier = useGraphStore(state => state.autoLayoutSettings?.layoutScaleMultiplier ?? 1);
-  const layoutIterationPreset = useGraphStore(state => state.autoLayoutSettings?.layoutIterations || 'balanced');
+  // <<< OPTIMIZED: Consolidated selector with shallow comparison to prevent unnecessary re-renders >>>
+  const canvasState = useGraphStore(
+    (state) => ({
+      activeGraphId: state.activeGraphId,
+      activeDefinitionNodeId: state.activeDefinitionNodeId,
+      selectedEdgeId: state.selectedEdgeId,
+      selectedEdgeIds: state.selectedEdgeIds,
+      typeListMode: state.typeListMode,
+      graphsMap: state.graphs,
+      nodePrototypesMap: state.nodePrototypes,
+      edgePrototypesMap: state.edgePrototypes,
+      showConnectionNames: state.showConnectionNames,
+      gridMode: state.gridSettings?.mode || 'off',
+      gridSize: state.gridSettings?.size || 200,
+      dragZoomSettings: state.dragZoomSettings || { enabled: true, zoomAmount: 0.35 },
+      enableAutoRouting: state.autoLayoutSettings?.enableAutoRouting,
+      routingStyle: state.autoLayoutSettings?.routingStyle || 'straight',
+      manhattanBends: state.autoLayoutSettings?.manhattanBends || 'auto',
+      cleanLaneSpacing: state.autoLayoutSettings?.cleanLaneSpacing || 24,
+      groupLayoutAlgorithm: state.autoLayoutSettings?.groupLayoutAlgorithm || 'node-driven',
+      showClusterHulls: state.autoLayoutSettings?.showClusterHulls || false,
+      layoutScalePreset: state.autoLayoutSettings?.layoutScale || 'balanced',
+      layoutScaleMultiplier: state.autoLayoutSettings?.layoutScaleMultiplier ?? 1,
+      layoutIterationPreset: state.autoLayoutSettings?.layoutIterations || 'balanced',
+      forceTunerSettings: state.forceTunerSettings || { layoutScale: 'balanced', layoutScaleMultiplier: 1, layoutIterations: 'balanced' },
+      edgesMap: state.edges,
+      savedNodeIds: state.savedNodeIds,
+      savedGraphIds: state.savedGraphIds,
+      openGraphIds: state.openGraphIds,
+      isUniverseLoaded: state.isUniverseLoaded,
+      isUniverseLoading: state.isUniverseLoading,
+      universeLoadingError: state.universeLoadingError,
+      hasUniverseFile: state.hasUniverseFile,
+    }),
+    shallow // Shallow comparison prevents re-renders when reference changes but values are the same
+  );
+
+  // Destructure after selector for cleaner code
+  const {
+    activeGraphId,
+    activeDefinitionNodeId,
+    selectedEdgeId,
+    selectedEdgeIds,
+    typeListMode,
+    graphsMap,
+    nodePrototypesMap,
+    edgePrototypesMap,
+    showConnectionNames,
+    gridMode,
+    gridSize,
+    dragZoomSettings,
+    enableAutoRouting,
+    routingStyle,
+    manhattanBends,
+    cleanLaneSpacing,
+    groupLayoutAlgorithm,
+    showClusterHulls,
+    layoutScalePreset,
+    layoutScaleMultiplier,
+    layoutIterationPreset,
+    forceTunerSettings,
+    edgesMap,
+    savedNodeIds,
+    savedGraphIds,
+    openGraphIds,
+    isUniverseLoaded,
+    isUniverseLoading,
+    universeLoadingError,
+    hasUniverseFile,
+  } = canvasState;
+
+  // Compute derived values from forceTunerSettings
   const DEFAULT_FORCE_TUNER_SETTINGS = { layoutScale: 'balanced', layoutScaleMultiplier: 1, layoutIterations: 'balanced' };
-  const forceTunerSettings = useGraphStore(state => state.forceTunerSettings || DEFAULT_FORCE_TUNER_SETTINGS);
   const forceLayoutScalePreset = forceTunerSettings.layoutScale || 'balanced';
   const forceLayoutScaleMultiplier = forceTunerSettings.layoutScaleMultiplier ?? 1;
   const forceLayoutIterationPreset = forceTunerSettings.layoutIterations || 'balanced';
-  const edgesMap = useGraphStore(state => state.edges);
-  const savedNodeIds = useGraphStore(state => state.savedNodeIds);
-  const savedGraphIds = useGraphStore(state => state.savedGraphIds);
-  const openGraphIds = useGraphStore(state => state.openGraphIds);
-  const isUniverseLoaded = useGraphStore(state => state.isUniverseLoaded);
-  const isUniverseLoading = useGraphStore(state => state.isUniverseLoading);
-  const universeLoadingError = useGraphStore(state => state.universeLoadingError);
-  const hasUniverseFile = useGraphStore(state => state.hasUniverseFile);
 
   useEffect(() => {
     const timerApi = typeof window !== 'undefined' ? window : globalThis;
@@ -1452,13 +1493,16 @@ function NodeCanvas() {
   // Store actions
   const cleanupOrphanedGraphs = useGraphStore(state => state.cleanupOrphanedGraphs);
 
-  // Get hydrated nodes for the active graph
-  const hydratedNodes = useMemo(() => {
-    if (!activeGraphId || !graphsMap || !nodePrototypesMap) return [];
-    const graph = graphsMap.get(activeGraphId);
-    if (!graph || !graph.instances) return [];
+  // Get the specific active graph to narrow memoization dependencies
+  const activeGraph = graphsMap?.get(activeGraphId);
+  const activeGraphInstances = activeGraph?.instances;
 
-    return Array.from(graph.instances.values()).map(instance => {
+  // Get hydrated nodes for the active graph
+  // OPTIMIZED: Depend only on specific graph's instances, not entire graphsMap
+  const hydratedNodes = useMemo(() => {
+    if (!activeGraphId || !activeGraphInstances || !nodePrototypesMap) return [];
+
+    return Array.from(activeGraphInstances.values()).map(instance => {
       const prototype = nodePrototypesMap.get(instance.prototypeId);
       if (!prototype) return null;
       return {
@@ -1466,12 +1510,11 @@ function NodeCanvas() {
         ...instance,
       };
     }).filter(Boolean);
-  }, [activeGraphId, graphsMap, nodePrototypesMap]);
+  }, [activeGraphId, activeGraphInstances, nodePrototypesMap]);
 
   // <<< Derive active graph data directly >>>
-  const activeGraphData = useMemo(() => {
-    return activeGraphId ? graphsMap.get(activeGraphId) : null;
-  }, [activeGraphId, graphsMap]);
+  // OPTIMIZED: Use activeGraph directly instead of re-querying graphsMap
+  const activeGraphData = activeGraph || null;
   const activeGraphName = activeGraphData?.name ?? 'Loading...';
   const activeGraphDescription = activeGraphData?.description ?? '';
 
@@ -2191,6 +2234,38 @@ function NodeCanvas() {
 
   const mousePositionRef = useRef({ x: 0, y: 0 });
 
+  // RAF-based position update batching for smooth 60/120/144Hz-aligned rendering
+  const pendingPositionUpdates = useRef(new Map());
+  const positionUpdateScheduled = useRef(false);
+
+  const flushPositionUpdates = useCallback(() => {
+    if (pendingPositionUpdates.current.size === 0) return;
+
+    // Apply all pending position updates in a single batch
+    pendingPositionUpdates.current.forEach(({ newX, newY, instanceId }) => {
+      storeActions.updateNodeInstance(activeGraphId, instanceId, draft => {
+        draft.x = newX;
+        draft.y = newY;
+      }, { isDragging: true, phase: 'move', type: 'node_position' });
+    });
+
+    pendingPositionUpdates.current.clear();
+  }, [activeGraphId, storeActions]);
+
+  const schedulePositionUpdate = useCallback((instanceId, newX, newY) => {
+    // Store the latest position for this node
+    pendingPositionUpdates.current.set(instanceId, { newX, newY, instanceId });
+
+    // Schedule RAF flush if not already scheduled
+    if (!positionUpdateScheduled.current) {
+      positionUpdateScheduled.current = true;
+      requestAnimationFrame(() => {
+        positionUpdateScheduled.current = false;
+        flushPositionUpdates();
+      });
+    }
+  }, [flushPositionUpdates]);
+
   // Document-level mouse tracking (captures events even over panels or when propagation is stopped)
   useEffect(() => {
     const handleDocumentMouseMove = (e) => {
@@ -2301,12 +2376,10 @@ function NodeCanvas() {
         newX = mouseCanvasX - offset.x;
         newY = mouseCanvasY - offset.y;
       }
-      storeActions.updateNodeInstance(activeGraphId, instanceId, draft => {
-        draft.x = newX;
-        draft.y = newY;
-      }, { isDragging: true, phase: 'move', type: 'node_position' });
+      // Use RAF-based batching for smooth framerate-aligned updates
+      schedulePositionUpdate(instanceId, newX, newY);
     }
-  }, [activeGraphId, nodeById, gridMode, gridSize, storeActions]);
+  }, [activeGraphId, nodeById, gridMode, gridSize, schedulePositionUpdate]);
 
 
   // Edge Panning Effect
@@ -6357,6 +6430,10 @@ function NodeCanvas() {
   const pendingPanUpdate = useRef(null);
   const panUpdateScheduled = useRef(false);
 
+  // RAF-based hover detection for edge/node hovering
+  const pendingHoverCheck = useRef(null);
+  const hoverCheckScheduled = useRef(false);
+
   const handleMouseMove = async (e) => {
     // Update mouse position for edge panning
     mousePositionRef.current = { x: e.clientX, y: e.clientY };
@@ -6394,13 +6471,21 @@ function NodeCanvas() {
     // Edge hover detection (only when not dragging/panning)
     // PERFORMANCE: Skip all hover updates during drag to reduce per-frame work
     if (!isMouseDown.current && !draggingNodeInfo && !isPanning) {
-      const now = performance.now();
-      if (now - lastHoverCheckRef.current >= HOVER_CHECK_INTERVAL_MS) {
-        lastHoverCheckRef.current = now;
+      // RAF-throttled hover detection - sync with display refresh for smoother performance
+      pendingHoverCheck.current = { e, currentX, currentY, nodes, visibleNodeIds };
 
-        const hoveredNode = nodes.find(
-          (node) => visibleNodeIds.has(node.id) && isInsideNode(node, e.clientX, e.clientY)
-        );
+      if (!hoverCheckScheduled.current) {
+        hoverCheckScheduled.current = true;
+        requestAnimationFrame(() => {
+          hoverCheckScheduled.current = false;
+          if (!pendingHoverCheck.current) return;
+
+          const { e: mouseEvent, currentX, currentY, nodes: nodeList, visibleNodeIds } = pendingHoverCheck.current;
+          pendingHoverCheck.current = null;
+
+          const hoveredNode = nodeList.find(
+            (node) => visibleNodeIds.has(node.id) && isInsideNode(node, mouseEvent.clientX, mouseEvent.clientY)
+          );
 
         if (hoveredNode) {
           const dims = baseDimsById.get(hoveredNode.id);
@@ -6606,6 +6691,7 @@ function NodeCanvas() {
             setHoveredConnectionForVision(null);
           }
         }
+        }); // Close RAF callback
       }
     }
     // PERFORMANCE: Don't clear hover states every frame during drag
