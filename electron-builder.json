@@ -11,8 +11,9 @@
     "package.json"
   ],
   "mac": {
+    "identity": null,
     "category": "public.app-category.productivity",
-    "artifactName": "${productName}-${version}-mac-${arch}.${ext}",
+    "artifactName": "${productName}-mac-${arch}.${ext}",
     "target": [
       {
         "target": "dmg",
@@ -32,7 +33,7 @@
     ]
   },
   "win": {
-    "artifactName": "${productName}-${version}-win-${arch}.${ext}",
+    "artifactName": "${productName}-win-${arch}.${ext}",
     "target": [
       {
         "target": "nsis",
@@ -52,7 +53,7 @@
     ]
   },
   "linux": {
-    "artifactName": "${productName}-${version}-linux-${arch}.${ext}",
+    "artifactName": "${productName}-linux-${arch}.${ext}",
     "target": [
       {
         "target": "AppImage",

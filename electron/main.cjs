@@ -1,8 +1,29 @@
-const { app, BrowserWindow, ipcMain, shell, dialog, clipboard, Menu } = require('electron');
-const path = require('path');
-const fs = require('fs').promises;
-const fsSync = require('fs');
+```javascript
+const { app, BrowserWindow, ipcMain, shell, dialog, clipboard, Menu, protocol, session } = require('electron');
+const path = require('node:path');
+const fs = require('node:fs');
 const { fork } = require('child_process');
+const { autoUpdater } = require('electron-updater');
+
+// Configure autoUpdater
+autoUpdater.autoDownload = true;
+autoUpdater.autoInstallOnAppQuit = true;
+
+// Basic logging
+autoUpdater.logger = require('electron-log');
+autoUpdater.logger.transports.file.level = 'info';
+
+const DIST = path.join(__dirname, '../dist');
+const VITE_DEV_SERVER_URL = process.env['VITE_DEV_SERVER_URL'];
+
+// Protocol handling (Redstring)
+if (process.defaultApp) {
+  if (process.argv.length >= 2) {
+    app.setAsDefaultProtocolClient('redstring', process.execPath, [path.resolve(process.argv[1])]);
+  }
+} else {
+  app.setAsDefaultProtocolClient('redstring');
+}
 
 // Set app name for proper display in menu bar/dock
 app.setName('Redstring');
@@ -40,11 +61,11 @@ function startAgentServer() {
   });
 
   agentServerProcess.stdout.on('data', (data) => {
-    console.log(`[AgentServer] ${data.toString().trim()}`);
+    console.log(`[AgentServer] ${ data.toString().trim() } `);
   });
 
   agentServerProcess.stderr.on('data', (data) => {
-    console.error(`[AgentServer] ${data.toString().trim()}`);
+    console.error(`[AgentServer] ${ data.toString().trim() } `);
   });
 
   agentServerProcess.on('error', (error) => {
@@ -53,7 +74,7 @@ function startAgentServer() {
   });
 
   agentServerProcess.on('exit', (code, signal) => {
-    console.log(`[Electron] Agent server exited with code ${code}, signal ${signal}`);
+    console.log(`[Electron] Agent server exited with code ${ code }, signal ${ signal } `);
     agentServerProcess = null;
   });
 }
@@ -80,7 +101,7 @@ if (isTestMode) {
 const sessionArg = process.argv.find(arg => arg.startsWith('--session='));
 const sessionName = sessionArg ? sessionArg.split('=')[1] : null;
 if (sessionName) {
-  console.log(`[Electron] Starting with isolated session: ${sessionName}`);
+  console.log(`[Electron] Starting with isolated session: ${ sessionName } `);
 }
 
 let mainWindow = null;
@@ -116,7 +137,7 @@ const ensureDirectories = async () => {
 
 // Storage file paths
 const getStoragePath = (storeName) => {
-  return path.join(getRedstringDataPath(), `${storeName}.json`);
+  return path.join(getRedstringDataPath(), `${ storeName }.json`);
 };
 
 // Read storage file
@@ -129,7 +150,7 @@ const readStorage = async (storeName) => {
     if (error.code === 'ENOENT') {
       return {}; // File doesn't exist yet
     }
-    console.error(`[Electron] Failed to read storage ${storeName}:`, error);
+    console.error(`[Electron] Failed to read storage ${ storeName }: `, error);
     return {};
   }
 };
@@ -141,7 +162,7 @@ const writeStorage = async (storeName, data) => {
     await fs.writeFile(filePath, JSON.stringify(data, null, 2), 'utf-8');
     return true;
   } catch (error) {
-    console.error(`[Electron] Failed to write storage ${storeName}:`, error);
+    console.error(`[Electron] Failed to write storage ${ storeName }: `, error);
     return false;
   }
 };
@@ -179,7 +200,7 @@ function createWindow() {
     let devUrl = 'http://localhost:4001';
     const params = [];
     if (isTestMode) params.push('test=true');
-    if (sessionName) params.push(`session=${encodeURIComponent(sessionName)}`);
+    if (sessionName) params.push(`session = ${ encodeURIComponent(sessionName) } `);
 
     if (params.length > 0) {
       devUrl += '?' + params.join('&');
@@ -363,7 +384,7 @@ ipcMain.handle('file:read', async (event, filePath) => {
     const content = await fs.readFile(filePath, 'utf-8');
     return { content, path: filePath };
   } catch (error) {
-    throw new Error(`Failed to read file: ${error.message}`);
+    throw new Error(`Failed to read file: ${ error.message } `);
   }
 });
 
@@ -372,7 +393,7 @@ ipcMain.handle('file:write', async (event, filePath, content) => {
     await fs.writeFile(filePath, content, 'utf-8');
     return { success: true, path: filePath };
   } catch (error) {
-    throw new Error(`Failed to write file: ${error.message}`);
+    throw new Error(`Failed to write file: ${ error.message } `);
   }
 });
 
