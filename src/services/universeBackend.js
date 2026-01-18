@@ -918,7 +918,33 @@ class UniverseBackend {
       this.fileHandles.delete(slug);
     }
 
-    // If restore failed or no handle existed, try workspace folder as fallback
+    // 1. Try to restore specific handle from IndexedDB first (most accurate)
+    const restore = await attemptRestoreFileHandle(slug, existingHandle);
+    if (restore.success && restore.handle) {
+      this.fileHandles.set(slug, restore.handle);
+
+      const displayPath =
+        restore.metadata?.displayPath ||
+        restore.metadata?.fileName ||
+        universe.localFile?.displayPath;
+
+      await this.updateLocalFileState(universe, {
+        fileHandleStatus: 'connected',
+        hadFileHandle: true,
+        reconnectMessage: null,
+        unavailableReason: null,
+        displayPath: displayPath || universe.localFile.displayPath,
+        lastAccessed: Date.now()
+      });
+
+      return {
+        success: true,
+        handle: restore.handle,
+        metadata: restore.metadata || null
+      };
+    }
+
+    // 2. If restore failed, try workspace folder as fallback
     if (!this.fileHandles.get(slug)) {
       const { getFileFromWorkspace } = await import('./workspaceFolderService.js');
       const fileName = universe.localFile?.fileName ||
@@ -942,31 +968,6 @@ class UniverseBackend {
       }
     }
 
-    const restore = await attemptRestoreFileHandle(slug, existingHandle);
-    if (restore.success && restore.handle) {
-      this.fileHandles.set(slug, restore.handle);
-
-      const displayPath =
-        restore.metadata?.displayPath ||
-        restore.metadata?.fileName ||
-        metadataHint?.displayPath ||
-        universe.localFile.displayPath;
-
-      await this.updateLocalFileState(universe, {
-        fileHandleStatus: restore.needsPermission ? 'permission_needed' : 'connected',
-        displayPath: displayPath || universe.localFile.displayPath,
-        reconnectMessage: restore.needsPermission
-          ? restore.message || 'Grant file access permission to resume saving.'
-          : null,
-        unavailableReason: restore.needsPermission
-          ? restore.message || 'Grant file access permission to resume saving.'
-          : null,
-        hadFileHandle: true,
-        lastAccessed: Date.now()
-      });
-
-      return restore;
-    }
 
     if (restore.needsPermission) {
       await this.updateLocalFileState(universe, {
@@ -2753,6 +2754,13 @@ class UniverseBackend {
       this.notifyStatus('success', `Linked local file: ${displayLabel}`);
     }
 
+    // Signal update to UI components
+    if (typeof window !== 'undefined') {
+      try {
+        window.dispatchEvent(new CustomEvent('redstring:universe-updated', { detail: { slug, action: 'link-file' } }));
+      } catch (_) { }
+    }
+
     return { success: true, fileName, displayPath };
   }
 
@@ -4502,6 +4510,8 @@ class UniverseBackend {
     }
     return { success: true, fileName };
   }
+
+
 
   /**
    * Link local file to universe (for future saves/loads)

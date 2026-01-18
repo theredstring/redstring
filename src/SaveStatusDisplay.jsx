@@ -99,16 +99,19 @@ const SaveStatusDisplay = () => {
     poll();
 
     // Listen for universe creation events to refresh immediately
-    const handleUniverseCreated = () => {
-      console.log('[SaveStatusDisplay] Universe created, refreshing status...');
+    // Listen for universe creation/update events to refresh immediately
+    const handleUniverseChange = () => {
+      console.log('[SaveStatusDisplay] Universe changed, updating status...');
       poll();
     };
-    window.addEventListener('redstring:universe-created', handleUniverseCreated);
+    window.addEventListener('redstring:universe-created', handleUniverseChange);
+    window.addEventListener('redstring:universe-updated', handleUniverseChange);
 
     return () => {
       cancelled = true;
       if (pollInterval) clearTimeout(pollInterval);
-      window.removeEventListener('redstring:universe-created', handleUniverseCreated);
+      window.removeEventListener('redstring:universe-created', handleUniverseChange);
+      window.removeEventListener('redstring:universe-updated', handleUniverseChange);
     };
   }, []);
 
