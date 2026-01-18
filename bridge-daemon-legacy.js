@@ -643,18 +643,18 @@ app.get('/api/bridge/health', (_req, res) => {
 app.post('/api/bridge/state', (req, res) => {
   try {
     const incoming = req.body || {};
-    
+
     // SMART MERGE: Preserves graphs from other sources (e.g. tests) if not explicitly overwritten
     if (incoming.graphs && Array.isArray(incoming.graphs)) {
       const existingGraphs = Array.isArray(bridgeStoreData.graphs) ? bridgeStoreData.graphs : [];
       const incomingIds = new Set(incoming.graphs.map(g => g.id));
-      
+
       // Keep existing graphs that are "test" graphs and not in the incoming set
-      const testGraphs = existingGraphs.filter(g => 
-        !incomingIds.has(g.id) && 
+      const testGraphs = existingGraphs.filter(g =>
+        !incomingIds.has(g.id) &&
         (g.id.includes('test') || g.id.includes('itm-') || g.name?.toLowerCase().includes('test'))
       );
-      
+
       bridgeStoreData.graphs = [...incoming.graphs, ...testGraphs];
     } else {
       bridgeStoreData.graphs = incoming.graphs || [];
@@ -704,7 +704,7 @@ app.post('/api/bridge/state', (req, res) => {
     }
 
     setBridgeStoreRef(bridgeStoreData);
-    
+
     if (bridgeStoreData.summary) bridgeStoreData.summary.lastUpdate = Date.now();
     res.json({ success: true });
   } catch (err) {
@@ -1117,8 +1117,8 @@ app.post('/api/bridge/run-tests', async (req, res) => {
 
     // Spawn test process
     const args = mode === 'auto' ? ['--auto-discover'] :
-                mode === 'dry' ? ['--dry-run'] :
-                [];
+      mode === 'dry' ? ['--dry-run'] :
+        [];
 
     const { spawn } = await import('child_process');
     const testProcess = spawn('node', ['test/ai/wizard-e2e.js', ...args], {
@@ -1260,7 +1260,7 @@ app.post('/api/mcp/request', (req, res) => {
       return rpc({
         protocolVersion: params?.protocolVersion || '2024-11-05',
         capabilities: { tools: { list: true, call: true } },
-        serverInfo: { name: 'redstring-bridge-mcp-shim', version: '0.1.0' }
+        serverInfo: { name: 'redstring-bridge-mcp-shim', version: '0.2.0' }
       });
     }
     if (method === 'tools/list') {
@@ -1979,7 +1979,7 @@ app.post('/api/ai/chat', async (req, res) => {
     if (context?.apiConfig) {
       provider = context.apiConfig.provider || provider;
       model = context.apiConfig.model || model;
-      
+
       // Set appropriate default endpoint based on provider
       if (provider === 'local' || provider === 'openai') {
         endpoint = context.apiConfig.endpoint || 'http://localhost:11434/v1/chat/completions';
@@ -2064,7 +2064,7 @@ app.post('/api/ai/chat', async (req, res) => {
 
     // For local providers, only try once (no fallback models make sense)
     const maxAttempts = (provider === 'local' || provider === 'openai') ? 1 : 2;
-    
+
     for (let attempt = 0; attempt < maxAttempts; attempt++) {
       const targetModel = attempt === 0 ? currentModel : defaultModelForProvider;
       try {
@@ -2159,7 +2159,7 @@ app.post('/api/wizard', async (req, res) => {
 
     const apiKey = req.headers.authorization?.replace(/^Bearer\s+/i, '') || '';
     const apiConfig = config?.apiConfig || {};
-    
+
     // Set up SSE
     res.setHeader('Content-Type', 'text/event-stream');
     res.setHeader('Cache-Control', 'no-cache');
@@ -2167,7 +2167,7 @@ app.post('/api/wizard', async (req, res) => {
 
     // Import runAgent dynamically to avoid circular dependencies
     const { runAgent } = await import('./src/wizard/AgentLoop.js');
-    
+
     const llmConfig = {
       apiKey,
       provider: apiConfig.provider || 'openrouter',
@@ -2313,7 +2313,7 @@ app.post('/api/ai/agent', async (req, res) => {
         // Extract user's color palette from node prototypes
         const extractColorPalette = () => {
           const allColors = [];
-          
+
           // Use prototypes from context if available, otherwise from bridge store
           const protos = body?.context?.nodePrototypes || bridgeStoreData.nodePrototypes;
 
@@ -3206,12 +3206,12 @@ app.post('/api/ai/agent', async (req, res) => {
       // Store API credentials in meta for Committer auto-chain
       const apiKey = req.headers.authorization?.replace(/^Bearer\s+/i, '');
       const apiConfig = body?.context?.apiConfig || null;
-      
+
       // CRITICAL: Do NOT trigger agenticLoop for delete/undo/clear operations
       // These should read the graph and STOP, not continue adding nodes
       const isDeleteOrUndo = /\b(undo|delete|remove|clear|revert|rollback)\b/i.test(msgText);
       const shouldChain = !isDeleteOrUndo;
-      
+
       const goalId = queueManager.enqueue('goalQueue', {
         type: 'goal',
         goal: 'analyze_graph',
@@ -3554,7 +3554,7 @@ app.post('/api/ai/agent', async (req, res) => {
       try {
         const nodeNames = planned.bulkDelete.nodes;
         const reason = planned.bulkDelete.reason || 'User requested deletion';
-        
+
         if (!targetGraphId) {
           const text = 'I need an active graph to delete nodes from. Please select a graph first.';
           appendChat('ai', text, { cid, channel: 'agent' });
@@ -3563,7 +3563,7 @@ app.post('/api/ai/agent', async (req, res) => {
 
         const activeGraph = (Array.isArray(bridgeStoreData.graphs) ? bridgeStoreData.graphs : []).find(g => g.id === targetGraphId);
         const prototypesList = Array.isArray(bridgeStoreData.nodePrototypes) ? bridgeStoreData.nodePrototypes : [];
-        
+
         // Collect all instance IDs to delete
         const allInstancesToDelete = [];
         const foundNodes = [];
@@ -3571,7 +3571,7 @@ app.post('/api/ai/agent', async (req, res) => {
 
         for (const nodeName of nodeNames) {
           const proto = prototypesList.find(p => String(p?.name || '').toLowerCase() === String(nodeName).toLowerCase());
-          
+
           if (!proto) {
             notFoundNodes.push(nodeName);
             continue;
@@ -3588,7 +3588,7 @@ app.post('/api/ai/agent', async (req, res) => {
         }
 
         if (allInstancesToDelete.length === 0) {
-          const text = notFoundNodes.length > 0 
+          const text = notFoundNodes.length > 0
             ? `I couldn't find any of those nodes in the current graph: ${notFoundNodes.join(', ')}`
             : 'No matching nodes found to delete.';
           appendChat('ai', text, { cid, channel: 'agent' });
@@ -3619,24 +3619,24 @@ app.post('/api/ai/agent', async (req, res) => {
 
         const uniqueNodeNames = [...new Set(foundNodes)];
         let resp = planned?.response || `I'll remove ${allInstancesToDelete.length} node${allInstancesToDelete.length > 1 ? 's' : ''}: ${uniqueNodeNames.slice(0, 5).join(', ')}${uniqueNodeNames.length > 5 ? '...' : ''}.`;
-        
+
         if (notFoundNodes.length > 0) {
           resp += ` (Couldn't find: ${notFoundNodes.slice(0, 3).join(', ')}${notFoundNodes.length > 3 ? '...' : ''})`;
         }
-        
+
         appendChat('ai', resp, { cid, channel: 'agent' });
 
         return res.json({
           success: true,
           response: resp,
-          toolCalls: [{ 
-            name: 'bulk_delete', 
-            status: 'queued', 
-            args: { 
-              count: allInstancesToDelete.length, 
+          toolCalls: [{
+            name: 'bulk_delete',
+            status: 'queued',
+            args: {
+              count: allInstancesToDelete.length,
               nodes: uniqueNodeNames.slice(0, 5),
-              reason 
-            } 
+              reason
+            }
           }],
           cid,
           goalId
@@ -3652,13 +3652,13 @@ app.post('/api/ai/agent', async (req, res) => {
     // DELETE GRAPH INTENT
     if (resolvedIntent === 'delete_graph') {
       try {
-    // Resolve graph ID: priority: explicit graphId > targetGraphId > graph name lookup
+        // Resolve graph ID: priority: explicit graphId > targetGraphId > graph name lookup
         const listFromContext = body?.context?.graphs || [];
         const listFromStore = Array.isArray(bridgeStoreData.graphs) ? bridgeStoreData.graphs : [];
         const graphs = listFromContext.length > 0 ? listFromContext : listFromStore;
 
         let graphIdToDelete = planned?.delete?.graphId || targetGraphId;
-        
+
         // If no ID but we have a graph name, look it up
         if (!graphIdToDelete && planned?.delete?.target) {
           const graphName = String(planned.delete.target).trim();
@@ -3724,7 +3724,7 @@ app.post('/api/ai/agent', async (req, res) => {
       const listFromContext = body?.context?.nodePrototypes || [];
       const listFromStore = Array.isArray(bridgeStoreData.nodePrototypes) ? bridgeStoreData.nodePrototypes : [];
       const list = listFromContext.length > 0 ? listFromContext : listFromStore;
-      
+
       const m = list.find(p => String(p?.name || '').toLowerCase() === String(name || '').toLowerCase());
       return m ? m.id : null;
     };
@@ -3732,10 +3732,10 @@ app.post('/api/ai/agent', async (req, res) => {
       const listFromContext = body?.context?.graphs || [];
       const listFromStore = Array.isArray(bridgeStoreData.graphs) ? bridgeStoreData.graphs : [];
       const graphs = listFromContext.length > 0 ? listFromContext : listFromStore;
-      
+
       const g = graphs.find(x => x.id === graphId);
       if (!g || !g.instances) return null;
-      
+
       // Support both object and array formats for instances
       const instances = Array.isArray(g.instances) ? g.instances : Object.values(g.instances);
       for (const inst of instances) {
@@ -3760,10 +3760,10 @@ app.post('/api/ai/agent', async (req, res) => {
       // Find edge connecting these instances by checking graph's edgeIds
       const edges = bridgeStoreData.edges || {};
       for (const edgeId of graph.edgeIds) {
-        const edge = edges[edgeId] || (Array.isArray(bridgeStoreData.graphEdges) 
-          ? bridgeStoreData.graphEdges.find(e => e.id === edgeId) 
+        const edge = edges[edgeId] || (Array.isArray(bridgeStoreData.graphEdges)
+          ? bridgeStoreData.graphEdges.find(e => e.id === edgeId)
           : null);
-        
+
         if (edge) {
           if (edge.sourceId === sourceInstanceId && edge.destinationId === targetInstanceId) {
             return edgeId;
@@ -3781,7 +3781,7 @@ app.post('/api/ai/agent', async (req, res) => {
     const resolveNodeNamesToInstances = (sourceName, targetName, graphId) => {
       const sourceProtoId = findPrototypeIdByName(sourceName);
       const targetProtoId = findPrototypeIdByName(targetName);
-      
+
       if (!sourceProtoId) {
         return { error: `Could not find node "${sourceName}"` };
       }
@@ -3912,7 +3912,7 @@ app.post('/api/ai/agent', async (req, res) => {
         // Check if node already has a definition graph
         const prototype = (Array.isArray(bridgeStoreData.nodePrototypes) ? bridgeStoreData.nodePrototypes : [])
           .find(p => p.id === prototypeId);
-        
+
         const graphSpec = planned?.enrich?.graphSpec || planned?.graphSpec;
         if (!graphSpec || !Array.isArray(graphSpec.nodes) || graphSpec.nodes.length === 0) {
           const text = `I'll enrich "${targetName}", but I need a graphSpec with nodes that define/compose it.`;
@@ -3923,7 +3923,7 @@ app.post('/api/ai/agent', async (req, res) => {
         if (prototype?.definitionGraphIds && prototype.definitionGraphIds.length > 0) {
           // Node already has definition - populate the first one
           const existingGraphId = prototype.definitionGraphIds[0];
-          
+
           const dag = {
             tasks: [{
               toolName: 'create_populated_graph',
@@ -4578,7 +4578,7 @@ let server = startBridgeListener();
 // Helper to apply mutations to local bridge store mirror
 function localApplyMutations(ops) {
   if (!Array.isArray(ops)) return;
-  
+
   for (const op of ops) {
     try {
       switch (op.type) {
@@ -4599,7 +4599,7 @@ function localApplyMutations(ops) {
             bridgeStoreData.activeGraphId = newGraph.id;
           }
           break;
-          
+
         case 'addNodePrototype':
           if (op.prototypeData) {
             if (!Array.isArray(bridgeStoreData.nodePrototypes)) {
@@ -4608,7 +4608,7 @@ function localApplyMutations(ops) {
             bridgeStoreData.nodePrototypes.push(op.prototypeData);
           }
           break;
-          
+
         case 'addNodeInstance':
           if (op.graphId && op.prototypeId) {
             const graph = (Array.isArray(bridgeStoreData.graphs) ? bridgeStoreData.graphs : []).find(g => g.id === op.graphId);
@@ -4623,23 +4623,23 @@ function localApplyMutations(ops) {
             }
           }
           break;
-          
+
         case 'addEdge':
           if (op.graphId && op.edgeData) {
             const graph = (Array.isArray(bridgeStoreData.graphs) ? bridgeStoreData.graphs : []).find(g => g.id === op.graphId);
             if (graph) {
               if (!graph.edgeIds) graph.edgeIds = [];
               graph.edgeIds.push(op.edgeData.id);
-              
+
               if (!bridgeStoreData.edges) bridgeStoreData.edges = {};
               bridgeStoreData.edges[op.edgeData.id] = op.edgeData;
-              
+
               if (!Array.isArray(bridgeStoreData.graphEdges)) bridgeStoreData.graphEdges = [];
               bridgeStoreData.graphEdges.push({ ...op.edgeData, graphId: op.graphId });
             }
           }
           break;
-          
+
         case 'deleteEdge':
           if (op.graphId && op.edgeId) {
             const graph = (Array.isArray(bridgeStoreData.graphs) ? bridgeStoreData.graphs : []).find(g => g.id === op.graphId);
@@ -4650,7 +4650,7 @@ function localApplyMutations(ops) {
             }
           }
           break;
-          
+
         case 'deleteGraph':
           if (op.graphId) {
             bridgeStoreData.graphs = (Array.isArray(bridgeStoreData.graphs) ? bridgeStoreData.graphs : []).filter(g => g.id !== op.graphId);
@@ -4681,7 +4681,7 @@ setInterval(() => {
       if (Array.isArray(patch.ops) && patch.ops.length > 0) {
         // CRITICAL: Apply mutations to local mirror so next AI call has updated context
         localApplyMutations(patch.ops);
-        
+
         pendingActions.push({ id: id('apply'), action: 'applyMutations', params: [patch.ops], timestamp: Date.now() });
         telemetry.push({ ts: Date.now(), type: 'tool_call', name: 'applyMutations', args: { opsCount: patch.ops.length, source: 'safety_drainer' } });
       }

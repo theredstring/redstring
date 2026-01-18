@@ -2653,7 +2653,7 @@ const GitNativeFederation = ({ variant = 'panel', onRequestClose }) => {
   };
 
   const detectLocalFileConflict = async (payload) => {
-    const { slug, fileHandle, file, metrics, importHelpers } = payload;
+    const { slug, fileHandle, file, metrics, importHelpers, fileName } = payload;
     const universe = serviceState.universes.find(u => u.slug === slug);
     if (!universe) {
       gfWarn('[GitNativeFederation] No universe found while detecting local conflict:', slug);
@@ -2695,7 +2695,7 @@ const GitNativeFederation = ({ variant = 'panel', onRequestClose }) => {
 
     const nameMatches = [existingLocal.displayPath, existingLocal.path, existingLocal.lastFilePath]
       .filter(Boolean)
-      .some(name => name === file.name);
+      .some(name => name === (file?.name || fileName));
 
     if (isSameEntry) {
       return null;
@@ -2705,7 +2705,7 @@ const GitNativeFederation = ({ variant = 'panel', onRequestClose }) => {
       return null;
     }
 
-    const incomingDisplay = payload.displayPath || file.name;
+    const incomingDisplay = payload.displayPath || file?.name || fileName;
 
     return {
       universeName: universe.name,
@@ -2719,9 +2719,9 @@ const GitNativeFederation = ({ variant = 'panel', onRequestClose }) => {
         displayPath: incomingDisplay,
         nodeCount: metrics.nodeCount,
         edgeCount: metrics.edgeCount,
-        fileSize: typeof file.size === 'number' ? file.size : null,
+        fileSize: typeof file?.size === 'number' ? file.size : null,
         lastSaved: null,
-        fileModified: file.lastModified || null,
+        fileModified: file?.lastModified || null,
         label: 'Use Linked File',
         role: 'Newly selected file'
       },

@@ -1,4 +1,4 @@
-# Redstring - Semantic Knowledge Graph
+# Redstring - Semantic Knowledge Graph ![App Version](https://img.shields.io/badge/version-v0.2.0-blue)
 
 A semantic knowledge graph application that bridges human cognition and machine intelligence through visual node-based interface, W3C semantic web standards, and AI-powered knowledge discovery.
 
