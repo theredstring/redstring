@@ -6445,210 +6445,210 @@ function NodeCanvas() {
             (node) => visibleNodeIds.has(node.id) && isInsideNode(node, mouseEvent.clientX, mouseEvent.clientY)
           );
 
-        if (hoveredNode) {
-          const dims = baseDimsById.get(hoveredNode.id);
-          setHoveredNodeForVision({
-            id: hoveredNode.id,
-            name: hoveredNode.name,
-            color: hoveredNode.color,
-            width: dims?.currentWidth ?? NODE_WIDTH,
-            height: dims?.currentHeight ?? NODE_HEIGHT,
-            prototypeId: hoveredNode.prototypeId
-          });
-          setHoveredConnectionForVision(null);
-          setHoveredEdgeInfo(null);
-        } else {
-          setHoveredNodeForVision(null);
-
-          let foundHoveredEdgeInfo = null;
-          let closestDistance = Infinity;
-
-          for (let i = visibleEdges.length - 1; i >= 0; i--) {
-            const edge = visibleEdges[i];
-            const sourceInstance = nodeById.get(edge.sourceId);
-            const targetInstance = nodeById.get(edge.destinationId);
-            if (!sourceInstance || !targetInstance) continue;
-
-            const sourceDims = baseDimsById.get(sourceInstance.id);
-            const targetDims = baseDimsById.get(targetInstance.id);
-            if (!sourceDims || !targetDims) continue;
-
-            const isSourcePreviewing = previewingNodeId === sourceInstance.id;
-            const isTargetPreviewing = previewingNodeId === targetInstance.id;
-            const x1 = sourceInstance.x + sourceDims.currentWidth / 2;
-            const y1 = sourceInstance.y + (isSourcePreviewing ? NODE_HEIGHT / 2 : sourceDims.currentHeight / 2);
-            const x2 = targetInstance.x + targetDims.currentWidth / 2;
-            const y2 = targetInstance.y + (isTargetPreviewing ? NODE_HEIGHT / 2 : targetDims.currentHeight / 2);
-
-            let distance = Infinity;
-
-            if (enableAutoRouting && routingStyle === 'clean') {
-              const pathPoints = generateCleanRoutingPath(
-                edge,
-                sourceInstance,
-                targetInstance,
-                sourceDims,
-                targetDims,
-                cleanLaneOffsets,
-                cleanLaneSpacing
-              );
-
-              let minSegmentDistance = Infinity;
-              for (let j = 0; j < pathPoints.length - 1; j++) {
-                const segStart = pathPoints[j];
-                const segEnd = pathPoints[j + 1];
-
-                const A = currentX - segStart.x;
-                const B = currentY - segStart.y;
-                const C = segEnd.x - segStart.x;
-                const D = segEnd.y - segStart.y;
-                const dot = A * C + B * D;
-                const lenSq = C * C + D * D;
-
-                if (lenSq > 0) {
-                  let param = dot / lenSq;
-                  if (param < 0) param = 0;
-                  else if (param > 1) param = 1;
-                  const xx = segStart.x + param * C;
-                  const yy = segStart.y + param * D;
-                  const dx = currentX - xx;
-                  const dy = currentY - yy;
-                  const segDistance = Math.sqrt(dx * dx + dy * dy);
-                  minSegmentDistance = Math.min(minSegmentDistance, segDistance);
-                }
-              }
-              distance = minSegmentDistance;
-            } else if (enableAutoRouting && routingStyle === 'manhattan') {
-              const pathPoints = generateManhattanRoutingPath(
-                edge,
-                sourceInstance,
-                targetInstance,
-                sourceDims,
-                targetDims,
-                manhattanBends
-              );
-
-              let minSegmentDistance = Infinity;
-              for (let j = 0; j < pathPoints.length - 1; j++) {
-                const segStart = pathPoints[j];
-                const segEnd = pathPoints[j + 1];
-
-                const A = currentX - segStart.x;
-                const B = currentY - segStart.y;
-                const C = segEnd.x - segStart.x;
-                const D = segEnd.y - segStart.y;
-                const dot = A * C + B * D;
-                const lenSq = C * C + D * D;
-
-                if (lenSq > 0) {
-                  let param = dot / lenSq;
-                  if (param < 0) param = 0;
-                  else if (param > 1) param = 1;
-                  const xx = segStart.x + param * C;
-                  const yy = segStart.y + param * D;
-                  const dx = currentX - xx;
-                  const dy = currentY - yy;
-                  const segDistance = Math.sqrt(dx * dx + dy * dy);
-                  minSegmentDistance = Math.min(minSegmentDistance, segDistance);
-                }
-              }
-              distance = minSegmentDistance;
-            } else {
-              // Check if this edge is curved (parallel edge)
-              const curveInfo = edgeCurveInfo.get(edge.id);
-              if (curveInfo && curveInfo.totalInPair > 1) {
-                // Calculate distance to quadratic Bézier curve
-                const ctrlPoint = calculateCurveControlPoint(x1, y1, x2, y2, curveInfo);
-                if (ctrlPoint) {
-                  distance = distanceToQuadraticBezier(
-                    currentX, currentY,
-                    x1, y1,           // P0 (start)
-                    ctrlPoint.ctrlX, ctrlPoint.ctrlY,  // P1 (control point)
-                    x2, y2            // P2 (end)
-                  );
-                }
-              } else {
-                // Straight line distance
-                const A = currentX - x1;
-                const B = currentY - y1;
-                const C = x2 - x1;
-                const D = y2 - y1;
-                const dot = A * C + B * D;
-                const lenSq = C * C + D * D;
-                if (lenSq > 0) {
-                  let param = dot / lenSq;
-                  if (param < 0) param = 0;
-                  else if (param > 1) param = 1;
-                  const xx = x1 + param * C;
-                  const yy = y1 + param * D;
-                  const dx = currentX - xx;
-                  const dy = currentY - yy;
-                  distance = Math.sqrt(dx * dx + dy * dy);
-                }
-              }
-            }
-
-            const hoverThreshold =
-              enableAutoRouting && (routingStyle === 'manhattan' || routingStyle === 'clean') ? 50 : 40;
-
-            if (distance <= hoverThreshold && distance < closestDistance) {
-              closestDistance = distance;
-              foundHoveredEdgeInfo = { edgeId: edge.id };
-
-              let connectionName = edge.connectionName || 'Connection';
-              let connectionColor = edge.color || '#000000';
-
-              if ((!connectionName || connectionName === 'Connection') && edge.definitionNodeIds?.length) {
-                const defNode = nodePrototypesMap.get(edge.definitionNodeIds[0]);
-                if (defNode) {
-                  connectionName = defNode.name || connectionName;
-                  connectionColor = defNode.color || connectionColor;
-                }
-              } else if ((!edge.definitionNodeIds || edge.definitionNodeIds.length === 0) && edge.typeNodeId) {
-                const typeNode = nodePrototypesMap.get(edge.typeNodeId);
-                if (typeNode) {
-                  connectionName = typeNode.name || connectionName;
-                  connectionColor = typeNode.color || connectionColor;
-                }
-              }
-
-              setHoveredConnectionForVision({
-                id: edge.id,
-                name: connectionName,
-                color: connectionColor,
-                definitionNodeIds: edge.definitionNodeIds,
-                typeNodeId: edge.typeNodeId,
-                source: {
-                  id: sourceInstance.id,
-                  name: sourceInstance.name,
-                  color: sourceInstance.color,
-                  width: sourceDims.currentWidth,
-                  height: isSourcePreviewing ? NODE_HEIGHT : sourceDims.currentHeight,
-                  prototypeId: sourceInstance.prototypeId
-                },
-                target: {
-                  id: targetInstance.id,
-                  name: targetInstance.name,
-                  color: targetInstance.color,
-                  width: targetDims.currentWidth,
-                  height: isTargetPreviewing ? NODE_HEIGHT : targetDims.currentHeight,
-                  prototypeId: targetInstance.prototypeId
-                },
-                directionality: edge.directionality
-              });
-
-              if (enableAutoRouting && (routingStyle === 'manhattan' || routingStyle === 'clean')) {
-                break;
-              }
-            }
-          }
-
-          setHoveredEdgeInfo(foundHoveredEdgeInfo);
-
-          if (!foundHoveredEdgeInfo) {
+          if (hoveredNode) {
+            const dims = baseDimsById.get(hoveredNode.id);
+            setHoveredNodeForVision({
+              id: hoveredNode.id,
+              name: hoveredNode.name,
+              color: hoveredNode.color,
+              width: dims?.currentWidth ?? NODE_WIDTH,
+              height: dims?.currentHeight ?? NODE_HEIGHT,
+              prototypeId: hoveredNode.prototypeId
+            });
             setHoveredConnectionForVision(null);
+            setHoveredEdgeInfo(null);
+          } else {
+            setHoveredNodeForVision(null);
+
+            let foundHoveredEdgeInfo = null;
+            let closestDistance = Infinity;
+
+            for (let i = visibleEdges.length - 1; i >= 0; i--) {
+              const edge = visibleEdges[i];
+              const sourceInstance = nodeById.get(edge.sourceId);
+              const targetInstance = nodeById.get(edge.destinationId);
+              if (!sourceInstance || !targetInstance) continue;
+
+              const sourceDims = baseDimsById.get(sourceInstance.id);
+              const targetDims = baseDimsById.get(targetInstance.id);
+              if (!sourceDims || !targetDims) continue;
+
+              const isSourcePreviewing = previewingNodeId === sourceInstance.id;
+              const isTargetPreviewing = previewingNodeId === targetInstance.id;
+              const x1 = sourceInstance.x + sourceDims.currentWidth / 2;
+              const y1 = sourceInstance.y + (isSourcePreviewing ? NODE_HEIGHT / 2 : sourceDims.currentHeight / 2);
+              const x2 = targetInstance.x + targetDims.currentWidth / 2;
+              const y2 = targetInstance.y + (isTargetPreviewing ? NODE_HEIGHT / 2 : targetDims.currentHeight / 2);
+
+              let distance = Infinity;
+
+              if (enableAutoRouting && routingStyle === 'clean') {
+                const pathPoints = generateCleanRoutingPath(
+                  edge,
+                  sourceInstance,
+                  targetInstance,
+                  sourceDims,
+                  targetDims,
+                  cleanLaneOffsets,
+                  cleanLaneSpacing
+                );
+
+                let minSegmentDistance = Infinity;
+                for (let j = 0; j < pathPoints.length - 1; j++) {
+                  const segStart = pathPoints[j];
+                  const segEnd = pathPoints[j + 1];
+
+                  const A = currentX - segStart.x;
+                  const B = currentY - segStart.y;
+                  const C = segEnd.x - segStart.x;
+                  const D = segEnd.y - segStart.y;
+                  const dot = A * C + B * D;
+                  const lenSq = C * C + D * D;
+
+                  if (lenSq > 0) {
+                    let param = dot / lenSq;
+                    if (param < 0) param = 0;
+                    else if (param > 1) param = 1;
+                    const xx = segStart.x + param * C;
+                    const yy = segStart.y + param * D;
+                    const dx = currentX - xx;
+                    const dy = currentY - yy;
+                    const segDistance = Math.sqrt(dx * dx + dy * dy);
+                    minSegmentDistance = Math.min(minSegmentDistance, segDistance);
+                  }
+                }
+                distance = minSegmentDistance;
+              } else if (enableAutoRouting && routingStyle === 'manhattan') {
+                const pathPoints = generateManhattanRoutingPath(
+                  edge,
+                  sourceInstance,
+                  targetInstance,
+                  sourceDims,
+                  targetDims,
+                  manhattanBends
+                );
+
+                let minSegmentDistance = Infinity;
+                for (let j = 0; j < pathPoints.length - 1; j++) {
+                  const segStart = pathPoints[j];
+                  const segEnd = pathPoints[j + 1];
+
+                  const A = currentX - segStart.x;
+                  const B = currentY - segStart.y;
+                  const C = segEnd.x - segStart.x;
+                  const D = segEnd.y - segStart.y;
+                  const dot = A * C + B * D;
+                  const lenSq = C * C + D * D;
+
+                  if (lenSq > 0) {
+                    let param = dot / lenSq;
+                    if (param < 0) param = 0;
+                    else if (param > 1) param = 1;
+                    const xx = segStart.x + param * C;
+                    const yy = segStart.y + param * D;
+                    const dx = currentX - xx;
+                    const dy = currentY - yy;
+                    const segDistance = Math.sqrt(dx * dx + dy * dy);
+                    minSegmentDistance = Math.min(minSegmentDistance, segDistance);
+                  }
+                }
+                distance = minSegmentDistance;
+              } else {
+                // Check if this edge is curved (parallel edge)
+                const curveInfo = edgeCurveInfo.get(edge.id);
+                if (curveInfo && curveInfo.totalInPair > 1) {
+                  // Calculate distance to quadratic Bézier curve
+                  const ctrlPoint = calculateCurveControlPoint(x1, y1, x2, y2, curveInfo);
+                  if (ctrlPoint) {
+                    distance = distanceToQuadraticBezier(
+                      currentX, currentY,
+                      x1, y1,           // P0 (start)
+                      ctrlPoint.ctrlX, ctrlPoint.ctrlY,  // P1 (control point)
+                      x2, y2            // P2 (end)
+                    );
+                  }
+                } else {
+                  // Straight line distance
+                  const A = currentX - x1;
+                  const B = currentY - y1;
+                  const C = x2 - x1;
+                  const D = y2 - y1;
+                  const dot = A * C + B * D;
+                  const lenSq = C * C + D * D;
+                  if (lenSq > 0) {
+                    let param = dot / lenSq;
+                    if (param < 0) param = 0;
+                    else if (param > 1) param = 1;
+                    const xx = x1 + param * C;
+                    const yy = y1 + param * D;
+                    const dx = currentX - xx;
+                    const dy = currentY - yy;
+                    distance = Math.sqrt(dx * dx + dy * dy);
+                  }
+                }
+              }
+
+              const hoverThreshold =
+                enableAutoRouting && (routingStyle === 'manhattan' || routingStyle === 'clean') ? 50 : 40;
+
+              if (distance <= hoverThreshold && distance < closestDistance) {
+                closestDistance = distance;
+                foundHoveredEdgeInfo = { edgeId: edge.id };
+
+                let connectionName = edge.connectionName || 'Connection';
+                let connectionColor = edge.color || '#000000';
+
+                if ((!connectionName || connectionName === 'Connection') && edge.definitionNodeIds?.length) {
+                  const defNode = nodePrototypesMap.get(edge.definitionNodeIds[0]);
+                  if (defNode) {
+                    connectionName = defNode.name || connectionName;
+                    connectionColor = defNode.color || connectionColor;
+                  }
+                } else if ((!edge.definitionNodeIds || edge.definitionNodeIds.length === 0) && edge.typeNodeId) {
+                  const typeNode = nodePrototypesMap.get(edge.typeNodeId);
+                  if (typeNode) {
+                    connectionName = typeNode.name || connectionName;
+                    connectionColor = typeNode.color || connectionColor;
+                  }
+                }
+
+                setHoveredConnectionForVision({
+                  id: edge.id,
+                  name: connectionName,
+                  color: connectionColor,
+                  definitionNodeIds: edge.definitionNodeIds,
+                  typeNodeId: edge.typeNodeId,
+                  source: {
+                    id: sourceInstance.id,
+                    name: sourceInstance.name,
+                    color: sourceInstance.color,
+                    width: sourceDims.currentWidth,
+                    height: isSourcePreviewing ? NODE_HEIGHT : sourceDims.currentHeight,
+                    prototypeId: sourceInstance.prototypeId
+                  },
+                  target: {
+                    id: targetInstance.id,
+                    name: targetInstance.name,
+                    color: targetInstance.color,
+                    width: targetDims.currentWidth,
+                    height: isTargetPreviewing ? NODE_HEIGHT : targetDims.currentHeight,
+                    prototypeId: targetInstance.prototypeId
+                  },
+                  directionality: edge.directionality
+                });
+
+                if (enableAutoRouting && (routingStyle === 'manhattan' || routingStyle === 'clean')) {
+                  break;
+                }
+              }
+            }
+
+            setHoveredEdgeInfo(foundHoveredEdgeInfo);
+
+            if (!foundHoveredEdgeInfo) {
+              setHoveredConnectionForVision(null);
+            }
           }
-        }
         }); // Close RAF callback
       }
     }
@@ -10029,7 +10029,7 @@ function NodeCanvas() {
                           fontSize: 36,                 // Title text size
                         };
 
-                        const margin = GROUP_SPACING.memberBoundaryPadding;
+                        const margin = GROUP_SPACING.memberBoundaryPadding + GROUP_SPACING.innerCanvasBorder;
                         const rectX = minX - margin;
                         const rectY = minY - margin;
                         const rectW = (maxX - minX) + margin * 2;
