@@ -127,8 +127,11 @@ const Node = ({
   // Calculate image position based on dynamic textAreaHeight
   const contentAreaY = nodeY + textAreaHeight;
 
+  // Define consistent padding for inner canvas from colored border (matches left/right padding of 24px)
+  const INNER_CANVAS_PADDING = 24;
+
   // Calculate description area position (below InnerNetwork when previewing) with minimal spacing
-  const descriptionAreaY = contentAreaY + innerNetworkHeight + (isPreviewing ? 8 : 0);
+  const descriptionAreaY = contentAreaY + (isPreviewing ? INNER_CANVAS_PADDING : 0) + innerNetworkHeight + (isPreviewing ? 8 : 0);
 
   // Define the canvas background color (or import from constants if preferred)
   const canvasBackgroundColor = '#bdb5b5';
@@ -321,7 +324,7 @@ const Node = ({
         <clipPath id={innerClipPathId}>
           <rect
             x={nodeX + NODE_PADDING} // Use absolute nodeX
-            y={contentAreaY + 0.01} // Use calculated absolute contentAreaY + offset
+            y={contentAreaY + (isPreviewing ? INNER_CANVAS_PADDING : 0) + 0.01} // Use calculated absolute contentAreaY + offset
             width={innerNetworkWidth}
             height={innerNetworkHeight}
             rx={NODE_CORNER_RADIUS}
@@ -461,7 +464,7 @@ const Node = ({
           <g clipPath={`url(#${innerClipPathId})`}>
             <rect
               x={nodeX + NODE_PADDING} // Use absolute nodeX
-              y={contentAreaY} // Use calculated absolute contentAreaY
+              y={contentAreaY + (isPreviewing ? INNER_CANVAS_PADDING : 0)} // Use calculated absolute contentAreaY
               width={innerNetworkWidth}
               height={innerNetworkHeight}
               fill={canvasBackgroundColor}
@@ -472,7 +475,7 @@ const Node = ({
               <>
                 <foreignObject
                   x={nodeX + NODE_PADDING}
-                  y={contentAreaY}
+                  y={contentAreaY + INNER_CANVAS_PADDING}
                   width={Math.max(1, innerNetworkWidth)}
                   height={Math.max(1, innerNetworkHeight)}
                   style={{ pointerEvents: 'auto' }}
@@ -560,7 +563,7 @@ const Node = ({
               // Show "Create Definition" interface when no definitions exist
               <foreignObject
                 x={nodeX + NODE_PADDING}
-                y={contentAreaY}
+                y={contentAreaY + INNER_CANVAS_PADDING}
                 width={innerNetworkWidth}
                 height={innerNetworkHeight}
                 style={{

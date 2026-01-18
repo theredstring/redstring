@@ -56,6 +56,7 @@ self.onmessage = (e) => {
       self.postMessage({
         type: 'save_processed',
         jsonString,
+        redstringData, // Include the object for browser storage mode
         hash,
         success: true
       });

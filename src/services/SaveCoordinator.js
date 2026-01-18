@@ -26,6 +26,8 @@ class SaveCoordinator {
     // SIMPLIFIED: Single state tracking
     this.lastSaveHash = null;
     this.pendingHash = null;  // Hash of changes waiting to be saved
+    this.pendingString = null; // Pre-serialized JSON string from worker
+    this.pendingRedstringData = null; // Pre-computed Redstring object from worker
     this.lastState = null;
     this.lastChangeContext = {};
     this.saveTimer = null; // Single timer for all changes
@@ -90,25 +92,26 @@ class SaveCoordinator {
   }
 
   handleWorkerMessage(e) {
-    const { type, hash, jsonString, success, error } = e.data;
-    
+    const { type, hash, jsonString, redstringData, success, error } = e.data;
+
     this.workerProcessing = false;
-    
+
     if (type === 'save_processed' && success) {
       // Worker finished processing
-      
+
       // Check if hash changed
       if (hash !== this.lastSaveHash && hash !== this.pendingHash) {
         this.pendingHash = hash;
         this.pendingString = jsonString; // Store the pre-serialized string
-        
+        this.pendingRedstringData = redstringData; // Store the pre-computed object
+
         console.log('[SaveCoordinator] Change detected by worker, hash:', hash.substring(0, 8));
         this.isDirty = true;
         this.notifyStatus('info', 'Changes detected');
-        
+
         // Notify Git autosave policy
         gitAutosavePolicy.onEditActivity();
-        
+
         // Schedule the actual write
         this.scheduleSave();
       }
@@ -309,8 +312,9 @@ class SaveCoordinator {
     // Capture values before async operations
     const state = this.lastState;
     const pendingString = this.pendingString;
+    const pendingRedstringData = this.pendingRedstringData;
     const pendingHash = this.pendingHash;
-    
+
     // Mark as saving immediately
     this.isSaving = true;
     console.log('[SaveCoordinator] Executing save (non-blocking)');
@@ -323,9 +327,10 @@ class SaveCoordinator {
         try {
           // Save to local file if available - fire and forget with error handling
           if (this.fileStorage && typeof this.fileStorage.saveToFile === 'function') {
-            this.fileStorage.saveToFile(state, false, { 
+            this.fileStorage.saveToFile(state, false, {
               preSerialized: !!pendingString,
-              serializedData: pendingString
+              serializedData: pendingString,
+              redstringData: pendingRedstringData
             }).catch(error => {
               console.error('[SaveCoordinator] Local file save failed:', error);
             });
@@ -345,6 +350,7 @@ class SaveCoordinator {
           // Clear dirty flag and pending data
           this.isDirty = false;
           this.pendingString = null;
+          this.pendingRedstringData = null;
           this.notifyStatus('success', 'Save completed');
           
         } catch (error) {
@@ -399,6 +405,7 @@ class SaveCoordinator {
       
       this.isDirty = false;
       this.pendingString = null;
+      this.pendingRedstringData = null;
       this.pendingHash = null;
       this.isSaving = false;
       

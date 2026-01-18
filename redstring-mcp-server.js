@@ -23,7 +23,7 @@ dotenv.config({});
 // Create MCP server instance
 const server = new McpServer({
   name: "redstring",
-  version: "1.0.0",
+  version: "0.2.0",
   capabilities: {
     resources: {},
     tools: {},
@@ -223,14 +223,14 @@ let runAgentImported = null;
 app.post('/api/wizard', async (req, res) => {
   try {
     const { message, graphState, conversationHistory, config } = req.body || {};
-    
+
     if (!message) {
       return res.status(400).json({ error: 'Message is required' });
     }
 
     const apiKey = req.headers.authorization?.replace(/^Bearer\s+/i, '') || '';
     const apiConfig = config?.apiConfig || {};
-    
+
     if (!apiKey) {
       return res.status(401).json({ error: 'API key required in Authorization header' });
     }
@@ -252,7 +252,7 @@ app.post('/api/wizard', async (req, res) => {
     res.setHeader('Cache-Control', 'no-cache');
     res.setHeader('Connection', 'keep-alive');
     res.setHeader('X-Accel-Buffering', 'no'); // Disable nginx buffering
-    
+
     const llmConfig = {
       apiKey,
       provider: apiConfig.provider || 'openrouter',
@@ -272,7 +272,7 @@ app.post('/api/wizard', async (req, res) => {
     });
 
     try {
-      for await (const event of runAgentImported(message, graphState || {}, llmConfig, () => {})) {
+      for await (const event of runAgentImported(message, graphState || {}, llmConfig, () => { })) {
         res.write(`data: ${JSON.stringify(event)}\n\n`);
       }
       res.write(`data: ${JSON.stringify({ type: 'done' })}\n\n`);
@@ -280,7 +280,7 @@ app.post('/api/wizard', async (req, res) => {
       console.error('[MCP Wizard] Agent error:', error);
       res.write(`data: ${JSON.stringify({ type: 'error', message: error.message })}\n\n`);
     }
-    
+
     res.end();
   } catch (error) {
     console.error('[MCP Wizard] Request error:', error);
@@ -3259,21 +3259,21 @@ server.tool(
   async ({ mode = 'fit_content', nodeIds, nodeNames, graphId, coordinates, zoom }) => {
     try {
       const state = await getRealRedstringState();
-      
+
       // If nodeNames provided, resolve to nodeIds
       let resolvedNodeIds = nodeIds || [];
       if (nodeNames && nodeNames.length > 0 && state) {
         const targetGraphId = graphId || state.activeGraphId;
         const graph = state.graphs?.get?.(targetGraphId) || (state.graphs || {})[targetGraphId];
         if (graph && graph.instances) {
-          const instances = graph.instances instanceof Map 
+          const instances = graph.instances instanceof Map
             ? Array.from(graph.instances.values())
             : Object.values(graph.instances);
-          
+
           for (const name of nodeNames) {
             const nameLower = name.toLowerCase();
             for (const inst of instances) {
-              const proto = state.nodePrototypes?.get?.(inst.prototypeId) || 
+              const proto = state.nodePrototypes?.get?.(inst.prototypeId) ||
                 (state.nodePrototypes || {})[inst.prototypeId];
               if (proto && proto.name.toLowerCase().includes(nameLower)) {
                 resolvedNodeIds.push(inst.id);
@@ -3283,7 +3283,7 @@ server.tool(
           }
         }
       }
-      
+
       // Queue navigation action
       const navAction = {
         id: `pa-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
@@ -3298,19 +3298,19 @@ server.tool(
         }],
         timestamp: Date.now()
       };
-      
+
       pendingActions.push(navAction);
       console.log('✅ Bridge: Queued navigateTo action:', { mode, nodeCount: resolvedNodeIds.length });
-      
+
       // Brief wait for action to be processed
       await new Promise(resolve => setTimeout(resolve, 200));
-      
+
       const description = mode === 'focus_nodes' && resolvedNodeIds.length > 0
         ? `Navigating to ${resolvedNodeIds.length} node(s)`
         : mode === 'coordinates' && coordinates
-        ? `Navigating to coordinates (${coordinates.x}, ${coordinates.y})`
-        : 'Navigating to fit all content in view';
-      
+          ? `Navigating to coordinates (${coordinates.x}, ${coordinates.y})`
+          : 'Navigating to fit all content in view';
+
       return {
         content: [{
           type: "text",

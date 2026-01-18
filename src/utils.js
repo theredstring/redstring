@@ -197,12 +197,14 @@ export const getNodeDimensions = (node, isPreviewing = false, descriptionContent
             descriptionAreaHeight = 0;
         }
         // Calculate network height based on dynamic textAreaHeight and description area, ensuring minimum height
-        const availableHeightForNetwork = PREVIEW_NODE_MIN_HEIGHT - textAreaHeight - descriptionAreaHeight - (NODE_PADDING * 2);
+        // Use consistent 24px padding for inner canvas (matching left/right padding from colored border)
+        const INNER_CANVAS_PADDING = 24;
+        const availableHeightForNetwork = PREVIEW_NODE_MIN_HEIGHT - textAreaHeight - descriptionAreaHeight - (INNER_CANVAS_PADDING * 2);
         const minNetworkHeight = 300; // Increased minimum height for better readability and faithful node representations
-        innerNetworkHeight = Math.max(minNetworkHeight, availableHeightForNetwork); 
-        
-        // Final node height is sum of text area, network area, description area, and ONE bottom padding
-        currentHeight = textAreaHeight + innerNetworkHeight + descriptionAreaHeight + NODE_PADDING;
+        innerNetworkHeight = Math.max(minNetworkHeight, availableHeightForNetwork);
+
+        // Final node height: text area + top padding + network + description + bottom padding
+        currentHeight = textAreaHeight + INNER_CANVAS_PADDING + innerNetworkHeight + descriptionAreaHeight + INNER_CANVAS_PADDING;
         
         // Reset image dimensions
         imageWidth = 0;
