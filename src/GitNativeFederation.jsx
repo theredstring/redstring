@@ -1062,11 +1062,17 @@ const GitNativeFederation = ({ variant = 'panel', onRequestClose }) => {
 
             // Try creating in workspace folder first
             const { createFileInWorkspace } = await import('./services/workspaceFolderService.js');
-            const defaultContent = JSON.stringify({
-              nodes: [],
-              edges: [],
+            const { exportToRedstring } = await import('./formats/redstringFormat.js');
+
+            // Create empty state in v3.0.0 format
+            const emptyState = {
+              graphs: new Map(),
+              nodePrototypes: new Map(),
+              edges: new Map(),
               viewport: { x: 0, y: 0, zoom: 1 }
-            }, null, 2);
+            };
+
+            const defaultContent = JSON.stringify(exportToRedstring(emptyState), null, 2);
 
             let fileHandle = await createFileInWorkspace(suggestedName, defaultContent);
 
