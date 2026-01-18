@@ -129,6 +129,8 @@ const Node = ({
 
   // Define consistent padding for inner canvas from colored border (matches left/right padding of 24px)
   const INNER_CANVAS_PADDING = 24;
+  // Define horizontal padding for group/preview nodes to account for 12px stroke and maintain 24px gap
+  const GROUP_PADDING = 36;
 
   // Calculate description area position (below InnerNetwork when previewing) with minimal spacing
   const descriptionAreaY = contentAreaY + (isPreviewing ? INNER_CANVAS_PADDING : 0) + innerNetworkHeight + (isPreviewing ? 8 : 0);
@@ -323,7 +325,7 @@ const Node = ({
         {/* Clip path for the inner network area - Use absolute coords */}
         <clipPath id={innerClipPathId}>
           <rect
-            x={nodeX + NODE_PADDING} // Use absolute nodeX
+            x={nodeX + GROUP_PADDING} // Use absolute nodeX with GROUP_PADDING
             y={contentAreaY + (isPreviewing ? INNER_CANVAS_PADDING : 0) + 0.01} // Use calculated absolute contentAreaY + offset
             width={innerNetworkWidth}
             height={innerNetworkHeight}
@@ -463,7 +465,7 @@ const Node = ({
         <g style={{ transition: 'opacity 0.3s ease', opacity: 1 }} >
           <g clipPath={`url(#${innerClipPathId})`}>
             <rect
-              x={nodeX + NODE_PADDING} // Use absolute nodeX
+              x={nodeX + GROUP_PADDING} // Use absolute nodeX with GROUP_PADDING
               y={contentAreaY + (isPreviewing ? INNER_CANVAS_PADDING : 0)} // Use calculated absolute contentAreaY
               width={innerNetworkWidth}
               height={innerNetworkHeight}
@@ -474,7 +476,7 @@ const Node = ({
               // Show existing graph definition with UniversalNodeRenderer for faithful representations
               <>
                 <foreignObject
-                  x={nodeX + NODE_PADDING}
+                  x={nodeX + GROUP_PADDING}
                   y={contentAreaY + INNER_CANVAS_PADDING}
                   width={Math.max(1, innerNetworkWidth)}
                   height={Math.max(1, innerNetworkHeight)}
@@ -562,7 +564,7 @@ const Node = ({
             ) : (
               // Show "Create Definition" interface when no definitions exist
               <foreignObject
-                x={nodeX + NODE_PADDING}
+                x={nodeX + GROUP_PADDING}
                 y={contentAreaY + INNER_CANVAS_PADDING}
                 width={innerNetworkWidth}
                 height={innerNetworkHeight}
@@ -617,7 +619,7 @@ const Node = ({
       {/* Description Area - Below InnerNetwork when previewing */}
       {isPreviewing && actualDescriptionHeight > 0 && currentGraphDescription && currentGraphDescription.trim() && currentGraphDescription !== 'No description.' && (
         <foreignObject
-          x={nodeX + NODE_PADDING}
+          x={nodeX + GROUP_PADDING}
           y={descriptionAreaY}
           width={innerNetworkWidth}
           height={actualDescriptionHeight}
@@ -654,7 +656,7 @@ const Node = ({
       {/* Hover Preview - Styled like HoverVisionAid for consistency */}
       {isPreviewing && hoveredInnerNodeData && (
         <foreignObject
-          x={nodeX + NODE_PADDING + (innerNetworkWidth / 2) - 114}
+          x={nodeX + GROUP_PADDING + (innerNetworkWidth / 2) - 114}
           y={nodeY + textAreaHeight + 20}
           width={228}
           height={82}
