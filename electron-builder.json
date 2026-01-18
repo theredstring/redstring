@@ -12,6 +12,9 @@
   ],
   "mac": {
     "identity": null,
+    "entitlements": "entitlements.mac.plist",
+    "entitlementsInherit": "entitlements.mac.plist",
+    "hardenedRuntime": true,
     "category": "public.app-category.productivity",
     "artifactName": "${productName}-mac-${arch}.${ext}",
     "target": [
