@@ -204,9 +204,12 @@ export const getNodeDimensions = (node, isPreviewing = false, descriptionContent
         const minNetworkHeight = 300; // Increased minimum height for better readability and faithful node representations
         innerNetworkHeight = Math.max(minNetworkHeight, availableHeightForNetwork);
 
-        // Final node height: text area + top padding + network + description + bottom padding
+        // Final node height: text area + top padding + network + description spacing + description + bottom padding
+        // Add 6px to account for colored border inset (rect is inset by 6px on all sides)
+        // Add 8px for spacing between inner canvas and description only if description exists (matches Node.jsx descriptionAreaY calculation)
         // This makes the colored border rectangle physically taller to accommodate the padding
-        currentHeight = textAreaHeight + INNER_CANVAS_PADDING + innerNetworkHeight + descriptionAreaHeight + INNER_CANVAS_PADDING;
+        const DESCRIPTION_SPACING = descriptionAreaHeight > 0 ? 8 : 0;
+        currentHeight = textAreaHeight + INNER_CANVAS_PADDING + innerNetworkHeight + DESCRIPTION_SPACING + descriptionAreaHeight + INNER_CANVAS_PADDING + 6;
         
         // Reset image dimensions
         imageWidth = 0;
