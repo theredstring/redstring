@@ -15,72 +15,71 @@
     "category": "public.app-category.productivity",
     "artifactName": "${productName}-mac-${arch}.${ext}",
     "target": [
-      "target": [
-        {
-          "target": "dmg",
-          "arch": [
-            "x64",
-            "arm64"
-          ]
-        },
-        {
-          "target": "zip",
-          "arch": [
-            "x64",
-            "arm64"
-          ]
-        }
-      ],
-      "protocols": [
-        {
-          "name": "Redstring Protocol",
-          "schemes": [
-            "redstring"
-          ]
-        }
-      ]
-    },
-    "win": {
-      "artifactName": "${productName}-win-${arch}.${ext}",
-      "target": [
-        {
-          "target": "nsis",
-          "arch": [
-            "x64",
-            "ia32"
-          ]
-        }
-      ],
-      "protocols": [
-        {
-          "name": "Redstring Protocol",
-          "schemes": [
-            "redstring"
-          ]
-        }
-      ]
-    },
-    "linux": {
-      "artifactName": "${productName}-linux-${arch}.${ext}",
-      "target": [
-        {
-          "target": "AppImage",
-          "arch": [
-            "x64"
-          ]
-        }
-      ],
-      "protocols": [
-        {
-          "name": "Redstring Protocol",
-          "schemes": [
-            "redstring"
-          ]
-        }
-      ]
-    },
-    "nsis": {
-      "oneClick": false,
-      "allowToChangeInstallationDirectory": true
-    }
+      {
+        "target": "dmg",
+        "arch": [
+          "x64",
+          "arm64"
+        ]
+      },
+      {
+        "target": "zip",
+        "arch": [
+          "x64",
+          "arm64"
+        ]
+      }
+    ],
+    "protocols": [
+      {
+        "name": "Redstring Protocol",
+        "schemes": [
+          "redstring"
+        ]
+      }
+    ]
+  },
+  "win": {
+    "artifactName": "${productName}-win-${arch}.${ext}",
+    "target": [
+      {
+        "target": "nsis",
+        "arch": [
+          "x64",
+          "ia32"
+        ]
+      }
+    ],
+    "protocols": [
+      {
+        "name": "Redstring Protocol",
+        "schemes": [
+          "redstring"
+        ]
+      }
+    ]
+  },
+  "linux": {
+    "artifactName": "${productName}-linux-${arch}.${ext}",
+    "target": [
+      {
+        "target": "AppImage",
+        "arch": [
+          "x64"
+        ]
+      }
+    ],
+    "protocols": [
+      {
+        "name": "Redstring Protocol",
+        "schemes": [
+          "redstring"
+        ]
+      }
+    ]
+  },
+  "nsis": {
+    "oneClick": false,
+    "allowToChangeInstallationDirectory": true
   }
+}
