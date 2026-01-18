@@ -5,6 +5,10 @@
   "description": "Redstring Alpha - A semantic knowledge graph application with visual node-based interface, RDF integration, and AI-powered knowledge discovery",
   "license": "MIT",
   "type": "module",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/theredstring/redstring.git"
+  },
   "main": "electron/main.cjs",
   "scripts": {
     "bridge": "node scripts/bridge-restart.js",
