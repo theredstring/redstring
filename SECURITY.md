@@ -11,7 +11,7 @@
 If you discover a security vulnerability in Redstring, please report it responsibly:
 
 1. **DO NOT** create a public GitHub issue
-2. Email security details to: [security@theredstring.com](mailto:security@theredstring.com)
+2. Email security details to: [security@theredstring.com](mailto:info@redstring.io)
 3. Include:
    - Description of the vulnerability
    - Steps to reproduce
