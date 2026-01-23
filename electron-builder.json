@@ -14,9 +14,6 @@
     "entitlements": "entitlements.mac.plist",
     "entitlementsInherit": "entitlements.mac.plist",
     "hardenedRuntime": true,
-    "notarize": {
-      "teamId": "24MPFEY5BE"
-    },
     "category": "public.app-category.productivity",
     "artifactName": "${productName}-mac-${arch}.${ext}",
     "target": [

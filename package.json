@@ -2,6 +2,7 @@
   "name": "redstring",
   "private": true,
   "version": "0.2.0",
+  "author": "Grant Eubanks <grant.w.eubanks@gmail.com>",
   "description": "Redstring Alpha - A semantic knowledge graph application with visual node-based interface, RDF integration, and AI-powered knowledge discovery",
   "license": "MIT",
   "type": "module",
