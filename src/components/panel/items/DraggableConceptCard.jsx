@@ -206,15 +206,6 @@ const DraggableConceptCard = ({ concept, index = 0, onMaterialize, onUnsave, onS
           )}
           <span>• {concept.source === 'wikidata' ? 'Wikidata' : concept.source === 'dbpedia' ? 'DBpedia' : concept.source}</span>
         </div>
-
-        {/* Visual Drag Indicator */}
-        <div style={{
-          color: getTextColor(concept.color),
-          fontSize: '10px',
-          opacity: 0.5
-        }}>
-          ⋮⋮
-        </div>
       </div>
     </div>
   );
