@@ -4,6 +4,7 @@ import './NodeCanvas.css';
 import { X } from 'lucide-react';
 import Header from './Header.jsx';
 // DebugOverlay import removed - debug mode disabled
+import { useCanvasTouch } from './hooks/useCanvasTouch';
 import { useCanvasWorker } from './useCanvasWorker.js';
 import Node from './Node.jsx';
 import PlusSign from './PlusSign.jsx'; // Import the new PlusSign component
@@ -29,6 +30,7 @@ import ColorPicker from './ColorPicker';
 import { useDrop } from 'react-dnd';
 import { fetchOrbitCandidatesForPrototype } from './services/orbitResolver.js';
 import { showContextMenu } from './components/GlobalContextMenu';
+import Panel from './Panel';
 import * as fileStorage from './store/fileStorage.js';
 import * as folderPersistence from './services/folderPersistence.js';
 import workspaceService from './services/WorkspaceService.js';
@@ -87,7 +89,8 @@ import { computeCleanPolylineFromPorts, generateManhattanRoutingPath, generateCl
 import * as GeometryUtils from './utils/canvas/geometryUtils.js';
 import EdgeRenderer from './components/EdgeRenderer.jsx';
 import { calculateParallelEdgePath, distanceToQuadraticBezier, calculateCurveControlPoint, getTrimmedBezierPath, getPointOnQuadraticBezier } from './utils/canvas/parallelEdgeUtils.js';
-import Panel from './Panel'; // This is now used for both sides
+import { chooseLabelPlacement, buildRoundedPathFromPoints, estimateTextWidth } from './utils/canvas/edgeLabelPlacement.js';
+import { likelyTouch, isTouchDevice } from './utils/inputDeviceAnalysis';
 import TypeList from './TypeList'; // Re-add TypeList component
 import SaveStatusDisplay from './SaveStatusDisplay'; // Import the save status display
 import NodeSelectionGrid from './NodeSelectionGrid'; // Import the new node selection grid
@@ -134,6 +137,13 @@ function NodeCanvas() {
 
   const svgRef = useRef(null);
   const wrapperRef = useRef(null);
+  const containerRef = useRef(null);
+  const suppressNextMouseDownRef = useRef(false);
+  const suppressMouseDownResetTimeoutRef = useRef(null);
+  /* Ref for label placement to avoid overlap */
+  const placedLabelsRef = useRef(new Map());
+  const pinchRef = useRef({ active: false, startDist: 0, startZoom: 1, centerClient: { x: 0, y: 0 }, centerWorld: null, lastCenterClient: { x: 0, y: 0 }, lastDist: 0 });
+  const pinchSmoothingRef = useRef({ lastFrameTime: 0, velocity: { x: 0, y: 0 } });
   const [orbitData, setOrbitData] = useState({ inner: [], outer: [], all: [] });
   const wasDraggingRef = useRef(false); // Track if a drag just occurred to prevent click events
   const dragHistoryRecordedRef = useRef(false); // Guard against double recording of drag events
@@ -251,40 +261,8 @@ function NodeCanvas() {
   const [rightPanelWidth, setRightPanelWidth] = useState(() => {
     try { return JSON.parse(localStorage.getItem('panelWidth_right') || '280'); } catch { return 280; }
   });
-  // Track last touch coordinates for touchend where touches are empty
-  const lastTouchRef = useRef({ x: 0, y: 0 });
-  const touchMultiPanRef = useRef(false);
-  const isTouchDeviceRef = useRef(false);
-  const suppressNextMouseDownRef = useRef(false);
-  const suppressMouseDownResetTimeoutRef = useRef(null);
-  const pinchRef = useRef({
-    active: false,
-    startDist: 0,
-    startZoom: 1,
-    centerClient: { x: 0, y: 0 },
-    centerWorld: { x: 0, y: 0 },
-    lastCenterClient: { x: 0, y: 0 }
-  });
 
-  // Pinch zoom smoothing system
-  const pinchSmoothingRef = useRef({
-    targetZoom: 1,
-    targetPanX: 0,
-    targetPanY: 0,
-    currentZoom: 1,
-    currentPanX: 0,
-    currentPanY: 0,
-    animationId: null,
-    smoothing: 0.08, // Lower = smoother, higher = more responsive (reduced for less jitter)
-    isAnimating: false, // Track if we're actively animating
-    // Performance tracking
-    lastFrameTime: 0,
-    frameCount: 0,
-    inputEventCount: 0,
-    lastInputTime: 0,
-    avgFrameDelta: 16.67, // Target 60fps
-    lastLogTime: 0,
-  });
+  const isTouchDeviceRef = useRef(false);
 
   const isDraggingLeft = useRef(false);
   const isDraggingRight = useRef(false);
@@ -292,22 +270,10 @@ function NodeCanvas() {
   const startWidthRef = useRef(0);
   const groupLongPressTimeout = useRef(null);
 
-  // Enhanced touch state management separate from mouse events
-  const touchState = useRef({
-    isDragging: false,
-    dragNodeId: null,
-    startTime: 0,
-    startPosition: { x: 0, y: 0 },
-    currentPosition: { x: 0, y: 0 },
-    hasMovedPastThreshold: false,
-    longPressTimer: null,
-    longPressReady: false,
-    dragOffset: null
-    // nodeData removed - use dragNodeId for fresh lookups to avoid stale closures
-  });
+  // NOTE: touchState and docTouchListenersRef removed (moved to useCanvasTouch)
 
   // Track long press state synchronously to avoid race conditions in event handlers
-  const longPressingInstanceIdRef = useRef(null);
+
 
   // Touch interaction constants
   const TOUCH_MOVEMENT_THRESHOLD = 10; // pixels
@@ -553,852 +519,9 @@ function NodeCanvas() {
     );
   };
 
-  // --- Touch helpers for canvas interactions (pan, node drag, connections) ---
-  const normalizeTouchEvent = (e) => {
-    // For touch end events, changedTouches has the final position where finger lifted
-    const t = e.touches?.[0] || e.changedTouches?.[0];
-    if (t) {
-      return { clientX: t.clientX, clientY: t.clientY };
-    }
-    // Fallback to last known position
-    return { clientX: lastTouchRef.current.x, clientY: lastTouchRef.current.y };
-  };
 
-  const handleTouchStartCanvas = (e) => {
-    if (e && e.cancelable) {
-      e.preventDefault();
-      e.stopPropagation();
-    }
-    // Only stop momentum if we're starting a new gesture with actual touches
-    // Don't clear momentum during cleanup/end events
-    if (e.touches && e.touches.length > 0) {
-      stopPanMomentum();
-    }
-    isTouchDeviceRef.current = true;
 
-    if (e.touches && e.touches.length >= 2) {
-      // Pinch-to-zoom setup
-      // Stop any momentum first
-      stopPanMomentum();
 
-      const t1 = e.touches[0];
-      const t2 = e.touches[1];
-      const dx = t2.clientX - t1.clientX;
-      const dy = t2.clientY - t1.clientY;
-      const dist = Math.hypot(dx, dy) || 1;
-      const centerX = (t1.clientX + t2.clientX) / 2;
-      const centerY = (t1.clientY + t2.clientY) / 2;
-      const rect = containerRef.current.getBoundingClientRect();
-      const worldX = (centerX - rect.left - panOffset.x) / zoomLevel + canvasSize.offsetX;
-      const worldY = (centerY - rect.top - panOffset.y) / zoomLevel + canvasSize.offsetY;
-      pinchRef.current = {
-        active: true,
-        startDist: dist,
-        startZoom: zoomLevel,
-        centerClient: { x: centerX, y: centerY },
-        centerWorld: { x: worldX, y: worldY },
-        lastCenterClient: { x: centerX, y: centerY },
-        lastDist: dist
-      };
-      pinchSmoothingRef.current.lastFrameTime = performance.now();
-      // Cancel any in-progress one-finger pan when second finger is placed
-      isMouseDown.current = false;
-      setIsPanning(false);
-      setPanStart(null);
-      if (clickTimeoutIdRef.current) { clearTimeout(clickTimeoutIdRef.current); clickTimeoutIdRef.current = null; }
-      potentialClickNodeRef.current = null;
-      touchMultiPanRef.current = false;
-      return;
-    }
-
-    // Handle single touch - synthesize mouse event only once
-    if (e.touches && e.touches.length === 1) {
-      const t = e.touches[0];
-      lastTouchRef.current = { x: t.clientX, y: t.clientY };
-      isMouseDown.current = true;
-      startedOnNode.current = false;
-      mouseMoved.current = false;
-      setPanStart({ x: t.clientX, y: t.clientY });
-      panSourceRef.current = 'touch';
-      // Attach document-level listeners to keep pan active even if finger leaves canvas
-      try {
-        const moveListener = (ev) => handleTouchMoveCanvas(ev);
-        const endListener = (ev) => {
-          handleTouchEndCanvas(ev);
-          try {
-            document.removeEventListener('touchmove', moveListener, { passive: false });
-            document.removeEventListener('touchend', endListener, { passive: false });
-            document.removeEventListener('touchcancel', cancelListener, { passive: false });
-          } catch { }
-        };
-        const cancelListener = (ev) => {
-          handleTouchEndCanvas(ev);
-          try {
-            document.removeEventListener('touchmove', moveListener, { passive: false });
-            document.removeEventListener('touchend', endListener, { passive: false });
-            document.removeEventListener('touchcancel', cancelListener, { passive: false });
-          } catch { }
-        };
-        document.addEventListener('touchmove', moveListener, { passive: false });
-        document.addEventListener('touchend', endListener, { passive: false });
-        document.addEventListener('touchcancel', cancelListener, { passive: false });
-      } catch { }
-      const synthetic = {
-        clientX: t.clientX,
-        clientY: t.clientY,
-        detail: 1,
-        preventDefault: () => { try { e.preventDefault(); } catch { } },
-        stopPropagation: () => { try { e.stopPropagation(); } catch { } }
-      };
-      handleMouseDown(synthetic);
-    } else {
-      // Fallback for other touch events
-      const { clientX, clientY } = normalizeTouchEvent(e);
-      lastTouchRef.current = { x: clientX, y: clientY };
-      const synthetic = {
-        clientX,
-        clientY,
-        ctrlKey: false,
-        metaKey: false,
-        preventDefault: () => { try { e.preventDefault(); } catch { } },
-        stopPropagation: () => { try { e.stopPropagation(); } catch { } }
-      };
-      handleMouseDown(synthetic);
-    }
-  };
-
-  const handleTouchMoveCanvas = (e) => {
-    // Avoid per-move preventDefault/stopPropagation; rely on CSS `touch-action: none`
-
-    // CRITICAL: If a node drag is active, let the document listener handle it exclusively
-    if (touchState.current.isDragging || draggingNodeInfo || touchState.current.dragNodeId) {
-      return; // Don't interfere with node drag
-    }
-
-    if (e.touches && e.touches.length >= 2) {
-      // Initialize pinch if not already active
-      if (!pinchRef.current.active) {
-        const t1 = e.touches[0];
-        const t2 = e.touches[1];
-        const dx = t2.clientX - t1.clientX;
-        const dy = t2.clientY - t1.clientY;
-        const dist = Math.hypot(dx, dy) || 1;
-        const centerX = (t1.clientX + t2.clientX) / 2;
-        const centerY = (t1.clientY + t2.clientY) / 2;
-        const rect = containerRef.current?.getBoundingClientRect();
-        if (rect) {
-          const worldX = (centerX - rect.left - panOffset.x) / zoomLevel + canvasSize.offsetX;
-          const worldY = (centerY - rect.top - panOffset.y) / zoomLevel + canvasSize.offsetY;
-          pinchRef.current = {
-            active: true,
-            startDist: dist,
-            startZoom: zoomLevel,
-            centerClient: { x: centerX, y: centerY },
-            centerWorld: { x: worldX, y: worldY },
-            lastCenterClient: { x: centerX, y: centerY },
-            lastDist: dist
-          };
-          pinchSmoothingRef.current.lastFrameTime = performance.now();
-          // Stop momentum and panning
-          stopPanMomentum();
-          isMouseDown.current = false;
-          setIsPanning(false);
-          setPanStart(null);
-        }
-      }
-
-      // Touch-only pinch zoom (higher sensitivity), no two-finger pan on touch
-      // Skip pinch zoom during drag to prevent interference with drag zoom animation
-      if (draggingNodeInfoRef.current || isAnimatingZoomRef.current) return;
-      isPanningOrZooming.current = true;
-      const now = performance.now();
-      const smoothing = pinchSmoothingRef.current;
-      const lastTime = smoothing.lastFrameTime || now;
-      const dt = Math.max(1, now - lastTime);
-      smoothing.lastFrameTime = now;
-
-      const t1 = e.touches[0];
-      const t2 = e.touches[1];
-      const centerX = (t1.clientX + t2.clientX) / 2;
-      const centerY = (t1.clientY + t2.clientY) / 2;
-      const dist = Math.hypot(t2.clientX - t1.clientX, t2.clientY - t1.clientY) || 1;
-      pinchRef.current.centerClient = { x: centerX, y: centerY };
-      const startDist = pinchRef.current.startDist || dist;
-      const startZoom = pinchRef.current.startZoom || zoomLevel;
-      const ratioFromStart = dist / (startDist || dist);
-      const targetZoomRaw = startZoom * (ratioFromStart || 1);
-      const easing = 1 - Math.pow(1 - TOUCH_PINCH_SENSITIVITY, Math.min(6, dt / 16));
-      setZoomLevel(prevZoom => {
-        const targetZoom = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, targetZoomRaw || prevZoom));
-        const newZoom = prevZoom + (targetZoom - prevZoom) * easing;
-        if (!containerRef.current) {
-          pinchRef.current.lastDist = dist;
-          pinchRef.current.lastCenterClient = { x: centerX, y: centerY };
-          return prevZoom;
-        }
-        const rect = containerRef.current.getBoundingClientRect();
-        setPanOffset(prevPan => {
-          const rawWorldX = (centerX - rect.left - prevPan.x) / prevZoom + canvasSize.offsetX;
-          const rawWorldY = (centerY - rect.top - prevPan.y) / prevZoom + canvasSize.offsetY;
-          const prevWorld = pinchRef.current.centerWorld;
-          const worldX = prevWorld ? prevWorld.x + (rawWorldX - prevWorld.x) * TOUCH_PINCH_CENTER_SMOOTHING : rawWorldX;
-          const worldY = prevWorld ? prevWorld.y + (rawWorldY - prevWorld.y) * TOUCH_PINCH_CENTER_SMOOTHING : rawWorldY;
-          pinchRef.current.centerWorld = { x: worldX, y: worldY };
-          return {
-            x: centerX - rect.left - (worldX - canvasSize.offsetX) * newZoom,
-            y: centerY - rect.top - (worldY - canvasSize.offsetY) * newZoom
-          };
-        });
-        pinchRef.current.lastDist = dist;
-        pinchRef.current.lastCenterClient = { x: centerX, y: centerY };
-        return newZoom;
-      });
-      return;
-    }
-    const { clientX, clientY } = normalizeTouchEvent(e);
-    lastTouchRef.current = { x: clientX, y: clientY };
-
-    // Record velocity for momentum calculation
-    if (panSourceRef.current === 'touch') {
-      const now = performance.now();
-      panVelocityHistoryRef.current.push({ x: clientX, y: clientY, time: now });
-      // Keep samples from last 100ms, but always keep at least the 10 most recent
-      const cutoff = now - 100;
-      const filtered = panVelocityHistoryRef.current.filter(s => s.time >= cutoff);
-      // Ensure we keep at least 10 samples for momentum calculation
-      if (filtered.length >= 10) {
-        panVelocityHistoryRef.current = filtered;
-      } else {
-        // Keep the last 10 samples regardless of time
-        panVelocityHistoryRef.current = panVelocityHistoryRef.current.slice(-10);
-      }
-    }
-
-    // Update mouseInsideNode for touch events to maintain proper drag state
-    if (longPressingInstanceIdRef.current) {
-      const longPressNodeData = nodes.find(n => n.id === longPressingInstanceIdRef.current);
-      if (longPressNodeData) {
-        mouseInsideNode.current = isInsideNode(longPressNodeData, clientX, clientY);
-      }
-    }
-
-    const synthetic = {
-      clientX,
-      clientY,
-      preventDefault: () => { try { e.preventDefault(); } catch { } },
-      stopPropagation: () => { try { e.stopPropagation(); } catch { } }
-    };
-    handleMouseMove(synthetic);
-  };
-
-  const handleTouchEndCanvas = (e) => {
-    if (e && e.cancelable) {
-      e.preventDefault();
-      e.stopPropagation();
-    }
-    // End pinch if active – no glide for two-finger gesture on touch
-    if (pinchRef.current.active) {
-      pinchRef.current.active = false;
-      isPanningOrZooming.current = false;
-      // Clear velocity history so next pan starts fresh
-      panVelocityHistoryRef.current = [];
-      lastPanVelocityRef.current = { vx: 0, vy: 0 };
-
-      // If there's still a touch remaining (2 fingers -> 1 finger), set up for single-finger pan
-      if (e.touches && e.touches.length === 1) {
-        const t = e.touches[0];
-        setPanStart({ x: t.clientX, y: t.clientY });
-        panSourceRef.current = 'touch';
-        isMouseDown.current = true;
-        mouseMoved.current = false;
-      } else {
-        // All fingers lifted - clear everything
-        setPanStart(null);
-        panSourceRef.current = null;
-        setIsPanning(false);
-        isMouseDown.current = false;
-        mouseMoved.current = false;
-      }
-      return;
-    }
-    const { clientX, clientY } = normalizeTouchEvent(e);
-    // Determine if this was a tap (minimal movement). Use a larger threshold for touch.
-    const dxEnd = clientX - (mouseDownPosition.current?.x || clientX);
-    const dyEnd = clientY - (mouseDownPosition.current?.y || clientY);
-    const distEnd = Math.hypot(dxEnd, dyEnd);
-    const tapThreshold = Math.max(MOVEMENT_THRESHOLD || 6, 16);
-    const isTap = distEnd <= tapThreshold && !mouseMoved.current;
-    const synthetic = {
-      clientX,
-      clientY,
-      preventDefault: () => { try { e.preventDefault(); } catch { } },
-      stopPropagation: () => { try { e.stopPropagation(); } catch { } }
-    };
-    // Route to mouseUp to reuse inertia/glide for single-finger pan
-    handleMouseUp(synthetic);
-    // Ensure touch tap behaves like click-off: close UI overlays if present
-    if (isTap) {
-      if (groupControlPanelShouldShow || groupControlPanelVisible) {
-        setGroupControlPanelVisible(false);
-      }
-      if (selectedGroup) {
-        setSelectedGroup(null);
-      }
-      if (selectedEdgeId || selectedEdgeIds.size > 0) {
-        storeActions.setSelectedEdgeId(null);
-        storeActions.clearSelectedEdgeIds();
-      }
-      if (selectedNodeIdForPieMenu) {
-        setSelectedNodeIdForPieMenu(null);
-      }
-      if (plusSign && !nodeNamePrompt.visible) {
-        setPlusSign(ps => ps && { ...ps, mode: 'disappear' });
-      }
-    }
-    // If it was a tap on empty canvas, mirror click-to-plus-sign behavior
-    if (isTap) {
-      if (!isPaused && !draggingNodeInfo && !drawingConnectionFrom && !recentlyPanned && !nodeNamePrompt.visible && activeGraphId) {
-        if (selectedInstanceIds.size > 0) {
-          // Mimic click-off behavior: clear selection on tap
-          setSelectedInstanceIds(new Set());
-        } else if (!plusSign) {
-          const rect = containerRef.current.getBoundingClientRect();
-          const mouseX = (clientX - rect.left - panOffset.x) / zoomLevel + canvasSize.offsetX;
-          const mouseY = (clientY - rect.top - panOffset.y) / zoomLevel + canvasSize.offsetY;
-          setPlusSign({ x: mouseX, y: mouseY, mode: 'appear', tempName: '' });
-          setLastInteractionType('plus_sign_shown_touch');
-        }
-      }
-    }
-    touchMultiPanRef.current = false;
-  };
-
-  // Document-level touch listeners holder (must be declared before use)
-  const docTouchListenersRef = useRef(null);
-
-  // Refs to hold fresh handlers for event listeners to avoid stale closures
-  const handleNodeTouchMoveRef = useRef(null);
-  const handleNodeTouchEndRef = useRef(null);
-  const handleNodeTouchCancelRef = useRef(null);
-
-  // Dedicated touch handlers for nodes (no synthetic event conversion)
-  const handleNodeTouchStart = (nodeData, e) => {
-    console.log('[handleNodeTouchStart] START - docTouchListenersRef.current:', docTouchListenersRef.current);
-    // Attach document-level listeners only once per touch session
-    // Check if listeners are already attached to avoid duplicates
-    if (!docTouchListenersRef.current) {
-      try {
-        console.log('[handleNodeTouchStart] Attaching document listeners for nodeId:', nodeData.id);
-        // Create dedicated listeners with fresh node lookups to avoid stale closures
-        const moveListener = (ev) => {
-          // console.log('[DOC LISTENER] touchmove fired, dragNodeId:', touchState.current.dragNodeId, 'isDragging:', touchState.current.isDragging);
-          const freshNodeData = nodes.find(n => n.id === touchState.current.dragNodeId);
-          if (!freshNodeData || !touchState.current.dragNodeId) {
-            // console.log('[DOC LISTENER] No fresh node data, returning');
-            return;
-          }
-          if (handleNodeTouchMoveRef.current) {
-            handleNodeTouchMoveRef.current(freshNodeData, ev);
-          }
-        };
-        const endListener = (ev) => {
-          console.log('[DOC LISTENER] touchend fired, cleaning up');
-          const freshNodeData = nodes.find(n => n.id === touchState.current.dragNodeId);
-          if (freshNodeData && handleNodeTouchEndRef.current) {
-            handleNodeTouchEndRef.current(freshNodeData, ev);
-          }
-          try {
-            document.removeEventListener('touchmove', moveListener, { passive: false });
-            document.removeEventListener('touchend', endListener, { passive: false });
-            document.removeEventListener('touchcancel', cancelListener, { passive: false });
-            console.log('[DOC LISTENER] Document listeners removed');
-          } catch (err) {
-            console.error('[DOC LISTENER] Error removing listeners:', err);
-          }
-          docTouchListenersRef.current = null;
-        };
-        const cancelListener = (ev) => {
-          const freshNodeData = nodes.find(n => n.id === touchState.current.dragNodeId);
-          if (freshNodeData && handleNodeTouchCancelRef.current) {
-            handleNodeTouchCancelRef.current(freshNodeData, ev);
-          }
-          else if (freshNodeData && handleNodeTouchEndRef.current) {
-            handleNodeTouchEndRef.current(freshNodeData, ev);
-          }
-          try {
-            document.removeEventListener('touchmove', moveListener, { passive: false });
-            document.removeEventListener('touchend', endListener, { passive: false });
-            document.removeEventListener('touchcancel', cancelListener, { passive: false });
-          } catch { }
-          docTouchListenersRef.current = null;
-        };
-        document.addEventListener('touchmove', moveListener, { passive: false });
-        document.addEventListener('touchend', endListener, { passive: false });
-        document.addEventListener('touchcancel', cancelListener, { passive: false });
-        docTouchListenersRef.current = { moveListener, endListener, cancelListener };
-        console.log('[handleNodeTouchStart] Document listeners attached successfully');
-      } catch (err) {
-        console.error('[handleNodeTouchStart] Error attaching listeners:', err);
-      }
-    } else {
-      console.log('[handleNodeTouchStart] Document listeners already attached, skipping');
-    }
-    e.stopPropagation();
-    if (isPaused || !activeGraphId) return;
-
-    // Do NOT call e.preventDefault() here - React's onTouchStart is passive by default.
-    // We rely on CSS touch-action: none to prevent scrolling.
-    stopPanMomentum();
-
-    const touch = e.touches[0];
-    if (!touch) return;
-
-    if (suppressMouseDownResetTimeoutRef.current) {
-      clearTimeout(suppressMouseDownResetTimeoutRef.current);
-    }
-    suppressNextMouseDownRef.current = true;
-    suppressMouseDownResetTimeoutRef.current = setTimeout(() => {
-      suppressNextMouseDownRef.current = false;
-      suppressMouseDownResetTimeoutRef.current = null;
-    }, 650);
-
-    const instanceId = nodeData.id;
-    const now = performance.now();
-
-    const rect = containerRef.current?.getBoundingClientRect();
-    let dragOffset = null;
-    if (rect) {
-      const mouseCanvasX = (touch.clientX - rect.left - panOffset.x) / zoomLevel + canvasSize.offsetX;
-      const mouseCanvasY = (touch.clientY - rect.top - panOffset.y) / zoomLevel + canvasSize.offsetY;
-      dragOffset = { x: mouseCanvasX - nodeData.x, y: mouseCanvasY - nodeData.y };
-    }
-
-    isMouseDown.current = true;
-    mouseDownPosition.current = { x: touch.clientX, y: touch.clientY };
-    mouseMoved.current = false;
-    mouseInsideNode.current = true;
-    startedOnNode.current = true;
-    panSourceRef.current = 'touch';
-    // Arm connection drawing by default (matches mouse behavior)
-    setLongPressingInstanceId(instanceId);
-    longPressingInstanceIdRef.current = instanceId;
-
-    // Add touch feedback class
-    const nodeElement = e.currentTarget;
-    nodeElement.classList.add('touch-active');
-
-    // Haptic feedback if available
-    if (navigator.vibrate) {
-      try {
-        navigator.vibrate(10); // Short vibration for touch start
-      } catch (e) {
-        // Ignore vibration errors (e.g. user hasn't interacted yet)
-      }
-    }
-
-    // Initialize touch state (drag can also start via long-press fallback)
-    touchState.current = {
-      isDragging: false,
-      dragNodeId: instanceId,
-      startTime: now,
-      startPosition: { x: touch.clientX, y: touch.clientY },
-      currentPosition: { x: touch.clientX, y: touch.clientY },
-      hasMovedPastThreshold: false,
-      longPressTimer: null,
-      nodeElement: nodeElement,
-      longPressReady: false,
-      dragOffset
-      // nodeData removed - use dragNodeId for fresh lookups to avoid stale closures
-    };
-
-    // Long-press fallback: begin NODE DRAG while finger is still down (mouse parity)
-    if (touchState.current.longPressTimer) {
-      clearTimeout(touchState.current.longPressTimer);
-    }
-    touchState.current.longPressTimer = setTimeout(() => {
-      const ts = touchState.current;
-      if (!ts) return;
-      // Long press detected! Start node drag (matches mouse behavior)
-      // Don't check hasMovedPastThreshold - we want to start drag even if already moving
-      if (isMouseDown.current && ts.dragNodeId === instanceId && !ts.isDragging) {
-        // Set flag BEFORE starting drag to enable early exit path immediately
-        ts.isDragging = true;
-        const started = startDragForNode(nodeData, ts.currentPosition.x, ts.currentPosition.y);
-        if (started) {
-          ts.longPressReady = false;
-          setSelectedNodeIdForPieMenu(null);
-          // Cancel connection intent once dragging node
-          setLongPressingInstanceId(null);
-          longPressingInstanceIdRef.current = null;
-        } else {
-          // Rollback if failed
-          ts.isDragging = false;
-        }
-
-        // Visual/Haptic feedback
-        if (ts.nodeElement) {
-          ts.nodeElement.classList.add('long-press-active');
-        }
-        if (navigator.vibrate) {
-          try {
-            navigator.vibrate(50);
-          } catch (e) {
-            // Ignore vibration errors
-          }
-        }
-      }
-    }, LONG_PRESS_DURATION);
-    // setMouseInsideNode(true); // Removed: undefined and unnecessary (handled by ref)
-  };
-
-  // Pointer → Touch compatibility helpers (function declarations to avoid TDZ)
-  function toSyntheticTouchEventFromPointer(e) {
-    return {
-      touches: [{ clientX: e.clientX, clientY: e.clientY }],
-      changedTouches: [{ clientX: e.clientX, clientY: e.clientY }],
-      cancelable: true,
-      stopPropagation: () => { try { e.stopPropagation(); } catch { } },
-      preventDefault: () => { try { e.preventDefault(); } catch { } },
-      currentTarget: e.currentTarget,
-      __fromPointer: true
-    };
-  }
-
-  function handleNodePointerDown(nodeData, e) {
-    if (e && e.pointerType && e.pointerType !== 'mouse') {
-      // Do NOT call e.preventDefault() - it blocks touch recognition
-      // Let the touch event handlers manage the interaction
-      try { e.stopPropagation(); } catch { }
-      handleNodeTouchStart(nodeData, toSyntheticTouchEventFromPointer(e));
-    }
-  }
-
-  function handleNodePointerMove(nodeData, e) {
-    if (e && e.pointerType && e.pointerType !== 'mouse') {
-      // Do NOT call e.preventDefault() - it blocks touch recognition
-      try { e.stopPropagation(); } catch { }
-      handleNodeTouchMove(nodeData, toSyntheticTouchEventFromPointer(e));
-    }
-  }
-
-  function handleNodePointerUp(nodeData, e) {
-    if (e && e.pointerType && e.pointerType !== 'mouse') {
-      try { if (e.cancelable) e.preventDefault(); e.stopPropagation(); } catch { }
-      const synthetic = toSyntheticTouchEventFromPointer(e);
-      synthetic.touches = [];
-      handleNodeTouchEnd(nodeData, synthetic);
-    }
-  }
-
-  function handleNodePointerCancel(nodeData, e) {
-    if (e && e.pointerType && e.pointerType !== 'mouse') {
-      try { if (e.cancelable) e.preventDefault(); e.stopPropagation(); } catch { }
-      const synthetic = toSyntheticTouchEventFromPointer(e);
-      synthetic.touches = [];
-      handleNodeTouchEnd(nodeData, synthetic);
-    }
-  }
-
-
-  // Touch cancel mirroring: ensure cleanup if OS cancels
-  const handleNodeTouchCancel = (nodeData, e) => {
-    if (e) {
-      try { if (e.cancelable) e.preventDefault(); e.stopPropagation(); } catch { }
-    }
-    // Mirror touch end cleanup
-    isMouseDown.current = false;
-    startedOnNode.current = false;
-    setLongPressingInstanceId(null);
-    longPressingInstanceIdRef.current = null;
-
-    if (touchState.current.nodeElement) {
-      touchState.current.nodeElement.classList.remove('touch-active', 'long-press-active');
-    }
-
-    if (touchState.current.longPressTimer) {
-      clearTimeout(touchState.current.longPressTimer);
-      touchState.current.longPressTimer = null;
-    }
-
-    if (touchState.current.isDragging || drawingConnectionFrom) {
-      // Synthesize a mouse up to clear drag state
-      const synthetic = {
-        clientX: (e && e.changedTouches && e.changedTouches[0]?.clientX) || lastMousePosRef.current?.x || 0,
-        clientY: (e && e.changedTouches && e.changedTouches[0]?.clientY) || lastMousePosRef.current?.y || 0,
-        stopPropagation: () => { },
-        preventDefault: () => { }
-      };
-      handleMouseUp(synthetic);
-    }
-
-    // Reset touch state
-    touchState.current = {
-      isDragging: false,
-      dragNodeId: null,
-      startTime: 0,
-      startPosition: { x: 0, y: 0 },
-      currentPosition: { x: 0, y: 0 },
-      hasMovedPastThreshold: false,
-      longPressTimer: null,
-      nodeElement: null,
-      longPressReady: false,
-      dragOffset: null,
-      nodeData: null
-    };
-
-    setDraggingNodeInfo(null);
-    mouseInsideNode.current = false;
-    // Detach any outstanding document listeners
-    if (docTouchListenersRef.current) {
-      const { moveListener, endListener, cancelListener } = docTouchListenersRef.current;
-      try {
-        document.removeEventListener('touchmove', moveListener, { passive: false });
-        document.removeEventListener('touchend', endListener, { passive: false });
-        document.removeEventListener('touchcancel', cancelListener, { passive: false });
-      } catch { }
-      docTouchListenersRef.current = null;
-    }
-  };
-
-  const handleNodeTouchMove = (nodeData, e) => {
-    console.log('[handleNodeTouchMove] Called with nodeData:', nodeData?.id, 'touchState.dragNodeId:', touchState.current.dragNodeId);
-    if (isPaused || !activeGraphId || !touchState.current.dragNodeId) {
-      console.log('[handleNodeTouchMove] Early return - isPaused:', isPaused, 'activeGraphId:', activeGraphId, 'dragNodeId:', touchState.current.dragNodeId);
-      return;
-    }
-
-    // Do NOT call e.preventDefault() or e.stopPropagation() here
-    // The document-level listener (attached in handleNodeTouchStart) handles everything
-
-    const touch = e.touches[0];
-    if (!touch) {
-      console.log('[handleNodeTouchMove] No touch, returning');
-      return;
-    }
-
-    const currentPos = { x: touch.clientX, y: touch.clientY };
-
-    // Update current position
-    touchState.current.currentPosition = currentPos;
-
-    // PRIORITY 1: If drag is already active, just update position and return
-    if (touchState.current.isDragging || draggingNodeInfo) {
-      console.log('[handleNodeTouchMove] DRAGGING - calling handleMouseMove with:', touch.clientX, touch.clientY);
-      const synthetic = {
-        clientX: touch.clientX,
-        clientY: touch.clientY,
-        stopPropagation: () => e.stopPropagation(),
-        preventDefault: () => e.preventDefault()
-      };
-      handleMouseMove(synthetic);
-      return; // Skip all other logic
-    }
-
-    // PRIORITY 2: Check if we should start drag or connection based on movement
-    const deltaX = currentPos.x - touchState.current.startPosition.x;
-    const deltaY = currentPos.y - touchState.current.startPosition.y;
-    const distance = Math.hypot(deltaX, deltaY);
-
-    // Check if we've moved past threshold
-    if (!touchState.current.hasMovedPastThreshold && distance > TOUCH_MOVEMENT_THRESHOLD) {
-      touchState.current.hasMovedPastThreshold = true;
-
-      // Clear any pending long-press timer
-      if (touchState.current.longPressTimer) {
-        clearTimeout(touchState.current.longPressTimer);
-        touchState.current.longPressTimer = null;
-      }
-
-      // Match mouse behavior: if longPressingInstanceId is set → Connection Draw, else → Node Drag
-      // BUT: If drag is already started (isDragging=true), skip connection logic entirely
-      if (!touchState.current.isDragging && longPressingInstanceIdRef.current && !draggingNodeInfo && !drawingConnectionFrom && !pinchRef.current.active) {
-        // Check if we've left the node area (matches mouse behavior)
-        const armedNode = nodes.find(n => n.id === longPressingInstanceIdRef.current);
-        if (armedNode) {
-          const leftNodeArea = !isInsideNode(armedNode, touch.clientX, touch.clientY);
-          // Allow both patterns (same as mouse):
-          // 1) Move outside the node (original behavior)
-          // 2) Quick drag while still inside the node (desktop-friendly)
-          if (leftNodeArea || startedOnNode.current) {
-            // longPressingInstanceId is armed AND we left the node → Start Connection Draw
-            const startNodeDims = getNodeDimensions(armedNode, previewingNodeId === armedNode.id, null);
-            const startPt = { x: armedNode.x + startNodeDims.currentWidth / 2, y: armedNode.y + startNodeDims.currentHeight / 2 };
-
-            if (!containerRef.current || typeof touch.clientX !== 'number' || typeof touch.clientY !== 'number') {
-              setLongPressingInstanceId(null);
-              longPressingInstanceIdRef.current = null;
-              return;
-            }
-
-            const rect = containerRef.current.getBoundingClientRect();
-            const rawX = (touch.clientX - rect.left - panOffset.x) / zoomLevel + canvasSize.offsetX;
-            const rawY = (touch.clientY - rect.top - panOffset.y) / zoomLevel + canvasSize.offsetY;
-
-            if (isNaN(rawX) || isNaN(rawY)) {
-              // Only abort initialization if NOT already dragging
-              if (!touchState.current.isDragging && !draggingNodeInfo) {
-                setLongPressingInstanceId(null);
-                longPressingInstanceIdRef.current = null;
-              }
-              return; // Skip this frame but don't clear drag state if already dragging
-            }
-
-            const { x: currentX, y: currentY } = clampCoordinates(rawX, rawY);
-            setDrawingConnectionFrom({ sourceInstanceId: armedNode.id, startX: startPt.x, startY: startPt.y, currentX, currentY });
-            setLongPressingInstanceId(null);
-            longPressingInstanceIdRef.current = null;
-          } else {
-            // Still inside node, haven't left yet → Don't start connection, continue waiting
-            // This allows quick drags inside the node to become node drags instead
-          }
-        }
-      } else if (!touchState.current.isDragging && !longPressingInstanceIdRef.current) {
-        // longPressingInstanceId NOT set (cleared by long press timeout) → Start Node Drag
-        if (!touchState.current.isDragging) {
-          // Set flag BEFORE to enable early exit path immediately
-          touchState.current.isDragging = true;
-          const dragStarted = startDragForNode(nodeData, touch.clientX, touch.clientY);
-          if (!dragStarted) {
-            // Rollback if start failed
-            touchState.current.isDragging = false;
-          } else {
-            touchState.current.longPressReady = false;
-            setSelectedNodeIdForPieMenu(null);
-            setLongPressingInstanceId(null);
-            longPressingInstanceIdRef.current = null;
-          }
-        }
-      }
-    }
-
-    // Drive shared move logic for both node-drag and connection-draw
-    const synthetic = {
-      clientX: touch.clientX,
-      clientY: touch.clientY,
-      stopPropagation: () => e.stopPropagation(),
-      preventDefault: () => e.preventDefault()
-    };
-    handleMouseMove(synthetic);
-  };
-
-  const handleNodeTouchEnd = (nodeData, e) => {
-    if (e) {
-      e.stopPropagation();
-      if (e.cancelable) {
-        e.preventDefault();
-      }
-    }
-
-    isMouseDown.current = false;
-    startedOnNode.current = false;
-    setLongPressingInstanceId(null);
-    longPressingInstanceIdRef.current = null;
-
-    // Clean up CSS classes
-    if (touchState.current.nodeElement) {
-      touchState.current.nodeElement.classList.remove('touch-active', 'long-press-active');
-    }
-
-    // Clear long press timer
-    if (touchState.current.longPressTimer) {
-      clearTimeout(touchState.current.longPressTimer);
-      touchState.current.longPressTimer = null;
-    }
-
-    if (suppressMouseDownResetTimeoutRef.current) {
-      clearTimeout(suppressMouseDownResetTimeoutRef.current);
-    }
-    suppressNextMouseDownRef.current = true;
-    suppressMouseDownResetTimeoutRef.current = setTimeout(() => {
-      suppressNextMouseDownRef.current = false;
-      suppressMouseDownResetTimeoutRef.current = null;
-    }, 400);
-
-    const touch = e.changedTouches[0];
-    if (!touch) return;
-    const synthetic = {
-      clientX: touch.clientX,
-      clientY: touch.clientY,
-      stopPropagation: () => e.stopPropagation(),
-      preventDefault: () => e.preventDefault()
-    };
-
-    // Handle tap vs drag
-    if (!touchState.current.hasMovedPastThreshold && touchState.current.dragNodeId === nodeData.id) {
-      // This was a tap, not a drag
-      console.log('Touch tap detected on node:', nodeData.id);
-
-      // Light haptic feedback for tap completion
-      if (navigator.vibrate) {
-        try {
-          navigator.vibrate(5);
-        } catch (e) { }
-      }
-
-      // Handle double-tap for definition navigation
-      const now = performance.now();
-      const timeSinceStart = now - touchState.current.startTime;
-
-      if (timeSinceStart < 300) { // Quick tap
-        // Placeholder for future double-tap behavior
-      }
-
-      const wasSelected = selectedInstanceIds.has(nodeData.id);
-      setSelectedInstanceIds(prev => {
-        const newSelected = new Set(prev);
-        if (wasSelected) {
-          if (nodeData.id !== previewingNodeId) {
-            newSelected.delete(nodeData.id);
-          }
-        } else {
-          newSelected.add(nodeData.id);
-        }
-        return newSelected;
-      });
-    } else if (touchState.current.isDragging) {
-      // Drag completion feedback
-      if (navigator.vibrate) {
-        try {
-          navigator.vibrate(15); // Slightly stronger feedback for drag completion
-        } catch (e) { }
-      }
-    }
-
-    // Clean up drag state using existing mouse up logic
-    if (touchState.current.isDragging || drawingConnectionFrom) {
-      handleMouseUp(synthetic);
-    }
-
-    // Reset touch state
-    touchState.current = {
-      isDragging: false,
-      dragNodeId: null,
-      startTime: 0,
-      startPosition: { x: 0, y: 0 },
-      currentPosition: { x: 0, y: 0 },
-      hasMovedPastThreshold: false,
-      longPressTimer: null,
-      nodeElement: null,
-      longPressReady: false,
-      dragOffset: null,
-      nodeData: null
-    };
-
-    // Ensure drag state is cleared
-    setDraggingNodeInfo(null);
-    mouseInsideNode.current = false;
-
-    // Detach document listeners set on touchstart
-    if (docTouchListenersRef.current) {
-      const { moveListener, endListener, cancelListener } = docTouchListenersRef.current;
-      try {
-        document.removeEventListener('touchmove', moveListener, { passive: false });
-        document.removeEventListener('touchend', endListener, { passive: false });
-        document.removeEventListener('touchcancel', cancelListener, { passive: false });
-      } catch { }
-      docTouchListenersRef.current = null;
-    }
-  };
 
   // storeActions is now defined above with defensive initialization
 
@@ -3482,6 +2605,13 @@ function NodeCanvas() {
   const carouselExitInProgressRef = useRef(false);
   // Track whether the carousel was closed by click-away to suppress pie menu reopen
   const carouselClosedByClickAwayRef = useRef(false);
+  const lastMousePosRef = useRef({ x: 0, y: 0 });
+  const clearLabelsOnMouseMove = useCallback(() => {
+    setHoveredEdgeInfo(null);
+    setHoveredNodeForVision(null);
+    setHoveredConnectionForVision(null);
+  }, []);
+
   // --- Graph Change Cleanup ---
   useEffect(() => {
     // This effect runs whenever the active graph changes.
@@ -3970,7 +3100,7 @@ function NodeCanvas() {
     }
   }, [storeActions]); // Dependency only on storeActions as we read fresh state inside
   // --- Refs (Keep these) ---
-  const containerRef = useRef(null);
+
   const [, drop] = useDrop(() => ({
     accept: SPAWNABLE_NODE,
     drop: (item, monitor) => {
@@ -5868,10 +4998,69 @@ function NodeCanvas() {
     };
   }, [zoomLevel, panOffset, MIN_ZOOM, MAX_ZOOM, trackpadZoomEnabled]);
 
+  // --- Touch helpers for canvas interactions (moved here to ensure refs/state are initialized) ---
+  const touch = useCanvasTouch({
+    containerRef,
+    panOffset,
+    zoomLevel,
+    canvasSize,
+    isPaused,
+    activeGraphId,
+    startDragForNode,
+    handleMouseMove,
+    handleMouseUp,
+    handleMouseDown,
+    setPanStart,
+    setIsPanning,
+    setPanOffset,
+    setZoomLevel,
+    stopPanMomentum,
+    storeActions,
+    selectedInstanceIds,
+    setSelectedInstanceIds,
+    selectedEdgeId,
+    selectedEdgeIds,
+    plusSign,
+    setPlusSign,
+    nodeNamePrompt,
+    previewingNodeId,
+    selectedNodeIdForPieMenu,
+    setSelectedNodeIdForPieMenu,
+    drawingConnectionFrom,
+    setDrawingConnectionFrom,
+    draggingNodeInfo,
+    setDraggingNodeInfo,
+    draggingNodeInfoRef,
+    isAnimatingZoomRef,
+    isPanningOrZooming,
+    panSourceRef,
+    panVelocityHistoryRef,
+    isMouseDown,
+    mouseMoved,
+    startedOnNode,
+    mouseInsideNode,
+    mouseDownPosition,
+    recentlyPanned,
+    setLastInteractionType,
+    groupControlPanelShouldShow,
+    groupControlPanelVisible,
+    setGroupControlPanelVisible,
+    selectedGroup,
+    setSelectedGroup,
+    isInsideNode,
+    getNodeDimensions,
+    clampCoordinates,
+    isTouchDeviceRef,
+    suppressNextMouseDownRef,
+    nodes,
+    pinchRef,
+    pinchSmoothingRef,
+  });
+
   // Prevent native long-press context menu on touch devices (iOS/Android)
   useEffect(() => {
-    const likelyTouch = () => (typeof navigator !== 'undefined' && (navigator.maxTouchPoints > 0 || navigator.msMaxTouchPoints > 0))
-      || (typeof window !== 'undefined' && window.matchMedia && window.matchMedia('(pointer: coarse)').matches);
+
+
     const preventContextMenu = (e) => {
       if (isTouchDeviceRef.current || likelyTouch()) {
         try { e.preventDefault(); } catch { }
@@ -5881,492 +5070,7 @@ function NodeCanvas() {
     return () => document.removeEventListener('contextmenu', preventContextMenu);
   }, []);
 
-  // --- Clean routing helpers (orthogonal, low-bend path with simple detours) ---
-  // Inflate a rectangle by padding
-  const inflateRect = (rect, pad) => ({
-    minX: rect.minX - pad,
-    minY: rect.minY - pad,
-    maxX: rect.maxX + pad,
-    maxY: rect.maxY + pad,
-  });
-
-  // Check if a single segment intersects any rect (using existing lineIntersectsRect)
-  const segmentIntersectsAnyRect = (x1, y1, x2, y2, rects) => {
-    for (let i = 0; i < rects.length; i++) {
-      if (lineIntersectsRect(x1, y1, x2, y2, rects[i])) return true;
-    }
-    return false;
-  };
-
-  // Build a rounded SVG path from ordered polyline points
-  const buildRoundedPathFromPoints = (pts, r = 8) => {
-    if (!pts || pts.length === 0) return '';
-    if (pts.length === 1) return `M ${pts[0].x},${pts[0].y}`;
-    let d = `M ${pts[0].x},${pts[0].y}`;
-    for (let i = 1; i < pts.length; i++) {
-      const prev = pts[i - 1];
-      const curr = pts[i];
-      // For first and last segments, just draw straight line; corners handled via quadratic joins
-      if (i < pts.length - 1) {
-        const next = pts[i + 1];
-        // Determine the approach point before the corner and the exit point after the corner
-        // Move back from curr by radius along prev->curr, and forward from curr by radius along curr->next
-        const dx1 = curr.x - prev.x;
-        const dy1 = curr.y - prev.y;
-        const dx2 = next.x - curr.x;
-        const dy2 = next.y - curr.y;
-        const backX = curr.x - Math.sign(dx1) * r;
-        const backY = curr.y - Math.sign(dy1) * r;
-        const fwdX = curr.x + Math.sign(dx2) * r;
-        const fwdY = curr.y + Math.sign(dy2) * r;
-        d += ` L ${backX},${backY} Q ${curr.x},${curr.y} ${fwdX},${fwdY}`;
-      } else {
-        d += ` L ${curr.x},${curr.y}`;
-      }
-    }
-    return d;
-  };
-
-  // --- Edge label placement helpers ---
-  // Estimate text width heuristically for label fit checks
-  const estimateTextWidth = (text, fontSize = 24) => {
-    // Rough average width per character ~0.55 * fontSize for typical sans fonts
-    const avgCharWidth = fontSize * 0.55;
-    return Math.max(16, text.length * avgCharWidth);
-  };
-
-  // Build inflated obstacle rects from visible nodes to avoid placing labels over nodes
-  const getVisibleObstacleRects = (pad = 18) => {
-    const rects = [];
-    for (const node of nodes) {
-      if (!visibleNodeIds.has(node.id)) continue;
-      const dims = baseDimsById.get(node.id);
-      if (!dims) continue;
-      const rect = {
-        minX: node.x,
-        minY: node.y,
-        maxX: node.x + dims.currentWidth,
-        maxY: node.y + dims.currentHeight,
-      };
-      rects.push(inflateRect(rect, pad));
-    }
-    return rects;
-  };
-
-  // Compute distance from a point to a rect (outside-only, 0 if inside)
-  const pointToRectDistance = (x, y, rect) => {
-    const dx = Math.max(rect.minX - x, 0, x - rect.maxX);
-    const dy = Math.max(rect.minY - y, 0, y - rect.maxY);
-    return Math.sqrt(dx * dx + dy * dy);
-  };
-
-  // Check if axis-aligned label rect intersects any obstacle rect
-  const rectIntersectsAny = (rect, obstacles) => {
-    for (let i = 0; i < obstacles.length; i++) {
-      const o = obstacles[i];
-      const sep = rect.maxX < o.minX || rect.minX > o.maxX || rect.maxY < o.minY || rect.minY > o.maxY;
-      if (!sep) return true;
-    }
-    return false;
-  };
-
-  // Global label registry to track placed labels and avoid overlaps
-  const placedLabelsRef = useRef(new Map()); // edgeId -> { rect, position }
-  labelCacheResetRef.current = () => {
-    placedLabelsRef.current = new Map();
-  };
-  const clearLabelsTimeoutRef = useRef(null);
-  const stabilizeLabelPosition = useCallback((edgeId, x, y, angle = 0) => {
-    // Stabilize by quantizing to screen pixels and applying a deadband
-    // Convert canvas coords to screen space, snap to integer, convert back
-    const snappedX = Math.round(x * zoomLevel) / zoomLevel;
-    const snappedY = Math.round(y * zoomLevel) / zoomLevel;
-    const prev = placedLabelsRef.current.get(edgeId)?.position;
-    if (prev) {
-      const dx = Math.abs(snappedX - prev.x) * zoomLevel;
-      const dy = Math.abs(snappedY - prev.y) * zoomLevel;
-
-      // Disable deadband during node dragging for smooth updates
-      // Use smaller deadband for grid mode to handle quantized movements
-      let deadbandThreshold = 1; // Default 1px
-      if (draggingNodeInfo) {
-        deadbandThreshold = 0; // No deadband during dragging
-      } else if (gridMode !== 'off') {
-        deadbandThreshold = 0.5; // Smaller deadband for grid mode
-      }
-
-      if (dx <= deadbandThreshold && dy <= deadbandThreshold) {
-        return { x: prev.x, y: prev.y, angle: prev.angle ?? angle };
-      }
-    }
-    return { x: snappedX, y: snappedY, angle };
-  }, [zoomLevel, draggingNodeInfo, gridMode]);
-  // Clear placed labels when visible edges change (debounced during pan/zoom)
-  useEffect(() => {
-    if (clearLabelsTimeoutRef.current) {
-      clearTimeout(clearLabelsTimeoutRef.current);
-    }
-
-    // Distinguish between canvas panning/zooming and node dragging
-    const isCanvasPanningOrZooming = isPanningOrZooming.current && !draggingNodeInfo;
-
-    if (isCanvasPanningOrZooming) {
-      // Much longer debounce during canvas pan/zoom to prevent flicker
-      clearLabelsTimeoutRef.current = setTimeout(() => {
-        if (!isPanningOrZooming.current) {
-          placedLabelsRef.current = new Map();
-        }
-      }, 750); // Increased to 750ms for even more stability
-    } else {
-      // Clear immediately if we're not in a canvas pan/zoom operation
-      // This includes node dragging, where we want immediate label updates
-      placedLabelsRef.current = new Map();
-    }
-    return () => {
-      if (clearLabelsTimeoutRef.current) {
-        clearTimeout(clearLabelsTimeoutRef.current);
-      }
-    };
-  }, [visibleEdges, draggingNodeInfo]);
-
-  // Clear labels immediately when nodes are being dragged to ensure labels move with connections
-  useEffect(() => {
-    if (draggingNodeInfo) {
-      // Clear label cache when dragging starts to allow labels to recalculate
-      placedLabelsRef.current = new Map();
-    }
-  }, [draggingNodeInfo]);
-
-  // Additional effect to clear labels on every frame during dragging for grid mode
-  useEffect(() => {
-    if (draggingNodeInfo && gridMode !== 'off') {
-      // For grid mode, clear labels more frequently to handle quantized movements
-      const clearLabelsForGrid = () => {
-        if (draggingNodeInfo) {
-          placedLabelsRef.current = new Map();
-          requestAnimationFrame(clearLabelsForGrid);
-        }
-      };
-      requestAnimationFrame(clearLabelsForGrid);
-    }
-  }, [draggingNodeInfo, gridMode]);
-
-  // Clear labels when mouse moves significantly to ensure labels follow connections
-  const lastMousePosRef = useRef({ x: 0, y: 0 });
-  const clearLabelsOnMouseMove = useCallback((e) => {
-    const currentPos = { x: e.clientX, y: e.clientY };
-    const lastPos = lastMousePosRef.current;
-    const distance = Math.hypot(currentPos.x - lastPos.x, currentPos.y - lastPos.y);
-
-    // Reduce threshold for grid mode to ensure smooth updates with quantized movements
-    const threshold = gridMode !== 'off' ? 3 : 10;
-
-    // If mouse moved more than threshold, clear label cache to allow recalculation
-    if (distance > threshold) {
-      placedLabelsRef.current = new Map();
-      lastMousePosRef.current = currentPos;
-    }
-  }, [gridMode]);
-
-  // Advanced label placement system with stacking and side placement
-  const chooseLabelPlacement = (pathPoints, connectionName, fontSize = 24, edgeId = null) => {
-    const obstacles = getVisibleObstacleRects(18);
-    const textWidth = estimateTextWidth(connectionName, fontSize);
-    const textHeight = fontSize * 1;
-
-    // Add existing labels as obstacles
-    const allObstacles = [...obstacles];
-    if (placedLabelsRef.current.size > 0) {
-      placedLabelsRef.current.forEach((labelData, id) => {
-        if (id !== edgeId) { // Don't avoid our own label
-          allObstacles.push(labelData.rect);
-        }
-      });
-    }
-
-    // Strategy 1: Try to place on the path itself
-    const pathPlacement = tryPathPlacement(pathPoints, textWidth, textHeight, allObstacles);
-    if (pathPlacement) return pathPlacement;
-
-    // Strategy 2: Try parallel placement alongside the path
-    const parallelPlacement = tryParallelPlacement(pathPoints, textWidth, textHeight, allObstacles);
-    if (parallelPlacement) return parallelPlacement;
-
-    // Strategy 3: Try perpendicular placement at midpoint
-    const perpendicularPlacement = tryPerpendicularPlacement(pathPoints, textWidth, textHeight, allObstacles);
-    if (perpendicularPlacement) return perpendicularPlacement;
-
-    // Strategy 4: Try stacking with similar direction labels
-    const stackedPlacement = tryStackedPlacement(pathPoints, textWidth, textHeight, allObstacles, edgeId);
-    if (stackedPlacement) return stackedPlacement;
-
-    // Fallback: midpoint with best available offset
-    return getFallbackPlacement(pathPoints, textWidth, textHeight, allObstacles);
-  };
-  // Try to place label directly on the path (horizontal segments preferred)
-  const tryPathPlacement = (pathPoints, textWidth, textHeight, obstacles) => {
-    const candidates = [];
-    const minSegmentLength = Math.max(64, textWidth + 24);
-
-    for (let i = 0; i < pathPoints.length - 1; i++) {
-      const a = pathPoints[i];
-      const b = pathPoints[i + 1];
-      const dx = b.x - a.x;
-      const dy = b.y - a.y;
-      const segLen = Math.hypot(dx, dy);
-
-      if (segLen < minSegmentLength) continue;
-
-      const isHorizontal = Math.abs(dy) < 0.5;
-      const isVertical = Math.abs(dx) < 0.5;
-
-      // Prefer horizontal, then vertical, then diagonal
-      let priority = 0;
-      let angle = 0;
-      if (isHorizontal) {
-        priority = 3;
-        angle = 0;
-      } else if (isVertical) {
-        priority = 2;
-        angle = 90;
-      } else {
-        priority = 1;
-        angle = Math.atan2(dy, dx) * (180 / Math.PI);
-      }
-
-      const cx = (a.x + b.x) / 2;
-      const cy = (a.y + b.y) / 2;
-
-      // Try small offsets perpendicular to the segment
-      const perpX = -dy / segLen; // perpendicular unit vector
-      const perpY = dx / segLen;
-
-      const offsets = [0, 12, -12, 24, -24];
-      for (const offset of offsets) {
-        const testX = cx + perpX * offset;
-        const testY = cy + perpY * offset;
-
-        const rect = {
-          minX: testX - textWidth / 2,
-          maxX: testX + textWidth / 2,
-          minY: testY - textHeight / 2,
-          maxY: testY + textHeight / 2,
-        };
-
-        if (!rectIntersectsAny(rect, obstacles)) {
-          const score = priority * 100 + segLen - Math.abs(offset);
-          candidates.push({ x: testX, y: testY, angle, score });
-        }
-      }
-    }
-
-    if (candidates.length > 0) {
-      candidates.sort((a, b) => b.score - a.score);
-      return candidates[0];
-    }
-
-    return null;
-  };
-  // Try to place label parallel to the overall path direction, offset to the side
-  const tryParallelPlacement = (pathPoints, textWidth, textHeight, obstacles) => {
-    if (pathPoints.length < 2) return null;
-
-    const start = pathPoints[0];
-    const end = pathPoints[pathPoints.length - 1];
-    const dx = end.x - start.x;
-    const dy = end.y - start.y;
-    const length = Math.hypot(dx, dy);
-
-    if (length < 10) return null;
-
-    const dirX = dx / length;
-    const dirY = dy / length;
-    const perpX = -dirY; // perpendicular
-    const perpY = dirX;
-
-    const midX = (start.x + end.x) / 2;
-    const midY = (start.y + end.y) / 2;
-
-    const angle = Math.atan2(dy, dx) * (180 / Math.PI);
-
-    // Try different parallel offsets
-    const offsets = [40, -40, 60, -60, 80, -80];
-    for (const offset of offsets) {
-      const testX = midX + perpX * offset;
-      const testY = midY + perpY * offset;
-
-      const rect = {
-        minX: testX - textWidth / 2,
-        maxX: testX + textWidth / 2,
-        minY: testY - textHeight / 2,
-        maxY: testY + textHeight / 2,
-      };
-
-      if (!rectIntersectsAny(rect, obstacles)) {
-        return { x: testX, y: testY, angle, score: 50 - Math.abs(offset) * 0.1 };
-      }
-    }
-
-    return null;
-  };
-  // Try perpendicular placement (good for short connections)
-  const tryPerpendicularPlacement = (pathPoints, textWidth, textHeight, obstacles) => {
-    if (pathPoints.length < 2) return null;
-
-    const start = pathPoints[0];
-    const end = pathPoints[pathPoints.length - 1];
-    const midX = (start.x + end.x) / 2;
-    const midY = (start.y + end.y) / 2;
-
-    // Try horizontal placement above/below the midpoint
-    const offsets = [30, -30, 50, -50, 70, -70];
-    for (const offset of offsets) {
-      const testX = midX;
-      const testY = midY + offset;
-
-      const rect = {
-        minX: testX - textWidth / 2,
-        maxX: testX + textWidth / 2,
-        minY: testY - textHeight / 2,
-        maxY: testY + textHeight / 2,
-      };
-
-      if (!rectIntersectsAny(rect, obstacles)) {
-        return { x: testX, y: testY, angle: 0, score: 30 - Math.abs(offset) * 0.1 };
-      }
-    }
-
-    return null;
-  };
-
-  // Try stacking with labels that have similar direction/axis
-  const tryStackedPlacement = (pathPoints, textWidth, textHeight, obstacles, edgeId) => {
-    if (pathPoints.length < 2 || placedLabelsRef.current.size === 0) return null;
-
-    const start = pathPoints[0];
-    const end = pathPoints[pathPoints.length - 1];
-    const pathAngle = Math.atan2(end.y - start.y, end.x - start.x) * (180 / Math.PI);
-    const normalizedAngle = ((pathAngle % 180) + 180) % 180; // 0-180 range
-
-    // Find labels with similar direction (within 15 degrees)
-    const similarLabels = [];
-    placedLabelsRef.current.forEach((labelData, id) => {
-      if (id === edgeId) return;
-      const labelAngle = labelData.position.angle || 0;
-      const normalizedLabelAngle = ((labelAngle % 180) + 180) % 180;
-      const angleDiff = Math.min(
-        Math.abs(normalizedAngle - normalizedLabelAngle),
-        180 - Math.abs(normalizedAngle - normalizedLabelAngle)
-      );
-
-      if (angleDiff < 15) { // Similar direction
-        similarLabels.push(labelData);
-      }
-    });
-
-    if (similarLabels.length === 0) return null;
-
-    // Try stacking near similar labels
-    for (const similarLabel of similarLabels) {
-      const stackOffsets = [
-        { x: 0, y: textHeight + 8 },    // Stack below
-        { x: 0, y: -(textHeight + 8) }, // Stack above
-        { x: textWidth + 12, y: 0 },    // Stack right
-        { x: -(textWidth + 12), y: 0 }  // Stack left
-      ];
-
-      for (const offset of stackOffsets) {
-        const testX = similarLabel.position.x + offset.x;
-        const testY = similarLabel.position.y + offset.y;
-
-        const rect = {
-          minX: testX - textWidth / 2,
-          maxX: testX + textWidth / 2,
-          minY: testY - textHeight / 2,
-          maxY: testY + textHeight / 2,
-        };
-
-        if (!rectIntersectsAny(rect, obstacles)) {
-          return {
-            x: testX,
-            y: testY,
-            angle: similarLabel.position.angle || 0,
-            score: 40 - Math.abs(offset.x) * 0.05 - Math.abs(offset.y) * 0.05
-          };
-        }
-      }
-    }
-
-    return null;
-  };
-
-  // Fallback placement at path midpoint with best available offset
-  const getFallbackPlacement = (pathPoints, textWidth, textHeight, obstacles) => {
-    let totalLen = 0;
-    const lens = [];
-    for (let i = 0; i < pathPoints.length - 1; i++) {
-      const a = pathPoints[i];
-      const b = pathPoints[i + 1];
-      const len = Math.hypot(b.x - a.x, b.y - a.y);
-      lens.push(len);
-      totalLen += len;
-    }
-
-    let t = totalLen / 2;
-    let x = pathPoints[0]?.x || 0;
-    let y = pathPoints[0]?.y || 0;
-    for (let i = 0; i < pathPoints.length - 1; i++) {
-      if (t <= lens[i]) {
-        const a = pathPoints[i];
-        const b = pathPoints[i + 1];
-        const u = lens[i] === 0 ? 0 : t / lens[i];
-        x = a.x + (b.x - a.x) * u;
-        y = a.y + (b.y - a.y) * u;
-        break;
-      } else {
-        t -= lens[i];
-      }
-    }
-
-    // Try various offsets to find the least problematic placement
-    const offsets = [
-      { x: 0, y: 0 }, { x: 0, y: -20 }, { x: 0, y: 20 },
-      { x: -30, y: 0 }, { x: 30, y: 0 },
-      { x: -25, y: -15 }, { x: 25, y: -15 },
-      { x: -25, y: 15 }, { x: 25, y: 15 }
-    ];
-
-    for (const offset of offsets) {
-      const testX = x + offset.x;
-      const testY = y + offset.y;
-      const rect = {
-        minX: testX - textWidth / 2,
-        maxX: testX + textWidth / 2,
-        minY: testY - textHeight / 2,
-        maxY: testY + textHeight / 2,
-      };
-
-      if (!rectIntersectsAny(rect, obstacles)) {
-        return { x: testX, y: testY, angle: 0, score: 0 };
-      }
-    }
-
-    // Ultimate fallback - just place it at midpoint
-    return { x, y, angle: 0, score: 0 };
-  };
-  // Orthogonal routing with smart stem usage - use stems only when needed
-
-
-
-  // Deterministic tiny lane offset to reduce parallel overlaps for clean routing
-  const hashString = (str) => {
-    let h = 0;
-    for (let i = 0; i < str.length; i++) {
-      h = ((h << 5) - h) + str.charCodeAt(i);
-      h |= 0;
-    }
-    return Math.abs(h);
-  };
+  // --- Clean routing helpers and Edge Label Placement moved to src/utils/canvas/edgeLabelPlacement.js ---
   // --- Mouse Drag Panning (unchanged) ---
   // Throttle edge-hover detection to reduce per-frame work
   const lastHoverCheckRef = useRef(0);
@@ -6392,7 +5096,7 @@ function NodeCanvas() {
   const pendingHoverCheck = useRef(null);
   const hoverCheckScheduled = useRef(false);
 
-  const handleMouseMove = async (e) => {
+  async function handleMouseMove(e) {
     // Update mouse position for edge panning
     mousePositionRef.current = { x: e.clientX, y: e.clientY };
 
@@ -6886,7 +5590,7 @@ function NodeCanvas() {
     // (Removed per-move extra smoothing to avoid double updates)
   };
 
-  const handleMouseDown = (e) => {
+  async function handleMouseDown(e) {
     // Ignore right-clicks (button === 2) so context menu can handle them without locking canvas panning
     if (e && e.button === 2) {
       try { e.preventDefault(); e.stopPropagation(); } catch { }
@@ -6945,7 +5649,7 @@ function NodeCanvas() {
     panVelocityHistoryRef.current = [{ x: e.clientX, y: e.clientY, time: performance.now() }];
     console.log('[Mouse Down] History reset to 1 sample');
   };
-  const handleMouseUp = (e) => {
+  async function handleMouseUp(e) {
 
     // console.log('[Mouse Up] Called, history length:', panVelocityHistoryRef.current.length, 'Stack:', new Error().stack.split('\n').slice(1, 4).join('\n'));
 
@@ -9784,10 +8488,10 @@ function NodeCanvas() {
           onMouseUp={handleMouseUpCanvas}
           onMouseLeave={clearVisionAid}
           onClick={handleCanvasClick}
-          onTouchStart={handleTouchStartCanvas}
-          onTouchMove={handleTouchMoveCanvas}
-          onTouchEnd={handleTouchEndCanvas}
-          onTouchCancel={handleTouchEndCanvas}
+          onTouchStart={touch.handleTouchStartCanvas}
+          onTouchMove={touch.handleTouchMoveCanvas}
+          onTouchEnd={touch.handleTouchEndCanvas}
+          onTouchCancel={touch.handleTouchEndCanvas}
           onContextMenu={(e) => {
             // Prevent context menu on canvas (disable long-press right-click behavior)
             e.preventDefault();
@@ -10900,7 +9604,7 @@ function NodeCanvas() {
                                   angle = stabilized.angle || 0;
                                 } else {
                                   const pathPoints = generateManhattanRoutingPath(edge, sourceNode, destNode, sNodeDims, eNodeDims, manhattanBends);
-                                  const placement = chooseLabelPlacement(pathPoints, connectionName, 24, edge.id);
+                                  const placement = chooseLabelPlacement(pathPoints, connectionName, nodes, visibleNodeIds, baseDimsById, placedLabelsRef.current, 24, edge.id);
                                   if (placement) {
                                     midX = placement.x;
                                     midY = placement.y;
@@ -10943,7 +9647,7 @@ function NodeCanvas() {
                                   angle = stabilized.angle || 0;
                                 } else {
                                   const pathPoints = generateCleanRoutingPath(edge, sourceNode, destNode, sNodeDims, eNodeDims, cleanLaneOffsets, cleanLaneSpacing);
-                                  const placement = chooseLabelPlacement(pathPoints, connectionName, 24, edge.id);
+                                  const placement = chooseLabelPlacement(pathPoints, connectionName, nodes, visibleNodeIds, baseDimsById, placedLabelsRef.current, 24, edge.id);
                                   if (placement) {
                                     midX = placement.x;
                                     midY = placement.y;
@@ -12118,7 +10822,7 @@ function NodeCanvas() {
                                   angle = stabilized.angle || 0;
                                 } else {
                                   const pathPoints = generateManhattanRoutingPath(edge, sourceNode, destNode, sNodeDims, eNodeDims, manhattanBends);
-                                  const placement = chooseLabelPlacement(pathPoints, connectionName, 24, edge.id);
+                                  const placement = chooseLabelPlacement(pathPoints, connectionName, nodes, visibleNodeIds, baseDimsById, placedLabelsRef.current, 24, edge.id);
                                   if (placement) {
                                     midX = placement.x;
                                     midY = placement.y;
@@ -12161,7 +10865,7 @@ function NodeCanvas() {
                                   angle = stabilized.angle || 0;
                                 } else {
                                   const pathPoints = generateCleanRoutingPath(edge, sourceNode, destNode, sNodeDims, eNodeDims, cleanLaneOffsets, cleanLaneSpacing);
-                                  const placement = chooseLabelPlacement(pathPoints, connectionName, 24, edge.id);
+                                  const placement = chooseLabelPlacement(pathPoints, connectionName, nodes, visibleNodeIds, baseDimsById, placedLabelsRef.current, 24, edge.id);
                                   if (placement) {
                                     midX = placement.x;
                                     midY = placement.y;
@@ -12820,12 +11524,12 @@ function NodeCanvas() {
                             isSelected={selectedInstanceIds.has(node.id)}
                             isDragging={false} // These are explicitly not the dragging node
                             onMouseDown={(e) => handleNodeMouseDown(node, e)}
-                            onPointerDown={(e) => handleNodePointerDown(node, e)}
-                            onPointerMove={(e) => handleNodePointerMove(node, e)}
-                            onPointerUp={(e) => handleNodePointerUp(node, e)}
-                            onPointerCancel={(e) => handleNodePointerCancel(node, e)}
-                            onTouchStart={(e) => handleNodeTouchStart(node, e)}
-                            onTouchEnd={(e) => handleNodeTouchEnd(node, e)}
+                            onPointerDown={(e) => touch.handleNodePointerDown(node, e)}
+                            onPointerMove={(e) => touch.handleNodePointerMove(node, e)}
+                            onPointerUp={(e) => touch.handleNodePointerUp(node, e)}
+                            onPointerCancel={(e) => touch.handleNodePointerCancel(node, e)}
+                            onTouchStart={(e) => touch.handleNodeTouchStart(node, e)}
+                            onTouchEnd={(e) => touch.handleNodeTouchEnd(node, e)}
                             onContextMenu={(e) => {
                               e.preventDefault();
                               e.stopPropagation();
@@ -13040,12 +11744,12 @@ function NodeCanvas() {
                                 isSelected={selectedInstanceIds.has(activeNodeToRender.id)}
                                 isDragging={false} // Explicitly not the dragging node if rendered here
                                 onMouseDown={(e) => handleNodeMouseDown(activeNodeToRender, e)}
-                                onPointerDown={(e) => handleNodePointerDown(activeNodeToRender, e)}
-                                onPointerMove={(e) => handleNodePointerMove(activeNodeToRender, e)}
-                                onPointerUp={(e) => handleNodePointerUp(activeNodeToRender, e)}
-                                onPointerCancel={(e) => handleNodePointerCancel(activeNodeToRender, e)}
-                                onTouchStart={(e) => handleNodeTouchStart(activeNodeToRender, e)}
-                                onTouchEnd={(e) => handleNodeTouchEnd(activeNodeToRender, e)}
+                                onPointerDown={(e) => touch.handleNodePointerDown(activeNodeToRender, e)}
+                                onPointerMove={(e) => touch.handleNodePointerMove(activeNodeToRender, e)}
+                                onPointerUp={(e) => touch.handleNodePointerUp(activeNodeToRender, e)}
+                                onPointerCancel={(e) => touch.handleNodePointerCancel(activeNodeToRender, e)}
+                                onTouchStart={(e) => touch.handleNodeTouchStart(activeNodeToRender, e)}
+                                onTouchEnd={(e) => touch.handleNodeTouchEnd(activeNodeToRender, e)}
                                 onContextMenu={(e) => {
                                   e.preventDefault();
                                   e.stopPropagation();
@@ -13135,12 +11839,12 @@ function NodeCanvas() {
                               isSelected={selectedInstanceIds.has(draggingNodeToRender.id)}
                               isDragging={true} // This is the dragging node
                               onMouseDown={(e) => handleNodeMouseDown(draggingNodeToRender, e)}
-                              onPointerDown={(e) => handleNodePointerDown(draggingNodeToRender, e)}
-                              onPointerMove={(e) => handleNodePointerMove(draggingNodeToRender, e)}
-                              onPointerUp={(e) => handleNodePointerUp(draggingNodeToRender, e)}
-                              onPointerCancel={(e) => handleNodePointerCancel(draggingNodeToRender, e)}
-                              onTouchStart={(e) => handleNodeTouchStart(draggingNodeToRender, e)}
-                              onTouchEnd={(e) => handleNodeTouchEnd(draggingNodeToRender, e)}
+                              onPointerDown={(e) => touch.handleNodePointerDown(draggingNodeToRender, e)}
+                              onPointerMove={(e) => touch.handleNodePointerMove(draggingNodeToRender, e)}
+                              onPointerUp={(e) => touch.handleNodePointerUp(draggingNodeToRender, e)}
+                              onPointerCancel={(e) => touch.handleNodePointerCancel(draggingNodeToRender, e)}
+                              onTouchStart={(e) => touch.handleNodeTouchStart(draggingNodeToRender, e)}
+                              onTouchEnd={(e) => touch.handleNodeTouchEnd(draggingNodeToRender, e)}
                               onContextMenu={(e) => {
                                 e.preventDefault();
                                 e.stopPropagation();

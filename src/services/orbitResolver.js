@@ -53,7 +53,7 @@ export async function fetchOrbitCandidatesForPrototype(prototype, options = {}) 
     const context = { contextFit: 0.85 };
 
     const providers = [];
-    
+
     // 0) Local catalog-first: Orbit index entries persisted in the store
     providers.push(
       findLocalOrbitCandidates(prototype, { limit: 48 })
@@ -82,7 +82,7 @@ export async function fetchOrbitCandidatesForPrototype(prototype, options = {}) 
     );
 
     console.log(`🌐 Querying semantic web for "${seed}"`);
-    
+
     // 1) Semantic web query utility (most reliable)
     providers.push(
       findRelatedConcepts(seed, { limit: 32, timeout: 10000 }).then((results) => {
@@ -173,7 +173,7 @@ export async function fetchOrbitCandidatesForPrototype(prototype, options = {}) 
     let aggregated = [];
     console.log(`⏳ Waiting for ${providers.length} providers to complete...`);
     const batches = await Promise.allSettled(providers);
-    
+
     batches.forEach((b, idx) => {
       if (b.status === 'fulfilled' && Array.isArray(b.value)) {
         console.log(`✅ Provider ${idx + 1} returned ${b.value.length} candidates`);
@@ -185,10 +185,13 @@ export async function fetchOrbitCandidatesForPrototype(prototype, options = {}) 
 
     console.log(`📈 Total raw candidates before dedup: ${aggregated.length}`);
 
-    // Dedupe by uri+name
+    // Dedupe by id to prevent React key collisions and redundant visual nodes
     const seen = new Set();
     aggregated = aggregated.filter((c) => {
-      const key = `${c.uri || ''}|${c.name}`.toLowerCase();
+      // Use id as the primary uniqueness constraint for React keys
+      // If two candidates have same source+uri but different names, they collide.
+      // We keep the first one encountered.
+      const key = c.id;
       if (seen.has(key)) return false;
       seen.add(key);
       return true;
