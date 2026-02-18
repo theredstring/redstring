@@ -3,6 +3,7 @@ import { Search, Loader2, X, RotateCcw } from 'lucide-react';
 import Dropdown from '../../Dropdown.jsx';
 import DraggableConceptCard from '../items/DraggableConceptCard.jsx';
 import GhostSemanticNode from '../items/GhostSemanticNode.jsx';
+import ConceptDetailView from './ConceptDetailView.jsx';
 import { enhancedSemanticSearch } from '../../../services/semanticWebQuery.js';
 import { knowledgeFederation } from '../../../services/knowledgeFederation.js';
 import { normalizeToCandidate, candidateToConcept } from '../../../services/candidates.js';
@@ -111,9 +112,12 @@ const STARTER_PACK = [
 // Left Semantic Discovery View - Concept Discovery Engine
 const LeftSemanticDiscoveryView = ({ storeActions, nodePrototypesMap, openRightPanelNodeTab, rightPanelTabs, activeDefinitionNodeId, selectedInstanceIds = new Set(), hydratedNodes = [], onLoadWikidataCatalog }) => {
   const [isSearching, setIsSearching] = useState(false);
+  const [isFetchingDetails, setIsFetchingDetails] = useState(false);
   const [discoveredConcepts, setDiscoveredConcepts] = useState([]);
   const [searchHistory, setSearchHistory] = useState([]);
   const [selectedConcept, setSelectedConcept] = useState(null);
+  const [focusedConcept, setFocusedConcept] = useState(null);
+  const [navigationStack, setNavigationStack] = useState([]);
   const [viewMode, setViewMode] = useState('discover'); // 'discover', 'history', 'catalog'
   const [manualQuery, setManualQuery] = useState('');
   const [expandingNodeId, setExpandingNodeId] = useState(null);
@@ -644,9 +648,16 @@ const LeftSemanticDiscoveryView = ({ storeActions, nodePrototypesMap, openRightP
         ? entityData.descriptions[0].text
         : `A concept related to ${queryForConn}`;
       const bestType = entityData.types && entityData.types.length > 0 ? entityData.types[0] : 'Thing';
+      const connectionToQuery = (results.relationships || []).find(rel =>
+        (rel.source === entityName && rel.target === queryForConn) ||
+        (rel.target === entityName && rel.source === queryForConn)
+      );
+      const connectionPredicate = connectionToQuery ? formatPredicate(connectionToQuery.type || connectionToQuery.predicate) : null;
+
       return {
         id: `federation-${entityName.replace(/\s+/g, '_')}`,
         name: cleanTitle(entityName),
+        predicate: connectionPredicate,
         description: bestDescription,
         category: bestType,
         source: entityData.sources?.join(', ') || 'federated',
@@ -659,7 +670,8 @@ const LeftSemanticDiscoveryView = ({ storeActions, nodePrototypesMap, openRightP
           connectionInfo: {
             type: 'federated',
             value: entityName === queryForConn ? 'seed_entity' : 'related_entity',
-            originalEntity: queryForConn
+            originalEntity: queryForConn,
+            predicate: connectionPredicate
           }
         },
         color: generateConceptColor(entityName),
@@ -768,6 +780,77 @@ const LeftSemanticDiscoveryView = ({ storeActions, nodePrototypesMap, openRightP
     console.log(`[SemanticDiscovery] Triggering search for concept: "${conceptName}"`);
     setManualQuery(conceptName);
     await performSearch(conceptName);
+  };
+
+  // Effect: Fetch details when focused concept changes
+  useEffect(() => {
+    if (!focusedConcept) return;
+
+    // If relationships are missing or very sparse (<= 1), fetch more details
+    // We also check if we've already fetched to avoid loops (add a flag or check rich data)
+    if (!focusedConcept._hasFullDetails && (!focusedConcept.relationships || focusedConcept.relationships.length <= 1)) {
+      fetchConceptDetails(focusedConcept);
+    }
+  }, [focusedConcept]);
+
+  const fetchConceptDetails = async (concept) => {
+    if (isFetchingDetails) return;
+    setIsFetchingDetails(true);
+    try {
+      console.log(`[SemanticDetail] Fetching deep details for ${concept.name}`);
+      // Use knowledge federation to find related entities (SPARQL/API)
+      // This will use dbpedia/wikidata to find what links TO and FROM this entity
+      const relatedResults = await knowledgeFederation.importKnowledgeCluster(concept.name, {
+        maxDepth: 1,
+        maxEntitiesPerLevel: 30, // Get a good set of connections
+        includeRelationships: true,
+        includeSources: ['wikidata', 'dbpedia']
+      });
+
+      // Transform results into relationship objects attached to this concept
+      // relationships: [{ source, target, predicate, type }]
+      const newRelationships = [];
+      const seenRels = new Set();
+
+      const seedName = concept.name;
+
+      if (relatedResults && relatedResults.relationships) {
+        relatedResults.relationships.forEach(rel => {
+          // We only care about relationships involving our seed concept
+          const isSource = rel.source === seedName;
+          const isTarget = rel.target === seedName;
+
+          if (isSource || isTarget) {
+            const signature = `${rel.source}-${rel.predicate}-${rel.target}`;
+            if (!seenRels.has(signature)) {
+              seenRels.add(signature);
+              newRelationships.push({
+                source: rel.source,
+                target: rel.target,
+                predicate: formatPredicate(rel.predicate || rel.type),
+                type: rel.type
+              });
+            }
+          }
+        });
+      }
+
+      // Update the focused concept in place (or clone) with new data
+      setFocusedConcept(prev => {
+        if (!prev || prev.id !== concept.id) return prev;
+        return {
+          ...prev,
+          relationships: newRelationships,
+          _hasFullDetails: true // Mark as fetched
+        };
+      });
+      console.log(`[SemanticDetail] Loaded ${newRelationships.length} relationships for ${concept.name}`);
+
+    } catch (err) {
+      console.error('[SemanticDetail] Failed to fetch details:', err);
+    } finally {
+      setIsFetchingDetails(false);
+    }
   };
 
   // Expose search function globally for concept card search buttons
@@ -1225,7 +1308,48 @@ const LeftSemanticDiscoveryView = ({ storeActions, nodePrototypesMap, openRightP
           </div>
         )}
 
-        {viewMode === 'discover' && (
+        {viewMode === 'discover' && focusedConcept ? (
+          <ConceptDetailView
+            concept={focusedConcept}
+            isLoading={isFetchingDetails}
+            onBack={() => {
+              if (navigationStack.length > 0) {
+                const prev = navigationStack[navigationStack.length - 1];
+                setFocusedConcept(prev);
+                setNavigationStack(prevStack => prevStack.slice(0, -1));
+              } else {
+                setFocusedConcept(null);
+              }
+            }}
+            onNavigate={(targetName) => {
+              // Browser-style navigation: Push current to stack and load new concept
+              setNavigationStack(prev => [...prev, focusedConcept]);
+
+              // Create a temporary concept object to show while loading
+              // The useEffect hook will detect this and fetch full details
+              const newConcept = {
+                id: `nav-${targetName}-${Date.now()}`,
+                name: targetName,
+                description: '',
+                source: 'loading...',
+                relationships: [], // Empty relationships trigger the fetch
+                color: '#8B0000',
+                semanticMetadata: {
+                  confidence: 0,
+                  externalLinks: []
+                },
+                _hasFullDetails: false
+              };
+
+              setFocusedConcept(newConcept);
+            }}
+            onMaterialize={materializeConcept}
+            onPreviewGraph={(concept) => {
+              console.log('Preview graph for', concept.name);
+              // Phase 4: Implement graph preview
+            }}
+          />
+        ) : viewMode === 'discover' && (
           <>
             {/* Enhanced Context Display */}
             {(contexts.panel || contexts.graph || selectedNode) && (
@@ -1420,6 +1544,10 @@ const LeftSemanticDiscoveryView = ({ storeActions, nodePrototypesMap, openRightP
                       onMaterialize={materializeConcept}
                       onUnsave={unsaveConcept}
                       onSelect={setSelectedConcept}
+                      onFocus={(concept) => {
+                        setNavigationStack([]); // Clear stack on new entry from list
+                        setFocusedConcept(concept);
+                      }}
                       isSelected={selectedConcept?.id === concept.id}
                     />
                   ))}

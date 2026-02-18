@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo } from 'react';
 import { useDrag } from 'react-dnd';
 import { getEmptyImage } from 'react-dnd-html5-backend';
-import { Search, Bookmark } from 'lucide-react';
+import { Search, Bookmark, ArrowRight } from 'lucide-react';
 import useGraphStore from '../../../store/graphStore.jsx';
 import { getTextColor } from '../../../utils/colorUtils';
 
@@ -9,7 +9,7 @@ const ItemTypes = {
   SPAWNABLE_NODE: 'spawnable_node'
 };
 
-const DraggableConceptCard = ({ concept, index = 0, onMaterialize, onUnsave, onSelect, isSelected }) => {
+const DraggableConceptCard = ({ concept, index = 0, onMaterialize, onUnsave, onSelect, onFocus, isSelected }) => {
   const [{ isDragging }, drag, preview] = useDrag(() => ({
     type: ItemTypes.SPAWNABLE_NODE,
     item: {
@@ -81,7 +81,12 @@ const DraggableConceptCard = ({ concept, index = 0, onMaterialize, onUnsave, onS
         animation: `conceptSlideIn 0.3s ease ${index * 50}ms both`,
         pointerEvents: 'auto' // Ensure drag still works
       }}
-      title="Drag to canvas"
+      title="Click to view details, drag to canvas"
+      onClick={() => {
+        if (!isDragging && onFocus) {
+          onFocus(concept);
+        }
+      }}
     >
       {/* Search Button - Large, panel background colored icon with square hit box */}
       <div
@@ -159,7 +164,7 @@ const DraggableConceptCard = ({ concept, index = 0, onMaterialize, onUnsave, onS
         fontFamily: "'EmOne', sans-serif",
         fontSize: '16px', // Larger title
         fontWeight: 'bold',
-        marginBottom: '8px',
+        marginBottom: '4px', // Reduced margin
         lineHeight: '1.3',
         paddingRight: '45px', // Adjusted for chip padding + icons
         wordWrap: 'break-word',
@@ -170,6 +175,39 @@ const DraggableConceptCard = ({ concept, index = 0, onMaterialize, onUnsave, onS
       }}>
         {concept.name}
       </div>
+
+      {/* Connection Context Header (Moved Below Name) */}
+      {(concept.semanticMetadata?.connectionInfo?.predicate || concept.defaultPredicate) && (
+        <div style={{
+          fontSize: '10px',
+          color: getTextColor(concept.color),
+          opacity: 0.8,
+          fontFamily: "'EmOne', sans-serif",
+          marginBottom: '6px',
+          fontStyle: 'italic',
+          paddingRight: '45px',
+          display: 'flex',
+          alignItems: 'center',
+          gap: '4px'
+        }}>
+          {/* If we have the original entity name, show Subject -> Predicate -> Object format */}
+          {concept.semanticMetadata?.connectionInfo?.originalEntity ? (
+            <>
+              <span style={{ maxWidth: '80px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                {concept.semanticMetadata.connectionInfo.originalEntity}
+              </span>
+              <ArrowRight size={10} />
+              <span>
+                {concept.semanticMetadata.connectionInfo.predicate || concept.defaultPredicate}
+              </span>
+              <ArrowRight size={10} />
+            </>
+          ) : (
+            // Fallback for when we don't know the exact subject (e.g. general search results)
+            <span>via {concept.semanticMetadata?.connectionInfo?.predicate || concept.defaultPredicate}</span>
+          )}
+        </div>
+      )}
 
       {/* Truncated Description */}
       <div style={{

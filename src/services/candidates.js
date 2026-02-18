@@ -103,7 +103,11 @@ export function candidateToConcept(candidate) {
       originalUri: candidate.uri,
       equivalentClasses: candidate.equivalentClasses,
       externalLinks: candidate.externalLinks,
-      confidence: Math.max(0.5, Math.min(1.0, candidate.score || 0.8))
+      confidence: Math.max(0.5, Math.min(1.0, candidate.score || 0.8)),
+      connectionInfo: {
+        predicate: candidate.predicate,
+        source: candidate.source
+      }
     },
     // Attach predicate for auto-edge creation on promote
     defaultPredicate: candidate.predicate || null

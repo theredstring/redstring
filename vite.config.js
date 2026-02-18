@@ -23,7 +23,7 @@ export default defineConfig({
     proxy: {
       // Primary API/bridge proxy to the semantic server
       '/api': {
-        target: process.env.VITE_API_TARGET || 'http://localhost:4002',
+        target: process.env.VITE_API_TARGET || 'http://localhost:3001',
         changeOrigin: true,
       },
       '/api/conceptnet': {
@@ -53,6 +53,6 @@ export default defineConfig({
     environment: 'jsdom',
     // setupFiles: './src/setupTests.js', // Optional: if you need setup files
     // Include both test/ and src/ directories
-    include: ['test/**/*.{test,spec}.{js,jsx}', 'src/**/*.{test,spec}.{js,jsx}'], 
+    include: ['test/**/*.{test,spec}.{js,jsx}', 'src/**/*.{test,spec}.{js,jsx}'],
   },
 });
