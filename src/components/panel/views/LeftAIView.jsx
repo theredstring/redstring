@@ -615,7 +615,11 @@ const LeftAIView = ({ compact = false, activeGraphId, graphsMap, edgesMap }) => 
             name: g.name,
             instances: instancesArray,
             edgeIds: g.edgeIds || [],
-            groups: g.groups || []
+            groups: g.groups instanceof Map
+              ? Array.from(g.groups.values())
+              : Array.isArray(g.groups)
+                ? g.groups
+                : Object.values(g.groups || {})
           };
         }) : [],
         nodePrototypes: activeGraphData ? (() => {
