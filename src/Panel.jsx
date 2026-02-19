@@ -13,6 +13,7 @@ import ColorPicker from './ColorPicker'; // Import the new ColorPicker component
 import PanelColorPickerPortal from './components/PanelColorPickerPortal.jsx';
 import NodeSelectionGrid from './NodeSelectionGrid'; // Import NodeSelectionGrid for type selection
 import UnifiedSelector from './UnifiedSelector'; // Import the new UnifiedSelector
+import { debugConfig } from './utils/debugConfig.js';
 import useGraphStore, {
   getActiveGraphId,
   getHydratedNodesForGraph,
@@ -359,7 +360,7 @@ const INITIAL_PANEL_WIDTH = 280; // Match NodeCanvas default
 
 // Feature flag: toggle visibility of the "All Things" tab in the left panel header
 const ENABLE_ALL_THINGS_TAB = true;
-const ENABLE_AI_AGENT = false;
+// Wizard enablement is now handled by debugConfig
 
 // Helper to read width from storage
 const getInitialWidth = (side, defaultValue) => {
@@ -797,6 +798,17 @@ const Panel = memo(forwardRef(
     const [tempTitle, setTempTitle] = useState(''); // Used by right panel node tabs
     const [editingProjectTitle, setEditingProjectTitle] = useState(false); // Used by right panel home tab
     const [tempProjectTitle, setTempProjectTitle] = useState(''); // Used by right panel home tab
+
+    // Debug config state for Wizard
+    const [enableWizard, setEnableWizard] = useState(debugConfig.isWizardEnabled());
+
+    // Listen for debug config changes
+    useEffect(() => {
+      const unsubscribe = debugConfig.addListener((newConfig) => {
+        setEnableWizard(newConfig.enableWizard);
+      });
+      return unsubscribe;
+    }, []);
 
     // Left panel view state and collapsed sections
     const [leftViewActive, setLeftViewActive] = useState(
@@ -1666,7 +1678,7 @@ const Panel = memo(forwardRef(
             onLoadWikidataCatalog={handleLoadWikidataCatalog}
           />
         );
-      } else if (ENABLE_AI_AGENT && leftViewActive === 'ai') {
+      } else if (enableWizard && leftViewActive === 'ai') {
         panelContent = (
           <LeftAIView
             compact={panelWidth < 300}
@@ -1918,7 +1930,7 @@ const Panel = memo(forwardRef(
                 </div>
 
                 {/* AI Wizard Button */}
-                {ENABLE_AI_AGENT && (
+                {enableWizard && (
                   <div
                     title="AI Wizard"
                     style={{ /* Common Button Styles */ width: 40, height: 40, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', backgroundColor: leftViewActive === 'ai' ? '#bdb5b5' : '#979090', zIndex: 2 }}

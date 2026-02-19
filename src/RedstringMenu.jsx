@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import MaroonSlider from './components/MaroonSlider.jsx';
-import { ChevronRight, FileText, FolderOpen, Save, Clock, Globe, Bug, BookOpen, Home, LayoutGrid, Activity, RefreshCw, Undo2, Redo2 } from 'lucide-react';
+import { ChevronRight, FileText, FolderOpen, Save, Clock, Globe, Bug, BookOpen, Home, LayoutGrid, Activity, RefreshCw, Undo2, Redo2, Bot } from 'lucide-react';
 import './RedstringMenu.css';
 import DebugOverlay from './DebugOverlay';
 import * as fileStorage from './store/fileStorage.js';
@@ -61,6 +61,7 @@ const RedstringMenu = ({
 }) => {
   const [isExiting, setIsExiting] = useState(false);
   const [shouldRender, setShouldRender] = useState(false);
+  const [showDebugOption, setShowDebugOption] = useState(false);
   const [activeTopLevelMenu, setActiveTopLevelMenu] = useState(null); // Only ONE top-level menu open at a time
   const [activeNestedSubmenu, setActiveNestedSubmenu] = useState(null); // Nested submenu within the top-level
   const [isInteracting, setIsInteracting] = useState(false); // Guard to keep submenu open during slider drag
@@ -68,10 +69,10 @@ const RedstringMenu = ({
   // Track timeout for nested submenu closing only
   const nestedCloseTimeoutRef = useRef(null);
   const [debugSettings, setDebugSettings] = useState(debugConfig.getConfig());
-  const menuItems = ['File', 'Edit', 'View', 'Connections', ...(showDebugMenu ? ['Debug'] : []), 'Help'];
+  const menuItems = ['File', 'Edit', 'View', 'Connections', ...(showDebugMenu || showDebugOption ? ['Debug'] : []), 'Help'];
   const menuRef = useRef(null);
 
-  const topLevelMenus = ['File', 'Edit', 'View', 'Connections', ...(showDebugMenu ? ['Debug'] : []), 'Help'];
+  const topLevelMenus = ['File', 'Edit', 'View', 'Connections', ...(showDebugMenu || showDebugOption ? ['Debug'] : []), 'Help'];
 
   // Helper functions for menu management
   const openTopLevelMenu = (name) => {
@@ -826,6 +827,15 @@ const RedstringMenu = ({
                           Generate Test Graph
                         </div>
 
+                        <div
+                          className="submenu-item"
+                          onClick={() => debugConfig.setWizardEnabled(!debugSettings.enableWizard)}
+                          style={{ cursor: 'pointer', opacity: debugSettings.enableWizard ? 1 : 0.8 }}
+                        >
+                          <Bot size={14} style={{ marginRight: '8px' }} />
+                          {debugSettings.enableWizard ? 'Disable The Wizard' : 'Enable The Wizard'}
+                        </div>
+
                         <div style={{ padding: '0 12px 8px 12px' }}>
                           <div style={{ fontSize: '11px', color: '#BDB6B5', opacity: 0.6, marginBottom: '6px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Group Layout Algorithm</div>
                           <div
@@ -1010,6 +1020,15 @@ const RedstringMenu = ({
                         >
                           <Home size={16} style={{ marginRight: '8px', minWidth: '16px', flexShrink: 0 }} />
                           Show Welcome Screen
+                        </div>
+                        <div
+                          className="submenu-item"
+                          onMouseEnter={handleRegularSubmenuItemHover}
+                          onClick={() => setShowDebugOption(!showDebugOption)}
+                          style={{ cursor: 'pointer' }}
+                        >
+                          <Bug size={16} style={{ marginRight: '8px', minWidth: '16px', flexShrink: 0 }} />
+                          {showDebugOption ? 'Hide Debug Option' : 'Show Debug Option'}
                         </div>
                       </div>
                     )}

@@ -8,7 +8,8 @@ const DEBUG_STORAGE_KEYS = {
   DISABLE_LOCAL_STORAGE: 'redstring_debug_disable_local_storage',
   DEBUG_MODE: 'redstring_debug_mode',
   FORCE_GIT_ONLY: 'redstring_debug_force_git_only',
-  LOG_LEVEL: 'redstring_debug_log_level'
+  LOG_LEVEL: 'redstring_debug_log_level',
+  ENABLE_WIZARD: 'redstring_debug_enable_wizard'
 };
 
 const hasBrowserWindow = typeof window !== 'undefined';
@@ -36,7 +37,8 @@ class DebugConfig {
         disableLocalStorage: false,
         debugMode: false,
         forceGitOnly: false,
-        logLevel: 'info'
+        logLevel: 'info',
+        enableWizard: false
       };
       this.isInitialized = true;
       return;
@@ -48,7 +50,8 @@ class DebugConfig {
         disableLocalStorage: this.getBooleanSetting(DEBUG_STORAGE_KEYS.DISABLE_LOCAL_STORAGE, false),
         debugMode: this.getBooleanSetting(DEBUG_STORAGE_KEYS.DEBUG_MODE, false),
         forceGitOnly: this.getBooleanSetting(DEBUG_STORAGE_KEYS.FORCE_GIT_ONLY, false),
-        logLevel: this.getStringSetting(DEBUG_STORAGE_KEYS.LOG_LEVEL, 'info')
+        logLevel: this.getStringSetting(DEBUG_STORAGE_KEYS.LOG_LEVEL, 'info'),
+        enableWizard: this.getBooleanSetting(DEBUG_STORAGE_KEYS.ENABLE_WIZARD, false)
       };
 
       // Check URL parameters for debug overrides
@@ -72,6 +75,11 @@ class DebugConfig {
         this.config.logLevel = urlParams.get('log-level');
       }
 
+      if (urlParams.has('enable-wizard') || urlParams.get('debug') === 'wizard') {
+        this.config.enableWizard = true;
+        console.log('[DebugConfig] Wizard enabled via URL parameter');
+      }
+
       this.isInitialized = true;
       this.notifyListeners();
 
@@ -83,7 +91,8 @@ class DebugConfig {
         disableLocalStorage: false,
         debugMode: false,
         forceGitOnly: false,
-        logLevel: 'info'
+        logLevel: 'info',
+        enableWizard: false
       };
       this.isInitialized = true;
     }
@@ -153,6 +162,11 @@ class DebugConfig {
     return this.config.logLevel;
   }
 
+  // Check if Wizard is enabled
+  isWizardEnabled() {
+    return this.config.enableWizard;
+  }
+
   // Enable/disable local storage (for debugging)
   setLocalStorageDisabled(disabled) {
     this.config.disableLocalStorage = disabled;
@@ -190,6 +204,14 @@ class DebugConfig {
     console.log(`[DebugConfig] Log level set to: ${level}`);
   }
 
+  // Enable/disable Wizard
+  setWizardEnabled(enabled) {
+    this.config.enableWizard = enabled;
+    this.setSetting(DEBUG_STORAGE_KEYS.ENABLE_WIZARD, enabled);
+    this.notifyListeners();
+    console.log(`[DebugConfig] Wizard ${enabled ? 'ENABLED' : 'DISABLED'}`);
+  }
+
   // Clear all debug settings
   reset() {
     if (!this.storage) {
@@ -197,7 +219,8 @@ class DebugConfig {
         disableLocalStorage: false,
         debugMode: false,
         forceGitOnly: false,
-        logLevel: 'info'
+        logLevel: 'info',
+        enableWizard: false
       };
       this.notifyListeners();
       return;
@@ -212,7 +235,8 @@ class DebugConfig {
         disableLocalStorage: false,
         debugMode: false,
         forceGitOnly: false,
-        logLevel: 'info'
+        logLevel: 'info',
+        enableWizard: false
       };
 
       this.notifyListeners();
@@ -258,7 +282,8 @@ class DebugConfig {
       debug: urlParams.has('debug'),
       disableLocalStorage: urlParams.has('disable-local-storage'),
       forceGitOnly: urlParams.has('force-git-only'),
-      logLevel: urlParams.get('log-level')
+      logLevel: urlParams.get('log-level'),
+      enableWizard: urlParams.has('enable-wizard')
     };
   }
 
@@ -272,6 +297,7 @@ class DebugConfig {
     console.log('  ?debug=git-only - Force Git-Only mode');
     console.log('  ?disable-local-storage - Disable local storage');
     console.log('  ?force-git-only - Force Git-Only mode');
+    console.log('  ?enable-wizard - Enable Wizard');
     console.log('  ?log-level=debug - Set log level');
     console.groupEnd();
   }
@@ -285,6 +311,7 @@ class DebugConfig {
         disableLocalStorage: (disabled = true) => this.setLocalStorageDisabled(disabled),
         enableDebug: (enabled = true) => this.setDebugMode(enabled),
         forceGitOnly: (forced = true) => this.setForceGitOnly(forced),
+        enableWizard: (enabled = true) => this.setWizardEnabled(enabled),
         setLogLevel: (level) => this.setLogLevel(level),
         reset: () => this.reset(),
         help: () => this.logToConsole()
@@ -308,6 +335,7 @@ if (typeof window !== 'undefined') {
 export const isLocalStorageDisabled = () => debugConfig.isLocalStorageDisabled();
 export const isDebugMode = () => debugConfig.isDebugMode();
 export const isGitOnlyForced = () => debugConfig.isGitOnlyForced();
+export const isWizardEnabled = () => debugConfig.isWizardEnabled();
 export const getDebugConfig = () => debugConfig.getConfig();
 
 export default debugConfig;
