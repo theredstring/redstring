@@ -157,8 +157,13 @@ function generateGroupAwareInitialPositions(nodes, adjacency, groups, width, hei
     });
   });
 
+  // Pre-compute member counts per group for scaling within-group spread
+  const groupMemberCounts = new Map();
+  groups.forEach(group => {
+    groupMemberCounts.set(group.id, (group.memberInstanceIds || []).length);
+  });
+
   // Position nodes based on their group membership
-  const nodeRadius = 80; // Spread nodes within group
   nodes.forEach(node => {
     const groupIds = nodeGroupsMap.get(node.id) || [];
 
@@ -170,6 +175,9 @@ function generateGroupAwareInitialPositions(nodes, adjacency, groups, width, hei
       });
     } else if (groupIds.length === 1) {
       // Single group - position near group centroid
+      // Scale spread radius by member count: more members need more space
+      const memberCount = groupMemberCounts.get(groupIds[0]) || 1;
+      const nodeRadius = 80 + Math.sqrt(memberCount) * 40;
       const centroid = groupCentroids.get(groupIds[0]);
       const jitter = nodeRadius * (Math.random() - 0.5) * 2;
       positions.set(node.id, {
@@ -417,11 +425,11 @@ export const FORCE_LAYOUT_DEFAULTS = {
   stiffness: 0.6,            // Rigid body stiffness (0.0 - 1.0)
 
   // Group clustering
-  groupAttractionStrength: 0.1,  // How strongly nodes pull toward group center
-  groupRepulsionStrength: 0.5,   // How strongly different groups push apart
-  minGroupDistance: 400,         // Minimum distance between group centroids
-  groupExclusionStrength: 0.8,   // How strongly non-members are pushed out of group bounds
-  groupBoundaryPadding: 60,      // Padding around group bounding boxes
+  groupAttractionStrength: 0.6,  // How strongly nodes pull toward group center (must compete with N-body repulsion)
+  groupRepulsionStrength: 2.0,   // How strongly different groups push apart
+  minGroupDistance: 800,         // Minimum distance between group centroids (must exceed initial spacing ~700px)
+  groupExclusionStrength: 1.5,   // How strongly non-members are pushed out of group bounds
+  groupBoundaryPadding: 100,     // Padding around group bounding boxes
 
   // Presets
   layoutScale: 'balanced',
@@ -568,6 +576,7 @@ export function forceDirectedLayout(nodes, edges, options = {}) {
 
   // Build group membership map (user-defined groups override connectivity clusters)
   const groups = options.groups || [];
+  config._hasUserGroups = groups.length > 0;
   const nodeGroupsMap = new Map(); // nodeId -> Set of groupIds
   groups.forEach(group => {
     (group.memberInstanceIds || []).forEach(nodeId => {
@@ -930,8 +939,10 @@ export function forceDirectedLayout(nodes, edges, options = {}) {
           const strength = groupAttractionStrength * alpha;
           // Scale attraction by number of groups to avoid explosive forces
           const scaledStrength = strength / groupIds.size;
-          force.fx += (dx / dist) * scaledStrength * dist;
-          force.fy += (dy / dist) * scaledStrength * dist;
+          // Use floor of 50px equivalent so nodes near centroid still feel a pull
+          const pullDist = Math.max(dist, 50);
+          force.fx += (dx / dist) * scaledStrength * pullDist;
+          force.fy += (dy / dist) * scaledStrength * pullDist;
         });
       });
 
@@ -1060,8 +1071,14 @@ export function forceDirectedLayout(nodes, edges, options = {}) {
             const dy = p2.y - p1.y;
             const dist = Math.sqrt(dx * dx + dy * dy);
 
-            if (dist < minGroupDistance) {
-              const pushStrength = (minGroupDistance - dist) * crossGroupNodeRepulsion * alpha;
+            // Wider activation range with distance falloff beyond minGroupDistance
+            const activationRange = minGroupDistance * 1.5;
+            if (dist < activationRange) {
+              const overlap = Math.max(0, minGroupDistance - dist);
+              const falloff = dist < minGroupDistance ? 1.0 : Math.max(0, 1 - (dist - minGroupDistance) / (minGroupDistance * 0.5));
+              // Strong push when overlapping + base push with falloff when nearby
+              const pushStrength = (overlap * crossGroupNodeRepulsion * alpha) +
+                                   (crossGroupNodeRepulsion * alpha * 20 * falloff);
               const ux = dx / Math.max(dist, 1);
               const uy = dy / Math.max(dist, 1);
 
@@ -1320,7 +1337,8 @@ function resolveOverlaps(positions, nodes, getRadius, padding, width, height, pa
 function condenseClusters(positions, clusters, centerX, centerY, config) {
   if (clusters.length <= 1) return;
 
-  const shrinkFactor = 0.9;
+  // Use gentler condensation when user-defined groups exist to preserve group separation
+  const shrinkFactor = config._hasUserGroups ? 0.97 : 0.9;
   const minDistanceFromCenter = 90;
 
   clusters.forEach(cluster => {

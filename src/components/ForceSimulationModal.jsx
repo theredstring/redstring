@@ -14,6 +14,7 @@ const ForceSimulationModal = ({
   storeActions,
   getNodes,
   getEdges,
+  getGroups = () => [],
   getDraggedNodeIds = () => new Set(),
   onNodePositionsUpdated,
   layoutScalePreset = FORCE_LAYOUT_DEFAULTS.layoutScale || 'balanced',
@@ -57,11 +58,11 @@ const ForceSimulationModal = ({
     alphaDecay: defaultAlphaDecay,
     velocityDecay: defaultVelocityDecay,
     // Group forces
-    groupAttractionStrength: defaultGroupAttraction = 0.1,
-    groupRepulsionStrength: defaultGroupRepulsion = 0.5,
-    groupExclusionStrength: defaultGroupExclusion = 0.8,
-    minGroupDistance: defaultMinGroupDistance = 400,
-    groupBoundaryPadding: defaultGroupBoundaryPadding = 60,
+    groupAttractionStrength: defaultGroupAttraction = 0.6,
+    groupRepulsionStrength: defaultGroupRepulsion = 2.0,
+    groupExclusionStrength: defaultGroupExclusion = 1.5,
+    minGroupDistance: defaultMinGroupDistance = 800,
+    groupBoundaryPadding: defaultGroupBoundaryPadding = 100,
     stiffness: defaultStiffness = 0.6
   } = FORCE_LAYOUT_DEFAULTS;
 
@@ -537,6 +538,141 @@ const ForceSimulationModal = ({
         vel.vy += (centerY - node.y) * centerStrength * state.alpha;
       }
     });
+
+    // Group forces - pull members together, push different groups apart
+    const currentGroups = getGroups();
+    if (currentGroups.length > 0) {
+      const {
+        groupAttractionStrength: gAttract,
+        groupRepulsionStrength: gRepulse,
+        groupExclusionStrength: gExclude,
+        minGroupDistance: gMinDist,
+        groupBoundaryPadding: gPadding
+      } = params;
+
+      // Build node-to-group membership map
+      const nodeGroupsMap = new Map();
+      currentGroups.forEach(group => {
+        (group.memberInstanceIds || []).forEach(nodeId => {
+          if (!nodeGroupsMap.has(nodeId)) nodeGroupsMap.set(nodeId, new Set());
+          nodeGroupsMap.get(nodeId).add(group.id);
+        });
+      });
+
+      // 1. Calculate group centroids from current positions
+      const groupCentroids = new Map();
+      currentGroups.forEach(group => {
+        let sumX = 0, sumY = 0, count = 0;
+        (group.memberInstanceIds || []).forEach(nodeId => {
+          const node = nodesById.get(nodeId);
+          if (node) { sumX += node.x; sumY += node.y; count++; }
+        });
+        if (count > 0) {
+          groupCentroids.set(group.id, { x: sumX / count, y: sumY / count });
+        }
+      });
+
+      // 2. Intra-group attraction: pull members toward centroid
+      nodes.forEach(node => {
+        if (draggedIds.has(node.id)) return;
+        const groupIds = nodeGroupsMap.get(node.id);
+        if (!groupIds || groupIds.size === 0) return;
+        const vel = velocities.get(node.id);
+        if (!vel) return;
+
+        groupIds.forEach(groupId => {
+          const centroid = groupCentroids.get(groupId);
+          if (!centroid) return;
+          const dx = centroid.x - node.x;
+          const dy = centroid.y - node.y;
+          const dist = Math.sqrt(dx * dx + dy * dy);
+          if (dist < 0.1) return;
+          const strength = gAttract * state.alpha / groupIds.size;
+          const pullDist = Math.max(dist, 50);
+          vel.vx += (dx / dist) * strength * pullDist;
+          vel.vy += (dy / dist) * strength * pullDist;
+        });
+      });
+
+      // 3. Inter-group repulsion: push nodes in different groups apart
+      for (let i = 0; i < nodes.length; i++) {
+        for (let j = i + 1; j < nodes.length; j++) {
+          const n1 = nodes[i];
+          const n2 = nodes[j];
+          const g1 = nodeGroupsMap.get(n1.id);
+          const g2 = nodeGroupsMap.get(n2.id);
+          if (!g1 || g1.size === 0 || !g2 || g2.size === 0) continue;
+          let sharesGroup = false;
+          for (const gid of g1) { if (g2.has(gid)) { sharesGroup = true; break; } }
+          if (sharesGroup) continue;
+
+          const dx = n2.x - n1.x;
+          const dy = n2.y - n1.y;
+          const dist = Math.sqrt(dx * dx + dy * dy);
+          if (dist > gMinDist * 1.5) continue;
+
+          const overlap = Math.max(0, gMinDist - dist);
+          const falloff = dist < gMinDist ? 1.0 : Math.max(0, 1 - (dist - gMinDist) / (gMinDist * 0.5));
+          const pushStrength = (overlap * gRepulse * state.alpha) + (gRepulse * state.alpha * 20 * falloff);
+          const ux = dx / Math.max(dist, 1);
+          const uy = dy / Math.max(dist, 1);
+
+          const v1 = velocities.get(n1.id);
+          const v2 = velocities.get(n2.id);
+          if (v1 && !draggedIds.has(n1.id)) { v1.vx -= ux * pushStrength; v1.vy -= uy * pushStrength; }
+          if (v2 && !draggedIds.has(n2.id)) { v2.vx += ux * pushStrength; v2.vy += uy * pushStrength; }
+        }
+      }
+
+      // 4. Group exclusion: push non-members out of group bounding boxes
+      const groupBounds = new Map();
+      currentGroups.forEach(group => {
+        let minGX = Infinity, minGY = Infinity, maxGX = -Infinity, maxGY = -Infinity;
+        (group.memberInstanceIds || []).forEach(nodeId => {
+          const node = nodesById.get(nodeId);
+          if (node) {
+            minGX = Math.min(minGX, node.x);
+            minGY = Math.min(minGY, node.y);
+            maxGX = Math.max(maxGX, node.x + (node.width || 100));
+            maxGY = Math.max(maxGY, node.y + (node.height || 60));
+          }
+        });
+        if (minGX !== Infinity) {
+          groupBounds.set(group.id, {
+            minX: minGX - gPadding, minY: minGY - gPadding,
+            maxX: maxGX + gPadding, maxY: maxGY + gPadding,
+            centerX: (minGX + maxGX) / 2, centerY: (minGY + maxGY) / 2
+          });
+        }
+      });
+
+      nodes.forEach(node => {
+        if (draggedIds.has(node.id)) return;
+        const vel = velocities.get(node.id);
+        if (!vel) return;
+        const nodeGroups = nodeGroupsMap.get(node.id) || new Set();
+        const cx = node.x + (node.width || 100) / 2;
+        const cy = node.y + (node.height || 60) / 2;
+
+        currentGroups.forEach(group => {
+          if (nodeGroups.has(group.id)) return;
+          const bounds = groupBounds.get(group.id);
+          if (!bounds) return;
+          if (cx >= bounds.minX && cx <= bounds.maxX && cy >= bounds.minY && cy <= bounds.maxY) {
+            const distToLeft = cx - bounds.minX;
+            const distToRight = bounds.maxX - cx;
+            const distToTop = cy - bounds.minY;
+            const distToBottom = bounds.maxY - cy;
+            const minEdgeDist = Math.min(distToLeft, distToRight, distToTop, distToBottom);
+            const push = gExclude * state.alpha * (1 + minEdgeDist / 100) * 50;
+            if (minEdgeDist === distToLeft) vel.vx -= push;
+            else if (minEdgeDist === distToRight) vel.vx += push;
+            else if (minEdgeDist === distToTop) vel.vy -= push;
+            else vel.vy += push;
+          }
+        });
+      });
+    }
 
     // Update positions in bulk (apply speed multiplier)
     // Skip dragged nodes - they're controlled by the user
@@ -1063,8 +1199,8 @@ const ForceSimulationModal = ({
               <input
                 type="range"
                 min="0"
-                max="0.5"
-                step="0.01"
+                max="2.0"
+                step="0.05"
                 value={params.groupAttractionStrength}
                 onChange={(e) => setParams({ ...params, groupAttractionStrength: Number(e.target.value) })}
               />
@@ -1076,8 +1212,8 @@ const ForceSimulationModal = ({
               <input
                 type="range"
                 min="0"
-                max="2"
-                step="0.05"
+                max="5"
+                step="0.1"
                 value={params.groupRepulsionStrength}
                 onChange={(e) => setParams({ ...params, groupRepulsionStrength: Number(e.target.value) })}
               />
@@ -1089,8 +1225,8 @@ const ForceSimulationModal = ({
               <input
                 type="range"
                 min="0"
-                max="2"
-                step="0.05"
+                max="5"
+                step="0.1"
                 value={params.groupExclusionStrength}
                 onChange={(e) => setParams({ ...params, groupExclusionStrength: Number(e.target.value) })}
               />
@@ -1102,7 +1238,7 @@ const ForceSimulationModal = ({
               <input
                 type="range"
                 min="100"
-                max="800"
+                max="1500"
                 step="25"
                 value={params.minGroupDistance}
                 onChange={(e) => setParams({ ...params, minGroupDistance: Number(e.target.value) })}

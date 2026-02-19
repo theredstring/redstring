@@ -69,9 +69,16 @@ export function getAutoLayoutSettings() {
     collisionRadius: 80,
     edgeAvoidance: 0.5,
     alphaDecay: 0.015,
-    velocityDecay: 0.85
+    velocityDecay: 0.85,
+    // Group forces
+    groupAttractionStrength: 0.6,
+    groupRepulsionStrength: 2.0,
+    groupExclusionStrength: 1.5,
+    minGroupDistance: 800,
+    groupBoundaryPadding: 100,
+    stiffness: 0.6
   };
-  
+
   return {
     // Scale/iteration presets: prefer autoLayoutSettings (these are synced)
     layoutScale: autoSettings.layoutScale || tunerSettings.layoutScale || defaults.layoutScale,
@@ -86,7 +93,14 @@ export function getAutoLayoutSettings() {
     collisionRadius: tunerSettings.collisionRadius ?? defaults.collisionRadius,
     edgeAvoidance: tunerSettings.edgeAvoidance ?? defaults.edgeAvoidance,
     alphaDecay: tunerSettings.alphaDecay ?? defaults.alphaDecay,
-    velocityDecay: tunerSettings.velocityDecay ?? defaults.velocityDecay
+    velocityDecay: tunerSettings.velocityDecay ?? defaults.velocityDecay,
+    // Group force parameters
+    groupAttractionStrength: tunerSettings.groupAttractionStrength ?? defaults.groupAttractionStrength,
+    groupRepulsionStrength: tunerSettings.groupRepulsionStrength ?? defaults.groupRepulsionStrength,
+    groupExclusionStrength: tunerSettings.groupExclusionStrength ?? defaults.groupExclusionStrength,
+    minGroupDistance: tunerSettings.minGroupDistance ?? defaults.minGroupDistance,
+    groupBoundaryPadding: tunerSettings.groupBoundaryPadding ?? defaults.groupBoundaryPadding,
+    stiffness: tunerSettings.stiffness ?? defaults.stiffness
   };
 }
 

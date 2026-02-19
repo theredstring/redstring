@@ -450,6 +450,22 @@ export async function runExecutorOnce() {
         };
       });
 
+      // Prepare groups for layout (resolve member names to instance IDs)
+      const subgraphGroupsForLayout = [];
+      const subgraphGroups = Array.isArray(graphSpec.groups) ? graphSpec.groups : [];
+      subgraphGroups.forEach(group => {
+        const memberNames = Array.isArray(group.memberNames) ? group.memberNames : [];
+        const memberInstanceIds = memberNames
+          .map(name => instanceIdByName.get(name))
+          .filter(id => id);
+        if (memberInstanceIds.length > 0) {
+          subgraphGroupsForLayout.push({
+            id: group.name || `group-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+            memberInstanceIds
+          });
+        }
+      });
+
       const layoutOptions = {
         width: layoutWidth,
         height: layoutHeight,
@@ -468,7 +484,15 @@ export async function runExecutorOnce() {
         collisionRadius: autoSettings.collisionRadius,
         edgeAvoidance: autoSettings.edgeAvoidance,
         alphaDecay: autoSettings.alphaDecay,
-        velocityDecay: autoSettings.velocityDecay
+        velocityDecay: autoSettings.velocityDecay,
+        // Pass groups for group-aware clustering
+        groups: subgraphGroupsForLayout,
+        groupAttractionStrength: autoSettings.groupAttractionStrength,
+        groupRepulsionStrength: autoSettings.groupRepulsionStrength,
+        groupExclusionStrength: autoSettings.groupExclusionStrength,
+        minGroupDistance: autoSettings.minGroupDistance,
+        groupBoundaryPadding: autoSettings.groupBoundaryPadding,
+        stiffness: autoSettings.stiffness
       };
       let partialTranslation = null;
 
@@ -832,7 +856,14 @@ export async function runExecutorOnce() {
         alphaDecay: autoSettings.alphaDecay,
         velocityDecay: autoSettings.velocityDecay,
         // Pass groups for group-aware clustering
-        groups: groupsForLayout
+        groups: groupsForLayout,
+        // Pass group force parameters
+        groupAttractionStrength: autoSettings.groupAttractionStrength,
+        groupRepulsionStrength: autoSettings.groupRepulsionStrength,
+        groupExclusionStrength: autoSettings.groupExclusionStrength,
+        minGroupDistance: autoSettings.minGroupDistance,
+        groupBoundaryPadding: autoSettings.groupBoundaryPadding,
+        stiffness: autoSettings.stiffness
       });
 
       // RECENTERING: Shift layout to center around (0,0)
@@ -1083,6 +1114,22 @@ export async function runExecutorOnce() {
         };
       });
 
+      // Prepare groups for layout (resolve member names to instance IDs)
+      const newGraphGroupsForLayout = [];
+      const newGraphGroups = Array.isArray(graphSpec.groups) ? graphSpec.groups : [];
+      newGraphGroups.forEach(group => {
+        const memberNames = Array.isArray(group.memberNames) ? group.memberNames : [];
+        const memberInstanceIds = memberNames
+          .map(name => instanceIdByName.get(name))
+          .filter(id => id);
+        if (memberInstanceIds.length > 0) {
+          newGraphGroupsForLayout.push({
+            id: group.name || `group-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+            memberInstanceIds
+          });
+        }
+      });
+
       const layoutOptions = {
         width: layoutWidth,
         height: layoutHeight,
@@ -1101,7 +1148,15 @@ export async function runExecutorOnce() {
         collisionRadius: autoSettings.collisionRadius,
         edgeAvoidance: autoSettings.edgeAvoidance,
         alphaDecay: autoSettings.alphaDecay,
-        velocityDecay: autoSettings.velocityDecay
+        velocityDecay: autoSettings.velocityDecay,
+        // Pass groups for group-aware clustering
+        groups: newGraphGroupsForLayout,
+        groupAttractionStrength: autoSettings.groupAttractionStrength,
+        groupRepulsionStrength: autoSettings.groupRepulsionStrength,
+        groupExclusionStrength: autoSettings.groupExclusionStrength,
+        minGroupDistance: autoSettings.minGroupDistance,
+        groupBoundaryPadding: autoSettings.groupBoundaryPadding,
+        stiffness: autoSettings.stiffness
       };
       // Apply auto-layout to get positions
       const positions = applyLayout(layoutNodes, tempEdges, layoutAlgorithm, layoutOptions);

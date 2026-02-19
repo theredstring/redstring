@@ -12191,6 +12191,10 @@ function NodeCanvas() {
           };
         })}
         getEdges={() => edges.map(e => ({ sourceId: e.sourceId, destinationId: e.destinationId }))}
+        getGroups={() => {
+          const graphData = activeGraphId ? graphsMap.get(activeGraphId) : null;
+          return graphData?.groups ? Array.from(graphData.groups.values()) : [];
+        }}
         getDraggedNodeIds={() => {
           if (!draggingNodeInfo) return new Set();
           // Single node drag
