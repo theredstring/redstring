@@ -1227,31 +1227,21 @@ export function forceDirectedLayout(nodes, edges, options = {}) {
           if (nodeCenterX >= bounds.minX && nodeCenterX <= bounds.maxX &&
             nodeCenterY >= bounds.minY && nodeCenterY <= bounds.maxY) {
 
-            // Node is inside a group it doesn't belong to - push it OUT
+            // Push radially away from group center (not toward nearest edge)
+            // This prevents trapping nodes on wrong side of groups
             const dx = nodeCenterX - bounds.centerX;
             const dy = nodeCenterY - bounds.centerY;
             const dist = Math.sqrt(dx * dx + dy * dy);
+            const pushStrength = groupExclusionStrength * alpha * 50;
 
-            // Find the nearest edge to push toward
-            const distToLeft = nodeCenterX - bounds.minX;
-            const distToRight = bounds.maxX - nodeCenterX;
-            const distToTop = nodeCenterY - bounds.minY;
-            const distToBottom = bounds.maxY - nodeCenterY;
-            const minEdgeDist = Math.min(distToLeft, distToRight, distToTop, distToBottom);
-
-            // Push strength increases the deeper inside the node is
-            const penetrationDepth = minEdgeDist;
-            const pushStrength = groupExclusionStrength * alpha * (1 + penetrationDepth / 100);
-
-            // Push toward nearest edge
-            if (minEdgeDist === distToLeft) {
-              force.fx -= pushStrength * 50;
-            } else if (minEdgeDist === distToRight) {
-              force.fx += pushStrength * 50;
-            } else if (minEdgeDist === distToTop) {
-              force.fy -= pushStrength * 50;
+            if (dist > 0.1) {
+              force.fx += (dx / dist) * pushStrength;
+              force.fy += (dy / dist) * pushStrength;
             } else {
-              force.fy += pushStrength * 50;
+              // Node at group center — push in random direction
+              const angle = Math.random() * Math.PI * 2;
+              force.fx += Math.cos(angle) * pushStrength;
+              force.fy += Math.sin(angle) * pushStrength;
             }
           }
         });

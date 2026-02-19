@@ -659,16 +659,21 @@ const ForceSimulationModal = ({
           const bounds = groupBounds.get(group.id);
           if (!bounds) return;
           if (cx >= bounds.minX && cx <= bounds.maxX && cy >= bounds.minY && cy <= bounds.maxY) {
-            const distToLeft = cx - bounds.minX;
-            const distToRight = bounds.maxX - cx;
-            const distToTop = cy - bounds.minY;
-            const distToBottom = bounds.maxY - cy;
-            const minEdgeDist = Math.min(distToLeft, distToRight, distToTop, distToBottom);
-            const push = gExclude * state.alpha * (1 + minEdgeDist / 100) * 50;
-            if (minEdgeDist === distToLeft) vel.vx -= push;
-            else if (minEdgeDist === distToRight) vel.vx += push;
-            else if (minEdgeDist === distToTop) vel.vy -= push;
-            else vel.vy += push;
+            // Push radially away from group center (not toward nearest edge)
+            // This prevents trapping nodes on wrong side of groups
+            const dx = cx - bounds.centerX;
+            const dy = cy - bounds.centerY;
+            const dist = Math.sqrt(dx * dx + dy * dy);
+            const push = gExclude * state.alpha * 50;
+            if (dist > 0.1) {
+              vel.vx += (dx / dist) * push;
+              vel.vy += (dy / dist) * push;
+            } else {
+              // Node at group center — push in random direction
+              const angle = Math.random() * Math.PI * 2;
+              vel.vx += Math.cos(angle) * push;
+              vel.vy += Math.sin(angle) * push;
+            }
           }
         });
       });
