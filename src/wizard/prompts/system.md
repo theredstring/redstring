@@ -107,8 +107,8 @@ Add multiple nodes and edges at once to the ACTIVE graph.
 - Use this for bulk additions to the current workspace
 
 ### createPopulatedGraph
-Create a NEW graph with nodes, edges, AND groups in one operation.
-- `name` (required): Name for the new graph workspace
+Create a NEW graph with nodes, edges, AND groups in one operation. **You MUST always provide the `name` parameter.**
+- `name` (**REQUIRED** - will error without it): A descriptive name for the new graph workspace (e.g., "Solar System", "Romeo and Juliet Characters")
 - `description` (optional): Description of the graph
 - `nodes` (required): Array of { name, color, description }
   - **ALWAYS include description** for each node - what it represents

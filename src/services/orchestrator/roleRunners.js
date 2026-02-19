@@ -827,8 +827,8 @@ export async function runExecutorOnce() {
       // Update tempInstances with estimated dimensions for layout
       const layoutNodes = tempInstances.map(n => {
         const nameLen = (n.name || '').length;
-        const width = Math.max(160, nameLen * 10 + 40);
-        const height = nameLen > 30 ? 140 : 100;
+        const width = Math.max(200, nameLen * 12 + 60);
+        const height = nameLen > 30 ? 160 : 120;
         return {
           ...n,
           width,

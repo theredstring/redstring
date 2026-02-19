@@ -14,18 +14,18 @@ import queueManager from '../../services/queue/Queue.js';
  */
 export async function createPopulatedGraph(args, graphState, cid, ensureSchedulerStarted) {
   const { name, description = '', nodes = [], edges = [], groups = [] } = args;
-  
+
   console.log('[createPopulatedGraph] Called with:');
   console.log('[createPopulatedGraph] - name:', name);
   console.log('[createPopulatedGraph] - nodes:', nodes.length, 'items');
   console.log('[createPopulatedGraph] - edges:', edges.length, 'items');
   console.log('[createPopulatedGraph] - groups:', groups.length, 'items');
   console.log('[createPopulatedGraph] - edges detail:', JSON.stringify(edges, null, 2));
-  
+
   if (!name) {
     throw new Error('Graph name is required');
   }
-  
+
   if (!nodes || nodes.length === 0) {
     throw new Error('At least one node is required');
   }

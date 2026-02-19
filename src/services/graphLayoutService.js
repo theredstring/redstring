@@ -149,13 +149,18 @@ function generateGroupAwareInitialPositions(nodes, adjacency, groups, width, hei
   const groupRadius = Math.min(width, height) * 0.35;
   const groupCentroids = new Map();
 
-  groups.forEach((group, index) => {
-    const angle = (2 * Math.PI * index) / groups.length;
-    groupCentroids.set(group.id, {
-      x: centerX + Math.cos(angle) * groupRadius,
-      y: centerY + Math.sin(angle) * groupRadius
+  if (groups.length === 1) {
+    // Single group: place centroid at canvas center (avoids tug-of-war with centering force)
+    groupCentroids.set(groups[0].id, { x: centerX, y: centerY });
+  } else {
+    groups.forEach((group, index) => {
+      const angle = (2 * Math.PI * index) / groups.length;
+      groupCentroids.set(group.id, {
+        x: centerX + Math.cos(angle) * groupRadius,
+        y: centerY + Math.sin(angle) * groupRadius
+      });
     });
-  });
+  }
 
   // Pre-compute member counts per group for scaling within-group spread
   const groupMemberCounts = new Map();
@@ -917,34 +922,39 @@ export function forceDirectedLayout(nodes, edges, options = {}) {
       });
 
       // Intra-group attraction: Pull nodes toward their group centroid(s)
+      // Only apply when 2+ groups exist — with 1 group, attraction just acts as extra
+      // centering that compresses the layout. Its purpose is to counterbalance inter-group
+      // repulsion, which is absent with a single group.
       const groupAttractionStrength = config.groupAttractionStrength || 0.1;
-      nodes.forEach(node => {
-        const groupIds = nodeGroupsMap.get(node.id);
-        if (!groupIds || groupIds.size === 0) return;
+      if (groups.length > 1) {
+        nodes.forEach(node => {
+          const groupIds = nodeGroupsMap.get(node.id);
+          if (!groupIds || groupIds.size === 0) return;
 
-        const pos = positions.get(node.id);
-        const force = forces.get(node.id);
-        if (!pos || !force) return;
+          const pos = positions.get(node.id);
+          const force = forces.get(node.id);
+          if (!pos || !force) return;
 
-        // Pull toward EVERY group this node belongs to
-        groupIds.forEach(groupId => {
-          const centroid = groupCentroids.get(groupId);
-          if (!centroid) return;
+          // Pull toward EVERY group this node belongs to
+          groupIds.forEach(groupId => {
+            const centroid = groupCentroids.get(groupId);
+            if (!centroid) return;
 
-          const dx = centroid.x - pos.x;
-          const dy = centroid.y - pos.y;
-          const dist = Math.sqrt(dx * dx + dy * dy);
-          if (dist < 0.1) return;
+            const dx = centroid.x - pos.x;
+            const dy = centroid.y - pos.y;
+            const dist = Math.sqrt(dx * dx + dy * dy);
+            if (dist < 0.1) return;
 
-          const strength = groupAttractionStrength * alpha;
-          // Scale attraction by number of groups to avoid explosive forces
-          const scaledStrength = strength / groupIds.size;
-          // Use floor of 50px equivalent so nodes near centroid still feel a pull
-          const pullDist = Math.max(dist, 50);
-          force.fx += (dx / dist) * scaledStrength * pullDist;
-          force.fy += (dy / dist) * scaledStrength * pullDist;
+            const strength = groupAttractionStrength * alpha;
+            // Scale attraction by number of groups to avoid explosive forces
+            const scaledStrength = strength / groupIds.size;
+            // Use floor of 50px equivalent so nodes near centroid still feel a pull
+            const pullDist = Math.max(dist, 50);
+            force.fx += (dx / dist) * scaledStrength * pullDist;
+            force.fy += (dy / dist) * scaledStrength * pullDist;
+          });
         });
-      });
+      }
 
       // ------------------------------------------------------------------------
       // Group Exclusion Force: Push non-members OUT of group bounding boxes

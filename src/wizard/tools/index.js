@@ -197,11 +197,11 @@ export function getToolDefinitions() {
     },
     {
       name: 'createPopulatedGraph',
-      description: 'Create a NEW graph with nodes, edges, AND groups in one operation. ALWAYS include edges with definitionNode to show relationships! ALWAYS include meaningful groups when they exist (factions, categories, houses, teams, departments, etc). CONNECTION DENSITY: Every node should have 2-3 edges minimum.',
+      description: 'Create a NEW graph with nodes, edges, AND groups in one operation. You MUST always provide a "name" for the graph. ALWAYS include edges with definitionNode to show relationships! ALWAYS include meaningful groups when they exist (factions, categories, houses, teams, departments, etc). CONNECTION DENSITY: Every node should have 2-3 edges minimum.',
       parameters: {
         type: 'object',
         properties: {
-          name: { type: 'string', description: 'Name for the new graph workspace' },
+          name: { type: 'string', description: 'REQUIRED: A descriptive name for the new graph workspace (e.g., "Solar System", "Romeo and Juliet Characters"). Must always be provided.' },
           description: { type: 'string', description: 'Optional description of the graph' },
           nodes: {
             type: 'array',
