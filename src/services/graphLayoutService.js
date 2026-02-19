@@ -515,6 +515,212 @@ function calculateAutoScale(nodeCount) {
 }
 
 // ============================================================================
+// GROUP-SEPARATED LAYOUT (Two-Phase)
+// ============================================================================
+
+/**
+ * Two-phase group-aware layout that guarantees group separation:
+ * Phase 1: Layout each group independently with its own force simulation
+ * Phase 2: Position group clusters in a circle with spacing proportional to size
+ *
+ * This avoids the fundamental problem of group forces competing with N-body
+ * repulsion inside a single simulation.
+ */
+function groupSeparatedLayout(nodes, edges, options = {}) {
+  const groups = options.groups || [];
+
+  const scalePreset = LAYOUT_SCALE_PRESETS[options.layoutScale] || LAYOUT_SCALE_PRESETS.balanced;
+  const iterPreset = LAYOUT_ITERATION_PRESETS[options.iterationPreset] || LAYOUT_ITERATION_PRESETS.balanced;
+  const config = { ...FORCE_LAYOUT_DEFAULTS, ...scalePreset, ...iterPreset, ...options };
+
+  const nodeById = new Map(nodes.map(n => [n.id, n]));
+  const centerX = config.width / 2;
+  const centerY = config.height / 2;
+
+  // Build node -> group mapping (first group wins for multi-group nodes)
+  const nodeToGroup = new Map();
+  groups.forEach(g => {
+    (g.memberInstanceIds || []).forEach(id => {
+      if (!nodeToGroup.has(id)) nodeToGroup.set(id, g.id);
+    });
+  });
+
+  const ungroupedNodes = nodes.filter(n => !nodeToGroup.has(n.id));
+
+  // ---- Phase 1: Layout each group independently ----
+  const groupLayouts = new Map();
+
+  groups.forEach(group => {
+    const memberIds = new Set(group.memberInstanceIds || []);
+    const memberNodes = [...memberIds].map(id => nodeById.get(id)).filter(Boolean);
+    if (memberNodes.length === 0) return;
+
+    // Edges entirely within this group
+    const intraEdges = edges.filter(e => memberIds.has(e.sourceId) && memberIds.has(e.destinationId));
+
+    // Size sub-canvas based on member count
+    const subSize = Math.max(800, Math.sqrt(memberNodes.length) * 500);
+
+    // Run isolated force layout for this group (groups: [] prevents recursion)
+    const positions = forceDirectedLayout(memberNodes, intraEdges, {
+      width: subSize,
+      height: subSize,
+      padding: 100,
+      groups: [],
+      layoutScale: options.layoutScale,
+      layoutScaleMultiplier: options.layoutScaleMultiplier,
+      iterationPreset: options.iterationPreset,
+      repulsionStrength: config.repulsionStrength,
+      attractionStrength: config.attractionStrength,
+      stiffness: config.stiffness,
+      edgeAvoidance: config.edgeAvoidance,
+    });
+
+    // Calculate bounding box
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    positions.forEach((pos, id) => {
+      const node = nodeById.get(id);
+      const w = node?.width || 150;
+      const h = node?.height || 100;
+      minX = Math.min(minX, pos.x);
+      minY = Math.min(minY, pos.y);
+      maxX = Math.max(maxX, pos.x + w);
+      maxY = Math.max(maxY, pos.y + h);
+    });
+
+    groupLayouts.set(group.id, {
+      positions,
+      width: maxX - minX,
+      height: maxY - minY,
+      centerX: (minX + maxX) / 2,
+      centerY: (minY + maxY) / 2
+    });
+  });
+
+  if (groupLayouts.size === 0) {
+    // No groups had members - fall back to standard layout
+    return forceDirectedLayout(nodes, edges, { ...options, groups: [] });
+  }
+
+  // ---- Phase 2: Group-level force-directed layout ----
+  // Treat groups as large meta-nodes — same physics engine at a higher scale.
+  // Cross-group edges become meta-edges so connected groups naturally attract.
+
+  const ungroupedSet = new Set(ungroupedNodes.map(n => n.id));
+
+  // Build meta-nodes sized by each group's bounding box
+  const metaNodes = [];
+  groupLayouts.forEach((layout, gId) => {
+    metaNodes.push({
+      id: gId,
+      width: layout.width + 200,
+      height: layout.height + 200,
+      x: 0, y: 0
+    });
+  });
+
+  // Virtual meta-node for ungrouped nodes (e.g. edge definition nodes)
+  if (ungroupedNodes.length > 0) {
+    metaNodes.push({
+      id: '__ungrouped__',
+      width: Math.max(300, Math.sqrt(ungroupedNodes.length) * 150),
+      height: Math.max(200, Math.sqrt(ungroupedNodes.length) * 100),
+      x: 0, y: 0
+    });
+  }
+
+  // Build meta-edges from cross-group node connections
+  // More cross-connections between two groups → stronger pull (multiple springs)
+  const metaEdgePairs = new Map(); // "gA|gB" -> count
+  edges.forEach(e => {
+    const gSrc = nodeToGroup.get(e.sourceId) || (ungroupedSet.has(e.sourceId) ? '__ungrouped__' : null);
+    const gDst = nodeToGroup.get(e.destinationId) || (ungroupedSet.has(e.destinationId) ? '__ungrouped__' : null);
+    if (!gSrc || !gDst || gSrc === gDst) return;
+    const key = [gSrc, gDst].sort().join('|');
+    metaEdgePairs.set(key, (metaEdgePairs.get(key) || 0) + 1);
+  });
+
+  const metaEdges = [];
+  metaEdgePairs.forEach((count, key) => {
+    const [g1, g2] = key.split('|');
+    // Cap at 5 springs per pair to avoid overpowering repulsion
+    for (let i = 0; i < Math.min(count, 5); i++) {
+      metaEdges.push({ sourceId: g1, destinationId: g2 });
+    }
+  });
+
+  // Run force-directed on meta-nodes — same engine, group scale
+  const avgDim = metaNodes.reduce((s, n) => s + Math.max(n.width, n.height), 0) / metaNodes.length;
+  const metaPositions = forceDirectedLayout(metaNodes, metaEdges, {
+    width: config.width,
+    height: config.height,
+    padding: 200,
+    groups: [],  // No sub-groups at meta level
+    iterations: 200,
+    repulsionStrength: config.repulsionStrength,
+    targetLinkDistance: avgDim + 200,
+    minNodeDistance: avgDim * 0.8,
+  });
+
+  // Shift each group's internal layout to its meta-node position
+  const finalPositions = new Map();
+  groupLayouts.forEach((layout, gId) => {
+    const metaPos = metaPositions.get(gId);
+    if (!metaPos) return;
+    const offsetX = metaPos.x - layout.centerX;
+    const offsetY = metaPos.y - layout.centerY;
+    layout.positions.forEach((pos, nodeId) => {
+      finalPositions.set(nodeId, { x: pos.x + offsetX, y: pos.y + offsetY });
+    });
+  });
+
+  // Place ungrouped nodes near their connected groups
+  ungroupedNodes.forEach(node => {
+    let sumX = 0, sumY = 0, connCount = 0;
+    edges.forEach(e => {
+      let targetId = null;
+      if (e.sourceId === node.id) targetId = e.destinationId;
+      if (e.destinationId === node.id) targetId = e.sourceId;
+      if (!targetId) return;
+      const pos = finalPositions.get(targetId);
+      if (pos) { sumX += pos.x; sumY += pos.y; connCount++; }
+    });
+    if (connCount > 0) {
+      finalPositions.set(node.id, {
+        x: sumX / connCount + (Math.random() - 0.5) * 80,
+        y: sumY / connCount + (Math.random() - 0.5) * 80
+      });
+    } else {
+      finalPositions.set(node.id, {
+        x: centerX + (Math.random() - 0.5) * 200,
+        y: centerY + (Math.random() - 0.5) * 200
+      });
+    }
+  });
+
+  // ---- Phase 3: Cross-group edge refinement ----
+  // Brief force simulation with ALL edges and strong group forces.
+  // Spring forces from cross-group edges gently adjust positions while
+  // group forces maintain cohesion.
+  const nodesWithPositions = nodes.map(n => {
+    const pos = finalPositions.get(n.id);
+    return { ...n, x: pos?.x ?? centerX, y: pos?.y ?? centerY };
+  });
+
+  return forceDirectedLayout(nodesWithPositions, edges, {
+    ...options,
+    useExistingPositions: true,  // Prevents re-entering groupSeparatedLayout
+    iterations: 80,
+    groups: groups,
+    groupAttractionStrength: Math.max(config.groupAttractionStrength, 1.5),
+    groupRepulsionStrength: Math.max(config.groupRepulsionStrength, 3.0),
+    groupExclusionStrength: Math.max(config.groupExclusionStrength, 2.0),
+    minGroupDistance: config.minGroupDistance,
+    centerStrength: 0.005,
+  });
+}
+
+// ============================================================================
 // MAIN FORCE-DIRECTED LAYOUT
 // ============================================================================
 
@@ -524,6 +730,13 @@ function calculateAutoScale(nodeCount) {
  */
 export function forceDirectedLayout(nodes, edges, options = {}) {
   if (nodes.length === 0) return new Map();
+
+  // Delegate to two-layer layout for fresh creation with groups
+  // (useExistingPositions = refinement, handled by main simulation with group forces)
+  const groups = options.groups || [];
+  if (groups.length > 0 && !options.useExistingPositions) {
+    return groupSeparatedLayout(nodes, edges, options);
+  }
 
   // Merge options with presets
   const scalePreset = LAYOUT_SCALE_PRESETS[options.layoutScale] || LAYOUT_SCALE_PRESETS.balanced;
@@ -579,8 +792,8 @@ export function forceDirectedLayout(nodes, edges, options = {}) {
     cluster.forEach(node => clusterMap.set(node.id, idx));
   });
 
-  // Build group membership map (user-defined groups override connectivity clusters)
-  const groups = options.groups || [];
+  // Build group membership map for group forces in simulation
+  // (groupSeparatedLayout handles fresh creation; this runs for refinement with existing positions)
   config._hasUserGroups = groups.length > 0;
   const nodeGroupsMap = new Map(); // nodeId -> Set of groupIds
   groups.forEach(group => {
@@ -652,10 +865,10 @@ export function forceDirectedLayout(nodes, edges, options = {}) {
       layoutScaleMultiplier: manualScaleTarget
     };
 
-    // Use group-aware positioning if groups are present
-    const groups = options.groups || [];
+    // Use group-aware positioning when groups are present (refinement path with useExistingPositions=false
+    // but groups present can happen via euler/hybrid or other callers)
     const initial = groups.length > 0
-      ? generateGroupAwareInitialPositions(nodes, adjacency, groups, config.width, config.height, initialOptions)
+      ? generateGroupAwareInitialPositions(nodes, adjacency, config.width, config.height, groups, initialOptions)
       : generateInitialPositions(nodes, adjacency, config.width, config.height, initialOptions);
 
     // Detect stacked nodes and apply jitter
