@@ -23,7 +23,6 @@ function applyToolResultToStore(toolName, result) {
   // Handle createPopulatedGraph
   if (result.action === 'createPopulatedGraph' && result.spec) {
     console.log('[Wizard] Applying createPopulatedGraph to store:', result.graphName);
-    console.log('[Wizard] Spec received:', JSON.stringify(result.spec, null, 2));
     console.log('[Wizard] Nodes count:', result.spec.nodes?.length || 0);
     console.log('[Wizard] Edges count:', result.spec.edges?.length || 0);
     console.log('[Wizard] Groups count:', result.spec.groups?.length || 0);
@@ -36,37 +35,42 @@ function applyToolResultToStore(toolName, result) {
     });
 
     // 2. Prepare bulk updates - use unique IDs for each node
-    const nodeNames = (result.spec.nodes || []).map(n => n.name);
-    console.log('[Wizard] Node names being created:', nodeNames);
-
     const bulkData = {
       nodes: result.spec.nodes.map((n, idx) => ({
         name: n.name,
         color: n.color,
         description: n.description,
-        // Pre-generate IDs to ensure consistency - use index to ensure uniqueness
         prototypeId: `proto-${Date.now()}-${idx}-${Math.random().toString(36).slice(2, 8)}`,
         instanceId: `inst-${Date.now()}-${idx}-${Math.random().toString(36).slice(2, 8)}`,
-        x: Math.random() * 600 + 200, // Spread them out a bit more
+        x: Math.random() * 600 + 200,
         y: Math.random() * 500 + 200
       })),
-      edges: (result.spec.edges || []).map(e => {
-        console.log('[Wizard] Processing edge:', e.source, '->', e.target, `(${e.type})`);
-        return {
-          source: e.source,
-          target: e.target,
-          type: e.type || 'relates to'
-        };
-      }),
+      edges: (result.spec.edges || []).map(e => ({
+        source: e.source,
+        target: e.target,
+        type: e.type || 'relates to',
+        directionality: e.directionality || 'unidirectional',
+        definitionNode: e.definitionNode || null
+      })),
       groups: result.spec.groups || []
     };
-
-    console.log('[Wizard] Edges being passed to store:', bulkData.edges);
 
     // 3. Apply bulk updates in one transaction
     store.applyBulkGraphUpdates(graphId, bulkData);
 
     console.log('[Wizard] Successfully populated graph:', graphId);
+
+    // 4. Trigger auto-layout so nodes get properly positioned
+    //    (same as clicking Edit > Auto-Layout from the menu)
+    //    Use a delay to ensure the graph is fully rendered with node dimensions
+    setTimeout(() => {
+      if (typeof window !== 'undefined') {
+        console.log('[Wizard] Triggering auto-layout for new graph:', graphId);
+        window.dispatchEvent(new CustomEvent('rs-trigger-auto-layout', {
+          detail: { graphId }
+        }));
+      }
+    }, 600);
   }
 }
 

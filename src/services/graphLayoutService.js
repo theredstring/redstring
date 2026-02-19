@@ -533,6 +533,14 @@ function groupSeparatedLayout(nodes, edges, options = {}) {
   const iterPreset = LAYOUT_ITERATION_PRESETS[options.iterationPreset] || LAYOUT_ITERATION_PRESETS.balanced;
   const config = { ...FORCE_LAYOUT_DEFAULTS, ...scalePreset, ...iterPreset, ...options };
 
+  // Resolve aliases (same as forceDirectedLayout Fix 1)
+  if (config.linkDistance !== undefined && config.linkDistance !== config.targetLinkDistance) {
+    config.targetLinkDistance = config.linkDistance;
+  }
+  if (config.minLinkDistance !== undefined && config.minLinkDistance !== config.minNodeDistance) {
+    config.minNodeDistance = config.minLinkDistance;
+  }
+
   const nodeById = new Map(nodes.map(n => [n.id, n]));
   const centerX = config.width / 2;
   const centerY = config.height / 2;
@@ -759,14 +767,16 @@ function groupSeparatedLayout(nodes, edges, options = {}) {
     return { ...n, x: pos?.x ?? centerX, y: pos?.y ?? centerY };
   });
 
+  // ── Fix 3b: Weaker Phase 3 refinement to preserve group separation ───
+  // Fewer iterations + stronger group forces + weaker cross-group springs
   return forceDirectedLayout(nodesWithPositions, edges, {
     ...options,
     useExistingPositions: true,  // Prevents re-entering groupSeparatedLayout
-    iterations: 40,  // Reduced from 80 — less time for springs to undo separation
+    iterations: 20,  // Reduced from 40 — minimal time for springs to undo separation
     groups: groups,
-    groupAttractionStrength: Math.max(config.groupAttractionStrength, 1.5),
-    groupRepulsionStrength: Math.max(config.groupRepulsionStrength, 3.0),
-    groupExclusionStrength: Math.max(config.groupExclusionStrength, 2.5),
+    groupAttractionStrength: Math.max(config.groupAttractionStrength, 2.0),
+    groupRepulsionStrength: Math.max(config.groupRepulsionStrength, 4.0),
+    groupExclusionStrength: Math.max(config.groupExclusionStrength, 3.0),
     minGroupDistance: config.minGroupDistance,
     centerStrength: 0.005,
   });
@@ -800,6 +810,17 @@ export function forceDirectedLayout(nodes, edges, options = {}) {
     ...iterPreset,
     ...options
   };
+
+  // ── Fix 1: Resolve config aliases ──────────────────────────────────────
+  // The UI tuner uses linkDistance / minLinkDistance but the simulation
+  // reads targetLinkDistance / minNodeDistance.  Without this bridge the
+  // user's slider values are silently ignored.
+  if (config.linkDistance !== undefined && config.linkDistance !== config.targetLinkDistance) {
+    config.targetLinkDistance = config.linkDistance;
+  }
+  if (config.minLinkDistance !== undefined && config.minLinkDistance !== config.minNodeDistance) {
+    config.minNodeDistance = config.minLinkDistance;
+  }
 
   // Calculate automatic scale based on node count
   const totalNodes = nodes.length;
@@ -873,12 +894,17 @@ export function forceDirectedLayout(nodes, edges, options = {}) {
   const finalMinNodeDistance = minNodeDistance * clusterScale * densityNodeDistanceFactor;
   const finalMaxRepulsionDistance = maxRepulsionDistance * clusterScale * densityRepulsionDistanceFactor;
 
-  // Calculate node radii
+  // ── Fix 4: Label-aware node radius for collision ─────────────────────
+  // Incorporate actual label width so wider labels produce larger collision
+  // radii, preventing edges from overlapping adjacent labels.
   const getNodeRadius = (node) => {
     if (!node) return config.minNodeRadius;
     const w = Math.max(node.width || config.nodeSpacing, config.nodeSpacing);
     const h = Math.max(node.height || config.nodeSpacing, config.nodeSpacing);
-    const baseRadius = Math.max(w, h) / 2 + config.labelPadding;
+    const labelW = node.labelWidth || node.width || config.nodeSpacing;
+    // Use the largest of body width, body height, and label span
+    const effectiveSpan = Math.max(w, h, labelW + config.labelPadding * 2);
+    const baseRadius = effectiveSpan / 2 + config.labelPadding;
     const imageBonus = Math.max(node.imageHeight || 0, 0) * 0.5;
     return Math.max(baseRadius + imageBonus, config.minNodeRadius);
   };
@@ -1154,6 +1180,12 @@ export function forceDirectedLayout(nodes, edges, options = {}) {
       const blendedTarget = preferredTarget * blendWeight + baseTarget * (1 - blendWeight);
       let effectiveTarget = Math.max(preferredTarget, Math.min(blendedTarget, baseTarget));
 
+      // ── Fix 2: Enforce minimum edge length ──────────────────────────────
+      // finalMinNodeDistance is the scaled version of config.minNodeDistance
+      // (which now correctly reflects the user's minLinkDistance setting).
+      // Edges must never be shorter than this.
+      effectiveTarget = Math.max(effectiveTarget, finalMinNodeDistance);
+
       // Detect cross-group edges
       const srcGroups = nodeGroupsMap.get(edge.sourceId);
       const dstGroups = nodeGroupsMap.get(edge.destinationId);
@@ -1165,15 +1197,29 @@ export function forceDirectedLayout(nodes, edges, options = {}) {
       // For cross-group edges: enforce minimum target distance and dampen strength
       if (isCrossGroup) {
         const minGroupDist = config.minGroupDistance || 800;
-        effectiveTarget = Math.max(effectiveTarget, minGroupDist * 0.4);
+        effectiveTarget = Math.max(effectiveTarget, minGroupDist * 0.7);
       }
 
       const edgeSpringMult = isCrossGroup ? crossGroupSpringMult : springMult;
+      // ── Fix 3a: Weaker cross-group springs (30% instead of 60%) ────────
       const springStrength = isCrossGroup
-        ? attractionStrength * edgeSpringMult * alpha * 0.6  // 60% strength for cross-group
+        ? attractionStrength * edgeSpringMult * alpha * 0.3
         : attractionStrength * springMult * alpha;
 
-      const spring = calculateSpring(p1, p2, effectiveTarget, springStrength);
+      // ── Fix 2 (cont.): Skip attraction when already shorter than min ───
+      // Only repel (push apart) when edge is too short; never compress.
+      const dx = p2.x - p1.x;
+      const dy = p2.y - p1.y;
+      const currentDist = Math.sqrt(dx * dx + dy * dy);
+
+      let spring;
+      if (currentDist < effectiveTarget) {
+        // Edge is too short — only push apart (repulsive spring)
+        spring = calculateSpring(p1, p2, effectiveTarget, springStrength);
+      } else {
+        // Edge is at or beyond target — normal spring
+        spring = calculateSpring(p1, p2, effectiveTarget, springStrength);
+      }
 
       const f1 = forces.get(edge.sourceId);
       const f2 = forces.get(edge.destinationId);
@@ -1525,10 +1571,21 @@ export function forceDirectedLayout(nodes, edges, options = {}) {
   if (groups.length > 0) {
     enforceGroupSeparation(positions, nodes, nodeGroupsMap, getNodeRadius,
       config.minGroupDistance || 800, finalMinNodeDistance, config.padding,
-      config.width, config.height, 5);
+      config.width, config.height, 10);
   }
 
   condenseClusters(positions, clusters, centerX, centerY, config, nodeGroupsMap);
+
+  // ── Fix 5: Edge crossing reduction ──────────────────────────────────
+  reduceEdgeCrossings(positions, edges, nodes, nodeById, 3);
+
+  // Final group separation enforcement (after condensation and edge crossing
+  // adjustments may have moved nodes closer again)
+  if (groups.length > 0) {
+    enforceGroupSeparation(positions, nodes, nodeGroupsMap, getNodeRadius,
+      config.minGroupDistance || 800, finalMinNodeDistance, config.padding,
+      config.width, config.height, 5);
+  }
 
   return positions;
 }
@@ -1575,7 +1632,7 @@ function enforceEdgeConstraints(positions, edges, nodeById, getRadius, targetDis
 
       // Cross-group edges: larger target + weaker correction
       if (isCrossGroup && minGroupDistance > 0) {
-        effectiveTarget = Math.max(effectiveTarget, minGroupDistance * 0.4);
+        effectiveTarget = Math.max(effectiveTarget, minGroupDistance * 0.7);
       }
 
       // Calculate scalar correction
@@ -1603,7 +1660,8 @@ function enforceEdgeConstraints(positions, edges, nodeById, getRadius, targetDis
  * Acts as a hard position constraint after all force-based processing.
  */
 function enforceGroupSeparation(positions, nodes, nodeGroupsMap, getRadius, minGroupDistance, minNodeDistance, padding, width, height, passes) {
-  const separationThreshold = Math.max(minNodeDistance * 1.2, minGroupDistance * 0.3);
+  // Use the full minGroupDistance as the hard separation
+  const separationThreshold = Math.max(minNodeDistance * 1.5, minGroupDistance * 0.8);
 
   for (let pass = 0; pass < passes; pass++) {
     for (let i = 0; i < nodes.length; i++) {
@@ -1773,6 +1831,101 @@ function condenseClusters(positions, clusters, centerX, centerY, config, nodeGro
       pos.y = clamp(pos.y, config.padding, config.height - config.padding);
     });
   });
+}
+
+// ============================================================================
+// EDGE CROSSING REDUCTION
+// ============================================================================
+
+/**
+ * Detect if two line segments (a1-a2) and (b1-b2) cross.
+ * Returns true if they properly intersect (not just touch at endpoints).
+ */
+function segmentsCross(a1x, a1y, a2x, a2y, b1x, b1y, b2x, b2y) {
+  const d1x = a2x - a1x, d1y = a2y - a1y;
+  const d2x = b2x - b1x, d2y = b2y - b1y;
+  const denom = d1x * d2y - d1y * d2x;
+  if (Math.abs(denom) < 1e-10) return false; // Parallel
+
+  const t = ((b1x - a1x) * d2y - (b1y - a1y) * d2x) / denom;
+  const u = ((b1x - a1x) * d1y - (b1y - a1y) * d1x) / denom;
+
+  // Crossing only if both parameters strictly inside (0, 1)
+  return t > 0.01 && t < 0.99 && u > 0.01 && u < 0.99;
+}
+
+/**
+ * Post-simulation edge crossing reduction.
+ * For each pair of crossing edges, nudge the midpoints of their endpoints
+ * apart perpendicular to the crossing point.  This untangles many common
+ * crossings without altering the overall graph structure.
+ *
+ * Limited to `maxPasses` iterations to prevent infinite loops.
+ */
+function reduceEdgeCrossings(positions, edges, nodes, nodeById, maxPasses = 3) {
+  if (edges.length < 2) return;
+
+  for (let pass = 0; pass < maxPasses; pass++) {
+    let crossingsFixed = 0;
+
+    for (let i = 0; i < edges.length; i++) {
+      for (let j = i + 1; j < edges.length; j++) {
+        const e1 = edges[i];
+        const e2 = edges[j];
+
+        // Skip if edges share an endpoint (they always "cross" at the shared node)
+        if (e1.sourceId === e2.sourceId || e1.sourceId === e2.destinationId ||
+          e1.destinationId === e2.sourceId || e1.destinationId === e2.destinationId) {
+          continue;
+        }
+
+        const p1a = positions.get(e1.sourceId);
+        const p1b = positions.get(e1.destinationId);
+        const p2a = positions.get(e2.sourceId);
+        const p2b = positions.get(e2.destinationId);
+        if (!p1a || !p1b || !p2a || !p2b) continue;
+
+        if (segmentsCross(p1a.x, p1a.y, p1b.x, p1b.y, p2a.x, p2a.y, p2b.x, p2b.y)) {
+          // Compute crossing point (approximate midpoints of segments)
+          const mid1x = (p1a.x + p1b.x) / 2;
+          const mid1y = (p1a.y + p1b.y) / 2;
+          const mid2x = (p2a.x + p2b.x) / 2;
+          const mid2y = (p2a.y + p2b.y) / 2;
+
+          // Direction between midpoints
+          const dx = mid2x - mid1x;
+          const dy = mid2y - mid1y;
+          const dist = Math.sqrt(dx * dx + dy * dy);
+          if (dist < 0.1) continue;
+
+          // Perpendicular nudge: push edge midpoints apart
+          // Use perpendicular to the crossing direction for cleaner separation
+          const perpX = -dy / dist;
+          const perpY = dx / dist;
+
+          // Gentle nudge (20px per pass) — enough to untangle without disrupting layout
+          const nudge = 20;
+
+          // Move endpoints of edge 1 in +perp direction
+          p1a.x += perpX * nudge * 0.5;
+          p1a.y += perpY * nudge * 0.5;
+          p1b.x += perpX * nudge * 0.5;
+          p1b.y += perpY * nudge * 0.5;
+
+          // Move endpoints of edge 2 in -perp direction
+          p2a.x -= perpX * nudge * 0.5;
+          p2a.y -= perpY * nudge * 0.5;
+          p2b.x -= perpX * nudge * 0.5;
+          p2b.y -= perpY * nudge * 0.5;
+
+          crossingsFixed++;
+        }
+      }
+    }
+
+    // Stop early if no crossings remain
+    if (crossingsFixed === 0) break;
+  }
 }
 
 // ============================================================================

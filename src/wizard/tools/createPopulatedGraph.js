@@ -55,13 +55,13 @@ export async function createPopulatedGraph(args, graphState, cid, ensureSchedule
     color: n.color || '#5B6CFF',
     description: n.description || ''
   }));
-  
+
   const edgeSpecs = (edges || []).map(e => {
     // Handle both old format (type string) and new format (definitionNode object)
     const inputDefNode = e.definitionNode;
     const typeName = inputDefNode?.name || e.type || '';
     const titleCaseName = toTitleCase(typeName);
-    
+
     return {
       source: e.source,
       target: e.target,
@@ -74,7 +74,7 @@ export async function createPopulatedGraph(args, graphState, cid, ensureSchedule
       } : null
     };
   });
-  
+
   const groupSpecs = (groups || []).map(g => ({
     name: g.name,
     color: g.color || '#8B0000',
@@ -103,15 +103,12 @@ export async function createPopulatedGraph(args, graphState, cid, ensureSchedule
     }]
   };
 
-  const goalId = queueManager.enqueue('goalQueue', {
-    type: 'goal',
-    goal: 'create_populated_graph',
-    dag,
-    threadId: cid,
-    partitionKey: cid
-  });
-
-  if (ensureSchedulerStarted) ensureSchedulerStarted();
+  // UI-side creation + auto-layout handles graph population directly via
+  // applyToolResultToStore in LeftAIView.jsx, which calls applyBulkGraphUpdates
+  // and dispatches rs-trigger-auto-layout. The executor pipeline is skipped
+  // to avoid creating duplicate nodes with different IDs.
+  // const goalId = queueManager.enqueue('goalQueue', { ... });
+  // if (ensureSchedulerStarted) ensureSchedulerStarted();
 
   // Return full spec so UI can apply it directly
   // Note: nodesAdded/edgesAdded are ARRAYS for ToolCallCard display
@@ -128,7 +125,7 @@ export async function createPopulatedGraph(args, graphState, cid, ensureSchedule
     nodesAdded: nodeSpecs.map(n => n.name),
     edgesAdded: edgeSpecs,
     groupsAdded: groupSpecs.map(g => g.name),
-    goalId,
+    goalId: null, // Executor pipeline disabled — UI handles creation + layout directly
     // Include full spec for UI to apply
     spec: {
       nodes: nodeSpecs,
