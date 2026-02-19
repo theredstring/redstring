@@ -1867,7 +1867,8 @@ function NodeCanvas() {
     layoutScalePreset,
     layoutScaleMultiplier,
     layoutIterationPreset,
-    groupLayoutAlgorithm
+    groupLayoutAlgorithm,
+    forceTunerSettings
   });
 
 

@@ -16,6 +16,8 @@ export const useGraphLayout = ({
     layoutScaleMultiplier = 1.0,
     layoutIterationPreset = 100,
     groupLayoutAlgorithm = 'force-directed',
+    // Force tuner settings — individual force params for consistency with AI and interactive sim
+    forceTunerSettings = null,
 }) => {
     // ---------------------------------------------------------------------------
     // 1. Move Out of Bounds Nodes
@@ -165,6 +167,7 @@ export const useGraphLayout = ({
         const layoutHeight = Math.max(2000, canvasSize?.height || 2000);
         const layoutPadding = Math.max(300, Math.min(layoutWidth, layoutHeight) * 0.08);
 
+        const groups = Array.from(graphData?.groups?.values() || []);
         const layoutOptions = {
             width: layoutWidth,
             height: layoutHeight,
@@ -172,8 +175,31 @@ export const useGraphLayout = ({
             layoutScale: layoutScalePreset,
             layoutScaleMultiplier,
             iterationPreset: layoutIterationPreset,
-            useExistingPositions: true,
-            groups: Array.from(graphData?.groups?.values() || [])
+            // When groups exist, let groupSeparatedLayout handle the two-phase approach
+            // (layout each group independently → position groups in space).
+            // Without groups, preserve existing positions for incremental refinement.
+            useExistingPositions: groups.length === 0,
+            groups,
+            // Pass full force tuner parameters so auto-layout uses
+            // the same configuration as the interactive simulation and AI.
+            ...(forceTunerSettings ? {
+                repulsionStrength: forceTunerSettings.repulsionStrength,
+                attractionStrength: forceTunerSettings.attractionStrength,
+                linkDistance: forceTunerSettings.linkDistance,
+                minLinkDistance: forceTunerSettings.minLinkDistance,
+                centerStrength: forceTunerSettings.centerStrength,
+                collisionRadius: forceTunerSettings.collisionRadius,
+                edgeAvoidance: forceTunerSettings.edgeAvoidance,
+                alphaDecay: forceTunerSettings.alphaDecay,
+                velocityDecay: forceTunerSettings.velocityDecay,
+                // Group force parameters
+                groupAttractionStrength: forceTunerSettings.groupAttractionStrength,
+                groupRepulsionStrength: forceTunerSettings.groupRepulsionStrength,
+                groupExclusionStrength: forceTunerSettings.groupExclusionStrength,
+                minGroupDistance: forceTunerSettings.minGroupDistance,
+                groupBoundaryPadding: forceTunerSettings.groupBoundaryPadding,
+                stiffness: forceTunerSettings.stiffness,
+            } : {})
         };
 
         try {
@@ -252,7 +278,8 @@ export const useGraphLayout = ({
         layoutIterationPreset,
         canvasSize,
         groupLayoutAlgorithm,
-        graphsMap
+        graphsMap,
+        forceTunerSettings
     ]);
 
 

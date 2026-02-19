@@ -407,6 +407,19 @@ const ForceSimulationModal = ({
 
     // Attraction/Repulsion force along edges - maintains distance range
     // Dragged nodes are fixed, so only apply forces to non-dragged endpoints
+    // Build node-to-group map early for cross-group detection
+    const currentGroupsForEdges = getGroups();
+    let edgeNodeGroupsMap = null;
+    if (currentGroupsForEdges.length > 0) {
+      edgeNodeGroupsMap = new Map();
+      currentGroupsForEdges.forEach(group => {
+        (group.memberInstanceIds || []).forEach(nodeId => {
+          if (!edgeNodeGroupsMap.has(nodeId)) edgeNodeGroupsMap.set(nodeId, new Set());
+          edgeNodeGroupsMap.get(nodeId).add(group.id);
+        });
+      });
+    }
+
     edges.forEach(edge => {
       const source = nodesById.get(edge.sourceId);
       const target = nodesById.get(edge.destinationId);
@@ -426,8 +439,23 @@ const ForceSimulationModal = ({
 
       const radiusSource = getRadius(source);
       const radiusTarget = getRadius(target);
-      // Min distance is the SLIDER value, not computed from radii
-      const minDistance = scaledMinLinkDistance;
+
+      // Detect cross-group edges
+      let isCrossGroup = false;
+      if (edgeNodeGroupsMap) {
+        const srcGs = edgeNodeGroupsMap.get(edge.sourceId);
+        const dstGs = edgeNodeGroupsMap.get(edge.destinationId);
+        if (srcGs && srcGs.size > 0 && dstGs && dstGs.size > 0) {
+          isCrossGroup = ![...srcGs].some(g => dstGs.has(g));
+        }
+      }
+
+      // Min distance - for cross-group edges, enforce a larger floor
+      const minDistance = isCrossGroup
+        ? Math.max(scaledMinLinkDistance, (params.minGroupDistance || 800) * 0.4)
+        : scaledMinLinkDistance;
+      // Cross-group spring damping factor
+      const crossGroupDamping = isCrossGroup ? 0.6 : 1.0;
       let force;
 
       // ENFORCE MINIMUM DISTANCE - VERY strong repulsion if too close
@@ -443,13 +471,13 @@ const ForceSimulationModal = ({
       else if (dist < scaledLinkDistance) {
         // Gentle pull toward target distance
         const displacement = dist - scaledLinkDistance;
-        force = displacement * attractionStrength * state.alpha;
+        force = displacement * attractionStrength * state.alpha * crossGroupDamping;
       }
       // Pull together if too far
       else {
-        // Normal spring pull
+        // Normal spring pull (damped for cross-group)
         const displacement = dist - scaledLinkDistance;
-        force = displacement * attractionStrength * state.alpha;
+        force = displacement * attractionStrength * state.alpha * crossGroupDamping;
       }
 
       const fx = (dx / dist) * force;
@@ -471,11 +499,11 @@ const ForceSimulationModal = ({
     if (edgeAvoidance > 0) {
       // Pre-build node map for faster lookup
       const nodesMap = new Map(nodes.map(n => [n.id, n]));
-      
+
       nodes.forEach(node => {
         // Skip dragged nodes
         if (draggedIds.has(node.id)) return;
-        
+
         const vel = velocities.get(node.id);
         if (!vel) return;
         const nodeRadius = getRadius(node);
@@ -512,7 +540,7 @@ const ForceSimulationModal = ({
           // Avoidance radius is based on node size + extra buffer
           // Larger radius = nodes stay further from edges
           const avoidanceRadius = nodeRadius * 2 + scaledLinkDistance * 0.3;
-          
+
           if (dist < avoidanceRadius && dist > 1) {
             // Push node away from edge - exponential falloff for stronger close-range push
             const ratio = dist / avoidanceRadius; // 0 to 1
@@ -658,13 +686,27 @@ const ForceSimulationModal = ({
           if (nodeGroups.has(group.id)) return;
           const bounds = groupBounds.get(group.id);
           if (!bounds) return;
-          if (cx >= bounds.minX && cx <= bounds.maxX && cy >= bounds.minY && cy <= bounds.maxY) {
-            // Push radially away from group center (not toward nearest edge)
-            // This prevents trapping nodes on wrong side of groups
+
+          // Expanded check: gradient buffer zone OUTSIDE the bounds
+          const bufferZone = gPadding * 0.5;
+          const expandedMinX = bounds.minX - bufferZone;
+          const expandedMinY = bounds.minY - bufferZone;
+          const expandedMaxX = bounds.maxX + bufferZone;
+          const expandedMaxY = bounds.maxY + bufferZone;
+
+          if (cx >= expandedMinX && cx <= expandedMaxX && cy >= expandedMinY && cy <= expandedMaxY) {
+            // Push radially away from group center
             const dx = cx - bounds.centerX;
             const dy = cy - bounds.centerY;
             const dist = Math.sqrt(dx * dx + dy * dy);
-            const push = gExclude * state.alpha * 50;
+
+            // Gradient strength: stronger push when deeper inside
+            const halfW = (bounds.maxX - bounds.minX) / 2;
+            const halfH = (bounds.maxY - bounds.minY) / 2;
+            const maxExtent = Math.max(halfW, halfH, 1);
+            const depthRatio = Math.max(0, 1 - dist / maxExtent);
+            const push = gExclude * state.alpha * (80 + depthRatio * 200);
+
             if (dist > 0.1) {
               vel.vx += (dx / dist) * push;
               vel.vy += (dy / dist) * push;
@@ -1198,7 +1240,7 @@ const ForceSimulationModal = ({
           {/* Group Forces Section */}
           <div className="force-sim-section">
             <h4 className="force-sim-section-title">🎯 Group Forces</h4>
-            
+
             <div className="force-sim-param">
               <label>Group Attraction</label>
               <input

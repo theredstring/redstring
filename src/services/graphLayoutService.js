@@ -537,25 +537,35 @@ function groupSeparatedLayout(nodes, edges, options = {}) {
   const centerX = config.width / 2;
   const centerY = config.height / 2;
 
-  // Build node -> group mapping (first group wins for multi-group nodes)
-  const nodeToGroup = new Map();
+  // Build node -> groups mapping (track ALL groups per node)
+  const nodeToGroups = new Map(); // nodeId -> Set<groupId>
   groups.forEach(g => {
     (g.memberInstanceIds || []).forEach(id => {
-      if (!nodeToGroup.has(id)) nodeToGroup.set(id, g.id);
+      if (!nodeToGroups.has(id)) nodeToGroups.set(id, new Set());
+      nodeToGroups.get(id).add(g.id);
     });
   });
 
-  const ungroupedNodes = nodes.filter(n => !nodeToGroup.has(n.id));
+  // Nodes in multiple groups get excluded from per-group layouts and placed between groups later
+  const multiGroupNodeIds = new Set();
+  nodeToGroups.forEach((groupIds, nodeId) => {
+    if (groupIds.size > 1) multiGroupNodeIds.add(nodeId);
+  });
+
+  const ungroupedNodes = nodes.filter(n => !nodeToGroups.has(n.id));
 
   // ---- Phase 1: Layout each group independently ----
   const groupLayouts = new Map();
 
   groups.forEach(group => {
-    const memberIds = new Set(group.memberInstanceIds || []);
+    // Exclude multi-group nodes from individual group layouts to avoid duplicate positioning
+    const memberIds = new Set(
+      (group.memberInstanceIds || []).filter(id => !multiGroupNodeIds.has(id))
+    );
     const memberNodes = [...memberIds].map(id => nodeById.get(id)).filter(Boolean);
     if (memberNodes.length === 0) return;
 
-    // Edges entirely within this group
+    // Edges entirely within this group (both endpoints must be single-group members)
     const intraEdges = edges.filter(e => memberIds.has(e.sourceId) && memberIds.has(e.destinationId));
 
     // Size sub-canvas based on member count
@@ -632,12 +642,33 @@ function groupSeparatedLayout(nodes, edges, options = {}) {
   // Build meta-edges from cross-group node connections
   // More cross-connections between two groups → stronger pull (multiple springs)
   const metaEdgePairs = new Map(); // "gA|gB" -> count
+  const getNodeMetaGroups = (nodeId) => {
+    const gs = nodeToGroups.get(nodeId);
+    if (gs && gs.size > 0) return [...gs];
+    if (ungroupedSet.has(nodeId)) return ['__ungrouped__'];
+    return [];
+  };
   edges.forEach(e => {
-    const gSrc = nodeToGroup.get(e.sourceId) || (ungroupedSet.has(e.sourceId) ? '__ungrouped__' : null);
-    const gDst = nodeToGroup.get(e.destinationId) || (ungroupedSet.has(e.destinationId) ? '__ungrouped__' : null);
-    if (!gSrc || !gDst || gSrc === gDst) return;
-    const key = [gSrc, gDst].sort().join('|');
-    metaEdgePairs.set(key, (metaEdgePairs.get(key) || 0) + 1);
+    const srcGroups = getNodeMetaGroups(e.sourceId);
+    const dstGroups = getNodeMetaGroups(e.destinationId);
+    // Create meta-edges for all cross-group pairs
+    srcGroups.forEach(gSrc => {
+      dstGroups.forEach(gDst => {
+        if (gSrc === gDst) return;
+        const key = [gSrc, gDst].sort().join('|');
+        metaEdgePairs.set(key, (metaEdgePairs.get(key) || 0) + 1);
+      });
+    });
+  });
+  // Multi-group nodes also imply affinity between their groups
+  multiGroupNodeIds.forEach(nodeId => {
+    const gs = [...(nodeToGroups.get(nodeId) || [])];
+    for (let i = 0; i < gs.length; i++) {
+      for (let j = i + 1; j < gs.length; j++) {
+        const key = [gs[i], gs[j]].sort().join('|');
+        metaEdgePairs.set(key, (metaEdgePairs.get(key) || 0) + 2); // Strong affinity
+      }
+    }
   });
 
   const metaEdges = [];
@@ -672,6 +703,27 @@ function groupSeparatedLayout(nodes, edges, options = {}) {
     layout.positions.forEach((pos, nodeId) => {
       finalPositions.set(nodeId, { x: pos.x + offsetX, y: pos.y + offsetY });
     });
+  });
+
+  // Place multi-group nodes at the centroid of their groups
+  multiGroupNodeIds.forEach(nodeId => {
+    const node = nodeById.get(nodeId);
+    if (!node) return;
+    const gs = nodeToGroups.get(nodeId);
+    if (!gs) return;
+    let sumX = 0, sumY = 0, gCount = 0;
+    gs.forEach(gId => {
+      const metaPos = metaPositions.get(gId);
+      if (metaPos) { sumX += metaPos.x; sumY += metaPos.y; gCount++; }
+    });
+    if (gCount > 0) {
+      finalPositions.set(nodeId, {
+        x: sumX / gCount + (Math.random() - 0.5) * 60,
+        y: sumY / gCount + (Math.random() - 0.5) * 60
+      });
+    } else {
+      finalPositions.set(nodeId, { x: centerX, y: centerY });
+    }
   });
 
   // Place ungrouped nodes near their connected groups
@@ -710,11 +762,11 @@ function groupSeparatedLayout(nodes, edges, options = {}) {
   return forceDirectedLayout(nodesWithPositions, edges, {
     ...options,
     useExistingPositions: true,  // Prevents re-entering groupSeparatedLayout
-    iterations: 80,
+    iterations: 40,  // Reduced from 80 — less time for springs to undo separation
     groups: groups,
     groupAttractionStrength: Math.max(config.groupAttractionStrength, 1.5),
     groupRepulsionStrength: Math.max(config.groupRepulsionStrength, 3.0),
-    groupExclusionStrength: Math.max(config.groupExclusionStrength, 2.0),
+    groupExclusionStrength: Math.max(config.groupExclusionStrength, 2.5),
     minGroupDistance: config.minGroupDistance,
     centerStrength: 0.005,
   });
@@ -921,6 +973,8 @@ export function forceDirectedLayout(nodes, edges, options = {}) {
     const progress = iter / config.iterations;
     const repulsionMult = progress < 0.3 ? 1.4 : (progress < 0.7 ? 1.0 : 0.8);
     const springMult = progress < 0.3 ? 0.7 : (progress < 0.7 ? 1.0 : 1.2);
+    // Cross-group springs don't get late-stage boost to prevent boundary violations
+    const crossGroupSpringMult = progress < 0.3 ? 0.7 : 1.0;
     const centerMult = progress < 0.5 ? 0.5 : 1.0;
 
     // Repulsion forces (n-body)
@@ -1098,10 +1152,28 @@ export function forceDirectedLayout(nodes, edges, options = {}) {
       const preferredTarget = Math.max(labelAwareTarget, minDist);
       const blendWeight = config.labelAwareLinkDistance ? 0.9 : 0.65;
       const blendedTarget = preferredTarget * blendWeight + baseTarget * (1 - blendWeight);
-      const effectiveTarget = Math.max(preferredTarget, Math.min(blendedTarget, baseTarget));
+      let effectiveTarget = Math.max(preferredTarget, Math.min(blendedTarget, baseTarget));
 
-      const spring = calculateSpring(p1, p2, effectiveTarget,
-        attractionStrength * springMult * alpha);
+      // Detect cross-group edges
+      const srcGroups = nodeGroupsMap.get(edge.sourceId);
+      const dstGroups = nodeGroupsMap.get(edge.destinationId);
+      const isCrossGroup = groups.length > 0
+        && srcGroups && srcGroups.size > 0
+        && dstGroups && dstGroups.size > 0
+        && ![...srcGroups].some(g => dstGroups.has(g));
+
+      // For cross-group edges: enforce minimum target distance and dampen strength
+      if (isCrossGroup) {
+        const minGroupDist = config.minGroupDistance || 800;
+        effectiveTarget = Math.max(effectiveTarget, minGroupDist * 0.4);
+      }
+
+      const edgeSpringMult = isCrossGroup ? crossGroupSpringMult : springMult;
+      const springStrength = isCrossGroup
+        ? attractionStrength * edgeSpringMult * alpha * 0.6  // 60% strength for cross-group
+        : attractionStrength * springMult * alpha;
+
+      const spring = calculateSpring(p1, p2, effectiveTarget, springStrength);
 
       const f1 = forces.get(edge.sourceId);
       const f2 = forces.get(edge.destinationId);
@@ -1204,7 +1276,7 @@ export function forceDirectedLayout(nodes, edges, options = {}) {
         }
       });
 
-      // For each node, check if it's inside any group it doesn't belong to
+      // For each node, check if it's inside or near any group it doesn't belong to
       nodes.forEach(node => {
         const pos = positions.get(node.id);
         const force = forces.get(node.id);
@@ -1223,16 +1295,27 @@ export function forceDirectedLayout(nodes, edges, options = {}) {
           const bounds = groupBounds.get(group.id);
           if (!bounds) return;
 
-          // Check if node center is inside the group bounds
-          if (nodeCenterX >= bounds.minX && nodeCenterX <= bounds.maxX &&
-            nodeCenterY >= bounds.minY && nodeCenterY <= bounds.maxY) {
+          // Expanded check: gradient buffer zone OUTSIDE the bounds
+          const bufferZone = groupBoundaryPadding * 0.5;
+          const expandedMinX = bounds.minX - bufferZone;
+          const expandedMinY = bounds.minY - bufferZone;
+          const expandedMaxX = bounds.maxX + bufferZone;
+          const expandedMaxY = bounds.maxY + bufferZone;
 
-            // Push radially away from group center (not toward nearest edge)
-            // This prevents trapping nodes on wrong side of groups
+          if (nodeCenterX >= expandedMinX && nodeCenterX <= expandedMaxX &&
+            nodeCenterY >= expandedMinY && nodeCenterY <= expandedMaxY) {
+
+            // Push radially away from group center
             const dx = nodeCenterX - bounds.centerX;
             const dy = nodeCenterY - bounds.centerY;
             const dist = Math.sqrt(dx * dx + dy * dy);
-            const pushStrength = groupExclusionStrength * alpha * 50;
+
+            // Gradient strength: stronger push when deeper inside
+            const halfW = (bounds.maxX - bounds.minX) / 2;
+            const halfH = (bounds.maxY - bounds.minY) / 2;
+            const maxExtent = Math.max(halfW, halfH, 1);
+            const depthRatio = Math.max(0, 1 - dist / maxExtent); // 1=center, 0=edge
+            const pushStrength = groupExclusionStrength * alpha * (80 + depthRatio * 200);
 
             if (dist > 0.1) {
               force.fx += (dx / dist) * pushStrength;
@@ -1291,7 +1374,7 @@ export function forceDirectedLayout(nodes, edges, options = {}) {
               const falloff = dist < minGroupDistance ? 1.0 : Math.max(0, 1 - (dist - minGroupDistance) / (minGroupDistance * 0.5));
               // Strong push when overlapping + base push with falloff when nearby
               const pushStrength = (overlap * crossGroupNodeRepulsion * alpha) +
-                                   (crossGroupNodeRepulsion * alpha * 20 * falloff);
+                (crossGroupNodeRepulsion * alpha * 20 * falloff);
               const ux = dx / Math.max(dist, 1);
               const uy = dy / Math.max(dist, 1);
 
@@ -1422,8 +1505,9 @@ export function forceDirectedLayout(nodes, edges, options = {}) {
 
   // Multi-stage constraint enforcement for rigidity (Final Polish)
   // Stage 1: Enforce edge constraints (connected nodes stay at target distance)
+  // Pass group info so cross-group edges use weaker correction
   enforceEdgeConstraints(positions, edges, nodeById, getNodeRadius,
-    finalTargetLinkDistance, 5, 0.8); // High stiffness for final pass
+    finalTargetLinkDistance, 5, 0.8, nodeGroupsMap, config.minGroupDistance || 800);
 
   // Stage 2: Resolve all overlaps
   resolveOverlaps(positions, nodes, getNodeRadius, config.padding,
@@ -1431,13 +1515,20 @@ export function forceDirectedLayout(nodes, edges, options = {}) {
 
   // Stage 3: Re-enforce edge constraints (maintain connectivity after overlap resolution)
   enforceEdgeConstraints(positions, edges, nodeById, getNodeRadius,
-    finalTargetLinkDistance, 3, 0.8);
+    finalTargetLinkDistance, 3, 0.8, nodeGroupsMap, config.minGroupDistance || 800);
 
   // Stage 4: Final gentle overlap check
   resolveOverlaps(positions, nodes, getNodeRadius, config.padding,
     config.width, config.height, 3);
 
-  condenseClusters(positions, clusters, centerX, centerY, config);
+  // Stage 5: Enforce cross-group minimum separation (hard constraint)
+  if (groups.length > 0) {
+    enforceGroupSeparation(positions, nodes, nodeGroupsMap, getNodeRadius,
+      config.minGroupDistance || 800, finalMinNodeDistance, config.padding,
+      config.width, config.height, 5);
+  }
+
+  condenseClusters(positions, clusters, centerX, centerY, config, nodeGroupsMap);
 
   return positions;
 }
@@ -1445,8 +1536,10 @@ export function forceDirectedLayout(nodes, edges, options = {}) {
 /**
  * Enforce edge length constraints
  * Connected nodes try to maintain target distance (rigid body behavior)
+ * When nodeGroupsMap is provided, cross-group edges use weaker correction
+ * and a larger minimum target to prevent undoing group separation.
  */
-function enforceEdgeConstraints(positions, edges, nodeById, getRadius, targetDistance, passes, stiffness = 0.5) {
+function enforceEdgeConstraints(positions, edges, nodeById, getRadius, targetDistance, passes, stiffness = 0.5, nodeGroupsMap = null, minGroupDistance = 0) {
   for (let pass = 0; pass < passes; pass++) {
     edges.forEach(edge => {
       const p1 = positions.get(edge.sourceId);
@@ -1464,17 +1557,34 @@ function enforceEdgeConstraints(positions, edges, nodeById, getRadius, targetDis
       const r1 = getRadius(n1);
       const r2 = getRadius(n2);
 
+      // Detect cross-group edges
+      let isCrossGroup = false;
+      if (nodeGroupsMap) {
+        const srcG = nodeGroupsMap.get(edge.sourceId);
+        const dstG = nodeGroupsMap.get(edge.destinationId);
+        if (srcG && srcG.size > 0 && dstG && dstG.size > 0) {
+          isCrossGroup = ![...srcG].some(g => dstG.has(g));
+        }
+      }
+
       // Dynamic Target Calculation
       // We want nodes to sit at 'targetDistance' generally, 
       // but MUST NOT overlap (radius + radius).
       const minSeparation = (r1 + r2) * 1.1; // 10% gap
-      const effectiveTarget = Math.max(targetDistance, minSeparation);
+      let effectiveTarget = Math.max(targetDistance, minSeparation);
+
+      // Cross-group edges: larger target + weaker correction
+      if (isCrossGroup && minGroupDistance > 0) {
+        effectiveTarget = Math.max(effectiveTarget, minGroupDistance * 0.4);
+      }
 
       // Calculate scalar correction
       // If stiffness is 1.0, we move exactly to target.
       // If stiffness is low, we gently nudge.
       const diff = dist - effectiveTarget;
-      const correction = diff * stiffness * 0.5; // 0.5 because we move both nodes
+      // Cross-group edges get much weaker correction to preserve group separation
+      const effectiveStiffness = isCrossGroup ? stiffness * 0.3 : stiffness;
+      const correction = diff * effectiveStiffness * 0.5; // 0.5 because we move both nodes
 
       const ux = dx / dist;
       const uy = dy / dist;
@@ -1485,6 +1595,59 @@ function enforceEdgeConstraints(positions, edges, nodeById, getRadius, targetDis
       p2.x -= ux * correction;
       p2.y -= uy * correction;
     });
+  }
+}
+
+/**
+ * Enforce minimum distance between nodes in different groups.
+ * Acts as a hard position constraint after all force-based processing.
+ */
+function enforceGroupSeparation(positions, nodes, nodeGroupsMap, getRadius, minGroupDistance, minNodeDistance, padding, width, height, passes) {
+  const separationThreshold = Math.max(minNodeDistance * 1.2, minGroupDistance * 0.3);
+
+  for (let pass = 0; pass < passes; pass++) {
+    for (let i = 0; i < nodes.length; i++) {
+      for (let j = i + 1; j < nodes.length; j++) {
+        const n1 = nodes[i];
+        const n2 = nodes[j];
+
+        const g1 = nodeGroupsMap.get(n1.id);
+        const g2 = nodeGroupsMap.get(n2.id);
+
+        // Only enforce between nodes in different, non-overlapping groups
+        if (!g1 || g1.size === 0 || !g2 || g2.size === 0) continue;
+        let sharesGroup = false;
+        for (const gid of g1) {
+          if (g2.has(gid)) { sharesGroup = true; break; }
+        }
+        if (sharesGroup) continue;
+
+        const p1 = positions.get(n1.id);
+        const p2 = positions.get(n2.id);
+        if (!p1 || !p2) continue;
+
+        const dx = p2.x - p1.x;
+        const dy = p2.y - p1.y;
+        const dist = Math.sqrt(dx * dx + dy * dy);
+
+        if (dist < separationThreshold && dist > 0.1) {
+          const overlap = (separationThreshold - dist) / 2;
+          const ux = dx / dist;
+          const uy = dy / dist;
+
+          p1.x -= ux * overlap;
+          p1.y -= uy * overlap;
+          p2.x += ux * overlap;
+          p2.y += uy * overlap;
+
+          // Keep in bounds
+          p1.x = clamp(p1.x, padding, width - padding);
+          p1.y = clamp(p1.y, padding, height - padding);
+          p2.x = clamp(p2.x, padding, width - padding);
+          p2.y = clamp(p2.y, padding, height - padding);
+        }
+      }
+    }
   }
 }
 
@@ -1546,8 +1709,10 @@ function resolveOverlaps(positions, nodes, getRadius, padding, width, height, pa
 
 /**
  * Pull clusters closer to center after layout so we undo overly distant placement.
+ * When user-defined groups exist, skip clusters that span multiple groups
+ * to avoid collapsing separated groups toward center.
  */
-function condenseClusters(positions, clusters, centerX, centerY, config) {
+function condenseClusters(positions, clusters, centerX, centerY, config, nodeGroupsMap = null) {
   if (clusters.length <= 1) return;
 
   // Use gentler condensation when user-defined groups exist to preserve group separation
@@ -1556,6 +1721,17 @@ function condenseClusters(positions, clusters, centerX, centerY, config) {
 
   clusters.forEach(cluster => {
     if (!cluster || cluster.length === 0) return;
+
+    // Skip clusters that contain nodes from multiple user-defined groups
+    // Condensing these would undo group separation
+    if (nodeGroupsMap && config._hasUserGroups) {
+      const groupsInCluster = new Set();
+      cluster.forEach(node => {
+        const gs = nodeGroupsMap.get(node.id);
+        if (gs) gs.forEach(g => groupsInCluster.add(g));
+      });
+      if (groupsInCluster.size > 1) return;
+    }
 
     let sumX = 0;
     let sumY = 0;
