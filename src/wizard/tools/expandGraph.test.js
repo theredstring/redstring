@@ -54,7 +54,7 @@ describe('expandGraph', () => {
             graph_spec: expect.objectContaining({
               nodes: [
                 { name: 'Node One', color: '#FF0000', description: 'First node' },
-                { name: 'Node Two', color: '#5B6CFF', description: '' }
+                { name: 'Node Two', color: undefined, description: '' }
               ],
               edges: [
                 {

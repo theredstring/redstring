@@ -25,7 +25,7 @@ export async function callLLM({
   systemPrompt,
   userPrompt,
   messages = [],
-  maxTokens = 2000,
+  maxTokens = 8192,
   temperature = 0.7
 }) {
   // Local providers may not require API keys
@@ -100,7 +100,7 @@ export async function callLLM({
     // OpenAI-compatible endpoint (works with OpenAI, Ollama, LM Studio, LocalAI, vLLM, etc.)
     const openaiEndpoint = endpoint || 'http://localhost:11434/v1/chat/completions';
     const openaiModel = model || 'llama2';
-    
+
     const payload = {
       model: openaiModel,
       messages: [
@@ -123,7 +123,7 @@ export async function callLLM({
       headers,
       body: JSON.stringify(payload)
     });
-    
+
     // Enhanced error handling for local connection issues
     if (!response.ok) {
       const errorText = await response.text();

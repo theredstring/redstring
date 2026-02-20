@@ -10,7 +10,7 @@ const AgentConfigEditor = ({ config, onChange, onTest, testOutput }) => {
     enabled: false,
     prompt: '',
     type: 'executor',
-    maxTokens: 2000,
+    maxTokens: 8192,
     temperature: 0.7,
     apiKeyOverride: '',
     events: [],
@@ -106,8 +106,8 @@ const AgentConfigEditor = ({ config, onChange, onTest, testOutput }) => {
                 <label className="block text-sm font-medium mb-1">Max Tokens</label>
                 <input
                   type="number"
-                  value={localConfig.maxTokens || 2000}
-                  onChange={(e) => handleChange('maxTokens', parseInt(e.target.value) || 2000)}
+                  value={localConfig.maxTokens || 8192}
+                  onChange={(e) => handleChange('maxTokens', parseInt(e.target.value) || 8192)}
                   className="w-full p-2 border rounded text-sm"
                   min={100}
                   max={8000}

@@ -9,7 +9,7 @@ export async function searchNodes(args, graphState, cid, ensureSchedulerStarted)
   }
 
   const { nodePrototypes = [] } = graphState;
-  
+
   // Simple name-based search (can be enhanced with semantic search later)
   const queryLower = query.toLowerCase();
   const results = nodePrototypes
@@ -25,6 +25,10 @@ export async function searchNodes(args, graphState, cid, ensureSchedulerStarted)
       description: proto.description
     }))
     .slice(0, 20); // Limit results
+
+  if (results.length === 0) {
+    return { results, message: 'No nodes matched your query.' };
+  }
 
   return { results };
 }

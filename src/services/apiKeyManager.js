@@ -27,7 +27,7 @@ class APIKeyManager {
     try {
       // Simple obfuscation (in production, you might want stronger encryption)
       const obfuscatedKey = this.obfuscate(apiKey);
-      
+
       const keyData = {
         key: obfuscatedKey,
         provider,
@@ -35,7 +35,7 @@ class APIKeyManager {
         model: config.model || this.getDefaultModel(provider),
         settings: {
           temperature: 0.7,
-          max_tokens: 1000,
+          max_tokens: 8192,
           ...config.settings
         },
         timestamp: Date.now(),
@@ -45,7 +45,7 @@ class APIKeyManager {
 
       // Save into profiles list
       const profiles = await this._getProfilesInternal();
-      const id = (config.profileId) || `prof_${Date.now()}_${Math.random().toString(36).slice(2,8)}`;
+      const id = (config.profileId) || `prof_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
       profiles[id] = keyData;
       localStorage.setItem(this.STORAGE_PROFILES, JSON.stringify(profiles));
       localStorage.setItem(this.ACTIVE_PROFILE, id);
@@ -61,7 +61,7 @@ class APIKeyManager {
           console.warn('[API Key Manager] Failed to record recent OpenRouter model', err);
         }
       }
-      
+
       return { success: true, id, name: keyData.name, provider, endpoint: keyData.endpoint, model: keyData.model };
     } catch (error) {
       console.error('[API Key Manager] Failed to store API configuration:', error);
@@ -78,7 +78,7 @@ class APIKeyManager {
       const keyData = await this._getActiveProfileData();
       if (!keyData) return null;
       const deobfuscatedKey = this.deobfuscate(keyData.key);
-      
+
       console.log('[API Key Manager] API key retrieved successfully');
       return deobfuscatedKey;
     } catch (error) {
@@ -95,21 +95,21 @@ class APIKeyManager {
     try {
       const keyData = await this._getActiveProfileData();
       if (!keyData) return null;
-      
+
       // Handle legacy format (version 1.0)
       if (keyData.version === '1.0') {
         return {
           provider: keyData.provider,
           endpoint: this.getDefaultEndpoint(keyData.provider),
           model: this.getDefaultModel(keyData.provider),
-          settings: { temperature: 0.7, max_tokens: 1000 },
+          settings: { temperature: 0.7, max_tokens: 8192 },
           timestamp: keyData.timestamp,
           version: keyData.version,
           hasKey: true,
           isLegacy: true
         };
       }
-      
+
       // Current format (version 2.0+)
       return {
         name: keyData.name,
@@ -252,12 +252,12 @@ class APIKeyManager {
 
     // Remove whitespace
     const cleanKey = apiKey.trim();
-    
+
     // 'local' is a special placeholder for local LLM providers that don't require keys
     if (cleanKey === 'local') {
       return true;
     }
-    
+
     // Just check it's not empty and has reasonable length
     return cleanKey.length >= 5;
   }

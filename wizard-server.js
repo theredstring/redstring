@@ -12,6 +12,7 @@ import express from 'express';
 import cors from 'cors';
 import net from 'net';
 import { runAgent } from './src/wizard/AgentLoop.js';
+import { getToolDefinitions, executeTool } from './src/wizard/tools/index.js';
 import { debugLogSync } from './src/utils/debugLogger.js';
 
 const app = express();
@@ -174,6 +175,57 @@ app.post('/api/wizard', async (req, res) => {
       res.write(`data: ${JSON.stringify({ type: 'error', message: error.message })}\n\n`);
       res.end();
     }
+  }
+});
+
+// ─────────────────────────────────────────────────────────────
+// UI Tool Tester Endpoints
+// ─────────────────────────────────────────────────────────────
+
+app.get('/api/wizard/tools', (req, res) => {
+  try {
+    const tools = getToolDefinitions();
+    res.json({ tools });
+  } catch (error) {
+    console.error('[Wizard] Failed to get tools:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.post('/api/wizard/execute-tool', async (req, res) => {
+  try {
+    const { name, args, graphState, config } = req.body || {};
+
+    if (!name) {
+      return res.status(400).json({ error: 'Tool name is required' });
+    }
+
+    const cid = config?.cid || `tool-test-${Date.now()}`;
+    const apiKey = req.headers.authorization?.replace(/^Bearer\s+/i, '') || '';
+
+    console.log(`[Wizard] Executing tool manually: ${name}`, args);
+
+    // Create a synthesized graphState if not fully valid
+    const safeGraphState = graphState || {
+      graphs: [],
+      nodePrototypes: [],
+      edges: [],
+      activeGraphId: null
+    };
+
+    // Inject the apiKey if it's not present just in case a tool needs it
+    if (apiKey && !safeGraphState.apiKey) {
+      safeGraphState.apiKey = apiKey;
+    }
+
+    await ensureSchedulerStarted();
+
+    const result = await executeTool(name, args || {}, safeGraphState, cid, ensureSchedulerStarted);
+
+    res.json({ success: true, result });
+  } catch (error) {
+    console.error(`[Wizard] Error executing tool ${req.body?.name}:`, error);
+    res.status(500).json({ error: error.message });
   }
 });
 

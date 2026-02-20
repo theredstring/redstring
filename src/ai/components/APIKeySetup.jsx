@@ -188,7 +188,7 @@ const APIKeySetup = ({ onKeySet, onClose, inline = false }) => {
         model: model.trim(),
         settings: {
           temperature: 0.7,
-          max_tokens: 1000
+          max_tokens: 8192
         }
       });
 

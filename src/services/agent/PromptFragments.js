@@ -73,6 +73,8 @@ Remove a connection.
 Find nodes by semantic meaning.
 - \`query\` (required): What to search for
 - Returns matching nodes
+- **ONLY USE THIS IF YOU ACTUALLY NEED TO SEARCH FOR A NEW NODE**. 
+- To add content to the graph, just use \`expandGraph\`! You ALREADY know about all the nodes and edges currently in the graph because they are constantly listed in your \`CURRENT WEB\` context. There is zero reason to ever use \`searchNodes\` to try and read the graph you are already looking at.
 
 ### getNodeContext
 Get a node and its neighbors.

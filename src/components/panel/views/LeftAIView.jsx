@@ -70,17 +70,36 @@ function applyToolResultToStore(toolName, result) {
         }));
       }
     }, 600);
+  } else if (result.goalId || toolName === 'expandGraph' || toolName === 'updateGroup' || toolName === 'deleteGroup') {
+    // Other mutating tools that go through the goal queue
+    // We trigger a re-fetch of the graph state to ensure the UI is in sync
+    console.log(`[Wizard] Applying ${toolName} to store, triggering refresh.`);
+
+    // Slight delay to allow backend to finish committing
+    setTimeout(() => {
+      if (typeof window !== 'undefined' && window.redstringStoreActions && window.redstringStoreActions._triggerGraphRefresh) {
+        window.redstringStoreActions._triggerGraphRefresh();
+      }
+    }, 500);
   }
 }
 
 // Internal AI Collaboration View component (migrated from src/ai/AICollaborationPanel.jsx)
-const LeftAIView = ({ compact = false, activeGraphId, graphsMap, edgesMap }) => {
+const LeftAIView = ({ compact = false,
+  activeGraphId,
+  graphsMap,
+  edgesMap,
+  nodePrototypesMap
+}) => {
   const [isConnected, setIsConnected] = React.useState(false);
   const [messages, setMessages] = React.useState([]);
   const [currentInput, setCurrentInput] = React.useState('');
   const [isProcessing, setIsProcessing] = React.useState(false);
   const [showAdvanced, setShowAdvanced] = React.useState(false);
   const [showToolsDropdown, setShowToolsDropdown] = React.useState(false);
+  const [wizardTools, setWizardTools] = React.useState([]);
+  const [selectedTestTool, setSelectedTestTool] = React.useState(null);
+  const [testToolArgs, setTestToolArgs] = React.useState('');
   const [showAPIKeySetup, setShowAPIKeySetup] = React.useState(false);
   const [hasAPIKey, setHasAPIKey] = React.useState(false);
   const [apiKeyInfo, setApiKeyInfo] = React.useState(null);
@@ -185,6 +204,22 @@ const LeftAIView = ({ compact = false, activeGraphId, graphsMap, edgesMap }) => 
         }
       }
     };
+  }, []);
+
+  React.useEffect(() => {
+    // Fetch wizard tools on load
+    const fetchWizardTools = async () => {
+      try {
+        const res = await bridgeFetch('/api/wizard/tools');
+        if (res.ok) {
+          const data = await res.json();
+          if (data.tools) setWizardTools(data.tools);
+        }
+      } catch (err) {
+        console.warn('Failed to fetch wizard tools:', err);
+      }
+    };
+    fetchWizardTools();
   }, []);
 
   React.useEffect(() => {
@@ -472,6 +507,8 @@ const LeftAIView = ({ compact = false, activeGraphId, graphsMap, edgesMap }) => 
         return;
       }
 
+
+
       // Unknown command
       addMessage('user', userMessage);
       addMessage('system', `Unknown command: /${command}\n\nAvailable commands:\n  /test [--dry-run|--auto-discover] - Run wizard tests`);
@@ -652,11 +689,12 @@ const LeftAIView = ({ compact = false, activeGraphId, graphsMap, edgesMap }) => 
           const protoMap = new Map();
           instances.forEach(inst => {
             if (inst.prototypeId && !protoMap.has(inst.prototypeId)) {
+              const fullNodeData = nodePrototypesMap ? nodePrototypesMap.get(inst.prototypeId) : null;
               protoMap.set(inst.prototypeId, {
                 id: inst.prototypeId,
-                name: inst.name,
-                color: inst.color,
-                description: inst.description
+                name: fullNodeData?.name || inst.name,
+                color: fullNodeData?.color || inst.color,
+                description: fullNodeData?.description || inst.description
               });
             }
           });
@@ -911,18 +949,28 @@ const LeftAIView = ({ compact = false, activeGraphId, graphsMap, edgesMap }) => 
       const sender = msg.sender === 'user' ? 'User' : msg.sender === 'ai' ? 'AI' : 'System';
       let text = `${sender}: ${msg.content}`;
 
-      // Add metadata if present (tool calls, mode, etc.)
+      const meta = [];
+      const toolCallsToLog = msg.toolCalls && msg.toolCalls.length > 0
+        ? msg.toolCalls
+        : (msg.metadata && msg.metadata.toolCalls ? msg.metadata.toolCalls : []);
+
+      if (toolCallsToLog.length > 0) {
+        meta.push('\n  Tool Calls:');
+        toolCallsToLog.forEach((tc, idx) => {
+          meta.push(`\n    ${idx + 1}. ${tc.name || 'unknown'} (${tc.status || 'unknown'})`);
+          if (tc.args) {
+            meta.push(`\n       Args: ${JSON.stringify(tc.args, null, 2).replace(/\n/g, '\n       ')}`);
+          }
+          if (tc.result) {
+            meta.push(`\n       Result: ${JSON.stringify(tc.result, null, 2).replace(/\n/g, '\n       ')}`);
+          }
+          if (tc.error) {
+            meta.push(`\n       Error: ${tc.error}`);
+          }
+        });
+      }
+
       if (msg.metadata) {
-        const meta = [];
-        if (msg.metadata.toolCalls && Array.isArray(msg.metadata.toolCalls) && msg.metadata.toolCalls.length > 0) {
-          meta.push('\n  Tool Calls:');
-          msg.metadata.toolCalls.forEach((tc, idx) => {
-            meta.push(`\n    ${idx + 1}. ${tc.name || 'unknown'} (${tc.status || 'unknown'})`);
-            if (tc.args) {
-              meta.push(`\n       Args: ${JSON.stringify(tc.args, null, 2).replace(/\n/g, '\n       ')}`);
-            }
-          });
-        }
         if (msg.metadata.mode) {
           meta.push(`\n  Mode: ${msg.metadata.mode}`);
         }
@@ -932,6 +980,9 @@ const LeftAIView = ({ compact = false, activeGraphId, graphsMap, edgesMap }) => 
         if (msg.metadata.isComplete !== undefined) {
           meta.push(`\n  Complete: ${msg.metadata.isComplete}`);
         }
+      }
+
+      if (meta.length > 0) {
         text += meta.join('');
       }
 
@@ -958,6 +1009,7 @@ const LeftAIView = ({ compact = false, activeGraphId, graphsMap, edgesMap }) => 
       // Conversation cleared silently (no message)
     }
   };
+
 
   const headerActionsEl = (
     <div className="ai-header-actions">
@@ -995,7 +1047,9 @@ const LeftAIView = ({ compact = false, activeGraphId, graphsMap, edgesMap }) => 
             textAlign: 'left'
           }}>
             <div style={{ fontSize: '12px', fontWeight: 'bold', marginBottom: '8px', color: '#888', paddingBottom: '4px', borderBottom: '1px solid #333' }}>Available Tools (Click to test)</div>
-            {mcpClient.getAvailableTools().map(tool => (
+
+            {/* Combine and map all tools */}
+            {[...mcpClient.getAvailableTools(), ...wizardTools].map(tool => (
               <div
                 key={tool.name}
                 className="ai-tool-dropdown-item"
@@ -1004,30 +1058,46 @@ const LeftAIView = ({ compact = false, activeGraphId, graphsMap, edgesMap }) => 
                   borderBottom: '1px solid #2a2a2a'
                 }}
                 onClick={() => {
-                  const schemaVars = Object.keys(tool.inputSchema?.properties || {}).reduce((acc, key) => {
-                    const prop = tool.inputSchema?.properties[key];
+                  const props = tool.inputSchema?.properties || tool.parameters?.properties || {};
+                  const schemaVars = Object.keys(props).reduce((acc, key) => {
+                    const prop = props[key];
                     if (prop?.type === 'array') {
-                      acc[key] = [`<${prop?.items?.type || 'item'}>`];
+                      acc[key] = prop?.items?.type === 'string' ? ['example'] : [];
                     } else if (prop?.type === 'object') {
                       acc[key] = {};
+                    } else if (prop?.type === 'boolean') {
+                      acc[key] = false;
+                    } else if (prop?.type === 'number') {
+                      acc[key] = 0;
                     } else {
-                      acc[key] = `<${prop?.type || 'value'}>`;
+                      // Provide better default strings based on property name
+                      const lkey = key.toLowerCase();
+                      if (lkey.includes('id')) acc[key] = '12345';
+                      else if (lkey.includes('name')) acc[key] = 'Test Name';
+                      else if (lkey.includes('color')) acc[key] = '#ff0000';
+                      else if (lkey.includes('desc')) acc[key] = 'Test description';
+                      else acc[key] = 'test_value';
                     }
                     return acc;
                   }, {});
-                  const prompt = `Please test the tool \`${tool.name}\` with these arguments:\n\`\`\`json\n${JSON.stringify(schemaVars, null, 2)}\n\`\`\``;
-                  setCurrentInput(prompt);
+                  setSelectedTestTool({
+                    ...tool,
+                    isMcpTool: mcpClient.getAvailableTools().some(t => t.name === tool.name)
+                  });
+                  setTestToolArgs(JSON.stringify(schemaVars, null, 2));
                   setShowToolsDropdown(false);
-                  if (inputRef.current) inputRef.current.focus();
                 }}
                 onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#2a2a2a'}
                 onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
               >
-                <div style={{ color: '#e0e0e0', fontSize: '13px', fontWeight: '500' }}>{tool.name}</div>
+                <div style={{ color: '#e0e0e0', fontSize: '13px', fontWeight: '500' }}>
+                  {tool.name}
+                  {wizardTools.some(t => t.name === tool.name) && <span style={{ fontSize: '10px', color: '#888', marginLeft: '6px' }}>(Wizard)</span>}
+                </div>
                 <div style={{ color: '#888', fontSize: '11px', marginTop: '4px', lineHeight: '1.3' }}>{tool.description}</div>
               </div>
             ))}
-            {mcpClient.getAvailableTools().length === 0 && (
+            {mcpClient.getAvailableTools().length === 0 && wizardTools.length === 0 && (
               <div style={{ fontSize: '12px', color: '#888', padding: '8px', textAlign: 'center' }}>No tools available right now.<br />Connect to bridge first.</div>
             )}
           </div>
@@ -1112,6 +1182,106 @@ const LeftAIView = ({ compact = false, activeGraphId, graphsMap, edgesMap }) => 
       {showAPIKeySetup && (
         <div className="ai-api-setup-section">
           <APIKeySetup onKeySet={() => checkAPIKey()} onClose={() => setShowAPIKeySetup(false)} inline={true} />
+        </div>
+      )}
+
+      {selectedTestTool && (
+        <div className="ai-tool-tester-modal" style={{
+          position: 'absolute', top: '50px', right: '12px',
+          width: '320px', backgroundColor: '#1e1e1e',
+          border: '1px solid #333', borderRadius: '8px', padding: '12px', zIndex: 1000,
+          boxShadow: '0 8px 24px rgba(0,0,0,0.4)',
+          display: 'flex', flexDirection: 'column'
+        }}>
+          <h3 style={{ margin: '0 0 8px 0', color: '#e0e0e0', fontSize: '13px', borderBottom: '1px solid #333', paddingBottom: '6px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <span>Test: {selectedTestTool.name}</span>
+            <span style={{ fontSize: '10px', color: '#666', fontWeight: 'normal', backgroundColor: '#2a2a2a', padding: '2px 4px', borderRadius: '4px' }}>
+              {selectedTestTool.isMcpTool ? 'MCP' : 'WIZARD'}
+            </span>
+          </h3>
+          <div style={{ color: '#aaa', fontSize: '11px', marginBottom: '12px', flexShrink: 0, lineHeight: '1.3' }}>{selectedTestTool.description}</div>
+          <div style={{ fontSize: '11px', color: '#888', marginBottom: '6px', fontWeight: '500' }}>Arguments (JSON)</div>
+          <textarea
+            value={testToolArgs}
+            onChange={(e) => setTestToolArgs(e.target.value)}
+            style={{
+              width: '100%', height: '120px', backgroundColor: '#0f0f0f',
+              color: '#d4d4d4', fontFamily: 'monospace', fontSize: '11px', padding: '8px',
+              border: '1px solid #333', borderRadius: '4px', marginBottom: '12px',
+              resize: 'vertical', outline: 'none'
+            }}
+          />
+          <div style={{ display: 'flex', justifyContent: 'space-between', gap: '8px', flexShrink: 0 }}>
+            <button onClick={() => setSelectedTestTool(null)} className="ai-flat-button" style={{ padding: '6px 12px', fontSize: '11px', color: '#888' }}>Cancel</button>
+            <button disabled={isProcessing} onClick={async () => {
+              const toolName = selectedTestTool.name;
+              const isMcpTool = selectedTestTool.isMcpTool;
+              let parsedArgs = {};
+              try {
+                parsedArgs = JSON.parse(testToolArgs);
+              } catch (e) {
+                alert('Invalid JSON in arguments');
+                return;
+              }
+
+              try {
+                setIsProcessing(true);
+                setSelectedTestTool(null);
+                addMessage('user', `Manual execution: ${toolName}`);
+                addMessage('system', `Executing tool manually: ${toolName}...`);
+
+                if (isMcpTool) {
+                  const result = await mcpClient.callTool(toolName, parsedArgs);
+                  addMessage('system', `**Result for ${toolName}:**\n\`\`\`json\n${JSON.stringify(result, null, 2)}\n\`\`\``);
+                } else {
+                  const graphState = {
+                    activeGraphId,
+                    graphs: activeGraphId && graphsMap ? Array.from(graphsMap.values()).map(g => ({
+                      id: g.id, name: g.name,
+                      instances: g.instances instanceof Map ? Array.from(g.instances.values()) : Object.values(g.instances || {}),
+                      edgeIds: g.edgeIds || [],
+                      groups: g.groups instanceof Map ? Array.from(g.groups.values()) : Object.values(g.groups || {})
+                    })) : [],
+                    edges: activeGraphId && edgesMap ? (() => {
+                      const graph = graphsMap.get(activeGraphId);
+                      if (!graph) return [];
+                      return (graph.edgeIds || []).map(edgeId => {
+                        const edge = edgesMap.get(edgeId);
+                        if (!edge) return null;
+                        return {
+                          id: edgeId, sourceId: edge.sourceId, targetId: edge.targetId,
+                          type: edge.type || edge.connectionType || 'relates to'
+                        };
+                      }).filter(Boolean);
+                    })() : []
+                  };
+
+                  const apiKey = await apiKeyManager.getAPIKey();
+                  const headers = { 'Content-Type': 'application/json' };
+                  if (apiKey) headers['Authorization'] = `Bearer ${apiKey}`;
+
+                  const response = await bridgeFetch('/api/wizard/execute-tool', {
+                    method: 'POST',
+                    headers,
+                    body: JSON.stringify({ name: toolName, args: parsedArgs, graphState })
+                  });
+
+                  if (!response.ok) {
+                    const errText = await response.text();
+                    throw new Error(`Tool execution failed (${response.status}): ${errText}`);
+                  }
+                  const result = await response.json();
+                  addMessage('system', `**Result for ${toolName}:**\n\`\`\`json\n${JSON.stringify(result, null, 2)}\n\`\`\``);
+                }
+              } catch (e) {
+                addMessage('system', `❌ Error executing ${toolName}:\n${e.message}`);
+              } finally {
+                setIsProcessing(false);
+              }
+            }} className="ai-flat-button" style={{ backgroundColor: '#2a2a2a', padding: '6px 12px', fontSize: '11px', border: '1px solid #444', borderRadius: '4px', cursor: 'pointer', color: '#e0e0e0' }}>
+              Execute {selectedTestTool.name}
+            </button>
+          </div>
         </div>
       )}
 

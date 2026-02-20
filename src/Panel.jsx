@@ -1685,6 +1685,7 @@ const Panel = memo(forwardRef(
             activeGraphId={activeGraphId}
             graphsMap={graphsMap}
             edgesMap={edgesMap}
+            nodePrototypesMap={nodePrototypesMap}
           />
         );
       } else if (leftViewActive === 'history') {

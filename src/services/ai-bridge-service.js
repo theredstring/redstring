@@ -13,6 +13,7 @@ import { setBridgeStoreRef } from './bridgeStoreAccessor.js';
 import { getGraphStatistics, getGraphSemanticStructure } from './graphQueries.js';
 import apiKeyManager from './apiKeyManager.js';
 import executionTracer from './ExecutionTracer.js';
+import { getToolDefinitions, executeTool } from '../wizard/tools/index.js';
 
 // Lazily import scheduler to avoid pulling UI store modules at startup
 let scheduler = null;
@@ -146,6 +147,57 @@ export function initializeBridgeService(app, options = {}) {
 
     app.get('/api/bridge/health', (_req, res) => {
         res.json({ ok: true, hasStore: !!bridgeStoreData });
+    });
+
+    // ─────────────────────────────────────────────────────────────
+    // UI Tool Tester Endpoints
+    // ─────────────────────────────────────────────────────────────
+
+    app.get('/api/wizard/tools', (req, res) => {
+        try {
+            const tools = getToolDefinitions();
+            res.json({ tools });
+        } catch (error) {
+            logger.error('[AI Bridge] Failed to get tools:', error);
+            res.status(500).json({ error: error.message });
+        }
+    });
+
+    app.post('/api/wizard/execute-tool', async (req, res) => {
+        try {
+            const { name, args, graphState, config } = req.body || {};
+
+            if (!name) {
+                return res.status(400).json({ error: 'Tool name is required' });
+            }
+
+            const cid = config?.cid || `tool-test-${Date.now()}`;
+            const apiKey = req.headers.authorization?.replace(/^Bearer\s+/i, '') || '';
+
+            logger.info(`[AI Bridge] Executing tool manually: ${name}`);
+
+            // Create a synthesized graphState if not fully valid
+            const safeGraphState = graphState || {
+                graphs: [],
+                nodePrototypes: [],
+                edges: [],
+                activeGraphId: null
+            };
+
+            // Inject the apiKey if it's not present just in case a tool needs it
+            if (apiKey && !safeGraphState.apiKey) {
+                safeGraphState.apiKey = apiKey;
+            }
+
+            await ensureSchedulerStarted(logger);
+
+            const result = await executeTool(name, args || {}, safeGraphState, cid, async () => await ensureSchedulerStarted(logger));
+
+            res.json({ success: true, result });
+        } catch (error) {
+            logger.error(`[AI Bridge] Error executing tool ${req.body?.name}:`, error);
+            res.status(500).json({ error: error.message });
+        }
     });
 
     app.post('/api/bridge/state', async (req, res) => {
