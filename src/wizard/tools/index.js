@@ -10,6 +10,8 @@ import { deleteNode } from './deleteNode.js';
 import { createEdge } from './createEdge.js';
 import { deleteEdge } from './deleteEdge.js';
 import { searchNodes } from './searchNodes.js';
+import { searchConnections } from './searchConnections.js';
+import { selectNode } from './selectNode.js';
 import { getNodeContext } from './getNodeContext.js';
 import { createGraph } from './createGraph.js';
 import { expandGraph } from './expandGraph.js';
@@ -28,6 +30,8 @@ const TOOLS = {
   createEdge,
   deleteEdge,
   searchNodes,
+  searchConnections,
+  selectNode,
   getNodeContext,
   createGraph,
   expandGraph,
@@ -128,13 +132,35 @@ export function getToolDefinitions() {
     },
     {
       name: 'searchNodes',
-      description: 'Find nodes by semantic meaning or name',
+      description: 'Search for nodes in the active graph using natural language. Supports fuzzy matching - you can use general terms, individual words, or phrases. Returns nodes ranked by relevance. Use this to find nodes before modifying or connecting them.',
       parameters: {
         type: 'object',
         properties: {
-          query: { type: 'string', description: 'What to search for' }
+          query: { type: 'string', description: 'Search query - can be a name, keyword, or general term (e.g., "frontal", "memory", "cell"). Individual words work best for broad searches.' }
         },
         required: ['query']
+      }
+    },
+    {
+      name: 'searchConnections',
+      description: 'Search for connections/edges in the active graph by type or node names. Supports fuzzy matching. Use to find existing relationships between nodes.',
+      parameters: {
+        type: 'object',
+        properties: {
+          query: { type: 'string', description: 'Search query - can be a connection type (e.g., "contains"), node name, or general term (e.g., "love", "parent")' }
+        },
+        required: ['query']
+      }
+    },
+    {
+      name: 'selectNode',
+      description: 'Find and select a specific node on the canvas by name. The node will be highlighted and focused. Use this when the user asks to "find", "show me", "focus on", or "select" a specific node.',
+      parameters: {
+        type: 'object',
+        properties: {
+          name: { type: 'string', description: 'Name of the node to select (supports fuzzy matching, e.g., "frontal" will find "Frontal Lobe")' }
+        },
+        required: ['name']
       }
     },
     {
@@ -224,8 +250,8 @@ export function getToolDefinitions() {
               properties: {
                 source: { type: 'string', description: 'Source node name - must EXACTLY match a name in the nodes array' },
                 target: { type: 'string', description: 'Target node name - must EXACTLY match a name in the nodes array' },
-                directionality: { 
-                  type: 'string', 
+                directionality: {
+                  type: 'string',
                   enum: ['unidirectional', 'bidirectional', 'none', 'reverse'],
                   description: 'Arrow direction: unidirectional (→), bidirectional (↔), none (—), reverse (←). Default: unidirectional'
                 },
@@ -267,8 +293,8 @@ export function getToolDefinitions() {
         type: 'object',
         properties: {
           name: { type: 'string', description: 'Name for the group' },
-          memberNames: { 
-            type: 'array', 
+          memberNames: {
+            type: 'array',
             items: { type: 'string' },
             description: 'Names of existing nodes to include in the group'
           },
@@ -295,13 +321,13 @@ export function getToolDefinitions() {
           groupName: { type: 'string', description: 'Current name of the group to update' },
           newName: { type: 'string', description: 'New name for the group' },
           newColor: { type: 'string', description: 'New hex color' },
-          addMembers: { 
-            type: 'array', 
+          addMembers: {
+            type: 'array',
             items: { type: 'string' },
             description: 'Names of nodes to add to the group'
           },
-          removeMembers: { 
-            type: 'array', 
+          removeMembers: {
+            type: 'array',
             items: { type: 'string' },
             description: 'Names of nodes to remove from the group'
           }

@@ -52,6 +52,17 @@ const ToolCallCard = ({ toolName, status, args, result, error, timestamp, execut
             const query = parsedArgs?.query ? ` for "${parsedArgs.query}"` : '';
             return `Found ${count} matching node(s)${query}`;
         }
+        if (toolName === 'searchConnections') {
+            const count = result.results ? result.results.length : 0;
+            const query = parsedArgs?.query ? ` for "${parsedArgs.query}"` : '';
+            return `Found ${count} connection(s)${query}`;
+        }
+        if (toolName === 'selectNode') {
+            if (result.found && result.node) {
+                return `Selected "${result.node.name}" on the canvas`;
+            }
+            return result.error || `Could not find node "${parsedArgs?.name}"`;
+        }
         if (toolName === 'getNodeContext') {
             const count = result.neighbors ? result.neighbors.length : 0;
             const node = parsedArgs?.nodeId ? ` for "${parsedArgs.nodeId}"` : '';
@@ -72,12 +83,16 @@ const ToolCallCard = ({ toolName, status, args, result, error, timestamp, execut
             return `Updated ${groupName}`;
         }
         if (toolName === 'expandGraph' || toolName === 'createPopulatedGraph') {
-            const nodeCount = result.nodesAdded || 0;
-            const edgeCount = result.edgesAdded || 0;
-            if (nodeCount > 0 && edgeCount > 0) return `Added ${nodeCount} node(s) and ${edgeCount} connection(s)`;
-            if (nodeCount > 0) return `Added ${nodeCount} node(s)`;
-            if (edgeCount > 0) return `Added ${edgeCount} connection(s)`;
-            return 'Expanded graph';
+            const nodeCount = result.nodeCount || (Array.isArray(result.nodesAdded) ? result.nodesAdded.length : (typeof result.nodesAdded === 'number' ? result.nodesAdded : 0));
+            const edgeCount = result.edgeCount || (Array.isArray(result.edgesAdded) ? result.edgesAdded.length : (typeof result.edgesAdded === 'number' ? result.edgesAdded : 0));
+            const groupCount = result.groupCount || (Array.isArray(result.groupsAdded) ? result.groupsAdded.length : 0);
+            const parts = [];
+            if (nodeCount > 0) parts.push(`${nodeCount} node${nodeCount !== 1 ? 's' : ''}`);
+            if (edgeCount > 0) parts.push(`${edgeCount} connection${edgeCount !== 1 ? 's' : ''}`);
+            if (groupCount > 0) parts.push(`${groupCount} group${groupCount !== 1 ? 's' : ''}`);
+            let summary = parts.length > 0 ? `Added ${parts.join(', ')}` : 'Expanded graph';
+            if (result.graphName) summary += ` to "${result.graphName}"`;
+            return summary;
         }
 
         const parts = [];

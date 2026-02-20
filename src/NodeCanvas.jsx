@@ -7605,6 +7605,55 @@ function NodeCanvas() {
     };
   }, [applyAutoLayoutToActiveGraph, activeGraphId]);
 
+  // Listen for selectNode events from the Wizard AI
+  useEffect(() => {
+    const handleSelectNode = (event) => {
+      const { instanceId, prototypeId, name } = event.detail || {};
+      if (!nodes || nodes.length === 0) return;
+
+      // Find the node by instanceId, prototypeId, or name
+      let targetNode = null;
+      if (instanceId) {
+        targetNode = nodes.find(n => n.id === instanceId);
+      }
+      if (!targetNode && prototypeId) {
+        targetNode = nodes.find(n => n.prototypeId === prototypeId);
+      }
+      if (!targetNode && name) {
+        const nameLower = name.toLowerCase();
+        targetNode = nodes.find(n => (n.name || '').toLowerCase() === nameLower);
+        if (!targetNode) {
+          // Fuzzy: find best partial match
+          targetNode = nodes.find(n => (n.name || '').toLowerCase().includes(nameLower) || nameLower.includes((n.name || '').toLowerCase()));
+        }
+      }
+
+      if (targetNode) {
+        console.log('[NodeCanvas] Selecting node from Wizard:', targetNode.name, targetNode.id);
+        // Select the node (highlight it)
+        setSelectedInstanceIds(new Set([targetNode.id]));
+        setSelectedNodeIdForPieMenu(targetNode.id);
+
+        // Navigate to focus on the node
+        window.dispatchEvent(new CustomEvent('rs-navigate-to', {
+          detail: {
+            mode: 'FOCUS_NODES',
+            nodeIds: [targetNode.id],
+            padding: 200,
+            maxZoom: 1.2
+          }
+        }));
+      } else {
+        console.warn('[NodeCanvas] Could not find node to select:', { instanceId, prototypeId, name });
+      }
+    };
+
+    window.addEventListener('rs-select-node', handleSelectNode);
+    return () => {
+      window.removeEventListener('rs-select-node', handleSelectNode);
+    };
+  }, [nodes, setSelectedInstanceIds, setSelectedNodeIdForPieMenu]);
+
   // Listen for auto-layout completion events from AI operations
   useEffect(() => {
     const handleAutoLayoutComplete = (event) => {

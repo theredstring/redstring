@@ -3813,11 +3813,6 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
     // Apply Immer patches to the state (used by Undo/Redo)
     applyPatches: (patches) => set((state) => applyPatches(state, patches)),
 
-    // Force a React re-render of the active graph by updating a tick
-    _triggerGraphRefresh: () => set((state) => {
-      return { _refreshTick: (state._refreshTick || 0) + 1 };
-    }),
-
   }; // End of returned state and actions object
 })); // End of create function with middleware
 

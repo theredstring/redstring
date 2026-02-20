@@ -818,30 +818,68 @@ export async function runExecutorOnce() {
       const instanceIdByName = new Map();
       const tempInstances = [];
 
+      // Get store for prototype dedup (needed for expand mode)
+      const cpgStore = getBridgeStore();
+      const cpgGraph = isExpandMode ? getGraphById(graphId) : null;
+      const cpgExistingInstances = cpgGraph && cpgGraph.instances
+        ? (cpgGraph.instances instanceof Map ? Array.from(cpgGraph.instances.values()) : Object.values(cpgGraph.instances))
+        : [];
+
       nodes.forEach((node, idx) => {
         const nodeName = String(node?.name || '').trim() || `Concept ${idx + 1}`;
-        const prototypeId = `prototype-${Date.now()}-${idx}-${Math.random().toString(36).slice(2, 8)}`;
-        const instanceId = `inst-${Date.now()}-${idx}-${Math.random().toString(36).slice(2, 8)}`;
+
+        let prototypeId;
+        let instanceId;
+        let isExistingInstance = false;
+
+        // In expand mode, check for existing prototypes to avoid duplicates
+        if (isExpandMode) {
+          const match = findExistingPrototype(nodeName, cpgStore);
+          if (match) {
+            prototypeId = match.proto.id;
+            if (match.matchType === 'fuzzy') {
+              console.log(`[Executor] create_populated_graph expand: 🧬 FUZZY MATCH: "${nodeName}" → "${match.proto.name}" (${Math.round(match.similarity * 100)}% similar)`);
+            } else {
+              console.log(`[Executor] create_populated_graph expand: ♻️  EXACT MATCH: Reusing prototype "${match.proto.name}" (${prototypeId})`);
+            }
+
+            // Check if an instance already exists in this graph
+            const existingInstance = cpgExistingInstances.find(inst => inst.prototypeId === prototypeId);
+            if (existingInstance) {
+              instanceId = existingInstance.id;
+              isExistingInstance = true;
+              console.log(`[Executor] create_populated_graph expand: 📍 REUSING INSTANCE: "${nodeName}" (${instanceId})`);
+            }
+          }
+        }
+
+        if (!prototypeId) {
+          prototypeId = `prototype-${Date.now()}-${idx}-${Math.random().toString(36).slice(2, 8)}`;
+          ops.push({
+            type: 'addNodePrototype',
+            prototypeData: {
+              id: prototypeId,
+              name: nodeName,
+              description: node.description || '',
+              color: node.color || '#5B6CFF',
+              typeNodeId: null,
+              definitionGraphIds: []
+            }
+          });
+        }
+
+        if (!instanceId) {
+          instanceId = `inst-${Date.now()}-${idx}-${Math.random().toString(36).slice(2, 8)}`;
+        }
 
         protoIdByName.set(nodeName, prototypeId);
         instanceIdByName.set(nodeName, instanceId);
 
-        ops.push({
-          type: 'addNodePrototype',
-          prototypeData: {
-            id: prototypeId,
-            name: nodeName,
-            description: node.description || '',
-            color: node.color || '#5B6CFF',
-            typeNodeId: null,
-            definitionGraphIds: []
-          }
-        });
-
         tempInstances.push({
           id: instanceId,
           prototypeId,
-          name: nodeName
+          name: nodeName,
+          isExisting: isExistingInstance
         });
       });
 
@@ -953,6 +991,10 @@ export async function runExecutorOnce() {
       });
 
       tempInstances.forEach(inst => {
+        if (inst.isExisting) {
+          // Already exists in the graph, skip adding a new instance
+          return;
+        }
         const position = positionMap.get(inst.id) || { x: 500, y: 300 };
         ops.push({
           type: 'addNodeInstance',
@@ -966,9 +1008,38 @@ export async function runExecutorOnce() {
       // Local cache for connection definition prototypes created in this batch
       const localConnectionProtoCache = new Map();
 
+      // Get store and existing instances for edge lookups (needed for expand mode)
+      const edgeStore = getBridgeStore();
+      const edgeGraph = isExpandMode ? getGraphById(graphId) : null;
+      const existingInstances = edgeGraph && edgeGraph.instances
+        ? (edgeGraph.instances instanceof Map ? Array.from(edgeGraph.instances.values()) : Object.values(edgeGraph.instances))
+        : [];
+
       edges.forEach(edge => {
-        const sourceId = instanceIdByName.get(edge.source);
-        const targetId = instanceIdByName.get(edge.target);
+        let sourceId = instanceIdByName.get(edge.source);
+        let targetId = instanceIdByName.get(edge.target);
+
+        // EXPAND MODE FIX: If source/target not in new nodes, look up existing instances by prototype name
+        // This allows edges between new nodes and existing nodes (e.g., "Wario" -> "Mario")
+        if (!sourceId && edge.source) {
+          const proto = Array.isArray(edgeStore.nodePrototypes)
+            ? edgeStore.nodePrototypes.find(p => p.name?.toLowerCase() === edge.source.toLowerCase())
+            : null;
+          if (proto) {
+            const instance = existingInstances.find(inst => inst.prototypeId === proto.id);
+            if (instance) sourceId = instance.id;
+          }
+        }
+        if (!targetId && edge.target) {
+          const proto = Array.isArray(edgeStore.nodePrototypes)
+            ? edgeStore.nodePrototypes.find(p => p.name?.toLowerCase() === edge.target.toLowerCase())
+            : null;
+          if (proto) {
+            const instance = existingInstances.find(inst => inst.prototypeId === proto.id);
+            if (instance) targetId = instance.id;
+          }
+        }
+
         if (sourceId && targetId) {
           const edgeId = `edge-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 
@@ -994,9 +1065,8 @@ export async function runExecutorOnce() {
               if (localConnectionProtoCache.has(defNodeName)) {
                 definitionNodeIds = [localConnectionProtoCache.get(defNodeName)];
               } else {
-                const store = getBridgeStore();
-                const existingProto = Array.isArray(store.nodePrototypes)
-                  ? store.nodePrototypes.find(p => p.name?.toLowerCase() === defNodeName.toLowerCase())
+                const existingProto = Array.isArray(edgeStore.nodePrototypes)
+                  ? edgeStore.nodePrototypes.find(p => p.name?.toLowerCase() === defNodeName.toLowerCase())
                   : null;
 
                 if (existingProto) {
@@ -1037,6 +1107,8 @@ export async function runExecutorOnce() {
               definitionNodeIds
             }
           });
+        } else {
+          console.warn(`[Executor] create_populated_graph: Edge skipped - could not resolve source "${edge.source}" (${sourceId ? 'found' : 'NOT FOUND'}) or target "${edge.target}" (${targetId ? 'found' : 'NOT FOUND'})`);
         }
       });
 

@@ -70,7 +70,68 @@ function applyToolResultToStore(toolName, result) {
         }));
       }
     }, 600);
-  } else if (result.goalId || toolName === 'expandGraph' || toolName === 'updateGroup' || toolName === 'deleteGroup') {
+  } else if (result.action === 'expandGraph' && result.spec) {
+    // Handle expandGraph — apply nodes and edges to the ACTIVE graph
+    console.log('[Wizard] Applying expandGraph to active graph:', result.graphId);
+    console.log('[Wizard] New nodes:', result.spec.nodes?.length || 0);
+    console.log('[Wizard] New edges:', result.spec.edges?.length || 0);
+
+    const activeGraphId = result.graphId || store.activeGraphId;
+    if (!activeGraphId) {
+      console.error('[Wizard] expandGraph: No active graph ID');
+      return;
+    }
+
+    // Prepare bulk updates with unique IDs for each NEW node
+    const bulkData = {
+      nodes: result.spec.nodes.map((n, idx) => ({
+        name: n.name,
+        color: n.color,
+        description: n.description,
+        prototypeId: `proto-${Date.now()}-${idx}-${Math.random().toString(36).slice(2, 8)}`,
+        instanceId: `inst-${Date.now()}-${idx}-${Math.random().toString(36).slice(2, 8)}`,
+        x: Math.random() * 600 + 200,
+        y: Math.random() * 500 + 200
+      })),
+      edges: (result.spec.edges || []).map(e => ({
+        source: e.source,
+        target: e.target,
+        type: e.type || 'relates to',
+        directionality: e.directionality || 'unidirectional',
+        definitionNode: e.definitionNode || null
+      })),
+      groups: []
+    };
+
+    // Apply bulk updates to the ACTIVE graph (not creating a new one)
+    store.applyBulkGraphUpdates(activeGraphId, bulkData);
+
+    console.log('[Wizard] Successfully expanded graph:', activeGraphId);
+
+    // Trigger auto-layout so new nodes get properly positioned
+    setTimeout(() => {
+      if (typeof window !== 'undefined') {
+        console.log('[Wizard] Triggering auto-layout for expanded graph:', activeGraphId);
+        window.dispatchEvent(new CustomEvent('rs-trigger-auto-layout', {
+          detail: { graphId: activeGraphId }
+        }));
+      }
+    }, 600);
+  } else if (result.action === 'selectNode' && result.found && result.node) {
+    // Dispatch event for NodeCanvas to select and focus on the node
+    console.log(`[Wizard] Selecting node: "${result.node.name}" (${result.node.instanceId})`);
+    setTimeout(() => {
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('rs-select-node', {
+          detail: {
+            instanceId: result.node.instanceId,
+            prototypeId: result.node.prototypeId,
+            name: result.node.name
+          }
+        }));
+      }
+    }, 100);
+  } else if (result.goalId || toolName === 'updateGroup' || toolName === 'deleteGroup') {
     // Other mutating tools that go through the goal queue
     // We trigger a re-fetch of the graph state to ensure the UI is in sync
     console.log(`[Wizard] Applying ${toolName} to store, triggering refresh.`);
@@ -224,6 +285,10 @@ const LeftAIView = ({ compact = false,
 
   React.useEffect(() => {
     try { localStorage.setItem(STORAGE_KEY, JSON.stringify(messages)); } catch { }
+    // Auto-scroll to bottom when messages update
+    if (messagesEndRef.current) {
+      messagesEndRef.current.scrollIntoView({ behavior: 'smooth' });
+    }
   }, [messages]);
 
   React.useEffect(() => { checkAPIKey(); }, []);
@@ -853,6 +918,8 @@ const LeftAIView = ({ compact = false,
                   } else if (event.type === 'done') {
                     msg.isStreaming = false;
                     msg.iterations = event.iterations;
+                    // Trim trailing whitespace from accumulated content
+                    if (msg.content) msg.content = msg.content.trimEnd();
                   }
 
                   updated[idx] = msg;
@@ -1299,6 +1366,14 @@ const LeftAIView = ({ compact = false,
                   {message.sender === 'user' ? <User size={16} /> : message.sender === 'system' ? null : <Bot size={16} />}
                 </div>
                 <div className="ai-message-content">
+                  {/* Render text first, then tool calls below — natural reading order */}
+                  {message.content && (
+                    <div
+                      className="ai-message-text"
+                      style={{ userSelect: 'text', cursor: 'text' }}
+                      dangerouslySetInnerHTML={{ __html: renderMarkdown(message.content) }}
+                    />
+                  )}
                   {message.toolCalls && message.toolCalls.length > 0 && (
                     <div className="ai-tool-calls">
                       {message.toolCalls.map((toolCall, index) => (
@@ -1314,14 +1389,6 @@ const LeftAIView = ({ compact = false,
                         />
                       ))}
                     </div>
-                  )}
-                  {/* Only render text box if there's content */}
-                  {message.content && (
-                    <div
-                      className="ai-message-text"
-                      style={{ userSelect: 'text', cursor: 'text' }}
-                      dangerouslySetInnerHTML={{ __html: renderMarkdown(message.content) }}
-                    />
                   )}
                   <div className="ai-message-timestamp">{new Date(message.timestamp).toLocaleTimeString()}</div>
                 </div>
