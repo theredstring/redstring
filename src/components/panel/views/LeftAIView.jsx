@@ -1,5 +1,5 @@
 import React from 'react';
-import { Bot, Key, Settings, RotateCcw, Send, User, Square, Copy, Trash2, Brain } from 'lucide-react';
+import { Bot, Key, Settings, RotateCcw, Send, User, Square, Copy, Trash2, Brain, Wrench } from 'lucide-react';
 import APIKeySetup from '../../../ai/components/APIKeySetup.jsx';
 import mcpClient from '../../../services/mcpClient.js';
 import apiKeyManager from '../../../services/apiKeyManager.js';
@@ -7,8 +7,7 @@ import { bridgeFetch, bridgeEventSource } from '../../../services/bridgeConfig.j
 import StandardDivider from '../../StandardDivider.jsx';
 import { HEADER_HEIGHT } from '../../../constants.js';
 import ToolCallCard from '../../ToolCallCard.jsx';
-import DruidMindPanel from '../../DruidMindPanel.jsx';
-import DruidInstance from '../../../services/agent/DruidInstance.js';
+import { DRUID_SYSTEM_PROMPT } from '../../../services/agent/DruidPrompt.js';
 import useGraphStore from '../../../store/graphStore.jsx';
 
 /**
@@ -81,13 +80,12 @@ const LeftAIView = ({ compact = false, activeGraphId, graphsMap, edgesMap }) => 
   const [currentInput, setCurrentInput] = React.useState('');
   const [isProcessing, setIsProcessing] = React.useState(false);
   const [showAdvanced, setShowAdvanced] = React.useState(false);
+  const [showToolsDropdown, setShowToolsDropdown] = React.useState(false);
   const [showAPIKeySetup, setShowAPIKeySetup] = React.useState(false);
   const [hasAPIKey, setHasAPIKey] = React.useState(false);
   const [apiKeyInfo, setApiKeyInfo] = React.useState(null);
-  const [isAutonomousMode, setIsAutonomousMode] = React.useState(true);
+  const [viewMode, setViewMode] = React.useState('wizard'); // 'wizard', 'chat', 'druid'
   const [currentAgentRequest, setCurrentAgentRequest] = React.useState(null);
-  const [showDruidMind, setShowDruidMind] = React.useState(false);
-  const [druidInstance, setDruidInstance] = React.useState(null);
   const [wizardStage, setWizardStage] = React.useState(null); // Track current wizard stage
   const messagesEndRef = React.useRef(null);
   const inputRef = React.useRef(null);
@@ -97,10 +95,6 @@ const LeftAIView = ({ compact = false, activeGraphId, graphsMap, edgesMap }) => 
 
   // Use the existing subscriptions from the main section to prevent Panel jitter
   // activeGraphId and graphsMap are already available from the main subscriptions
-
-  React.useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages]);
 
   React.useEffect(() => {
     try {
@@ -416,6 +410,8 @@ const LeftAIView = ({ compact = false, activeGraphId, graphsMap, edgesMap }) => 
     }
     const userMessage = currentInput.trim();
 
+
+
     // Handle slash commands
     if (userMessage.startsWith('/')) {
       const command = userMessage.slice(1).split(' ')[0].toLowerCase();
@@ -483,9 +479,26 @@ const LeftAIView = ({ compact = false, activeGraphId, graphsMap, edgesMap }) => 
       return;
     }
 
+    // Normal message handling
     addMessage('user', userMessage);
     setCurrentInput('');
     setIsProcessing(true);
+
+    // Druid Mode (Placeholder for full switch)
+    if (viewMode === 'druid') {
+      try {
+        // Reuse the autonomous agent handler but with Druid prompt
+        await handleAutonomousAgent(userMessage, 'druid');
+      } catch (error) {
+        console.error('Druid error:', error);
+        addMessage('system', `Druid error: ${error.message}`);
+      } finally {
+        setIsProcessing(false);
+      }
+      return;
+    }
+
+    // Wizard / Chat Mode
     try {
       if (!hasAPIKey) {
         addMessage('system', 'No API key configured. Please set up your OpenRouter or Anthropic API key below to use the Wizard.');
@@ -494,11 +507,19 @@ const LeftAIView = ({ compact = false, activeGraphId, graphsMap, edgesMap }) => 
         return;
       }
       if (!mcpClient.isConnected) { await initializeConnection(); if (!mcpClient.isConnected) { setIsProcessing(false); return; } }
-      if (isAutonomousMode) { await handleAutonomousAgent(userMessage); } else { await handleQuestion(userMessage); }
+
+      if (viewMode === 'wizard') {
+        await handleAutonomousAgent(userMessage);
+      } else {
+        await handleQuestion(userMessage);
+      }
     } catch (error) {
       console.error('[AI Collaboration] Error processing message:', error);
       addMessage('system', `Error: ${error.message}`);
-    } finally { setIsProcessing(false); setCurrentAgentRequest(null); }
+    } finally {
+      setIsProcessing(false);
+      setCurrentAgentRequest(null);
+    }
   };
 
   const handleStopAgent = () => {
@@ -529,7 +550,7 @@ const LeftAIView = ({ compact = false, activeGraphId, graphsMap, edgesMap }) => 
   const graphInfo = getGraphInfo();
   const graphCount = graphsMap && typeof graphsMap.size === 'number' ? graphsMap.size : 0;
 
-  const handleAutonomousAgent = async (question) => {
+  const handleAutonomousAgent = async (question, persona = 'wizard') => {
     // Message ID for streaming updates - message will be created on first SSE event
     // Defined outside try/catch so it's available in error handler
     const streamingMessageId = `${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
@@ -664,6 +685,15 @@ const LeftAIView = ({ compact = false, activeGraphId, graphsMap, edgesMap }) => 
         historyLength: recentMessages.length
       });
 
+      // Auto-correct provider if key mismatches (fixes common 401 error)
+      let effectiveProvider = apiConfig?.provider;
+      if (apiKey?.startsWith('sk-ant-') && (!effectiveProvider || effectiveProvider === 'openrouter')) {
+        console.warn('[LeftAIView] Detected Anthropic key with OpenRouter config. Auto-switching to Anthropic.');
+        effectiveProvider = 'anthropic';
+      } else if (apiKey?.startsWith('sk-proj-') && (!effectiveProvider || effectiveProvider === 'openrouter')) {
+        effectiveProvider = 'openai';
+      }
+
       // Use new Wizard endpoint with SSE streaming
       const response = await bridgeFetch('/api/wizard', {
         method: 'POST',
@@ -674,8 +704,9 @@ const LeftAIView = ({ compact = false, activeGraphId, graphsMap, edgesMap }) => 
           conversationHistory: recentMessages, // Include conversation history for context
           config: {
             cid: `wizard-${Date.now()}`,
+            systemPrompt: persona === 'druid' ? DRUID_SYSTEM_PROMPT : undefined,
             apiConfig: apiConfig ? {
-              provider: apiConfig.provider,
+              provider: effectiveProvider || apiConfig.provider,
               endpoint: apiConfig.endpoint,
               model: apiConfig.model,
               settings: apiConfig.settings
@@ -944,6 +975,64 @@ const LeftAIView = ({ compact = false, activeGraphId, graphsMap, edgesMap }) => 
       >
         <Settings size={20} />
       </button>
+      <div style={{ position: 'relative', display: 'inline-block' }}>
+        <button
+          className={`ai-flat-button ${showToolsDropdown ? 'active' : ''}`}
+          onClick={() => setShowToolsDropdown(!showToolsDropdown)}
+          title="Test Tool Calls"
+        >
+          <Wrench size={20} />
+        </button>
+        {showToolsDropdown && (
+          <div className="ai-tools-dropdown" style={{
+            position: 'absolute', top: '100%', right: 0,
+            backgroundColor: '#1e1e1e',
+            border: '1px solid #333',
+            borderRadius: '4px', padding: '8px', zIndex: 100,
+            width: '280px', maxHeight: '400px', overflowY: 'auto',
+            boxShadow: '0 4px 12px rgba(0,0,0,0.5)',
+            marginTop: '4px',
+            textAlign: 'left'
+          }}>
+            <div style={{ fontSize: '12px', fontWeight: 'bold', marginBottom: '8px', color: '#888', paddingBottom: '4px', borderBottom: '1px solid #333' }}>Available Tools (Click to test)</div>
+            {mcpClient.getAvailableTools().map(tool => (
+              <div
+                key={tool.name}
+                className="ai-tool-dropdown-item"
+                style={{
+                  padding: '8px', cursor: 'pointer',
+                  borderBottom: '1px solid #2a2a2a'
+                }}
+                onClick={() => {
+                  const schemaVars = Object.keys(tool.inputSchema?.properties || {}).reduce((acc, key) => {
+                    const prop = tool.inputSchema?.properties[key];
+                    if (prop?.type === 'array') {
+                      acc[key] = [`<${prop?.items?.type || 'item'}>`];
+                    } else if (prop?.type === 'object') {
+                      acc[key] = {};
+                    } else {
+                      acc[key] = `<${prop?.type || 'value'}>`;
+                    }
+                    return acc;
+                  }, {});
+                  const prompt = `Please test the tool \`${tool.name}\` with these arguments:\n\`\`\`json\n${JSON.stringify(schemaVars, null, 2)}\n\`\`\``;
+                  setCurrentInput(prompt);
+                  setShowToolsDropdown(false);
+                  if (inputRef.current) inputRef.current.focus();
+                }}
+                onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#2a2a2a'}
+                onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
+              >
+                <div style={{ color: '#e0e0e0', fontSize: '13px', fontWeight: '500' }}>{tool.name}</div>
+                <div style={{ color: '#888', fontSize: '11px', marginTop: '4px', lineHeight: '1.3' }}>{tool.description}</div>
+              </div>
+            ))}
+            {mcpClient.getAvailableTools().length === 0 && (
+              <div style={{ fontSize: '12px', color: '#888', padding: '8px', textAlign: 'center' }}>No tools available right now.<br />Connect to bridge first.</div>
+            )}
+          </div>
+        )}
+      </div>
       <button
         className="ai-flat-button"
         onClick={handleCopyConversation}
@@ -968,18 +1057,7 @@ const LeftAIView = ({ compact = false, activeGraphId, graphsMap, edgesMap }) => 
       >
         <RotateCcw size={20} />
       </button>
-      <button
-        className={`ai-flat-button ${showDruidMind ? 'active' : ''}`}
-        onClick={() => {
-          if (!druidInstance) {
-            setDruidInstance(new DruidInstance());
-          }
-          setShowDruidMind(!showDruidMind);
-        }}
-        title="View The Druid's Mind"
-      >
-        <Brain size={20} />
-      </button>
+
     </div>
   );
 
@@ -992,8 +1070,9 @@ const LeftAIView = ({ compact = false, activeGraphId, graphsMap, edgesMap }) => 
               <div className="ai-status-indicator-wrapper">
                 <div className={`ai-status-indicator ${isConnected ? 'connected' : 'disconnected'}`} />
               </div>
-              <select className="ai-mode-select" value={isAutonomousMode ? 'wizard' : 'chat'} onChange={(e) => setIsAutonomousMode(e.target.value === 'wizard')} aria-label="Mode">
+              <select className="ai-mode-select" value={viewMode} onChange={(e) => setViewMode(e.target.value)} aria-label="Mode">
                 <option value="wizard">Wizard</option>
+                <option value="druid">The Druid</option>
                 <option value="chat">Chat</option>
               </select>
             </div>
@@ -1007,8 +1086,9 @@ const LeftAIView = ({ compact = false, activeGraphId, graphsMap, edgesMap }) => 
               <div className="ai-status-indicator-wrapper">
                 <div className={`ai-status-indicator ${isConnected ? 'connected' : 'disconnected'}`} />
               </div>
-              <select className="ai-mode-select" value={isAutonomousMode ? 'wizard' : 'chat'} onChange={(e) => setIsAutonomousMode(e.target.value === 'wizard')} aria-label="Mode">
+              <select className="ai-mode-select" value={viewMode} onChange={(e) => setViewMode(e.target.value)} aria-label="Mode">
                 <option value="wizard">Wizard</option>
+                <option value="druid">The Druid</option>
                 <option value="chat">Chat</option>
               </select>
             </div>
@@ -1035,11 +1115,7 @@ const LeftAIView = ({ compact = false, activeGraphId, graphsMap, edgesMap }) => 
         </div>
       )}
 
-      {showDruidMind && druidInstance && (
-        <div className="ai-druid-mind-section" style={{ borderTop: '1px solid #e0e0e0', borderBottom: '1px solid #e0e0e0', maxHeight: '400px', overflowY: 'auto' }}>
-          <DruidMindPanel druidInstance={druidInstance} />
-        </div>
-      )}
+
 
       <div className="ai-panel-content">
         <div className="ai-chat-mode">
@@ -1104,7 +1180,7 @@ const LeftAIView = ({ compact = false, activeGraphId, graphsMap, edgesMap }) => 
             <div ref={messagesEndRef} />
           </div>
           <div className="ai-input-container" style={{ marginBottom: toggleClearance }}>
-            <textarea ref={inputRef} value={currentInput} onChange={(e) => setCurrentInput(e.target.value)} onKeyPress={handleKeyPress} placeholder={isAutonomousMode ? "Write your vision and I'll cast my spells..." : "Ask me anything about your knowledge graph..."} disabled={isProcessing} className="ai-input" rows={2} />
+            <textarea ref={inputRef} value={currentInput} onChange={(e) => setCurrentInput(e.target.value)} onKeyPress={handleKeyPress} placeholder={viewMode === 'druid' ? "Share an observation and I'll build upon it..." : viewMode === 'wizard' ? "Write your vision and I'll cast my spells..." : "Ask me anything about your knowledge graph..."} disabled={isProcessing} className="ai-input" rows={2} />
             {isProcessing && currentAgentRequest ? (
               <button onClick={handleStopAgent} className="ai-stop-button" title="Stop Agent"><Square size={16} /></button>
             ) : (

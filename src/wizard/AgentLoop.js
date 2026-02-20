@@ -9,22 +9,13 @@ import { fileURLToPath } from 'url';
 import { callLLM, streamLLM } from './LLMClient.js';
 import { buildContext } from './ContextBuilder.js';
 import { executeTool, getToolDefinitions } from './tools/index.js';
+import { WIZARD_SYSTEM_PROMPT } from '../services/agent/WizardPrompt.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 // Load system prompt
-const SYSTEM_PROMPT_PATH = path.join(__dirname, 'prompts', 'system.md');
-let SYSTEM_PROMPT = 'You are The Wizard, a helpful assistant for building knowledge graphs.';
-try {
-  const loadedPrompt = fs.readFileSync(SYSTEM_PROMPT_PATH, 'utf8');
-  if (loadedPrompt) {
-    SYSTEM_PROMPT = loadedPrompt;
-  }
-} catch (error) {
-  console.error('[AgentLoop] Failed to load system prompt:', error);
-  // SYSTEM_PROMPT already has default value
-}
+let SYSTEM_PROMPT = WIZARD_SYSTEM_PROMPT;
 
 const MAX_ITERATIONS = 10;
 
@@ -38,13 +29,13 @@ const MAX_ITERATIONS = 10;
  */
 export async function* runAgent(userMessage, graphState, config = {}, ensureSchedulerStarted) {
   const cid = config.cid || `wizard-${Date.now()}`;
-  
+
   // Build context
   const contextStr = buildContext(graphState);
-  
+
   // Debug logging for graph context
   const activeGraph = graphState?.graphs?.find(g => g.id === graphState.activeGraphId);
-  const instanceCount = activeGraph?.instances 
+  const instanceCount = activeGraph?.instances
     ? (Array.isArray(activeGraph.instances) ? activeGraph.instances.length : Object.keys(activeGraph.instances).length)
     : 0;
   console.log('[AgentLoop] Graph context:', {
@@ -55,9 +46,9 @@ export async function* runAgent(userMessage, graphState, config = {}, ensureSche
     graphCount: graphState?.graphs?.length || 0,
     contextPreview: contextStr.substring(0, 300)
   });
-  
-  const systemPrompt = SYSTEM_PROMPT || 'You are The Wizard, a helpful assistant for building knowledge graphs.';
-  const fullSystemPrompt = systemPrompt.replace('{graphName}', graphState.activeGraphId ? (graphState.graphs?.find(g => g.id === graphState.activeGraphId)?.name || 'Unknown') : 'None')
+
+  const baseSystemPrompt = config.systemPrompt || SYSTEM_PROMPT || 'You are The Wizard, a helpful assistant for building knowledge graphs.';
+  const fullSystemPrompt = baseSystemPrompt.replace('{graphName}', graphState.activeGraphId ? (graphState.graphs?.find(g => g.id === graphState.activeGraphId)?.name || 'Unknown') : 'None')
     .replace('{nodeList}', contextStr.includes('Existing Things') ? contextStr.split('Existing Things:')[1]?.split('\n')[0] || '' : '')
     .replace('{edgeList}', ''); // Can be enhanced later
 
@@ -69,9 +60,9 @@ export async function* runAgent(userMessage, graphState, config = {}, ensureSche
       role: msg.role === 'user' ? 'user' : 'assistant',
       content: msg.content
     }));
-  
+
   console.log('[AgentLoop] Conversation history:', historyMessages.length, 'messages');
-  
+
   const messages = [
     { role: 'system', content: fullSystemPrompt + '\n\n' + contextStr },
     ...historyMessages, // Include prior conversation for context
@@ -88,7 +79,7 @@ export async function* runAgent(userMessage, graphState, config = {}, ensureSche
       // Stream LLM response for this iteration
       // Track what we've yielded to prevent duplicates
       let yieldedChars = 0;
-      
+
       for await (const chunk of streamLLM(messages, tools, config)) {
         if (chunk.type === 'text') {
           // Only yield new content (dedupe in case of stream issues)
@@ -104,7 +95,7 @@ export async function* runAgent(userMessage, graphState, config = {}, ensureSche
           yield chunk;
         }
       }
-      
+
       console.log('[AgentLoop] Iteration', iteration, 'complete. Content length:', iterationContent.length);
 
       // Add this iteration's response to history for the next iteration

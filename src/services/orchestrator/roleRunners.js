@@ -143,15 +143,70 @@ function buildPartialLayoutContext(graphId) {
   return { nodes, width, height, anchorCenter };
 }
 
-// Planner: consumes goals and enqueues tasks (simple passthrough here; DAG may be produced by LLM elsewhere)
+// Planner: consumes goals and enqueues tasks
+// If DAG is provided, fans out tasks.
+// If valid inputs but no DAG, uses LLM to generate a plan.
+import { callLLM } from '../../wizard/LLMClient.js';
+import { getToolDefinitions } from '../../wizard/tools/index.js';
+
 export async function runPlannerOnce() {
   const items = queueManager.pull('goalQueue', { max: 1 });
   if (items.length === 0) return;
   const item = items[0];
-  // Fan out tasks from provided DAG or create a trivial task
+
   // Propagate meta from goal to tasks for agentic loop tracking
-  const dag = item.dag || { tasks: [] };
   const goalMeta = item.meta || {};
+  let dag = item.dag;
+
+  // If no DAG provided but we have a goal description, generate one using LLM
+  if ((!dag || !dag.tasks || dag.tasks.length === 0) && item.goal && typeof item.goal === 'string') {
+    console.log(`[Planner] Generating plan for goal: "${item.goal}"`);
+    try {
+      const tools = getToolDefinitions();
+      const toolDefs = tools.map(t => `${t.name}: ${t.description}`).join('\n');
+
+      const prompt = `You are a Planner Agent. Your goal is: "${item.goal}".
+      
+Available Tools:
+${toolDefs}
+
+Break this goal down into a sequence of tasks.
+Return a JSON object with a "tasks" array. Each task must have:
+- "toolName": string (one of the available tools)
+- "args": object (arguments for the tool)
+- "stepName": string (brief description of step)
+
+Example:
+{
+  "tasks": [
+    { "toolName": "create_node", "args": { "name": "Node A" }, "stepName": "Create first node" },
+    { "toolName": "create_node", "args": { "name": "Node B" }, "stepName": "Create second node" }
+  ]
+}
+
+Respond ONLY with valid JSON.`;
+
+      const messages = [{ role: 'user', content: prompt }];
+      // Use efficient model for planning
+      const planResponse = await callLLM(messages, [], { temperature: 0.1, model: 'openai/gpt-4o-mini' });
+
+      let content = planResponse.content || '';
+      // Strip markdown code blocks if present
+      content = content.replace(/```json/g, '').replace(/```/g, '').trim();
+
+      const plan = JSON.parse(content);
+      if (plan && Array.isArray(plan.tasks)) {
+        console.log(`[Planner] Generated ${plan.tasks.length} tasks for goal`);
+        dag = plan;
+      }
+    } catch (error) {
+      console.error('[Planner] Failed to generate plan:', error);
+      // Fallback to verification if planning fails
+    }
+  }
+
+  // Use empty DAG if still nothing
+  dag = dag || { tasks: [] };
 
   if (Array.isArray(dag.tasks) && dag.tasks.length > 0) {
     for (const t of dag.tasks) {
@@ -163,6 +218,7 @@ export async function runPlannerOnce() {
       });
     }
   } else {
+    // If no tasks (and no plan generated), verify state as fallback
     queueManager.enqueue('taskQueue', {
       toolName: 'verify_state',
       args: {},

@@ -168,12 +168,12 @@ const APIKeySetup = ({ onKeySet, onClose, inline = false }) => {
             throw new Error('Stored API key not found. Please enter it manually.');
           }
         } else {
-        throw new Error('API key cannot be empty');
+          throw new Error('API key cannot be empty');
         }
       } else if (keyToStore && !apiKeyManager.validateAPIKey(keyToStore)) {
         throw new Error('Invalid API key');
       }
-      
+
       // For local providers without API key, use placeholder
       if (provider === 'local' && !keyToStore) {
         keyToStore = 'local';
@@ -181,7 +181,7 @@ const APIKeySetup = ({ onKeySet, onClose, inline = false }) => {
 
       // For custom providers, use the custom name
       const finalProvider = provider === 'custom' ? customProviderName : provider;
-      
+
       // Store the API key with configuration
       await apiKeyManager.storeAPIKey(keyToStore, finalProvider, {
         endpoint: endpoint.trim(),
@@ -191,27 +191,27 @@ const APIKeySetup = ({ onKeySet, onClose, inline = false }) => {
           max_tokens: 1000
         }
       });
-      
-              setSuccess(`API key stored successfully for ${finalProvider}`);
+
+      setSuccess(`API key stored successfully for ${finalProvider}`);
       setApiKey('');
       setShowKey(false);
       setAllowKeyEdit(false);
       setIsEditingExisting(false);
-      
+
       // Reload existing key info
       await loadExistingKey();
       await loadRecentModels();
-      
+
       // Notify parent component
       if (onKeySet) {
         onKeySet(provider);
       }
-      
+
       // Auto-close after success
       setTimeout(() => {
         if (onClose) onClose();
       }, 2000);
-      
+
     } catch (error) {
       setError(error.message);
     } finally {
@@ -234,12 +234,12 @@ const APIKeySetup = ({ onKeySet, onClose, inline = false }) => {
       setIsEditingExisting(false);
       setAllowKeyEdit(true);
       setSuccess('API key removed successfully');
-      
+
       // Notify parent component
       if (onKeySet) {
         onKeySet(null);
       }
-      
+
     } catch (error) {
       setError(error.message);
     } finally {
@@ -292,41 +292,41 @@ const APIKeySetup = ({ onKeySet, onClose, inline = false }) => {
 
       const data = await response.json();
       console.log('[APIKeySetup] Response data:', data);
-      
+
       if (data.error) {
         throw new Error(data.error);
       }
 
       console.log('[APIKeySetup] Test successful!');
       setSuccess('API key works! Connection verified.');
-      
+
       // Send success to chat log
       await bridgeFetch('/api/bridge/chat/append', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ 
-          role: 'system', 
+        body: JSON.stringify({
+          role: 'system',
           text: 'API Key Test: Connection successful! Your API key is working correctly.',
-          channel: 'agent' 
+          channel: 'agent'
         })
       }).catch(e => console.warn('Failed to send test result to chat:', e));
-      
+
     } catch (error) {
       console.error('[APIKeySetup] Test error:', error);
       setError(`API key test failed: ${error.message}`);
-      
+
       // Send error to chat log
       try {
         await bridgeFetch('/api/bridge/chat/append', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ 
-            role: 'system', 
+          body: JSON.stringify({
+            role: 'system',
             text: `API Key Test Failed: ${error.message}`,
-            channel: 'agent' 
+            channel: 'agent'
           })
         }).catch(e => console.warn('Failed to send error to chat:', e));
-      } catch {}
+      } catch { }
     } finally {
       setIsValidating(false);
     }
@@ -399,20 +399,20 @@ const APIKeySetup = ({ onKeySet, onClose, inline = false }) => {
             )}
           </div>
           <div className="key-actions">
-            <button 
+            <button
               className="update-button"
               onClick={beginEditConfiguration}
             >
               Update Configuration
             </button>
-            <button 
+            <button
               className="test-button"
               onClick={handleTestKey}
               disabled={isValidating}
             >
               {isValidating ? 'Testing...' : 'Test Key'}
             </button>
-            <button 
+            <button
               className="remove-button"
               onClick={handleRemoveKey}
               disabled={isLoading}
@@ -447,7 +447,7 @@ const APIKeySetup = ({ onKeySet, onClose, inline = false }) => {
                 ))}
                 <option value="local">💻 Local LLM Server</option>
               </select>
-              
+
               {provider === 'custom' && (
                 <div className="form-group">
                   <label htmlFor="customProviderName">Provider Name</label>
@@ -482,7 +482,7 @@ const APIKeySetup = ({ onKeySet, onClose, inline = false }) => {
                       </button>
                     ))}
                   </div>
-                  
+
                   {selectedPreset && (
                     <div className="preset-instructions">
                       <strong>Setup:</strong> {selectedPreset.setupInstructions}
@@ -510,7 +510,7 @@ const APIKeySetup = ({ onKeySet, onClose, inline = false }) => {
                         OpenAI-compatible endpoint URL (e.g., http://localhost:11434/v1/chat/completions)
                       </small>
                     </div>
-                    
+
                     <div className="form-group">
                       <label htmlFor="localModel">Model Name</label>
                       <input
@@ -531,7 +531,7 @@ const APIKeySetup = ({ onKeySet, onClose, inline = false }) => {
                         Model name as recognized by your local LLM server
                       </small>
                     </div>
-                    
+
                     <div className="connection-test-section">
                       <button
                         type="button"
@@ -551,7 +551,7 @@ const APIKeySetup = ({ onKeySet, onClose, inline = false }) => {
                   </div>
                 </div>
               )}
-              
+
               {provider !== 'local' && (
                 <div className="provider-info">
                   <p>Enter your API key below. The system will store it securely in your browser.</p>
@@ -648,45 +648,57 @@ const APIKeySetup = ({ onKeySet, onClose, inline = false }) => {
             )}
 
             {provider !== 'local' && (
-            <div className="form-group">
-              <label htmlFor="apiKey">API Key</label>
-              {(!isEditingExisting || allowKeyEdit) ? (
-              <div className="key-input-container">
-                <input
-                  id="apiKey"
-                  type={showKey ? 'text' : 'password'}
-                  value={apiKey}
-                  onChange={(e) => setApiKey(e.target.value)}
-                  placeholder="Enter your API key"
-                  disabled={isLoading}
-                  className="key-input"
-                />
-                <button
-                  type="button"
-                  className="toggle-visibility"
-                  onClick={() => setShowKey(!showKey)}
-                  disabled={isLoading}
-                >
-                  {showKey ? <EyeOff size={16} /> : <Eye size={16} />}
-                </button>
+              <div className="form-group">
+                <label htmlFor="apiKey">API Key</label>
+                {(!isEditingExisting || allowKeyEdit) ? (
+                  <div className="key-input-container">
+                    <input
+                      id="apiKey"
+                      type={showKey ? 'text' : 'password'}
+                      value={apiKey}
+                      onChange={(e) => {
+                        const newKey = e.target.value;
+                        setApiKey(newKey);
+
+                        // Auto-detect provider based on key prefix
+                        if (newKey.startsWith('sk-ant-') && provider !== 'anthropic') {
+                          handleProviderChange('anthropic');
+                        } else if (newKey.startsWith('sk-or-') && provider !== 'openrouter') {
+                          handleProviderChange('openrouter');
+                        } else if (newKey.startsWith('sk-proj-') && provider !== 'openai') {
+                          handleProviderChange('openai');
+                        }
+                      }}
+                      placeholder="Enter your API key"
+                      disabled={isLoading}
+                      className="key-input"
+                    />
+                    <button
+                      type="button"
+                      className="toggle-visibility"
+                      onClick={() => setShowKey(!showKey)}
+                      disabled={isLoading}
+                    >
+                      {showKey ? <EyeOff size={16} /> : <Eye size={16} />}
+                    </button>
+                  </div>
+                ) : (
+                  <div className="key-edit-toggle">
+                    <p>This configuration will reuse your existing API key.</p>
+                    <button
+                      type="button"
+                      className="edit-key-button"
+                      onClick={() => {
+                        setAllowKeyEdit(true);
+                        setShowKey(false);
+                      }}
+                      disabled={isLoading}
+                    >
+                      Edit API Key
+                    </button>
+                  </div>
+                )}
               </div>
-              ) : (
-                <div className="key-edit-toggle">
-                  <p>This configuration will reuse your existing API key.</p>
-                  <button
-                    type="button"
-                    className="edit-key-button"
-                    onClick={() => {
-                      setAllowKeyEdit(true);
-                      setShowKey(false);
-                    }}
-                    disabled={isLoading}
-                  >
-                    Edit API Key
-                  </button>
-                </div>
-              )}
-            </div>
             )}
 
             {provider === 'local' && (
@@ -747,7 +759,7 @@ const APIKeySetup = ({ onKeySet, onClose, inline = false }) => {
       <div className="security-notice">
         <Settings size={14} />
         <span>
-          <strong>Security:</strong> Your API key is stored locally in your browser's localStorage 
+          <strong>Security:</strong> Your API key is stored locally in your browser's localStorage
           and is obfuscated but not encrypted. Never share your API key with others.
         </span>
       </div>
