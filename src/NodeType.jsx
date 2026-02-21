@@ -1,13 +1,14 @@
 import React from 'react';
 import './NodeType.css';
+import { getTextColor } from './utils/colorUtils.js';
 
 const NodeType = ({ name, color = '#800000', onClick }) => {
   return (
-    <div 
+    <div
       className="node-type-item"
-      style={{ 
-        backgroundColor: color, 
-        color: '#bdb5b5', // Canvas color for text
+      style={{
+        backgroundColor: color,
+        color: getTextColor(color), // Dynamic color based on node color
         borderRadius: '4px',
         minWidth: '60px', // Changed to minWidth for better scaling
         height: '32px',

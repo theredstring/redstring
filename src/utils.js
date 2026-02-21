@@ -37,6 +37,7 @@ const ensureMeasurementElements = () => {
     measurementSpan = document.createElement('span');
     const style = measurementSpan.style;
     style.fontSize = '20px';
+    style.fontFamily = "'EmOne', sans-serif";
     style.fontWeight = 'bold';
     style.whiteSpace = 'nowrap';
     style.display = 'inline-block';
@@ -246,7 +247,8 @@ export const getNodeDimensions = (node, isPreviewing = false, descriptionContent
     const isSingleWord = !nodeName.includes(' ');
 
     // Determine width based on text length, clamped between NODE_WIDTH and EXPANDED_NODE_WIDTH
-    currentWidth = Math.max(NODE_WIDTH, Math.min(textWidth + 2 * NODE_PADDING, EXPANDED_NODE_WIDTH));
+    const textWidthWithBuffer = textWidth * 1.1;
+    currentWidth = Math.max(NODE_WIDTH, Math.min(textWidthWithBuffer + 2 * NODE_PADDING, EXPANDED_NODE_WIDTH));
 
     let textBlockHeight;
     // If it's a single word and not at max width, don't let it wrap.

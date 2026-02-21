@@ -9284,13 +9284,13 @@ function NodeCanvas() {
                                   <text
                                     x={midX}
                                     y={midY}
-                                    fill="#bdb5b5"
+                                    fill={getTextColor(edgeColor)}
                                     fontSize="24"
                                     fontWeight="bold"
                                     textAnchor="middle"
                                     dominantBaseline="middle"
                                     transform={`rotate(${adjustedAngle}, ${midX}, ${midY})`}
-                                    stroke={hexToHsl(edgeColor).l > 42 ? getTextColor(edgeColor) : edgeColor}
+                                    stroke={edgeColor}
                                     strokeWidth="6"
                                     strokeLinecap="round"
                                     strokeLinejoin="round"
@@ -10502,13 +10502,13 @@ function NodeCanvas() {
                                   <text
                                     x={midX}
                                     y={midY}
-                                    fill="#bdb5b5"
+                                    fill={getTextColor(edgeColor)}
                                     fontSize="24"
                                     fontWeight="bold"
                                     textAnchor="middle"
                                     dominantBaseline="middle"
                                     transform={`rotate(${adjustedAngle}, ${midX}, ${midY})`}
-                                    stroke={hexToHsl(edgeColor).l > 42 ? getTextColor(edgeColor) : edgeColor}
+                                    stroke={edgeColor}
                                     strokeWidth="6"
                                     strokeLinecap="round"
                                     strokeLinejoin="round"

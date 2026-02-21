@@ -133,9 +133,6 @@ const Node = ({
   // Calculate description area position (below InnerNetwork when previewing) with minimal spacing
   const descriptionAreaY = contentAreaY + (isPreviewing ? INNER_CANVAS_PADDING : 0) + innerNetworkHeight + (isPreviewing ? 8 : 0);
 
-  // Define the canvas background color (or import from constants if preferred)
-  const canvasBackgroundColor = '#bdb5b5';
-
   // No longer need text width calculation since arrows are in top-right corner
 
   // State to control arrow fade-in animation
@@ -467,7 +464,7 @@ const Node = ({
               y={contentAreaY + (isPreviewing ? INNER_CANVAS_PADDING : 0)} // Use calculated absolute contentAreaY
               width={innerNetworkWidth}
               height={innerNetworkHeight}
-              fill={canvasBackgroundColor}
+              fill="rgba(255, 255, 255, 0.1)"
             />
 
             {hasAnyDefinitions ? (
@@ -579,8 +576,8 @@ const Node = ({
                     flexDirection: 'column',
                     alignItems: 'center',
                     justifyContent: 'center',
-                    backgroundColor: canvasBackgroundColor,
-                    color: '#666',
+                    backgroundColor: 'rgba(255, 255, 255, 0.2)',
+                    color: nodeTextColor,
                     fontSize: '16px',
                     fontWeight: 'bold',
                     textAlign: 'center',
@@ -589,12 +586,10 @@ const Node = ({
                     transition: 'all 0.2s ease',
                   }}
                   onMouseEnter={(e) => {
-                    e.currentTarget.style.backgroundColor = '#a8a0a0';
-                    e.currentTarget.style.color = '#333';
+                    e.currentTarget.style.backgroundColor = 'rgba(255, 255, 255, 0.4)';
                   }}
                   onMouseLeave={(e) => {
-                    e.currentTarget.style.backgroundColor = canvasBackgroundColor;
-                    e.currentTarget.style.color = '#666';
+                    e.currentTarget.style.backgroundColor = 'rgba(255, 255, 255, 0.2)';
                   }}
                   onClick={(e) => {
                     e.stopPropagation();
@@ -728,7 +723,7 @@ const Node = ({
                 transition: 'opacity 0.2s ease',
                 fontSize: '24px',
                 fontWeight: 'bold',
-                color: '#bdb5b5'
+                color: nodeTextColor
               }}
               onMouseEnter={(e) => e.currentTarget.style.opacity = '1'}
               onMouseLeave={(e) => e.currentTarget.style.opacity = '0.5'}

@@ -4,6 +4,7 @@ import useGraphStore from '../store/graphStore.jsx';
 import { discoverConnections } from '../services/semanticDiscovery.js';
 import { fastEnrichFromSemanticWeb } from '../services/semanticWebQuery.js';
 import Dropdown from './Dropdown.jsx';
+import { getTextColor } from '../utils/colorUtils.js';
 import './ConnectionBrowser.css';
 
 /**
@@ -30,7 +31,7 @@ const RDFTriplet = ({
   const showConfidence = connection?.type === 'semantic' && connection?.confidence;
   const confidencePercent = showConfidence ? Math.round(connection.confidence * 100) : null;
   const confidenceColor = confidencePercent >= 80 ? '#4CAF50' :
-                          confidencePercent >= 60 ? '#FF9800' : '#F44336';
+    confidencePercent >= 60 ? '#FF9800' : '#F44336';
 
   // Source badge info
   const sourceInfo = {
@@ -41,16 +42,16 @@ const RDFTriplet = ({
   };
   const source = connection?.source?.toLowerCase() || '';
   const sourceBadge = sourceInfo[source] || { label: 'S', color: '#666', title: 'Semantic' };
-  
+
   // Determine connection directionality
   const isNondirectional = connection?.type === 'native' && connection?.directionality === 'nondirectional';
   const isBidirectional = connection?.type === 'native' && connection?.directionality === 'bidirectional';
   const isDirected = connection?.type === 'native' && !isNondirectional && !isBidirectional;
   const isSemantic = connection?.type === 'semantic';
-  
+
   // Get connection color
   const connectionColor = connection?.connectionColor || subjectColor || defaultColor;
-  
+
   // Responsive sizing based on panel width
   const getSizing = () => {
     // Dynamic sizing based on container width - continuously scale everything
@@ -75,7 +76,7 @@ const RDFTriplet = ({
       connectionHeight: Math.max(40, baseHeight * scaleFactor)
     };
   };
-  
+
   const sizing = getSizing();
 
   // Simple responsive text hiding based on actual container width
@@ -160,23 +161,23 @@ const RDFTriplet = ({
       </div>
       <div className="triplet-flow">
         {/* Subject Node */}
-        <div 
+        <div
           className="triplet-node subject-node"
-          style={{ 
+          style={{
             backgroundColor: subjectColor || defaultColor,
             minWidth: sizing.nodeMinWidth,
             maxWidth: sizing.nodeMaxWidth,
             padding: sizing.nodePadding
           }}
         >
-          <span 
+          <span
             className="node-label"
             style={{ fontSize: sizing.nodeFontSize }}
           >
             {typeof subject === 'string' ? subject : JSON.stringify(subject)}
           </span>
         </div>
-        
+
         {/* Connection - RESPONSIVE FLEX APPROACH */}
         <div className="triplet-connection" style={{
           flex: 1,
@@ -185,34 +186,34 @@ const RDFTriplet = ({
           display: 'flex',
           alignItems: 'center'
         }}>
-          
+
           {/* Start Arrow Container (Fixed width, conditionally rendered) */}
           {isBidirectional && (
-            <div className="arrow-container" style={{ width: `${Math.max(15, sizing.connectionHeight * 0.6)}px`, height: '100%'}}>
+            <div className="arrow-container" style={{ width: `${Math.max(15, sizing.connectionHeight * 0.6)}px`, height: '100%' }}>
               <svg width="100%" height="100%" viewBox={`0 0 ${Math.max(15, sizing.connectionHeight * 0.6)} ${sizing.connectionHeight}`} preserveAspectRatio="xMidYMid meet">
-                  <g transform={`translate(${Math.max(15, sizing.connectionHeight * 0.6) / 2}, ${sizing.connectionHeight / 2}) rotate(270)`}>
-                    <polygon
-                      points={`-${sizing.arrowSize},${sizing.arrowSize * 1.25} ${sizing.arrowSize},${sizing.arrowSize * 1.25} 0,-${sizing.arrowSize * 1.25}`}
-                      fill={connectionColor}
-                    />
-                  </g>
-                </svg>
+                <g transform={`translate(${Math.max(15, sizing.connectionHeight * 0.6) / 2}, ${sizing.connectionHeight / 2}) rotate(270)`}>
+                  <polygon
+                    points={`-${sizing.arrowSize},${sizing.arrowSize * 1.25} ${sizing.arrowSize},${sizing.arrowSize * 1.25} 0,-${sizing.arrowSize * 1.25}`}
+                    fill={connectionColor}
+                  />
+                </g>
+              </svg>
             </div>
           )}
 
-                    {/* Fixed Line and Centered Text */}
+          {/* Fixed Line and Centered Text */}
           <div className="line-container" style={{ flex: 1, height: '100%', position: 'relative', minWidth: `${Math.max(80, sizing.connectionHeight * 1.2)}px` }}>
-                                {/* Stretching Line */}
+            {/* Stretching Line */}
             <svg width="100%" height="100%" preserveAspectRatio="none">
-                <line
-                    x1="0"
-                    y1="50%"
-                    x2="100%"
-                    y2="50%"
-                    stroke={connectionColor}
-                    strokeWidth={sizing.lineThickness}
-                    strokeLinecap="round"
-                />
+              <line
+                x1="0"
+                y1="50%"
+                x2="100%"
+                y2="50%"
+                stroke={connectionColor}
+                strokeWidth={sizing.lineThickness}
+                strokeLinecap="round"
+              />
             </svg>
             {/* Centered Text - positioned absolutely in middle */}
             <div style={{
@@ -234,7 +235,7 @@ const RDFTriplet = ({
                   y="50%"
                   dominantBaseline="middle"
                   textAnchor="middle"
-                  fill={canvasColor}
+                  fill={getTextColor(connectionColor)}
                   fontSize={dynamicFontSize}
                   fontWeight="bold"
                   stroke={connectionColor}
@@ -277,30 +278,30 @@ const RDFTriplet = ({
 
           {/* End Arrow Container (Fixed width, conditionally rendered) */}
           {(isDirected || isBidirectional || isSemantic) && (
-            <div className="arrow-container" style={{ width: `${Math.max(15, sizing.connectionHeight * 0.6)}px`, height: '100%'}}>
+            <div className="arrow-container" style={{ width: `${Math.max(15, sizing.connectionHeight * 0.6)}px`, height: '100%' }}>
               <svg width="100%" height="100%" viewBox={`0 0 ${Math.max(15, sizing.connectionHeight * 0.6)} ${sizing.connectionHeight}`} preserveAspectRatio="xMidYMid meet">
-                  <g transform={`translate(${Math.max(15, sizing.connectionHeight * 0.6) / 2}, ${sizing.connectionHeight / 2}) rotate(90)`}>
-                    <polygon
-                      points={`-${sizing.arrowSize},${sizing.arrowSize * 1.25} ${sizing.arrowSize},${sizing.arrowSize * 1.25} 0,-${sizing.arrowSize * 1.25}`}
-                      fill={connectionColor}
-                    />
-                  </g>
-                </svg>
+                <g transform={`translate(${Math.max(15, sizing.connectionHeight * 0.6) / 2}, ${sizing.connectionHeight / 2}) rotate(90)`}>
+                  <polygon
+                    points={`-${sizing.arrowSize},${sizing.arrowSize * 1.25} ${sizing.arrowSize},${sizing.arrowSize * 1.25} 0,-${sizing.arrowSize * 1.25}`}
+                    fill={connectionColor}
+                  />
+                </g>
+              </svg>
             </div>
           )}
         </div>
-        
+
         {/* Object Node */}
-        <div 
+        <div
           className="triplet-node object-node"
-          style={{ 
+          style={{
             backgroundColor: objectColor || defaultColor,
             minWidth: sizing.nodeMinWidth,
             maxWidth: sizing.nodeMaxWidth,
             padding: sizing.nodePadding
           }}
         >
-          <span 
+          <span
             className="node-label"
             style={{ fontSize: sizing.nodeFontSize }}
           >
@@ -391,72 +392,72 @@ const ConnectionBrowser = ({ nodeData, onMaterializeConnection, isUltraSlim = fa
             sources: ['dbpedia', 'wikidata']
           });
 
-        // Convert discovery results to connection format with CLEAR LABELS
-        const federatedConnections = discoveryResults.connections.map((conn, index) => ({
-          id: `disc-${index}`,
-          subject: conn.source,
-          predicate: conn.relation, // This is the key! "developer", "genre", etc.
-          object: conn.target,
-          confidence: conn.confidence,
-          source: conn.provider,
-          type: 'semantic',
-          description: conn.description,
-          relationUri: conn.relationUri,
-          targetUri: conn.targetUri
-        }));
+          // Convert discovery results to connection format with CLEAR LABELS
+          const federatedConnections = discoveryResults.connections.map((conn, index) => ({
+            id: `disc-${index}`,
+            subject: conn.source,
+            predicate: conn.relation, // This is the key! "developer", "genre", etc.
+            object: conn.target,
+            confidence: conn.confidence,
+            source: conn.provider,
+            type: 'semantic',
+            description: conn.description,
+            relationUri: conn.relationUri,
+            targetUri: conn.targetUri
+          }));
 
-        console.log(`[ConnectionBrowser] Discovered ${federatedConnections.length} connections with labels:`);
-        federatedConnections.forEach(conn => {
-          console.log(`  ${conn.subject} → ${conn.predicate} → ${conn.object} (${(conn.confidence * 100).toFixed(0)}%)`);
-        });
-
-        setSemanticConnections(federatedConnections);
-
-      } catch (err) {
-        console.error('[ConnectionBrowser] Discovery failed, falling back to enrichment:', err);
-
-        // Fallback to old system if new one fails
-        try {
-          const enrichmentResults = await fastEnrichFromSemanticWeb(nodeData.name, {
-            timeout: 10000
+          console.log(`[ConnectionBrowser] Discovered ${federatedConnections.length} connections with labels:`);
+          federatedConnections.forEach(conn => {
+            console.log(`  ${conn.subject} → ${conn.predicate} → ${conn.object} (${(conn.confidence * 100).toFixed(0)}%)`);
           });
 
-          const fallbackConnections = [];
+          setSemanticConnections(federatedConnections);
 
-          if (enrichmentResults.sources.wikidata?.found) {
-            fallbackConnections.push({
-              id: 'fb-wikidata',
-              subject: nodeData.name,
-              predicate: 'found in',
-              object: 'Wikidata',
-              confidence: 0.9,
-              source: 'wikidata',
-              type: 'semantic'
+        } catch (err) {
+          console.error('[ConnectionBrowser] Discovery failed, falling back to enrichment:', err);
+
+          // Fallback to old system if new one fails
+          try {
+            const enrichmentResults = await fastEnrichFromSemanticWeb(nodeData.name, {
+              timeout: 10000
             });
-          }
 
-          if (enrichmentResults.sources.dbpedia?.found) {
-            fallbackConnections.push({
-              id: 'fb-dbpedia',
-              subject: nodeData.name,
-              predicate: 'found in',
-              object: 'DBpedia',
-              confidence: 0.9,
-              source: 'dbpedia',
-              type: 'semantic'
-            });
-          }
+            const fallbackConnections = [];
 
-          setSemanticConnections(fallbackConnections);
-        } catch (fallbackErr) {
-          console.error('[ConnectionBrowser] Fallback also failed:', fallbackErr);
-          setError('Unable to load connections from semantic web');
-          setSemanticConnections([]);
+            if (enrichmentResults.sources.wikidata?.found) {
+              fallbackConnections.push({
+                id: 'fb-wikidata',
+                subject: nodeData.name,
+                predicate: 'found in',
+                object: 'Wikidata',
+                confidence: 0.9,
+                source: 'wikidata',
+                type: 'semantic'
+              });
+            }
+
+            if (enrichmentResults.sources.dbpedia?.found) {
+              fallbackConnections.push({
+                id: 'fb-dbpedia',
+                subject: nodeData.name,
+                predicate: 'found in',
+                object: 'DBpedia',
+                confidence: 0.9,
+                source: 'dbpedia',
+                type: 'semantic'
+              });
+            }
+
+            setSemanticConnections(fallbackConnections);
+          } catch (fallbackErr) {
+            console.error('[ConnectionBrowser] Fallback also failed:', fallbackErr);
+            setError('Unable to load connections from semantic web');
+            setSemanticConnections([]);
+          }
+        } finally {
+          setIsLoadingSemanticWeb(false);
         }
-      } finally {
-        setIsLoadingSemanticWeb(false);
-      }
-    };
+      };
 
       loadSemanticConnections();
     }, 800); // Wait 800ms after user stops typing
@@ -471,16 +472,16 @@ const ConnectionBrowser = ({ nodeData, onMaterializeConnection, isUltraSlim = fa
   // This only changes when edges or instances are added/removed, not when positions change
   const connectionStructureHash = useMemo(() => {
     if (!nodeData?.id) return '';
-    
+
     // Build a string representing the structure of connections
     const parts = [];
-    
+
     // Include edge IDs from all graphs
     for (const [graphId, graph] of graphs.entries()) {
       if (graph.edgeIds && graph.edgeIds.length > 0) {
         parts.push(`g:${graphId}:${graph.edgeIds.join(',')}`);
       }
-      
+
       // Include instance count for this prototype in each graph
       if (graph.instances) {
         let instanceCount = 0;
@@ -494,14 +495,14 @@ const ConnectionBrowser = ({ nodeData, onMaterializeConnection, isUltraSlim = fa
         }
       }
     }
-    
+
     // Include edge structure (source->dest pairs)
     for (const [edgeId, edge] of edges.entries()) {
       if (edge.sourceId && edge.destinationId) {
         parts.push(`e:${edgeId}:${edge.sourceId}->${edge.destinationId}`);
       }
     }
-    
+
     return parts.sort().join('|');
   }, [nodeData?.id, graphs, edges]);
 
@@ -515,7 +516,7 @@ const ConnectionBrowser = ({ nodeData, onMaterializeConnection, isUltraSlim = fa
 
     const loadNativeConnections = () => {
       const connections = [];
-      
+
       // Find all instances of this node prototype across all graphs
       const nodeInstances = [];
       for (const [graphId, graph] of graphs.entries()) {
@@ -531,21 +532,21 @@ const ConnectionBrowser = ({ nodeData, onMaterializeConnection, isUltraSlim = fa
           }
         }
       }
-      
+
       // For each instance, find all edges connected to it
       for (const nodeInstance of nodeInstances) {
         const { instanceId, graphId, instance } = nodeInstance;
         const graph = graphs.get(graphId);
-        
+
         if (graph?.edgeIds) {
           for (const edgeId of graph.edgeIds) {
             const edge = edges.get(edgeId);
             if (!edge) continue;
-            
+
             let isSource = false;
             let isDestination = false;
             let connectedInstanceId = null;
-            
+
             // Check if this instance is involved in the edge
             if (edge.sourceId === instanceId) {
               isSource = true;
@@ -554,17 +555,17 @@ const ConnectionBrowser = ({ nodeData, onMaterializeConnection, isUltraSlim = fa
               isDestination = true;
               connectedInstanceId = edge.sourceId;
             }
-            
+
             if (connectedInstanceId) {
               // Get the connected instance and its prototype
               const connectedInstance = graph.instances?.get(connectedInstanceId);
               const connectedPrototype = connectedInstance ? nodePrototypes.get(connectedInstance.prototypeId) : null;
-              
+
               if (connectedInstance && connectedPrototype) {
                 // Get edge prototype for the connection label and COLOR
                 let connectionName = 'Connection';
                 let connectionColor = '#8B0000'; // Default color
-                
+
                 // First try to get name and color from edge's definition node (if it has one)
                 if (edge.definitionNodeIds && edge.definitionNodeIds.length > 0) {
                   const definitionNode = nodePrototypes.get(edge.definitionNodeIds[0]);
@@ -580,7 +581,7 @@ const ConnectionBrowser = ({ nodeData, onMaterializeConnection, isUltraSlim = fa
                     connectionColor = edgePrototype.color || '#8B0000';
                   }
                 }
-                
+
                 const connection = {
                   id: `native-${edgeId}`,
                   subject: isSource ? nodeData.name : connectedPrototype.name,
@@ -601,21 +602,21 @@ const ConnectionBrowser = ({ nodeData, onMaterializeConnection, isUltraSlim = fa
                   connectedNodeName: connectedPrototype.name,
                   connectionColor // Store the edge/connection color
                 };
-                
+
                 connections.push(connection);
               }
             }
           }
         }
       }
-      
+
       setNativeConnections(connections);
       console.log(`[ConnectionBrowser] Loaded ${connections.length} native connections for node ${nodeData.name}`);
     };
-    
+
     loadNativeConnections();
   }, [nodeData?.id, connectionStructureHash, nodePrototypes, activeGraphId]);
-  
+
   // Filter connections based on scope AND search/confidence filters
   const filteredConnections = useMemo(() => {
     let connections = [];
@@ -657,7 +658,7 @@ const ConnectionBrowser = ({ nodeData, onMaterializeConnection, isUltraSlim = fa
 
     return connections;
   }, [connectionScope, nativeConnections, semanticConnections, searchFilter, minConfidence]);
-  
+
   // Get appropriate color for nodes based on existing prototypes
   const getNodeColor = (nodeName) => {
     // Check if a node with this name already exists in prototypes
@@ -668,7 +669,7 @@ const ConnectionBrowser = ({ nodeData, onMaterializeConnection, isUltraSlim = fa
     }
     return '#8B0000'; // Default maroon
   };
-  
+
   const handleMaterializeConnection = (connection) => {
     if (onMaterializeConnection) {
       onMaterializeConnection({
@@ -679,7 +680,7 @@ const ConnectionBrowser = ({ nodeData, onMaterializeConnection, isUltraSlim = fa
     }
     console.log('[ConnectionBrowser] Materializing connection:', connection);
   };
-  
+
   if (!nodeData) {
     return (
       <div className="connection-browser-empty">
@@ -687,7 +688,7 @@ const ConnectionBrowser = ({ nodeData, onMaterializeConnection, isUltraSlim = fa
       </div>
     );
   }
-  
+
   // Determine loading state based on current scope
   const isLoading = connectionScope === 'semantic' ? (isLoadingSemanticWeb || isDebouncing) : false;
 
@@ -808,8 +809,8 @@ const ConnectionBrowser = ({ nodeData, onMaterializeConnection, isUltraSlim = fa
               {isDebouncing
                 ? 'Waiting for input to stabilize...'
                 : connectionScope === 'semantic'
-                ? 'Loading connections from semantic web...'
-                : 'Loading connections...'
+                  ? 'Loading connections from semantic web...'
+                  : 'Loading connections...'
               }
             </span>
           </div>
@@ -818,8 +819,8 @@ const ConnectionBrowser = ({ nodeData, onMaterializeConnection, isUltraSlim = fa
             <CircleDot size={20} color="#666" />
             <span>
               No {connectionScope === 'graph' ? 'graph' :
-                   connectionScope === 'universe' ? 'universe' :
-                   'semantic web'} connections found
+                connectionScope === 'universe' ? 'universe' :
+                  'semantic web'} connections found
             </span>
             {connectionScope !== 'semantic' && (
               <div style={{ fontSize: '0.75rem', color: '#999', marginTop: '4px' }}>

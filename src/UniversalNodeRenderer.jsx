@@ -1,7 +1,7 @@
 import React, { useMemo, useState, useCallback, useRef } from 'react';
 import useGraphStore from './store/graphStore.jsx';
 import { getNodeDimensions } from './utils.js';
-import { getTextColor, hexToHsl } from './utils/colorUtils.js';
+import { getTextColor, getBrightTextColor, hexToHsl } from './utils/colorUtils.js';
 
 /**
  * Connection Text Component
@@ -56,9 +56,7 @@ const ConnectionText = ({
           transform={`rotate(${adjustedAngle}, ${midX}, ${midY})`}
           stroke={(() => {
             const raw = connection.color || '#000000';
-            // Check if getTextColor suggests a dark color (returns something other than #bdb5b5)
-            // If raw is light (e.g. yellow), getTextColor returns dark.
-            // We should use that dark color for the stroke to be visible.
+            // Use getTextColor for glow so it contrasts correctly with background
             const suggested = getTextColor(raw);
             return suggested === '#bdb5b5' ? raw : suggested;
           })()}
@@ -78,7 +76,7 @@ const ConnectionText = ({
       <text
         x={midX}
         y={midY}
-        fill="#bdb5b5"
+        fill={getTextColor(connection.color || '#800000')}
         fontSize={fontSize}
         fontWeight="bold"
         textAnchor="middle"
@@ -86,11 +84,8 @@ const ConnectionText = ({
         transform={`rotate(${adjustedAngle}, ${midX}, ${midY})`}
         stroke={(() => {
           const raw = connection.color || '#000000';
-          // Check if getTextColor suggests a dark color (returns something other than #bdb5b5)
-          // If raw is light (e.g. yellow), getTextColor returns dark.
-          // We should use that dark color for the stroke to be visible.
-          const suggested = getTextColor(raw);
-          return suggested === '#bdb5b5' ? raw : suggested;
+          // Now that getTextColor returns a matching light color, we can just use raw as the stroke
+          return raw;
         })()}
         strokeWidth={strokeWidth}
         strokeLinecap="round"
@@ -1119,7 +1114,7 @@ const UniversalNodeRenderer = ({
                 height={node.height}
                 rx={node.isGroup ? 20 * transform.scale : cornerRadius}
                 ry={node.isGroup ? 20 * transform.scale : cornerRadius}
-                fill={hasImage ? 'none' : (node.isGroup ? '#bdb5b5' : (node.color || '#800000'))}
+                fill={hasImage ? 'none' : (node.isGroup ? getTextColor(node.color || '#8B0000') : (node.color || '#800000'))}
                 stroke={hasImage ? (node.color || '#800000') : (node.isGroup ? (node.color || '#8B0000') : 'none')}
                 strokeWidth={
                   hasImage
@@ -1184,7 +1179,7 @@ const UniversalNodeRenderer = ({
                         hyphens: renderContext === 'decomposition' ? 'none' : 'auto', // Disable hyphenation in tiny view
                         // Better text rendering for small sizes
                         textRendering: renderContext === 'decomposition' ? 'optimizeLegibility' : 'auto',
-                        WebkitTextStroke: node.isGroup ? `${Math.max(1.5, 3 * transform.scale)}px #bdb5b5` : undefined,
+                        WebkitTextStroke: node.isGroup ? `${Math.max(1.5, 3 * transform.scale)}px ${getTextColor(node.color || '#8B0000')}` : undefined,
                         paintOrder: 'stroke fill',
                       }}
                     >

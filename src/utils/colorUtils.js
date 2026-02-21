@@ -122,6 +122,8 @@ export const hslToHex = (h, s, l) => {
   return `#${r.toString(16).padStart(2, '0')}${g.toString(16).padStart(2, '0')}${b.toString(16).padStart(2, '0')}`;
 };
 
+const LIGHT_TEXT_LIGHTNESS = 92;
+
 /**
  * Returns an appropriate text color (dark or light) based on the background color's brightness.
  * @param {string} backgroundColor - Hex color string
@@ -138,8 +140,9 @@ export const getTextColor = (backgroundColor) => {
     // This creates a "near black" that matches the theme of the group/node
     return hslToHex(h, s, DARK_TEXT_LIGHTNESS);
   } else {
-    // Use light text for dark backgrounds
-    return '#bdb5b5';
+    // Create a light color with the same hue but very high lightness
+    // This creates a "near white" that matches the theme
+    return hslToHex(h, s, LIGHT_TEXT_LIGHTNESS);
   }
 };
 

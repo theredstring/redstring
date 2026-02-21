@@ -4,6 +4,7 @@ import RedstringMenu from './RedstringMenu';
 import { Bookmark, Plus, ScanSearch, HelpCircle, Bug } from 'lucide-react';
 import HeaderGraphTab from './HeaderGraphTab';
 import { showContextMenu } from './components/GlobalContextMenu';
+import { getTextColor } from './utils/colorUtils.js';
 
 // Import all logo states
 import logo1 from './assets/redstring_button/header_logo_1.svg';
@@ -590,7 +591,7 @@ const Header = ({
                     width: 'calc(100% - 10px)', // Account for both left and right 5px margins
                     height: '100%',
                     backgroundColor: 'transparent',
-                    color: '#bdb5b5',
+                    color: getTextColor(activeGraph.color),
                     textAlign: 'center',
                     boxSizing: 'border-box',
                     padding: '7px 17px',
@@ -600,7 +601,7 @@ const Header = ({
                     fontSize: '18px',
                     margin: '0',
                     outline: 'none',
-                    textShadow: '0 1px 2px rgba(0,0,0,0.5)',
+                    textShadow: 'none',
                     cursor: 'text',
                   }}
                   autoFocus

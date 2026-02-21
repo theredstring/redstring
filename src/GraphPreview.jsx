@@ -2,6 +2,7 @@ import React, { useMemo } from 'react';
 import { getNodeDimensions } from './utils.js';
 import { NODE_HEIGHT, NODE_WIDTH, NODE_CORNER_RADIUS, NODE_DEFAULT_COLOR } from './constants';
 import useGraphStore from "./store/graphStore.jsx";
+import { getTextColor } from './utils/colorUtils.js';
 
 const GraphPreview = ({ nodes = [], edges = [], width, height }) => {
   // Access store for prototype data to determine edge colors
@@ -17,7 +18,7 @@ const GraphPreview = ({ nodes = [], edges = [], width, height }) => {
         return definitionNode.color || NODE_DEFAULT_COLOR;
       }
     }
-    
+
     // Then check typeNodeId (for base connection type)
     if (edge.typeNodeId) {
       // Special handling for base connection prototype - ensure it's black
@@ -29,7 +30,7 @@ const GraphPreview = ({ nodes = [], edges = [], width, height }) => {
         return edgePrototype.color || NODE_DEFAULT_COLOR;
       }
     }
-    
+
     return destNode.color || NODE_DEFAULT_COLOR;
   };
 
@@ -54,12 +55,12 @@ const GraphPreview = ({ nodes = [], edges = [], width, height }) => {
 
     // Handle case with only one node or invalid bounds
     if (!isFinite(minX) || !isFinite(minY) || !isFinite(maxX) || !isFinite(maxY)) {
-        const n = nodes[0] || { x: 0, y: 0 }; // Default if nodes is empty somehow
-        const dims = nodes[0] ? getNodeDimensions(nodes[0], false, null) : { currentWidth: NODE_WIDTH, currentHeight: NODE_HEIGHT }; 
-        minX = n.x;
-        minY = n.y;
-        maxX = n.x + dims.currentWidth;
-        maxY = n.y + dims.currentHeight;
+      const n = nodes[0] || { x: 0, y: 0 }; // Default if nodes is empty somehow
+      const dims = nodes[0] ? getNodeDimensions(nodes[0], false, null) : { currentWidth: NODE_WIDTH, currentHeight: NODE_HEIGHT };
+      minX = n.x;
+      minY = n.y;
+      maxX = n.x + dims.currentWidth;
+      maxY = n.y + dims.currentHeight;
     }
 
     // Calculate base network dimensions
@@ -83,17 +84,17 @@ const GraphPreview = ({ nodes = [], edges = [], width, height }) => {
 
     // 4. Scale node positions and dimensions
     const finalScaledNodes = nodes.map(node => {
-        const dims = getNodeDimensions(node, false, null);
-        return {
-            id: node.id,
-            x: node.x * finalScale + offsetX,
-            y: node.y * finalScale + offsetY,
-            width: dims.currentWidth * finalScale,
-            height: dims.currentHeight * finalScale,
-            textAreaHeight: dims.textAreaHeight * finalScale,
-            imageWidth: dims.imageWidth,
-            calculatedImageHeight: dims.calculatedImageHeight,
-        };
+      const dims = getNodeDimensions(node, false, null);
+      return {
+        id: node.id,
+        x: node.x * finalScale + offsetX,
+        y: node.y * finalScale + offsetY,
+        width: dims.currentWidth * finalScale,
+        height: dims.currentHeight * finalScale,
+        textAreaHeight: dims.textAreaHeight * finalScale,
+        imageWidth: dims.imageWidth,
+        calculatedImageHeight: dims.calculatedImageHeight,
+      };
     });
 
     // 5. Scale edge positions and include full edge data for arrows
@@ -126,7 +127,7 @@ const GraphPreview = ({ nodes = [], edges = [], width, height }) => {
     const halfWidth = nodeWidth / 2;
     const halfHeight = nodeHeight / 2;
     const intersections = [];
-    
+
     if (dirX > 0) {
       const t = halfWidth / dirX;
       const y = dirY * t;
@@ -147,8 +148,8 @@ const GraphPreview = ({ nodes = [], edges = [], width, height }) => {
       const x = dirX * t;
       if (Math.abs(x) <= halfWidth) intersections.push({ x: centerX + x, y: centerY - halfHeight, distance: t });
     }
-    
-    return intersections.reduce((closest, current) => 
+
+    return intersections.reduce((closest, current) =>
       !closest || current.distance < closest.distance ? current : closest, null);
   };
 
@@ -165,7 +166,7 @@ const GraphPreview = ({ nodes = [], edges = [], width, height }) => {
           const nodeDimensions = getNodeDimensions(originalNode, false, null);
           const scaledWidth = node.width;
           const scaledHeight = node.height;
-          
+
           // Use scaled corner radius to match Node.jsx
           const imageCornerRadius = NODE_CORNER_RADIUS * scale;
 
@@ -184,15 +185,15 @@ const GraphPreview = ({ nodes = [], edges = [], width, height }) => {
           const dx = edge.x2 - edge.x1;
           const dy = edge.y2 - edge.y1;
           const length = Math.sqrt(dx * dx + dy * dy);
-          
+
           if (length === 0) return null;
-          
+
           // Calculate edge intersections for arrow positioning
           const sourceIntersection = getNodeEdgeIntersection(
             edge.sourceNode.x, edge.sourceNode.y, edge.sourceNode.width, edge.sourceNode.height,
             dx / length, dy / length
           );
-          
+
           const destIntersection = getNodeEdgeIntersection(
             edge.destNode.x, edge.destNode.y, edge.destNode.width, edge.destNode.height,
             -dx / length, -dy / length
@@ -200,16 +201,16 @@ const GraphPreview = ({ nodes = [], edges = [], width, height }) => {
 
           // Determine if each end should be shortened for arrows
           // Ensure arrowsToward is a Set (fix for loading from file)
-          const arrowsToward = edge.directionality?.arrowsToward instanceof Set 
-            ? edge.directionality.arrowsToward 
+          const arrowsToward = edge.directionality?.arrowsToward instanceof Set
+            ? edge.directionality.arrowsToward
             : new Set(Array.isArray(edge.directionality?.arrowsToward) ? edge.directionality.arrowsToward : []);
-          
+
           const shouldShortenSource = arrowsToward.has(edge.sourceId);
           const shouldShortenDest = arrowsToward.has(edge.destinationId);
 
           // Calculate arrow positions and angles if needed
           let sourceArrowX, sourceArrowY, destArrowX, destArrowY, sourceArrowAngle, destArrowAngle;
-          
+
           if (shouldShortenSource || shouldShortenDest) {
             if (!sourceIntersection || !destIntersection) {
               // Fallback positioning
@@ -254,12 +255,12 @@ const GraphPreview = ({ nodes = [], edges = [], width, height }) => {
                 stroke={edgeColor}
                 strokeWidth={adaptiveStrokeWidth}
               />
-              
+
               {/* Source Arrow - scales with adaptive stroke */}
               {arrowsToward.has(edge.sourceId) && (() => {
                 // Calculate arrow scale based on adaptive stroke width (much smaller arrows)
                 const arrowScale = Math.max(0.15, adaptiveStrokeWidth / 2.5); // Much smaller arrows
-                
+
                 return (
                   <g transform={`translate(${sourceArrowX}, ${sourceArrowY}) rotate(${sourceArrowAngle + 90})`}>
                     <polygon
@@ -274,12 +275,12 @@ const GraphPreview = ({ nodes = [], edges = [], width, height }) => {
                   </g>
                 );
               })()}
-              
+
               {/* Destination Arrow - scales with adaptive stroke */}
               {arrowsToward.has(edge.destinationId) && (() => {
                 // Calculate arrow scale based on adaptive stroke width (much smaller arrows)
                 const arrowScale = Math.max(0.15, adaptiveStrokeWidth / 2.5); // Much smaller arrows
-                
+
                 return (
                   <g transform={`translate(${destArrowX}, ${destArrowY}) rotate(${destArrowAngle + 90})`}>
                     <polygon
@@ -325,19 +326,19 @@ const GraphPreview = ({ nodes = [], edges = [], width, height }) => {
             const strokeOffset = imageNodeStrokeWidth / 2;
             const strokeRectWidth = Math.max(0, scaledWidth - imageNodeStrokeWidth);
             const strokeRectHeight = Math.max(0, scaledHeight - imageNodeStrokeWidth);
-            
+
             // Use same logic as clipPath for consistency
             const imageCornerRadius = NODE_CORNER_RADIUS * scale;
             const strokeRectRx = Math.max(0, imageCornerRadius - strokeOffset);
             const strokeRectRy = Math.max(0, imageCornerRadius - strokeOffset);
-            
+
             return (
               // Remove clipPath from group
-              <g 
+              <g
                 key={node.id}
               >
                 <image
-                  x={node.x} 
+                  x={node.x}
                   y={node.y}
                   width={scaledWidth}
                   height={scaledHeight}
@@ -347,16 +348,16 @@ const GraphPreview = ({ nodes = [], edges = [], width, height }) => {
                   clipPath={`url(#clip-${node.id})`}
                 />
                 {/* Adjust stroke rect position, size, and radius - 1px stroke */}
-                <rect 
+                <rect
                   x={node.x + strokeOffset} // Offset position
                   y={node.y + strokeOffset}
                   width={strokeRectWidth} // Adjusted size
-                  height={strokeRectHeight} 
-                  fill="none" 
-                  stroke={nodeColor} 
-                  strokeWidth={imageNodeStrokeWidth} 
+                  height={strokeRectHeight}
+                  fill="none"
+                  stroke={nodeColor}
+                  strokeWidth={imageNodeStrokeWidth}
                   rx={strokeRectRx} // Adjusted radius
-                  ry={strokeRectRy} 
+                  ry={strokeRectRy}
                 />
                 {/* Conditional text for image nodes - hidden when there's an image */}
                 {showText && !imageSrc && (
@@ -366,7 +367,7 @@ const GraphPreview = ({ nodes = [], edges = [], width, height }) => {
                     textAnchor="middle"
                     dominantBaseline="central"
                     fontSize={fontSize}
-                    fill="#bdb5b5"
+                    fill={getTextColor(nodeColor)}
                     fontWeight="bold"
                     fontFamily="'EmOne', sans-serif"
                     style={{
@@ -398,7 +399,7 @@ const GraphPreview = ({ nodes = [], edges = [], width, height }) => {
                   height={scaledHeight}
                   fill={nodeColor} // Use node color
                   // More rounded corners to match other network representations
-                  rx={NODE_CORNER_RADIUS * scale} 
+                  rx={NODE_CORNER_RADIUS * scale}
                   ry={NODE_CORNER_RADIUS * scale}
                 />
                 {/* Conditional text for rect nodes */}
@@ -409,7 +410,7 @@ const GraphPreview = ({ nodes = [], edges = [], width, height }) => {
                     textAnchor="middle"
                     dominantBaseline="central"
                     fontSize={fontSize}
-                    fill="#bdb5b5"
+                    fill={getTextColor(nodeColor)}
                     fontWeight="bold"
                     fontFamily="'EmOne', sans-serif"
                     style={{

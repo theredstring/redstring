@@ -7,6 +7,7 @@
 import React from 'react';
 import { calculateParallelEdgePath } from '../utils/canvas/parallelEdgeUtils.js';
 import { generateManhattanRoutingPath, generateCleanRoutingPath } from '../utils/canvas/edgeRouting.js';
+import { getTextColor, getBrightTextColor } from '../utils/colorUtils.js';
 
 /**
  * Build a rounded SVG path from ordered polyline points
@@ -195,7 +196,7 @@ export default function EdgeRenderer({
           <text
             x={useCurve ? parallelPath.apexX : midX}
             y={useCurve ? parallelPath.apexY : midY}
-            fill="#bdb5b5"
+            fill={getTextColor(edgeColor || '#800000')}
             fontSize="24"
             fontWeight="bold"
             textAnchor="middle"
