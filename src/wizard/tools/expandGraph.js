@@ -36,8 +36,8 @@ function generateConnectionColor(name) {
 export async function expandGraph(args, graphState, cid, ensureSchedulerStarted) {
   const { nodes = [], edges = [], groups = [] } = args;
 
-  if (!nodes || nodes.length === 0) {
-    throw new Error('nodes array is required');
+  if ((!nodes || nodes.length === 0) && (!edges || edges.length === 0)) {
+    throw new Error('At least one node or edge is required');
   }
 
   const { activeGraphId } = graphState;

@@ -204,7 +204,7 @@ export function getToolDefinitions() {
     },
     {
       name: 'expandGraph',
-      description: 'Add multiple nodes and edges at once to the ACTIVE graph (bulk operation)',
+      description: 'Add multiple nodes and/or edges at once to the ACTIVE graph (bulk operation). Must provide at least one node or at least one edge.',
       parameters: {
         type: 'object',
         properties: {
@@ -234,8 +234,7 @@ export function getToolDefinitions() {
               required: ['source', 'target']
             }
           }
-        },
-        required: ['nodes']
+        }
       }
     },
     {

@@ -65,7 +65,7 @@ describe('expandGraph', () => {
     expect(result.spec.edges[0].definitionNode.name).toBe('Connects');
   });
 
-  it('throws error when nodes array is empty', async () => {
+  it('throws error when nodes and edges are empty', async () => {
     const graphState = {
       activeGraphId: 'graph-1',
       graphs: [],
@@ -73,11 +73,11 @@ describe('expandGraph', () => {
     };
 
     await expect(
-      expandGraph({ nodes: [] }, graphState, mockCid, mockEnsureSchedulerStarted)
-    ).rejects.toThrow('nodes array is required');
+      expandGraph({ nodes: [], edges: [] }, graphState, mockCid, mockEnsureSchedulerStarted)
+    ).rejects.toThrow('At least one node or edge is required');
   });
 
-  it('throws error when nodes is missing', async () => {
+  it('throws error when neither nodes nor edges is provided', async () => {
     const graphState = {
       activeGraphId: 'graph-1',
       graphs: [],
@@ -86,7 +86,7 @@ describe('expandGraph', () => {
 
     await expect(
       expandGraph({}, graphState, mockCid, mockEnsureSchedulerStarted)
-    ).rejects.toThrow('nodes array is required');
+    ).rejects.toThrow('At least one node or edge is required');
   });
 
   it('throws error when no active graph', async () => {
@@ -98,6 +98,26 @@ describe('expandGraph', () => {
     await expect(
       expandGraph({ nodes: [{ name: 'Node One' }] }, graphState, mockCid, mockEnsureSchedulerStarted)
     ).rejects.toThrow('No active graph');
+  });
+
+  it('handles missing nodes array', async () => {
+    const graphState = {
+      activeGraphId: 'graph-1',
+      graphs: [],
+      nodePrototypes: []
+    };
+
+    const result = await expandGraph(
+      { edges: [{ source: 'Node A', target: 'Node B', type: 'connects' }] },
+      graphState,
+      mockCid,
+      mockEnsureSchedulerStarted
+    );
+
+    expect(result.nodeCount).toBe(0);
+    expect(result.spec.nodes).toHaveLength(0);
+    expect(result.edgeCount).toBe(1);
+    expect(result.spec.edges).toHaveLength(1);
   });
 
   it('handles missing edges array', async () => {
