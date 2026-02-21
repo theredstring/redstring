@@ -6512,6 +6512,13 @@ function NodeCanvas() {
   // Panel toggle and TypeList keyboard shortcuts - work even when inputs are focused
   useEffect(() => {
     const handleGlobalKeyDown = (e) => {
+      // Check for Cmd+F (Mac) or Ctrl+F (Windows/Linux) to open Graph Search
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'f') {
+        e.preventDefault();
+        setHeaderSearchVisible(true);
+        return;
+      }
+
       // Check if focus is on a text input to prevent conflicts
       const activeElement = document.activeElement;
       const isTextInput = activeElement && (
