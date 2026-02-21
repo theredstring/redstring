@@ -10,7 +10,6 @@ import ToolCallCard from '../../ToolCallCard.jsx';
 import { DRUID_SYSTEM_PROMPT } from '../../../services/agent/DruidPrompt.js';
 import useGraphStore from '../../../store/graphStore.jsx';
 import DruidInstance from '../../../services/DruidInstance.js';
-import DruidMindPanel from '../../DruidMindPanel.jsx';
 
 /**
  * Apply wizard tool results to the store
@@ -1719,18 +1718,6 @@ const LeftAIView = ({ compact = false,
       </div>
       {/* Dividing line below graph info section */}
       <StandardDivider margin="0" />
-
-      {/* Show Druid Mind Panel when in Druid mode */}
-      {viewMode === 'druid' && druidInstance && (
-        <div style={{
-          maxHeight: '300px',
-          overflowY: 'auto',
-          borderBottom: '1px solid #333',
-          backgroundColor: '#1a1a1a'
-        }}>
-          <DruidMindPanel druidInstance={druidInstance} />
-        </div>
-      )}
 
       {showAPIKeySetup && (
         <div className="ai-api-setup-section">
