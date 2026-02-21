@@ -34,6 +34,56 @@ function applyToolResultToStore(toolName, result) {
     return;
   }
 
+  // Handle createNode
+  if (result.action === 'createNode') {
+    console.log('[Wizard] Applying createNode to store:', result.name);
+    const graphId = result.graphId || store.activeGraphId;
+    if (!graphId) {
+      console.error('[Wizard] createNode: No active graph ID');
+      return;
+    }
+    store.applyBulkGraphUpdates(graphId, {
+      nodes: [{
+        name: result.name,
+        color: result.color || '#5B6CFF',
+        description: result.description || '',
+        x: Math.random() * 600 + 200,
+        y: Math.random() * 500 + 200
+      }]
+    });
+    console.log('[Wizard] Successfully created node:', result.name);
+    return;
+  }
+
+  // Handle updateNode
+  if (result.action === 'updateNode') {
+    console.log('[Wizard] Applying updateNode to store:', result.prototypeId, result.updates);
+    if (!result.prototypeId || !result.updates) {
+      console.error('[Wizard] updateNode: Missing prototypeId or updates');
+      return;
+    }
+    store.updateNodePrototype(result.prototypeId, (prototype) => {
+      if (result.updates.name !== undefined) prototype.name = result.updates.name;
+      if (result.updates.color !== undefined) prototype.color = result.updates.color;
+      if (result.updates.description !== undefined) prototype.description = result.updates.description;
+    });
+    console.log('[Wizard] Successfully updated node:', result.prototypeId);
+    return;
+  }
+
+  // Handle deleteNode
+  if (result.action === 'deleteNode') {
+    console.log('[Wizard] Applying deleteNode to store:', result.name, result.instanceId);
+    const graphId = result.graphId || store.activeGraphId;
+    if (!graphId || !result.instanceId) {
+      console.error('[Wizard] deleteNode: Missing graphId or instanceId');
+      return;
+    }
+    store.removeNodeInstance(graphId, result.instanceId);
+    console.log('[Wizard] Successfully deleted node:', result.name);
+    return;
+  }
+
   // Handle createPopulatedGraph
   if (result.action === 'createPopulatedGraph' && result.spec) {
     console.log('[Wizard] Applying createPopulatedGraph to store:', result.graphName);

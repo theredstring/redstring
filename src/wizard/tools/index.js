@@ -83,27 +83,27 @@ export function getToolDefinitions() {
     },
     {
       name: 'updateNode',
-      description: 'Update an existing node\'s properties',
+      description: 'Update an existing node\'s properties. Use the current node name to identify which node to update.',
       parameters: {
         type: 'object',
         properties: {
-          nodeId: { type: 'string', description: 'The node ID to update' },
-          name: { type: 'string', description: 'New name' },
+          nodeName: { type: 'string', description: 'Current name of the node to update (fuzzy matched)' },
+          name: { type: 'string', description: 'New name for the node' },
           color: { type: 'string', description: 'New color' },
           description: { type: 'string', description: 'New description' }
         },
-        required: ['nodeId']
+        required: ['nodeName']
       }
     },
     {
       name: 'deleteNode',
-      description: 'Remove a node and its connections',
+      description: 'Remove a node and its connections. Use the node name to identify which node to delete.',
       parameters: {
         type: 'object',
         properties: {
-          nodeId: { type: 'string', description: 'The node ID to delete' }
+          nodeName: { type: 'string', description: 'Name of the node to delete (fuzzy matched)' }
         },
-        required: ['nodeId']
+        required: ['nodeName']
       }
     },
     {

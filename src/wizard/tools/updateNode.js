@@ -1,38 +1,80 @@
 /**
- * updateNode - Update an existing node
+ * updateNode - Update an existing node's properties
  */
 
-import queueManager from '../../services/queue/Queue.js';
+/**
+ * Resolve a node by name from graph state
+ */
+function resolveNodeByName(name, nodePrototypes, graphs, activeGraphId) {
+  const queryLower = (name || '').toLowerCase().trim();
+  if (!queryLower) return null;
 
-export async function updateNode(args, graphState, cid, ensureSchedulerStarted) {
-  const { nodeId, name, color, description } = args;
-  if (!nodeId) {
-    throw new Error('nodeId is required');
+  const activeGraph = graphs.find(g => g.id === activeGraphId);
+  if (!activeGraph) return null;
+
+  const instances = Array.isArray(activeGraph.instances)
+    ? activeGraph.instances
+    : activeGraph.instances instanceof Map
+      ? Array.from(activeGraph.instances.values())
+      : Object.values(activeGraph.instances || {});
+
+  // Try exact match first, then substring
+  for (const inst of instances) {
+    const proto = nodePrototypes.find(p => p.id === inst.prototypeId);
+    const nodeName = (inst.name || proto?.name || '').toLowerCase().trim();
+    if (nodeName === queryLower) {
+      return { instanceId: inst.id, prototypeId: inst.prototypeId, name: inst.name || proto?.name };
+    }
   }
 
-  const dag = {
-    tasks: [{
-      toolName: 'update_node_prototype',
-      args: {
-        prototype_id: nodeId,
-        ...(name && { name }),
-        ...(color && { color }),
-        ...(description !== undefined && { description })
-      },
-      threadId: cid
-    }]
-  };
+  // Substring match fallback
+  for (const inst of instances) {
+    const proto = nodePrototypes.find(p => p.id === inst.prototypeId);
+    const nodeName = (inst.name || proto?.name || '').toLowerCase().trim();
+    if (nodeName.includes(queryLower) || queryLower.includes(nodeName)) {
+      return { instanceId: inst.id, prototypeId: inst.prototypeId, name: inst.name || proto?.name };
+    }
+  }
 
-  const goalId = queueManager.enqueue('goalQueue', {
-    type: 'goal',
-    goal: 'update_node',
-    dag,
-    threadId: cid,
-    partitionKey: cid
-  });
-
-  if (ensureSchedulerStarted) ensureSchedulerStarted();
-
-  return { nodeId, updated: true, goalId };
+  return null;
 }
 
+/**
+ * Update a node
+ * @param {Object} args - { nodeName, name?, color?, description? }
+ * @param {Object} graphState - Current graph state
+ * @param {string} cid - Conversation ID
+ * @param {Function} ensureSchedulerStarted - Function to start scheduler
+ * @returns {Promise<Object>} Update spec for UI application
+ */
+export async function updateNode(args, graphState, cid, ensureSchedulerStarted) {
+  const { nodeName, nodeId, name, color, description } = args;
+  const lookupName = nodeName || nodeId;
+  if (!lookupName) {
+    throw new Error('nodeName is required');
+  }
+
+  const { nodePrototypes = [], graphs = [], activeGraphId } = graphState;
+  if (!activeGraphId) {
+    throw new Error('No active graph');
+  }
+
+  const resolved = resolveNodeByName(lookupName, nodePrototypes, graphs, activeGraphId);
+  if (!resolved) {
+    throw new Error(`Node "${lookupName}" not found in the active graph`);
+  }
+
+  const updates = {};
+  if (name !== undefined) updates.name = name;
+  if (color !== undefined) updates.color = color;
+  if (description !== undefined) updates.description = description;
+
+  return {
+    action: 'updateNode',
+    prototypeId: resolved.prototypeId,
+    instanceId: resolved.instanceId,
+    originalName: resolved.name,
+    updates,
+    updated: true
+  };
+}

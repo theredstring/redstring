@@ -82,6 +82,42 @@ const ToolCallCard = ({ toolName, status, args, result, error, timestamp, execut
             if (removed > 0) return `Removed ${removed} from ${groupName}`;
             return `Updated ${groupName}`;
         }
+        if (toolName === 'createNode') {
+            const nodeName = result.name || parsedArgs?.name || 'node';
+            return `Created node "${nodeName}"`;
+        }
+        if (toolName === 'updateNode') {
+            const nodeName = result.originalName || parsedArgs?.nodeName || parsedArgs?.name || 'node';
+            return `Updated node "${nodeName}"`;
+        }
+        if (toolName === 'deleteNode') {
+            const nodeName = result.name || parsedArgs?.nodeName || parsedArgs?.name || 'node';
+            return `Deleted node "${nodeName}"`;
+        }
+        if (toolName === 'createEdge') {
+            const source = parsedArgs?.sourceName || parsedArgs?.sourceId || '?';
+            const target = parsedArgs?.targetName || parsedArgs?.targetId || '?';
+            return `Connected ${source} → ${target}`;
+        }
+        if (toolName === 'deleteEdge') {
+            return 'Deleted connection';
+        }
+        if (toolName === 'createGroup') {
+            const groupName = result.name || parsedArgs?.name || 'group';
+            const count = result.memberCount || 0;
+            return `Created group "${groupName}"${count > 0 ? ` with ${count} member${count !== 1 ? 's' : ''}` : ''}`;
+        }
+        if (toolName === 'deleteGroup') {
+            const groupName = parsedArgs?.groupName || 'group';
+            return `Deleted group "${groupName}"`;
+        }
+        if (toolName === 'convertToThingGroup') {
+            const thingName = result.thingName || parsedArgs?.thingName || 'Thing';
+            return `Converted to Thing "${thingName}"`;
+        }
+        if (toolName === 'combineThingGroup') {
+            return 'Combined Thing-Group into single node';
+        }
         if (toolName === 'createGraph') {
             const graphName = result.graphName || parsedArgs?.name || 'graph';
             return `Created empty graph "${graphName}"`;

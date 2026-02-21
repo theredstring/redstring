@@ -4,95 +4,80 @@
 
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { deleteNode } from './deleteNode.js';
-import queueManager from '../../services/queue/Queue.js';
-
-vi.mock('../../services/queue/Queue.js', () => ({
-  default: {
-    enqueue: vi.fn(() => 'mock-goal-id'),
-    dequeue: vi.fn(),
-    getQueue: vi.fn(() => ({ items: [], inflight: new Map(), byId: new Map() }))
-  }
-}));
 
 describe('deleteNode', () => {
-  const mockEnsureSchedulerStarted = vi.fn();
   const mockCid = 'test-cid-123';
+
+  const graphStateWithNode = {
+    activeGraphId: 'graph-1',
+    graphs: [{
+      id: 'graph-1',
+      name: 'Test Graph',
+      instances: [
+        { id: 'inst-1', prototypeId: 'proto-1', name: 'Temp Node' }
+      ]
+    }],
+    nodePrototypes: [
+      { id: 'proto-1', name: 'Temp Node' }
+    ]
+  };
 
   beforeEach(() => {
     vi.clearAllMocks();
   });
 
-  it('enqueues delete_node_instance task with correct args', async () => {
-    const graphState = {
-      activeGraphId: 'graph-1',
-      graphs: [],
-      nodePrototypes: []
-    };
-
+  it('resolves node by name and returns delete spec', async () => {
     const result = await deleteNode(
-      { nodeId: 'inst-1' },
-      graphState,
+      { nodeName: 'Temp Node' },
+      graphStateWithNode,
       mockCid,
-      mockEnsureSchedulerStarted
+      null
     );
 
-    expect(queueManager.enqueue).toHaveBeenCalledWith('goalQueue', expect.objectContaining({
-      goal: 'delete_node',
-      dag: expect.objectContaining({
-        tasks: [expect.objectContaining({
-          toolName: 'delete_node_instance',
-          args: {
-            instance_id: 'inst-1',
-            graph_id: 'graph-1'
-          }
-        })]
-      })
-    }));
-
-    expect(result).toEqual({
-      deleted: true,
-      goalId: 'mock-goal-id'
-    });
+    expect(result.action).toBe('deleteNode');
+    expect(result.graphId).toBe('graph-1');
+    expect(result.instanceId).toBe('inst-1');
+    expect(result.name).toBe('Temp Node');
+    expect(result.deleted).toBe(true);
   });
 
-  it('throws error when nodeId is missing', async () => {
-    const graphState = {
-      activeGraphId: 'graph-1',
-      graphs: [],
-      nodePrototypes: []
-    };
+  it('supports fuzzy name matching', async () => {
+    const result = await deleteNode(
+      { nodeName: 'temp node' },
+      graphStateWithNode,
+      mockCid,
+      null
+    );
 
+    expect(result.instanceId).toBe('inst-1');
+  });
+
+  it('throws error when nodeName is missing', async () => {
     await expect(
-      deleteNode({}, graphState, mockCid, mockEnsureSchedulerStarted)
-    ).rejects.toThrow('nodeId is required');
+      deleteNode({}, graphStateWithNode, mockCid, null)
+    ).rejects.toThrow('nodeName is required');
+  });
+
+  it('throws error when node not found', async () => {
+    await expect(
+      deleteNode({ nodeName: 'Nonexistent' }, graphStateWithNode, mockCid, null)
+    ).rejects.toThrow('not found');
   });
 
   it('throws error when no active graph', async () => {
-    const graphState = {
-      graphs: [],
-      nodePrototypes: []
-    };
-
     await expect(
-      deleteNode({ nodeId: 'inst-1' }, graphState, mockCid, mockEnsureSchedulerStarted)
+      deleteNode({ nodeName: 'Temp' }, { graphs: [], nodePrototypes: [] }, mockCid, null)
     ).rejects.toThrow('No active graph');
   });
 
-  it('calls ensureSchedulerStarted callback', async () => {
-    const graphState = {
-      activeGraphId: 'graph-1',
-      graphs: [],
-      nodePrototypes: []
-    };
-
-    await deleteNode(
-      { nodeId: 'inst-1' },
-      graphState,
+  it('falls back to nodeId param for backward compat', async () => {
+    const result = await deleteNode(
+      { nodeId: 'Temp Node' },
+      graphStateWithNode,
       mockCid,
-      mockEnsureSchedulerStarted
+      null
     );
 
-    expect(mockEnsureSchedulerStarted).toHaveBeenCalledTimes(1);
+    expect(result.instanceId).toBe('inst-1');
   });
 });
-
