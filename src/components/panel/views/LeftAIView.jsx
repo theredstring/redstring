@@ -55,32 +55,65 @@ function applyToolResultToStore(toolName, result) {
     return;
   }
 
-  // Handle updateNode
+  // Handle updateNode — resolve by name from actual store (server IDs are synthetic)
   if (result.action === 'updateNode') {
-    console.log('[Wizard] Applying updateNode to store:', result.prototypeId, result.updates);
-    if (!result.prototypeId || !result.updates) {
-      console.error('[Wizard] updateNode: Missing prototypeId or updates');
+    const lookupName = (result.originalName || '').toLowerCase().trim();
+    console.log('[Wizard] Applying updateNode to store, looking up:', lookupName);
+    if (!lookupName || !result.updates) {
+      console.error('[Wizard] updateNode: Missing originalName or updates');
       return;
     }
-    store.updateNodePrototype(result.prototypeId, (prototype) => {
+    // Find the real prototype by name in the store
+    let realProtoId = null;
+    for (const [protoId, proto] of store.nodePrototypes) {
+      if ((proto.name || '').toLowerCase().trim() === lookupName) {
+        realProtoId = protoId;
+        break;
+      }
+    }
+    if (!realProtoId) {
+      console.error('[Wizard] updateNode: Could not find prototype for name:', lookupName);
+      return;
+    }
+    store.updateNodePrototype(realProtoId, (prototype) => {
       if (result.updates.name !== undefined) prototype.name = result.updates.name;
       if (result.updates.color !== undefined) prototype.color = result.updates.color;
       if (result.updates.description !== undefined) prototype.description = result.updates.description;
     });
-    console.log('[Wizard] Successfully updated node:', result.prototypeId);
+    console.log('[Wizard] Successfully updated node:', realProtoId);
     return;
   }
 
-  // Handle deleteNode
+  // Handle deleteNode — resolve by name from actual store (server IDs are synthetic)
   if (result.action === 'deleteNode') {
-    console.log('[Wizard] Applying deleteNode to store:', result.name, result.instanceId);
     const graphId = result.graphId || store.activeGraphId;
-    if (!graphId || !result.instanceId) {
-      console.error('[Wizard] deleteNode: Missing graphId or instanceId');
+    const lookupName = (result.name || '').toLowerCase().trim();
+    console.log('[Wizard] Applying deleteNode to store, looking up:', lookupName);
+    if (!graphId || !lookupName) {
+      console.error('[Wizard] deleteNode: Missing graphId or name');
       return;
     }
-    store.removeNodeInstance(graphId, result.instanceId);
-    console.log('[Wizard] Successfully deleted node:', result.name);
+    const graph = store.graphs.get(graphId);
+    if (!graph) {
+      console.error('[Wizard] deleteNode: Graph not found:', graphId);
+      return;
+    }
+    // Find the real instance by name
+    let realInstanceId = null;
+    for (const [instId, inst] of graph.instances) {
+      const proto = store.nodePrototypes.get(inst.prototypeId);
+      const nodeName = (proto?.name || '').toLowerCase().trim();
+      if (nodeName === lookupName) {
+        realInstanceId = instId;
+        break;
+      }
+    }
+    if (!realInstanceId) {
+      console.error('[Wizard] deleteNode: Could not find instance for name:', lookupName);
+      return;
+    }
+    store.removeNodeInstance(graphId, realInstanceId);
+    console.log('[Wizard] Successfully deleted node:', lookupName, realInstanceId);
     return;
   }
 
@@ -917,6 +950,12 @@ const LeftAIView = ({ compact = false,
                 if (processedEvents.has(eventId)) continue;
                 processedEvents.add(eventId);
 
+                // Apply tool results to store OUTSIDE the state updater
+                // to avoid double-execution in React StrictMode
+                if (event.type === 'tool_result') {
+                  applyToolResultToStore(event.name, event.result);
+                }
+
                 // Update streaming message based on event type
                 setMessages(prev => {
                   const updated = [...prev];
@@ -969,9 +1008,6 @@ const LeftAIView = ({ compact = false,
                         result: event.result,
                         error: event.result?.error
                       };
-
-                      // Apply tool result to store (bridge server-side tools to client-side store)
-                      applyToolResultToStore(event.name, event.result);
                     }
                     msg.toolCalls = toolCalls;
                   } else if (event.type === 'response') {

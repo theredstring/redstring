@@ -60,16 +60,20 @@ export async function deleteNode(args, graphState, cid, ensureSchedulerStarted) 
   }
 
   const resolved = resolveNodeByName(lookupName, nodePrototypes, graphs, activeGraphId);
-  if (!resolved) {
-    throw new Error(`Node "${lookupName}" not found in the active graph`);
+
+  if (resolved) {
+    console.log('[deleteNode] Resolved:', lookupName, '→', resolved.instanceId);
+  } else {
+    // Node not in server-side graphState — still return action so client can resolve by name
+    console.warn('[deleteNode] Not found in graphState, delegating to client:', lookupName);
   }
 
   return {
     action: 'deleteNode',
     graphId: activeGraphId,
-    instanceId: resolved.instanceId,
-    prototypeId: resolved.prototypeId,
-    name: resolved.name,
+    instanceId: resolved?.instanceId || null,
+    prototypeId: resolved?.prototypeId || null,
+    name: resolved?.name || lookupName,
     deleted: true
   };
 }

@@ -34,6 +34,7 @@ function updateGraphState(graphState, _toolName, _args, result) {
       edgeIds: [],
       groups: []
     });
+    console.log('[updateGraphState] createGraph: activeGraphId =', result.graphId);
   } else if (result.action === 'createNode') {
     // Add the new node to the active graph's instances so name-based lookups work
     const activeGraph = (graphState.graphs || []).find(g => g.id === graphState.activeGraphId);
@@ -53,6 +54,9 @@ function updateGraphState(graphState, _toolName, _args, result) {
         color: result.color,
         description: result.description
       });
+      console.log('[updateGraphState] createNode:', result.name, '→ instances:', activeGraph.instances.length, 'protos:', graphState.nodePrototypes.length);
+    } else {
+      console.warn('[updateGraphState] createNode FAILED: no active graph for id', graphState.activeGraphId, '| available:', (graphState.graphs || []).map(g => g.id));
     }
   } else if (result.action === 'updateNode' && result.updates) {
     // Update the node's name/properties in graphState so subsequent lookups use the new name
@@ -70,12 +74,24 @@ function updateGraphState(graphState, _toolName, _args, result) {
         inst.name = result.updates.name;
       }
     }
+    console.log('[updateGraphState] updateNode:', result.originalName, '→', result.updates.name || '(no name change)', '| proto found:', !!proto);
   } else if (result.action === 'deleteNode') {
     // Remove the node from graphState so it's no longer findable
     const activeGraph = (graphState.graphs || []).find(g => g.id === graphState.activeGraphId);
+    const beforeCount = activeGraph?.instances?.length || 0;
     if (activeGraph && activeGraph.instances) {
-      activeGraph.instances = activeGraph.instances.filter(i => i.id !== result.instanceId);
+      if (result.instanceId) {
+        activeGraph.instances = activeGraph.instances.filter(i => i.id !== result.instanceId);
+      } else if (result.name) {
+        // Fallback: remove by name when instanceId wasn't resolved
+        const nameLower = result.name.toLowerCase().trim();
+        activeGraph.instances = activeGraph.instances.filter(i => {
+          const instName = (i.name || '').toLowerCase().trim();
+          return instName !== nameLower;
+        });
+      }
     }
+    console.log('[updateGraphState] deleteNode:', result.name, '| before:', beforeCount, '→ after:', activeGraph?.instances?.length || 0);
   } else if (result.action === 'createPopulatedGraph' && result.spec) {
     // New populated graph — update activeGraphId and add graph + nodes
     graphState.activeGraphId = result.graphId;

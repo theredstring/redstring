@@ -258,7 +258,8 @@ app.get('/api/bridge/state', (req, res) => {
   res.json({
     graphs: [],
     pendingActions: [],
-    source: 'wizard-server'
+    source: 'wizard-server',
+    summary: { lastUpdate: Date.now() } // added so mcpClient.js connects
   });
 });
 

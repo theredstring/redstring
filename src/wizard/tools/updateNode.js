@@ -60,8 +60,12 @@ export async function updateNode(args, graphState, cid, ensureSchedulerStarted) 
   }
 
   const resolved = resolveNodeByName(lookupName, nodePrototypes, graphs, activeGraphId);
-  if (!resolved) {
-    throw new Error(`Node "${lookupName}" not found in the active graph`);
+
+  if (resolved) {
+    console.log('[updateNode] Resolved:', lookupName, '→', resolved.prototypeId);
+  } else {
+    // Node not in server-side graphState — still return action so client can resolve by name
+    console.warn('[updateNode] Not found in graphState, delegating to client:', lookupName);
   }
 
   const updates = {};
@@ -71,9 +75,9 @@ export async function updateNode(args, graphState, cid, ensureSchedulerStarted) 
 
   return {
     action: 'updateNode',
-    prototypeId: resolved.prototypeId,
-    instanceId: resolved.instanceId,
-    originalName: resolved.name,
+    prototypeId: resolved?.prototypeId || null,
+    instanceId: resolved?.instanceId || null,
+    originalName: resolved?.name || lookupName,
     updates,
     updated: true
   };

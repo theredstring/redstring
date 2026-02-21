@@ -58,10 +58,19 @@ describe('deleteNode', () => {
     ).rejects.toThrow('nodeName is required');
   });
 
-  it('throws error when node not found', async () => {
-    await expect(
-      deleteNode({ nodeName: 'Nonexistent' }, graphStateWithNode, mockCid, null)
-    ).rejects.toThrow('not found');
+  it('returns soft result when node not found (delegates to client)', async () => {
+    const result = await deleteNode(
+      { nodeName: 'Nonexistent' },
+      graphStateWithNode,
+      mockCid,
+      null
+    );
+
+    expect(result.action).toBe('deleteNode');
+    expect(result.instanceId).toBeNull();
+    expect(result.prototypeId).toBeNull();
+    expect(result.name).toBe('Nonexistent');
+    expect(result.deleted).toBe(true);
   });
 
   it('throws error when no active graph', async () => {

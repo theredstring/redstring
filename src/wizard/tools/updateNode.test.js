@@ -74,10 +74,20 @@ describe('updateNode', () => {
     ).rejects.toThrow('nodeName is required');
   });
 
-  it('throws error when node not found', async () => {
-    await expect(
-      updateNode({ nodeName: 'Nonexistent Node' }, graphStateWithNode, mockCid, null)
-    ).rejects.toThrow('not found');
+  it('returns soft result when node not found (delegates to client)', async () => {
+    const result = await updateNode(
+      { nodeName: 'Nonexistent Node', name: 'New Name' },
+      graphStateWithNode,
+      mockCid,
+      null
+    );
+
+    expect(result.action).toBe('updateNode');
+    expect(result.prototypeId).toBeNull();
+    expect(result.instanceId).toBeNull();
+    expect(result.originalName).toBe('Nonexistent Node');
+    expect(result.updates).toEqual({ name: 'New Name' });
+    expect(result.updated).toBe(true);
   });
 
   it('throws error when no active graph', async () => {
