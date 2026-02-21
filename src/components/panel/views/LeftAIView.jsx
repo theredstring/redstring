@@ -117,6 +117,268 @@ function applyToolResultToStore(toolName, result) {
     return;
   }
 
+  // Handle createEdge — use applyBulkGraphUpdates for name-based resolution
+  if (result.action === 'createEdge') {
+    const graphId = result.graphId || store.activeGraphId;
+    console.log('[Wizard] Applying createEdge to store:', result.sourceName, '→', result.targetName);
+    if (!graphId) {
+      console.error('[Wizard] createEdge: No active graph ID');
+      return;
+    }
+    store.applyBulkGraphUpdates(graphId, {
+      nodes: [],
+      edges: [{
+        source: result.sourceName,
+        target: result.targetName,
+        type: result.type || 'relates to',
+        directionality: 'unidirectional',
+        definitionNode: result.type ? { name: result.type, color: '#708090' } : null
+      }]
+    });
+    console.log('[Wizard] Successfully created edge:', result.sourceName, '→', result.targetName);
+    return;
+  }
+
+  // Handle deleteEdge — resolve by edge ID or by source/target names
+  if (result.action === 'deleteEdge') {
+    const graphId = result.graphId || store.activeGraphId;
+    console.log('[Wizard] Applying deleteEdge to store');
+    if (!graphId) {
+      console.error('[Wizard] deleteEdge: No active graph ID');
+      return;
+    }
+    // If we have an edge ID, delete directly
+    if (result.edgeId) {
+      store.removeEdge(result.edgeId);
+      console.log('[Wizard] Successfully deleted edge by ID:', result.edgeId);
+      return;
+    }
+    // Otherwise try to find edge by source/target names
+    if (result.sourceName && result.targetName) {
+      const graph = store.graphs.get(graphId);
+      if (!graph) return;
+      const srcLower = result.sourceName.toLowerCase().trim();
+      const tgtLower = result.targetName.toLowerCase().trim();
+      // Build name→instanceId map
+      const nameToInstId = new Map();
+      for (const [instId, inst] of graph.instances) {
+        const proto = store.nodePrototypes.get(inst.prototypeId);
+        const name = (proto?.name || '').toLowerCase().trim();
+        if (name) nameToInstId.set(name, instId);
+      }
+      const srcInstId = nameToInstId.get(srcLower);
+      const tgtInstId = nameToInstId.get(tgtLower);
+      if (srcInstId && tgtInstId) {
+        for (const edgeId of (graph.edgeIds || [])) {
+          const edge = store.edges.get(edgeId);
+          if (edge && (
+            (edge.sourceId === srcInstId && edge.destinationId === tgtInstId) ||
+            (edge.sourceId === tgtInstId && edge.destinationId === srcInstId)
+          )) {
+            store.removeEdge(edgeId);
+            console.log('[Wizard] Successfully deleted edge by names:', result.sourceName, '→', result.targetName);
+            return;
+          }
+        }
+      }
+      console.warn('[Wizard] deleteEdge: Could not find edge between', result.sourceName, 'and', result.targetName);
+    }
+    return;
+  }
+
+  // Handle createGroup
+  if (result.action === 'createGroup') {
+    const graphId = result.graphId || store.activeGraphId;
+    console.log('[Wizard] Applying createGroup to store:', result.name);
+    if (!graphId) {
+      console.error('[Wizard] createGroup: No active graph ID');
+      return;
+    }
+    // Resolve member names to real instance IDs from the store
+    const graph = store.graphs.get(graphId);
+    const memberInstanceIds = [];
+    if (graph && result.memberNames) {
+      for (const memberName of result.memberNames) {
+        const nameLower = memberName.toLowerCase().trim();
+        for (const [instId, inst] of graph.instances) {
+          const proto = store.nodePrototypes.get(inst.prototypeId);
+          if ((proto?.name || '').toLowerCase().trim() === nameLower) {
+            memberInstanceIds.push(instId);
+            break;
+          }
+        }
+      }
+    }
+    store.createGroup(graphId, {
+      name: result.name,
+      color: result.color || '#8B0000',
+      memberInstanceIds
+    });
+    console.log('[Wizard] Successfully created group:', result.name, '| members:', memberInstanceIds.length);
+    return;
+  }
+
+  // Handle deleteGroup — resolve by name from actual store
+  if (result.action === 'deleteGroup') {
+    const graphId = result.graphId || store.activeGraphId;
+    console.log('[Wizard] Applying deleteGroup to store:', result.groupName || result.groupId);
+    if (!graphId) {
+      console.error('[Wizard] deleteGroup: No active graph ID');
+      return;
+    }
+    let realGroupId = result.groupId;
+    if (!realGroupId && result.groupName) {
+      const graph = store.graphs.get(graphId);
+      if (graph?.groups) {
+        const nameLower = result.groupName.toLowerCase().trim();
+        for (const [gId, group] of graph.groups) {
+          if ((group.name || '').toLowerCase().trim() === nameLower) {
+            realGroupId = gId;
+            break;
+          }
+        }
+      }
+    }
+    if (realGroupId) {
+      store.deleteGroup(graphId, realGroupId);
+      console.log('[Wizard] Successfully deleted group:', realGroupId);
+    } else {
+      console.error('[Wizard] deleteGroup: Could not find group:', result.groupName);
+    }
+    return;
+  }
+
+  // Handle updateGroup — resolve by name from actual store
+  if (result.action === 'updateGroup') {
+    const graphId = result.graphId || store.activeGraphId;
+    console.log('[Wizard] Applying updateGroup to store:', result.groupName || result.groupId);
+    if (!graphId) {
+      console.error('[Wizard] updateGroup: No active graph ID');
+      return;
+    }
+    let realGroupId = result.groupId;
+    if (!realGroupId && result.groupName) {
+      const graph = store.graphs.get(graphId);
+      if (graph?.groups) {
+        const nameLower = result.groupName.toLowerCase().trim();
+        for (const [gId, group] of graph.groups) {
+          if ((group.name || '').toLowerCase().trim() === nameLower) {
+            realGroupId = gId;
+            break;
+          }
+        }
+      }
+    }
+    if (realGroupId && result.updates) {
+      store.updateGroup(graphId, realGroupId, (group) => {
+        if (result.updates.name !== undefined) group.name = result.updates.name;
+        if (result.updates.color !== undefined) group.color = result.updates.color;
+        // Add/remove members by name
+        if (result.updates.addMembers) {
+          const graph = store.graphs.get(graphId);
+          for (const memberName of result.updates.addMembers) {
+            const nameLower = memberName.toLowerCase().trim();
+            for (const [instId, inst] of graph.instances) {
+              const proto = store.nodePrototypes.get(inst.prototypeId);
+              if ((proto?.name || '').toLowerCase().trim() === nameLower) {
+                if (!group.memberInstanceIds.includes(instId)) {
+                  group.memberInstanceIds.push(instId);
+                }
+                break;
+              }
+            }
+          }
+        }
+        if (result.updates.removeMembers) {
+          const graph = store.graphs.get(graphId);
+          const idsToRemove = new Set();
+          for (const memberName of result.updates.removeMembers) {
+            const nameLower = memberName.toLowerCase().trim();
+            for (const [instId, inst] of graph.instances) {
+              const proto = store.nodePrototypes.get(inst.prototypeId);
+              if ((proto?.name || '').toLowerCase().trim() === nameLower) {
+                idsToRemove.add(instId);
+                break;
+              }
+            }
+          }
+          group.memberInstanceIds = group.memberInstanceIds.filter(id => !idsToRemove.has(id));
+        }
+      });
+      console.log('[Wizard] Successfully updated group:', realGroupId);
+    } else {
+      console.error('[Wizard] updateGroup: Could not find group:', result.groupName);
+    }
+    return;
+  }
+
+  // Handle convertToThingGroup — resolve group by name then call store method
+  if (result.action === 'convertToThingGroup') {
+    const graphId = result.graphId || store.activeGraphId;
+    console.log('[Wizard] Applying convertToThingGroup to store:', result.groupName || result.groupId);
+    if (!graphId) {
+      console.error('[Wizard] convertToThingGroup: No active graph ID');
+      return;
+    }
+    let realGroupId = result.groupId;
+    if (!realGroupId && result.groupName) {
+      const graph = store.graphs.get(graphId);
+      if (graph?.groups) {
+        const nameLower = result.groupName.toLowerCase().trim();
+        for (const [gId, group] of graph.groups) {
+          if ((group.name || '').toLowerCase().trim() === nameLower) {
+            realGroupId = gId;
+            break;
+          }
+        }
+      }
+    }
+    if (realGroupId) {
+      store.convertGroupToNodeGroup(
+        graphId,
+        realGroupId,
+        null,
+        result.createNewThing !== false,
+        result.thingName || 'Thing Group',
+        result.newThingColor || '#8B0000'
+      );
+      console.log('[Wizard] Successfully converted group to thing-group:', realGroupId);
+    } else {
+      console.error('[Wizard] convertToThingGroup: Could not find group:', result.groupName);
+    }
+    return;
+  }
+
+  // Handle combineThingGroup — resolve group by name then call store method
+  if (result.action === 'combineThingGroup') {
+    const graphId = result.graphId || store.activeGraphId;
+    console.log('[Wizard] Applying combineThingGroup to store:', result.groupName || result.groupId);
+    if (!graphId) {
+      console.error('[Wizard] combineThingGroup: No active graph ID');
+      return;
+    }
+    let realGroupId = result.groupId;
+    if (!realGroupId && result.groupName) {
+      const graph = store.graphs.get(graphId);
+      if (graph?.groups) {
+        const nameLower = result.groupName.toLowerCase().trim();
+        for (const [gId, group] of graph.groups) {
+          if ((group.name || '').toLowerCase().trim() === nameLower) {
+            realGroupId = gId;
+            break;
+          }
+        }
+      }
+    }
+    if (realGroupId) {
+      store.combineNodeGroup(graphId, realGroupId);
+      console.log('[Wizard] Successfully combined thing-group:', realGroupId);
+    } else {
+      console.error('[Wizard] combineThingGroup: Could not find group:', result.groupName);
+    }
+    return;
+  }
+
   // Handle createPopulatedGraph
   if (result.action === 'createPopulatedGraph' && result.spec) {
     console.log('[Wizard] Applying createPopulatedGraph to store:', result.graphName);

@@ -3,7 +3,6 @@
  * Maps tool names to implementations and executes them
  */
 
-import queueManager from '../../services/queue/Queue.js';
 import { createNode } from './createNode.js';
 import { updateNode } from './updateNode.js';
 import { deleteNode } from './deleteNode.js';
@@ -108,26 +107,28 @@ export function getToolDefinitions() {
     },
     {
       name: 'createEdge',
-      description: 'Connect two nodes',
+      description: 'Connect two nodes by name. Use node names (not IDs) to specify source and target.',
       parameters: {
         type: 'object',
         properties: {
-          sourceId: { type: 'string', description: 'Starting node ID' },
-          targetId: { type: 'string', description: 'Ending node ID' },
-          type: { type: 'string', description: 'Relationship type like "contains"' }
+          sourceId: { type: 'string', description: 'Name of the source node (fuzzy matched)' },
+          targetId: { type: 'string', description: 'Name of the target node (fuzzy matched)' },
+          type: { type: 'string', description: 'Relationship type like "contains", "relates to"' }
         },
         required: ['sourceId', 'targetId']
       }
     },
     {
       name: 'deleteEdge',
-      description: 'Remove a connection between nodes',
+      description: 'Remove a connection between nodes. Can use edge ID or source/target node names.',
       parameters: {
         type: 'object',
         properties: {
-          edgeId: { type: 'string', description: 'The edge ID to delete' }
+          edgeId: { type: 'string', description: 'The edge ID to delete (if known)' },
+          sourceName: { type: 'string', description: 'Name of the source node (fuzzy matched)' },
+          targetName: { type: 'string', description: 'Name of the target node (fuzzy matched)' }
         },
-        required: ['edgeId']
+        required: []
       }
     },
     {

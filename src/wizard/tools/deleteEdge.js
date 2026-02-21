@@ -1,13 +1,32 @@
 /**
- * deleteEdge - Remove a connection
+ * deleteEdge - Remove a connection between nodes
  */
 
-import queueManager from '../../services/queue/Queue.js';
+/**
+ * Resolve an edge by source/target names or edge name
+ */
+function resolveEdgeByName(edgeId, graphState) {
+  const { graphs = [], activeGraphId } = graphState;
+  const activeGraph = graphs.find(g => g.id === activeGraphId);
+  if (!activeGraph) return null;
 
+  // edgeId could be an actual edge ID or a descriptive name
+  // For now, pass it through — the client will resolve
+  return null;
+}
+
+/**
+ * Delete an edge
+ * @param {Object} args - { edgeId, sourceName?, targetName? }
+ * @param {Object} graphState - Current graph state
+ * @param {string} cid - Conversation ID
+ * @param {Function} ensureSchedulerStarted - Function to start scheduler
+ * @returns {Promise<Object>} Delete spec for UI application
+ */
 export async function deleteEdge(args, graphState, cid, ensureSchedulerStarted) {
-  const { edgeId } = args;
-  if (!edgeId) {
-    throw new Error('edgeId is required');
+  const { edgeId, sourceName, targetName } = args;
+  if (!edgeId && !sourceName) {
+    throw new Error('edgeId or sourceName/targetName is required');
   }
 
   const { activeGraphId } = graphState;
@@ -15,27 +34,12 @@ export async function deleteEdge(args, graphState, cid, ensureSchedulerStarted) 
     throw new Error('No active graph');
   }
 
-  const dag = {
-    tasks: [{
-      toolName: 'delete_edge',
-      args: {
-        graph_id: activeGraphId,
-        edge_id: edgeId
-      },
-      threadId: cid
-    }]
+  return {
+    action: 'deleteEdge',
+    graphId: activeGraphId,
+    edgeId: edgeId || null,
+    sourceName: sourceName || null,
+    targetName: targetName || null,
+    deleted: true
   };
-
-  const goalId = queueManager.enqueue('goalQueue', {
-    type: 'goal',
-    goal: 'delete_edge',
-    dag,
-    threadId: cid,
-    partitionKey: cid
-  });
-
-  if (ensureSchedulerStarted) ensureSchedulerStarted();
-
-  return { deleted: true, goalId };
 }
-

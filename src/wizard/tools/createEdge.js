@@ -1,57 +1,87 @@
 /**
- * createEdge - Connect two nodes
+ * createEdge - Connect two nodes by name
  */
 
-import queueManager from '../../services/queue/Queue.js';
-import { debugLogSync } from '../../utils/debugLogger.js';
+/**
+ * Resolve a node by name from graph state
+ */
+function resolveNodeByName(name, nodePrototypes, graphs, activeGraphId) {
+  const queryLower = (name || '').toLowerCase().trim();
+  if (!queryLower) return null;
 
+  const activeGraph = graphs.find(g => g.id === activeGraphId);
+  if (!activeGraph) return null;
+
+  const instances = Array.isArray(activeGraph.instances)
+    ? activeGraph.instances
+    : activeGraph.instances instanceof Map
+      ? Array.from(activeGraph.instances.values())
+      : Object.values(activeGraph.instances || {});
+
+  // Try exact match first
+  for (const inst of instances) {
+    const proto = nodePrototypes.find(p => p.id === inst.prototypeId);
+    const nodeName = (inst.name || proto?.name || '').toLowerCase().trim();
+    if (nodeName === queryLower) {
+      return { instanceId: inst.id, prototypeId: inst.prototypeId, name: inst.name || proto?.name };
+    }
+  }
+
+  // Substring match fallback
+  for (const inst of instances) {
+    const proto = nodePrototypes.find(p => p.id === inst.prototypeId);
+    const nodeName = (inst.name || proto?.name || '').toLowerCase().trim();
+    if (nodeName.includes(queryLower) || queryLower.includes(nodeName)) {
+      return { instanceId: inst.id, prototypeId: inst.prototypeId, name: inst.name || proto?.name };
+    }
+  }
+
+  return null;
+}
+
+/**
+ * Create an edge between two nodes
+ * @param {Object} args - { sourceId, targetId, type }
+ * @param {Object} graphState - Current graph state
+ * @param {string} cid - Conversation ID
+ * @param {Function} ensureSchedulerStarted - Function to start scheduler
+ * @returns {Promise<Object>} Edge spec for UI application
+ */
 export async function createEdge(args, graphState, cid, ensureSchedulerStarted) {
   const { sourceId, targetId, type } = args;
-  // #region agent log
-  debugLogSync('createEdge.js:entry', 'createEdge tool called', { sourceId, targetId, type, cid }, 'debug-session', 'A-C');
-  // #endregion
   if (!sourceId || !targetId) {
     throw new Error('sourceId and targetId are required');
   }
 
-  const { activeGraphId } = graphState;
+  const { nodePrototypes = [], graphs = [], activeGraphId } = graphState;
   if (!activeGraphId) {
     throw new Error('No active graph');
   }
 
-  const dag = {
-    tasks: [{
-      toolName: 'create_edge',
-      args: {
-        source_instance_id: sourceId,
-        target_instance_id: targetId,
-        graph_id: activeGraphId,
-        name: type || '',
-        description: '',
-        directionality: { arrowsToward: [targetId] },
-        definitionNode: type ? {
-          name: type,
-          color: '#708090',
-          description: ''
-        } : null
-      },
-      threadId: cid
-    }]
+  // Resolve source and target by name
+  const resolvedSource = resolveNodeByName(sourceId, nodePrototypes, graphs, activeGraphId);
+  const resolvedTarget = resolveNodeByName(targetId, nodePrototypes, graphs, activeGraphId);
+
+  if (resolvedSource) {
+    console.log('[createEdge] Resolved source:', sourceId, '→', resolvedSource.instanceId);
+  } else {
+    console.warn('[createEdge] Source not found in graphState, delegating to client:', sourceId);
+  }
+
+  if (resolvedTarget) {
+    console.log('[createEdge] Resolved target:', targetId, '→', resolvedTarget.instanceId);
+  } else {
+    console.warn('[createEdge] Target not found in graphState, delegating to client:', targetId);
+  }
+
+  return {
+    action: 'createEdge',
+    graphId: activeGraphId,
+    sourceName: resolvedSource?.name || sourceId,
+    targetName: resolvedTarget?.name || targetId,
+    sourceInstanceId: resolvedSource?.instanceId || null,
+    targetInstanceId: resolvedTarget?.instanceId || null,
+    type: type || '',
+    created: true
   };
-
-  // #region agent log
-  debugLogSync('createEdge.js:enqueue', 'Enqueuing edge creation goal', { activeGraphId, dagTaskCount: dag.tasks.length }, 'debug-session', 'A-C');
-  // #endregion
-  const goalId = queueManager.enqueue('goalQueue', {
-    type: 'goal',
-    goal: 'create_edge',
-    dag,
-    threadId: cid,
-    partitionKey: cid
-  });
-
-  if (ensureSchedulerStarted) ensureSchedulerStarted();
-
-  return { edgeId: 'pending', source: sourceId, target: targetId, goalId };
 }
-
