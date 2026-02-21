@@ -139,6 +139,98 @@ function applyToolResultToStore(toolName, result) {
     return;
   }
 
+  // Handle updateEdge — resolve by source/target names
+  if (result.action === 'updateEdge') {
+    const graphId = result.graphId || store.activeGraphId;
+    console.log('[Wizard] Applying updateEdge to store:', result.sourceName, '→', result.targetName);
+    if (!graphId) {
+      console.error('[Wizard] updateEdge: No active graph ID');
+      return;
+    }
+    const graph = store.graphs.get(graphId);
+    if (!graph) return;
+
+    let sourceInstId = null, targetInstId = null;
+    const sourceNameLookup = (result.sourceName || '').toLowerCase().trim();
+    const targetNameLookup = (result.targetName || '').toLowerCase().trim();
+
+    for (const [instId, inst] of graph.instances) {
+      const p = store.nodePrototypes.get(inst.prototypeId);
+      const n = (p?.name || '').toLowerCase().trim();
+      if (n === sourceNameLookup) sourceInstId = instId;
+      if (n === targetNameLookup) targetInstId = instId;
+    }
+
+    if (!sourceInstId || !targetInstId) {
+      console.error('[Wizard] updateEdge: Could not resolve source/target instances:', result.sourceName, result.targetName);
+      return;
+    }
+
+    let realEdgeId = null;
+    let actualEdge = null;
+    for (const edgeId of graph.edgeIds) {
+      const edge = store.edges.get(edgeId);
+      if (!edge) continue;
+      if ((edge.sourceId === sourceInstId && edge.destinationId === targetInstId) ||
+        (edge.sourceId === targetInstId && edge.destinationId === sourceInstId)) {
+        realEdgeId = edgeId;
+        actualEdge = edge;
+        break;
+      }
+    }
+
+    if (!realEdgeId) {
+      console.error('[Wizard] updateEdge: Edge not found between instances:', sourceInstId, targetInstId);
+      return;
+    }
+
+    let protoIdToLink = null;
+    if (result.updates.type) {
+      const typeLookup = result.updates.type.toLowerCase().trim();
+      for (const [id, proto] of store.nodePrototypes) {
+        if ((proto.name || '').toLowerCase().trim() === typeLookup) {
+          protoIdToLink = id;
+          break;
+        }
+      }
+
+      if (!protoIdToLink) {
+        protoIdToLink = `proto-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+        store.addNodePrototype({
+          id: protoIdToLink,
+          name: result.updates.type,
+          color: '#708090',
+          description: '',
+          typeNodeId: null,
+          definitionGraphIds: []
+        });
+        console.log('[Wizard] updateEdge: Created new type prototype for:', result.updates.type);
+      }
+    }
+
+    store.updateEdge(realEdgeId, (draft) => {
+      if (result.updates.directionality) {
+        // Redstring directionality translates to arrowsToward array
+        if (result.updates.directionality === 'bidirectional') {
+          draft.directionality.arrowsToward = new Set([actualEdge.sourceId, actualEdge.destinationId]);
+        } else if (result.updates.directionality === 'unidirectional') {
+          // Pointing to target
+          draft.directionality.arrowsToward = new Set([actualEdge.sourceId === sourceInstId ? actualEdge.destinationId : actualEdge.sourceId]);
+        } else if (result.updates.directionality === 'reverse') {
+          // Pointing to source
+          draft.directionality.arrowsToward = new Set([actualEdge.sourceId === sourceInstId ? actualEdge.sourceId : actualEdge.destinationId]);
+        } else if (result.updates.directionality === 'none') {
+          draft.directionality.arrowsToward = new Set();
+        }
+      }
+      if (protoIdToLink) {
+        draft.definitionNodeIds = [protoIdToLink];
+      }
+    });
+    console.log('[Wizard] Successfully updated edge:', realEdgeId);
+    return;
+  }
+
   // Handle deleteEdge — resolve by edge ID or by source/target names
   if (result.action === 'deleteEdge') {
     const graphId = result.graphId || store.activeGraphId;

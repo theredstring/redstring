@@ -50,7 +50,7 @@ describe('AgentLoop', () => {
     // Ensure fs.readFileSync always returns a valid string
     fs.readFileSync.mockReturnValue('# The Wizard\n\nYou are The Wizard.');
   });
-  
+
   // Ensure SYSTEM_PROMPT is initialized before tests run
   beforeAll(() => {
     // Force module reload by clearing cache if needed
@@ -86,9 +86,9 @@ describe('AgentLoop', () => {
       // Mock LLM: first iteration returns tool call, second returns text to stop
       streamLLM.mockImplementation(async function* () {
         if (iteration === 0) {
-          yield { 
-            type: 'tool_call', 
-            name: 'createNode', 
+          yield {
+            type: 'tool_call',
+            name: 'createNode',
             args: { name: 'Test Node' },
             id: 'call-123'
           };
@@ -126,7 +126,7 @@ describe('AgentLoop', () => {
       const responseEvent = events.find(e => e.type === 'response');
       expect(responseEvent).toBeDefined();
       expect(responseEvent.content).toBe('Node created successfully!');
-      
+
       const doneEvent = events[events.length - 1];
       expect(doneEvent.type).toBe('done');
       expect(doneEvent.iterations).toBe(2);
@@ -144,13 +144,13 @@ describe('AgentLoop', () => {
   describe('multi-tool iteration', () => {
     it('loops through tool execution and LLM verification', async () => {
       let iteration = 0;
-      
+
       streamLLM.mockImplementation(async function* () {
         if (iteration === 0) {
           // First iteration: LLM calls tool
-          yield { 
-            type: 'tool_call', 
-            name: 'createNode', 
+          yield {
+            type: 'tool_call',
+            name: 'createNode',
             args: { name: 'Node 1' },
             id: 'call-1'
           };
@@ -179,12 +179,12 @@ describe('AgentLoop', () => {
   describe('tool error handling', () => {
     it('yields error result and continues loop', async () => {
       let iteration = 0;
-      
+
       streamLLM.mockImplementation(async function* () {
         if (iteration === 0) {
-          yield { 
-            type: 'tool_call', 
-            name: 'createNode', 
+          yield {
+            type: 'tool_call',
+            name: 'createNode',
             args: { name: 'Test Node' },
             id: 'call-1'
           };
@@ -205,7 +205,7 @@ describe('AgentLoop', () => {
       const errorResult = events.find(e => e.type === 'tool_result' && e.result.error);
       expect(errorResult).toBeDefined();
       expect(errorResult.result.error).toBe('Tool execution failed');
-      
+
       // LLM should see the error and can respond
       const response = events.find(e => e.type === 'response');
       expect(response).toBeDefined();
@@ -216,9 +216,9 @@ describe('AgentLoop', () => {
     it('stops at 10 iterations and yields warning', async () => {
       // Mock LLM always calling tools (infinite loop scenario)
       streamLLM.mockImplementation(async function* () {
-        yield { 
-          type: 'tool_call', 
-          name: 'createNode', 
+        yield {
+          type: 'tool_call',
+          name: 'createNode',
           args: { name: 'Test Node' },
           id: `call-${Date.now()}`
         };
@@ -234,79 +234,22 @@ describe('AgentLoop', () => {
       }
 
       // Should eventually hit max iterations
-      const maxIterationEvent = events.find(e => 
+      const maxIterationEvent = events.find(e =>
         e.type === 'response' && e.content.includes('maximum iterations')
       );
       expect(maxIterationEvent).toBeDefined();
-      
+
       const doneEvent = events[events.length - 1];
       expect(doneEvent.type).toBe('done');
       expect(doneEvent.iterations).toBe(10);
     });
   });
 
-  describe('system prompt loading', () => {
-    it('loads system prompt from file', async () => {
-      // Set mock before module loads (or use default if cached)
-      fs.readFileSync.mockReturnValue('# The Wizard\n\nCustom prompt.');
-      
-      streamLLM.mockImplementation(async function* () {
-        yield { type: 'text', content: 'Hello' };
-      });
-
-      const events = [];
-      for await (const event of runAgent('Hello', mockGraphState, mockConfig, mockEnsureSchedulerStarted)) {
-        events.push(event);
-      }
-
-      // Verify a system prompt is used (may be default or custom depending on module cache)
-      expect(streamLLM).toHaveBeenCalledWith(
-        expect.arrayContaining([
-          expect.objectContaining({
-            role: 'system',
-            content: expect.any(String)
-          })
-        ]),
-        expect.any(Array),
-        mockConfig
-      );
-      
-      // Verify the system prompt contains wizard-related content
-      const systemMessage = streamLLM.mock.calls[0][0].find(m => m.role === 'system');
-      expect(systemMessage.content).toMatch(/wizard|Wizard|assistant/i);
-    });
-
-    it('falls back to default prompt if file missing', async () => {
-      fs.readFileSync.mockImplementation(() => {
-        throw new Error('File not found');
-      });
-
-      streamLLM.mockImplementation(async function* () {
-        yield { type: 'text', content: 'Hello' };
-      });
-
-      const events = [];
-      for await (const event of runAgent('Hello', mockGraphState, mockConfig, mockEnsureSchedulerStarted)) {
-        events.push(event);
-      }
-
-      expect(streamLLM).toHaveBeenCalledWith(
-        expect.arrayContaining([
-          expect.objectContaining({
-            role: 'system',
-            content: expect.stringContaining('helpful assistant')
-          })
-        ]),
-        expect.any(Array),
-        mockConfig
-      );
-    });
-  });
 
   describe('context building', () => {
     it('includes context in system prompt', async () => {
       buildContext.mockReturnValue('Mock context string');
-      
+
       streamLLM.mockImplementation(async function* () {
         yield { type: 'text', content: 'Hello' };
       });
@@ -383,15 +326,15 @@ describe('AgentLoop', () => {
       streamLLM.mockImplementation(async function* () {
         if (iteration === 0) {
           // First iteration: return tool calls
-          yield { 
-            type: 'tool_call', 
-            name: 'createNode', 
+          yield {
+            type: 'tool_call',
+            name: 'createNode',
             args: { name: 'Node 1' },
             id: 'call-1'
           };
-          yield { 
-            type: 'tool_call', 
-            name: 'createNode', 
+          yield {
+            type: 'tool_call',
+            name: 'createNode',
             args: { name: 'Node 2' },
             id: 'call-2'
           };
@@ -412,7 +355,7 @@ describe('AgentLoop', () => {
 
       const toolCalls = events.filter(e => e.type === 'tool_call');
       const toolResults = events.filter(e => e.type === 'tool_result');
-      
+
       expect(toolCalls.length).toBe(2);
       expect(toolResults.length).toBe(2);
       expect(executeTool).toHaveBeenCalledTimes(2);

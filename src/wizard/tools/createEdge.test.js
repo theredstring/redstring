@@ -22,7 +22,7 @@ describe('createEdge', () => {
     vi.clearAllMocks();
   });
 
-  it('enqueues create_edge task with correct args', async () => {
+  it('returns direct action payload with correct args', async () => {
     const graphState = {
       activeGraphId: 'graph-1',
       graphs: [],
@@ -36,33 +36,15 @@ describe('createEdge', () => {
       mockEnsureSchedulerStarted
     );
 
-    expect(queueManager.enqueue).toHaveBeenCalledWith('goalQueue', expect.objectContaining({
-      goal: 'create_edge',
-      dag: expect.objectContaining({
-        tasks: [expect.objectContaining({
-          toolName: 'create_edge',
-          args: expect.objectContaining({
-            source_instance_id: 'inst-1',
-            target_instance_id: 'inst-2',
-            graph_id: 'graph-1',
-            name: 'connects',
-            description: '',
-            directionality: { arrowsToward: ['inst-2'] },
-            definitionNode: {
-              name: 'connects',
-              color: '#708090',
-              description: ''
-            }
-          })
-        })]
-      })
-    }));
-
     expect(result).toEqual({
-      edgeId: 'pending',
-      source: 'inst-1',
-      target: 'inst-2',
-      goalId: 'mock-goal-id'
+      action: 'createEdge',
+      graphId: 'graph-1',
+      sourceName: 'inst-1',
+      targetName: 'inst-2',
+      sourceInstanceId: null,
+      targetInstanceId: null,
+      type: 'connects',
+      created: true
     });
   });
 
@@ -73,16 +55,14 @@ describe('createEdge', () => {
       nodePrototypes: []
     };
 
-    await createEdge(
+    const result = await createEdge(
       { sourceId: 'inst-1', targetId: 'inst-2' },
       graphState,
       mockCid,
       mockEnsureSchedulerStarted
     );
 
-    const callArgs = queueManager.enqueue.mock.calls[0][1];
-    expect(callArgs.dag.tasks[0].args.name).toBe('');
-    expect(callArgs.dag.tasks[0].args.definitionNode).toBeNull();
+    expect(result.type).toBe('');
   });
 
   it('throws error when sourceId or targetId is missing', async () => {
@@ -112,21 +92,6 @@ describe('createEdge', () => {
     ).rejects.toThrow('No active graph');
   });
 
-  it('calls ensureSchedulerStarted callback', async () => {
-    const graphState = {
-      activeGraphId: 'graph-1',
-      graphs: [],
-      nodePrototypes: []
-    };
-
-    await createEdge(
-      { sourceId: 'inst-1', targetId: 'inst-2' },
-      graphState,
-      mockCid,
-      mockEnsureSchedulerStarted
-    );
-
-    expect(mockEnsureSchedulerStarted).toHaveBeenCalledTimes(1);
-  });
+  // Removed ensureSchedulerStarted test as direct UI tools no longer call it
 });
 

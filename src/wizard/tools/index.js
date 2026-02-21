@@ -21,12 +21,14 @@ import { updateGroup } from './updateGroup.js';
 import { deleteGroup } from './deleteGroup.js';
 import { convertToThingGroup } from './convertToThingGroup.js';
 import { combineThingGroup } from './combineThingGroup.js';
+import { updateEdge } from './updateEdge.js';
 
 const TOOLS = {
   createNode,
   updateNode,
   deleteNode,
   createEdge,
+  updateEdge,
   deleteEdge,
   searchNodes,
   searchConnections,
@@ -116,6 +118,20 @@ export function getToolDefinitions() {
           type: { type: 'string', description: 'Relationship type like "contains", "relates to"' }
         },
         required: ['sourceId', 'targetId']
+      }
+    },
+    {
+      name: 'updateEdge',
+      description: 'Update the properties of an existing connection between two nodes. Use node names to identify the edge.',
+      parameters: {
+        type: 'object',
+        properties: {
+          sourceName: { type: 'string', description: 'Name of the source node' },
+          targetName: { type: 'string', description: 'Name of the target node' },
+          type: { type: 'string', description: 'New relationship type' },
+          directionality: { type: 'string', description: '"unidirectional", "bidirectional", "reverse", or "none"' }
+        },
+        required: ['sourceName', 'targetName']
       }
     },
     {

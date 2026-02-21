@@ -11,7 +11,7 @@ import { streamLLM } from './LLMClient.js';
 function createMockSSEStream(lines) {
   const encoder = new TextEncoder();
   const chunks = lines.map(line => encoder.encode(line + '\n'));
-  
+
   return new ReadableStream({
     async start(controller) {
       for (const chunk of chunks) {
@@ -51,7 +51,7 @@ describe('LLMClient', () => {
 
       const messages = [{ role: 'user', content: 'Hello' }];
       const chunks = [];
-      
+
       for await (const chunk of streamLLM(messages, [], { provider: 'openrouter', apiKey: 'test-key' })) {
         chunks.push(chunk);
       }
@@ -83,7 +83,7 @@ describe('LLMClient', () => {
       const messages = [{ role: 'user', content: 'Create a node' }];
       const tools = [{ name: 'createNode', description: 'Create a node' }];
       const chunks = [];
-      
+
       for await (const chunk of streamLLM(messages, tools, { provider: 'openrouter', apiKey: 'test-key' })) {
         chunks.push(chunk);
       }
@@ -107,7 +107,7 @@ describe('LLMClient', () => {
 
       const messages = [{ role: 'user', content: 'Create nodes' }];
       const chunks = [];
-      
+
       for await (const chunk of streamLLM(messages, [], { provider: 'openrouter' })) {
         chunks.push(chunk);
       }
@@ -123,7 +123,7 @@ describe('LLMClient', () => {
       const generator = streamLLM(messages, [], { provider: 'openrouter', apiKey: 'invalid' });
 
       await expect(async () => {
-        for await (const _ of generator) {}
+        for await (const _ of generator) { }
       }).rejects.toThrow('OpenRouter API error');
     });
 
@@ -136,7 +136,7 @@ describe('LLMClient', () => {
       ];
 
       await (async () => {
-        for await (const _ of streamLLM(messages, tools, { provider: 'openrouter' })) {}
+        for await (const _ of streamLLM(messages, tools, { provider: 'openrouter' })) { }
       })();
 
       const fetchCall = global.fetch.mock.calls[0];
@@ -156,16 +156,16 @@ describe('LLMClient', () => {
       global.fetch.mockResolvedValue(createMockFetchResponse(['data: [DONE]']));
 
       const messages = [{ role: 'user', content: 'Hello' }];
-      
+
       await (async () => {
-        for await (const _ of streamLLM(messages, [])) {}
+        for await (const _ of streamLLM(messages, [])) { }
       })();
 
       const fetchCall = global.fetch.mock.calls[0];
       const payload = JSON.parse(fetchCall[1].body);
       expect(payload.model).toBe('anthropic/claude-3.5-sonnet');
       expect(payload.temperature).toBe(0.7);
-      expect(payload.max_tokens).toBe(2000);
+      expect(payload.max_tokens).toBe(8192);
     });
   });
 
@@ -179,7 +179,7 @@ describe('LLMClient', () => {
 
       const messages = [{ role: 'user', content: 'Hello' }];
       const chunks = [];
-      
+
       for await (const chunk of streamLLM(messages, [], { provider: 'anthropic', apiKey: 'test-key' })) {
         chunks.push(chunk);
       }
@@ -210,7 +210,7 @@ describe('LLMClient', () => {
       ];
 
       await (async () => {
-        for await (const _ of streamLLM(messages, [], { provider: 'anthropic' })) {}
+        for await (const _ of streamLLM(messages, [], { provider: 'anthropic' })) { }
       })();
 
       const fetchCall = global.fetch.mock.calls[0];
@@ -226,7 +226,7 @@ describe('LLMClient', () => {
       const generator = streamLLM(messages, [], { provider: 'anthropic', apiKey: 'invalid' });
 
       await expect(async () => {
-        for await (const _ of generator) {}
+        for await (const _ of generator) { }
       }).rejects.toThrow('Anthropic API error');
     });
   });
@@ -241,9 +241,9 @@ describe('LLMClient', () => {
 
       const messages = [{ role: 'user', content: 'Hello' }];
       const chunks = [];
-      
-      for await (const chunk of streamLLM(messages, [], { 
-        provider: 'local', 
+
+      for await (const chunk of streamLLM(messages, [], {
+        provider: 'local',
         endpoint: 'http://localhost:11434/v1/chat/completions',
         apiKey: ''
       })) {
@@ -263,12 +263,12 @@ describe('LLMClient', () => {
       global.fetch.mockResolvedValue(createMockFetchResponse(['data: [DONE]']));
 
       const messages = [{ role: 'user', content: 'Hello' }];
-      
+
       await (async () => {
-        for await (const _ of streamLLM(messages, [], { 
+        for await (const _ of streamLLM(messages, [], {
           provider: 'local',
           endpoint: 'http://localhost:11434/v1/chat/completions'
-        })) {}
+        })) { }
       })();
 
       const fetchCall = global.fetch.mock.calls[0];
@@ -282,7 +282,7 @@ describe('LLMClient', () => {
       const generator = streamLLM(messages, [], { provider: 'unsupported' });
 
       await expect(async () => {
-        for await (const _ of generator) {}
+        for await (const _ of generator) { }
       }).rejects.toThrow('Unsupported provider');
     });
   });
@@ -292,9 +292,9 @@ describe('LLMClient', () => {
       global.fetch.mockResolvedValue(createMockFetchResponse(['data: [DONE]']));
 
       const messages = [{ role: 'user', content: 'Hello' }];
-      
+
       await (async () => {
-        for await (const _ of streamLLM(messages, [], { provider: 'openrouter' })) {}
+        for await (const _ of streamLLM(messages, [], { provider: 'openrouter' })) { }
       })();
 
       const fetchCall = global.fetch.mock.calls[0];
@@ -312,7 +312,7 @@ describe('LLMClient', () => {
 
       const messages = [{ role: 'user', content: 'Hello' }];
       const chunks = [];
-      
+
       for await (const chunk of streamLLM(messages, [], { provider: 'openrouter' })) {
         chunks.push(chunk);
       }
@@ -326,7 +326,7 @@ describe('LLMClient', () => {
 
       const messages = [{ role: 'user', content: 'Hello' }];
       const chunks = [];
-      
+
       for await (const chunk of streamLLM(messages, [], { provider: 'openrouter' })) {
         chunks.push(chunk);
       }

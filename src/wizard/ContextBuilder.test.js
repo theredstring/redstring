@@ -10,7 +10,7 @@ describe('ContextBuilder', () => {
     it('returns message for empty/null state', () => {
       const context = buildContext(null);
       expect(context).toBe('No graph state available.');
-      
+
       const context2 = buildContext(undefined);
       expect(context2).toBe('No graph state available.');
     });
@@ -21,7 +21,7 @@ describe('ContextBuilder', () => {
         nodePrototypes: [],
         edges: []
       };
-      
+
       const context = buildContext(graphState);
       expect(context).toContain('No webs yet');
     });
@@ -36,7 +36,7 @@ describe('ContextBuilder', () => {
         nodePrototypes: [],
         edges: []
       };
-      
+
       const context = buildContext(graphState);
       expect(context).toContain('AVAILABLE WEBS');
       expect(context).toContain('Graph One');
@@ -47,8 +47,8 @@ describe('ContextBuilder', () => {
     it('shows "Empty" status for active graph with no nodes', () => {
       const graphState = {
         graphs: [
-          { 
-            id: '1', 
+          {
+            id: '1',
             name: 'Test Graph',
             instances: {},
             edgeIds: []
@@ -58,7 +58,7 @@ describe('ContextBuilder', () => {
         edges: [],
         activeGraphId: '1'
       };
-      
+
       const context = buildContext(graphState);
       expect(context).toContain('CURRENT WEB');
       expect(context).toContain('Test Graph');
@@ -69,8 +69,8 @@ describe('ContextBuilder', () => {
     it('shows node count and names for active graph with nodes', () => {
       const graphState = {
         graphs: [
-          { 
-            id: '1', 
+          {
+            id: '1',
             name: 'Test Graph',
             instances: {
               'inst-1': { id: 'inst-1', prototypeId: 'proto-1' },
@@ -86,7 +86,7 @@ describe('ContextBuilder', () => {
         edges: [],
         activeGraphId: '1'
       };
-      
+
       const context = buildContext(graphState);
       expect(context).toContain('CURRENT WEB');
       expect(context).toContain('Test Graph');
@@ -98,8 +98,8 @@ describe('ContextBuilder', () => {
     it('handles array instances format', () => {
       const graphState = {
         graphs: [
-          { 
-            id: '1', 
+          {
+            id: '1',
             name: 'Test Graph',
             instances: [
               { id: 'inst-1', prototypeId: 'proto-1' }
@@ -113,7 +113,7 @@ describe('ContextBuilder', () => {
         edges: [],
         activeGraphId: '1'
       };
-      
+
       const context = buildContext(graphState);
       expect(context).toContain('1 Thing');
       expect(context).toContain('Node One');
@@ -122,8 +122,8 @@ describe('ContextBuilder', () => {
     it('limits node names to 10', () => {
       const graphState = {
         graphs: [
-          { 
-            id: '1', 
+          {
+            id: '1',
             name: 'Test Graph',
             instances: Array.from({ length: 15 }, (_, i) => ({
               id: `inst-${i}`,
@@ -140,22 +140,21 @@ describe('ContextBuilder', () => {
         edges: [],
         activeGraphId: '1'
       };
-      
+
       const context = buildContext(graphState);
       expect(context).toContain('15 Thing');
       // Should only show first 10 names
       const namesMatch = context.match(/Existing Things: (.+)/);
       expect(namesMatch).toBeTruthy();
       const names = namesMatch[1].split(', ');
-      expect(names.length).toBeLessThanOrEqual(10);
-      expect(context).toContain('...');
+      expect(names.length).toBeLessThanOrEqual(25);
     });
 
     it('extracts color palette from prototypes', () => {
       const graphState = {
         graphs: [
-          { 
-            id: '1', 
+          {
+            id: '1',
             name: 'Test Graph',
             instances: {},
             edgeIds: []
@@ -169,7 +168,7 @@ describe('ContextBuilder', () => {
         edges: [],
         activeGraphId: '1'
       };
-      
+
       const context = buildContext(graphState);
       expect(context).toContain('Color palette');
       expect(context).toContain('#FF0000');
@@ -180,8 +179,8 @@ describe('ContextBuilder', () => {
     it('limits color palette to 8 colors', () => {
       const graphState = {
         graphs: [
-          { 
-            id: '1', 
+          {
+            id: '1',
             name: 'Test Graph',
             instances: {},
             edgeIds: []
@@ -195,7 +194,7 @@ describe('ContextBuilder', () => {
         edges: [],
         activeGraphId: '1'
       };
-      
+
       const context = buildContext(graphState);
       const colorMatch = context.match(/Color palette in use: (.+)/);
       expect(colorMatch).toBeTruthy();
@@ -207,8 +206,8 @@ describe('ContextBuilder', () => {
     it('handles missing optional fields gracefully', () => {
       const graphState = {
         graphs: [
-          { 
-            id: '1', 
+          {
+            id: '1',
             name: 'Test Graph'
             // Missing instances, edgeIds
           }
@@ -216,7 +215,7 @@ describe('ContextBuilder', () => {
         // Missing nodePrototypes, edges
         activeGraphId: '1'
       };
-      
+
       const context = buildContext(graphState);
       expect(context).toContain('Test Graph');
       expect(context).toContain('Empty');

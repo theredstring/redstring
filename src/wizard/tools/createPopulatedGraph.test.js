@@ -22,7 +22,7 @@ describe('createPopulatedGraph', () => {
     vi.clearAllMocks();
   });
 
-  it('enqueues create_populated_graph task with correct args', async () => {
+  it('returns direct action payload with correct args', async () => {
     const graphState = {
       graphs: [],
       nodePrototypes: []
@@ -45,52 +45,18 @@ describe('createPopulatedGraph', () => {
       mockEnsureSchedulerStarted
     );
 
-    expect(queueManager.enqueue).toHaveBeenCalledWith('goalQueue', expect.objectContaining({
-      type: 'goal',
-      goal: 'create_populated_graph',
-      threadId: mockCid,
-      partitionKey: mockCid,
-      dag: expect.objectContaining({
-        tasks: [expect.objectContaining({
-          toolName: 'create_populated_graph',
-          threadId: mockCid,
-          args: expect.objectContaining({
-            name: 'Test Graph',
-            description: 'A test graph',
-            graph_spec: expect.objectContaining({
-              nodes: [
-                { name: 'Node One', color: '#FF0000', description: 'First node' },
-                { name: 'Node Two', color: '#00FF00', description: '' }
-              ],
-              edges: [
-                expect.objectContaining({
-                  source: 'Node One',
-                  target: 'Node Two',
-                  type: 'Connects',
-                  directionality: 'unidirectional',
-                  definitionNode: expect.objectContaining({
-                    name: 'Connects',
-                    description: ''
-                  })
-                })
-              ]
-            }),
-            layout_algorithm: 'force',
-            layout_mode: 'full'
-          })
-        })]
-      })
-    }));
-
     expect(result).toMatchObject({
-      graphId: expect.stringMatching(/^graph-\d+-[\w]+$/),
+      action: 'createPopulatedGraph',
       graphName: 'Test Graph',
+      description: 'A test graph',
       nodeCount: 2,
-      edgeCount: 1,
-      goalId: 'mock-goal-id'
+      edgeCount: 1
     });
-    expect(result.nodesAdded).toHaveLength(2);
-    expect(result.edgesAdded).toHaveLength(1);
+    expect(result.spec.nodes).toHaveLength(2);
+    expect(result.spec.nodes[0].name).toBe('Node One');
+    expect(result.spec.nodes[0].color).toBe('#FF0000');
+    expect(result.spec.edges).toHaveLength(1);
+    expect(result.spec.edges[0].source).toBe('Node One');
   });
 
   it('uses default color for nodes when not provided', async () => {
@@ -99,7 +65,7 @@ describe('createPopulatedGraph', () => {
       nodePrototypes: []
     };
 
-    await createPopulatedGraph(
+    const result = await createPopulatedGraph(
       {
         name: 'Test Graph',
         nodes: [{ name: 'Node One' }]
@@ -109,8 +75,7 @@ describe('createPopulatedGraph', () => {
       mockEnsureSchedulerStarted
     );
 
-    const callArgs = queueManager.enqueue.mock.calls[0][1];
-    expect(callArgs.dag.tasks[0].args.graph_spec.nodes[0].color).toBe('#5B6CFF');
+    expect(result.spec.nodes[0].color).toBe('#5B6CFF');
   });
 
   it('uses empty description for nodes when not provided', async () => {
@@ -119,7 +84,7 @@ describe('createPopulatedGraph', () => {
       nodePrototypes: []
     };
 
-    await createPopulatedGraph(
+    const result = await createPopulatedGraph(
       {
         name: 'Test Graph',
         nodes: [{ name: 'Node One' }]
@@ -129,8 +94,7 @@ describe('createPopulatedGraph', () => {
       mockEnsureSchedulerStarted
     );
 
-    const callArgs = queueManager.enqueue.mock.calls[0][1];
-    expect(callArgs.dag.tasks[0].args.graph_spec.nodes[0].description).toBe('');
+    expect(result.spec.nodes[0].description).toBe('');
   });
 
   it('handles edges without type - defaults to Connection', async () => {
@@ -139,7 +103,7 @@ describe('createPopulatedGraph', () => {
       nodePrototypes: []
     };
 
-    await createPopulatedGraph(
+    const result = await createPopulatedGraph(
       {
         name: 'Test Graph',
         nodes: [
@@ -155,10 +119,8 @@ describe('createPopulatedGraph', () => {
       mockEnsureSchedulerStarted
     );
 
-    const callArgs = queueManager.enqueue.mock.calls[0][1];
-    // When no type is provided, defaults to "Connection"
-    expect(callArgs.dag.tasks[0].args.graph_spec.edges[0].type).toBe('Connection');
-    expect(callArgs.dag.tasks[0].args.graph_spec.edges[0].definitionNode).toBeNull();
+    expect(result.spec.edges[0].type).toBe('Connection');
+    expect(result.spec.edges[0].definitionNode).toBeNull();
   });
 
   it('uses empty description for graph when not provided', async () => {
@@ -167,7 +129,7 @@ describe('createPopulatedGraph', () => {
       nodePrototypes: []
     };
 
-    await createPopulatedGraph(
+    const result = await createPopulatedGraph(
       {
         name: 'Test Graph',
         nodes: [{ name: 'Node One' }]
@@ -177,8 +139,7 @@ describe('createPopulatedGraph', () => {
       mockEnsureSchedulerStarted
     );
 
-    const callArgs = queueManager.enqueue.mock.calls[0][1];
-    expect(callArgs.dag.tasks[0].args.description).toBe('');
+    expect(result.description).toBe('');
   });
 
   it('throws error when name is missing', async () => {
@@ -229,24 +190,7 @@ describe('createPopulatedGraph', () => {
     ).rejects.toThrow('At least one node is required');
   });
 
-  it('calls ensureSchedulerStarted callback', async () => {
-    const graphState = {
-      graphs: [],
-      nodePrototypes: []
-    };
-
-    await createPopulatedGraph(
-      {
-        name: 'Test Graph',
-        nodes: [{ name: 'Node One' }]
-      },
-      graphState,
-      mockCid,
-      mockEnsureSchedulerStarted
-    );
-
-    expect(mockEnsureSchedulerStarted).toHaveBeenCalledTimes(1);
-  });
+  // Removed ensureSchedulerStarted test as direct UI tools no longer call it
 
   it('handles missing edges array', async () => {
     const graphState = {
@@ -282,9 +226,9 @@ describe('createPopulatedGraph', () => {
           { name: 'Juliet', description: 'Female protagonist' }
         ],
         edges: [
-          { 
-            source: 'Romeo', 
-            target: 'Juliet', 
+          {
+            source: 'Romeo',
+            target: 'Juliet',
             directionality: 'bidirectional',
             definitionNode: {
               name: 'Loves',
@@ -299,15 +243,14 @@ describe('createPopulatedGraph', () => {
       mockEnsureSchedulerStarted
     );
 
-    const callArgs = queueManager.enqueue.mock.calls[0][1];
-    const edge = callArgs.dag.tasks[0].args.graph_spec.edges[0];
-    
+    const edge = result.spec.edges[0];
+
     expect(edge.directionality).toBe('bidirectional');
     expect(edge.type).toBe('Loves');
     expect(edge.definitionNode.name).toBe('Loves');
     expect(edge.definitionNode.color).toBe('#E74C3C');
     expect(edge.definitionNode.description).toBe('Romantic love');
-    
+
     expect(result.edgesAdded[0].type).toBe('Loves');
     expect(result.edgesAdded[0].directionality).toBe('bidirectional');
   });

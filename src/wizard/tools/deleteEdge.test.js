@@ -22,7 +22,7 @@ describe('deleteEdge', () => {
     vi.clearAllMocks();
   });
 
-  it('enqueues delete_edge task with correct args', async () => {
+  it('returns direct action payload with correct args', async () => {
     const graphState = {
       activeGraphId: 'graph-1',
       graphs: [],
@@ -36,26 +36,17 @@ describe('deleteEdge', () => {
       mockEnsureSchedulerStarted
     );
 
-    expect(queueManager.enqueue).toHaveBeenCalledWith('goalQueue', expect.objectContaining({
-      goal: 'delete_edge',
-      dag: expect.objectContaining({
-        tasks: [expect.objectContaining({
-          toolName: 'delete_edge',
-          args: {
-            edge_id: 'edge-1',
-            graph_id: 'graph-1'
-          }
-        })]
-      })
-    }));
-
     expect(result).toEqual({
-      deleted: true,
-      goalId: 'mock-goal-id'
+      action: 'deleteEdge',
+      graphId: 'graph-1',
+      edgeId: 'edge-1',
+      sourceName: null,
+      targetName: null,
+      deleted: true
     });
   });
 
-  it('throws error when edgeId is missing', async () => {
+  it('throws error when edgeId and sourceName are missing', async () => {
     const graphState = {
       activeGraphId: 'graph-1',
       graphs: [],
@@ -64,7 +55,7 @@ describe('deleteEdge', () => {
 
     await expect(
       deleteEdge({}, graphState, mockCid, mockEnsureSchedulerStarted)
-    ).rejects.toThrow('edgeId is required');
+    ).rejects.toThrow('edgeId or sourceName/targetName is required');
   });
 
   it('throws error when no active graph', async () => {
@@ -78,21 +69,6 @@ describe('deleteEdge', () => {
     ).rejects.toThrow('No active graph');
   });
 
-  it('calls ensureSchedulerStarted callback', async () => {
-    const graphState = {
-      activeGraphId: 'graph-1',
-      graphs: [],
-      nodePrototypes: []
-    };
-
-    await deleteEdge(
-      { edgeId: 'edge-1' },
-      graphState,
-      mockCid,
-      mockEnsureSchedulerStarted
-    );
-
-    expect(mockEnsureSchedulerStarted).toHaveBeenCalledTimes(1);
-  });
+  // Removed ensureSchedulerStarted test as direct UI tools no longer call it
 });
 

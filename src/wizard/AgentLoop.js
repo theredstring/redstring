@@ -121,6 +121,49 @@ function updateGraphState(graphState, _toolName, _args, result) {
         });
       });
     }
+  } else if (result.action === 'createEdge') {
+    const activeGraph = (graphState.graphs || []).find(g => g.id === graphState.activeGraphId);
+    if (activeGraph) {
+      activeGraph.edgeIds = activeGraph.edgeIds || [];
+      activeGraph.edgeIds.push(`edge-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`);
+    }
+  } else if (result.action === 'updateEdge' && result.updates) {
+    // Predictive state for updateEdge could update the edge in local state, but we only store edgeIds here
+    // So nothing to deeply change structurally unless we want to maintain an edges map in AgentLoop
+  } else if (result.action === 'deleteEdge') {
+    const activeGraph = (graphState.graphs || []).find(g => g.id === graphState.activeGraphId);
+    if (activeGraph && result.edgeId) {
+      activeGraph.edgeIds = (activeGraph.edgeIds || []).filter(id => id !== result.edgeId);
+    }
+  } else if (result.action === 'createGroup') {
+    const activeGraph = (graphState.graphs || []).find(g => g.id === graphState.activeGraphId);
+    if (activeGraph) {
+      activeGraph.groups = activeGraph.groups || [];
+      activeGraph.groups.push({
+        id: `group-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+        name: result.name,
+        color: result.color,
+        memberInstanceIds: result.memberInstanceIds || []
+      });
+    }
+  } else if (result.action === 'updateGroup' && result.updates) {
+    const activeGraph = (graphState.graphs || []).find(g => g.id === graphState.activeGraphId);
+    if (activeGraph && activeGraph.groups) {
+      const gObj = activeGraph.groups.find(g => g.id === result.groupId || (result.groupName && g.name === result.groupName));
+      if (gObj) {
+        if (result.updates.name) gObj.name = result.updates.name;
+        if (result.updates.color) gObj.color = result.updates.color;
+      }
+    }
+  } else if (result.action === 'deleteGroup') {
+    const activeGraph = (graphState.graphs || []).find(g => g.id === graphState.activeGraphId);
+    if (activeGraph && activeGraph.groups) {
+      if (result.groupId) {
+        activeGraph.groups = activeGraph.groups.filter(g => g.id !== result.groupId);
+      } else if (result.groupName) {
+        activeGraph.groups = activeGraph.groups.filter(g => g.name !== result.groupName);
+      }
+    }
   }
 }
 
