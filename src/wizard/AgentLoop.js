@@ -17,6 +17,97 @@ const __dirname = path.dirname(__filename);
 // Load system prompt
 let SYSTEM_PROMPT = WIZARD_SYSTEM_PROMPT;
 
+/**
+ * Keep graphState in sync after mutating tool calls so subsequent
+ * tools within the same agent loop see up-to-date state.
+ */
+function updateGraphState(graphState, _toolName, _args, result) {
+  if (!result || result.error) return;
+
+  if (result.action === 'createGraph') {
+    graphState.activeGraphId = result.graphId;
+    graphState.graphs = graphState.graphs || [];
+    graphState.graphs.push({
+      id: result.graphId,
+      name: result.graphName,
+      instances: [],
+      edgeIds: [],
+      groups: []
+    });
+  } else if (result.action === 'createNode') {
+    // Add the new node to the active graph's instances so name-based lookups work
+    const activeGraph = (graphState.graphs || []).find(g => g.id === graphState.activeGraphId);
+    if (activeGraph) {
+      const protoId = `proto-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+      const instId = `inst-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+      activeGraph.instances = activeGraph.instances || [];
+      activeGraph.instances.push({
+        id: instId,
+        prototypeId: protoId,
+        name: result.name
+      });
+      graphState.nodePrototypes = graphState.nodePrototypes || [];
+      graphState.nodePrototypes.push({
+        id: protoId,
+        name: result.name,
+        color: result.color,
+        description: result.description
+      });
+    }
+  } else if (result.action === 'updateNode' && result.updates) {
+    // Update the node's name/properties in graphState so subsequent lookups use the new name
+    const proto = (graphState.nodePrototypes || []).find(p => p.id === result.prototypeId);
+    if (proto) {
+      if (result.updates.name) proto.name = result.updates.name;
+      if (result.updates.color) proto.color = result.updates.color;
+      if (result.updates.description !== undefined) proto.description = result.updates.description;
+    }
+    // Also update instance name if present
+    const activeGraph = (graphState.graphs || []).find(g => g.id === graphState.activeGraphId);
+    if (activeGraph) {
+      const inst = (activeGraph.instances || []).find(i => i.id === result.instanceId);
+      if (inst && result.updates.name) {
+        inst.name = result.updates.name;
+      }
+    }
+  } else if (result.action === 'deleteNode') {
+    // Remove the node from graphState so it's no longer findable
+    const activeGraph = (graphState.graphs || []).find(g => g.id === graphState.activeGraphId);
+    if (activeGraph && activeGraph.instances) {
+      activeGraph.instances = activeGraph.instances.filter(i => i.id !== result.instanceId);
+    }
+  } else if (result.action === 'createPopulatedGraph' && result.spec) {
+    // New populated graph — update activeGraphId and add graph + nodes
+    graphState.activeGraphId = result.graphId;
+    graphState.graphs = graphState.graphs || [];
+    const newInstances = (result.spec.nodes || []).map((n, idx) => ({
+      id: `inst-${Date.now()}-${idx}`,
+      prototypeId: `proto-${Date.now()}-${idx}`,
+      name: n.name
+    }));
+    graphState.graphs.push({
+      id: result.graphId,
+      name: result.graphName,
+      instances: newInstances,
+      edgeIds: [],
+      groups: []
+    });
+  } else if (result.action === 'expandGraph' && result.spec) {
+    // Nodes added to active graph
+    const activeGraph = (graphState.graphs || []).find(g => g.id === graphState.activeGraphId);
+    if (activeGraph) {
+      activeGraph.instances = activeGraph.instances || [];
+      (result.spec.nodes || []).forEach((n, idx) => {
+        activeGraph.instances.push({
+          id: `inst-${Date.now()}-${idx}-${Math.random().toString(36).slice(2, 6)}`,
+          prototypeId: `proto-${Date.now()}-${idx}`,
+          name: n.name
+        });
+      });
+    }
+  }
+}
+
 const MAX_ITERATIONS = 10;
 
 /**
@@ -131,6 +222,9 @@ export async function* runAgent(userMessage, graphState, config = {}, ensureSche
             cid,
             ensureSchedulerStarted
           );
+
+          // Update graphState so subsequent tool calls see the latest state
+          updateGraphState(graphState, toolCall.name, toolCall.args, result);
 
           // Stream tool result event
           yield {
