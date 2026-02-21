@@ -7,7 +7,7 @@
 import React from 'react';
 import { calculateParallelEdgePath } from '../utils/canvas/parallelEdgeUtils.js';
 import { generateManhattanRoutingPath, generateCleanRoutingPath } from '../utils/canvas/edgeRouting.js';
-import { getTextColor, getBrightTextColor } from '../utils/colorUtils.js';
+import { getTextColor } from '../utils/colorUtils.js';
 
 /**
  * Build a rounded SVG path from ordered polyline points

@@ -1,7 +1,7 @@
 import React, { useMemo, useState, useCallback, useRef } from 'react';
 import useGraphStore from './store/graphStore.jsx';
 import { getNodeDimensions } from './utils.js';
-import { getTextColor, getBrightTextColor, hexToHsl } from './utils/colorUtils.js';
+import { getTextColor, hexToHsl } from './utils/colorUtils.js';
 
 /**
  * Connection Text Component
