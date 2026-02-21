@@ -2404,6 +2404,134 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
       return newGraphId;
     },
 
+    // Helper function to find a prototype by name (case-insensitive)
+    findPrototypeByName: (name) => {
+      const state = get();
+      const searchName = name.toLowerCase().trim();
+
+      return Array.from(state.nodePrototypes.values())
+        .find(proto => proto.name?.toLowerCase().trim() === searchName);
+    },
+
+    // Create a complex concept with definition graph and optional sub-concepts
+    // This is a high-level helper for the Druid to create structured knowledge
+    createComplexConcept: (conceptData) => {
+      const {
+        name,
+        color,
+        description,
+        subConcepts = [], // Array of { name, color?, description? }
+        relationships = [], // Array of { source, target, type? }
+        targetGraphId = null, // Where to add the main concept instance
+        addToSemanticMemory = false // Whether to track in Druid's semantic memory
+      } = conceptData;
+
+      let result = {
+        prototypeId: null,
+        definitionGraphId: null,
+        instanceId: null,
+        subConceptIds: [],
+        edgeIds: []
+      };
+
+      set(produce((draft) => {
+        // 1. Create prototype for main concept
+        const prototypeId = uuidv4();
+        draft.nodePrototypes.set(prototypeId, {
+          id: prototypeId,
+          name,
+          description: description || '',
+          color: color || NODE_DEFAULT_COLOR,
+          definitionGraphIds: [],
+          createdAt: new Date().toISOString()
+        });
+        result.prototypeId = prototypeId;
+
+        // 2. Create definition graph for it (if it's complex with sub-concepts)
+        if (subConcepts.length > 0) {
+          const defGraphId = _createAndAssignGraphDefinition(draft, prototypeId);
+          result.definitionGraphId = defGraphId;
+
+          const defGraph = draft.graphs.get(defGraphId);
+          if (defGraph) {
+            defGraph.name = `${name} Definition`;
+            defGraph.description = `Defining components of ${name}`;
+
+            // 3. Create prototypes and instances for sub-concepts
+            subConcepts.forEach((subConcept, index) => {
+              const subProtoId = uuidv4();
+              draft.nodePrototypes.set(subProtoId, {
+                id: subProtoId,
+                name: subConcept.name,
+                description: subConcept.description || '',
+                color: subConcept.color || NODE_DEFAULT_COLOR,
+                definitionGraphIds: [],
+                createdAt: new Date().toISOString()
+              });
+
+              // Add instance to definition graph
+              const subInstanceId = uuidv4();
+              defGraph.instances.set(subInstanceId, {
+                id: subInstanceId,
+                prototypeId: subProtoId,
+                x: (index % 3) * 200, // Simple grid layout
+                y: Math.floor(index / 3) * 200,
+                scale: 1
+              });
+
+              result.subConceptIds.push({
+                prototypeId: subProtoId,
+                instanceId: subInstanceId,
+                name: subConcept.name
+              });
+            });
+
+            // 4. Create edges for relationships
+            relationships.forEach(rel => {
+              const sourceSubConcept = result.subConceptIds.find(sc => sc.name === rel.source);
+              const targetSubConcept = result.subConceptIds.find(sc => sc.name === rel.target);
+
+              if (sourceSubConcept && targetSubConcept) {
+                const edgeId = uuidv4();
+                const edgeData = {
+                  id: edgeId,
+                  sourceId: sourceSubConcept.instanceId,
+                  destinationId: targetSubConcept.instanceId,
+                  typeNodeId: null,
+                  name: rel.type || 'related to',
+                  directionality: {
+                    arrowsToward: new Set([targetSubConcept.instanceId])
+                  }
+                };
+
+                draft.edges.set(edgeId, edgeData);
+                defGraph.edgeIds.push(edgeId);
+                result.edgeIds.push(edgeId);
+              }
+            });
+          }
+        }
+
+        // 5. Optionally add instance to target graph
+        if (targetGraphId && draft.graphs.has(targetGraphId)) {
+          const instanceId = uuidv4();
+          const targetGraph = draft.graphs.get(targetGraphId);
+          targetGraph.instances.set(instanceId, {
+            id: instanceId,
+            prototypeId: prototypeId,
+            x: Math.random() * 400, // Random position for now
+            y: Math.random() * 300,
+            scale: 1
+          });
+          result.instanceId = instanceId;
+        }
+
+        console.log(`[Store createComplexConcept] Created complex concept "${name}" with ${subConcepts.length} sub-concepts`);
+      }));
+
+      return result;
+    },
+
     // Sets the currently active graph tab.
     setActiveGraph: (graphId) => {
       console.log(`[Store Action] setActiveGraph called with: ${graphId}`);

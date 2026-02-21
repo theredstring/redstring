@@ -9,6 +9,8 @@ import { HEADER_HEIGHT } from '../../../constants.js';
 import ToolCallCard from '../../ToolCallCard.jsx';
 import { DRUID_SYSTEM_PROMPT } from '../../../services/agent/DruidPrompt.js';
 import useGraphStore from '../../../store/graphStore.jsx';
+import DruidInstance from '../../../services/DruidInstance.js';
+import DruidMindPanel from '../../DruidMindPanel.jsx';
 
 /**
  * Apply wizard tool results to the store
@@ -619,6 +621,7 @@ const LeftAIView = ({ compact = false,
   const [viewMode, setViewMode] = React.useState('wizard'); // 'wizard', 'chat', 'druid'
   const [currentAgentRequest, setCurrentAgentRequest] = React.useState(null);
   const [wizardStage, setWizardStage] = React.useState(null); // Track current wizard stage
+  const [druidInstance, setDruidInstance] = React.useState(null); // Druid cognitive state manager
   const messagesEndRef = React.useRef(null);
   const inputRef = React.useRef(null);
 
@@ -752,6 +755,22 @@ const LeftAIView = ({ compact = false,
       setApiKeyInfo(keyInfo);
     } catch (error) { console.error('Failed to check API key:', error); }
   };
+
+  // Initialize DruidInstance when switching to Druid mode
+  React.useEffect(() => {
+    if (viewMode === 'druid' && !druidInstance) {
+      console.log('[Druid] Initializing DruidInstance...');
+      const instance = new DruidInstance(useGraphStore);
+
+      // Ensure workspace is ready
+      instance.ensureWorkspace().then(() => {
+        console.log('[Druid] Workspace initialized');
+        setDruidInstance(instance);
+      }).catch(err => {
+        console.error('[Druid] Failed to initialize workspace:', err);
+      });
+    }
+  }, [viewMode, druidInstance]);
 
   const addMessage = (sender, content, metadata = {}) => {
     // Check for duplicates before adding
@@ -1700,6 +1719,18 @@ const LeftAIView = ({ compact = false,
       </div>
       {/* Dividing line below graph info section */}
       <StandardDivider margin="0" />
+
+      {/* Show Druid Mind Panel when in Druid mode */}
+      {viewMode === 'druid' && druidInstance && (
+        <div style={{
+          maxHeight: '300px',
+          overflowY: 'auto',
+          borderBottom: '1px solid #333',
+          backgroundColor: '#1a1a1a'
+        }}>
+          <DruidMindPanel druidInstance={druidInstance} />
+        </div>
+      )}
 
       {showAPIKeySetup && (
         <div className="ai-api-setup-section">
