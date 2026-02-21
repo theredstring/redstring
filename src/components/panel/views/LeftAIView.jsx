@@ -22,6 +22,18 @@ function applyToolResultToStore(toolName, result) {
   }
   const store = useGraphStore.getState();
 
+  // Handle createGraph (empty graph)
+  if (result.action === 'createGraph') {
+    console.log('[Wizard] Applying createGraph to store:', result.graphName);
+    store.createNewGraph({
+      id: result.graphId,
+      name: result.graphName,
+      description: result.description || ''
+    });
+    console.log('[Wizard] Successfully created empty graph:', result.graphId);
+    return;
+  }
+
   // Handle createPopulatedGraph
   if (result.action === 'createPopulatedGraph' && result.spec) {
     console.log('[Wizard] Applying createPopulatedGraph to store:', result.graphName);

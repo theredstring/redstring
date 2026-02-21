@@ -4,25 +4,15 @@
 
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { createGraph } from './createGraph.js';
-import queueManager from '../../services/queue/Queue.js';
-
-vi.mock('../../services/queue/Queue.js', () => ({
-  default: {
-    enqueue: vi.fn(() => 'mock-goal-id'),
-    dequeue: vi.fn(),
-    getQueue: vi.fn(() => ({ items: [], inflight: new Map(), byId: new Map() }))
-  }
-}));
 
 describe('createGraph', () => {
-  const mockEnsureSchedulerStarted = vi.fn();
   const mockCid = 'test-cid-123';
 
   beforeEach(() => {
     vi.clearAllMocks();
   });
 
-  it('enqueues create_graph task with correct args', async () => {
+  it('returns a graph spec with action, graphId, and graphName', async () => {
     const graphState = {
       graphs: [],
       nodePrototypes: []
@@ -32,30 +22,14 @@ describe('createGraph', () => {
       { name: 'Test Graph' },
       graphState,
       mockCid,
-      mockEnsureSchedulerStarted
+      null
     );
 
-    expect(queueManager.enqueue).toHaveBeenCalledWith('goalQueue', expect.objectContaining({
-      type: 'goal',
-      goal: 'create_graph',
-      threadId: mockCid,
-      partitionKey: mockCid,
-      dag: expect.objectContaining({
-        tasks: [expect.objectContaining({
-          toolName: 'create_graph',
-          threadId: mockCid,
-          args: {
-            name: 'Test Graph'
-          }
-        })]
-      })
-    }));
-
-    expect(result).toEqual({
-      graphId: 'pending',
-      name: 'Test Graph',
-      goalId: 'mock-goal-id'
-    });
+    expect(result.action).toBe('createGraph');
+    expect(result.graphId).toMatch(/^graph-/);
+    expect(result.graphName).toBe('Test Graph');
+    expect(result.description).toBe('');
+    expect(result.goalId).toBeNull();
   });
 
   it('throws error when name is missing', async () => {
@@ -65,35 +39,35 @@ describe('createGraph', () => {
     };
 
     await expect(
-      createGraph({}, graphState, mockCid, mockEnsureSchedulerStarted)
+      createGraph({}, graphState, mockCid, null)
     ).rejects.toThrow('name is required');
   });
 
-  it('calls ensureSchedulerStarted callback', async () => {
+  it('includes description when provided', async () => {
     const graphState = {
       graphs: [],
       nodePrototypes: []
     };
 
-    await createGraph(
-      { name: 'Test Graph' },
+    const result = await createGraph(
+      { name: 'Test Graph', description: 'A test description' },
       graphState,
       mockCid,
-      mockEnsureSchedulerStarted
+      null
     );
 
-    expect(mockEnsureSchedulerStarted).toHaveBeenCalledTimes(1);
+    expect(result.description).toBe('A test description');
   });
 
-  it('handles missing ensureSchedulerStarted gracefully', async () => {
+  it('generates unique graph IDs', async () => {
     const graphState = {
       graphs: [],
       nodePrototypes: []
     };
 
-    await expect(
-      createGraph({ name: 'Test Graph' }, graphState, mockCid, null)
-    ).resolves.toBeDefined();
+    const result1 = await createGraph({ name: 'Graph 1' }, graphState, mockCid, null);
+    const result2 = await createGraph({ name: 'Graph 2' }, graphState, mockCid, null);
+
+    expect(result1.graphId).not.toBe(result2.graphId);
   });
 });
-

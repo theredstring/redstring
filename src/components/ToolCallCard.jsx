@@ -82,6 +82,10 @@ const ToolCallCard = ({ toolName, status, args, result, error, timestamp, execut
             if (removed > 0) return `Removed ${removed} from ${groupName}`;
             return `Updated ${groupName}`;
         }
+        if (toolName === 'createGraph') {
+            const graphName = result.graphName || parsedArgs?.name || 'graph';
+            return `Created empty graph "${graphName}"`;
+        }
         if (toolName === 'expandGraph' || toolName === 'createPopulatedGraph') {
             const nodeCount = result.nodeCount || (Array.isArray(result.nodesAdded) ? result.nodesAdded.length : (typeof result.nodesAdded === 'number' ? result.nodesAdded : 0));
             const edgeCount = result.edgeCount || (Array.isArray(result.edgesAdded) ? result.edgesAdded.length : (typeof result.edgesAdded === 'number' ? result.edgesAdded : 0));
