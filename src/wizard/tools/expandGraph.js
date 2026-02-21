@@ -34,7 +34,7 @@ function generateConnectionColor(name) {
  * @returns {Promise<Object>} { action, nodesAdded, edgesAdded, spec }
  */
 export async function expandGraph(args, graphState, cid, ensureSchedulerStarted) {
-  const { nodes = [], edges = [] } = args;
+  const { nodes = [], edges = [], groups = [] } = args;
 
   if (!nodes || nodes.length === 0) {
     throw new Error('nodes array is required');
@@ -72,6 +72,12 @@ export async function expandGraph(args, graphState, cid, ensureSchedulerStarted)
     };
   });
 
+  const groupSpecs = (groups || []).map(g => ({
+    name: g.name,
+    color: g.color || '#8B0000',
+    memberNames: g.memberNames || []
+  }));
+
   // Return full spec so UI can apply it directly (same pattern as createPopulatedGraph)
   return {
     action: 'expandGraph',
@@ -79,12 +85,15 @@ export async function expandGraph(args, graphState, cid, ensureSchedulerStarted)
     // For ToolCallCard summary (counts)
     nodesAdded: nodeSpecs.map(n => n.name),
     edgesAdded: edgeSpecs,
+    groupsAdded: groupSpecs.map(g => g.name),
     nodeCount: nodeSpecs.length,
     edgeCount: edgeSpecs.length,
+    groupCount: groupSpecs.length,
     // Include full spec for UI to apply
     spec: {
       nodes: nodeSpecs,
-      edges: edgeSpecs
+      edges: edgeSpecs,
+      groups: groupSpecs
     }
   };
 }

@@ -278,11 +278,27 @@ const ToolCallCard = ({ toolName, status, args, result, error, timestamp, execut
                         </div>
                     )}
 
-                    {!result && !error && (
+                    {parsedArgs && Object.keys(parsedArgs).length > 0 && toolName !== 'createPopulatedGraph' && toolName !== 'expandGraph' && toolName !== 'searchNodes' && toolName !== 'searchConnections' && toolName !== 'getNodeContext' && (
                         <div className="detail-section">
-                            <p style={{ color: 'rgba(38, 0, 0, 0.6)', fontSize: '12px', fontStyle: 'italic' }}>
-                                No detailed results available
-                            </p>
+                            <h4>Tool Parameters</h4>
+                            <div className="args-container" style={{
+                                padding: '4px 0',
+                                fontSize: '13px',
+                                display: 'flex',
+                                flexDirection: 'column',
+                                gap: '4px'
+                            }}>
+                                {Object.entries(parsedArgs).map(([key, value]) => {
+                                    if (key === 'addMembers' || key === 'removeMembers') return null;
+                                    const valueStr = typeof value === 'object' ? JSON.stringify(value) : String(value);
+                                    return (
+                                        <div key={key} style={{ display: 'flex' }}>
+                                            <span style={{ fontWeight: 'bold', width: '120px', flexShrink: 0, textTransform: 'capitalize' }}>{key.replace(/([A-Z])/g, ' $1').trim()}:</span>
+                                            <span style={{ color: 'var(--text-color, rgba(38, 0, 0, 0.8))', wordBreak: 'break-word' }}>{valueStr}</span>
+                                        </div>
+                                    );
+                                })}
+                            </div>
                         </div>
                     )}
 

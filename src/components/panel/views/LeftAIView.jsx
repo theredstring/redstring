@@ -552,7 +552,7 @@ function applyToolResultToStore(toolName, result) {
         directionality: e.directionality || 'unidirectional',
         definitionNode: e.definitionNode || null
       })),
-      groups: []
+      groups: result.spec.groups || []
     };
 
     // Apply bulk updates to the ACTIVE graph (not creating a new one)
