@@ -2056,7 +2056,20 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
         // Helper to normalize names for fuzzy matching
         const normalizeName = (name) => (name || '').toLowerCase().trim();
 
-        // 1. Add nodes
+        // Pre-populate with EXISTING nodes so edges can reference them
+        // (critical for expandGraph where new edges connect to existing graph nodes)
+        if (graph.instances) {
+          graph.instances.forEach((inst, instanceId) => {
+            const proto = draft.nodePrototypes.get(inst.prototypeId);
+            if (proto?.name) {
+              nodeIdMap.set(proto.name, instanceId);
+              nodeIdMapNormalized.set(normalizeName(proto.name), instanceId);
+            }
+          });
+          console.log(`[applyBulkGraphUpdates] Pre-populated ${nodeIdMap.size} existing nodes into lookup map`);
+        }
+
+        // 1. Add nodes (new nodes overwrite existing entries if names collide)
         nodes.forEach(node => {
           const protoId = node.prototypeId || uuidv4();
           const instanceId = node.instanceId || uuidv4();

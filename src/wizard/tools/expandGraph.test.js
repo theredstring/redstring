@@ -4,15 +4,6 @@
 
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { expandGraph } from './expandGraph.js';
-import queueManager from '../../services/queue/Queue.js';
-
-vi.mock('../../services/queue/Queue.js', () => ({
-  default: {
-    enqueue: vi.fn(() => 'mock-goal-id'),
-    dequeue: vi.fn(),
-    getQueue: vi.fn(() => ({ items: [], inflight: new Map(), byId: new Map() }))
-  }
-}));
 
 describe('expandGraph', () => {
   const mockEnsureSchedulerStarted = vi.fn();
@@ -22,7 +13,7 @@ describe('expandGraph', () => {
     vi.clearAllMocks();
   });
 
-  it('enqueues create_populated_graph task with correct args', async () => {
+  it('returns spec with nodes and edges for UI application', async () => {
     const graphState = {
       activeGraphId: 'graph-1',
       graphs: [],
@@ -44,41 +35,34 @@ describe('expandGraph', () => {
       mockEnsureSchedulerStarted
     );
 
-    expect(queueManager.enqueue).toHaveBeenCalledWith('goalQueue', expect.objectContaining({
-      goal: 'expand_graph',
-      dag: expect.objectContaining({
-        tasks: [expect.objectContaining({
-          toolName: 'create_populated_graph',
-          args: expect.objectContaining({
-            graph_id: 'graph-1',
-            graph_spec: expect.objectContaining({
-              nodes: [
-                { name: 'Node One', color: '#FF0000', description: 'First node' },
-                { name: 'Node Two', color: undefined, description: '' }
-              ],
-              edges: [
-                {
-                  source: 'Node One',
-                  target: 'Node Two',
-                  type: 'connects',
-                  definitionNode: {
-                    name: 'connects',
-                    color: '#708090',
-                    description: ''
-                  }
-                }
-              ]
-            })
-          })
-        })]
-      })
-    }));
+    // Should return a spec-based result for UI-side application
+    expect(result.action).toBe('expandGraph');
+    expect(result.graphId).toBe('graph-1');
+    expect(result.nodeCount).toBe(2);
+    expect(result.edgeCount).toBe(1);
+    expect(result.nodesAdded).toEqual(['Node One', 'Node Two']);
+    expect(result.spec).toBeDefined();
+    expect(result.spec.nodes).toHaveLength(2);
+    expect(result.spec.edges).toHaveLength(1);
 
-    expect(result).toEqual({
-      nodesAdded: 2,
-      edgesAdded: 1,
-      goalId: 'mock-goal-id'
+    // Verify node specs
+    expect(result.spec.nodes[0]).toEqual({
+      name: 'Node One',
+      color: '#FF0000',
+      description: 'First node'
     });
+    expect(result.spec.nodes[1]).toEqual({
+      name: 'Node Two',
+      color: '#5B6CFF',
+      description: ''
+    });
+
+    // Verify edge specs with title case and definitionNode
+    expect(result.spec.edges[0].source).toBe('Node One');
+    expect(result.spec.edges[0].target).toBe('Node Two');
+    expect(result.spec.edges[0].type).toBe('Connects');
+    expect(result.spec.edges[0].definitionNode).toBeDefined();
+    expect(result.spec.edges[0].definitionNode.name).toBe('Connects');
   });
 
   it('throws error when nodes array is empty', async () => {
@@ -130,24 +114,44 @@ describe('expandGraph', () => {
       mockEnsureSchedulerStarted
     );
 
-    expect(result.edgesAdded).toBe(0);
+    expect(result.edgeCount).toBe(0);
+    expect(result.spec.edges).toHaveLength(0);
+    expect(result.spec.nodes).toHaveLength(1);
   });
 
-  it('calls ensureSchedulerStarted callback', async () => {
+  it('handles definitionNode in edges', async () => {
     const graphState = {
       activeGraphId: 'graph-1',
       graphs: [],
       nodePrototypes: []
     };
 
-    await expandGraph(
-      { nodes: [{ name: 'Node One' }] },
+    const result = await expandGraph(
+      {
+        nodes: [
+          { name: 'Moon' },
+          { name: 'Planet' }
+        ],
+        edges: [
+          {
+            source: 'Moon',
+            target: 'Planet',
+            definitionNode: {
+              name: 'orbits',
+              color: '#00FF00',
+              description: 'Orbital relationship'
+            }
+          }
+        ]
+      },
       graphState,
       mockCid,
       mockEnsureSchedulerStarted
     );
 
-    expect(mockEnsureSchedulerStarted).toHaveBeenCalledTimes(1);
+    expect(result.spec.edges[0].type).toBe('Orbits');
+    expect(result.spec.edges[0].definitionNode.name).toBe('Orbits');
+    expect(result.spec.edges[0].definitionNode.color).toBe('#00FF00');
+    expect(result.spec.edges[0].definitionNode.description).toBe('Orbital relationship');
   });
 });
-

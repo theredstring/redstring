@@ -15,8 +15,11 @@ import useGraphStore from '../../../store/graphStore.jsx';
  * This bridges the gap between server-side tool execution and client-side store
  */
 function applyToolResultToStore(toolName, result) {
-  if (!result || result.error) return;
-
+  console.log('[Wizard] applyToolResultToStore called:', toolName, 'action:', result?.action, 'hasSpec:', !!result?.spec);
+  if (!result || result.error) {
+    console.warn('[Wizard] applyToolResultToStore: skipping — no result or error:', result?.error);
+    return;
+  }
   const store = useGraphStore.getState();
 
   // Handle createPopulatedGraph
