@@ -1114,12 +1114,14 @@ const UniversalNodeRenderer = ({
                 height={node.height}
                 rx={node.isGroup ? 20 * transform.scale : cornerRadius}
                 ry={node.isGroup ? 20 * transform.scale : cornerRadius}
-                fill={hasImage || node.isGroup ? 'none' : (node.color || '#800000')}
-                stroke={hasImage ? (node.color || '#800000') : 'none'}
+                fill={node.isGroup ? '#bdb5b5' : (hasImage ? 'none' : (node.color || '#800000'))}
+                stroke={node.isGroup ? (node.color || '#8B0000') : (hasImage ? (node.color || '#800000') : 'none')}
                 strokeWidth={
-                  hasImage
-                    ? (renderContext === 'decomposition' ? Math.max(0.8, 1.5 * transform.scale) : Math.max(1, 2 * transform.scale))
-                    : 0
+                  node.isGroup
+                    ? Math.max(1, 6 * transform.scale)
+                    : (hasImage
+                      ? (renderContext === 'decomposition' ? Math.max(0.8, 1.5 * transform.scale) : Math.max(1, 2 * transform.scale))
+                      : 0)
                 }
                 style={{
                   cursor: interactive ? 'pointer' : 'default',

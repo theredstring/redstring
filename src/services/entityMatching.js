@@ -17,8 +17,9 @@ const SOURCE_CONFIDENCE = {
 
 /**
  * Normalize label for comparison
+ * Exported as normalizeName for auto-enrichment
  */
-function normalizeLabel(label) {
+export function normalizeLabel(label) {
   if (!label) return '';
   return label
     .toLowerCase()
@@ -59,8 +60,9 @@ function levenshteinDistance(str1, str2) {
 
 /**
  * Calculate text similarity (0.0 to 1.0)
+ * Exported for auto-enrichment confidence scoring
  */
-function calculateTextSimilarity(text1, text2) {
+export function calculateTextSimilarity(text1, text2) {
   if (!text1 || !text2) return 0.0;
 
   const normalized1 = normalizeLabel(text1);

@@ -10,6 +10,160 @@ import ToolCallCard from '../../ToolCallCard.jsx';
 import { DRUID_SYSTEM_PROMPT } from '../../../services/agent/DruidPrompt.js';
 import useGraphStore from '../../../store/graphStore.jsx';
 import DruidInstance from '../../../services/DruidInstance.js';
+import { searchWikipedia, getWikipediaPage, getWikipediaImages } from '../SharedPanelContent.jsx';
+import { normalizeLabel, calculateTextSimilarity } from '../../../services/entityMatching.js';
+
+/**
+ * Calculate Wikipedia confidence score for auto-enrichment
+ * Returns 0.0 to 1.0, with 0.90+ indicating "dead match" quality
+ */
+function calculateWikipediaConfidence(nodeName, wikipediaResult) {
+  let confidence = 0;
+
+  // FACTOR 1: Result type (40 points)
+  // Only accept direct Wikipedia page hits, reject disambiguation
+  if (wikipediaResult.type === 'direct') {
+    confidence += 0.40;
+  } else {
+    return 0.0; // Automatic rejection for disambiguation or not found
+  }
+
+  // FACTOR 2: Label matching (50 points)
+  // Exact match required for 0.90 total
+  const norm1 = normalizeLabel(nodeName);
+  const norm2 = normalizeLabel(wikipediaResult.page.title);
+
+  if (norm1 === norm2) {
+    confidence += 0.50; // Exact match → Total 0.90 ✓
+  } else {
+    // Fuzzy match using text similarity
+    const similarity = calculateTextSimilarity(norm1, norm2);
+    confidence += similarity * 0.50;
+  }
+
+  return confidence;
+}
+
+/**
+ * Enrich a single node with Wikipedia data
+ * Only applies data when confidence >= 0.90 (dead match)
+ */
+async function enrichNodeWithWikipedia(nodeName, graphId, options = {}) {
+  const { timeout = 10000, minConfidence = 0.90 } = options;
+
+  try {
+    console.log(`[Auto-Enrich] Starting Wikipedia enrichment for "${nodeName}"`);
+
+    // 1. Search Wikipedia (reuse existing function from SharedPanelContent)
+    const searchResult = await searchWikipedia(nodeName);
+
+    // 2. Calculate confidence - reject if not direct match
+    if (searchResult?.type !== 'direct') {
+      console.log(`[Auto-Enrich] Skipping "${nodeName}" - disambiguation or not found`);
+      return null;
+    }
+
+    const confidence = calculateWikipediaConfidence(nodeName, searchResult);
+
+    if (confidence < minConfidence) {
+      console.log(`[Auto-Enrich] Skipping "${nodeName}" - low confidence (${confidence.toFixed(2)})`);
+      return null;
+    }
+
+    console.log(`[Auto-Enrich] High confidence match for "${nodeName}" (${confidence.toFixed(2)})`);
+
+    // 3. Find the node in the store by name
+    const store = useGraphStore.getState();
+    let targetNodeProtoId = null;
+
+    for (const [protoId, proto] of store.nodePrototypes) {
+      if (proto.name.toLowerCase().trim() === nodeName.toLowerCase().trim()) {
+        targetNodeProtoId = protoId;
+        break;
+      }
+    }
+
+    if (!targetNodeProtoId) {
+      console.warn(`[Auto-Enrich] Node "${nodeName}" not found in store`);
+      return null;
+    }
+
+    const nodeProto = store.nodePrototypes.get(targetNodeProtoId);
+
+    // 4. Preserve user content - skip if node already has description
+    if (nodeProto.description && nodeProto.description.trim() !== '') {
+      console.log(`[Auto-Enrich] Skipping "${nodeName}" - already has description`);
+      return null;
+    }
+
+    // 5. Apply Wikipedia data (same structure as manual pull)
+    const updates = {
+      description: searchResult.page.description,
+      semanticMetadata: {
+        ...nodeProto.semanticMetadata,
+        wikipediaUrl: searchResult.page.url,
+        wikipediaTitle: searchResult.page.title,
+        wikipediaThumbnail: searchResult.page.thumbnail,
+        wikipediaOriginalImage: searchResult.page.originalImage,
+        wikipediaAdditionalImages: searchResult.page.additionalImages || [],
+        wikipediaEnriched: true,
+        wikipediaEnrichedAt: new Date().toISOString(),
+        autoEnriched: true, // NEW FLAG - marks as AI-enriched
+        autoEnrichConfidence: confidence
+      }
+    };
+
+    // 6. Add Wikipedia link to externalLinks
+    const currentLinks = nodeProto.externalLinks || [];
+    if (!currentLinks.some(link => String(link).includes('wikipedia.org'))) {
+      updates.externalLinks = [searchResult.page.url, ...currentLinks];
+    }
+
+    // 7. Update node prototype
+    store.updateNodePrototype(targetNodeProtoId, (draft) => {
+      Object.assign(draft, updates);
+    });
+
+    console.log(`[Auto-Enrich] Successfully enriched "${nodeName}" from Wikipedia`);
+
+    return {
+      success: true,
+      nodeName,
+      confidence,
+      wikipediaUrl: searchResult.page.url
+    };
+
+  } catch (error) {
+    console.warn(`[Auto-Enrich] Failed to enrich "${nodeName}":`, error);
+    return null; // Silent failure - never block node creation
+  }
+}
+
+/**
+ * Enrich multiple nodes in batch with rate limiting
+ * Staggers requests by 200ms to avoid Wikipedia API rate limits
+ */
+async function enrichMultipleNodes(nodeNames, graphId) {
+  console.log(`[Auto-Enrich] Batch enrichment for ${nodeNames.length} nodes`);
+
+  // Stagger requests by 200ms to avoid rate limiting
+  const enrichmentPromises = nodeNames.map((nodeName, index) =>
+    new Promise(resolve => setTimeout(() =>
+      resolve(enrichNodeWithWikipedia(nodeName, graphId))
+    , index * 200))
+  );
+
+  // Use allSettled to prevent one failure from blocking others
+  const results = await Promise.allSettled(enrichmentPromises);
+
+  const successful = results.filter(r =>
+    r.status === 'fulfilled' && r.value?.success
+  ).length;
+
+  console.log(`[Auto-Enrich] Enriched ${successful}/${nodeNames.length} nodes`);
+
+  return results;
+}
 
 /**
  * Apply wizard tool results to the store
@@ -53,6 +207,14 @@ function applyToolResultToStore(toolName, result) {
       }]
     });
     console.log('[Wizard] Successfully created node:', result.name);
+
+    // NEW: Launch Wikipedia enrichment asynchronously (only if no description provided)
+    if (!result.description || result.description.trim() === '') {
+      enrichNodeWithWikipedia(result.name, graphId).catch(err => {
+        console.warn('[Auto-Enrich] Wikipedia enrichment failed:', err);
+      });
+    }
+
     return;
   }
 
@@ -523,6 +685,15 @@ function applyToolResultToStore(toolName, result) {
         }));
       }
     }, 600);
+
+    // 5. NEW: Launch batch Wikipedia enrichment asynchronously
+    // Wait 1s for nodes to be fully created in store
+    const nodeNames = result.spec.nodes.map(n => n.name);
+    setTimeout(() => {
+      enrichMultipleNodes(nodeNames, graphId).catch(err => {
+        console.warn('[Auto-Enrich] Batch enrichment failed:', err);
+      });
+    }, 1000);
   } else if (result.action === 'expandGraph' && result.spec) {
     // Handle expandGraph — apply nodes and edges to the ACTIVE graph
     console.log('[Wizard] Applying expandGraph to active graph:', result.graphId);
@@ -570,6 +741,15 @@ function applyToolResultToStore(toolName, result) {
         }));
       }
     }, 600);
+
+    // NEW: Launch batch Wikipedia enrichment asynchronously
+    // Wait 1s for nodes to be fully created in store
+    const nodeNames = result.spec.nodes.map(n => n.name);
+    setTimeout(() => {
+      enrichMultipleNodes(nodeNames, activeGraphId).catch(err => {
+        console.warn('[Auto-Enrich] Batch enrichment failed:', err);
+      });
+    }, 1000);
   } else if (result.action === 'selectNode' && result.found && result.node) {
     // Dispatch event for NodeCanvas to select and focus on the node
     console.log(`[Wizard] Selecting node: "${result.node.name}" (${result.node.instanceId})`);

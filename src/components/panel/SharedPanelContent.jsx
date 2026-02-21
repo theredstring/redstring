@@ -668,7 +668,9 @@ const WikipediaEnrichment = ({ nodeData, onUpdateNode }) => {
           }}
         >
           <BookOpen size={12} />
-          {isSearching ? 'Searching Wikipedia...' : 'Pull from Wikipedia & Link'}
+          {isSearching ? 'Searching Wikipedia...' :
+           nodeData.semanticMetadata?.autoEnriched ? 'Re-Pull from Wikipedia' :
+           'Pull from Wikipedia & Link'}
         </button>
       )}
 
@@ -1823,6 +1825,27 @@ const SharedPanelContent = ({
               )}
               ID: {nodeData.id}
             </div>
+
+            {/* Auto-enriched badge - show when node was automatically enriched by AI agent */}
+            {nodeData.semanticMetadata?.autoEnriched && (
+              <div style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '6px',
+                marginTop: '12px',
+                padding: '6px 8px',
+                background: 'rgba(139, 0, 0, 0.05)',
+                borderRadius: '4px',
+                fontSize: '10px',
+                color: '#8B0000',
+                fontFamily: "'EmOne', sans-serif"
+              }}>
+                <span>🤖 Auto-enriched from Wikipedia</span>
+                <span style={{ color: '#666', fontSize: '9px' }}>
+                  ({Math.round(nodeData.semanticMetadata.autoEnrichConfidence * 100)}% match)
+                </span>
+              </div>
+            )}
           </div>
         )}
       </CollapsibleSection>
@@ -2000,5 +2023,8 @@ const SharedPanelContent = ({
     </div>
   );
 };
+
+// Export Wikipedia functions for use in auto-enrichment
+export { searchWikipedia, getWikipediaPage, getWikipediaImages };
 
 export default SharedPanelContent;
