@@ -1,4 +1,4 @@
-const LIGHTNESS_THRESHOLD = 50;
+const LIGHTNESS_THRESHOLD = 60;
 const DARK_TEXT_LIGHTNESS = 16;
 
 // Helper function to convert CSS color names to hex
@@ -134,8 +134,13 @@ export const getTextColor = (backgroundColor) => {
 
   const { h, s, l } = hexToHsl(backgroundColor);
 
+  // Yellows are naturally very bright to human eyes even at lower lightness values
+  // We consider hues between 45 (yellow-orange) and 70 (yellow-green) to be "yellow"
+  const isYellow = h > 45 && h < 70;
+  const threshold = isYellow ? LIGHTNESS_THRESHOLD - 15 : LIGHTNESS_THRESHOLD;
+
   // If background is bright, use dark text with same hue
-  if (l > LIGHTNESS_THRESHOLD) {
+  if (l > threshold) {
     // Create a dark color with the same hue (preserving saturation) but very low lightness
     // This creates a "near black" that matches the theme of the group/node
     return hslToHex(h, s, DARK_TEXT_LIGHTNESS);
