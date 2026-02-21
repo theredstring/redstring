@@ -1,4 +1,4 @@
-const LIGHTNESS_THRESHOLD = 42;
+const LIGHTNESS_THRESHOLD = 50;
 const DARK_TEXT_LIGHTNESS = 16;
 
 // Helper function to convert CSS color names to hex
