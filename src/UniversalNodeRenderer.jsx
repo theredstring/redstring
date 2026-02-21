@@ -1,7 +1,7 @@
 import React, { useMemo, useState, useCallback, useRef } from 'react';
 import useGraphStore from './store/graphStore.jsx';
 import { getNodeDimensions } from './utils.js';
-import { getTextColor, hexToHsl } from './utils/colorUtils.js';
+import { getTextColor, hexToHsl, hslToHex } from './utils/colorUtils.js';
 
 /**
  * Connection Text Component
@@ -1114,12 +1114,12 @@ const UniversalNodeRenderer = ({
                 height={node.height}
                 rx={node.isGroup ? 20 * transform.scale : cornerRadius}
                 ry={node.isGroup ? 20 * transform.scale : cornerRadius}
-                fill={hasImage ? 'none' : (node.isGroup ? getTextColor(node.color || '#8B0000') : (node.color || '#800000'))}
-                stroke={hasImage ? (node.color || '#800000') : (node.isGroup ? (node.color || '#8B0000') : 'none')}
+                fill={hasImage || node.isGroup ? 'none' : (node.color || '#800000')}
+                stroke={hasImage ? (node.color || '#800000') : 'none'}
                 strokeWidth={
                   hasImage
                     ? (renderContext === 'decomposition' ? Math.max(0.8, 1.5 * transform.scale) : Math.max(1, 2 * transform.scale))
-                    : (node.isGroup ? 6 * transform.scale : 0)
+                    : 0
                 }
                 style={{
                   cursor: interactive ? 'pointer' : 'default',
@@ -1161,7 +1161,10 @@ const UniversalNodeRenderer = ({
                         fontSize: node.isGroup ? `${Math.min(24, Math.max(14, 18 * transform.scale))}px` : `${computedFontSize}px`,
                         fontWeight: 'bold',
                         color: node.isGroup
-                          ? (hexToHsl(node.color || '#8B0000').l > 50 ? getTextColor(node.color || '#8B0000') : (node.color || '#8B0000'))
+                          ? (() => {
+                            const { h, s } = hexToHsl(node.color || '#8B0000');
+                            return hslToHex(h, s, 16); // Force dark version (Slate 800-ish)
+                          })()
                           : getTextColor(node.color || '#800000'),
                         lineHeight: `${computedLineHeight}px`,
                         // Tighter letter spacing for decomposition view to fit more text
@@ -1179,7 +1182,7 @@ const UniversalNodeRenderer = ({
                         hyphens: renderContext === 'decomposition' ? 'none' : 'auto', // Disable hyphenation in tiny view
                         // Better text rendering for small sizes
                         textRendering: renderContext === 'decomposition' ? 'optimizeLegibility' : 'auto',
-                        WebkitTextStroke: node.isGroup ? `${Math.max(1.5, 3 * transform.scale)}px ${getTextColor(node.color || '#8B0000')}` : undefined,
+                        WebkitTextStroke: undefined,
                         paintOrder: 'stroke fill',
                       }}
                     >

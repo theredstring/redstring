@@ -19,7 +19,7 @@ import EdgeGlowIndicator from './components/EdgeGlowIndicator.jsx'; // Import th
 import BackToCivilization from './BackToCivilization.jsx'; // Import the BackToCivilization component
 import HoverVisionAid from './components/HoverVisionAid.jsx'; // Import the HoverVisionAid component
 import { getNodeDimensions } from './utils.js';
-import { getTextColor, hexToHsl } from './utils/colorUtils.js';
+import { getTextColor, hexToHsl, hslToHex } from './utils/colorUtils.js';
 import { getStorageKey } from './utils/storageUtils.js';
 import { getPrototypeIdFromItem } from './utils/abstraction.js';
 import { copySelection, pasteClipboard } from './utils/clipboard.js';
@@ -518,6 +518,7 @@ function NodeCanvas() {
   const routingStyle = useGraphStore(state => state.autoLayoutSettings?.routingStyle || 'straight');
   const manhattanBends = useGraphStore(state => state.autoLayoutSettings?.manhattanBends || 'auto');
   const cleanLaneSpacing = useGraphStore(state => state.autoLayoutSettings?.cleanLaneSpacing || 24);
+  const textSettings = useGraphStore(state => state.textSettings);
   const groupLayoutAlgorithm = useGraphStore(state => state.autoLayoutSettings?.groupLayoutAlgorithm || 'node-driven');
   const showClusterHulls = useGraphStore(state => state.autoLayoutSettings?.showClusterHulls || false);
   const layoutScalePreset = useGraphStore(state => state.autoLayoutSettings?.layoutScale || 'balanced');
@@ -8604,9 +8605,11 @@ function NodeCanvas() {
                                         fontSize: `${fontSize}px`,
                                         fontFamily: 'EmOne, sans-serif',
                                         fontWeight: 'bold',
-                                        color: isNodeGroup
-                                          ? getTextColor(nodeGroupColor)
-                                          : (hexToHsl(strokeColor).l > 50 ? getTextColor(strokeColor) : strokeColor),
+                                        color: (() => {
+                                          const colorToUse = isNodeGroup ? nodeGroupColor : strokeColor;
+                                          const { h, s } = hexToHsl(colorToUse);
+                                          return hslToHex(h, s, 16); // Always dark
+                                        })(),
                                         backgroundColor: 'transparent',
                                         border: 'none',
                                         outline: 'none',
@@ -8618,10 +8621,19 @@ function NodeCanvas() {
                                 </foreignObject>
                               ) : (
                                 <text x={labelX + labelWidth / 2} y={labelY + labelHeight * 0.7 - 2} fontFamily="EmOne, sans-serif" fontSize={fontSize}
-                                  fill={isNodeGroup
-                                    ? getTextColor(nodeGroupColor)
-                                    : (hexToHsl(strokeColor).l > 50 ? getTextColor(strokeColor) : strokeColor)
-                                  } fontWeight="bold" stroke={isNodeGroup ? "none" : "#bdb5b5"} strokeWidth={isNodeGroup ? 0 : strokeWidth} paintOrder="stroke fill" textAnchor="middle">{labelText}</text>
+                                  fill={(() => {
+                                    const colorToUse = isNodeGroup ? nodeGroupColor : strokeColor;
+                                    const { h, s } = hexToHsl(colorToUse);
+                                    return hslToHex(h, s, 16); // Always dark
+                                  })()}
+                                  fontWeight="bold"
+                                  stroke="none"
+                                  strokeWidth={0}
+                                  paintOrder="stroke fill"
+                                  textAnchor="middle"
+                                >
+                                  {labelText}
+                                </text>
                               )}
                             </g>
                           </g>
@@ -9157,6 +9169,7 @@ function NodeCanvas() {
 
                             {/* Connection name text - only show when enabled */}
                             {showConnectionNames && (() => {
+                              const connectionFontSize = 24 * (textSettings?.fontSize || 1);
                               let midX;
                               let midY;
                               let angle;
@@ -9204,7 +9217,7 @@ function NodeCanvas() {
                                   angle = stabilized.angle || 0;
                                 } else {
                                   const pathPoints = generateManhattanRoutingPath(edge, sourceNode, destNode, sNodeDims, eNodeDims, manhattanBends);
-                                  const placement = chooseLabelPlacement(pathPoints, connectionName, nodes, visibleNodeIds, baseDimsById, placedLabelsRef.current, 24, edge.id);
+                                  const placement = chooseLabelPlacement(pathPoints, connectionName, nodes, visibleNodeIds, baseDimsById, placedLabelsRef.current, connectionFontSize, edge.id);
                                   if (placement) {
                                     midX = placement.x;
                                     midY = placement.y;
@@ -9212,10 +9225,10 @@ function NodeCanvas() {
 
                                     // Register this label placement
                                     const labelRect = {
-                                      minX: midX - estimateTextWidth(connectionName, 24) / 2,
-                                      maxX: midX + estimateTextWidth(connectionName, 24) / 2,
-                                      minY: midY - 24 * 1.1 / 2,
-                                      maxY: midY + 24 * 1.1 / 2,
+                                      minX: midX - estimateTextWidth(connectionName, connectionFontSize) / 2,
+                                      maxX: midX + estimateTextWidth(connectionName, connectionFontSize) / 2,
+                                      minY: midY - connectionFontSize * 1.1 / 2,
+                                      maxY: midY + connectionFontSize * 1.1 / 2,
                                     };
                                     const stabilized = stabilizeLabelPosition(edge.id, midX, midY, angle);
                                     placedLabelsRef.current.set(edge.id, {
@@ -9247,7 +9260,7 @@ function NodeCanvas() {
                                   angle = stabilized.angle || 0;
                                 } else {
                                   const pathPoints = generateCleanRoutingPath(edge, sourceNode, destNode, sNodeDims, eNodeDims, cleanLaneOffsets, cleanLaneSpacing);
-                                  const placement = chooseLabelPlacement(pathPoints, connectionName, nodes, visibleNodeIds, baseDimsById, placedLabelsRef.current, 24, edge.id);
+                                  const placement = chooseLabelPlacement(pathPoints, connectionName, nodes, visibleNodeIds, baseDimsById, placedLabelsRef.current, connectionFontSize, edge.id);
                                   if (placement) {
                                     midX = placement.x;
                                     midY = placement.y;
@@ -9255,10 +9268,10 @@ function NodeCanvas() {
 
                                     // Register this label placement
                                     const labelRect = {
-                                      minX: midX - estimateTextWidth(connectionName, 24) / 2,
-                                      maxX: midX + estimateTextWidth(connectionName, 24) / 2,
-                                      minY: midY - 24 * 1.1 / 2,
-                                      maxY: midY + 24 * 1.1 / 2,
+                                      minX: midX - estimateTextWidth(connectionName, connectionFontSize) / 2,
+                                      maxX: midX + estimateTextWidth(connectionName, connectionFontSize) / 2,
+                                      minY: midY - connectionFontSize * 1.1 / 2,
+                                      maxY: midY + connectionFontSize * 1.1 / 2,
                                     };
                                     const stabilized = stabilizeLabelPosition(edge.id, midX, midY, angle);
                                     placedLabelsRef.current.set(edge.id, {
@@ -9285,7 +9298,7 @@ function NodeCanvas() {
                                     x={midX}
                                     y={midY}
                                     fill={getTextColor(edgeColor)}
-                                    fontSize="24"
+                                    fontSize={connectionFontSize}
                                     fontWeight="bold"
                                     textAnchor="middle"
                                     dominantBaseline="middle"
@@ -10375,6 +10388,7 @@ function NodeCanvas() {
 
                             {/* Connection name text - only show when enabled */}
                             {showConnectionNames && (() => {
+                              const connectionFontSize = 24 * (textSettings?.fontSize || 1);
                               let midX;
                               let midY;
                               let angle;
@@ -10422,7 +10436,7 @@ function NodeCanvas() {
                                   angle = stabilized.angle || 0;
                                 } else {
                                   const pathPoints = generateManhattanRoutingPath(edge, sourceNode, destNode, sNodeDims, eNodeDims, manhattanBends);
-                                  const placement = chooseLabelPlacement(pathPoints, connectionName, nodes, visibleNodeIds, baseDimsById, placedLabelsRef.current, 24, edge.id);
+                                  const placement = chooseLabelPlacement(pathPoints, connectionName, nodes, visibleNodeIds, baseDimsById, placedLabelsRef.current, connectionFontSize, edge.id);
                                   if (placement) {
                                     midX = placement.x;
                                     midY = placement.y;
@@ -10430,10 +10444,10 @@ function NodeCanvas() {
 
                                     // Register this label placement
                                     const labelRect = {
-                                      minX: midX - estimateTextWidth(connectionName, 24) / 2,
-                                      maxX: midX + estimateTextWidth(connectionName, 24) / 2,
-                                      minY: midY - 24 * 1.1 / 2,
-                                      maxY: midY + 24 * 1.1 / 2,
+                                      minX: midX - estimateTextWidth(connectionName, connectionFontSize) / 2,
+                                      maxX: midX + estimateTextWidth(connectionName, connectionFontSize) / 2,
+                                      minY: midY - connectionFontSize * 1.1 / 2,
+                                      maxY: midY + connectionFontSize * 1.1 / 2,
                                     };
                                     const stabilized = stabilizeLabelPosition(edge.id, midX, midY, angle);
                                     placedLabelsRef.current.set(edge.id, {
@@ -10465,7 +10479,7 @@ function NodeCanvas() {
                                   angle = stabilized.angle || 0;
                                 } else {
                                   const pathPoints = generateCleanRoutingPath(edge, sourceNode, destNode, sNodeDims, eNodeDims, cleanLaneOffsets, cleanLaneSpacing);
-                                  const placement = chooseLabelPlacement(pathPoints, connectionName, nodes, visibleNodeIds, baseDimsById, placedLabelsRef.current, 24, edge.id);
+                                  const placement = chooseLabelPlacement(pathPoints, connectionName, nodes, visibleNodeIds, baseDimsById, placedLabelsRef.current, connectionFontSize, edge.id);
                                   if (placement) {
                                     midX = placement.x;
                                     midY = placement.y;
@@ -10473,10 +10487,10 @@ function NodeCanvas() {
 
                                     // Register this label placement
                                     const labelRect = {
-                                      minX: midX - estimateTextWidth(connectionName, 24) / 2,
-                                      maxX: midX + estimateTextWidth(connectionName, 24) / 2,
-                                      minY: midY - 24 * 1.1 / 2,
-                                      maxY: midY + 24 * 1.1 / 2,
+                                      minX: midX - estimateTextWidth(connectionName, connectionFontSize) / 2,
+                                      maxX: midX + estimateTextWidth(connectionName, connectionFontSize) / 2,
+                                      minY: midY - connectionFontSize * 1.1 / 2,
+                                      maxY: midY + connectionFontSize * 1.1 / 2,
                                     };
                                     const stabilized = stabilizeLabelPosition(edge.id, midX, midY, angle);
                                     placedLabelsRef.current.set(edge.id, {
@@ -10503,7 +10517,7 @@ function NodeCanvas() {
                                     x={midX}
                                     y={midY}
                                     fill={getTextColor(edgeColor)}
-                                    fontSize="24"
+                                    fontSize={connectionFontSize}
                                     fontWeight="bold"
                                     textAnchor="middle"
                                     dominantBaseline="middle"
@@ -11841,151 +11855,165 @@ function NodeCanvas() {
       <SaveStatusDisplay />
 
       {/* NodeControlPanel Component - with animation */}
-      {(nodeControlPanelShouldShow || nodeControlPanelVisible) && (
-        <NodeControlPanel
-          selectedNodePrototypes={nodePrototypesForPanel}
-          isVisible={nodeControlPanelVisible}
-          typeListOpen={typeListMode !== 'closed'}
-          onAnimationComplete={handleNodeControlPanelAnimationComplete}
-          onDelete={handleNodePanelDelete}
-          onAdd={handleNodePanelAdd}
-          onUp={handleNodePanelUp}
-          onOpenInPanel={handleNodePanelOpenInPanel}
-          onDecompose={handleNodePanelDecompose}
-          onAbstraction={handleNodePanelAbstraction}
-          onEdit={handleNodePanelEdit}
-          onSave={handleNodePanelSave}
-          onPalette={handleNodePanelPalette}
-          onMore={handleNodePanelMore}
-          onGroup={handleNodePanelGroup}
-          hasLeftNav={false}
-          hasRightNav={false}
-          onActionHoverChange={handlePieMenuHoverChange}
-        />
-      )}
+      {
+        (nodeControlPanelShouldShow || nodeControlPanelVisible) && (
+          <NodeControlPanel
+            selectedNodePrototypes={nodePrototypesForPanel}
+            isVisible={nodeControlPanelVisible}
+            typeListOpen={typeListMode !== 'closed'}
+            onAnimationComplete={handleNodeControlPanelAnimationComplete}
+            onDelete={handleNodePanelDelete}
+            onAdd={handleNodePanelAdd}
+            onUp={handleNodePanelUp}
+            onOpenInPanel={handleNodePanelOpenInPanel}
+            onDecompose={handleNodePanelDecompose}
+            onAbstraction={handleNodePanelAbstraction}
+            onEdit={handleNodePanelEdit}
+            onSave={handleNodePanelSave}
+            onPalette={handleNodePanelPalette}
+            onMore={handleNodePanelMore}
+            onGroup={handleNodePanelGroup}
+            hasLeftNav={false}
+            hasRightNav={false}
+            onActionHoverChange={handlePieMenuHoverChange}
+          />
+        )
+      }
 
       {/* GroupControlPanel Component - with animation */}
-      {(groupControlPanelShouldShow || groupControlPanelVisible) && (
-        <UnifiedBottomControlPanel
-          mode={groupPanelMode}
-          isVisible={groupControlPanelVisible}
-          typeListOpen={typeListMode !== 'closed'}
-          onAnimationComplete={handleGroupControlPanelAnimationComplete}
-          selectedGroup={groupPanelTarget}
-          onUngroup={handleGroupPanelUngroup}
-          onGroupEdit={handleGroupPanelEdit}
-          onGroupColor={handleGroupPanelColor}
-          onConvertToNodeGroup={handleGroupPanelConvertToNodeGroup}
-          onDiveIntoDefinition={handleNodeGroupDiveIntoDefinition}
-          onOpenNodePrototypeInPanel={handleNodeGroupOpenInPanel}
-          onCombineNodeGroup={handleNodeGroupCombine}
-          onActionHoverChange={handlePieMenuHoverChange}
-        />
-      )}
+      {
+        (groupControlPanelShouldShow || groupControlPanelVisible) && (
+          <UnifiedBottomControlPanel
+            mode={groupPanelMode}
+            isVisible={groupControlPanelVisible}
+            typeListOpen={typeListMode !== 'closed'}
+            onAnimationComplete={handleGroupControlPanelAnimationComplete}
+            selectedGroup={groupPanelTarget}
+            onUngroup={handleGroupPanelUngroup}
+            onGroupEdit={handleGroupPanelEdit}
+            onGroupColor={handleGroupPanelColor}
+            onConvertToNodeGroup={handleGroupPanelConvertToNodeGroup}
+            onDiveIntoDefinition={handleNodeGroupDiveIntoDefinition}
+            onOpenNodePrototypeInPanel={handleNodeGroupOpenInPanel}
+            onCombineNodeGroup={handleNodeGroupCombine}
+            onActionHoverChange={handlePieMenuHoverChange}
+          />
+        )
+      }
 
       {/* ConnectionControlPanel Component - with animation */}
-      {(connectionControlPanelShouldShow || connectionControlPanelVisible) && (
-        <ConnectionControlPanel
-          selectedEdge={edgesMap.get(selectedEdgeId)}
-          selectedEdges={Array.from(selectedEdgeIds).map(id => edgesMap.get(id)).filter(Boolean)}
-          isVisible={connectionControlPanelVisible}
-          typeListOpen={typeListMode !== 'closed'}
-          onAnimationComplete={handleConnectionControlPanelAnimationComplete}
-          onClose={() => {
-            storeActions.setSelectedEdgeId(null);
-            storeActions.setSelectedEdgeIds(new Set());
-          }}
-          onOpenConnectionDialog={(edgeId) => {
-            setConnectionNamePrompt({ visible: true, name: '', color: CONNECTION_DEFAULT_COLOR, edgeId });
-          }}
-          onStartHurtleAnimationFromPanel={startHurtleAnimationFromPanel}
-          onActionHoverChange={handlePieMenuHoverChange}
-        />
-      )}
+      {
+        (connectionControlPanelShouldShow || connectionControlPanelVisible) && (
+          <ConnectionControlPanel
+            selectedEdge={edgesMap.get(selectedEdgeId)}
+            selectedEdges={Array.from(selectedEdgeIds).map(id => edgesMap.get(id)).filter(Boolean)}
+            isVisible={connectionControlPanelVisible}
+            typeListOpen={typeListMode !== 'closed'}
+            onAnimationComplete={handleConnectionControlPanelAnimationComplete}
+            onClose={() => {
+              storeActions.setSelectedEdgeId(null);
+              storeActions.setSelectedEdgeIds(new Set());
+            }}
+            onOpenConnectionDialog={(edgeId) => {
+              setConnectionNamePrompt({ visible: true, name: '', color: CONNECTION_DEFAULT_COLOR, edgeId });
+            }}
+            onStartHurtleAnimationFromPanel={startHurtleAnimationFromPanel}
+            onActionHoverChange={handlePieMenuHoverChange}
+          />
+        )
+      }
 
       {/* AbstractionControlPanel Component - with animation */}
-      {(abstractionControlPanelShouldShow || abstractionControlPanelVisible) && (
-        <AbstractionControlPanel
-          selectedNode={abstractionCarouselNode}
-          currentDimension={currentAbstractionDimension}
-          availableDimensions={abstractionDimensions}
-          onDimensionChange={handleAbstractionDimensionChange}
-          onAddDimension={handleAddAbstractionDimension}
-          onDeleteDimension={handleDeleteAbstractionDimension}
-          onExpandDimension={handleExpandAbstractionDimension}
-          typeListOpen={typeListMode !== 'closed'}
-          isVisible={abstractionControlPanelVisible}
-          onAnimationComplete={handleAbstractionControlPanelAnimationComplete}
-          onActionHoverChange={handlePieMenuHoverChange}
-        />
-      )}
+      {
+        (abstractionControlPanelShouldShow || abstractionControlPanelVisible) && (
+          <AbstractionControlPanel
+            selectedNode={abstractionCarouselNode}
+            currentDimension={currentAbstractionDimension}
+            availableDimensions={abstractionDimensions}
+            onDimensionChange={handleAbstractionDimensionChange}
+            onAddDimension={handleAddAbstractionDimension}
+            onDeleteDimension={handleDeleteAbstractionDimension}
+            onExpandDimension={handleExpandAbstractionDimension}
+            typeListOpen={typeListMode !== 'closed'}
+            isVisible={abstractionControlPanelVisible}
+            onAnimationComplete={handleAbstractionControlPanelAnimationComplete}
+            onActionHoverChange={handlePieMenuHoverChange}
+          />
+        )
+      }
 
       {/* AbstractionCarousel Component */}
-      {abstractionCarouselVisible && abstractionCarouselNode && (
-        <AbstractionCarousel
-          isVisible={abstractionCarouselVisible}
-          selectedNode={abstractionCarouselNode}
-          panOffset={panOffset}
-          zoomLevel={zoomLevel}
-          containerRef={containerRef}
-          canvasSize={canvasSize}
-          debugMode={debugMode}
-          animationState={carouselAnimationState}
-          onAnimationStateChange={onCarouselAnimationStateChange}
-          onClose={onCarouselClose}
-          onReplaceNode={onCarouselReplaceNode}
-          onScaleChange={setCarouselFocusedNodeScale}
-          onFocusedNodeDimensions={setCarouselFocusedNodeDimensions}
-          onFocusedNodeChange={setCarouselFocusedNode}
-          onExitAnimationComplete={onCarouselExitAnimationComplete}
-          relativeMoveRequest={carouselRelativeMoveRequest}
-          onRelativeMoveHandled={() => setCarouselRelativeMoveRequest(null)}
-          currentDimension={currentAbstractionDimension}
-          availableDimensions={abstractionDimensions}
-          onDimensionChange={handleAbstractionDimensionChange}
-          onAddDimension={handleAddAbstractionDimension}
-          onDeleteDimension={handleDeleteAbstractionDimension}
-          onExpandDimension={handleExpandAbstractionDimension}
-          onOpenInPanel={() => {
-            // Open the abstraction control panel when user wants to open in panel
-            setAbstractionControlPanelVisible(true);
-          }}
-        />
-      )}
+      {
+        abstractionCarouselVisible && abstractionCarouselNode && (
+          <AbstractionCarousel
+            isVisible={abstractionCarouselVisible}
+            selectedNode={abstractionCarouselNode}
+            panOffset={panOffset}
+            zoomLevel={zoomLevel}
+            containerRef={containerRef}
+            canvasSize={canvasSize}
+            debugMode={debugMode}
+            animationState={carouselAnimationState}
+            onAnimationStateChange={onCarouselAnimationStateChange}
+            onClose={onCarouselClose}
+            onReplaceNode={onCarouselReplaceNode}
+            onScaleChange={setCarouselFocusedNodeScale}
+            onFocusedNodeDimensions={setCarouselFocusedNodeDimensions}
+            onFocusedNodeChange={setCarouselFocusedNode}
+            onExitAnimationComplete={onCarouselExitAnimationComplete}
+            relativeMoveRequest={carouselRelativeMoveRequest}
+            onRelativeMoveHandled={() => setCarouselRelativeMoveRequest(null)}
+            currentDimension={currentAbstractionDimension}
+            availableDimensions={abstractionDimensions}
+            onDimensionChange={handleAbstractionDimensionChange}
+            onAddDimension={handleAddAbstractionDimension}
+            onDeleteDimension={handleDeleteAbstractionDimension}
+            onExpandDimension={handleExpandAbstractionDimension}
+            onOpenInPanel={() => {
+              // Open the abstraction control panel when user wants to open in panel
+              setAbstractionControlPanelVisible(true);
+            }}
+          />
+        )
+      }
 
       {/* Dialog Color Picker Component */}
-      {dialogColorPickerVisible && (
-        <ColorPicker
-          isVisible={dialogColorPickerVisible}
-          onClose={handleDialogColorPickerClose}
-          onColorChange={handleDialogColorChange}
-          currentColor={
-            colorPickerTarget?.type === 'group'
-              ? (selectedGroup?.color || 'maroon')
-              : (nodeNamePrompt.visible
-                ? (nodeNamePrompt.color || NODE_DEFAULT_COLOR)
-                : (connectionNamePrompt.color || NODE_DEFAULT_COLOR))
-          }
-          position={dialogColorPickerPosition}
-          direction="down-left"
-          parentContainerRef={dialogContainerRef}
-        />
-      )}
+      {
+        dialogColorPickerVisible && (
+          <ColorPicker
+            isVisible={dialogColorPickerVisible}
+            onClose={handleDialogColorPickerClose}
+            onColorChange={handleDialogColorChange}
+            currentColor={
+              colorPickerTarget?.type === 'group'
+                ? (selectedGroup?.color || 'maroon')
+                : (nodeNamePrompt.visible
+                  ? (nodeNamePrompt.color || NODE_DEFAULT_COLOR)
+                  : (connectionNamePrompt.color || NODE_DEFAULT_COLOR))
+            }
+            position={dialogColorPickerPosition}
+            direction="down-left"
+            parentContainerRef={dialogContainerRef}
+          />
+        )
+      }
 
       {/* Pie Menu Color Picker Component */}
-      {pieMenuColorPickerVisible && activePieMenuColorNodeId && (
-        <ColorPicker
-          isVisible={pieMenuColorPickerVisible}
-          onClose={handlePieMenuColorPickerClose}
-          onColorChange={handlePieMenuColorChange}
-          currentColor={(() => {
-            const node = nodes.find(n => n.id === activePieMenuColorNodeId);
-            return node?.color || 'maroon';
-          })()}
-          position={pieMenuColorPickerPosition}
-          direction="down-left"
-        />
-      )}
+      {
+        pieMenuColorPickerVisible && activePieMenuColorNodeId && (
+          <ColorPicker
+            isVisible={pieMenuColorPickerVisible}
+            onClose={handlePieMenuColorPickerClose}
+            onColorChange={handlePieMenuColorChange}
+            currentColor={(() => {
+              const node = nodes.find(n => n.id === activePieMenuColorNodeId);
+              return node?.color || 'maroon';
+            })()}
+            position={pieMenuColorPickerPosition}
+            direction="down-left"
+          />
+        )
+      }
 
 
 
@@ -12137,40 +12165,42 @@ function NodeCanvas() {
       />
 
       {/* Add to Group Dialog */}
-      {addToGroupDialog && (
-        <CanvasConfirmDialog
-          isOpen={true}
-          onClose={() => setAddToGroupDialog(null)}
-          onConfirm={() => {
-            // Add all dragged nodes to the group
-            if (activeGraphId && addToGroupDialog.groupId && addToGroupDialog.nodeIds) {
-              storeActions.updateGroup(
-                activeGraphId,
-                addToGroupDialog.groupId,
-                (draft) => {
-                  // Add each node to the group if not already a member
-                  addToGroupDialog.nodeIds.forEach(nodeId => {
-                    if (!draft.memberInstanceIds.includes(nodeId)) {
-                      draft.memberInstanceIds.push(nodeId);
-                    }
-                  });
-                }
-              );
-              console.log(`Added ${addToGroupDialog.nodeIds.length} node(s) to ${addToGroupDialog.isNodeGroup ? 'Thing' : 'group'} "${addToGroupDialog.groupName}"`);
-            }
-            setAddToGroupDialog(null);
-          }}
-          title={`Add to ${addToGroupDialog.isNodeGroup ? 'Thing' : 'Group'}?`}
-          message={`Add ${addToGroupDialog.nodeIds.length > 1 ? `${addToGroupDialog.nodeIds.length} nodes` : 'this node'} to ${addToGroupDialog.isNodeGroup ? 'the Thing' : 'the group'} "${addToGroupDialog.groupName}"?`}
-          confirmLabel="Add"
-          cancelLabel="Cancel"
-          variant="default"
-          position={addToGroupDialog.position}
-          containerRect={containerRef.current?.getBoundingClientRect()}
-          panOffset={panOffset}
-          zoomLevel={zoomLevel}
-        />
-      )}
+      {
+        addToGroupDialog && (
+          <CanvasConfirmDialog
+            isOpen={true}
+            onClose={() => setAddToGroupDialog(null)}
+            onConfirm={() => {
+              // Add all dragged nodes to the group
+              if (activeGraphId && addToGroupDialog.groupId && addToGroupDialog.nodeIds) {
+                storeActions.updateGroup(
+                  activeGraphId,
+                  addToGroupDialog.groupId,
+                  (draft) => {
+                    // Add each node to the group if not already a member
+                    addToGroupDialog.nodeIds.forEach(nodeId => {
+                      if (!draft.memberInstanceIds.includes(nodeId)) {
+                        draft.memberInstanceIds.push(nodeId);
+                      }
+                    });
+                  }
+                );
+                console.log(`Added ${addToGroupDialog.nodeIds.length} node(s) to ${addToGroupDialog.isNodeGroup ? 'Thing' : 'group'} "${addToGroupDialog.groupName}"`);
+              }
+              setAddToGroupDialog(null);
+            }}
+            title={`Add to ${addToGroupDialog.isNodeGroup ? 'Thing' : 'Group'}?`}
+            message={`Add ${addToGroupDialog.nodeIds.length > 1 ? `${addToGroupDialog.nodeIds.length} nodes` : 'this node'} to ${addToGroupDialog.isNodeGroup ? 'the Thing' : 'the group'} "${addToGroupDialog.groupName}"?`}
+            confirmLabel="Add"
+            cancelLabel="Cancel"
+            variant="default"
+            position={addToGroupDialog.position}
+            containerRect={containerRef.current?.getBoundingClientRect()}
+            panOffset={panOffset}
+            zoomLevel={zoomLevel}
+          />
+        )
+      }
 
       {/* Auto Graph Generation Modal */}
       <AutoGraphModal
@@ -12274,7 +12304,7 @@ function NodeCanvas() {
       />
 
       {/* <div>NodeCanvas Simplified - Testing Loop</div> */}
-    </div>
+    </div >
   );
 }
 

@@ -95,7 +95,8 @@ export default function EdgeRenderer({
   NODE_HEIGHT,
   nodePrototypesMap,
   edgePrototypesMap,
-  NODE_DEFAULT_COLOR
+  NODE_DEFAULT_COLOR,
+  connectionFontSize = 24
 }) {
   // Calculate parallel edge path if needed
   const parallelPath = calculateParallelEdgePath(startX, startY, endX, endY, curveInfo);
@@ -197,13 +198,13 @@ export default function EdgeRenderer({
             x={useCurve ? parallelPath.apexX : midX}
             y={useCurve ? parallelPath.apexY : midY}
             fill={getTextColor(edgeColor || '#800000')}
-            fontSize="24"
+            fontSize={connectionFontSize}
             fontWeight="bold"
             textAnchor="middle"
             dominantBaseline="middle"
             transform={`rotate(${angle > 90 || angle < -90 ? angle + 180 : angle}, ${useCurve ? parallelPath.apexX : midX}, ${useCurve ? parallelPath.apexY : midY})`}
             stroke={edgeColor}
-            strokeWidth="6"
+            strokeWidth={Math.max(2, connectionFontSize * 0.25)}
             strokeLinecap="round"
             strokeLinejoin="round"
             paintOrder="stroke fill"
