@@ -6,34 +6,41 @@
  * @returns {string} Human-readable description
  */
 export function generateDescription(context, state) {
-    const { type, prototypeId, graphId, nodeCount, groupName, prototypeName, sourceName, targetName } = context;
+    const { type, prototypeId, graphId, nodeCount, groupName, prototypeName, sourceName, targetName, isWizard } = context;
 
+    let desc = '';
     switch (type) {
         // Node Actions
         case 'node_place': {
             const proto = state.nodePrototypes?.get(prototypeId);
-            return `Added "${proto?.name || 'node'}" to canvas`;
+            desc = `Added "${proto?.name || 'node'}" to canvas`;
+            break;
         }
         case 'node_delete': {
             const proto = state.nodePrototypes?.get(prototypeId);
-            return `Deleted "${proto?.name || 'node'}"`;
+            desc = `Deleted "${proto?.name || 'node'}"`;
+            break;
         }
         case 'node_type_change': {
             const proto = state.nodePrototypes?.get(context.nodeId);
             const typeNode = context.typeNodeId ? state.nodePrototypes?.get(context.typeNodeId) : null;
             const targetName = typeNode?.name || 'Nothing';
-            return `Changed type of "${proto?.name || 'node'}" to "${targetName}"`;
+            desc = `Changed type of "${proto?.name || 'node'}" to "${targetName}"`;
+            break;
         }
 
         // Edge Actions
         case 'edge_create':
-            return `Connected "${sourceName}" → "${targetName}"`;
+            desc = `Connected "${sourceName}" → "${targetName}"`;
+            break;
         case 'edge_delete':
-            return `Deleted connection`;
+            desc = `Deleted connection`;
+            break;
 
         // Group Actions
         case 'group_create':
-            return `Created group "${groupName || 'Group'}"`;
+            desc = `Created group "${groupName || 'Group'}"`;
+            break;
         case 'group_update': {
             // Try to resolve group name
             let name = 'group';
@@ -45,20 +52,24 @@ export function generateDescription(context, state) {
                 const group = graph?.groups?.get(context.groupId);
                 if (group) name = group.name;
             }
-            return `Updated "${name}"`;
+            desc = `Updated "${name}"`;
+            break;
         }
         case 'group_delete':
-            return `Deleted group`;
+            desc = `Deleted group`;
+            break;
 
         // Position updates (usually bulk)
         // Position updates (usually bulk)
         case 'position_update':
         case 'node_position': {
             if (context.groupId) {
-                return `Moved group "${context.groupName || 'Group'}"`;
+                desc = `Moved group "${context.groupName || 'Group'}"`;
+                break;
             }
             if (nodeCount > 1) {
-                return `Moved ${nodeCount} nodes`;
+                desc = `Moved ${nodeCount} nodes`;
+                break;
             }
             // Try to find the single node name if possible
             const targetId = context.nodeId || context.ids?.[0];
@@ -75,43 +86,57 @@ export function generateDescription(context, state) {
                     // Special case: If it's a Node Group, try to get the real group name
                     // (Assuming we can link back or just use proto name which might be the group name if synced)
                     const name = proto?.name || 'node';
-                    return `Moved "${name}"`;
+                    desc = `Moved "${name}"`;
+                    break;
                 }
 
                 // 2. Try finding as Group (if groups can be moved directly and logged as node_position)
                 const group = graph?.groups?.get(targetId);
                 if (group) {
-                    return `Moved group "${group.name}"`;
+                    desc = `Moved group "${group.name}"`;
+                    break;
                 }
 
-                return `Moved item`;
+                desc = `Moved item`;
+                break;
             }
-            return `Moved node`;
+            desc = `Moved node`;
+            break;
         }
 
         // Prototype Actions (Global)
         case 'prototype_create':
-            return `Created type "${prototypeName || 'Type'}"`;
+            desc = `Created type "${prototypeName || 'Type'}"`;
+            break;
         case 'prototype_update': {
             const proto = state.nodePrototypes?.get(prototypeId);
-            return `Updated "${proto?.name || prototypeName || 'Type'}"`;
+            desc = `Updated "${proto?.name || prototypeName || 'Type'}"`;
+            break;
         }
         case 'prototype_delete':
-            return `Deleted type`;
+            desc = `Deleted type`;
+            break;
 
         // Graph Actions (Global)
         case 'graph_create':
-            return `Created graph "${context.graphName || 'Graph'}"`;
+            desc = `Created graph "${context.graphName || 'Graph'}"`;
+            break;
         case 'graph_update': {
             const graph = state.graphs?.get(graphId);
-            return `Updated "${graph?.name || context.graphName || 'Graph'}"`;
+            desc = `Updated "${graph?.name || context.graphName || 'Graph'}"`;
+            break;
         }
         case 'graph_delete':
-            return `Deleted graph`;
+            desc = `Deleted graph`;
+            break;
 
         // Catch-all
         default:
             // Helper to format unknown types: 'some_action_type' -> 'Some action type'
-            return type.replace(/_/g, ' ').replace(/^\w/, c => c.toUpperCase());
+            desc = type.replace(/_/g, ' ').replace(/^\w/, c => c.toUpperCase());
+            break;
     }
+
+    if (isWizard) desc = `Wizard: ${desc}`;
+    return desc;
 }

@@ -1,7 +1,8 @@
 import React, { useState } from 'react';
+import { Undo2 } from 'lucide-react';
 import './ToolCallCard.css';
 
-const ToolCallCard = ({ toolName, status, args, result, error, timestamp, executionTime }) => {
+const ToolCallCard = ({ toolCallId, toolName, status, args, result, error, timestamp, executionTime, isUndone, onUndo }) => {
     const [isExpanded, setIsExpanded] = useState(false);
 
     // Ensure args is an object
@@ -49,13 +50,19 @@ const ToolCallCard = ({ toolName, status, args, result, error, timestamp, execut
 
         if (toolName === 'searchNodes') {
             const count = result.results ? result.results.length : 0;
+            const total = result.total ? ` (${result.total} total)` : '';
             const query = parsedArgs?.query ? ` for "${parsedArgs.query}"` : '';
-            return `Found ${count} matching node(s)${query}`;
+            return `Found ${count} matching node(s)${query}${total}`;
         }
         if (toolName === 'searchConnections') {
             const count = result.results ? result.results.length : 0;
+            const total = result.total ? ` (${result.total} total)` : '';
             const query = parsedArgs?.query ? ` for "${parsedArgs.query}"` : '';
-            return `Found ${count} connection(s)${query}`;
+            return `Found ${count} connection(s)${query}${total}`;
+        }
+        if (toolName === 'readGraph') {
+            if (result.error) return result.error;
+            return result.summary || `Read graph: ${result.nodeCount || 0} node(s), ${result.edgeCount || 0} connection(s)`;
         }
         if (toolName === 'selectNode') {
             if (result.found && result.node) {
@@ -170,7 +177,32 @@ const ToolCallCard = ({ toolName, status, args, result, error, timestamp, execut
                     <div className="tool-header-row">
                         <span className="tool-name">{formatToolName(toolName)}</span>
                         <span className="status-badge">{getStatusText()}</span>
-                        <span className={`expand-icon ${isExpanded ? 'expanded' : ''}`}>▾</span>
+
+                        {/* Undo Controls */}
+                        {status === 'completed' && result && !error && (
+                            <div className="tool-undo-container" style={{ margin: '0 8px 0 auto', display: 'flex', alignItems: 'center' }}>
+                                {isUndone ? (
+                                    <span style={{ fontSize: '11px', opacity: 0.5, fontStyle: 'italic', display: 'flex', alignItems: 'center', gap: '3px' }}><Undo2 size={11} /> Undone</span>
+                                ) : (
+                                    <button
+                                        onClick={(e) => {
+                                            e.stopPropagation();
+                                            if (onUndo && toolCallId) onUndo(toolCallId);
+                                        }}
+                                        style={{
+                                            background: 'transparent', border: '1px solid currentColor', borderRadius: '4px',
+                                            color: 'inherit', fontSize: '11px', padding: '2px 6px', cursor: 'pointer',
+                                            display: 'flex', alignItems: 'center', gap: '4px', opacity: 0.7
+                                        }}
+                                        title="Undo this action"
+                                    >
+                                        <Undo2 size={11} /> Undo
+                                    </button>
+                                )}
+                            </div>
+                        )}
+
+                        <span className={`expand-icon ${isExpanded ? 'expanded' : ''}`} style={{ marginLeft: (status === 'completed' && result && !error) ? '0' : 'auto' }}>▾</span>
                     </div>
                     {getSummaryText() && (
                         <div className="tool-call-summary">{getSummaryText()}</div>
@@ -180,7 +212,56 @@ const ToolCallCard = ({ toolName, status, args, result, error, timestamp, execut
 
             {isExpanded && (
                 <div className="tool-call-details">
+                    {result && toolName === 'readGraph' && result.nodes && (
+                        <div className="detail-section">
+                            <h4>Nodes ({result.nodeCount})</h4>
+                            <ul className="node-list">
+                                {(result.nodes || []).slice(0, 15).map((n, idx) => (
+                                    <li key={idx}>
+                                        <strong>{n.name}</strong>
+                                        {n.description ? ` - ${n.description}` : ''}
+                                    </li>
+                                ))}
+                                {(result.nodes || []).length > 15 && (
+                                    <li className="more-items">... and {result.nodes.length - 15} more</li>
+                                )}
+                            </ul>
+                            {result.edges && result.edges.length > 0 && (
+                                <>
+                                    <h4 style={{ marginTop: '8px' }}>Connections ({result.edgeCount})</h4>
+                                    <ul className="edge-list">
+                                        {result.edges.slice(0, 10).map((e, idx) => (
+                                            <li key={idx}>
+                                                <span>{e.sourceName}</span>
+                                                <span className="edge-arrow">→</span>
+                                                <span>{e.targetName}</span>
+                                                {e.type && <span className="edge-type">({e.type})</span>}
+                                            </li>
+                                        ))}
+                                        {result.edges.length > 10 && (
+                                            <li className="more-items">... and {result.edges.length - 10} more</li>
+                                        )}
+                                    </ul>
+                                </>
+                            )}
+                            {result.groups && result.groups.length > 0 && (
+                                <>
+                                    <h4 style={{ marginTop: '8px' }}>Groups ({result.groupCount})</h4>
+                                    <ul className="group-list">
+                                        {result.groups.map((g, idx) => (
+                                            <li key={idx}>{g.name} ({g.memberCount} members)</li>
+                                        ))}
+                                    </ul>
+                                </>
+                            )}
+                            {result.warning && (
+                                <div style={{ color: '#f0a500', fontSize: '12px', marginTop: '6px' }}>⚠️ {result.warning}</div>
+                            )}
+                        </div>
+                    )}
+
                     {result && result.nodesAdded && result.nodesAdded.length > 0 && (
+
                         <div className="detail-section">
                             <h4>Nodes Created</h4>
                             <ul className="node-list">
@@ -250,7 +331,7 @@ const ToolCallCard = ({ toolName, status, args, result, error, timestamp, execut
                         </div>
                     )}
 
-                    {result && result.results && result.results.length > 0 && (
+                    {result && result.results && result.results.length > 0 && toolName === 'searchNodes' && (
                         <div className="detail-section">
                             <h4>Matching Nodes</h4>
                             <ul className="node-list">
@@ -258,6 +339,22 @@ const ToolCallCard = ({ toolName, status, args, result, error, timestamp, execut
                                     <li key={idx}>
                                         <strong>{r.name}</strong>
                                         {r.description ? ` - ${r.description}` : ''}
+                                    </li>
+                                ))}
+                            </ul>
+                        </div>
+                    )}
+
+                    {result && result.results && result.results.length > 0 && toolName === 'searchConnections' && (
+                        <div className="detail-section">
+                            <h4>Matching Connections</h4>
+                            <ul className="edge-list">
+                                {result.results.map((r, idx) => (
+                                    <li key={idx}>
+                                        <span>{r.sourceName}</span>
+                                        <span className="edge-arrow">→</span>
+                                        <span>{r.targetName}</span>
+                                        {r.type && <span className="edge-type">({r.type})</span>}
                                     </li>
                                 ))}
                             </ul>

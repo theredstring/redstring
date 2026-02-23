@@ -222,13 +222,18 @@ async function enrichMultipleNodes(nodeNames, graphId) {
  * Apply wizard tool results to the store
  * This bridges the gap between server-side tool execution and client-side store
  */
-function applyToolResultToStore(toolName, result) {
+function applyToolResultToStore(toolName, result, toolCallId) {
   console.log('[Wizard] applyToolResultToStore called:', toolName, 'action:', result?.action, 'hasSpec:', !!result?.spec);
   if (!result || result.error) {
     console.warn('[Wizard] applyToolResultToStore: skipping — no result or error:', result?.error);
     return;
   }
   const store = useGraphStore.getState();
+
+  // Set context for the history stream
+  if (toolCallId) {
+    store.setChangeContext({ type: 'wizard_action', target: 'wizard', actionId: toolCallId, isWizard: true });
+  }
 
   // Handle createGraph (empty graph)
   if (result.action === 'createGraph') {
@@ -1147,7 +1152,7 @@ const LeftAIView = ({ compact = false,
     });
   };
 
-  // Simple markdown renderer for chat messages (supports *, **, ***)
+  // Simple markdown renderer for chat messages
   const renderMarkdown = (text) => {
     if (!text) return text;
 
@@ -1162,6 +1167,20 @@ const LeftAIView = ({ compact = false,
     // Escape any HTML first to avoid injection when we swap in tags below
     let html = escapeHtml(text);
 
+    // Code blocks
+    html = html.replace(/```([\s\S]*?)```/g, '<pre style="background:rgba(0,0,0,0.1);padding:8px;border-radius:4px;overflow-x:auto;"><code>$1</code></pre>');
+    // Inline code
+    html = html.replace(/`([^`]+)`/g, '<code style="background:rgba(0,0,0,0.1);padding:2px 4px;border-radius:3px;">$1</code>');
+
+    // Headers
+    html = html.replace(/^#### (.*$)/gim, '<h4 style="margin:10px 0 6px;font-size:1.05em;font-weight:600;">$1</h4>');
+    html = html.replace(/^### (.*$)/gim, '<h3 style="margin:12px 0 8px;font-size:1.15em;font-weight:600;">$1</h3>');
+    html = html.replace(/^## (.*$)/gim, '<h2 style="margin:14px 0 8px;font-size:1.25em;font-weight:700;">$1</h2>');
+    html = html.replace(/^# (.*$)/gim, '<h1 style="margin:16px 0 8px;font-size:1.4em;font-weight:700;">$1</h1>');
+
+    // Horizontal Rule
+    html = html.replace(/^---$/gim, '<hr style="border:0;border-top:1px solid rgba(0,0,0,0.1);margin:8px 0;">');
+
     // ***bold+italic***
     html = html.replace(/\*\*\*(.+?)\*\*\*/g, '<strong><em>$1</em></strong>');
     // **bold**
@@ -1169,8 +1188,26 @@ const LeftAIView = ({ compact = false,
     // *italic*
     html = html.replace(/\*(.+?)\*/g, '<em>$1</em>');
 
-    // Replace newlines with <br> for layout consistency
-    html = html.replace(/\n/g, '<br>');
+    // Unordered Lists - added margin-bottom for better spacing within the list
+    html = html.replace(/^\s*-\s+(.*)$/gim, '<li style="margin-left:20px;margin-bottom:4px;">$1</li>');
+
+    // Wrap consecutive <li> elements in <ul> - regex now safely catches trailing newlines
+    html = html.replace(/(?:<li[^>]*>.*?<\/li>\s*)+/g, (match) => {
+      // Remove any spurious newlines inside the match to prevent them becoming <br> inside ul
+      const cleanMatch = match.replace(/\n\s*</g, '<');
+      return `<ul style="margin:4px 0;padding:0;list-style-type:disc;">${cleanMatch}</ul>`;
+    });
+
+    // Remove empty newlines right after block-level tags so they don't turn into excessive <br>'s
+    html = html.replace(/<\/(ul|h1|h2|h3|h4)>\n+/g, '</$1>');
+    html = html.replace(/\n+<(ul|h1|h2|h3|h4)/g, '<$1');
+    html = html.replace(/<hr.*?>\n+/g, '<hr style="border:0;border-top:1px solid rgba(0,0,0,0.1);margin:8px 0;">');
+
+    // Replace remaining newlines with <br> for layout consistency (skip inside pre/ul tags)
+    html = html.split(/(<pre[\s\S]*?<\/pre>|<ul[\s\S]*?<\/ul>)/i).map(part => {
+      if (part.startsWith('<pre') || part.startsWith('<ul')) return part;
+      return part.replace(/\n/g, '<br>');
+    }).join('');
 
     return html;
   };
@@ -1224,8 +1261,17 @@ const LeftAIView = ({ compact = false,
             error: t.error,
             executionTime: t.executionTime,
             timestamp: t.ts,
-            cid: t.cid
+            cid: t.cid,
+            isUndone: t.isUndone || false
           });
+
+          // When tool completes successfully with a result, apply it to the store
+          // Note: Telemetry events for completed tool calls send the result back
+          if (status === 'completed' && t.result) {
+            // Check if it's already been applied (e.g. via direct execute API vs telemetry)
+            // LeftAIView handles tool execution natively via bridgeFetch or handles telemetry
+            // We'll rely on handleAutonomousAgent applying direct results OR telemetry
+          }
           return;
         }
         if (t.type === 'agent_queued') {
@@ -1675,7 +1721,7 @@ const LeftAIView = ({ compact = false,
                 // Apply tool results to store OUTSIDE the state updater
                 // to avoid double-execution in React StrictMode
                 if (event.type === 'tool_result') {
-                  applyToolResultToStore(event.name, event.result);
+                  applyToolResultToStore(event.name, event.result, event.id || event.toolCallId);
                 }
 
                 // Update streaming message based on event type
@@ -2205,6 +2251,7 @@ const LeftAIView = ({ compact = false,
                       {message.toolCalls.map((toolCall, index) => (
                         <ToolCallCard
                           key={index}
+                          toolCallId={toolCall.id}
                           toolName={toolCall.name}
                           status={toolCall.status || 'running'}
                           args={toolCall.args}
@@ -2212,6 +2259,11 @@ const LeftAIView = ({ compact = false,
                           error={toolCall.error}
                           timestamp={toolCall.timestamp}
                           executionTime={toolCall.executionTime}
+                          isUndone={toolCall.isUndone}
+                          onUndo={(id) => {
+                            useGraphStore.getState().revertWizardAction(id);
+                            upsertToolCall({ id, isUndone: true });
+                          }}
                         />
                       ))}
                     </div>

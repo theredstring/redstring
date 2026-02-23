@@ -87,21 +87,27 @@ Remove a connection.
 - \`targetName\` (optional): Name of the target node (fuzzy matched)
 - At least \`edgeId\` or \`sourceName\`/\`targetName\` must be provided
 
-### searchNodes
-Search for nodes in the active graph using natural language queries.
-- \`query\` (required): Search terms - can be a name, keyword, or general term
-- Returns matching nodes ranked by relevance with their IDs
-- Supports fuzzy matching: \`"lobe"\` will find "Frontal Lobe", "Temporal Lobe", etc.
-- Use individual words for broad searches (e.g., \`"memory"\` not \`"memory and emotion"\`)
-- **When to use**: Finding node IDs for \`createEdge\`, \`updateNode\`, or \`getNodeContext\`
-- **When NOT to use**: If you want to ADD new content, use \`expandGraph\` directly instead
+### readGraph ⭐ (use this first)
+Read the **full active graph** — all nodes (name, description, color, id), all connections (source → target, type), and all groups. No parameters needed.
+- **Always call this first** when asked to review, audit, or edit an existing graph.
+- If the graph is very large the response will include a \`warning\` field — in that case fall back to \`searchNodes\` or \`searchConnections\`.
+- **When to use**: Any time you need to understand what's already in the graph before making changes.
+- **When NOT to use**: Very large graphs (check for \`warning\` in the response).
 
-### searchConnections
-Search for connections/edges in the active graph by type or node names.
-- \`query\` (required): Search terms - can be a connection type (e.g., "contains"), node name, or keyword
-- Returns matching connections with source/target names and types
-- Supports fuzzy matching like searchNodes
-- **When to use**: Finding existing relationships, checking what connections exist
+### searchNodes *(large-graph fallback)*
+Search nodes by keyword when \`readGraph\` returns a size warning.
+- \`query\` (optional): Keyword or name. Omit to page through all nodes.
+- \`limit\` / \`offset\` (optional): Pagination. Response includes \`total\`, \`returned\`, \`hasMore\`.
+- **When to use**: Large graphs where \`readGraph\` warns about size, or targeted lookups to retrieve specific IDs.
+- **When NOT to use**: When you haven't tried \`readGraph\` first on a small/medium graph.
+
+### searchConnections *(large-graph fallback)*
+Search connections by type or node name when \`readGraph\` returns a size warning.
+- \`query\` (optional): Connection type or node name. Omit to page through all.
+- \`limit\` / \`offset\` (optional): Pagination. Response includes \`total\`, \`returned\`, \`hasMore\`.
+- **When to use**: Large graphs where \`readGraph\` warns about size.
+- **When NOT to use**: When you haven't tried \`readGraph\` first.
+
 
 ### selectNode
 Find and select a specific node on the canvas, highlighting it and panning the view to focus on it.
@@ -212,6 +218,20 @@ Collapse a Thing-Group back into a single node.
 | Remove a connection | \`deleteEdge\` | "Remove the link between X and Y" |
 
 **Never use \`expandGraph\` to "fix" or "refine" existing connections.** It only adds — it cannot update or remove. This will create duplicate edges.
+`;
+
+export const REDSTRING_FORMATTING = `
+## Formatting Rules
+
+When you output text to the user, you can use the following supported Markdown features to make your responses highly readable:
+- **Headers**: Use `#`, `##`, `###`, `####` for structural organization.
+- **Lists**: Use `- ` for unordered bullet points.
+- **Bold & Italic**: Use `** bold ** `, ` * italic * `, or ` *** bold - italic *** ` for emphasis.
+- **Inline Code**: Use backticks (`like this`) for technical terms, node names, or tool names.
+- **Code Blocks**: Use triple backticks for raw JSON or long code.
+- **Horizontal Rules**: Use `-- - ` on its own line to create visual separation between sections of your response.
+
+Do NOT use unsupported elements like blockquotes (`> `) or tables, as they may not render perfectly in the chat interface. Keep your formatting clean and structural.
 `;
 
 export const EXAMPLE_FLOWS = `

@@ -8,11 +8,8 @@
 
 export async function searchNodes(args, graphState, cid, ensureSchedulerStarted) {
   const { query } = args;
-  if (!query) {
-    throw new Error('query is required');
-  }
 
-  const { nodePrototypes = [], graphs = [], activeGraphId, edges = [] } = graphState;
+  const { nodePrototypes = [], graphs = [], activeGraphId } = graphState;
 
   // Build a combined node list from prototypes + active graph instances
   // This ensures we find nodes even if prototypes list is incomplete
@@ -60,10 +57,29 @@ export async function searchNodes(args, graphState, cid, ensureSchedulerStarted)
   }
 
   const allNodes = Array.from(nodeMap.values());
+  const totalNodeCount = allNodes.length;
+  const limit = typeof args.limit === 'number' ? args.limit : 100;
+  const offset = typeof args.offset === 'number' ? args.offset : 0;
+
+  if (!query || query.trim() === '') {
+    const page = allNodes.slice(offset, offset + limit);
+    const hasMore = offset + limit < totalNodeCount;
+    return {
+      results: page,
+      total: totalNodeCount,
+      returned: page.length,
+      offset,
+      hasMore,
+      message: hasMore
+        ? `Showing nodes ${offset + 1}–${offset + page.length} of ${totalNodeCount}. Use offset=${offset + limit} to see more.`
+        : `Showing all ${page.length} node(s) in the graph.`
+    };
+  }
 
   if (allNodes.length === 0) {
-    return { results: [], message: 'No nodes found in the current graph.' };
+    return { results: [], total: 0, message: 'No nodes found in the current graph.' };
   }
+
 
   // Split query into individual words for flexible matching
   const queryLower = query.toLowerCase();
@@ -100,7 +116,7 @@ export async function searchNodes(args, graphState, cid, ensureSchedulerStarted)
     return { ...node, score };
   });
 
-  // Filter to nodes with any match, sort by score descending
+  const totalMatched = scored.filter(n => n.score > 0).length;
   const results = scored
     .filter(n => n.score > 0)
     .sort((a, b) => b.score - a.score)
@@ -121,13 +137,23 @@ export async function searchNodes(args, graphState, cid, ensureSchedulerStarted)
       .map(({ similarity, ...node }) => node);
 
     if (fuzzyResults.length > 0) {
-      return { results: fuzzyResults, message: `Found ${fuzzyResults.length} similar node(s) (fuzzy match).` };
+      return { results: fuzzyResults, total: fuzzyResults.length, message: `Found ${fuzzyResults.length} similar node(s) (fuzzy match). Total nodes in graph: ${totalNodeCount}.` };
     }
 
-    return { results: [], message: `No nodes matched "${query}". The active graph has ${allNodes.length} node(s).` };
+    return { results: [], total: 0, message: `No nodes matched "${query}". The active graph has ${totalNodeCount} node(s) total. Try omitting query to browse all nodes.` };
   }
 
-  return { results, message: `Found ${results.length} node(s) matching "${query}".` };
+  const hasMore = totalMatched > results.length;
+  return {
+    results,
+    total: totalNodeCount,
+    matched: totalMatched,
+    returned: results.length,
+    hasMore,
+    message: hasMore
+      ? `Showing top ${results.length} of ${totalMatched} matching node(s) for "${query}". Graph has ${totalNodeCount} nodes total.`
+      : `Found ${results.length} node(s) matching "${query}". Graph has ${totalNodeCount} nodes total.`
+  };
 }
 
 /**

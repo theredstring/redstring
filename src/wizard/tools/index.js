@@ -12,6 +12,7 @@ import { searchNodes } from './searchNodes.js';
 import { searchConnections } from './searchConnections.js';
 import { selectNode } from './selectNode.js';
 import { getNodeContext } from './getNodeContext.js';
+import { readGraph } from './readGraph.js';
 import { createGraph } from './createGraph.js';
 import { expandGraph } from './expandGraph.js';
 import { createPopulatedGraph } from './createPopulatedGraph.js';
@@ -31,6 +32,7 @@ const TOOLS = {
   createEdge,
   updateEdge,
   deleteEdge,
+  readGraph,
   searchNodes,
   searchConnections,
   selectNode,
@@ -151,24 +153,28 @@ export function getToolDefinitions() {
     },
     {
       name: 'searchNodes',
-      description: 'Search for nodes in the active graph using natural language. Supports fuzzy matching - you can use general terms, individual words, or phrases. Returns nodes ranked by relevance. Use this to find nodes before modifying or connecting them.',
+      description: 'Search for nodes in the active graph. Omit query to browse ALL nodes (best for small/medium graphs or when you are unsure what you are looking for). Provide a query to filter by keyword or name. Supports limit/offset for large graphs.',
       parameters: {
         type: 'object',
         properties: {
-          query: { type: 'string', description: 'Search query - can be a name, keyword, or general term (e.g., "frontal", "memory", "cell"). Individual words work best for broad searches.' }
+          query: { type: 'string', description: 'Optional. Search keyword or name. Omit to return all nodes. Individual words work best for broad searches.' },
+          limit: { type: 'number', description: 'Max results to return. Defaults to 100.' },
+          offset: { type: 'number', description: 'Skips this many results for pagination. Use with hasMore=true responses.' }
         },
-        required: ['query']
+        required: []
       }
     },
     {
       name: 'searchConnections',
-      description: 'Search for connections/edges in the active graph by type or node names. Supports fuzzy matching. Use to find existing relationships between nodes.',
+      description: 'Search for connections/edges in the active graph. Omit query to browse ALL connections (best for small/medium graphs or when you are unsure what exists). Provide a query to filter by connection type or node name. Supports limit/offset for large graphs.',
       parameters: {
         type: 'object',
         properties: {
-          query: { type: 'string', description: 'Search query - can be a connection type (e.g., "contains"), node name, or general term (e.g., "love", "parent")' }
+          query: { type: 'string', description: 'Optional. Search keyword - can be a connection type (e.g., "contains") or node name. Omit to return all connections.' },
+          limit: { type: 'number', description: 'Max results to return. Defaults to 100.' },
+          offset: { type: 'number', description: 'Skips this many results for pagination. Use with hasMore=true responses.' }
         },
-        required: ['query']
+        required: []
       }
     },
     {
@@ -193,6 +199,16 @@ export function getToolDefinitions() {
         required: ['nodeId']
       }
     },
+    {
+      name: 'readGraph',
+      description: 'Read the FULL active graph — all nodes (with names, descriptions, colors), all connections (with source, target, type), and all groups. Use this as your first action when asked to audit, review, or modify an existing graph. Faster and more complete than searching. Includes a warning if the graph is very large.',
+      parameters: {
+        type: 'object',
+        properties: {},
+        required: []
+      }
+    },
+
     {
       name: 'createGraph',
       description: 'Create a new graph workspace',

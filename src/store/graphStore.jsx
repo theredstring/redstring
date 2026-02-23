@@ -260,6 +260,9 @@ const saveCoordinatorMiddleware = (config) => {
             historyBatch.descriptions.push(desc);
             historyBatch.actionTypes.add(changeContext.type);
 
+            if (changeContext.actionId) historyBatch.actionId = changeContext.actionId;
+            if (changeContext.isWizard) historyBatch.isWizard = changeContext.isWizard;
+
             // Debounce flush
             if (historyTimeout) clearTimeout(historyTimeout);
             historyTimeout = setTimeout(flushHistoryBatch, 50); // 50ms batch window
@@ -294,7 +297,9 @@ const saveCoordinatorMiddleware = (config) => {
           description: finalDescription,
           patches: [...historyBatch.patches],
           inversePatches: [...historyBatch.inversePatches],
-          timestamp: historyBatch.timestamp
+          timestamp: historyBatch.timestamp,
+          actionId: historyBatch.actionId,
+          isWizard: historyBatch.isWizard
         });
 
         // Reset
@@ -304,7 +309,9 @@ const saveCoordinatorMiddleware = (config) => {
           descriptions: [],
           domain: null,
           actionTypes: new Set(),
-          timestamp: 0
+          timestamp: 0,
+          actionId: null,
+          isWizard: false
         };
         historyTimeout = null;
       }
@@ -4020,6 +4027,25 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
 
     // Apply Immer patches to the state (used by Undo/Redo)
     applyPatches: (patches) => set((state) => applyPatches(state, patches)),
+
+    revertWizardAction: (actionId) => {
+      const historyStore = useHistoryStore.getState();
+      const action = historyStore.history.find(h => h.actionId === actionId);
+
+      if (!action || !action.inversePatches) {
+        console.warn(`[GraphStore] Could not find wizard action ${actionId} to revert`);
+        return;
+      }
+
+      console.log(`[GraphStore] Reverting Wizard Action: ${action.description}`);
+
+      // Push a dedicated history event for reverting
+      api.setChangeContext({ type: 'wizard_revert', target: 'graph', isWizard: true, actionId: `${actionId}_revert` });
+
+      set((state) => {
+        return applyPatches(state, action.inversePatches);
+      });
+    },
 
   }; // End of returned state and actions object
 })); // End of create function with middleware

@@ -43,7 +43,7 @@ const useHistoryStore = create((set, get) => ({
         const action = {
             id: uuidv4(),
             timestamp: Date.now(),
-            ...entry, // This now includes patches, inversePatches, description, etc.
+            ...entry, // This now includes patches, inversePatches, description, actionId, isWizard, etc.
             domain
         };
 

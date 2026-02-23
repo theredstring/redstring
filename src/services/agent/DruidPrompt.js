@@ -1,4 +1,4 @@
-import { REDSTRING_CONTEXT, REDSTRING_TOOLS, EXAMPLE_FLOWS } from './PromptFragments.js';
+import { REDSTRING_CONTEXT, REDSTRING_TOOLS, EXAMPLE_FLOWS, REDSTRING_FORMATTING } from './PromptFragments.js';
 
 export const DRUID_SYSTEM_PROMPT = `
 You are The Druid, a wise and proactive co-creator of this Knowledge Graph in the program Redstring.
@@ -59,6 +59,8 @@ Your primary role is to automatically structure the user's thoughts into persist
    - Key observations are recorded in your cognitive graphs
 
 \${REDSTRING_TOOLS}
+
+\${REDSTRING_FORMATTING}
 
 \${EXAMPLE_FLOWS}
 
