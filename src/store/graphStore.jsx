@@ -2135,7 +2135,74 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
 
           if (sourceId && destId && graph.instances.has(sourceId) && graph.instances.has(destId)) {
             const edgeId = edge.id || uuidv4();
-            if (!draft.edges.has(edgeId)) {
+
+            // DUPLICATE EDGE PREVENTION: Check if an edge already exists between these nodes
+            let existingEdgeId = null;
+            for (const eId of (graph.edgeIds || [])) {
+              const existingEdge = draft.edges.get(eId);
+              if (existingEdge && (
+                (existingEdge.sourceId === sourceId && existingEdge.destinationId === destId) ||
+                (existingEdge.sourceId === destId && existingEdge.destinationId === sourceId)
+              )) {
+                existingEdgeId = eId;
+                break;
+              }
+            }
+
+            if (existingEdgeId) {
+              // Edge already exists — update it instead of creating a duplicate
+              console.warn(`[applyBulkGraphUpdates] DUPLICATE PREVENTED: Edge already exists between "${edge.source}" and "${edge.target}" (${existingEdgeId}). Updating existing edge instead.`);
+              const existingEdge = draft.edges.get(existingEdgeId);
+
+              // Build the new definition info
+              const defNode = edge.definitionNode;
+              const connectionTypeName = toTitleCase(defNode?.name || edge.type || 'Connection');
+              const connectionColor = defNode?.color || edge.color || null;
+              const connectionDescription = defNode?.description || '';
+
+              if (connectionTypeName && connectionTypeName !== 'Connection' && connectionTypeName !== 'Relates To') {
+                let defProtoId = connectionProtoCache.get(connectionTypeName);
+                if (!defProtoId) {
+                  // Check if prototype already exists by name
+                  draft.nodePrototypes.forEach((proto, protoId) => {
+                    if (proto.name?.toLowerCase() === connectionTypeName.toLowerCase()) {
+                      defProtoId = protoId;
+                    }
+                  });
+                  if (!defProtoId) {
+                    defProtoId = `proto-conn-${Date.now()}-${idx}-${Math.random().toString(36).slice(2, 8)}`;
+                    draft.nodePrototypes.set(defProtoId, {
+                      id: defProtoId,
+                      name: connectionTypeName,
+                      description: connectionDescription || `Defines the "${connectionTypeName}" relationship`,
+                      color: connectionColor || generateConnectionColor(connectionTypeName),
+                      typeNodeId: null,
+                      definitionGraphIds: [],
+                      createdAt: new Date().toISOString()
+                    });
+                  }
+                  connectionProtoCache.set(connectionTypeName, defProtoId);
+                }
+                existingEdge.definitionNodeIds = [defProtoId];
+              }
+
+              existingEdge.name = connectionTypeName;
+              existingEdge.type = edge.type || connectionTypeName;
+
+              // Update directionality
+              const dir = edge.directionality || 'unidirectional';
+              if (dir === 'bidirectional') {
+                existingEdge.directionality = { arrowsToward: new Set([sourceId, destId]) };
+              } else if (dir === 'none' || dir === 'undirected') {
+                existingEdge.directionality = { arrowsToward: new Set() };
+              } else if (dir === 'reverse') {
+                existingEdge.directionality = { arrowsToward: new Set([sourceId]) };
+              } else {
+                existingEdge.directionality = { arrowsToward: new Set([destId]) };
+              }
+
+              console.log(`[applyBulkGraphUpdates] Updated existing edge ${existingEdgeId} to type "${connectionTypeName}"`);
+            } else if (!draft.edges.has(edgeId)) {
               // Handle connection definition node - create a prototype for the connection type
               let definitionNodeIds = [];
 

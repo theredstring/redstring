@@ -494,6 +494,123 @@ function applyToolResultToStore(toolName, result) {
     return;
   }
 
+  // Handle replaceEdges — find existing edges and update them, or create new ones
+  if (result.action === 'replaceEdges') {
+    const graphId = result.graphId || store.activeGraphId;
+    console.log('[Wizard] Applying replaceEdges to store:', result.edgeCount, 'replacements');
+    if (!graphId) {
+      console.error('[Wizard] replaceEdges: No active graph ID');
+      return;
+    }
+    const graph = store.graphs.get(graphId);
+    if (!graph) return;
+
+    // Build name → instanceId map
+    const nameToInstId = new Map();
+    for (const [instId, inst] of graph.instances) {
+      const proto = store.nodePrototypes.get(inst.prototypeId);
+      const name = (proto?.name || '').toLowerCase().trim();
+      if (name) nameToInstId.set(name, instId);
+    }
+
+    const newEdges = []; // Edges to create (no existing edge found)
+
+    for (const replacement of (result.replacements || [])) {
+      const srcLower = (replacement.source || '').toLowerCase().trim();
+      const tgtLower = (replacement.target || '').toLowerCase().trim();
+      const srcInstId = nameToInstId.get(srcLower);
+      const tgtInstId = nameToInstId.get(tgtLower);
+
+      if (!srcInstId || !tgtInstId) {
+        console.warn('[Wizard] replaceEdges: Could not resolve:', replacement.source, '→', replacement.target);
+        continue;
+      }
+
+      // Find existing edge between these nodes
+      let existingEdgeId = null;
+      for (const edgeId of (graph.edgeIds || [])) {
+        const edge = store.edges.get(edgeId);
+        if (edge && (
+          (edge.sourceId === srcInstId && edge.destinationId === tgtInstId) ||
+          (edge.sourceId === tgtInstId && edge.destinationId === srcInstId)
+        )) {
+          existingEdgeId = edgeId;
+          break;
+        }
+      }
+
+      if (existingEdgeId) {
+        // Update the existing edge's type
+        const typeName = replacement.type || 'Connection';
+
+        // Find or create the connection definition prototype
+        let protoIdToLink = null;
+        const typeLookup = typeName.toLowerCase().trim();
+        for (const [id, proto] of store.nodePrototypes) {
+          if ((proto.name || '').toLowerCase().trim() === typeLookup) {
+            protoIdToLink = id;
+            break;
+          }
+        }
+
+        if (!protoIdToLink) {
+          protoIdToLink = `proto-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+          store.addNodePrototype({
+            id: protoIdToLink,
+            name: typeName,
+            color: replacement.definitionNode?.color || '#708090',
+            description: replacement.definitionNode?.description || '',
+            typeNodeId: null,
+            definitionGraphIds: []
+          });
+          console.log('[Wizard] replaceEdges: Created new type prototype for:', typeName);
+        }
+
+        const actualEdge = store.edges.get(existingEdgeId);
+        store.updateEdge(existingEdgeId, (draft) => {
+          // Update directionality
+          const dir = replacement.directionality || 'unidirectional';
+          if (dir === 'bidirectional') {
+            draft.directionality.arrowsToward = new Set([actualEdge.sourceId, actualEdge.destinationId]);
+          } else if (dir === 'unidirectional') {
+            draft.directionality.arrowsToward = new Set([actualEdge.sourceId === srcInstId ? actualEdge.destinationId : actualEdge.sourceId]);
+          } else if (dir === 'reverse') {
+            draft.directionality.arrowsToward = new Set([actualEdge.sourceId === srcInstId ? actualEdge.sourceId : actualEdge.destinationId]);
+          } else if (dir === 'none') {
+            draft.directionality.arrowsToward = new Set();
+          }
+          // Update definition node
+          draft.definitionNodeIds = [protoIdToLink];
+          draft.name = typeName;
+          draft.type = typeName;
+        });
+        console.log('[Wizard] replaceEdges: Updated existing edge:', existingEdgeId, '→', typeName);
+      } else {
+        // No existing edge — queue for creation
+        newEdges.push({
+          source: replacement.source,
+          target: replacement.target,
+          type: replacement.type || 'Connection',
+          directionality: replacement.directionality || 'unidirectional',
+          definitionNode: replacement.definitionNode || null
+        });
+        console.log('[Wizard] replaceEdges: No existing edge, will create:', replacement.source, '→', replacement.target);
+      }
+    }
+
+    // Create any new edges via bulk updates
+    if (newEdges.length > 0) {
+      store.applyBulkGraphUpdates(graphId, {
+        nodes: [],
+        edges: newEdges,
+        groups: []
+      });
+    }
+
+    console.log('[Wizard] replaceEdges: Completed. Updated existing + created', newEdges.length, 'new edges');
+    return;
+  }
+
   // Handle createGroup
   if (result.action === 'createGroup') {
     const graphId = result.graphId || store.activeGraphId;

@@ -78,6 +78,8 @@ For every user request, follow this sequence:
 
 9. **Handling Errors and Retries**: If a tool call fails with an error like "The spell was cut short!" or "Response truncated", it means your response was too long and hit the token limit. You MUST automatically retry the tool call with a SMALLER payload. For example, if you tried to add 20 nodes and it failed, retry with half as many nodes in one call, and then add the rest in a subsequent tool call. Do not just apologize to the user; fix the error by chunking your work.
 
+10. **Editing Existing Connections (CRITICAL)**: When a user asks you to refine, correct, or improve connections on an existing graph, you MUST use \`replaceEdges\` or \`updateEdge\` — NEVER \`expandGraph\`. Using \`expandGraph\` for this will create DUPLICATE connections. The rule is simple: \`expandGraph\` = add NEW content, \`replaceEdges\`/\`updateEdge\` = change EXISTING content.
+
 \${EXAMPLE_FLOWS}
 
 ## Current Context

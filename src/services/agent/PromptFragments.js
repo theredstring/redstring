@@ -52,12 +52,12 @@ Create a single node.
 
 ### updateNode
 Update an existing node.
-- \`nodeId\` (required): The node to update
+- \`nodeName\` (required): Current name of the node to update (fuzzy matched)
 - \`name\`, \`color\`, \`description\` (optional): New values
 
 ### deleteNode
 Remove a node and its connections.
-- \`nodeId\` (required): The node to delete
+- \`nodeName\` (required): Name of the node to delete (fuzzy matched)
 
 ### createEdge
 Connect two nodes.
@@ -65,9 +65,27 @@ Connect two nodes.
 - \`targetId\` (required): Ending node
 - \`type\` (optional): Relationship type like "contains"
 
+### updateEdge
+Update the type or directionality of an existing connection between two nodes.
+- \`sourceName\` (required): Name of the source node
+- \`targetName\` (required): Name of the target node
+- \`type\` (optional): New relationship type (e.g., "contains", "orbits")
+- \`directionality\` (optional): "unidirectional", "bidirectional", "reverse", or "none"
+- **When to use**: When you want to CHANGE what an existing connection means (e.g., "relates to" → "contains")
+- **When NOT to use**: For adding new connections — use \`expandGraph\` or \`createEdge\` instead
+
+### replaceEdges
+Bulk-replace connections between existing nodes. This finds existing edges between each source/target pair and updates them, or creates new edges if none exist. Use this instead of \`expandGraph\` when refining/correcting connection types on an existing graph.
+- \`edges\` (required): Array of { source, target, type, directionality? }
+- **When to use**: When asked to refine, correct, or improve multiple connections at once
+- **When NOT to use**: For adding brand-new nodes and connections — use \`expandGraph\` instead
+
 ### deleteEdge
 Remove a connection.
-- \`edgeId\` (required): The edge to delete
+- \`edgeId\` (optional): The edge ID to delete
+- \`sourceName\` (optional): Name of the source node (fuzzy matched)
+- \`targetName\` (optional): Name of the target node (fuzzy matched)
+- At least \`edgeId\` or \`sourceName\`/\`targetName\` must be provided
 
 ### searchNodes
 Search for nodes in the active graph using natural language queries.
@@ -103,10 +121,11 @@ Create a new empty graph workspace (Web).
 - **Prefer createPopulatedGraph** if you already know what nodes to add
 
 ### expandGraph
-Add multiple nodes and edges at once to the ACTIVE graph.
-- \`nodes\` (required): Array of { name, color, description }
+Add NEW nodes and edges to the ACTIVE graph. This is strictly for ADDING new content — it will NOT update or replace existing connections.
+- \`nodes\` (optional): Array of { name, color, description }
 - \`edges\` (optional): Array of { source, target, type }
-- Use this for bulk additions to the current workspace
+- Must provide at least one node or one edge
+- **IMPORTANT**: If you want to CHANGE existing connections (e.g., update their type), use \`updateEdge\` or \`replaceEdges\` instead. Using \`expandGraph\` to "fix" connections will create DUPLICATES.
 
 ### createPopulatedGraph
 Create a NEW graph with nodes, edges, AND groups in one operation. **You MUST always provide the \`name\` parameter.**
@@ -180,6 +199,19 @@ Convert a Group into a Thing-Group (formal decomposition).
 ### combineThingGroup
 Collapse a Thing-Group back into a single node.
 - \`groupName\` (required): Thing-Group to collapse
+
+## Editing vs. Expanding
+
+**CRITICAL**: Know the difference between ADDING and EDITING:
+
+| Intent | Tool | Example |
+|--------|------|---------|
+| Add new nodes/connections | \`expandGraph\` | "Add moons to the solar system" |
+| Change what a connection means | \`updateEdge\` | "Change 'relates to' → 'contains'" |
+| Bulk-refine existing connections | \`replaceEdges\` | "Make all connections more specific" |
+| Remove a connection | \`deleteEdge\` | "Remove the link between X and Y" |
+
+**Never use \`expandGraph\` to "fix" or "refine" existing connections.** It only adds — it cannot update or remove. This will create duplicate edges.
 `;
 
 export const EXAMPLE_FLOWS = `

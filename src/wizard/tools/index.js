@@ -22,6 +22,7 @@ import { deleteGroup } from './deleteGroup.js';
 import { convertToThingGroup } from './convertToThingGroup.js';
 import { combineThingGroup } from './combineThingGroup.js';
 import { updateEdge } from './updateEdge.js';
+import { replaceEdges } from './replaceEdges.js';
 
 const TOOLS = {
   createNode,
@@ -42,7 +43,8 @@ const TOOLS = {
   updateGroup,
   deleteGroup,
   convertToThingGroup,
-  combineThingGroup
+  combineThingGroup,
+  replaceEdges
 };
 
 /**
@@ -235,6 +237,34 @@ export function getToolDefinitions() {
             }
           }
         }
+      }
+    },
+    {
+      name: 'replaceEdges',
+      description: 'Bulk-replace connections between existing nodes. Finds existing edges between each source/target pair and updates them, or creates new ones if none exist. Use this INSTEAD of expandGraph when refining or correcting connection types on an existing graph.',
+      parameters: {
+        type: 'object',
+        properties: {
+          edges: {
+            type: 'array',
+            description: 'Array of edge replacements. Each identifies a source/target pair and the desired new type.',
+            items: {
+              type: 'object',
+              properties: {
+                source: { type: 'string', description: 'Source node name' },
+                target: { type: 'string', description: 'Target node name' },
+                type: { type: 'string', description: 'New relationship type (e.g., "contains", "attached to")' },
+                directionality: {
+                  type: 'string',
+                  enum: ['unidirectional', 'bidirectional', 'none', 'reverse'],
+                  description: 'Arrow direction. Default: unidirectional'
+                }
+              },
+              required: ['source', 'target', 'type']
+            }
+          }
+        },
+        required: ['edges']
       }
     },
     {
