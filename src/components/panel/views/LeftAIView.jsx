@@ -12,6 +12,8 @@ import useGraphStore from '../../../store/graphStore.jsx';
 import DruidInstance from '../../../services/DruidInstance.js';
 import { searchWikipedia, getWikipediaPage, getWikipediaImages } from '../SharedPanelContent.jsx';
 import { normalizeLabel, calculateTextSimilarity } from '../../../services/entityMatching.js';
+import fullBodySvg from '../../../assets/svg/wizard/full_body.svg';
+import headSvg from '../../../assets/svg/wizard/head.svg';
 
 /**
  * Calculate Wikipedia confidence score for auto-enrichment
@@ -45,6 +47,20 @@ function calculateWikipediaConfidence(nodeName, wikipediaResult) {
 }
 
 /**
+ * Convert image URL to data URL
+ */
+async function urlToDataUrl(url) {
+  const response = await fetch(url, { mode: 'cors' });
+  const blob = await response.blob();
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onloadend = () => resolve(reader.result);
+    reader.onerror = reject;
+    reader.readAsDataURL(blob);
+  });
+}
+
+/**
  * Enrich a single node with Wikipedia data
  * Only applies data when confidence >= 0.90 (dead match)
  */
@@ -72,7 +88,10 @@ async function enrichNodeWithWikipedia(nodeName, graphId, options = {}) {
 
     console.log(`[Auto-Enrich] High confidence match for "${nodeName}" (${confidence.toFixed(2)})`);
 
-    // 3. Find the node in the store by name
+    // 3. Wait a bit for node to be fully created in store
+    await new Promise(resolve => setTimeout(resolve, 500));
+
+    // 4. Find the node in the store by name
     const store = useGraphStore.getState();
     let targetNodeProtoId = null;
 
@@ -90,13 +109,14 @@ async function enrichNodeWithWikipedia(nodeName, graphId, options = {}) {
 
     const nodeProto = store.nodePrototypes.get(targetNodeProtoId);
 
-    // 4. Preserve user content - skip if node already has description
-    if (nodeProto.description && nodeProto.description.trim() !== '') {
-      console.log(`[Auto-Enrich] Skipping "${nodeName}" - already has description`);
+    // 5. Preserve user content - skip if node already has MEANINGFUL description
+    // (AI agents often set empty description, so check for length > 10)
+    if (nodeProto.description && nodeProto.description.trim().length > 10) {
+      console.log(`[Auto-Enrich] Skipping "${nodeName}" - already has meaningful description`);
       return null;
     }
 
-    // 5. Apply Wikipedia data (same structure as manual pull)
+    // 6. Apply Wikipedia data (same structure as manual pull)
     const updates = {
       description: searchResult.page.description,
       semanticMetadata: {
@@ -113,13 +133,46 @@ async function enrichNodeWithWikipedia(nodeName, graphId, options = {}) {
       }
     };
 
-    // 6. Add Wikipedia link to externalLinks
+    // 7. Add Wikipedia link to externalLinks
     const currentLinks = nodeProto.externalLinks || [];
     if (!currentLinks.some(link => String(link).includes('wikipedia.org'))) {
       updates.externalLinks = [searchResult.page.url, ...currentLinks];
     }
 
-    // 7. Update node prototype
+    // 8. Set image if available (convert URL to data URL like manual pull does)
+    const imgUrl = searchResult.page.originalImage || searchResult.page.thumbnail;
+    if (imgUrl && !nodeProto.imageSrc) {
+      try {
+        console.log(`[Auto-Enrich] Setting image from Wikipedia: ${imgUrl}`);
+        const dataUrl = await urlToDataUrl(imgUrl);
+
+        // Calculate aspect ratio
+        const img = new Image();
+        const aspectRatio = await new Promise((resolve, reject) => {
+          img.onload = () => {
+            const ratio = (img.naturalHeight > 0 && img.naturalWidth > 0)
+              ? (img.naturalHeight / img.naturalWidth)
+              : 1;
+            resolve(ratio || 1);
+          };
+          img.onerror = () => resolve(1); // Default to 1 on error
+          img.src = dataUrl;
+        });
+
+        // Generate thumbnail (simplified - just use the data URL)
+        // The full thumbnail generation requires importing utils which might create circular deps
+        updates.imageSrc = dataUrl;
+        updates.thumbnailSrc = dataUrl; // Simplified - using same URL
+        updates.imageAspectRatio = aspectRatio;
+
+        console.log(`[Auto-Enrich] Image set successfully with aspect ratio ${aspectRatio}`);
+      } catch (imageError) {
+        console.warn(`[Auto-Enrich] Failed to set image for "${nodeName}":`, imageError);
+        // Continue with text-only enrichment
+      }
+    }
+
+    // 9. Update node prototype
     store.updateNodePrototype(targetNodeProtoId, (draft) => {
       Object.assign(draft, updates);
     });
@@ -150,7 +203,7 @@ async function enrichMultipleNodes(nodeNames, graphId) {
   const enrichmentPromises = nodeNames.map((nodeName, index) =>
     new Promise(resolve => setTimeout(() =>
       resolve(enrichNodeWithWikipedia(nodeName, graphId))
-    , index * 200))
+      , index * 200))
   );
 
   // Use allSettled to prevent one failure from blocking others
@@ -2011,12 +2064,15 @@ const LeftAIView = ({ compact = false,
         <div className="ai-chat-mode">
           <div className="ai-messages" style={{ display: 'flex', flexDirection: 'column', height: '100%', justifyContent: messages.length === 0 ? 'center' : 'flex-start' }}>
             {isConnected && messages.length === 0 && (
-              <div style={{ textAlign: 'center', color: '#555', fontFamily: "'EmOne', sans-serif", fontSize: '14px' }}>What will we build today?</div>
+              <div style={{ textAlign: 'center', display: 'flex', flexDirection: 'column', alignItems: 'center', padding: '40px 0' }}>
+                <img src={fullBodySvg} alt="Wizard" style={{ width: '150px', marginBottom: '16px' }} />
+                <div style={{ color: '#555', fontFamily: "'EmOne', sans-serif", fontSize: '14px' }}>What will we build today?</div>
+              </div>
             )}
             {messages.map((message) => (
               <div key={message.id} className={`ai-message ai-message-${message.sender}`} style={{ alignSelf: message.sender === 'user' ? 'flex-end' : 'flex-start', maxWidth: '85%' }}>
                 <div className="ai-message-avatar">
-                  {message.sender === 'user' ? <User size={16} /> : message.sender === 'system' ? null : <Bot size={16} />}
+                  {message.sender === 'user' ? <User size={24} /> : message.sender === 'system' ? null : <img src={headSvg} alt="Wizard" style={{ width: 32, height: 32 }} />}
                 </div>
                 <div className="ai-message-content">
                   {/* Render text first, then tool calls below — natural reading order */}
@@ -2056,7 +2112,7 @@ const LeftAIView = ({ compact = false,
               if (!hasStreamingContent) {
                 return (
                   <div className="ai-thinking-row">
-                    <div className="ai-message-avatar"><Bot size={16} /></div>
+                    <div className="ai-message-avatar"><img src={headSvg} alt="Wizard" style={{ width: 32, height: 32 }} /></div>
                     <span className="ai-thinking-dots">
                       <span>•</span>
                       <span>•</span>
@@ -2072,9 +2128,9 @@ const LeftAIView = ({ compact = false,
           <div className="ai-input-container" style={{ marginBottom: toggleClearance }}>
             <textarea ref={inputRef} value={currentInput} onChange={(e) => setCurrentInput(e.target.value)} onKeyPress={handleKeyPress} placeholder={viewMode === 'druid' ? "Share an observation and I'll build upon it..." : viewMode === 'wizard' ? "Write your vision and I'll cast my spells..." : "Ask me anything about your knowledge graph..."} disabled={isProcessing} className="ai-input" rows={2} />
             {isProcessing && currentAgentRequest ? (
-              <button onClick={handleStopAgent} className="ai-stop-button" title="Stop Agent"><Square size={16} /></button>
+              <button onClick={handleStopAgent} className="ai-stop-button" title="Stop Agent"><Square fill="#DEDADA" color="#DEDADA" /></button>
             ) : (
-              <button onClick={handleSendMessage} disabled={!currentInput.trim() || isProcessing} className="ai-send-button"><Send size={24} /></button>
+              <button onClick={handleSendMessage} disabled={!currentInput.trim() || isProcessing} className="ai-send-button"><Send /></button>
             )}
           </div>
         </div>
