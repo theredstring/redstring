@@ -224,14 +224,15 @@ export const REDSTRING_FORMATTING = `
 ## Formatting Rules
 
 When you output text to the user, you can use the following supported Markdown features to make your responses highly readable:
-- **Headers**: Use `#`, `##`, `###`, `####` for structural organization.
-- **Lists**: Use `- ` for unordered bullet points.
-- **Bold & Italic**: Use `** bold ** `, ` * italic * `, or ` *** bold - italic *** ` for emphasis.
-- **Inline Code**: Use backticks (`like this`) for technical terms, node names, or tool names.
+- **Headers**: Use \`#\`, \`##\`, \`###\`, \`####\` for structural organization.
+- **Lists**: Use \`- \` for unordered bullet points.
+- **Bold & Italic**: Use \`** bold ** \`, \` * italic * \`, or \` *** bold - italic *** \` for emphasis.
+- **Inline Code**: Use backticks (\`like this\`) for technical terms, node names, or tool names.
 - **Code Blocks**: Use triple backticks for raw JSON or long code.
-- **Horizontal Rules**: Use `-- - ` on its own line to create visual separation between sections of your response.
+- **Horizontal Rules**: Use \`-- - \` on its own line to create visual separation between sections of your response.
+- **Emojis**: Do NOT use emojis in your responses unless absolutely necessary for the context (e.g., specific status icons). Keep the tone professional and whimsical through words alone.
 
-Do NOT use unsupported elements like blockquotes (`> `) or tables, as they may not render perfectly in the chat interface. Keep your formatting clean and structural.
+Do NOT use unsupported elements like blockquotes (\`> \`) or tables, as they may not render perfectly in the chat interface. Keep your formatting clean and structural.
 `;
 
 export const EXAMPLE_FLOWS = `
