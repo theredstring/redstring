@@ -1611,27 +1611,45 @@ const LeftAIView = ({ compact = false,
                 : Object.values(g.groups || {})
           };
         }) : [],
-        nodePrototypes: activeGraphData ? (() => {
+        // Build all nodePrototypes: instance prototypes + definition node prototypes from edges
+        // The definition node prototype is what carries the human-readable connection type name.
+        nodePrototypes: activeGraphData && nodePrototypesMap ? (() => {
           const instances = activeGraphData.instances instanceof Map
             ? Array.from(activeGraphData.instances.values())
             : Array.isArray(activeGraphData.instances)
               ? activeGraphData.instances
               : Object.values(activeGraphData.instances || {});
-          const protoMap = new Map();
+
+          const protoIds = new Set();
+
+          // Collect all instance prototype IDs
           instances.forEach(inst => {
-            if (inst.prototypeId && !protoMap.has(inst.prototypeId)) {
-              const fullNodeData = nodePrototypesMap ? nodePrototypesMap.get(inst.prototypeId) : null;
-              protoMap.set(inst.prototypeId, {
-                id: inst.prototypeId,
-                name: fullNodeData?.name || inst.name,
-                color: fullNodeData?.color || inst.color,
-                description: fullNodeData?.description || inst.description
-              });
+            if (inst.prototypeId) protoIds.add(inst.prototypeId);
+          });
+
+          // Also collect all definition node prototype IDs from edges so connection types resolve
+          const edgeIds = activeGraphData.edgeIds || [];
+          edgeIds.forEach(edgeId => {
+            const edge = edgesMap ? edgesMap.get(edgeId) : null;
+            if (edge && Array.isArray(edge.definitionNodeIds)) {
+              edge.definitionNodeIds.forEach(id => protoIds.add(id));
             }
           });
-          return Array.from(protoMap.values());
+
+          return Array.from(protoIds)
+            .map(id => {
+              const proto = nodePrototypesMap.get(id);
+              if (!proto) return null;
+              return {
+                id: proto.id,
+                name: proto.name || '',
+                color: proto.color || '',
+                description: proto.description || ''
+              };
+            })
+            .filter(Boolean);
         })() : [],
-        // Extract edges from edgesMap for the active graph
+        // Extract edges from edgesMap for the active graph, including definitionNodeIds
         edges: activeGraphData && edgesMap ? (() => {
           const edgeIds = activeGraphData.edgeIds || [];
           return edgeIds.map(edgeId => {
@@ -1640,8 +1658,11 @@ const LeftAIView = ({ compact = false,
             return {
               id: edgeId,
               sourceId: edge.sourceId,
-              targetId: edge.targetId,
-              type: edge.type || edge.connectionType || 'relates to'
+              destinationId: edge.destinationId,
+              // definitionNodeIds[0] points to the prototype whose name is the connection type
+              definitionNodeIds: Array.isArray(edge.definitionNodeIds) ? edge.definitionNodeIds : [],
+              // Keep type as a fallback for edges that predate definitionNodeIds
+              type: edge.type || edge.connectionType || ''
             };
           }).filter(Boolean);
         })() : [],

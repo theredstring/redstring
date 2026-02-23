@@ -81,10 +81,14 @@ export async function readGraph(args, graphState) {
             type = e.connectionType;
         }
 
+        const sourceName = nodeNameById.get(sourceId) || sourceId || '?';
+        const targetName = nodeNameById.get(targetId) || targetId || '?';
+
         return {
             id: e.id,
-            sourceName: nodeNameById.get(sourceId) || sourceId || '?',
-            targetName: nodeNameById.get(targetId) || targetId || '?',
+            triplet: `${sourceName} --[${type}]--> ${targetName}`,
+            sourceName,
+            targetName,
             type,
             sourceId,
             targetId,
