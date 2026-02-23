@@ -18,16 +18,19 @@ export async function readGraph(args, graphState) {
         return { error: `Active graph "${activeGraphId}" not found in state.` };
     }
 
-    // --- Build node name lookup -----------------------------------------------
+    // --- Build node name/desc/color lookup AND a general prototype map ---------
     const nodeNameById = new Map();
     const nodeDescById = new Map();
     const nodeColorById = new Map();
+    // protoMap is used to resolve definitionNodeIds on edges
+    const protoMap = new Map();
 
     for (const proto of nodePrototypes) {
         if (proto.id) {
             nodeNameById.set(proto.id, proto.name || '');
             nodeDescById.set(proto.id, proto.description || '');
             nodeColorById.set(proto.id, proto.color || '');
+            protoMap.set(proto.id, proto);
         }
     }
 
@@ -64,12 +67,25 @@ export async function readGraph(args, graphState) {
 
     const edgeList = graphEdges.map(e => {
         const sourceId = e.sourceId || e.source;
-        const targetId = e.targetId || e.target;
+        const targetId = e.destinationId || e.targetId || e.target;
+
+        // Resolve connection type from the definition node prototype (most accurate)
+        // definitionNodeIds[0] points to the node prototype whose name IS the connection type
+        let type = 'relates to';
+        if (Array.isArray(e.definitionNodeIds) && e.definitionNodeIds.length > 0) {
+            const defProto = protoMap.get(e.definitionNodeIds[0]);
+            if (defProto?.name) type = defProto.name;
+        } else if (e.type) {
+            type = e.type;
+        } else if (e.connectionType) {
+            type = e.connectionType;
+        }
+
         return {
             id: e.id,
             sourceName: nodeNameById.get(sourceId) || sourceId || '?',
             targetName: nodeNameById.get(targetId) || targetId || '?',
-            type: e.type || e.connectionType || 'relates to',
+            type,
             sourceId,
             targetId,
         };

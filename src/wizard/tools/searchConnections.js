@@ -13,9 +13,14 @@ export async function searchConnections(args, graphState, cid, ensureSchedulerSt
 
     // Build a node name lookup (by ID) for resolving edge endpoints
     const nodeNameById = new Map();
+    // protoMap used to resolve connection type from definitionNodeIds
+    const protoMap = new Map();
 
     for (const proto of nodePrototypes) {
-        if (proto.id) nodeNameById.set(proto.id, proto.name || '');
+        if (proto.id) {
+            nodeNameById.set(proto.id, proto.name || '');
+            protoMap.set(proto.id, proto);
+        }
     }
 
     // Also pull instance names from the active graph
@@ -32,19 +37,35 @@ export async function searchConnections(args, graphState, cid, ensureSchedulerSt
         }
     }
 
-    const totalEdges = edges.length;
+    // Filter edges to only the active graph's edges
+    const activeEdgeIds = new Set(activeGraph?.edgeIds || []);
+    const activeEdges = edges.filter(e => activeEdgeIds.has(e.id) || activeEdgeIds.has(e.edgeId));
+
+    const totalEdges = activeEdges.length;
     const limit = typeof args.limit === 'number' ? args.limit : 100;
     const offset = typeof args.offset === 'number' ? args.offset : 0;
 
     if (!query || query.trim() === '') {
-        const allFormatted = edges.map(edge => ({
-            id: edge.id,
-            type: edge.type || edge.connectionType || 'relates to',
-            sourceId: edge.sourceId,
-            targetId: edge.targetId,
-            sourceName: nodeNameById.get(edge.sourceId) || edge.sourceId,
-            targetName: nodeNameById.get(edge.targetId) || edge.targetId,
-        }));
+        const allFormatted = activeEdges.map(edge => {
+            // Resolve type from definition node prototype first
+            let type = 'relates to';
+            if (Array.isArray(edge.definitionNodeIds) && edge.definitionNodeIds.length > 0) {
+                const defProto = protoMap.get(edge.definitionNodeIds[0]);
+                if (defProto?.name) type = defProto.name;
+            } else if (edge.type) {
+                type = edge.type;
+            } else if (edge.connectionType) {
+                type = edge.connectionType;
+            }
+            return {
+                id: edge.id,
+                type,
+                sourceId: edge.sourceId,
+                targetId: edge.destinationId || edge.targetId,
+                sourceName: nodeNameById.get(edge.sourceId) || edge.sourceId,
+                targetName: nodeNameById.get(edge.destinationId || edge.targetId) || edge.destinationId || edge.targetId,
+            };
+        });
         const page = allFormatted.slice(offset, offset + limit);
         const hasMore = offset + limit < totalEdges;
         return {
@@ -59,7 +80,7 @@ export async function searchConnections(args, graphState, cid, ensureSchedulerSt
         };
     }
 
-    if (edges.length === 0) {
+    if (activeEdges.length === 0) {
         return { results: [], total: 0, message: 'No connections found in the current graph.' };
     }
 
@@ -70,10 +91,15 @@ export async function searchConnections(args, graphState, cid, ensureSchedulerSt
         .filter(w => w.length > 1);
 
     // Score each edge by relevance
-    const scored = edges.map(edge => {
-        const edgeType = (edge.type || edge.connectionType || '').toLowerCase();
+    const scored = activeEdges.map(edge => {
+        const edgeType = (() => {
+            if (Array.isArray(edge.definitionNodeIds) && edge.definitionNodeIds.length > 0) {
+                return (protoMap.get(edge.definitionNodeIds[0])?.name || edge.type || edge.connectionType || '').toLowerCase();
+            }
+            return (edge.type || edge.connectionType || '').toLowerCase();
+        })();
         const sourceName = (nodeNameById.get(edge.sourceId) || '').toLowerCase();
-        const targetName = (nodeNameById.get(edge.targetId) || '').toLowerCase();
+        const targetName = (nodeNameById.get(edge.destinationId || edge.targetId) || '').toLowerCase();
         const combined = `${edgeType} ${sourceName} ${targetName}`;
         let score = 0;
 
@@ -99,11 +125,16 @@ export async function searchConnections(args, graphState, cid, ensureSchedulerSt
 
         return {
             id: edge.id,
-            type: edge.type || edge.connectionType || 'relates to',
+            type: (() => {
+                if (Array.isArray(edge.definitionNodeIds) && edge.definitionNodeIds.length > 0) {
+                    return protoMap.get(edge.definitionNodeIds[0])?.name || edge.type || edge.connectionType || 'relates to';
+                }
+                return edge.type || edge.connectionType || 'relates to';
+            })(),
             sourceId: edge.sourceId,
-            targetId: edge.targetId,
+            targetId: edge.destinationId || edge.targetId,
             sourceName: nodeNameById.get(edge.sourceId) || edge.sourceId,
-            targetName: nodeNameById.get(edge.targetId) || edge.targetId,
+            targetName: nodeNameById.get(edge.destinationId || edge.targetId) || edge.destinationId || edge.targetId,
             score
         };
     });
