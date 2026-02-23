@@ -230,16 +230,13 @@ const ToolCallCard = ({ toolCallId, toolName, status, args, result, error, times
                                 <>
                                     <h4 style={{ marginTop: '8px' }}>Connections ({result.edgeCount})</h4>
                                     <ul className="edge-list">
-                                        {result.edges.slice(0, 10).map((e, idx) => (
-                                            <li key={idx}>
-                                                <span>{e.sourceName}</span>
-                                                <span className="edge-arrow">→</span>
-                                                <span>{e.targetName}</span>
-                                                {e.type && <span className="edge-type">({e.type})</span>}
+                                        {result.edges.slice(0, 12).map((e, idx) => (
+                                            <li key={idx} style={{ fontFamily: 'monospace', fontSize: '11px' }}>
+                                                {e.triplet || `${e.sourceName} --[${e.type}]--> ${e.targetName}`}
                                             </li>
                                         ))}
-                                        {result.edges.length > 10 && (
-                                            <li className="more-items">... and {result.edges.length - 10} more</li>
+                                        {result.edges.length > 12 && (
+                                            <li className="more-items">... and {result.edges.length - 12} more</li>
                                         )}
                                     </ul>
                                 </>
@@ -255,7 +252,7 @@ const ToolCallCard = ({ toolCallId, toolName, status, args, result, error, times
                                 </>
                             )}
                             {result.warning && (
-                                <div style={{ color: '#f0a500', fontSize: '12px', marginTop: '6px' }}>⚠️ {result.warning}</div>
+                                <div style={{ color: '#f0a500', fontSize: '12px', marginTop: '6px' }}>Warning: {result.warning}</div>
                             )}
                         </div>
                     )}

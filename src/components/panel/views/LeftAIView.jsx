@@ -1140,13 +1140,19 @@ const LeftAIView = ({ compact = false,
         return prev;
       }
 
+      const metaToolCalls = (metadata.toolCalls || []).map(tc => ({ ...tc, type: 'tool_call', expanded: false }));
+      const blocks = [
+        ...(content ? [{ type: 'text', content }] : []),
+        ...metaToolCalls
+      ];
       const message = {
         id: `${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
         sender,
         content,
         timestamp: new Date().toISOString(),
         metadata,
-        toolCalls: (metadata.toolCalls || []).map(tc => ({ ...tc, expanded: false }))
+        contentBlocks: blocks,
+        toolCalls: metaToolCalls
       };
       return [...prev, message];
     });
@@ -1209,6 +1215,11 @@ const LeftAIView = ({ compact = false,
       return part.replace(/\n/g, '<br>');
     }).join('');
 
+    // Collapse any run of 2+ <br> tags immediately after a list/rule into a single <br>
+    html = html.replace(/(<\/ul>|<hr[^>]*?>)(\s*<br>\s*){2,}/g, '$1<br>');
+    // Also strip a leading <br> right before a <ul> that creates a gap above the list
+    html = html.replace(/(<br>\s*)+(<ul)/g, '$2');
+
     return html;
   };
 
@@ -1218,20 +1229,24 @@ const LeftAIView = ({ compact = false,
       let idx = updated.length - 1;
       while (idx >= 0 && updated[idx].sender !== 'ai') idx--;
       if (idx < 0) {
-        updated.push({ id: `${Date.now()}_${Math.random().toString(36).substr(2, 9)}`, sender: 'ai', content: '', timestamp: new Date().toISOString(), toolCalls: [] });
+        updated.push({ id: `${Date.now()}_${Math.random().toString(36).substr(2, 9)}`, sender: 'ai', content: '', timestamp: new Date().toISOString(), contentBlocks: [] });
         idx = updated.length - 1;
       }
       const msg = { ...updated[idx] };
-      const calls = Array.isArray(msg.toolCalls) ? [...msg.toolCalls] : [];
-      const matchIndex = calls.findIndex(c => (toolUpdate.id && c.id === toolUpdate.id)
-        || (toolUpdate.cid && c.cid === toolUpdate.cid && c.name === toolUpdate.name)
-        || (!toolUpdate.cid && c.name === toolUpdate.name));
+      const blocks = Array.isArray(msg.contentBlocks) ? [...msg.contentBlocks] : [];
+
+      // Find matching tool_call block
+      const matchIndex = blocks.findIndex(b => b.type === 'tool_call' && (
+        (toolUpdate.id && b.id === toolUpdate.id)
+        || (toolUpdate.cid && b.cid === toolUpdate.cid && b.name === toolUpdate.name)
+        || (!toolUpdate.cid && !toolUpdate.id && b.name === toolUpdate.name)
+      ));
       if (matchIndex >= 0) {
-        calls[matchIndex] = { ...calls[matchIndex], ...toolUpdate };
+        blocks[matchIndex] = { ...blocks[matchIndex], ...toolUpdate };
       } else {
-        calls.push({ expanded: false, status: toolUpdate.status || 'running', ...toolUpdate });
+        blocks.push({ type: 'tool_call', expanded: false, status: toolUpdate.status || 'running', ...toolUpdate });
       }
-      msg.toolCalls = calls;
+      msg.contentBlocks = blocks;
       updated[idx] = msg;
       return updated;
     });
@@ -1745,7 +1760,7 @@ const LeftAIView = ({ compact = false,
                   applyToolResultToStore(event.name, event.result, event.id || event.toolCallId);
                 }
 
-                // Update streaming message based on event type
+                // Update streaming message based on event type using content blocks
                 setMessages(prev => {
                   const updated = [...prev];
                   // Find THIS streaming message by ID, not just any AI message
@@ -1757,27 +1772,28 @@ const LeftAIView = ({ compact = false,
                       sender: 'ai',
                       content: '',
                       timestamp: new Date().toISOString(),
-                      toolCalls: [],
+                      contentBlocks: [],
                       isStreaming: true
                     });
                     idx = updated.length - 1;
                   }
 
                   const msg = { ...updated[idx] };
+                  const blocks = Array.isArray(msg.contentBlocks) ? [...msg.contentBlocks] : [];
 
                   if (event.type === 'tool_call') {
-                    // Add or update tool call
-                    const toolCalls = Array.isArray(msg.toolCalls) ? [...msg.toolCalls] : [];
-                    const existingIndex = toolCalls.findIndex(tc => tc.id === event.id);
+                    // Push a new tool_call block — this naturally interleaves with text
+                    const existingIndex = blocks.findIndex(b => b.type === 'tool_call' && b.id === event.id);
                     if (existingIndex >= 0) {
-                      toolCalls[existingIndex] = {
-                        ...toolCalls[existingIndex],
+                      blocks[existingIndex] = {
+                        ...blocks[existingIndex],
                         name: event.name,
                         args: event.args,
                         status: 'running'
                       };
                     } else {
-                      toolCalls.push({
+                      blocks.push({
+                        type: 'tool_call',
                         id: event.id,
                         name: event.name,
                         args: event.args,
@@ -1785,33 +1801,46 @@ const LeftAIView = ({ compact = false,
                         expanded: false
                       });
                     }
-                    msg.toolCalls = toolCalls;
                   } else if (event.type === 'tool_result') {
-                    // Update tool call with result
-                    const toolCalls = Array.isArray(msg.toolCalls) ? [...msg.toolCalls] : [];
-                    const toolIndex = toolCalls.findIndex(tc => tc.id === event.id);
+                    // Find matching tool_call block and update its status
+                    const toolIndex = blocks.findIndex(b => b.type === 'tool_call' && b.id === event.id);
                     if (toolIndex >= 0) {
-                      toolCalls[toolIndex] = {
-                        ...toolCalls[toolIndex],
+                      blocks[toolIndex] = {
+                        ...blocks[toolIndex],
                         status: event.result?.error ? 'failed' : 'completed',
                         result: event.result,
                         error: event.result?.error
                       };
                     }
-                    msg.toolCalls = toolCalls;
                   } else if (event.type === 'response') {
-                    // Stream response text - accumulate from existing state, not external variable
+                    // Append to last text block, or create a new one
+                    const lastBlock = blocks.length > 0 ? blocks[blocks.length - 1] : null;
+                    if (lastBlock && lastBlock.type === 'text') {
+                      blocks[blocks.length - 1] = {
+                        ...lastBlock,
+                        content: (lastBlock.content || '') + (event.content || '')
+                      };
+                    } else {
+                      blocks.push({ type: 'text', content: event.content || '' });
+                    }
+                    // Keep content field in sync for backward compat
                     msg.content = (msg.content || '') + (event.content || '');
                   } else if (event.type === 'error') {
+                    blocks.push({ type: 'text', content: `Error: ${event.message}` });
                     msg.content = `Error: ${event.message}`;
                     msg.isStreaming = false;
                   } else if (event.type === 'done') {
                     msg.isStreaming = false;
                     msg.iterations = event.iterations;
-                    // Trim trailing whitespace from accumulated content
+                    // Trim trailing whitespace from last text block
+                    const lastTextIdx = blocks.length - 1;
+                    if (lastTextIdx >= 0 && blocks[lastTextIdx].type === 'text' && blocks[lastTextIdx].content) {
+                      blocks[lastTextIdx] = { ...blocks[lastTextIdx], content: blocks[lastTextIdx].content.trimEnd() };
+                    }
                     if (msg.content) msg.content = msg.content.trimEnd();
                   }
 
+                  msg.contentBlocks = blocks;
                   updated[idx] = msg;
                   return updated;
                 });
@@ -1832,12 +1861,18 @@ const LeftAIView = ({ compact = false,
         setMessages(prev => {
           const updated = [...prev];
           const idx = updated.findIndex(m => m.id === streamingMessageId);
+          const errorBlock = { type: 'text', content: `Error: ${error.message}` };
           if (idx >= 0) {
-            updated[idx] = { ...updated[idx], content: `Error: ${error.message}`, isStreaming: false };
+            const msg = { ...updated[idx] };
+            const blocks = Array.isArray(msg.contentBlocks) ? [...msg.contentBlocks, errorBlock] : [errorBlock];
+            msg.contentBlocks = blocks;
+            msg.content = `Error: ${error.message}`;
+            msg.isStreaming = false;
+            updated[idx] = msg;
             return updated;
           }
           // If no streaming message yet, create one with the error
-          return [...prev, { id: streamingMessageId, sender: 'ai', content: `Error: ${error.message}`, timestamp: new Date().toISOString(), toolCalls: [], isStreaming: false }];
+          return [...prev, { id: streamingMessageId, sender: 'ai', content: `Error: ${error.message}`, timestamp: new Date().toISOString(), contentBlocks: [errorBlock], isStreaming: false }];
         });
       }
     } finally {
@@ -1904,29 +1939,38 @@ const LeftAIView = ({ compact = false,
   const handleCopyConversation = () => {
     const conversationText = messages.map(msg => {
       const sender = msg.sender === 'user' ? 'User' : msg.sender === 'ai' ? 'AI' : 'System';
-      let text = `${sender}: ${msg.content}`;
+      const parts = [];
 
-      const meta = [];
-      const toolCallsToLog = msg.toolCalls && msg.toolCalls.length > 0
-        ? msg.toolCalls
-        : (msg.metadata && msg.metadata.toolCalls ? msg.metadata.toolCalls : []);
-
-      if (toolCallsToLog.length > 0) {
-        meta.push('\n  Tool Calls:');
-        toolCallsToLog.forEach((tc, idx) => {
-          meta.push(`\n    ${idx + 1}. ${tc.name || 'unknown'} (${tc.status || 'unknown'})`);
-          if (tc.args) {
-            meta.push(`\n       Args: ${JSON.stringify(tc.args, null, 2).replace(/\n/g, '\n       ')}`);
+      // Render content blocks in order for faithful chronological copy
+      const blocks = msg.contentBlocks || [];
+      if (blocks.length > 0) {
+        let toolCounter = 0;
+        for (const block of blocks) {
+          if (block.type === 'text' && block.content) {
+            parts.push(block.content);
+          } else if (block.type === 'tool_call') {
+            toolCounter++;
+            const lines = [`  [Tool ${toolCounter}] ${block.name || 'unknown'} (${block.status || 'unknown'})`];
+            if (block.args) {
+              lines.push(`       Args: ${JSON.stringify(block.args, null, 2).replace(/\n/g, '\n       ')}`);
+            }
+            if (block.result) {
+              lines.push(`       Result: ${JSON.stringify(block.result, null, 2).replace(/\n/g, '\n       ')}`);
+            }
+            if (block.error) {
+              lines.push(`       Error: ${block.error}`);
+            }
+            parts.push(lines.join('\n'));
           }
-          if (tc.result) {
-            meta.push(`\n       Result: ${JSON.stringify(tc.result, null, 2).replace(/\n/g, '\n       ')}`);
-          }
-          if (tc.error) {
-            meta.push(`\n       Error: ${tc.error}`);
-          }
-        });
+        }
+      } else if (msg.content) {
+        // Fallback for old-format messages
+        parts.push(msg.content);
       }
 
+      let text = `${sender}: ${parts.join('\n')}`;
+
+      const meta = [];
       if (msg.metadata) {
         if (msg.metadata.mode) {
           meta.push(`\n  Mode: ${msg.metadata.mode}`);
@@ -2259,36 +2303,49 @@ const LeftAIView = ({ compact = false,
                   {message.sender === 'user' ? <User size={24} /> : message.sender === 'system' ? null : <img src={headSvg} alt="Wizard" style={{ width: 32, height: 32 }} />}
                 </div>
                 <div className="ai-message-content">
-                  {/* Render text first, then tool calls below — natural reading order */}
-                  {message.content && (
+                  {/* Render content blocks in chronological order */}
+                  {message.contentBlocks && message.contentBlocks.length > 0 ? (
+                    message.contentBlocks.map((block, i) => {
+                      if (block.type === 'text' && block.content) {
+                        return (
+                          <div
+                            key={`text-${i}`}
+                            className="ai-message-text"
+                            style={{ userSelect: 'text', cursor: 'text' }}
+                            dangerouslySetInnerHTML={{ __html: renderMarkdown(block.content) }}
+                          />
+                        );
+                      }
+                      if (block.type === 'tool_call') {
+                        return (
+                          <ToolCallCard
+                            key={block.id || `tc-${i}`}
+                            toolCallId={block.id}
+                            toolName={block.name}
+                            status={block.status || 'running'}
+                            args={block.args}
+                            result={block.result}
+                            error={block.error}
+                            timestamp={block.timestamp}
+                            executionTime={block.executionTime}
+                            isUndone={block.isUndone}
+                            onUndo={(id) => {
+                              useGraphStore.getState().revertWizardAction(id);
+                              upsertToolCall({ id, isUndone: true });
+                            }}
+                          />
+                        );
+                      }
+                      return null;
+                    })
+                  ) : message.content ? (
+                    /* Fallback for old-format messages without contentBlocks */
                     <div
                       className="ai-message-text"
                       style={{ userSelect: 'text', cursor: 'text' }}
                       dangerouslySetInnerHTML={{ __html: renderMarkdown(message.content) }}
                     />
-                  )}
-                  {message.toolCalls && message.toolCalls.length > 0 && (
-                    <div className="ai-tool-calls">
-                      {message.toolCalls.map((toolCall, index) => (
-                        <ToolCallCard
-                          key={index}
-                          toolCallId={toolCall.id}
-                          toolName={toolCall.name}
-                          status={toolCall.status || 'running'}
-                          args={toolCall.args}
-                          result={toolCall.result}
-                          error={toolCall.error}
-                          timestamp={toolCall.timestamp}
-                          executionTime={toolCall.executionTime}
-                          isUndone={toolCall.isUndone}
-                          onUndo={(id) => {
-                            useGraphStore.getState().revertWizardAction(id);
-                            upsertToolCall({ id, isUndone: true });
-                          }}
-                        />
-                      ))}
-                    </div>
-                  )}
+                  ) : null}
                   <div className="ai-message-timestamp">{new Date(message.timestamp).toLocaleTimeString()}</div>
                 </div>
               </div>
@@ -2296,7 +2353,7 @@ const LeftAIView = ({ compact = false,
             {isProcessing && (() => {
               // Find the streaming message to check if it has content
               const streamingMsg = messages.find(m => m.isStreaming);
-              const hasStreamingContent = streamingMsg && (streamingMsg.content || (streamingMsg.toolCalls && streamingMsg.toolCalls.length > 0));
+              const hasStreamingContent = streamingMsg && (streamingMsg.contentBlocks?.length > 0);
 
               // Only show thinking dots if no streaming content yet
               if (!hasStreamingContent) {

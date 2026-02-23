@@ -14,21 +14,21 @@ export function buildContext(graphState) {
   }
 
   const { graphs = [], nodePrototypes = [], edges = [], activeGraphId } = graphState;
-  
+
   let context = '';
 
   // Active graph info
   const activeGraph = graphs.find(g => g.id === activeGraphId);
   if (activeGraph) {
-    context += `\n\n🎯 CURRENT WEB: "${activeGraph.name}"`;
-    
-    // Extract instances (handle Map, Array, or Object)
+    context += `\n\nCURRENT WEB: "${activeGraph.name}"`;
+
+    // Extract instances
     const instances = activeGraph.instances instanceof Map
       ? Array.from(activeGraph.instances.values())
-      : Array.isArray(activeGraph.instances) 
-        ? activeGraph.instances 
+      : Array.isArray(activeGraph.instances)
+        ? activeGraph.instances
         : Object.values(activeGraph.instances || {});
-    
+
     const edgeIds = activeGraph.edgeIds || [];
     const nodeCount = instances.length;
     const edgeCount = edgeIds.length;
@@ -37,69 +37,85 @@ export function buildContext(graphState) {
       context += '\nStatus: Empty (perfect for populating!)';
     } else {
       context += `\nStatus: ${nodeCount} Thing${nodeCount !== 1 ? 's' : ''}, ${edgeCount} Connection${edgeCount !== 1 ? 's' : ''}`;
-      
-      // List node names directly from instances (with prototype fallback)
-      const nodeNames = [];
+
+      // Build a prototype map for name + description lookups
+      const protoMap = new Map();
+      for (const proto of nodePrototypes) {
+        if (proto.id) protoMap.set(proto.id, proto);
+      }
+
+      // Build instance name lookup (id → name)
+      const nodeNameById = new Map();
       for (const inst of instances) {
-        // Try instance name first, then look up prototype
-        let name = inst.name;
-        if (!name && inst.prototypeId) {
-          const proto = nodePrototypes.find(p => p.id === inst.prototypeId);
-          name = proto?.name;
-        }
-        if (name) {
-          nodeNames.push(name);
-        }
-        if (nodeNames.length >= 15) break; // Show more names for better context
+        const proto = inst.prototypeId ? protoMap.get(inst.prototypeId) : null;
+        const name = inst.name || proto?.name || '';
+        nodeNameById.set(inst.id, name);
       }
-      
-      if (nodeNames.length > 0) {
-        context += `\nExisting Things: ${nodeNames.join(', ')}${nodeCount > 15 ? '...' : ''}`;
+
+      // List ALL nodes with descriptions
+      const nodeLines = instances.map(inst => {
+        const proto = inst.prototypeId ? protoMap.get(inst.prototypeId) : null;
+        const name = inst.name || proto?.name || inst.id;
+        const desc = inst.description || proto?.description || '';
+        return desc ? `  - ${name}: ${desc}` : `  - ${name}`;
+      });
+      context += `\nThings:\n${nodeLines.join('\n')}`;
+
+      // Include ALL connections as triplets, resolving type from definitionNodeIds
+      if (edgeCount > 0 && edges && edges.length > 0) {
+        const graphEdges = edges.filter(e => edgeIds.includes(e.id) || edgeIds.includes(e.edgeId));
+        if (graphEdges.length > 0) {
+          const triplets = graphEdges.map(e => {
+            const sourceId = e.sourceId || e.source;
+            const targetId = e.destinationId || e.targetId || e.target;
+            const sourceName = nodeNameById.get(sourceId) || sourceId || '?';
+            const targetName = nodeNameById.get(targetId) || targetId || '?';
+
+            // Resolve type from definition node prototype (most accurate)
+            let type = 'relates to';
+            if (Array.isArray(e.definitionNodeIds) && e.definitionNodeIds.length > 0) {
+              const defProto = protoMap.get(e.definitionNodeIds[0]);
+              if (defProto?.name) type = defProto.name;
+            } else if (e.type) {
+              type = e.type;
+            } else if (e.connectionType) {
+              type = e.connectionType;
+            }
+
+            return `  - ${sourceName} --[${type}]--> ${targetName}`;
+          });
+          context += `\nConnections:\n${triplets.join('\n')}`;
+        }
       }
-    }
-    
-    // Include groups if present
-    const groups = activeGraph.groups || [];
-    if (groups.length > 0) {
-      const groupNames = groups.slice(0, 5).map(g => g.name || 'Unnamed').join(', ');
-      context += `\nGroups: ${groupNames}${groups.length > 5 ? '...' : ''}`;
-    }
-    
-    // Include edge/connection info if available
-    if (edgeCount > 0 && edges && edges.length > 0) {
-      // Filter edges belonging to this graph
-      const graphEdges = edges.filter(e => 
-        edgeIds.includes(e.id) || edgeIds.includes(e.edgeId)
-      );
-      if (graphEdges.length > 0) {
-        const edgeDescriptions = graphEdges.slice(0, 10).map(e => {
-          const sourceInst = instances.find(i => i.id === e.sourceId || i.id === e.source);
-          const targetInst = instances.find(i => i.id === e.targetId || i.id === e.target);
-          const sourceName = sourceInst?.name || e.sourceName || 'Unknown';
-          const targetName = targetInst?.name || e.targetName || 'Unknown';
-          const relType = e.type || e.connectionType || 'relates to';
-          return `${sourceName} --[${relType}]--> ${targetName}`;
-        });
-        context += `\nConnections: ${edgeDescriptions.join('; ')}${graphEdges.length > 10 ? '...' : ''}`;
+
+      // Include ALL groups
+      const groups = activeGraph.groups instanceof Map
+        ? Array.from(activeGraph.groups.values())
+        : Array.isArray(activeGraph.groups)
+          ? activeGraph.groups
+          : Object.values(activeGraph.groups || {});
+      if (groups.length > 0) {
+        const groupLines = groups.map(g => `  - ${g.name || 'Unnamed'} (${(g.memberInstanceIds || g.members || []).length} members)`);
+        context += `\nGroups:\n${groupLines.join('\n')}`;
       }
     }
   } else if (graphs.length > 0) {
     const graphNames = graphs.slice(0, 3).map(g => `"${g.name}"`).join(', ');
-    context += `\n\n📚 AVAILABLE WEBS: ${graphs.length} total (${graphNames}${graphs.length > 3 ? '...' : ''})`;
+    context += `\n\nAVAILABLE WEBS: ${graphs.length} total (${graphNames}${graphs.length > 3 ? '...' : ''})`;
     context += '\nNo active web - create one or open an existing web.';
   } else {
-    context += '\n\n📚 No webs yet - perfect time to create one!';
+    context += '\n\nNo webs yet - perfect time to create one!';
   }
 
-  // Color palette (from node prototypes)
+  // Color palette
   const colors = new Set();
   nodePrototypes.forEach(proto => {
     if (proto.color) colors.add(proto.color);
   });
-  
+
   if (colors.size > 0) {
     const colorList = Array.from(colors).slice(0, 8).join(', ');
-    context += `\n\n🎨 Color palette in use: ${colorList}${colors.size > 8 ? '...' : ''}`;
+    context += `\n\nColor palette in use: ${colorList}${colors.size > 8 ? '...' : ''}`;
   }
 
   return context;
@@ -115,19 +131,19 @@ export function truncateContext(context, maxLength = 4000) {
   const suffix = '\n... (truncated)';
   const suffixLength = suffix.length;
   const effectiveMaxLength = maxLength - suffixLength;
-  
+
   if (context.length <= effectiveMaxLength) return context;
-  
+
   // Try to truncate at a sentence boundary
   const truncated = context.substring(0, effectiveMaxLength);
   const lastPeriod = truncated.lastIndexOf('.');
   const lastNewline = truncated.lastIndexOf('\n');
   const cutPoint = Math.max(lastPeriod, lastNewline);
-  
+
   if (cutPoint > effectiveMaxLength * 0.8) {
     return truncated.substring(0, cutPoint + 1) + suffix;
   }
-  
+
   return truncated + suffix;
 }
 
