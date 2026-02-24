@@ -22,9 +22,13 @@ const ForceSimulationModal = ({
   onLayoutScalePresetChange,
   onLayoutScaleMultiplierChange,
   layoutIterationPreset = FORCE_LAYOUT_DEFAULTS.iterationPreset || 'balanced',
-  onLayoutIterationPresetChange
-  ,
-  onCopyToAutoLayout
+  onLayoutIterationPresetChange,
+  onCopyToAutoLayout,
+  // Auto-layout mode: starts simulation automatically and hides the UI
+  autoStart = false,
+  invisible = false,
+  onSimulationComplete = null,
+  autoLayoutDuration = 1000  // ms to run when autoStart is active
 }) => {
   const [position, setPosition] = useState({ x: 100, y: 100 });
   const [isDragging, setIsDragging] = useState(false);
@@ -40,7 +44,7 @@ const ForceSimulationModal = ({
   const initialAlphaDecay = LAYOUT_ITERATION_PRESETS[initialIterationPreset]?.alphaDecay ?? defaultAlphaDecay;
   const [scaleMultiplier, setScaleMultiplier] = useState(initialScaleMultiplier);
   const [iterationPreset, setIterationPreset] = useState(initialIterationPreset);
-  const [simulationSpeed, setSimulationSpeed] = useState(1.0);
+  const [simulationSpeed, setSimulationSpeed] = useState(autoStart ? 0.3 : 1.0);
   const baseNodeSeparationMultiplier = FORCE_LAYOUT_DEFAULTS.nodeSeparationMultiplier || 1.25;
   const nodeSeparationMultiplier = baseNodeSeparationMultiplier * scaleMultiplier;
   const scalePresetEntries = Object.entries(LAYOUT_SCALE_PRESETS);
@@ -59,7 +63,7 @@ const ForceSimulationModal = ({
     velocityDecay: defaultVelocityDecay,
     // Group forces
     groupAttractionStrength: defaultGroupAttraction = 0.6,
-    groupRepulsionStrength: defaultGroupRepulsion = 2.0,
+    groupRepulsionStrength: defaultGroupRepulsion = 4.8,
     groupExclusionStrength: defaultGroupExclusion = 1.5,
     minGroupDistance: defaultMinGroupDistance = 800,
     groupBoundaryPadding: defaultGroupBoundaryPadding = 100,
@@ -306,6 +310,20 @@ const ForceSimulationModal = ({
     }
   }, [layoutScaleMultiplier]);
 
+  // Auto-start the simulation when opened in invisible/auto-layout mode
+  useEffect(() => {
+    if (isOpen && autoStart) {
+      setSimulationSpeed(0.3);  // Always use slow speed for auto-layout
+      setIsRunning(true);
+      // Stop after fixed duration regardless of whether alpha has settled
+      const timer = setTimeout(() => {
+        setIsRunning(false);
+        onSimulationComplete?.();
+      }, autoLayoutDuration);
+      return () => clearTimeout(timer);
+    }
+  }, [isOpen, autoStart]);
+
   useEffect(() => {
     if (!layoutIterationPreset) return;
     setIterationPreset(layoutIterationPreset);
@@ -324,6 +342,7 @@ const ForceSimulationModal = ({
     const state = simulationState.current;
     if (state.alpha < 0.001) {
       setIsRunning(false);
+      onSimulationComplete?.();
       return;
     }
 
@@ -928,6 +947,8 @@ const ForceSimulationModal = ({
   };
 
   if (!isOpen) return null;
+  // In invisible mode, all hooks run but no UI is rendered
+  if (invisible) return null;
 
   return (
     <div

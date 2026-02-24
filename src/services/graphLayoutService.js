@@ -387,34 +387,34 @@ function getPointSegmentDistSq(px, py, ax, ay, bx, by) {
 export const FORCE_LAYOUT_DEFAULTS = {
   width: 2000,
   height: 1500,
-  iterations: 300,
+  iterations: 600,
 
   // Basic forces
-  repulsionStrength: 500000,  // Much stronger to push nodes apart
-  attractionStrength: 0.2,    // Weaker to allow spreading
-  centerStrength: 0.015,      // Gentler centering
+  repulsionStrength: 2200,     // Refined value from tuner (was 500000)
+  attractionStrength: 0.05,    // Refined value from tuner (was 0.2)
+  centerStrength: 0.015,       // Gentler centering
 
   // Distance parameters
   targetLinkDistance: 400,    // Much longer target distance
   linkDistance: 400,          // Alias for compatibility
-  minNodeDistance: 250,       // More minimum space
-  minLinkDistance: 250,       // Alias for compatibility
+  minNodeDistance: 280,       // Refined value from tuner (was 250)
+  minLinkDistance: 280,       // Alias for compatibility
   maxRepulsionDistance: 1500, // Allow repulsion from further away
 
   // Simulation control
   damping: 0.85,
   velocityDecay: 0.85,  // Alias for damping
-  alphaDecay: 0.015,
+  alphaDecay: 0.008,
   alphaMin: 0.001,
 
   // Node sizing
   nodeSpacing: 140,
   labelPadding: 40,
-  minNodeRadius: 80,
-  collisionRadius: 80,  // Alias for minNodeRadius
+  minNodeRadius: 90,        // Refined value from tuner (was 80)
+  collisionRadius: 90,      // Alias for minNodeRadius
 
   // Edge avoidance - push nodes away from edges they're not part of
-  edgeAvoidance: 0.5,  // Default ON at 50% strength
+  edgeAvoidance: 0.95,      // Refined value from tuner (was 0.5)
   edgeAvoidanceRadius: 200,
 
   // Bounds
@@ -431,14 +431,14 @@ export const FORCE_LAYOUT_DEFAULTS = {
 
   // Group clustering
   groupAttractionStrength: 0.6,  // How strongly nodes pull toward group center (must compete with N-body repulsion)
-  groupRepulsionStrength: 2.0,   // How strongly different groups push apart
+  groupRepulsionStrength: 4.8,   // Refined value from tuner (was 2.0)
   minGroupDistance: 800,         // Minimum distance between group centroids (must exceed initial spacing ~700px)
   groupExclusionStrength: 1.5,   // How strongly non-members are pushed out of group bounds
   groupBoundaryPadding: 100,     // Padding around group bounding boxes
 
   // Presets
   layoutScale: 'balanced',
-  layoutScaleMultiplier: 1,
+  layoutScaleMultiplier: 1.6,  // Refined value from tuner (was 1.0)
   iterationPreset: 'balanced'
 };
 
@@ -447,40 +447,40 @@ export const LAYOUT_SCALE_PRESETS = {
     label: 'Compact',
     targetLinkDistance: 280,
     linkDistance: 280,  // Alias
-    minNodeDistance: 180,
-    minLinkDistance: 180,  // Alias
-    repulsionStrength: 350000
+    minNodeDistance: 200,
+    minLinkDistance: 200,  // Alias
+    repulsionStrength: 1540
   },
   balanced: {
     label: 'Balanced',
     targetLinkDistance: 400,
     linkDistance: 400,  // Alias
-    minNodeDistance: 250,
-    minLinkDistance: 250,  // Alias
-    repulsionStrength: 500000
+    minNodeDistance: 280,
+    minLinkDistance: 280,  // Alias
+    repulsionStrength: 2200
   },
   spacious: {
     label: 'Spacious',
     targetLinkDistance: 550,
     linkDistance: 550,  // Alias
-    minNodeDistance: 350,
-    minLinkDistance: 350,  // Alias
-    repulsionStrength: 700000
+    minNodeDistance: 380,
+    minLinkDistance: 380,  // Alias
+    repulsionStrength: 3080
   }
 };
 
 export const LAYOUT_ITERATION_PRESETS = {
   fast: {
-    iterations: 200,
-    alphaDecay: 0.025
-  },
-  balanced: {
     iterations: 300,
     alphaDecay: 0.015
   },
+  balanced: {
+    iterations: 600,
+    alphaDecay: 0.008
+  },
   deep: {
-    iterations: 450,
-    alphaDecay: 0.01
+    iterations: 1200,
+    alphaDecay: 0.004
   }
 };
 

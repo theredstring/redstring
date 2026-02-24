@@ -2210,6 +2210,7 @@ function NodeCanvas() {
   const [headerSearchVisible, setHeaderSearchVisible] = useState(false);
   const [autoGraphModalVisible, setAutoGraphModalVisible] = useState(false);
   const [forceSimModalVisible, setForceSimModalVisible] = useState(false);
+  const [autoLayoutRunning, setAutoLayoutRunning] = useState(false);
 
 
   // Define carousel callbacks outside conditional rendering to avoid hook violations
@@ -7867,7 +7868,9 @@ function NodeCanvas() {
         onOpenForceSim={() => {
           setForceSimModalVisible(true);
         }}
-        onAutoLayoutGraph={applyAutoLayoutToActiveGraph}
+        onAutoLayoutGraph={() => {
+          setAutoLayoutRunning(true);
+        }}
         onCondenseNodes={condenseGraphNodes}
         onNewUniverse={async () => {
           try {
@@ -12254,8 +12257,15 @@ function NodeCanvas() {
 
       {/* Force Simulation Modal */}
       <ForceSimulationModal
-        isOpen={forceSimModalVisible}
-        onClose={() => setForceSimModalVisible(false)}
+        isOpen={forceSimModalVisible || autoLayoutRunning}
+        onClose={() => {
+          setForceSimModalVisible(false);
+          setAutoLayoutRunning(false);
+        }}
+        autoStart={autoLayoutRunning}
+        invisible={autoLayoutRunning && !forceSimModalVisible}
+        onSimulationComplete={() => setAutoLayoutRunning(false)}
+        autoLayoutDuration={1000}
         graphId={activeGraphId}
         storeActions={storeActions}
         layoutScalePreset={forceLayoutScalePreset}

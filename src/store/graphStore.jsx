@@ -48,7 +48,7 @@ const getDefaultAutoLayoutSettings = () => ({
   manhattanBends: 'auto',
   cleanLaneSpacing: 200,
   layoutScale: 'balanced',
-  layoutScaleMultiplier: 1,
+  layoutScaleMultiplier: 1.6,
   layoutIterations: 'balanced',
   groupLayoutAlgorithm: 'node-driven',
   showClusterHulls: false // Debug visualization for connectivity clusters
@@ -56,17 +56,17 @@ const getDefaultAutoLayoutSettings = () => ({
 
 const getDefaultForceTunerSettings = () => ({
   layoutScale: 'balanced',
-  layoutScaleMultiplier: 1,
+  layoutScaleMultiplier: 1.6,
   layoutIterations: 'balanced',
   // Individual force parameters
-  repulsionStrength: 500000,
-  attractionStrength: 0.2,
+  repulsionStrength: 2200,
+  attractionStrength: 0.05,
   linkDistance: 400,
-  minLinkDistance: 250,
+  minLinkDistance: 280,
   centerStrength: 0.015,
-  collisionRadius: 80,
-  edgeAvoidance: 0.5,
-  alphaDecay: 0.015,
+  collisionRadius: 90,
+  edgeAvoidance: 0.95,
+  alphaDecay: 0.008,
   velocityDecay: 0.85
 });
 

@@ -55,24 +55,24 @@ export function getAutoLayoutSettings() {
   const store = getBridgeStore();
   const autoSettings = store.autoLayoutSettings || {};
   const tunerSettings = store.forceTunerSettings || {};
-  
+
   // Merge settings: use tuner settings if available, otherwise fall back to auto settings or defaults
   const defaults = {
     layoutScale: 'balanced',
-    layoutScaleMultiplier: 1,
+    layoutScaleMultiplier: 1.6,
     layoutIterations: 'balanced',
-    repulsionStrength: 500000,
-    attractionStrength: 0.2,
+    repulsionStrength: 2200,
+    attractionStrength: 0.05,
     linkDistance: 400,
-    minLinkDistance: 250,
+    minLinkDistance: 280,
     centerStrength: 0.015,
-    collisionRadius: 80,
-    edgeAvoidance: 0.5,
-    alphaDecay: 0.015,
+    collisionRadius: 90,
+    edgeAvoidance: 0.95,
+    alphaDecay: 0.008,
     velocityDecay: 0.85,
     // Group forces
     groupAttractionStrength: 0.6,
-    groupRepulsionStrength: 2.0,
+    groupRepulsionStrength: 4.8,
     groupExclusionStrength: 1.5,
     minGroupDistance: 800,
     groupBoundaryPadding: 100,
