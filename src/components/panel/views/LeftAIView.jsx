@@ -1107,7 +1107,8 @@ const LeftAIView = ({ compact = false,
     if (activeConv) {
       const isTabSwitch = lastActiveIdRef.current !== activeConversationId;
       // Load messages if tab switched, OR if we just hydrated and current messages are empty
-      if (isTabSwitch || (isHydrated && messages.length === 0)) {
+      // Added check for activeConv.messages?.length > 0 to prevent infinite loop with empty [] arrays
+      if (isTabSwitch || (isHydrated && messages.length === 0 && activeConv.messages?.length > 0)) {
         setMessages(activeConv.messages || []);
         lastMessagesRef.current = activeConv.messages || []; // Update ref to prevent immediate re-save
       }

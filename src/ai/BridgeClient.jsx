@@ -187,15 +187,147 @@ const BridgeClient = () => {
   }, []);
 
   useEffect(() => {
-    // Function to check bridge server health
-    const checkBridgeHealth = async () => {
-      try {
-        const response = await bridgeFetch('/api/bridge/health');
-        return response.ok;
-      } catch (error) {
-        return false;
+    /**
+     * Calculate Wikipedia confidence score for auto-enrichment
+     * Returns 0.0 to 1.0, with 0.90+ indicating "dead match" quality
+     */
+    function calculateWikipediaConfidence(nodeName, wikipediaResult) {
+      let confidence = 0;
+
+      // FACTOR 1: Result type (40 points)
+      // Only accept direct Wikipedia page hits, reject disambiguation
+      if (wikipediaResult.type === 'direct') {
+        confidence += 0.40;
+      } else {
+        return 0.0; // Automatic rejection for disambiguation or not found
       }
-    };
+
+      // FACTOR 2: Label matching (50 points)
+      // Exact match required for 0.90 total
+      try {
+        const { normalizeLabel, calculateTextSimilarity } = require('../services/entityMatching.js');
+        const norm1 = normalizeLabel(nodeName);
+        const norm2 = normalizeLabel(wikipediaResult.page.title);
+
+        if (norm1 === norm2) {
+          confidence += 0.50; // Exact match → Total 0.90 ✓
+        } else {
+          // Fuzzy match using text similarity
+          const similarity = calculateTextSimilarity(norm1, norm2);
+          confidence += similarity * 0.50;
+        }
+      } catch (e) {
+        // Fallback if entityMatching is not available in this context
+        if (nodeName.toLowerCase().trim() === wikipediaResult.page.title.toLowerCase().trim()) {
+          confidence += 0.50;
+        }
+      }
+
+      return confidence;
+    }
+
+    /**
+     * Convert image URL to data URL
+     */
+    async function urlToDataUrl(url) {
+      try {
+        const response = await fetch(url, { mode: 'cors' });
+        const blob = await response.blob();
+        return new Promise((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onloadend = () => resolve(reader.result);
+          reader.onerror = reject;
+          reader.readAsDataURL(blob);
+        });
+      } catch (e) {
+        return null;
+      }
+    }
+
+    /**
+     * Enrich a single node with Wikipedia data
+     */
+    async function enrichNodeWithWikipedia(nodeName, graphId, options = {}) {
+      const { minConfidence = 0.90 } = options;
+
+      try {
+        const { searchWikipedia } = await import('../components/panel/SharedPanelContent.jsx');
+        const searchResult = await searchWikipedia(nodeName);
+
+        if (searchResult?.type !== 'direct') return null;
+
+        const confidence = calculateWikipediaConfidence(nodeName, searchResult);
+        if (confidence < minConfidence) return null;
+
+        await new Promise(resolve => setTimeout(resolve, 500));
+
+        const store = useGraphStore.getState();
+        let targetNodeProtoId = null;
+
+        for (const [protoId, proto] of store.nodePrototypes) {
+          if ((proto.name || '').toLowerCase().trim() === nodeName.toLowerCase().trim()) {
+            targetNodeProtoId = protoId;
+            break;
+          }
+        }
+
+        if (!targetNodeProtoId) return null;
+        const nodeProto = store.nodePrototypes.get(targetNodeProtoId);
+
+        if (nodeProto.description && nodeProto.description.trim().length > 10) return null;
+
+        const updates = {
+          description: searchResult.page.description,
+          semanticMetadata: {
+            ...nodeProto.semanticMetadata,
+            wikipediaUrl: searchResult.page.url,
+            wikipediaTitle: searchResult.page.title,
+            wikipediaThumbnail: searchResult.page.thumbnail,
+            wikipediaOriginalImage: searchResult.page.originalImage,
+            wikipediaAdditionalImages: searchResult.page.additionalImages || [],
+            wikipediaEnriched: true,
+            wikipediaEnrichedAt: new Date().toISOString(),
+            autoEnriched: true,
+            autoEnrichConfidence: confidence
+          }
+        };
+
+        const currentLinks = nodeProto.externalLinks || [];
+        if (!currentLinks.some(link => String(link).includes('wikipedia.org'))) {
+          updates.externalLinks = [searchResult.page.url, ...currentLinks];
+        }
+
+        const imgUrl = searchResult.page.originalImage || searchResult.page.thumbnail;
+        if (imgUrl && !nodeProto.imageSrc) {
+          const dataUrl = await urlToDataUrl(imgUrl);
+          if (dataUrl) {
+            updates.imageSrc = dataUrl;
+            updates.thumbnailSrc = dataUrl;
+            updates.imageAspectRatio = 1; // Default
+          }
+        }
+
+        store.updateNodePrototype(targetNodeProtoId, (draft) => {
+          Object.assign(draft, updates);
+        });
+
+        return { success: true };
+      } catch (error) {
+        return null;
+      }
+    }
+
+    /**
+     * Enrich multiple nodes in batch
+     */
+    async function enrichMultipleNodes(nodeNames, graphId) {
+      const enrichmentPromises = nodeNames.map((nodeName, index) =>
+        new Promise(resolve => setTimeout(() =>
+          resolve(enrichNodeWithWikipedia(nodeName, graphId))
+          , index * 200))
+      );
+      return Promise.allSettled(enrichmentPromises);
+    }
 
     // Function to handle connection recovery
     const handleConnectionRecovery = async () => {
@@ -599,6 +731,400 @@ const BridgeClient = () => {
               console.log('MCPBridge: Forwarding chat message to AI model', { message, context });
               // The actual chat handling happens in the MCP server
               return { success: true, message, context };
+            },
+
+            // --- WIZARD ACTIONS (Bridges the gap for MCP tools) ---
+
+            createNode: async (result) => {
+              console.log('MCPBridge: Calling Wizard createNode', result.name);
+              const st = useGraphStore.getState();
+              const gId = result.graphId || st.activeGraphId;
+              if (!gId) return { success: false, error: 'No active graph' };
+
+              st.applyBulkGraphUpdates(gId, {
+                nodes: [{
+                  name: result.name,
+                  color: result.color || '#5B6CFF',
+                  description: result.description || '',
+                  x: Math.random() * 600 + 200,
+                  y: Math.random() * 500 + 200
+                }]
+              });
+
+              if (!result.description || result.description.trim() === '') {
+                enrichNodeWithWikipedia(result.name, gId).catch(() => { });
+              }
+              return { success: true, name: result.name };
+            },
+
+            updateNode: async (result) => {
+              const lookupName = (result.originalName || '').toLowerCase().trim();
+              console.log('MCPBridge: Calling Wizard updateNode', lookupName);
+              const st = useGraphStore.getState();
+
+              let realProtoId = null;
+              for (const [protoId, proto] of st.nodePrototypes) {
+                if ((proto.name || '').toLowerCase().trim() === lookupName) {
+                  realProtoId = protoId;
+                  break;
+                }
+              }
+              if (!realProtoId) return { success: false, error: 'Node not found' };
+
+              st.updateNodePrototype(realProtoId, (prototype) => {
+                if (result.updates.name !== undefined) prototype.name = result.updates.name;
+                if (result.updates.color !== undefined) prototype.color = result.updates.color;
+                if (result.updates.description !== undefined) prototype.description = result.updates.description;
+              });
+              return { success: true, prototypeId: realProtoId };
+            },
+
+            deleteNode: async (result) => {
+              const st = useGraphStore.getState();
+              const gId = result.graphId || st.activeGraphId;
+              const lookupName = (result.name || '').toLowerCase().trim();
+              console.log('MCPBridge: Calling Wizard deleteNode', lookupName);
+
+              if (!gId || !lookupName) return { success: false };
+              const graph = st.graphs.get(gId);
+              if (!graph) return { success: false };
+
+              let realInstId = null;
+              for (const [instId, inst] of graph.instances) {
+                const proto = st.nodePrototypes.get(inst.prototypeId);
+                if ((proto?.name || '').toLowerCase().trim() === lookupName) {
+                  realInstId = instId;
+                  break;
+                }
+              }
+              if (realInstId) {
+                st.removeNodeInstance(gId, realInstId);
+                return { success: true };
+              }
+              return { success: false, error: 'Instance not found' };
+            },
+
+            createEdge: async (result) => {
+              console.log('MCPBridge: Calling Wizard createEdge', result.sourceName, '→', result.targetName);
+              const st = useGraphStore.getState();
+              const gId = result.graphId || st.activeGraphId;
+              if (!gId) return { success: false };
+
+              st.applyBulkGraphUpdates(gId, {
+                nodes: [],
+                edges: [{
+                  source: result.sourceName,
+                  target: result.targetName,
+                  type: result.type || 'relates to',
+                  directionality: 'unidirectional',
+                  definitionNode: result.type ? { name: result.type, color: '#708090' } : null
+                }]
+              });
+              return { success: true };
+            },
+
+            createPopulatedGraph: async (result) => {
+              console.log('MCPBridge: Calling Wizard createPopulatedGraph', result.graphName);
+              const st = useGraphStore.getState();
+              const gId = st.createNewGraph({
+                id: result.graphId,
+                name: result.graphName,
+                description: result.description || ''
+              });
+
+              const bulkData = {
+                nodes: result.spec.nodes.map((n, idx) => ({
+                  name: n.name,
+                  color: n.color,
+                  description: n.description,
+                  prototypeId: `proto-${Date.now()}-${idx}-${Math.random().toString(36).slice(2, 8)}`,
+                  instanceId: `inst-${Date.now()}-${idx}-${Math.random().toString(36).slice(2, 8)}`,
+                  x: Math.random() * 600 + 200,
+                  y: Math.random() * 500 + 200
+                })),
+                edges: (result.spec.edges || []).map(e => ({
+                  source: e.source,
+                  target: e.target,
+                  type: e.type || 'relates to',
+                  directionality: e.directionality || 'unidirectional',
+                  definitionNode: e.definitionNode || null
+                })),
+                groups: result.spec.groups || []
+              };
+
+              st.applyBulkGraphUpdates(gId, bulkData);
+
+              setTimeout(() => {
+                if (typeof window !== 'undefined') {
+                  window.dispatchEvent(new CustomEvent('rs-trigger-auto-layout', { detail: { graphId: gId } }));
+                }
+              }, 600);
+
+              const nodeNames = result.spec.nodes.map(n => n.name);
+              setTimeout(() => {
+                enrichMultipleNodes(nodeNames, gId).catch(() => { });
+              }, 1000);
+
+              return { success: true, graphId: gId };
+            },
+
+            expandGraph: async (result) => {
+              console.log('MCPBridge: Calling Wizard expandGraph');
+              const st = useGraphStore.getState();
+              const gId = result.graphId || st.activeGraphId;
+              if (!gId) return { success: false };
+
+              const bulkData = {
+                nodes: result.spec.nodes.map((n, idx) => ({
+                  name: n.name,
+                  color: n.color,
+                  description: n.description,
+                  prototypeId: `proto-${Date.now()}-${idx}-${Math.random().toString(36).slice(2, 8)}`,
+                  instanceId: `inst-${Date.now()}-${idx}-${Math.random().toString(36).slice(2, 8)}`,
+                  x: Math.random() * 600 + 200,
+                  y: Math.random() * 500 + 200
+                })),
+                edges: (result.spec.edges || []).map(e => ({
+                  source: e.source,
+                  target: e.target,
+                  type: e.type || 'relates to',
+                  directionality: e.directionality || 'unidirectional',
+                  definitionNode: e.definitionNode || null
+                })),
+                groups: result.spec.groups || []
+              };
+
+              st.applyBulkGraphUpdates(gId, bulkData);
+
+              setTimeout(() => {
+                if (typeof window !== 'undefined') {
+                  window.dispatchEvent(new CustomEvent('rs-trigger-auto-layout', { detail: { graphId: gId } }));
+                }
+              }, 600);
+
+              const nodeNames = result.spec.nodes.map(n => n.name);
+              setTimeout(() => {
+                enrichMultipleNodes(nodeNames, gId).catch(() => { });
+              }, 1000);
+
+              return { success: true };
+            },
+
+            selectNode: async (result) => {
+              if (!result.found || !result.node) return { success: false };
+              console.log(`MCPBridge: Selecting node: "${result.node.name}"`);
+              setTimeout(() => {
+                if (typeof window !== 'undefined') {
+                  window.dispatchEvent(new CustomEvent('rs-select-node', {
+                    detail: {
+                      instanceId: result.node.instanceId,
+                      prototypeId: result.node.prototypeId,
+                      name: result.node.name
+                    }
+                  }));
+                }
+              }, 100);
+              return { success: true };
+            },
+
+            updateEdge: async (result) => {
+              console.log('MCPBridge: Calling Wizard updateEdge', result.sourceName, '→', result.targetName);
+              const st = useGraphStore.getState();
+              const gId = result.graphId || st.activeGraphId;
+              if (!gId) return { success: false };
+              const graph = st.graphs.get(gId);
+              if (!graph) return { success: false };
+
+              let srcInstId = null, tgtInstId = null;
+              const srcLower = (result.sourceName || '').toLowerCase().trim();
+              const tgtLower = (result.targetName || '').toLowerCase().trim();
+
+              for (const [instId, inst] of graph.instances) {
+                const p = st.nodePrototypes.get(inst.prototypeId);
+                const n = (p?.name || '').toLowerCase().trim();
+                if (n === srcLower) srcInstId = instId;
+                if (n === tgtLower) tgtInstId = instId;
+              }
+
+              if (!srcInstId || !tgtInstId) return { success: false, error: 'Source/target instances not found' };
+
+              let realEdgeId = null;
+              let actualEdge = null;
+              for (const edgeId of graph.edgeIds) {
+                const edge = st.edges.get(edgeId);
+                if (!edge) continue;
+                if ((edge.sourceId === srcInstId && edge.destinationId === tgtInstId) ||
+                  (edge.sourceId === tgtInstId && edge.destinationId === srcInstId)) {
+                  realEdgeId = edgeId;
+                  actualEdge = edge;
+                  break;
+                }
+              }
+
+              if (!realEdgeId) return { success: false, error: 'Edge not found' };
+
+              let protoIdToLink = null;
+              if (result.updates.type) {
+                const typeLookup = result.updates.type.toLowerCase().trim();
+                for (const [id, proto] of st.nodePrototypes) {
+                  if ((proto.name || '').toLowerCase().trim() === typeLookup) {
+                    protoIdToLink = id;
+                    break;
+                  }
+                }
+
+                if (!protoIdToLink) {
+                  protoIdToLink = `proto-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+                  st.addNodePrototype({
+                    id: protoIdToLink,
+                    name: result.updates.type,
+                    color: '#708090',
+                    description: '',
+                    typeNodeId: null,
+                    definitionGraphIds: []
+                  });
+                }
+              }
+
+              st.updateEdge(realEdgeId, (draft) => {
+                if (result.updates.directionality) {
+                  if (result.updates.directionality === 'bidirectional') {
+                    draft.directionality.arrowsToward = new Set([actualEdge.sourceId, actualEdge.destinationId]);
+                  } else if (result.updates.directionality === 'unidirectional') {
+                    draft.directionality.arrowsToward = new Set([actualEdge.sourceId === srcInstId ? actualEdge.destinationId : actualEdge.sourceId]);
+                  } else if (result.updates.directionality === 'reverse') {
+                    draft.directionality.arrowsToward = new Set([actualEdge.sourceId === srcInstId ? actualEdge.sourceId : actualEdge.destinationId]);
+                  } else if (result.updates.directionality === 'none') {
+                    draft.directionality.arrowsToward = new Set();
+                  }
+                }
+                if (protoIdToLink) draft.definitionNodeIds = [protoIdToLink];
+              });
+              return { success: true };
+            },
+
+            deleteEdge: async (result) => {
+              console.log('MCPBridge: Calling Wizard deleteEdge');
+              const st = useGraphStore.getState();
+              const gId = result.graphId || st.activeGraphId;
+              if (!gId) return { success: false };
+              if (result.edgeId) {
+                st.removeEdge(result.edgeId);
+                return { success: true };
+              }
+              if (result.sourceName && result.targetName) {
+                const graph = st.graphs.get(gId);
+                if (!graph) return { success: false };
+                const srcLower = result.sourceName.toLowerCase().trim();
+                const tgtLower = result.targetName.toLowerCase().trim();
+                const nameToInstId = new Map();
+                for (const [instId, inst] of graph.instances) {
+                  const proto = st.nodePrototypes.get(inst.prototypeId);
+                  const name = (proto?.name || '').toLowerCase().trim();
+                  if (name) nameToInstId.set(name, instId);
+                }
+                const srcInstId = nameToInstId.get(srcLower);
+                const tgtInstId = nameToInstId.get(tgtLower);
+                if (srcInstId && tgtInstId) {
+                  for (const edgeId of (graph.edgeIds || [])) {
+                    const edge = st.edges.get(edgeId);
+                    if (edge && ((edge.sourceId === srcInstId && edge.destinationId === tgtInstId) || (edge.sourceId === tgtInstId && edge.destinationId === srcInstId))) {
+                      st.removeEdge(edgeId);
+                      return { success: true };
+                    }
+                  }
+                }
+              }
+              return { success: false };
+            },
+
+            replaceEdges: async (result) => {
+              console.log('MCPBridge: Calling Wizard replaceEdges', result.edgeCount);
+              const st = useGraphStore.getState();
+              const gId = result.graphId || st.activeGraphId;
+              if (!gId) return { success: false };
+              const graph = st.graphs.get(gId);
+              if (!graph) return { success: false };
+
+              const nameToInstId = new Map();
+              for (const [instId, inst] of graph.instances) {
+                const proto = st.nodePrototypes.get(inst.prototypeId);
+                const name = (proto?.name || '').toLowerCase().trim();
+                if (name) nameToInstId.set(name, instId);
+              }
+
+              const newEdges = [];
+              for (const replacement of (result.replacements || [])) {
+                const srcLower = (replacement.source || '').toLowerCase().trim();
+                const tgtLower = (replacement.target || '').toLowerCase().trim();
+                const srcInstId = nameToInstId.get(srcLower);
+                const tgtInstId = nameToInstId.get(tgtLower);
+
+                if (!srcInstId || !tgtInstId) continue;
+
+                let existingEdgeId = null;
+                for (const edgeId of (graph.edgeIds || [])) {
+                  const edge = st.edges.get(edgeId);
+                  if (edge && ((edge.sourceId === srcInstId && edge.destinationId === tgtInstId) || (edge.sourceId === tgtInstId && edge.destinationId === srcInstId))) {
+                    existingEdgeId = edgeId;
+                    break;
+                  }
+                }
+
+                if (existingEdgeId) {
+                  const typeName = replacement.type || 'Connection';
+                  let protoIdToLink = null;
+                  const typeLookup = typeName.toLowerCase().trim();
+                  for (const [id, proto] of st.nodePrototypes) {
+                    if ((proto.name || '').toLowerCase().trim() === typeLookup) {
+                      protoIdToLink = id;
+                      break;
+                    }
+                  }
+
+                  if (!protoIdToLink) {
+                    protoIdToLink = `proto-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+                    st.addNodePrototype({
+                      id: protoIdToLink,
+                      name: typeName,
+                      color: replacement.definitionNode?.color || '#708090',
+                      description: replacement.definitionNode?.description || '',
+                      typeNodeId: null,
+                      definitionGraphIds: []
+                    });
+                  }
+
+                  const actualEdge = st.edges.get(existingEdgeId);
+                  st.updateEdge(existingEdgeId, (draft) => {
+                    const dir = replacement.directionality || 'unidirectional';
+                    if (dir === 'bidirectional') {
+                      draft.directionality.arrowsToward = new Set([actualEdge.sourceId, actualEdge.destinationId]);
+                    } else if (dir === 'unidirectional') {
+                      draft.directionality.arrowsToward = new Set([actualEdge.sourceId === srcInstId ? actualEdge.destinationId : actualEdge.sourceId]);
+                    } else if (dir === 'reverse') {
+                      draft.directionality.arrowsToward = new Set([actualEdge.sourceId === srcInstId ? actualEdge.sourceId : actualEdge.destinationId]);
+                    } else if (dir === 'none') {
+                      draft.directionality.arrowsToward = new Set();
+                    }
+                    draft.definitionNodeIds = [protoIdToLink];
+                    draft.name = typeName;
+                    draft.type = typeName;
+                  });
+                } else {
+                  newEdges.push({
+                    source: replacement.source,
+                    target: replacement.target,
+                    type: replacement.type || 'Connection',
+                    directionality: replacement.directionality || 'unidirectional',
+                    definitionNode: replacement.definitionNode || null
+                  });
+                }
+              }
+
+              if (newEdges.length > 0) {
+                st.applyBulkGraphUpdates(gId, { nodes: [], edges: newEdges, groups: [] });
+              }
+              return { success: true };
             },
             navigateTo: async (options) => {
               // Navigate the canvas to show specific content

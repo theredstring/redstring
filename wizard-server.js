@@ -255,18 +255,25 @@ app.post('/api/bridge/register-store', (req, res) => {
   res.json({ ok: true, registered: true });
 });
 
-// State endpoint - UI polls this
+// State endpoint - stores latest state from BridgeClient.jsx for MCP server consumption
+let latestBridgeState = null;
+
 app.get('/api/bridge/state', (req, res) => {
-  res.json({
-    graphs: [],
-    pendingActions: [],
-    source: 'wizard-server',
-    summary: { lastUpdate: Date.now() } // added so mcpClient.js connects
-  });
+  if (latestBridgeState) {
+    res.json(latestBridgeState);
+  } else {
+    res.json({
+      graphs: [],
+      pendingActions: [],
+      source: 'wizard-server',
+      summary: { lastUpdate: Date.now() }
+    });
+  }
 });
 
 app.post('/api/bridge/state', (req, res) => {
-  // Accept state updates from UI
+  // Store state updates from BridgeClient.jsx so MCP server can read them
+  latestBridgeState = req.body || null;
   res.json({ ok: true });
 });
 
