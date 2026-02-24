@@ -18,7 +18,7 @@ import https from 'https';
 import { applyLayout } from './src/services/graphLayoutService.js';
 
 // Load environment variables (debug off to avoid noisy logs)
-dotenv.config({});
+dotenv.config({ quiet: true });
 
 // Create MCP server instance
 const server = new McpServer({
@@ -35,7 +35,7 @@ const app = express();
 // Force 3001 for internal chat/wizard compatibility regardless of .env PORT
 // Allow PORT override from environment, default to 3001
 const PORT = process.env.PORT || 3001;
-console.log(`[MCP] Configured to run on port ${PORT}`);
+console.error(`[MCP] Configured to run on port ${PORT}`);
 
 // Respect proxy headers when running behind Cloudflare/NGINX
 const TRUST_PROXY = process.env.TRUST_PROXY;
@@ -107,20 +107,19 @@ const createNetworkServer = () => {
 const { server: networkServer, protocol: networkProtocol } = createNetworkServer();
 
 networkServer.listen(PORT, () => {
-  console.log(`MCP ${networkProtocol.toUpperCase()} listening on ${PORT}`);
+  console.error(`MCP ${networkProtocol.toUpperCase()} listening on ${PORT}`);
   console.error(`Redstring MCP Server running on port ${PORT} (${networkProtocol.toUpperCase()}) and stdio (MCP)`);
   console.error(`GitHub OAuth callback URL: ${networkProtocol}://localhost:${PORT}/oauth/callback`);
   console.error('Waiting for Redstring store bridge...');
 });
 networkServer.on('error', (err) => {
   if (err && err.code === 'EADDRINUSE') {
-    console.error(`❌ Port ${PORT} is already in use. If another Redstring MCP server is running, the wizard can reuse it. Otherwise, free the port and retry.`);
+    console.error(`⚠️ Port ${PORT} is already in use. Continuing in stdio-only mode (HTTP bridge handled by existing server).`);
   } else if (err && err.code === 'EACCES') {
-    console.error(`❌ Unable to bind to port ${PORT}. Try a different port or run with elevated permissions.`);
+    console.error(`⚠️ Unable to bind to port ${PORT}. Continuing in stdio-only mode.`);
   } else {
-    console.error('❌ MCP network server failed to start:', err?.message || err);
+    console.error('⚠️ MCP network server failed to start:', err?.message || err, '— continuing in stdio-only mode.');
   }
-  process.exit(1);
 });
 
 // --- Early minimal bridge so UI never 404s even if later init fails ---
@@ -145,7 +144,7 @@ app.post('/api/bridge/register-store', (req, res) => {
   try {
     const { actionMetadata, actions } = req.body || {};
     const meta = actionMetadata || actions || {};
-    console.log('✅ [EarlyBridge] Store actions registered:', Object.keys(meta));
+    console.error('✅ [EarlyBridge] Store actions registered:', Object.keys(meta));
     res.json({ success: true, registeredActions: Object.keys(meta) });
   } catch (error) {
     res.status(500).json({ error: 'Failed to register store actions' });
@@ -156,7 +155,7 @@ app.post('/api/bridge/state', (req, res) => {
   try {
     Object.assign(earlyBridgeState, req.body || {});
     if (earlyBridgeState.summary) earlyBridgeState.summary.lastUpdate = Date.now();
-    console.log('✅ [EarlyBridge] Store data updated');
+    console.error('✅ [EarlyBridge] Store data updated');
     res.json({ success: true });
   } catch (error) {
     res.status(500).json({ error: 'Failed to update store state' });
@@ -191,7 +190,7 @@ app.post('/api/bridge/action-completed', (req, res) => {
 });
 
 app.post('/api/bridge/action-feedback', (req, res) => {
-  console.log('[EarlyBridge] Action feedback:', req.body);
+  console.error('[EarlyBridge] Action feedback:', req.body);
   res.json({ acknowledged: true });
 });
 // --- End early minimal bridge ---
@@ -240,7 +239,7 @@ app.post('/api/wizard', async (req, res) => {
       try {
         const mod = await import('./src/wizard/AgentLoop.js');
         runAgentImported = mod.runAgent;
-        console.log('[MCP Wizard] AgentLoop loaded successfully');
+        console.error('[MCP Wizard] AgentLoop loaded successfully');
       } catch (importError) {
         console.error('[MCP Wizard] Failed to import AgentLoop:', importError.message);
         return res.status(503).json({ error: 'Wizard agent not available: ' + importError.message });
@@ -264,7 +263,7 @@ app.post('/api/wizard', async (req, res) => {
       conversationHistory: conversationHistory || []
     };
 
-    console.log('[MCP Wizard] Request:', {
+    console.error('[MCP Wizard] Request:', {
       messagePreview: message.substring(0, 50),
       historyLength: conversationHistory?.length || 0,
       activeGraph: graphState?.activeGraphId,
@@ -695,19 +694,19 @@ async function buildSpatialMapFromState(state) {
   };
 
   if (!state || !state.activeGraphId) {
-    console.log('🔍 buildSpatialMapFromState: No state or activeGraphId');
+    console.error('🔍 buildSpatialMapFromState: No state or activeGraphId');
     spatialMap.emptyRegions = [{ x: 400, y: 150, width: 400, height: 300, suitability: "high" }];
     return spatialMap;
   }
 
   const graph = state.graphs?.get ? state.graphs.get(state.activeGraphId) : null;
   if (!graph) {
-    console.log('🔍 buildSpatialMapFromState: No graph found for activeGraphId:', state.activeGraphId);
+    console.error('🔍 buildSpatialMapFromState: No graph found for activeGraphId:', state.activeGraphId);
     spatialMap.emptyRegions = [{ x: 400, y: 150, width: 400, height: 300, suitability: "high" }];
     return spatialMap;
   }
 
-  console.log('🔍 buildSpatialMapFromState: Found graph with instances:', {
+  console.error('🔍 buildSpatialMapFromState: Found graph with instances:', {
     graphId: state.activeGraphId,
     hasInstances: !!graph.instances,
     instancesType: typeof graph.instances,
@@ -720,7 +719,7 @@ async function buildSpatialMapFromState(state) {
   if (instances && typeof instances.values === 'function') {
     // Extract node positions and metadata if instances exist
     const nodeInstances = Array.from(instances.values());
-    console.log('🔍 buildSpatialMapFromState: Processing instances:', {
+    console.error('🔍 buildSpatialMapFromState: Processing instances:', {
       instancesCount: nodeInstances.length,
       firstInstance: nodeInstances[0]
     });
@@ -742,9 +741,9 @@ async function buildSpatialMapFromState(state) {
       }
     }
 
-    console.log('🔍 buildSpatialMapFromState: Final spatial nodes:', spatialMap.nodes.length);
+    console.error('🔍 buildSpatialMapFromState: Final spatial nodes:', spatialMap.nodes.length);
   } else {
-    console.log('🔍 buildSpatialMapFromState: No valid instances found:', {
+    console.error('🔍 buildSpatialMapFromState: No valid instances found:', {
       hasInstances: !!instances,
       hasValuesMethod: instances && typeof instances.values === 'function'
     });
@@ -801,7 +800,7 @@ async function createConceptWithPosition(targetGraphId, concept, positionData) {
     y: positionData.y
   };
 
-  console.log(`📍 Creating "${concept.name}" at (${position.x}, ${position.y}) in cluster "${positionData.cluster}"`);
+  console.error(`📍 Creating "${concept.name}" at (${position.x}, ${position.y}) in cluster "${positionData.cluster}"`);
 
   // Use the existing addNodeToGraph logic
   const prototypeId = `prototype-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
@@ -846,7 +845,7 @@ async function getRealRedstringState(retryCount = 0) {
     const data = await response.json();
 
     // Debug: Check what bridge is sending
-    console.log('🔍 Bridge data received:', {
+    console.error('🔍 Bridge data received:', {
       totalGraphs: data.graphs?.length,
       activeGraphId: data.activeGraphId,
       activeGraphData: data.graphs?.find(g => g.id === data.activeGraphId)
@@ -864,7 +863,7 @@ async function getRealRedstringState(retryCount = 0) {
 
         // Debug instances conversion for active graph
         if (graph.id === data.activeGraphId) {
-          console.log(`🔍 Converting instances for active graph ${graph.id}:`, {
+          console.error(`🔍 Converting instances for active graph ${graph.id}:`, {
             hasInstances: !!graph.instances,
             instancesType: typeof graph.instances,
             instancesKeys: graph.instances ? Object.keys(graph.instances) : 'none',
@@ -889,7 +888,7 @@ async function getRealRedstringState(retryCount = 0) {
 
     // If we get here, the fetch succeeded
     if (retryCount > 0) {
-      console.log(`✅ Bridge state fetch succeeded after ${retryCount} retries`);
+      console.error(`✅ Bridge state fetch succeeded after ${retryCount} retries`);
     }
 
     return state;
@@ -902,8 +901,8 @@ async function getRealRedstringState(retryCount = 0) {
 
     // Only retry on network/temporary errors, not on fundamental connection issues
     if (isNetworkError && retryCount < maxRetries) {
-      console.log(`🔄 Bridge state fetch failed (attempt ${retryCount + 1}/${maxRetries + 1}): ${error.message}`);
-      console.log(`   Retrying in ${retryDelay}ms...`);
+      console.error(`🔄 Bridge state fetch failed (attempt ${retryCount + 1}/${maxRetries + 1}): ${error.message}`);
+      console.error(`   Retrying in ${retryDelay}ms...`);
 
       await new Promise(resolve => setTimeout(resolve, retryDelay));
       return getRealRedstringState(retryCount + 1);
@@ -931,7 +930,7 @@ function getRealRedstringActions() {
           timestamp: Date.now()
         };
         pendingActions.push(pendingAction);
-        console.log('✅ Bridge: Queued createNewGraph action');
+        console.error('✅ Bridge: Queued createNewGraph action');
         await new Promise(resolve => setTimeout(resolve, 500));
         return { success: true };
       } catch (error) {
@@ -950,7 +949,7 @@ function getRealRedstringActions() {
           timestamp: Date.now()
         };
         pendingActions.push(pendingAction);
-        console.log('✅ Bridge: Queued createAndAssignGraphDefinition action for', prototypeId);
+        console.error('✅ Bridge: Queued createAndAssignGraphDefinition action for', prototypeId);
         await new Promise(resolve => setTimeout(resolve, 500));
         return { success: true, prototypeId };
       } catch (error) {
@@ -969,7 +968,7 @@ function getRealRedstringActions() {
           timestamp: Date.now()
         };
         pendingActions.push(pendingAction);
-        console.log('✅ Bridge: Queued openRightPanelNodeTab for', nodeId);
+        console.error('✅ Bridge: Queued openRightPanelNodeTab for', nodeId);
         await new Promise(resolve => setTimeout(resolve, 300));
         return { success: true, nodeId };
       } catch (error) {
@@ -988,7 +987,7 @@ function getRealRedstringActions() {
           timestamp: Date.now()
         };
         pendingActions.push(pendingAction);
-        console.log('✅ Bridge: Queued addEdge', { graphId, edgeId: edgeData?.id });
+        console.error('✅ Bridge: Queued addEdge', { graphId, edgeId: edgeData?.id });
         await new Promise(resolve => setTimeout(resolve, 300));
         return { success: true, edgeId: edgeData?.id };
       } catch (error) {
@@ -1007,7 +1006,7 @@ function getRealRedstringActions() {
           timestamp: Date.now()
         };
         pendingActions.push(pendingAction);
-        console.log('✅ Bridge: Queued updateEdgeDirectionality', { edgeId });
+        console.error('✅ Bridge: Queued updateEdgeDirectionality', { edgeId });
         await new Promise(resolve => setTimeout(resolve, 300));
         return { success: true, edgeId };
       } catch (error) {
@@ -1026,7 +1025,7 @@ function getRealRedstringActions() {
           timestamp: Date.now()
         };
         pendingActions.push(pendingAction);
-        console.log(`✅ Bridge: Queued applyMutations with ${operations.length} ops`);
+        console.error(`✅ Bridge: Queued applyMutations with ${operations.length} ops`);
         await new Promise(resolve => setTimeout(resolve, Math.min(operations.length * 50, 1500)));
         return { success: true, count: operations.length };
       } catch (error) {
@@ -1046,7 +1045,7 @@ function getRealRedstringActions() {
         };
 
         pendingActions.push(pendingAction);
-        console.log(`✅ Bridge: Queued addNodePrototype action for ${prototypeData.name}`);
+        console.error(`✅ Bridge: Queued addNodePrototype action for ${prototypeData.name}`);
 
         // Wait a moment for the action to be processed
         await new Promise(resolve => setTimeout(resolve, 500));
@@ -1068,7 +1067,7 @@ function getRealRedstringActions() {
         };
 
         pendingActions.push(pendingAction);
-        console.log(`✅ Bridge: Queued addNodeInstance action for graph ${graphId}, prototype ${prototypeId}`);
+        console.error(`✅ Bridge: Queued addNodeInstance action for graph ${graphId}, prototype ${prototypeId}`);
 
         // Wait a moment for the action to be processed
         await new Promise(resolve => setTimeout(resolve, 1000));
@@ -1090,7 +1089,7 @@ function getRealRedstringActions() {
         };
 
         pendingActions.push(pendingAction);
-        console.log(`✅ Bridge: Queued setActiveGraph action for ${graphId}`);
+        console.error(`✅ Bridge: Queued setActiveGraph action for ${graphId}`);
 
         // Wait a moment for the action to be processed
         await new Promise(resolve => setTimeout(resolve, 500));
@@ -1113,7 +1112,7 @@ function getRealRedstringActions() {
         };
 
         pendingActions.push(pendingAction);
-        console.log(`✅ Bridge: Queued openGraph action for ${graphId}`);
+        console.error(`✅ Bridge: Queued openGraph action for ${graphId}`);
 
         // Wait a moment for the action to be processed
         await new Promise(resolve => setTimeout(resolve, 500));
@@ -1136,7 +1135,7 @@ function getRealRedstringActions() {
         };
 
         pendingActions.push(pendingAction);
-        console.log(`✅ Bridge: Queued openGraph action for ${graphId}`);
+        console.error(`✅ Bridge: Queued openGraph action for ${graphId}`);
 
         // Wait a moment for the action to be processed
         await new Promise(resolve => setTimeout(resolve, 500));
@@ -1182,7 +1181,7 @@ function getRealRedstringActions() {
         };
 
         pendingActions.push(pendingAction);
-        console.log(`✅ Bridge: Queued updateNodePrototype action for prototype ${prototypeId}`);
+        console.error(`✅ Bridge: Queued updateNodePrototype action for prototype ${prototypeId}`);
 
         // Wait a moment for the action to be processed
         await new Promise(resolve => setTimeout(resolve, 500));
@@ -1205,7 +1204,7 @@ function getRealRedstringActions() {
         };
 
         pendingActions.push(pendingAction);
-        console.log(`✅ Bridge: Queued removeNodeInstance action for graph ${graphId}, instance ${instanceId}`);
+        console.error(`✅ Bridge: Queued removeNodeInstance action for graph ${graphId}, instance ${instanceId}`);
 
         // Wait a moment for the action to be processed
         await new Promise(resolve => setTimeout(resolve, 500));
@@ -1959,7 +1958,7 @@ server.tool(
       const state = await getRealRedstringState();
 
       // Debug: Check what we got from the bridge
-      console.log('🔍 get_spatial_map: Bridge state received:', {
+      console.error('🔍 get_spatial_map: Bridge state received:', {
         hasState: !!state,
         hasGraphs: !!state?.graphs,
         graphsType: typeof state?.graphs,
@@ -1986,7 +1985,7 @@ server.tool(
       // Use the same fallback logic as generate_knowledge_graph
       if (!targetGraphId && state.openGraphIds && state.openGraphIds.length > 0) {
         targetGraphId = state.openGraphIds[0];
-        console.log(`🗺️ get_spatial_map: Using first open graph as fallback: ${targetGraphId}`);
+        console.error(`🗺️ get_spatial_map: Using first open graph as fallback: ${targetGraphId}`);
       }
 
       if (!targetGraphId) {
@@ -2075,12 +2074,12 @@ server.tool(
   },
   async ({ topic, concepts, layout = "clustered", spacing = "normal" }) => {
     try {
-      console.log(`🚀 Generating knowledge graph: "${topic}" with ${concepts.length} concepts`);
+      console.error(`🚀 Generating knowledge graph: "${topic}" with ${concepts.length} concepts`);
 
       const state = await getRealRedstringState();
 
       // Debug: Check what we got from the bridge
-      console.log('🔍 generate_knowledge_graph: Bridge state received:', {
+      console.error('🔍 generate_knowledge_graph: Bridge state received:', {
         hasState: !!state,
         hasGraphs: !!state?.graphs,
         graphsType: typeof state?.graphs,
@@ -2105,7 +2104,7 @@ server.tool(
 
       let targetGraphId = state.activeGraphId;
 
-      console.log('🔍 State debug:', {
+      console.error('🔍 State debug:', {
         activeGraphId: state.activeGraphId,
         totalGraphs: state.graphs.size,
         openGraphIds: state.openGraphIds,
@@ -2116,8 +2115,8 @@ server.tool(
       // This handles the case where a graph is open in NodeCanvas but activeGraphId isn't set
       if (!targetGraphId && state.openGraphIds && state.openGraphIds.length > 0) {
         targetGraphId = state.openGraphIds[0];
-        console.log(`🔄 No active graph set, using first open graph as fallback: ${targetGraphId}`);
-        console.log(`   This suggests the graph is open in NodeCanvas but activeGraphId wasn't set properly`);
+        console.error(`🔄 No active graph set, using first open graph as fallback: ${targetGraphId}`);
+        console.error(`   This suggests the graph is open in NodeCanvas but activeGraphId wasn't set properly`);
       }
 
       if (!targetGraphId) {
@@ -2278,7 +2277,7 @@ server.tool(
       if (existingPrototype) {
         // Use existing prototype
         prototypeId = existingPrototype.id;
-        console.log(`Found existing prototype: ${existingPrototype.name} (${prototypeId})`);
+        console.error(`Found existing prototype: ${existingPrototype.name} (${prototypeId})`);
       } else {
         // Create new prototype
         prototypeId = `prototype-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
@@ -2290,18 +2289,18 @@ server.tool(
           typeNodeId: null
         };
 
-        console.log(`Creating new prototype: ${conceptName} (${prototypeId})`);
+        console.error(`Creating new prototype: ${conceptName} (${prototypeId})`);
         await actions.addNodePrototype(prototypeData);
         prototypeCreated = true;
 
         // Wait for prototype to be processed by MCPBridge (polls every 2 seconds)
-        console.log(`Waiting for prototype ${prototypeId} to be synced to store...`);
+        console.error(`Waiting for prototype ${prototypeId} to be synced to store...`);
         await new Promise(resolve => setTimeout(resolve, 2500)); // 2.5 seconds to ensure MCPBridge processes it
       }
 
       // Add instance to graph with retry mechanism
       const instanceId = `instance-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
-      console.log(`Adding instance to graph: ${conceptName} at (${position.x}, ${position.y}) using prototype: ${prototypeId}`);
+      console.error(`Adding instance to graph: ${conceptName} at (${position.x}, ${position.y}) using prototype: ${prototypeId}`);
 
       // Retry mechanism to ensure prototype is synced
       let instanceAdded = false;
@@ -2315,7 +2314,7 @@ server.tool(
           const prototypeExists = currentState.nodePrototypes.has(prototypeId);
 
           if (!prototypeExists) {
-            console.log(`Prototype ${prototypeId} not found in store, waiting for sync...`);
+            console.error(`Prototype ${prototypeId} not found in store, waiting for sync...`);
             await new Promise(resolve => setTimeout(resolve, 1000)); // Longer wait
             retryCount++;
             continue;
@@ -2323,10 +2322,10 @@ server.tool(
 
           await actions.addNodeInstance(targetGraphId, prototypeId, position);
           instanceAdded = true;
-          console.log(`✅ Instance added successfully on attempt ${retryCount + 1}`);
+          console.error(`✅ Instance added successfully on attempt ${retryCount + 1}`);
         } catch (error) {
           retryCount++;
-          console.log(`⚠️ Instance creation failed (attempt ${retryCount}/${maxRetries}): ${error.message}`);
+          console.error(`⚠️ Instance creation failed (attempt ${retryCount}/${maxRetries}): ${error.message}`);
           if (retryCount < maxRetries) {
             // Wait a bit for the prototype to sync
             await new Promise(resolve => setTimeout(resolve, 1000)); // Longer wait
@@ -2512,7 +2511,7 @@ ${instanceList}
       const originalInstanceCount = instances.size;
 
       // Remove the instance
-      console.log(`🗑️ Removing instance: ${instanceToRemove.prototype.name} (${instanceToRemove.id})`);
+      console.error(`🗑️ Removing instance: ${instanceToRemove.prototype.name} (${instanceToRemove.id})`);
       await actions.removeNodeInstance(targetGraphId, instanceToRemove.id);
 
       // Verify the changes
@@ -3300,7 +3299,7 @@ server.tool(
       };
 
       pendingActions.push(navAction);
-      console.log('✅ Bridge: Queued navigateTo action:', { mode, nodeCount: resolvedNodeIds.length });
+      console.error('✅ Bridge: Queued navigateTo action:', { mode, nodeCount: resolvedNodeIds.length });
 
       // Brief wait for action to be processed
       await new Promise(resolve => setTimeout(resolve, 200));
@@ -3634,7 +3633,7 @@ app.get('/health', (req, res) => {
 
 // GitHub OAuth token exchange endpoint
 app.post('/api/github/oauth/token', async (req, res) => {
-  console.log('[OAuth Server] Token exchange request received');
+  console.error('[OAuth Server] Token exchange request received');
 
   try {
     const { code, state, redirect_uri } = req.body;
@@ -3707,7 +3706,7 @@ app.post('/api/bridge/state', (req, res) => {
     if (bridgeStoreData.summary) {
       bridgeStoreData.summary.lastUpdate = Date.now();
     }
-    console.log('✅ Bridge: Store data updated');
+    console.error('✅ Bridge: Store data updated');
     res.json({ success: true });
   } catch (error) {
     console.error('Bridge POST error:', error);
@@ -3786,7 +3785,7 @@ app.get('/api/bridge/pending-actions', (req, res) => {
     const available = pendingActions.filter(a => !inflightActionIds.has(a.id));
     // Mark returned actions as in-flight
     available.forEach(a => inflightActionIds.add(a.id));
-    console.log(`[Bridge] Pending actions requested - returning ${available.length} actions:`, available.map(a => a.action));
+    console.error(`[Bridge] Pending actions requested - returning ${available.length} actions:`, available.map(a => a.action));
     res.json({ pendingActions: available });
   } catch (error) {
     console.error('Pending actions error:', error);
@@ -3802,7 +3801,7 @@ app.post('/api/bridge/action-completed', (req, res) => {
       pendingActions = pendingActions.filter(a => a.id !== actionId);
       inflightActionIds.delete(actionId);
     }
-    console.log('✅ Bridge: Action completed:', actionId, result);
+    console.error('✅ Bridge: Action completed:', actionId, result);
     res.json({ success: true });
   } catch (error) {
     console.error('Action completion error:', error);
@@ -3814,7 +3813,7 @@ app.post('/api/bridge/action-completed', (req, res) => {
 app.post('/api/bridge/action-feedback', (req, res) => {
   try {
     const { action, status, error, params } = req.body;
-    console.log(`[Bridge] Action feedback:`, { action, status, error, params });
+    console.error(`[Bridge] Action feedback:`, { action, status, error, params });
     res.json({ acknowledged: true });
   } catch (err) {
     console.error('Bridge action feedback error:', err);
@@ -3827,7 +3826,7 @@ app.post('/api/bridge/register-store', (req, res) => {
   try {
     const { actionMetadata, actions } = req.body || {};
     const meta = actionMetadata || actions || {};
-    console.log('✅ Bridge: Store actions registered:', Object.keys(meta));
+    console.error('✅ Bridge: Store actions registered:', Object.keys(meta));
     res.json({ success: true, registeredActions: Object.keys(meta) });
   } catch (error) {
     console.error('Store registration error:', error);
@@ -3841,7 +3840,7 @@ app.post('/api/bridge/register-store', (req, res) => {
 // Set active graph endpoint
 app.post('/api/bridge/actions/set-active-graph', async (req, res) => {
   const { graphId } = req.body;
-  console.log(`[HTTP][POST] /api/bridge/actions/set-active-graph - Request received for graphId: ${graphId}`);
+  console.error(`[HTTP][POST] /api/bridge/actions/set-active-graph - Request received for graphId: ${graphId}`);
   try {
 
     const bridgeData = await fetch('http://localhost:3001/api/bridge/state').then(r => r.json());
@@ -3866,7 +3865,7 @@ app.post('/api/bridge/actions/set-active-graph', async (req, res) => {
       body: JSON.stringify(bridgeData)
     });
 
-    console.log(`✅ Bridge: Set active graph to ${graphId}`);
+    console.error(`✅ Bridge: Set active graph to ${graphId}`);
     res.json({ success: true, activeGraphId: graphId });
   } catch (error) {
     console.error('Bridge action setActiveGraph error:', error);
@@ -3877,7 +3876,7 @@ app.post('/api/bridge/actions/set-active-graph', async (req, res) => {
 // Open graph tab endpoint
 app.post('/api/bridge/actions/open-graph-tab', async (req, res) => {
   const { graphId } = req.body;
-  console.log(`[HTTP][POST] /api/bridge/actions/open-graph-tab - Request received for graphId: ${graphId}`);
+  console.error(`[HTTP][POST] /api/bridge/actions/open-graph-tab - Request received for graphId: ${graphId}`);
   try {
 
     const bridgeData = await fetch('http://localhost:3001/api/bridge/state').then(r => r.json());
@@ -3903,7 +3902,7 @@ app.post('/api/bridge/actions/open-graph-tab', async (req, res) => {
       body: JSON.stringify(bridgeData)
     });
 
-    console.log(`✅ Bridge: Opened graph tab for ${graphId}`);
+    console.error(`✅ Bridge: Opened graph tab for ${graphId}`);
     res.json({ success: true, graphId, opened: true, active: true });
   } catch (error) {
     console.error('Bridge action openGraphTab error:', error);
@@ -3914,7 +3913,7 @@ app.post('/api/bridge/actions/open-graph-tab', async (req, res) => {
 // Add node prototype endpoint
 app.post('/api/bridge/actions/add-node-prototype', async (req, res) => {
   const { name, description, color, typeNodeId } = req.body;
-  console.log(`[HTTP][POST] /api/bridge/actions/add-node-prototype - Request received for name: ${name}`);
+  console.error(`[HTTP][POST] /api/bridge/actions/add-node-prototype - Request received for name: ${name}`);
   try {
 
     const bridgeData = await fetch('http://localhost:3001/api/bridge/state').then(r => r.json());
@@ -3944,7 +3943,7 @@ app.post('/api/bridge/actions/add-node-prototype', async (req, res) => {
       body: JSON.stringify(bridgeData)
     });
 
-    console.log(`✅ Bridge: Added node prototype ${name} with ID ${prototypeId}`);
+    console.error(`✅ Bridge: Added node prototype ${name} with ID ${prototypeId}`);
     res.json({ success: true, prototypeId, prototype: newPrototype });
   } catch (error) {
     console.error('Bridge action addNodePrototype error:', error);
@@ -3955,7 +3954,7 @@ app.post('/api/bridge/actions/add-node-prototype', async (req, res) => {
 // Add node instance endpoint
 app.post('/api/bridge/actions/add-node-instance', async (req, res) => {
   const { graphId, prototypeId, position } = req.body;
-  console.log(`[HTTP][POST] /api/bridge/actions/add-node-instance - Request received for graphId: ${graphId}, prototypeId: ${prototypeId}`);
+  console.error(`[HTTP][POST] /api/bridge/actions/add-node-instance - Request received for graphId: ${graphId}, prototypeId: ${prototypeId}`);
   try {
 
     const bridgeData = await fetch('http://localhost:3001/api/bridge/state').then(r => r.json());
@@ -3996,7 +3995,7 @@ app.post('/api/bridge/actions/add-node-instance', async (req, res) => {
       body: JSON.stringify(bridgeData)
     });
 
-    console.log(`✅ Bridge: Added node instance ${instanceId} to graph ${graphId}`);
+    console.error(`✅ Bridge: Added node instance ${instanceId} to graph ${graphId}`);
     res.json({ success: true, instanceId, instance: newInstance });
   } catch (error) {
     console.error('Bridge action addNodeInstance error:', error);
@@ -4007,7 +4006,7 @@ app.post('/api/bridge/actions/add-node-instance', async (req, res) => {
 // Update node prototype endpoint
 app.post('/api/bridge/actions/update-node-prototype', async (req, res) => {
   const { prototypeId, updates } = req.body;
-  console.log(`[HTTP][POST] /api/bridge/actions/update-node-prototype - Request received for prototypeId: ${prototypeId}`);
+  console.error(`[HTTP][POST] /api/bridge/actions/update-node-prototype - Request received for prototypeId: ${prototypeId}`);
   try {
 
     const bridgeData = await fetch('http://localhost:3001/api/bridge/state').then(r => r.json());
@@ -4031,7 +4030,7 @@ app.post('/api/bridge/actions/update-node-prototype', async (req, res) => {
       body: JSON.stringify(bridgeData)
     });
 
-    console.log(`✅ Bridge: Updated node prototype ${prototypeId}`);
+    console.error(`✅ Bridge: Updated node prototype ${prototypeId}`);
     res.json({ success: true, prototypeId, prototype: bridgeData.nodePrototypes[prototypeIndex] });
   } catch (error) {
     console.error('Bridge action updateNodePrototype error:', error);
@@ -4042,7 +4041,7 @@ app.post('/api/bridge/actions/update-node-prototype', async (req, res) => {
 // Delete node instance endpoint
 app.post('/api/bridge/actions/delete-node-instance', async (req, res) => {
   const { graphId, instanceId } = req.body;
-  console.log(`[HTTP][POST] /api/bridge/actions/delete-node-instance - Request received for graphId: ${graphId}, instanceId: ${instanceId}`);
+  console.error(`[HTTP][POST] /api/bridge/actions/delete-node-instance - Request received for graphId: ${graphId}, instanceId: ${instanceId}`);
   try {
 
     const bridgeData = await fetch('http://localhost:3001/api/bridge/state').then(r => r.json());
@@ -4068,7 +4067,7 @@ app.post('/api/bridge/actions/delete-node-instance', async (req, res) => {
       body: JSON.stringify(bridgeData)
     });
 
-    console.log(`✅ Bridge: Deleted node instance ${instanceId} from graph ${graphId}`);
+    console.error(`✅ Bridge: Deleted node instance ${instanceId} from graph ${graphId}`);
     res.json({ success: true, deletedInstanceId: instanceId });
   } catch (error) {
     console.error('Bridge action deleteNodeInstance error:', error);
@@ -4079,7 +4078,7 @@ app.post('/api/bridge/actions/delete-node-instance', async (req, res) => {
 // Create edge endpoint
 app.post('/api/bridge/actions/create-edge', async (req, res) => {
   const { graphId, sourceId, targetId, edgeType, weight } = req.body;
-  console.log(`[HTTP][POST] /api/bridge/actions/create-edge - Request received for graphId: ${graphId}, sourceId: ${sourceId}, targetId: ${targetId}`);
+  console.error(`[HTTP][POST] /api/bridge/actions/create-edge - Request received for graphId: ${graphId}, sourceId: ${sourceId}, targetId: ${targetId}`);
   try {
 
     const bridgeData = await fetch('http://localhost:3001/api/bridge/state').then(r => r.json());
@@ -4116,7 +4115,7 @@ app.post('/api/bridge/actions/create-edge', async (req, res) => {
       body: JSON.stringify(bridgeData)
     });
 
-    console.log(`✅ Bridge: Created edge ${edgeId} in graph ${graphId}`);
+    console.error(`✅ Bridge: Created edge ${edgeId} in graph ${graphId}`);
     res.json({ success: true, edgeId, edge: newEdge });
   } catch (error) {
     console.error('Bridge action createEdge error:', error);
@@ -4127,7 +4126,7 @@ app.post('/api/bridge/actions/create-edge', async (req, res) => {
 // Create edge definition endpoint
 app.post('/api/bridge/actions/create-edge-definition', async (req, res) => {
   const { name, description, color, typeNodeId } = req.body;
-  console.log(`[HTTP][POST] /api/bridge/actions/create-edge-definition - Request received for name: ${name}`);
+  console.error(`[HTTP][POST] /api/bridge/actions/create-edge-definition - Request received for name: ${name}`);
   try {
 
     const bridgeData = await fetch('http://localhost:3001/api/bridge/state').then(r => r.json());
@@ -4157,7 +4156,7 @@ app.post('/api/bridge/actions/create-edge-definition', async (req, res) => {
       body: JSON.stringify(bridgeData)
     });
 
-    console.log(`✅ Bridge: Added edge prototype ${name} with ID ${prototypeId}`);
+    console.error(`✅ Bridge: Added edge prototype ${name} with ID ${prototypeId}`);
     res.json({ success: true, prototypeId, prototype: newEdgePrototype });
   } catch (error) {
     console.error('Bridge action createEdgeDefinition error:', error);
@@ -4168,7 +4167,7 @@ app.post('/api/bridge/actions/create-edge-definition', async (req, res) => {
 // Move node instance endpoint
 app.post('/api/bridge/actions/move-node-instance', async (req, res) => {
   const { graphId, instanceId, position } = req.body;
-  console.log(`[HTTP][POST] /api/bridge/actions/move-node-instance - Request received for graphId: ${graphId}, instanceId: ${instanceId}`);
+  console.error(`[HTTP][POST] /api/bridge/actions/move-node-instance - Request received for graphId: ${graphId}, instanceId: ${instanceId}`);
   try {
 
     const bridgeData = await fetch('http://localhost:3001/api/bridge/state').then(r => r.json());
@@ -4194,7 +4193,7 @@ app.post('/api/bridge/actions/move-node-instance', async (req, res) => {
       body: JSON.stringify(bridgeData)
     });
 
-    console.log(`✅ Bridge: Moved node instance ${instanceId} in graph ${graphId}`);
+    console.error(`✅ Bridge: Moved node instance ${instanceId} in graph ${graphId}`);
     res.json({ success: true, instanceId, position });
   } catch (error) {
     console.error('Bridge action moveNodeInstance error:', error);
@@ -4276,7 +4275,7 @@ async function runAutonomousAgent({ message, systemPrompt, context, requestedMod
     provider = context.apiConfig.provider || provider;
     endpoint = context.apiConfig.endpoint || endpoint;
     model = context.apiConfig.model || model;
-    console.log('[Agent] Using custom config:', { provider, endpoint, model });
+    console.error('[Agent] Using custom config:', { provider, endpoint, model });
   }
 
   // Enhanced system prompt for autonomous behavior with spatial reasoning
@@ -4331,7 +4330,7 @@ Transform the user's request into a beautifully organized, spatially intelligent
   // Autonomous agent loop
   while (!isComplete && agentState.currentIteration < agentState.maxIterations) {
     agentState.currentIteration++;
-    console.log(`[Agent] Iteration ${agentState.currentIteration}/${agentState.maxIterations}`);
+    console.error(`[Agent] Iteration ${agentState.currentIteration}/${agentState.maxIterations}`);
 
     try {
       // Make AI request using OpenRouter (since most customers use this)
@@ -4368,7 +4367,7 @@ Transform the user's request into a beautifully organized, spatially intelligent
 
       // Check if AI wants to make tool calls
       if (assistantMessage.tool_calls && assistantMessage.tool_calls.length > 0) {
-        console.log(`[Agent] AI wants to make ${assistantMessage.tool_calls.length} tool calls`);
+        console.error(`[Agent] AI wants to make ${assistantMessage.tool_calls.length} tool calls`);
 
         // Process each tool call
         for (const toolCall of assistantMessage.tool_calls) {
@@ -4391,7 +4390,7 @@ Transform the user's request into a beautifully organized, spatially intelligent
             toolArgs = {};
           }
 
-          console.log(`[Agent] Calling tool: ${toolName}`, toolArgs);
+          console.error(`[Agent] Calling tool: ${toolName}`, toolArgs);
 
           let toolResult;
           let succeeded = false;
@@ -4435,7 +4434,7 @@ Transform the user's request into a beautifully organized, spatially intelligent
       } else {
         // No more tool calls, AI is providing final response
         finalResponse = assistantMessage.content || '';
-        console.log(`[Agent] Final response: ${finalResponse}`);
+        console.error(`[Agent] Final response: ${finalResponse}`);
         isComplete = true;
       }
 
@@ -4621,7 +4620,7 @@ ${graphData.openGraphIds.map((id, index) => {
     case 'addNodeToGraph':
       try {
         const { conceptName, description, position, color } = toolArgs || {};
-        console.log('[addNodeToGraph] start', { conceptName, hasPosition: !!position });
+        console.error('[addNodeToGraph] start', { conceptName, hasPosition: !!position });
         if (typeof conceptName !== 'string' || conceptName.trim() === '') {
           return '❌ Missing conceptName (string)';
         }
@@ -4657,7 +4656,7 @@ ${graphData.openGraphIds.map((id, index) => {
           prototypeCreated = true;
 
           // Wait for prototype to be processed by MCPBridge (polls every 2 seconds)
-          console.log(`⏳ Waiting for prototype ${prototypeId} to be synced to store...`);
+          console.error(`⏳ Waiting for prototype ${prototypeId} to be synced to store...`);
           await new Promise(resolve => setTimeout(resolve, 2500)); // 2.5 seconds to ensure MCPBridge processes it
         }
 
@@ -4682,7 +4681,7 @@ ${graphData.openGraphIds.map((id, index) => {
                 x: spatialMap.layoutSuggestions.nextPlacement.x,
                 y: spatialMap.layoutSuggestions.nextPlacement.y
               };
-              console.log(`🎯 Intelligent placement: (${instancePosition.x}, ${instancePosition.y}) - ${spatialMap.layoutSuggestions.nextPlacement.reasoning}`);
+              console.error(`🎯 Intelligent placement: (${instancePosition.x}, ${instancePosition.y}) - ${spatialMap.layoutSuggestions.nextPlacement.reasoning}`);
             } else if (spatialMap.emptyRegions?.length > 0) {
               // Use first high-suitability empty region
               const bestRegion = spatialMap.emptyRegions.find(r => r.suitability === "high") || spatialMap.emptyRegions[0];
@@ -4690,14 +4689,14 @@ ${graphData.openGraphIds.map((id, index) => {
                 x: bestRegion.x + bestRegion.width / 2,
                 y: bestRegion.y + bestRegion.height / 2
               };
-              console.log(`🎯 Empty region placement: (${instancePosition.x}, ${instancePosition.y})`);
+              console.error(`🎯 Empty region placement: (${instancePosition.x}, ${instancePosition.y})`);
             } else {
               // Fallback to smart random placement
               instancePosition = {
                 x: 400 + Math.random() * 300,
                 y: 150 + Math.random() * 200
               };
-              console.log(`🎯 Fallback placement: (${instancePosition.x}, ${instancePosition.y})`);
+              console.error(`🎯 Fallback placement: (${instancePosition.x}, ${instancePosition.y})`);
             }
           } catch (error) {
             console.error('❌ Spatial analysis failed, using fallback:', error);
@@ -4721,7 +4720,7 @@ ${graphData.openGraphIds.map((id, index) => {
         } catch { }
 
         // Wait for the instance to be processed
-        console.log(`⏳ Waiting for instance to be created...`);
+        console.error(`⏳ Waiting for instance to be created...`);
         await new Promise(resolve => setTimeout(resolve, 3500));
 
         const updatedState = await getRealRedstringState();
@@ -4729,7 +4728,7 @@ ${graphData.openGraphIds.map((id, index) => {
         const newInstanceCount = updatedGraph?.instances?.size || 0;
         const newPrototypeCount = updatedState.nodePrototypes.size;
 
-        console.log('[addNodeToGraph] done', { newInstanceCount, newPrototypeCount });
+        console.error('[addNodeToGraph] done', { newInstanceCount, newPrototypeCount });
         return `**Concept Added Successfully (VERIFIED)**
 - **Name:** ${conceptName}
 - **Graph:** ${graph.name}
@@ -4804,7 +4803,7 @@ ${allGraphs.join(', ')}
           // Add to the server's pending actions queue
           pendingActions.push(pendingAction);
 
-          console.log(`✅ Bridge: Queued openGraph action for ${targetGraphId}`);
+          console.error(`✅ Bridge: Queued openGraph action for ${targetGraphId}`);
           return `✅ Successfully queued opening of graph "${graph.name}". It should appear in the UI within 2 seconds.`;
         } catch (updateError) {
           console.error('Error queuing graph open action:', updateError);
@@ -5093,7 +5092,7 @@ app.post('/api/ai/chat', async (req, res) => {
       provider = context.apiConfig.provider || provider;
       endpoint = context.apiConfig.endpoint || endpoint;
       model = context.apiConfig.model || model;
-      console.log('[AI Chat] Using custom config:', { provider, endpoint, model });
+      console.error('[AI Chat] Using custom config:', { provider, endpoint, model });
     } else {
       // Fall back to key-based detection for legacy compatibility
       if (apiKey.startsWith('sk-') && !requestedModel) {
@@ -5288,7 +5287,7 @@ app.post('/api/ai/chat', async (req, res) => {
             toolArgs = {};
           }
 
-          console.log(`[AI] Calling tool: ${toolName} with args:`, toolArgs);
+          console.error(`[AI] Calling tool: ${toolName} with args:`, toolArgs);
 
           try {
             const startedAt = Date.now();
@@ -5470,7 +5469,7 @@ ${graphData.openGraphIds.map((id, index) => {
                     prototypeCreated = true;
 
                     // Wait for prototype to be processed by MCPBridge (polls every 2 seconds)
-                    console.log(`⏳ Waiting for prototype ${prototypeId} to be synced to store...`);
+                    console.error(`⏳ Waiting for prototype ${prototypeId} to be synced to store...`);
                     await new Promise(resolve => setTimeout(resolve, 2500)); // 2.5 seconds to ensure MCPBridge processes it
                   }
 
@@ -5558,7 +5557,7 @@ ${allGraphs.join(', ')}
                     // Add to the server's pending actions queue
                     pendingActions.push(pendingAction);
 
-                    console.log(`✅ Bridge: Queued openGraph action for ${targetGraphId}`);
+                    console.error(`✅ Bridge: Queued openGraph action for ${targetGraphId}`);
                     toolResult = `✅ Successfully queued opening of graph "${graph.name}". It should appear in the UI within 2 seconds.`;
                   } catch (updateError) {
                     console.error('Error queuing graph open action:', updateError);
@@ -5703,7 +5702,7 @@ app.post('/api/mcp/request', async (req, res) => {
     const { method, params, id } = req.body;
     const authHeader = req.headers.authorization;
 
-    console.log('[MCP] Request received:', { method, id });
+    console.error('[MCP] Request received:', { method, id });
 
     let response;
 
@@ -6016,7 +6015,7 @@ app.post('/api/mcp/request', async (req, res) => {
         const toolName = params.name;
         const toolArgs = params.arguments || {};
 
-        console.log('[MCP] Tool call:', toolName, toolArgs);
+        console.error('[MCP] Tool call:', toolName, toolArgs);
 
         // Execute the tool directly since we have access to everything
         let toolResult;
@@ -6254,7 +6253,7 @@ ${allGraphs.join(', ')}
                   pendingActions.push(openAction);
                   pendingActions.push(setActiveAction);
 
-                  console.log(`✅ Bridge: Queued openGraph and setActiveGraph actions for ${targetGraphId}`);
+                  console.error(`✅ Bridge: Queued openGraph and setActiveGraph actions for ${targetGraphId}`);
                   toolResult = `✅ Successfully queued opening and activating graph "${graph.name}". It should appear and become active in the UI within 2 seconds.`;
                 } catch (updateError) {
                   console.error('Error queuing graph open action:', updateError);
@@ -6497,12 +6496,8 @@ async function main() {
   (async () => {
     try {
       const transport = new StdioServerTransport();
-      // Set a short timeout so we never block startup
-      await Promise.race([
-        server.connect(transport),
-        new Promise((resolve) => setTimeout(resolve, 1500))
-      ]);
-      console.error('ℹ️ MCP stdio initialized (non-blocking)');
+      await server.connect(transport);
+      console.error('ℹ️ MCP stdio initialized');
     } catch (e) {
       console.error('⚠️ MCP stdio unavailable, continuing HTTP-only mode:', e?.message || e);
     }

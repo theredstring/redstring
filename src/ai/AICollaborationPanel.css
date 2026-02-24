@@ -399,9 +399,10 @@
   line-height: 1.5;
   font-size: 14px;
   word-wrap: break-word;
+  overflow-wrap: break-word;
   user-select: text;
   cursor: text;
-  white-space: pre-wrap;
+  white-space: normal;
 }
 
 .ai-message-text em {

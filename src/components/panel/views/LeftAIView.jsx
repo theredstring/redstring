@@ -1357,8 +1357,9 @@ const LeftAIView = ({ compact = false,
     html = html.replace(/^## (.*$)/gim, '<h2 style="margin:14px 0 8px;font-size:1.25em;font-weight:700;">$1</h2>');
     html = html.replace(/^# (.*$)/gim, '<h1 style="margin:16px 0 8px;font-size:1.4em;font-weight:700;">$1</h1>');
 
-    // Horizontal Rule
-    html = html.replace(/^---$/gim, '<hr style="border:0;border-top:1px solid rgba(0,0,0,0.1);margin:8px 0;">');
+    // Horizontal Rule — use a styled <div> instead of void <hr> element.
+    // <hr> can cause layout collapse between consecutive dividers in flex/pre-wrap contexts.
+    html = html.replace(/^---$/gim, '<div style="border-top:1px solid rgba(38,0,0,0.2);margin:10px 0;height:0;line-height:0;font-size:0;"></div>');
 
     // ***bold+italic***
     html = html.replace(/\*\*\*(.+?)\*\*\*/g, '<strong><em>$1</em></strong>');
@@ -1378,9 +1379,8 @@ const LeftAIView = ({ compact = false,
     });
 
     // Remove empty newlines right after block-level tags so they don't turn into excessive <br>'s
-    html = html.replace(/<\/(ul|h1|h2|h3|h4)>\n+/g, '</$1>');
-    html = html.replace(/\n+<(ul|h1|h2|h3|h4)/g, '<$1');
-    html = html.replace(/<hr.*?>\n+/g, '<hr style="border:0;border-top:1px solid rgba(0,0,0,0.1);margin:8px 0;">');
+    html = html.replace(/<\/(ul|div|h1|h2|h3|h4)>\n+/g, '</$1>');
+    html = html.replace(/\n+<(ul|div|h1|h2|h3|h4)/g, '<$1');
 
     // Replace remaining newlines with <br> for layout consistency (skip inside pre/ul tags)
     html = html.split(/(<pre[\s\S]*?<\/pre>|<ul[\s\S]*?<\/ul>)/i).map(part => {
@@ -1388,8 +1388,8 @@ const LeftAIView = ({ compact = false,
       return part.replace(/\n/g, '<br>');
     }).join('');
 
-    // Collapse any run of 2+ <br> tags immediately after a list/rule into a single <br>
-    html = html.replace(/(<\/ul>|<hr[^>]*?>)(\s*<br>\s*){2,}/g, '$1<br>');
+    // Collapse any run of 2+ <br> tags immediately after a list or divider into a single <br>
+    html = html.replace(/(<\/ul>|<\/div>)(\s*<br>\s*){2,}/g, '$1<br>');
     // Also strip a leading <br> right before a <ul> that creates a gap above the list
     html = html.replace(/(<br>\s*)+(<ul)/g, '$2');
 
