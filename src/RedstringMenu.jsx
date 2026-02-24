@@ -425,28 +425,6 @@ const RedstringMenu = ({
                         <div
                           className="submenu-item"
                           onClick={() => {
-                            onAutoLayoutGraph?.();
-                            onHoverView?.(false);
-                          }}
-                          style={{ cursor: 'pointer' }}
-                        >
-                          <LayoutGrid size={16} style={{ marginRight: '8px', minWidth: '16px', flexShrink: 0 }} />
-                          Auto-Layout Active Graph
-                        </div>
-                        <div
-                          className="submenu-item"
-                          onClick={() => {
-                            onCondenseNodes?.();
-                            onHoverView?.(false);
-                          }}
-                          style={{ cursor: 'pointer' }}
-                        >
-                          <Activity size={16} style={{ marginRight: '8px', minWidth: '16px', flexShrink: 0 }} />
-                          Condense Nodes to Center
-                        </div>
-                        <div
-                          className="submenu-item"
-                          onClick={() => {
                             // Dispatch global event used by Panel to open DuplicateManager
                             window.dispatchEvent(new Event('openMergeModal'));
                           }}
