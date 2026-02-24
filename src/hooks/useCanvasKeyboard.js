@@ -81,6 +81,27 @@ export const useCanvasKeyboard = ({
         let animationFrameId;
 
         const handleKeyboardMovement = (currentTime = performance.now()) => {
+            const params = paramsRef.current;
+            const {
+                isPaused,
+                nodeNamePrompt,
+                connectionNamePrompt,
+                abstractionPrompt,
+                isHeaderEditing,
+                isRightPanelInputFocused,
+                isLeftPanelInputFocused,
+                activeGraphId,
+                viewportSize,
+                canvasSize,
+                zoomLevel,
+                draggingNodeInfo,
+                isAnimatingZoom,
+                setPanOffset,
+                setZoomLevel,
+                viewportBounds,
+                keyboardSettings
+            } = params;
+
             // Calculate delta time in seconds, capped to prevent huge jumps after tab freeze
             const deltaTime = Math.min(0.05, (currentTime - lastFrameTime) / 1000);
             lastFrameTime = currentTime;
@@ -88,9 +109,9 @@ export const useCanvasKeyboard = ({
             // Check for conditions that should disable keyboard controls
             const shouldDisableKeyboard =
                 isPaused ||
-                nodeNamePrompt.visible ||
-                connectionNamePrompt.visible ||
-                abstractionPrompt.visible ||
+                nodeNamePrompt?.visible ||
+                connectionNamePrompt?.visible ||
+                abstractionPrompt?.visible ||
                 isHeaderEditing ||
                 isRightPanelInputFocused ||
                 isLeftPanelInputFocused ||
@@ -116,6 +137,9 @@ export const useCanvasKeyboard = ({
                 setPanOffset(prevPan => {
                     const newX = Math.max(viewportSize.width - canvasSize.width * zoomLevel, Math.min(0, prevPan.x + panDx));
                     const newY = Math.max(viewportSize.height - canvasSize.height * zoomLevel, Math.min(0, prevPan.y + panDy));
+
+                    // Only update if actually different to avoid redundant renders
+                    if (newX === prevPan.x && newY === prevPan.y) return prevPan;
                     return { x: newX, y: newY };
                 });
             }
@@ -163,10 +187,12 @@ export const useCanvasKeyboard = ({
                             const maxPanY = 0;
                             const minPanY = viewportSize.height - canvasSize.height * newZoom;
 
-                            return {
-                                x: Math.max(minPanX, Math.min(maxPanX, newPanX)),
-                                y: Math.max(minPanY, Math.min(maxPanY, newPanY))
-                            };
+                            const finalPanX = Math.max(minPanX, Math.min(maxPanX, newPanX));
+                            const finalPanY = Math.max(minPanY, Math.min(maxPanY, newPanY));
+
+                            // Only update if actually different
+                            if (finalPanX === prevPan.x && finalPanY === prevPan.y) return prevPan;
+                            return { x: finalPanX, y: finalPanY };
                         });
                     }
 
@@ -186,26 +212,7 @@ export const useCanvasKeyboard = ({
                 cancelAnimationFrame(animationFrameId);
             }
         };
-    }, [
-        isPaused,
-        nodeNamePrompt.visible,
-        connectionNamePrompt.visible,
-        abstractionPrompt.visible,
-        isHeaderEditing,
-        isRightPanelInputFocused,
-        isLeftPanelInputFocused,
-        activeGraphId,
-        viewportSize,
-        canvasSize,
-        zoomLevel,
-        draggingNodeInfo,
-        isAnimatingZoom,
-        setPanOffset,
-        setZoomLevel,
-        viewportBounds,
-        keysPressed,
-        keyboardSettings
-    ]);
+    }, []); // STABLE Loop - no dependencies needed as we use paramsRef
 
     // ---------------------------------------------------------------------------
     // 3. Shortcuts (Copy/Paste, Delete, etc.)

@@ -1,4 +1,4 @@
-import React, { useMemo, useState, useEffect, useRef } from 'react';
+import React, { useMemo, useState, useEffect, useRef, memo } from 'react';
 // Import base constants used
 import { NODE_WIDTH, NODE_HEIGHT, NODE_CORNER_RADIUS, NODE_PADDING } from './constants';
 import './Node.css';
@@ -148,18 +148,19 @@ const Node = ({
   const hasMultipleDefinitions = definitionGraphIds.length > 1;
   const hasAnyDefinitions = definitionGraphIds.length > 0;
   // Access store state before any memoizations that depend on it
-  const storeState = useGraphStore();
+  const graphsMap = useGraphStore((state) => state.graphs);
   const textSettings = useGraphStore((state) => state.textSettings);
+  const nodePrototypesMap = useGraphStore((state) => state.nodePrototypes);
 
   // Determine display title: prefer current graph title in preview, else node name
   const currentGraphName = useMemo(() => {
     if (!isPreviewing || !definitionGraphIds.length) return null;
     const gid = definitionGraphIds[currentDefinitionIndex] || definitionGraphIds[0];
     if (!gid) return null;
-    const graphData = storeState.graphs.get(gid);
+    const graphData = graphsMap.get(gid);
     const title = graphData?.name;
     return (typeof title === 'string' && title.trim()) ? title.trim() : null;
-  }, [isPreviewing, definitionGraphIds, currentDefinitionIndex, storeState.graphs]);
+  }, [isPreviewing, definitionGraphIds, currentDefinitionIndex, graphsMap]);
 
   const displayTitle = (isPreviewing && currentGraphName) ? currentGraphName : nodeName;
 
@@ -196,32 +197,39 @@ const Node = ({
   // Filter nodes and edges for the current graph definition
   const currentGraphNodes = useMemo(() => {
     if (!isPreviewing || !currentGraphId) return [];
-    const nodes = getHydratedNodesForGraph(currentGraphId)(storeState);
-    // Diagnostic logging
-    console.log('[Node Decompose Debug]', {
-      nodeName,
-      prototypeId,
-      definitionGraphIds,
-      currentGraphId,
-      graphData: storeState.graphs.get(currentGraphId),
-      instanceCount: storeState.graphs.get(currentGraphId)?.instances?.size || 0,
-      hydratedNodeCount: nodes.length,
-      nodes: nodes.map(n => ({ id: n.id, name: n.name, prototypeId: n.prototypeId }))
+
+    // Manual hydration to avoid storeState dependency
+    const graphData = graphsMap.get(currentGraphId);
+    if (!graphData || !graphData.instances) return [];
+
+    const nodes = [];
+    graphData.instances.forEach((instance, id) => {
+      const prototype = nodePrototypesMap.get(instance.prototypeId);
+      if (prototype) {
+        nodes.push({ ...prototype, ...instance, id });
+      } else {
+        // This should ideally not happen if data integrity is maintained
+      }
     });
+
     return nodes;
-  }, [isPreviewing, currentGraphId, storeState, nodeName, prototypeId, definitionGraphIds]);
+  }, [isPreviewing, currentGraphId, graphsMap, nodePrototypesMap]);
 
   const currentGraphEdges = useMemo(() => {
     if (!isPreviewing || !currentGraphId) return [];
-    return getEdgesForGraph(currentGraphId)(storeState);
-  }, [isPreviewing, currentGraphId, storeState]);
+    const graphData = graphsMap.get(currentGraphId);
+    if (!graphData || !graphData.edges) return [];
+
+    // Manual edge filtering to avoid storeState dependency
+    return Array.from(graphData.edges.values());
+  }, [isPreviewing, currentGraphId, graphsMap]);
 
   // Get the current definition graph's description
   const currentGraphDescription = useMemo(() => {
     if (!isPreviewing || !currentGraphId) return 'No description.';
-    const graphData = storeState.graphs.get(currentGraphId);
+    const graphData = graphsMap.get(currentGraphId);
     return graphData?.description || 'No description.';
-  }, [isPreviewing, currentGraphId, storeState.graphs]);
+  }, [isPreviewing, currentGraphId, graphsMap]);
 
   // Use the passed descriptionAreaHeight which is now calculated dynamically in utils.js
   const actualDescriptionHeight = descriptionAreaHeight;
@@ -494,7 +502,7 @@ const Node = ({
                         let connectionColor = e.color || '#000000';
                         if (e.definitionNodeIds && e.definitionNodeIds.length > 0) {
                           const defNodeId = e.definitionNodeIds[0];
-                          const defNode = storeState.nodePrototypes.get(defNodeId);
+                          const defNode = nodePrototypesMap.get(defNodeId);
                           if (defNode?.color) {
                             connectionColor = defNode.color;
                           }
@@ -1044,4 +1052,4 @@ const Node = ({
   );
 };
 
-export default Node;
+export default memo(Node);

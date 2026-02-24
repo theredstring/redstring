@@ -48,7 +48,7 @@ function estimateTextWidth(text, fontSize) {
  * EdgeRenderer Component
  * Renders a single edge with all its visual elements
  */
-export default function EdgeRenderer({
+function EdgeRenderer({
   edge,
   sourceNode,
   destNode,
@@ -374,4 +374,6 @@ export default function EdgeRenderer({
     </g>
   );
 }
+
+export default React.memo(EdgeRenderer);
 
