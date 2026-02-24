@@ -34,7 +34,8 @@ const server = new McpServer({
 const app = express();
 // Force 3001 for internal chat/wizard compatibility regardless of .env PORT
 // Allow PORT override from environment, default to 3001
-const PORT = process.env.PORT || 3001;
+// Prefer MCP_PORT, otherwise use PORT (if not 4001), defaulting to 3003
+const PORT = process.env.MCP_PORT || (process.env.PORT && process.env.PORT !== '4001' ? process.env.PORT : 3003);
 console.error(`[MCP] Configured to run on port ${PORT}`);
 
 // Respect proxy headers when running behind Cloudflare/NGINX

@@ -8,7 +8,7 @@
 
 import fetch from 'node-fetch';
 
-const BRIDGE_URL = 'http://localhost:3001';
+const BRIDGE_URL = process.env.BRIDGE_URL || 'http://localhost:3003';
 
 async function testAIChatMCP() {
   console.log('🤖 Testing AI Chat Panel MCP Client');
