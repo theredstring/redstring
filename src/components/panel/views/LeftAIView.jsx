@@ -656,8 +656,10 @@ function applyToolResultToStore(toolName, result, toolCallId) {
       console.error('[Wizard] deleteGroup: No active graph ID');
       return;
     }
-    let realGroupId = result.groupId;
-    if (!realGroupId && result.groupName) {
+    // Always resolve by name from the live store first, since result.groupId
+    // may be a synthetic ID from the in-memory graphState (AgentLoop)
+    let realGroupId = null;
+    if (result.groupName) {
       const graph = store.graphs.get(graphId);
       if (graph?.groups) {
         const nameLower = result.groupName.toLowerCase().trim();
@@ -668,6 +670,10 @@ function applyToolResultToStore(toolName, result, toolCallId) {
           }
         }
       }
+    }
+    // Fall back to result.groupId if name resolution didn't find anything
+    if (!realGroupId) {
+      realGroupId = result.groupId;
     }
     if (realGroupId) {
       store.deleteGroup(graphId, realGroupId);
@@ -686,8 +692,10 @@ function applyToolResultToStore(toolName, result, toolCallId) {
       console.error('[Wizard] updateGroup: No active graph ID');
       return;
     }
-    let realGroupId = result.groupId;
-    if (!realGroupId && result.groupName) {
+    // Always resolve by name from the live store first, since result.groupId
+    // may be a synthetic ID from the in-memory graphState (AgentLoop)
+    let realGroupId = null;
+    if (result.groupName) {
       const graph = store.graphs.get(graphId);
       if (graph?.groups) {
         const nameLower = result.groupName.toLowerCase().trim();
@@ -698,6 +706,10 @@ function applyToolResultToStore(toolName, result, toolCallId) {
           }
         }
       }
+    }
+    // Fall back to result.groupId if name resolution didn't find anything
+    if (!realGroupId) {
+      realGroupId = result.groupId;
     }
     if (realGroupId && result.updates) {
       store.updateGroup(graphId, realGroupId, (group) => {
@@ -750,8 +762,10 @@ function applyToolResultToStore(toolName, result, toolCallId) {
       console.error('[Wizard] convertToThingGroup: No active graph ID');
       return;
     }
-    let realGroupId = result.groupId;
-    if (!realGroupId && result.groupName) {
+    // Always resolve by name from the live store first, since result.groupId
+    // may be a synthetic ID from the in-memory graphState (AgentLoop)
+    let realGroupId = null;
+    if (result.groupName) {
       const graph = store.graphs.get(graphId);
       if (graph?.groups) {
         const nameLower = result.groupName.toLowerCase().trim();
@@ -763,6 +777,10 @@ function applyToolResultToStore(toolName, result, toolCallId) {
         }
       }
     }
+    // Fall back to result.groupId if name resolution didn't find anything
+    if (!realGroupId) {
+      realGroupId = result.groupId;
+    }
     if (realGroupId) {
       store.convertGroupToNodeGroup(
         graphId,
@@ -770,7 +788,7 @@ function applyToolResultToStore(toolName, result, toolCallId) {
         null,
         result.createNewThing !== false,
         result.thingName || 'Thing Group',
-        result.newThingColor || '#8B0000'
+        result.newThingColor // Let store fall back to group.color if not specified
       );
       console.log('[Wizard] Successfully converted group to thing-group:', realGroupId);
     } else {
@@ -787,8 +805,10 @@ function applyToolResultToStore(toolName, result, toolCallId) {
       console.error('[Wizard] combineThingGroup: No active graph ID');
       return;
     }
-    let realGroupId = result.groupId;
-    if (!realGroupId && result.groupName) {
+    // Always resolve by name from the live store first, since result.groupId
+    // may be a synthetic ID from the in-memory graphState (AgentLoop)
+    let realGroupId = null;
+    if (result.groupName) {
       const graph = store.graphs.get(graphId);
       if (graph?.groups) {
         const nameLower = result.groupName.toLowerCase().trim();
@@ -799,6 +819,10 @@ function applyToolResultToStore(toolName, result, toolCallId) {
           }
         }
       }
+    }
+    // Fall back to result.groupId if name resolution didn't find anything
+    if (!realGroupId) {
+      realGroupId = result.groupId;
     }
     if (realGroupId) {
       store.combineNodeGroup(graphId, realGroupId);

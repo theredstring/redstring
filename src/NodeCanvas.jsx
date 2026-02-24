@@ -8597,8 +8597,13 @@ function NodeCanvas() {
                                         fontWeight: 'bold',
                                         color: (() => {
                                           const colorToUse = isNodeGroup ? nodeGroupColor : strokeColor;
-                                          const { h, s } = hexToHsl(colorToUse);
-                                          return hslToHex(h, s, 16); // Always dark
+                                          // Thing groups use dynamic text color, regular groups use dark text
+                                          if (isNodeGroup) {
+                                            return getTextColor(colorToUse);
+                                          } else {
+                                            const { h, s } = hexToHsl(colorToUse);
+                                            return hslToHex(h, s, 16); // Always dark for regular groups
+                                          }
                                         })(),
                                         backgroundColor: 'transparent',
                                         border: 'none',
@@ -8613,8 +8618,13 @@ function NodeCanvas() {
                                 <text x={labelX + labelWidth / 2} y={labelY + labelHeight * 0.7 - 2} fontFamily="EmOne, sans-serif" fontSize={fontSize}
                                   fill={(() => {
                                     const colorToUse = isNodeGroup ? nodeGroupColor : strokeColor;
-                                    const { h, s } = hexToHsl(colorToUse);
-                                    return hslToHex(h, s, 16); // Always dark
+                                    // Thing groups use dynamic text color, regular groups use dark text
+                                    if (isNodeGroup) {
+                                      return getTextColor(colorToUse);
+                                    } else {
+                                      const { h, s } = hexToHsl(colorToUse);
+                                      return hslToHex(h, s, 16); // Always dark for regular groups
+                                    }
                                   })()}
                                   fontWeight="bold"
                                   stroke="none"

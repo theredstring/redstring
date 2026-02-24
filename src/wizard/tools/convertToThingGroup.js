@@ -73,7 +73,7 @@ export async function convertToThingGroup(args, graphState, cid, ensureScheduler
     groupName: groupName || null,
     thingName: newPrototypeName,
     createNewThing,
-    newThingColor: newThingColor || '#8B0000',
+    newThingColor: newThingColor, // Don't default - let store use group.color if not specified
     converted: true
   };
 }
