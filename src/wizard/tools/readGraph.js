@@ -96,15 +96,24 @@ export async function readGraph(args, graphState) {
     });
 
     // --- Groups output --------------------------------------------------------
-    const groupList = (activeGraph.groups || []).map(g => ({
-        id: g.id,
-        name: g.name || 'Unnamed',
-        color: g.color || '',
-        memberCount: (g.memberInstanceIds || g.members || []).length,
-        members: (g.memberInstanceIds || g.members || [])
-            .map(mid => nodeNameById.get(mid) || mid)
-            .filter(Boolean),
-    }));
+    const groupList = (activeGraph.groups || []).map(g => {
+        const isThingGroup = !!g.linkedNodePrototypeId;
+        const linkedThingName = isThingGroup
+            ? (protoMap.get(g.linkedNodePrototypeId)?.name || 'Unknown Thing')
+            : null;
+
+        return {
+            id: g.id,
+            name: g.name || 'Unnamed',
+            color: g.color || '',
+            memberCount: (g.memberInstanceIds || g.members || []).length,
+            members: (g.memberInstanceIds || g.members || [])
+                .map(mid => nodeNameById.get(mid) || mid)
+                .filter(Boolean),
+            isThingGroup,
+            linkedThingName,
+        };
+    });
 
     // --- Size warning for very large graphs -----------------------------------
     const LARGE_NODE_THRESHOLD = 100;

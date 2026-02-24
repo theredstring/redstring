@@ -18,6 +18,11 @@ export const useGraphLayout = ({
     groupLayoutAlgorithm = 'force-directed',
     // Force tuner settings — individual force params for consistency with AI and interactive sim
     forceTunerSettings = null,
+    // Zoom/pan control for auto-layout zoom-to-fit
+    setZoomLevel = null,
+    setPanOffset = null,
+    viewportSize = null,
+    maxZoom = 3,
 }) => {
     // ---------------------------------------------------------------------------
     // 1. Move Out of Bounds Nodes
@@ -248,19 +253,90 @@ export const useGraphLayout = ({
 
             console.log('[useGraphLayout] Applied', groupLayoutAlgorithm, 'layout to graph', activeGraphId, 'for', updates.length, 'nodes.');
 
-            setTimeout(() => {
-                try {
-                    moveOutOfBoundsNodesInBounds();
-                } catch (boundErr) {
-                    console.warn('[useGraphLayout] Bound correction failed:', boundErr);
-                }
-                // Center view on newly laid out graph
+            // Calculate zoom-to-fit for the laid out graph
+            if (setZoomLevel && setPanOffset && viewportSize && updates.length > 0) {
                 setTimeout(() => {
-                    window.dispatchEvent(new CustomEvent('rs-auto-layout-complete', {
-                        detail: { graphId: activeGraphId, nodeCount: updates.length }
-                    }));
-                }, 100);
-            }, 0);
+                    try {
+                        moveOutOfBoundsNodesInBounds();
+                    } catch (boundErr) {
+                        console.warn('[useGraphLayout] Bound correction failed:', boundErr);
+                    }
+
+                    // Calculate bounding box of all positioned nodes
+                    let minX = Infinity, minY = Infinity;
+                    let maxX = -Infinity, maxY = -Infinity;
+
+                    updates.forEach(update => {
+                        const node = layoutNodes.find(n => n.id === update.instanceId);
+                        const dims = baseDimsById.get(update.instanceId);
+                        const width = dims?.currentWidth || node?.width || 150;
+                        const height = dims?.currentHeight || node?.height || 150;
+
+                        minX = Math.min(minX, update.x);
+                        minY = Math.min(minY, update.y);
+                        maxX = Math.max(maxX, update.x + width);
+                        maxY = Math.max(maxY, update.y + height);
+                    });
+
+                    const nodesWidth = maxX - minX;
+                    const nodesHeight = maxY - minY;
+                    const nodesCenterX = (minX + maxX) / 2;
+                    const nodesCenterY = (minY + maxY) / 2;
+
+                    // Calculate zoom to fit with generous padding
+                    const padding = Math.max(200, Math.min(viewportSize.width, viewportSize.height) * 0.15);
+                    const targetZoomX = viewportSize.width / (nodesWidth + padding * 2);
+                    const targetZoomY = viewportSize.height / (nodesHeight + padding * 2);
+                    let targetZoom = Math.min(targetZoomX, targetZoomY);
+
+                    // Clamp zoom to reasonable bounds
+                    targetZoom = Math.max(Math.min(targetZoom, maxZoom), 0.2);
+
+                    // Calculate pan to center the graph (accounting for canvas offset)
+                    const targetPanX = (viewportSize.width / 2) - (nodesCenterX - canvasSize.offsetX) * targetZoom;
+                    const targetPanY = (viewportSize.height / 2) - (nodesCenterY - canvasSize.offsetY) * targetZoom;
+
+                    // Apply bounds constraints
+                    const maxPanX = 0;
+                    const minPanX = viewportSize.width - canvasSize.width * targetZoom;
+                    const maxPanY = 0;
+                    const minPanY = viewportSize.height - canvasSize.height * targetZoom;
+
+                    const finalPanX = Math.min(Math.max(targetPanX, minPanX), maxPanX);
+                    const finalPanY = Math.min(Math.max(targetPanY, minPanY), maxPanY);
+
+                    console.log('[useGraphLayout] Zoom-to-fit:', {
+                        targetZoom: Math.round(targetZoom * 1000) / 1000,
+                        pan: { x: Math.round(finalPanX), y: Math.round(finalPanY) },
+                        bounds: { width: Math.round(nodesWidth), height: Math.round(nodesHeight) }
+                    });
+
+                    // Apply zoom and pan
+                    setZoomLevel(targetZoom);
+                    setPanOffset({ x: finalPanX, y: finalPanY });
+
+                    // Dispatch completion event
+                    setTimeout(() => {
+                        window.dispatchEvent(new CustomEvent('rs-auto-layout-complete', {
+                            detail: { graphId: activeGraphId, nodeCount: updates.length }
+                        }));
+                    }, 100);
+                }, 0);
+            } else {
+                // Fallback to old behavior if zoom/pan setters not provided
+                setTimeout(() => {
+                    try {
+                        moveOutOfBoundsNodesInBounds();
+                    } catch (boundErr) {
+                        console.warn('[useGraphLayout] Bound correction failed:', boundErr);
+                    }
+                    setTimeout(() => {
+                        window.dispatchEvent(new CustomEvent('rs-auto-layout-complete', {
+                            detail: { graphId: activeGraphId, nodeCount: updates.length }
+                        }));
+                    }, 100);
+                }, 0);
+            }
         } catch (error) {
             console.error('[useGraphLayout] Failed to apply layout:', error);
             alert(`Auto-layout failed: ${error.message}`);
@@ -279,7 +355,11 @@ export const useGraphLayout = ({
         canvasSize,
         groupLayoutAlgorithm,
         graphsMap,
-        forceTunerSettings
+        forceTunerSettings,
+        setZoomLevel,
+        setPanOffset,
+        viewportSize,
+        maxZoom
     ]);
 
 

@@ -529,6 +529,7 @@ function NodeCanvas() {
   const forceLayoutScalePreset = forceTunerSettings.layoutScale || 'balanced';
   const forceLayoutScaleMultiplier = forceTunerSettings.layoutScaleMultiplier ?? 1;
   const forceLayoutIterationPreset = forceTunerSettings.layoutIterations || 'balanced';
+  const keyboardSettings = useGraphStore(state => state.keyboardSettings || { zoomSensitivity: 0.5 });
   const edgesMap = useGraphStore(state => state.edges);
   const savedNodeIds = useGraphStore(state => state.savedNodeIds);
   const savedGraphIds = useGraphStore(state => state.savedGraphIds);
@@ -1869,7 +1870,12 @@ function NodeCanvas() {
     layoutScaleMultiplier,
     layoutIterationPreset,
     groupLayoutAlgorithm,
-    forceTunerSettings
+    forceTunerSettings,
+    // Add zoom/pan control for auto-layout
+    setZoomLevel,
+    setPanOffset,
+    viewportSize,
+    maxZoom: MAX_ZOOM
   });
 
 
@@ -6602,6 +6608,7 @@ function NodeCanvas() {
     isRightPanelInputFocused,
     isLeftPanelInputFocused,
     abstractionCarouselVisible,
+    keyboardSettings,
   });
 
   const handleProjectTitleChange = (newTitle) => {
@@ -7598,7 +7605,7 @@ function NodeCanvas() {
         // Debounce for 500ms to batch rapid mutations
         // This prevents layout thrashing during quick wizard operations
         debounceTimer = setTimeout(() => {
-          applyAutoLayoutToActiveGraph();
+          setAutoLayoutRunning(true);
           debounceTimer = null;
         }, 500);
       }

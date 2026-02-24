@@ -561,6 +561,26 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
       }
     })(),
 
+    // Keyboard and interaction settings
+    keyboardSettings: (() => {
+      try {
+        const zoomSensitivityRaw = localStorage.getItem('redstring_keyboard_zoom_sensitivity');
+        const panSensitivityRaw = localStorage.getItem('redstring_keyboard_pan_sensitivity');
+
+        let zoomSensitivity = zoomSensitivityRaw !== null ? parseFloat(zoomSensitivityRaw) : 0.5;
+        if (!Number.isFinite(zoomSensitivity)) zoomSensitivity = 0.5;
+        zoomSensitivity = Math.max(0.0, Math.min(1.0, zoomSensitivity));
+
+        let panSensitivity = panSensitivityRaw !== null ? parseFloat(panSensitivityRaw) : 0.5;
+        if (!Number.isFinite(panSensitivity)) panSensitivity = 0.5;
+        panSensitivity = Math.max(0.0, Math.min(1.0, panSensitivity));
+
+        return { zoomSensitivity, panSensitivity };
+      } catch (_) {
+        return { zoomSensitivity: 0.5, panSensitivity: 0.5 };
+      }
+    })(),
+
     // Git Federation State
     gitConnection: (() => {
       // Load saved connection from localStorage
@@ -3031,6 +3051,33 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
       draft.textSettings.lineSpacing = v;
       try {
         localStorage.setItem('redstring_text_line_spacing', String(v));
+      } catch (_) { }
+    })),
+
+    // Keyboard settings actions
+    setKeyboardZoomSensitivity: (value) => set(produce((draft) => {
+      const v = Number(value);
+      if (!Number.isFinite(v) || v < 0.0 || v > 1.0) {
+        console.warn(`[setKeyboardZoomSensitivity] Invalid value: ${value}`);
+        return;
+      }
+      if (!draft.keyboardSettings) draft.keyboardSettings = { zoomSensitivity: 0.5, panSensitivity: 0.5 };
+      draft.keyboardSettings.zoomSensitivity = v;
+      try {
+        localStorage.setItem('redstring_keyboard_zoom_sensitivity', String(v));
+      } catch (_) { }
+    })),
+
+    setKeyboardPanSensitivity: (value) => set(produce((draft) => {
+      const v = Number(value);
+      if (!Number.isFinite(v) || v < 0.0 || v > 1.0) {
+        console.warn(`[setKeyboardPanSensitivity] Invalid value: ${value}`);
+        return;
+      }
+      if (!draft.keyboardSettings) draft.keyboardSettings = { zoomSensitivity: 0.5, panSensitivity: 0.5 };
+      draft.keyboardSettings.panSensitivity = v;
+      try {
+        localStorage.setItem('redstring_keyboard_pan_sensitivity', String(v));
       } catch (_) { }
     })),
 

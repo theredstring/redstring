@@ -652,6 +652,68 @@ const RedstringMenu = ({
                           Condense Nodes
                         </div>
 
+                        {/* Keyboard Submenu */}
+                        <div
+                          className={`submenu-item has-submenu ${isNestedSubmenuOpen('keyboard') ? 'active-submenu-parent' : ''}`}
+                          onMouseEnter={() => handleNestedSubmenuItemHover('keyboard')}
+                          onMouseLeave={handleNestedSubmenuItemLeave}
+                          style={{ position: 'relative' }}
+                        >
+                          <span>Keyboard</span>
+                          <ChevronRight size={14} className="nested-chevron" />
+                          {isNestedSubmenuOpen('keyboard') && (
+                            <div
+                              className="submenu-container"
+                              onMouseEnter={handleNestedSubmenuEnter}
+                              onMouseLeave={handleNestedSubmenuItemLeave}
+                              style={{ left: '100%', top: 0 }}
+                              onMouseDown={(e) => {
+                                e.stopPropagation();
+                                setIsInteracting(true);
+                              }}
+                              onMouseUp={(e) => {
+                                e.stopPropagation();
+                                setIsInteracting(false);
+                              }}
+                              onPointerDown={(e) => {
+                                e.stopPropagation();
+                                setIsInteracting(true);
+                              }}
+                              onPointerUp={(e) => {
+                                e.stopPropagation();
+                                setIsInteracting(false);
+                              }}
+                              onTouchStart={(e) => {
+                                e.stopPropagation();
+                                setIsInteracting(true);
+                              }}
+                              onTouchEnd={(e) => {
+                                e.stopPropagation();
+                                setIsInteracting(false);
+                              }}
+                            >
+                              <MaroonSlider
+                                label="Zoom Sensitivity"
+                                value={useGraphStore.getState().keyboardSettings.zoomSensitivity}
+                                min={0.1}
+                                max={1.0}
+                                step={0.05}
+                                onChange={(v) => useGraphStore.getState().setKeyboardZoomSensitivity(v)}
+                                suffix=""
+                              />
+                              <MaroonSlider
+                                label="Pan Sensitivity"
+                                value={useGraphStore.getState().keyboardSettings.panSensitivity}
+                                min={0.1}
+                                max={1.0}
+                                step={0.05}
+                                onChange={(v) => useGraphStore.getState().setKeyboardPanSensitivity(v)}
+                                suffix=""
+                              />
+                            </div>
+                          )}
+                        </div>
+
                         {/* Text Size Submenu */}
                         <div
                           className={`submenu-item has-submenu ${isNestedSubmenuOpen('textSize') ? 'active-submenu-parent' : ''}`}
@@ -714,7 +776,8 @@ const RedstringMenu = ({
                           )}
                         </div>
                       </div>
-                    )}
+                    )
+                    }
                   </div>
                 );
               } else if (item === 'Connections') {
@@ -1050,7 +1113,7 @@ const RedstringMenu = ({
               }
             })}
           </div>
-        </div>
+        </div >
       )}
     </>
   );

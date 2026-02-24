@@ -7,7 +7,7 @@ import { getNodeDimensions } from '../utils';
 import { NODE_DEFAULT_COLOR } from '../constants'; // Assumed constant exists
 
 // Constants (moved from NodeCanvas.jsx)
-const KEYBOARD_PAN_SPEED = 15;
+const KEYBOARD_PAN_SPEED = 14.25;
 const KEYBOARD_ZOOM_SPEED = 0.05;
 const MIN_ZOOM = 0.1;
 const MAX_ZOOM = 3.0;
@@ -43,6 +43,7 @@ export const useCanvasKeyboard = ({
     isRightPanelInputFocused,
     isLeftPanelInputFocused,
     abstractionCarouselVisible,
+    keyboardSettings,
 }) => {
     // ---------------------------------------------------------------------------
     // 1. Global Undo/Redo Shortcuts
@@ -101,38 +102,41 @@ export const useCanvasKeyboard = ({
 
             // Calculate movement (use lowercase only to avoid shift conflicts)
             let panDx = 0, panDy = 0;
-            if (keysPressed.current['ArrowLeft'] || keysPressed.current['a']) panDx += KEYBOARD_PAN_SPEED;
-            if (keysPressed.current['ArrowRight'] || keysPressed.current['d']) panDx -= KEYBOARD_PAN_SPEED;
-            if (keysPressed.current['ArrowUp'] || keysPressed.current['w']) panDy += KEYBOARD_PAN_SPEED;
-            if (keysPressed.current['ArrowDown'] || keysPressed.current['s']) panDy -= KEYBOARD_PAN_SPEED;
+            const panSensitivity = keyboardSettings?.panSensitivity ?? 0.5;
+            const currentPanSpeed = KEYBOARD_PAN_SPEED * (panSensitivity * 2);
+
+            if (keysPressed.current['ArrowLeft'] || keysPressed.current['a']) panDx += currentPanSpeed;
+            if (keysPressed.current['ArrowRight'] || keysPressed.current['d']) panDx -= currentPanSpeed;
+            if (keysPressed.current['ArrowUp'] || keysPressed.current['w']) panDy += currentPanSpeed;
+            if (keysPressed.current['ArrowDown'] || keysPressed.current['s']) panDy -= currentPanSpeed;
 
             // Apply movement
             if (panDx !== 0 || panDy !== 0) {
                 setPanOffset(prevPan => {
-                    // Use previous pan if state update batching causes issues? 
-                    // Passed setter usually receives current state.
-                    // Note: NodeCanvas implementation used Math.max/min boundary checks.
-                    // We need accurate canvasSize and zoomLevel here. 
-                    // Since this runs in RAF/effect, we rely on the closure values from props.
-                    // IF props change, effect re-runs.
-
                     const newX = Math.max(viewportSize.width - canvasSize.width * zoomLevel, Math.min(0, prevPan.x + panDx));
                     const newY = Math.max(viewportSize.height - canvasSize.height * zoomLevel, Math.min(0, prevPan.y + panDy));
                     return { x: newX, y: newY };
                 });
             }
 
-            // Handle zoom (simple stable approach)
+            // Handle zoom (stable approach)
             // Skip keyboard zoom during drag to prevent interference with drag zoom animation
             if (draggingNodeInfo || isAnimatingZoom) return;
 
-            let zoomDelta = 0;
-            if (keysPressed.current[' ']) zoomDelta = -KEYBOARD_ZOOM_SPEED; // Space = zoom out
-            if (keysPressed.current['Shift']) zoomDelta = KEYBOARD_ZOOM_SPEED; // Shift = zoom in
+            // USE GEOMETRIC ZOOM: consistent relative change across zoom levels
+            // Base factor is slightly smaller than old 0.05 absolute step to be less sensitive
+            const baseFactor = 1.05;
+            const sensitivity = keyboardSettings?.zoomSensitivity ?? 0.5;
+            // Map 0 -> 1 sensitivity to 1.0 -> baseFactor scaling
+            const zoomFactor = 1 + (baseFactor - 1) * sensitivity;
 
-            if (zoomDelta !== 0) {
+            let zoomMultiplier = 1;
+            if (keysPressed.current[' ']) zoomMultiplier = 1 / zoomFactor; // Space = zoom out
+            if (keysPressed.current['Shift']) zoomMultiplier = zoomFactor; // Shift = zoom in
+
+            if (zoomMultiplier !== 1) {
                 setZoomLevel(prevZoom => {
-                    const newZoom = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, prevZoom + zoomDelta));
+                    const newZoom = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, prevZoom * zoomMultiplier));
 
                     // Only adjust pan if zoom actually changed
                     if (newZoom !== prevZoom) {
@@ -142,7 +146,6 @@ export const useCanvasKeyboard = ({
                         const centerY = viewportBounds.height / 2;
 
                         // Update pan to keep view centered, with boundary constraints
-                        // Account for the viewport offset when calculating zoom center
                         setPanOffset(prevPan => {
                             // The zoom center should be relative to the viewport bounds
                             const zoomCenterX = centerX + viewportBounds.x;
@@ -197,7 +200,8 @@ export const useCanvasKeyboard = ({
         setPanOffset,
         setZoomLevel,
         viewportBounds,
-        keysPressed
+        keysPressed,
+        keyboardSettings
     ]);
 
     // ---------------------------------------------------------------------------

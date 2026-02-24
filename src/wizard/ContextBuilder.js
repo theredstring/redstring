@@ -88,14 +88,31 @@ export function buildContext(graphState) {
         }
       }
 
-      // Include ALL groups
+      // Include ALL groups with member names and Thing-Group indicators
       const groups = activeGraph.groups instanceof Map
         ? Array.from(activeGraph.groups.values())
         : Array.isArray(activeGraph.groups)
           ? activeGraph.groups
           : Object.values(activeGraph.groups || {});
       if (groups.length > 0) {
-        const groupLines = groups.map(g => `  - ${g.name || 'Unnamed'} (${(g.memberInstanceIds || g.members || []).length} members)`);
+        const groupLines = groups.map(g => {
+          const memberIds = g.memberInstanceIds || g.members || [];
+          const memberNames = memberIds
+            .map(mid => nodeNameById.get(mid))
+            .filter(Boolean);
+
+          const memberList = memberNames.length > 0
+            ? `: ${memberNames.join(', ')}`
+            : '';
+
+          // Check if Thing-Group (backed by a node prototype)
+          const isThingGroup = !!g.linkedNodePrototypeId;
+          const thingIndicator = isThingGroup
+            ? ` [Thing-Group: ${protoMap.get(g.linkedNodePrototypeId)?.name || 'Unknown'}]`
+            : '';
+
+          return `  - ${g.name || 'Unnamed'}${thingIndicator} (${memberIds.length} members)${memberList}`;
+        });
         context += `\nGroups:\n${groupLines.join('\n')}`;
       }
     }
