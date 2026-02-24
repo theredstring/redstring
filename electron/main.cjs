@@ -415,6 +415,23 @@ ipcMain.handle('file:folderExists', async (event, folderPath) => {
   }
 });
 
+ipcMain.handle('file:getPathParent', async (event, filePath) => {
+  try {
+    return path.dirname(filePath);
+  } catch {
+    return null;
+  }
+});
+
+ipcMain.handle('file:mkdir', async (event, folderPath) => {
+  try {
+    await fs.mkdir(folderPath, { recursive: true });
+    return true;
+  } catch (error) {
+    throw new Error(`Failed to create directory: ${error.message} `);
+  }
+});
+
 // Clipboard IPC Handler
 ipcMain.handle('clipboard:write', async (event, text) => {
   clipboard.writeText(text);

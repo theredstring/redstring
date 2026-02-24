@@ -13,6 +13,8 @@ contextBridge.exposeInMainWorld('electron', {
     writeFile: (filePath, content) => ipcRenderer.invoke('file:write', filePath, content),
     fileExists: (filePath) => ipcRenderer.invoke('file:exists', filePath),
     folderExists: (folderPath) => ipcRenderer.invoke('file:folderExists', folderPath),
+    getPathParent: (filePath) => ipcRenderer.invoke('file:getPathParent', filePath),
+    mkdir: (folderPath) => ipcRenderer.invoke('file:mkdir', folderPath),
   },
 
   // Persistent Storage (replaces localStorage/IndexedDB)

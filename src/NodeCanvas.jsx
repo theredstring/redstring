@@ -3235,7 +3235,7 @@ function NodeCanvas() {
               }
 
               // Remove the node from the abstraction chain
-              removeFromAbstractionChain(
+              storeActions.removeFromAbstractionChain(
                 carouselNode.prototypeId,     // the node whose chain we're modifying
                 currentAbstractionDimension,  // dimension (Physical, Conceptual, etc.)
                 selectedNode.prototypeId      // the node to remove

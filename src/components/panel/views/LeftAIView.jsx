@@ -1,5 +1,6 @@
 import React from 'react';
-import { Bot, Key, Settings, RotateCcw, Send, User, Square, Copy, Trash2, Brain, Wrench } from 'lucide-react';
+import { Bot, Key, Settings, RotateCcw, Send, User, Square, Copy, Trash2, Brain, Wrench, Plus, X } from 'lucide-react';
+import * as fileStorage from '../../../store/fileStorage.js';
 import APIKeySetup from '../../../ai/components/APIKeySetup.jsx';
 import mcpClient from '../../../services/mcpClient.js';
 import apiKeyManager from '../../../services/apiKeyManager.js';
@@ -1000,52 +1001,192 @@ const LeftAIView = ({ compact = false,
   const [currentAgentRequest, setCurrentAgentRequest] = React.useState(null);
   const [wizardStage, setWizardStage] = React.useState(null); // Track current wizard stage
   const [druidInstance, setDruidInstance] = React.useState(null); // Druid cognitive state manager
+  const [conversations, setConversations] = React.useState([
+    { id: 'default', title: 'Conversation-1', messages: [], timestamp: new Date().toISOString() }
+  ]);
+  const [activeConversationId, setActiveConversationId] = React.useState('default');
+  const [isHydrated, setIsHydrated] = React.useState(false);
+
+  const [fileStatus, setFileStatus] = React.useState(null);
+  React.useEffect(() => {
+    let mounted = true;
+    const fetchFileStatus = async () => {
+      try {
+        const mod = fileStorage;
+        if (typeof mod.getFileStatus === 'function') {
+          const status = mod.getFileStatus();
+          if (mounted) setFileStatus(status);
+        }
+      } catch { }
+    };
+    fetchFileStatus();
+    const t = setInterval(fetchFileStatus, 3000);
+    return () => { mounted = false; clearInterval(t); };
+  }, []);
+
+  // Load conversations from workspace on mount
+  React.useEffect(() => {
+    const loadConversations = async () => {
+      try {
+        const projectDir = await fileStorage.getProjectDirectory();
+
+        let manifest = null;
+
+        // Try workspace manifest first (if projectDir exists)
+        if (projectDir) {
+          try {
+            const convDir = await fileStorage.isElectron() ? `${projectDir}/conversations` : 'conversations';
+            const manifestPath = await fileStorage.isElectron() ? `${convDir}/manifest.json` : 'conversations/manifest.json';
+            const manifestRes = await fileStorage.readFile(manifestPath);
+            if (manifestRes && manifestRes.content) {
+              manifest = JSON.parse(manifestRes.content);
+              console.log('[AI Collaboration] Loaded manifest from workspace');
+            }
+          } catch (e) {
+            console.log('[AI Collaboration] No workspace manifest found, trying localStorage');
+          }
+        }
+
+        // Fallback to localStorage
+        if (!manifest) {
+          const manifestStr = localStorage.getItem('rs.aiChat.manifest');
+          if (manifestStr) {
+            manifest = JSON.parse(manifestStr);
+          }
+        }
+
+        if (manifest && manifest.conversations) {
+          // Hydrate conversations with their messages from files
+          const hydratedConversations = await Promise.all(manifest.conversations.map(async (c) => {
+            try {
+              if (projectDir) {
+                const convDir = await fileStorage.isElectron() ? `${projectDir}/conversations` : 'conversations';
+                const filePath = await fileStorage.isElectron() ? `${convDir}/${c.id}.json` : `conversations/${c.id}.json`;
+                const fileRes = await fileStorage.readFile(filePath);
+                if (fileRes && fileRes.content) {
+                  const data = JSON.parse(fileRes.content);
+                  return { ...c, messages: data.messages || [] };
+                }
+              }
+              // Fallback to localStorage if workspace file missing or projectDir missing
+              const localData = localStorage.getItem(`rs.aiChat.messages.${c.id}`);
+              if (localData) {
+                const data = JSON.parse(localData);
+                return { ...c, messages: data.messages || [] };
+              }
+            } catch (e) {
+              console.warn(`[AI Collaboration] Failed to hydrate conversation ${c.id}:`, e);
+              // Final fallback to localStorage even on parse/FS error
+              try {
+                const localData = localStorage.getItem(`rs.aiChat.messages.${c.id}`);
+                if (localData) {
+                  const data = JSON.parse(localData);
+                  return { ...c, messages: data.messages || [] };
+                }
+              } catch { }
+            }
+            return { ...c, messages: [] };
+          }));
+
+          setConversations(hydratedConversations);
+          setActiveConversationId(manifest.activeConversationId || (hydratedConversations.length > 0 ? hydratedConversations[0].id : 'default'));
+        }
+        setIsHydrated(true);
+      } catch (err) {
+        console.warn('[AI Collaboration] Failed to load conversations:', err);
+        setIsHydrated(true);
+      }
+    };
+    loadConversations();
+  }, [fileStatus?.fileHandle]); // Only re-run if the project file handle actually changes
+
+  // Sync messages with active conversation
+  const lastActiveIdRef = React.useRef(activeConversationId);
+  React.useEffect(() => {
+    const activeConv = conversations.find(c => c.id === activeConversationId);
+    if (activeConv) {
+      const isTabSwitch = lastActiveIdRef.current !== activeConversationId;
+      // Load messages if tab switched, OR if we just hydrated and current messages are empty
+      if (isTabSwitch || (isHydrated && messages.length === 0)) {
+        setMessages(activeConv.messages || []);
+        lastMessagesRef.current = activeConv.messages || []; // Update ref to prevent immediate re-save
+      }
+    }
+    lastActiveIdRef.current = activeConversationId;
+  }, [activeConversationId, isHydrated, conversations]); // conversations added to catch hydration updates
+
+  // Sync active conversation with messages and save
+  const lastMessagesRef = React.useRef(messages);
+  React.useEffect(() => {
+    if (lastMessagesRef.current === messages) return;
+    lastMessagesRef.current = messages;
+
+    // IMMEDIATE localStorage backup for the active conversation's messages
+    if (messages.length > 0) {
+      localStorage.setItem(`rs.aiChat.messages.${activeConversationId}`, JSON.stringify({
+        id: activeConversationId,
+        messages,
+        timestamp: new Date().toISOString()
+      }));
+    }
+
+    setConversations(prev => {
+      const updated = prev.map(c =>
+        c.id === activeConversationId ? { ...c, messages, timestamp: new Date().toISOString() } : c
+      );
+
+      // Save manifest to localStorage
+      const manifest = {
+        conversations: updated.map(c => ({ id: c.id, title: c.title, timestamp: c.timestamp })),
+        activeConversationId
+      };
+      localStorage.setItem('rs.aiChat.manifest', JSON.stringify(manifest));
+
+      // Also save manifest to workspace if possible
+      const saveManifestToWorkspace = async () => {
+        try {
+          const projectDir = await fileStorage.getProjectDirectory();
+          if (!projectDir) return;
+          const convDir = await fileStorage.isElectron() ? `${projectDir}/conversations` : 'conversations';
+          if (await fileStorage.isElectron()) {
+            const exists = await window.electron.fileSystem.folderExists(convDir);
+            if (!exists) await fileStorage.mkdir(convDir);
+          }
+          const manifestPath = await fileStorage.isElectron() ? `${convDir}/manifest.json` : 'conversations/manifest.json';
+          console.log('[AI Collaboration] Saving manifest to:', manifestPath);
+          await fileStorage.writeFile(manifestPath, JSON.stringify(manifest, null, 2));
+        } catch (err) {
+          console.error('[AI Collaboration] Failed to save manifest to workspace:', err);
+        }
+      };
+      saveManifestToWorkspace();
+
+      return updated;
+    });
+  }, [messages, activeConversationId]);
+
   const messagesEndRef = React.useRef(null);
   const inputRef = React.useRef(null);
 
-  const STORAGE_KEY = 'rs.aiChat.messages.v1';
-  const RESET_TS_KEY = 'rs.aiChat.resetTs';
+  // handleClearConversation updated for the new tab system
+  const handleClearConversation = () => {
+    if (messages.length === 0) return;
+    if (window.confirm('Clear entire conversation? This cannot be undone.')) {
+      setMessages([]);
+      lastMessagesRef.current = []; // Prevent potential race conditions
 
-  // Use the existing subscriptions from the main section to prevent Panel jitter
-  // activeGraphId and graphsMap are already available from the main subscriptions
+      // Update conversations array so the cleared state is reflected in other tabs/reloads
+      setConversations(prev => prev.map(c =>
+        c.id === activeConversationId ? { ...c, messages: [], timestamp: new Date().toISOString() } : c
+      ));
 
+      // Also clear from immediate localStorage
+      localStorage.removeItem(`rs.aiChat.messages.${activeConversationId}`);
+    }
+  };
+
+  // CRITICAL: Subscribe to SSE for real-time chat updates (e.g., executor errors)
   React.useEffect(() => {
-    try {
-      if (mcpClient && mcpClient.isConnected) setIsConnected(true);
-    } catch { }
-    let resetTs = 0;
-    try {
-      const cached = localStorage.getItem(STORAGE_KEY);
-      const rt = localStorage.getItem(RESET_TS_KEY);
-      resetTs = rt ? Number(rt) || 0 : 0;
-      if (cached) {
-        const parsed = JSON.parse(cached);
-        if (Array.isArray(parsed)) setMessages(parsed);
-      }
-    } catch { }
-    (async () => {
-      try {
-        const res = await bridgeFetch('/api/bridge/telemetry');
-        if (!res.ok) return;
-        const data = await res.json();
-        const chat = Array.isArray(data?.chat) ? data.chat : [];
-        if (chat.length === 0) return;
-        const hydrated = chat
-          .filter((c) => !resetTs || (typeof c.ts === 'number' && c.ts >= resetTs))
-          .map((c) => ({
-            id: `${c.ts || Date.now()}_${Math.random().toString(36).slice(2, 9)}`,
-            sender: c.role === 'user' ? 'user' : c.role === 'ai' ? 'ai' : 'system',
-            content: c.text || '',
-            timestamp: new Date(c.ts || Date.now()).toISOString(),
-            metadata: {}
-          }));
-        setMessages((prev) => (prev.length === 0 ? hydrated : prev));
-      } catch (error) {
-        console.warn('[AI Collaboration] Failed to hydrate bridge telemetry:', error);
-      }
-    })();
-
-    // CRITICAL: Subscribe to SSE for real-time chat updates (e.g., executor errors)
     let eventSource;
     try {
       eventSource = bridgeEventSource('/events/stream');
@@ -1117,7 +1258,6 @@ const LeftAIView = ({ compact = false,
   }, []);
 
   React.useEffect(() => {
-    try { localStorage.setItem(STORAGE_KEY, JSON.stringify(messages)); } catch { }
     // Auto-scroll to bottom when messages update
     if (messagesEndRef.current) {
       messagesEndRef.current.scrollIntoView({ behavior: 'smooth' });
@@ -1150,19 +1290,15 @@ const LeftAIView = ({ compact = false,
     }
   }, [viewMode, druidInstance]);
 
-  const addMessage = (sender, content, metadata = {}) => {
-    // Check for duplicates before adding
-    setMessages(prev => {
-      // Check if this exact message already exists (same sender, content, and recent timestamp)
-      const isDuplicate = prev.some(m =>
+  const addMessage = (sender, content, metadata = {}, targetId = activeConversationId) => {
+    // Shared logic to build the message object
+    const buildMessage = (prevMessages) => {
+      const isDuplicate = prevMessages.some(m =>
         m.sender === sender &&
         m.content === content &&
-        Math.abs(new Date(m.timestamp).getTime() - Date.now()) < 2000 // Within 2 seconds
+        Math.abs(new Date(m.timestamp).getTime() - Date.now()) < 500 // Stricter duplicate check
       );
-      if (isDuplicate) {
-        console.log('[AI Collaboration] Skipping duplicate message:', content.substring(0, 50));
-        return prev;
-      }
+      if (isDuplicate) return prevMessages;
 
       const metaToolCalls = (metadata.toolCalls || []).map(tc => ({ ...tc, type: 'tool_call', expanded: false }));
       const blocks = [
@@ -1178,7 +1314,20 @@ const LeftAIView = ({ compact = false,
         contentBlocks: blocks,
         toolCalls: metaToolCalls
       };
-      return [...prev, message];
+      return [...prevMessages, message];
+    };
+
+    // Update global conversations ALWAYS
+    setConversations(prev => prev.map(c =>
+      c.id === targetId ? { ...c, messages: buildMessage(c.messages || []), timestamp: new Date().toISOString() } : c
+    ));
+
+    // Update active UI ONLY if we targets the active tab
+    setMessages(prev => {
+      if (activeConversationId === targetId) {
+        return buildMessage(prev);
+      }
+      return prev;
     });
   };
 
@@ -1247,9 +1396,9 @@ const LeftAIView = ({ compact = false,
     return html;
   };
 
-  const upsertToolCall = (toolUpdate) => {
-    setMessages(prev => {
-      const updated = [...prev];
+  const upsertToolCall = (toolUpdate, targetId = activeConversationId) => {
+    const updateMsgArray = (currMessages) => {
+      const updated = [...currMessages];
       let idx = updated.length - 1;
       while (idx >= 0 && updated[idx].sender !== 'ai') idx--;
       if (idx < 0) {
@@ -1259,7 +1408,6 @@ const LeftAIView = ({ compact = false,
       const msg = { ...updated[idx] };
       const blocks = Array.isArray(msg.contentBlocks) ? [...msg.contentBlocks] : [];
 
-      // Find matching tool_call block
       const matchIndex = blocks.findIndex(b => b.type === 'tool_call' && (
         (toolUpdate.id && b.id === toolUpdate.id)
         || (toolUpdate.cid && b.cid === toolUpdate.cid && b.name === toolUpdate.name)
@@ -1273,9 +1421,21 @@ const LeftAIView = ({ compact = false,
       msg.contentBlocks = blocks;
       updated[idx] = msg;
       return updated;
+    };
+
+    // Update global conversations ALWAYS
+    setConversations(prev => prev.map(c =>
+      c.id === targetId ? { ...c, messages: updateMsgArray(c.messages || []), timestamp: new Date().toISOString() } : c
+    ));
+
+    // Update active UI ONLY if we targets the active tab
+    setMessages(prev => {
+      if (activeConversationId === targetId) {
+        return updateMsgArray(prev);
+      }
+      return prev;
     });
   };
-
   React.useEffect(() => {
     const handler = (e) => {
       const items = Array.isArray(e.detail) ? e.detail : [];
@@ -1323,7 +1483,9 @@ const LeftAIView = ({ compact = false,
         }
         if (t.type === 'agent_answer') {
           const finalText = (t.text || '').trim();
-          setMessages(prev => {
+          const targetId = activeConversationId; // Default to active for telemetry since it's global
+
+          const updateMsgs = (prev) => {
             const isDefault = /\bwhat will we (make|build) today\?/i.test(finalText);
             if (prev.length === 0 && isDefault) return prev;
             const updated = [...prev];
@@ -1331,7 +1493,6 @@ const LeftAIView = ({ compact = false,
             while (idx >= 0 && updated[idx].sender !== 'ai') idx--;
             if (idx >= 0) {
               const currentContent = updated[idx].content || '';
-              // Avoid duplicating if the text is already at the end
               if (!currentContent.endsWith(finalText)) {
                 updated[idx] = {
                   ...updated[idx],
@@ -1342,6 +1503,15 @@ const LeftAIView = ({ compact = false,
             }
             if (updated.length === 0 && isDefault) return updated;
             return [...updated, { id: `${Date.now()}_${Math.random().toString(36).substr(2, 9)}`, sender: 'ai', content: finalText, timestamp: new Date().toISOString(), toolCalls: [] }];
+          };
+
+          setConversations(prev => prev.map(c =>
+            c.id === targetId ? { ...c, messages: updateMsgs(c.messages || []), timestamp: new Date().toISOString() } : c
+          ));
+
+          setMessages(prev => {
+            if (activeConversationId === targetId) return updateMsgs(prev);
+            return prev;
           });
           return;
         }
@@ -1764,6 +1934,7 @@ const LeftAIView = ({ compact = false,
       const processedEvents = new Set();
       let eventCounter = 0;
 
+      const targetConversationId = activeConversationId;
       try {
         while (true) {
           const { done, value } = await reader.read();
@@ -1785,18 +1956,15 @@ const LeftAIView = ({ compact = false,
                 processedEvents.add(eventId);
 
                 // Apply tool results to store OUTSIDE the state updater
-                // to avoid double-execution in React StrictMode
                 if (event.type === 'tool_result') {
                   applyToolResultToStore(event.name, event.result, event.id || event.toolCallId);
                 }
 
-                // Update streaming message based on event type using content blocks
-                setMessages(prev => {
-                  const updated = [...prev];
-                  // Find THIS streaming message by ID, not just any AI message
+                // Internal updater function to apply changes to a message array
+                const updateMsgInArray = (currMessages) => {
+                  const updated = [...currMessages];
                   let idx = updated.findIndex(m => m.id === streamingMessageId);
                   if (idx < 0) {
-                    // Create new AI message for this stream
                     updated.push({
                       id: streamingMessageId,
                       sender: 'ai',
@@ -1812,48 +1980,24 @@ const LeftAIView = ({ compact = false,
                   const blocks = Array.isArray(msg.contentBlocks) ? [...msg.contentBlocks] : [];
 
                   if (event.type === 'tool_call') {
-                    // Push a new tool_call block — this naturally interleaves with text
                     const existingIndex = blocks.findIndex(b => b.type === 'tool_call' && b.id === event.id);
                     if (existingIndex >= 0) {
-                      blocks[existingIndex] = {
-                        ...blocks[existingIndex],
-                        name: event.name,
-                        args: event.args,
-                        status: 'running'
-                      };
+                      blocks[existingIndex] = { ...blocks[existingIndex], name: event.name, args: event.args, status: 'running' };
                     } else {
-                      blocks.push({
-                        type: 'tool_call',
-                        id: event.id,
-                        name: event.name,
-                        args: event.args,
-                        status: 'running',
-                        expanded: false
-                      });
+                      blocks.push({ type: 'tool_call', id: event.id, name: event.name, args: event.args, status: 'running', expanded: false });
                     }
                   } else if (event.type === 'tool_result') {
-                    // Find matching tool_call block and update its status
                     const toolIndex = blocks.findIndex(b => b.type === 'tool_call' && b.id === event.id);
                     if (toolIndex >= 0) {
-                      blocks[toolIndex] = {
-                        ...blocks[toolIndex],
-                        status: event.result?.error ? 'failed' : 'completed',
-                        result: event.result,
-                        error: event.result?.error
-                      };
+                      blocks[toolIndex] = { ...blocks[toolIndex], status: event.result?.error ? 'failed' : 'completed', result: event.result, error: event.result?.error };
                     }
                   } else if (event.type === 'response') {
-                    // Append to last text block, or create a new one
                     const lastBlock = blocks.length > 0 ? blocks[blocks.length - 1] : null;
                     if (lastBlock && lastBlock.type === 'text') {
-                      blocks[blocks.length - 1] = {
-                        ...lastBlock,
-                        content: (lastBlock.content || '') + (event.content || '')
-                      };
+                      blocks[blocks.length - 1] = { ...lastBlock, content: (lastBlock.content || '') + (event.content || '') };
                     } else {
                       blocks.push({ type: 'text', content: event.content || '' });
                     }
-                    // Keep content field in sync for backward compat
                     msg.content = (msg.content || '') + (event.content || '');
                   } else if (event.type === 'error') {
                     blocks.push({ type: 'text', content: `Error: ${event.message}` });
@@ -1862,18 +2006,15 @@ const LeftAIView = ({ compact = false,
                   } else if (event.type === 'done') {
                     msg.isStreaming = false;
                     msg.iterations = event.iterations;
-                    // Trim trailing whitespace from last text block
                     const lastTextIdx = blocks.length - 1;
                     if (lastTextIdx >= 0 && blocks[lastTextIdx].type === 'text' && blocks[lastTextIdx].content) {
                       blocks[lastTextIdx] = { ...blocks[lastTextIdx], content: blocks[lastTextIdx].content.trimEnd() };
                     }
                     if (msg.content) msg.content = msg.content.trimEnd();
 
-                    // Druid cognitive processing
                     if (persona === 'druid' && druidInstance) {
                       druidInstance.processMessage(msg.content, [...updated, msg].map(m => ({
-                        role: m.sender === 'ai' ? 'assistant' : 'user',
-                        content: m.content
+                        role: m.sender === 'ai' ? 'assistant' : 'user', content: m.content
                       })));
                     }
                   }
@@ -1881,7 +2022,21 @@ const LeftAIView = ({ compact = false,
                   msg.contentBlocks = blocks;
                   updated[idx] = msg;
                   return updated;
+                };
+
+                // Update the background conversations list ALWAYS
+                setConversations(prev => prev.map(c =>
+                  c.id === targetConversationId ? { ...c, messages: updateMsgInArray(c.messages || []), timestamp: new Date().toISOString() } : c
+                ));
+
+                // Update the active UI messages ONLY if we are still on that tab
+                setMessages(prev => {
+                  if (activeConversationId === targetConversationId) {
+                    return updateMsgInArray(prev);
+                  }
+                  return prev;
                 });
+
               } catch (e) {
                 console.warn('[Wizard] Failed to parse SSE event:', e, data);
               }
@@ -1919,11 +2074,12 @@ const LeftAIView = ({ compact = false,
   };
 
   const handleQuestion = async (question) => {
+    const targetConversationId = activeConversationId;
     try {
       const apiConfig = await apiKeyManager.getAPIKeyInfo();
-      if (!apiConfig) { addMessage('ai', 'Please set up your API key first by clicking the key icon in the header.'); return; }
+      if (!apiConfig) { addMessage('ai', 'Please set up your API key first by clicking the key icon in the header.', {}, targetConversationId); return; }
       const apiKey = await apiKeyManager.getAPIKey();
-      if (!apiKey) { addMessage('ai', 'No API key found. Please set one via the key icon.'); return; }
+      if (!apiKey) { addMessage('ai', 'No API key found. Please set one via the key icon.', {}, targetConversationId); return; }
       const response = await bridgeFetch('/api/ai/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
@@ -1944,11 +2100,11 @@ const LeftAIView = ({ compact = false,
         throw new Error(`Chat request failed (${response.status}): ${errorBody}`);
       }
       const data = await response.json();
-      addMessage('ai', data.response || 'No response received from the model.');
+      addMessage('ai', data.response || 'No response received from the model.', {}, targetConversationId);
       setIsConnected(true);
     } catch (error) {
       console.error('[AI Collaboration] Question handling failed:', error);
-      addMessage('ai', error.message?.includes('API key') ? error.message : 'I encountered an error while processing your question. Please try again or check your bridge connection.');
+      addMessage('ai', error.message?.includes('API key') ? error.message : 'I encountered an error while processing your question. Please try again or check your bridge connection.', {}, targetConversationId);
     }
   };
 
@@ -1957,22 +2113,114 @@ const LeftAIView = ({ compact = false,
   };
 
   const toggleClearance = HEADER_HEIGHT + 14;
-  const [fileStatus, setFileStatus] = React.useState(null);
+
+  // Save active conversation messages to file
   React.useEffect(() => {
-    let mounted = true;
-    const fetchFileStatus = async () => {
+    const saveToFile = async () => {
+      if (messages.length === 0) return;
       try {
-        const mod = fileStorage;
-        if (typeof mod.getFileStatus === 'function') {
-          const status = mod.getFileStatus();
-          if (mounted) setFileStatus(status);
+        const projectDir = await fileStorage.getProjectDirectory();
+        if (!projectDir) {
+          console.warn('[AI Collaboration] No project directory available for saving.');
+          return;
         }
-      } catch { }
+
+        const convDir = await fileStorage.isElectron() ? `${projectDir}/conversations` : 'conversations';
+
+        // Ensure directory exists
+        if (await fileStorage.isElectron()) {
+          const exists = await window.electron.fileSystem.folderExists(convDir);
+          if (!exists) {
+            console.log('[AI Collaboration] Creating conversations directory:', convDir);
+            await fileStorage.mkdir(convDir);
+          }
+        }
+
+        const filePath = await fileStorage.isElectron() ? `${convDir}/${activeConversationId}.json` : `conversations/${activeConversationId}.json`;
+        console.log('[AI Collaboration] Saving conversation to:', filePath);
+
+        const convData = {
+          id: activeConversationId,
+          messages,
+          timestamp: new Date().toISOString()
+        };
+        const content = JSON.stringify(convData, null, 2);
+
+        await fileStorage.writeFile(filePath, content);
+        console.log('[AI Collaboration] Save Successful!');
+
+        // Backup to localStorage
+        localStorage.setItem(`rs.aiChat.messages.${activeConversationId}`, content);
+      } catch (err) {
+        console.error('[AI Collaboration] Failed to save conversation to file:', err);
+        // Fallback to localStorage on error
+        localStorage.setItem(`rs.aiChat.messages.${activeConversationId}`, JSON.stringify({
+          id: activeConversationId,
+          messages,
+          timestamp: new Date().toISOString()
+        }));
+      }
     };
-    fetchFileStatus();
-    const t = setInterval(fetchFileStatus, 3000);
-    return () => { mounted = false; clearInterval(t); };
-  }, []);
+
+    const debounceTimer = setTimeout(saveToFile, 3000); // 3s debounce for saving to disk
+    return () => clearTimeout(debounceTimer);
+  }, [messages, activeConversationId]);
+
+  const handleTabSwitch = (id) => {
+    if (id === activeConversationId) return;
+
+    // Find the conversation we are switching to
+    const targetConv = conversations.find(c => c.id === id);
+    if (!targetConv) return;
+
+    // 1. Update the lastMessagesRef to match the target's messages
+    // This prevents the save effect from thinking messages changed during the state update
+    lastMessagesRef.current = targetConv.messages || [];
+
+    // 2. Clear messages state (or set to target messages) immediately
+    setMessages(targetConv.messages || []);
+
+    // 3. Switch the ID
+    setActiveConversationId(id);
+  };
+
+  const handleNewConversation = () => {
+    const newId = `conv_${Date.now()}`;
+    const existingChatNumbers = conversations
+      .map(c => {
+        const match = c.title.match(/Conversation-(\d+)/);
+        return match ? parseInt(match[1]) : 0;
+      })
+      .filter(n => n > 0);
+    const nextNumber = existingChatNumbers.length > 0 ? Math.max(...existingChatNumbers) + 1 : conversations.length + 1;
+
+    const newConv = {
+      id: newId,
+      title: `Conversation-${nextNumber}`,
+      messages: [],
+      timestamp: new Date().toISOString()
+    };
+
+    setConversations(prev => [...prev, newConv]);
+
+    // Use handleTabSwitch logic but since it's a new tab, we just clear
+    lastMessagesRef.current = [];
+    setMessages([]);
+    setActiveConversationId(newId);
+  };
+
+  const handleCloseConversation = (id, e) => {
+    if (e) e.stopPropagation();
+    if (conversations.length <= 1) return;
+
+    setConversations(prev => {
+      const filtered = prev.filter(c => c.id !== id);
+      if (activeConversationId === id) {
+        handleTabSwitch(filtered[0].id);
+      }
+      return filtered;
+    });
+  };
 
   const handleCopyConversation = () => {
     const conversationText = messages.map(msg => {
@@ -2036,22 +2284,15 @@ const LeftAIView = ({ compact = false,
     });
   };
 
-  const handleClearConversation = () => {
-    if (messages.length === 0) return;
-    if (window.confirm('Clear entire conversation? This cannot be undone.')) {
-      setMessages([]);
-      try {
-        const ts = Date.now();
-        localStorage.setItem(RESET_TS_KEY, String(ts));
-        localStorage.removeItem(STORAGE_KEY);
-      } catch { }
-      // Conversation cleared silently (no message)
-    }
-  };
-
-
   const headerActionsEl = (
     <div className="ai-header-actions">
+      <button
+        className="ai-flat-button"
+        onClick={handleNewConversation}
+        title="New Conversation"
+      >
+        <Plus size={20} />
+      </button>
       <button
         className={`ai-flat-button ${showAPIKeySetup ? 'active' : ''}`}
         onClick={() => setShowAPIKeySetup(!showAPIKeySetup)}
@@ -2208,6 +2449,30 @@ const LeftAIView = ({ compact = false,
         )}
       </div>
 
+      {/* Tabs Bar */}
+      <div className="ai-tabs-bar">
+        <div className="ai-tabs-scroll">
+          {conversations.map(conv => (
+            <div
+              key={conv.id}
+              className={`ai-tab ${activeConversationId === conv.id ? 'active' : ''}`}
+              onClick={() => handleTabSwitch(conv.id)}
+            >
+              <span className="ai-tab-title">{conv.title}</span>
+              {conversations.length > 1 && (
+                <button
+                  className="ai-tab-close"
+                  onClick={(e) => handleCloseConversation(conv.id, e)}
+                  title="Close"
+                >
+                  <X size={12} />
+                </button>
+              )}
+            </div>
+          ))}
+        </div>
+      </div>
+
       {/* Dedicated graph info section below the header so layout is consistent across widths */}
       <div className="ai-graph-info-section" style={{ padding: '12px 0 12px 0' }}>
         <div className="ai-graph-info-left" style={{ paddingLeft: '6px' }}>
@@ -2329,7 +2594,7 @@ const LeftAIView = ({ compact = false,
       <div className="ai-panel-content">
         <div className="ai-chat-mode">
           <div className="ai-messages" style={{ display: 'flex', flexDirection: 'column', height: '100%', justifyContent: messages.length === 0 ? 'center' : 'flex-start' }}>
-            {isConnected && messages.length === 0 && (
+            {isHydrated && isConnected && messages.length === 0 && (
               <div style={{ textAlign: 'center', display: 'flex', flexDirection: 'column', alignItems: 'center', padding: '40px 0' }}>
                 <img src={fullBodySvg} alt="Wizard" style={{ width: '150px', marginBottom: '16px' }} />
                 <div style={{ color: '#555', fontFamily: "'EmOne', sans-serif", fontSize: '14px' }}>What will we build today?</div>
@@ -2338,7 +2603,7 @@ const LeftAIView = ({ compact = false,
             {messages.map((message) => (
               <div key={message.id} className={`ai-message ai-message-${message.sender}`} style={{ alignSelf: message.sender === 'user' ? 'flex-end' : 'flex-start', maxWidth: '85%' }}>
                 <div className="ai-message-avatar">
-                  {message.sender === 'user' ? <User size={24} /> : message.sender === 'system' ? null : <img src={headSvg} alt="Wizard" style={{ width: 32, height: 32 }} />}
+                  {message.sender === 'user' ? <User size={24} /> : message.sender === 'system' ? null : <img src={headSvg} alt="Wizard" style={{ width: 40, height: 40 }} />}
                 </div>
                 <div className="ai-message-content">
                   {/* Render content blocks in chronological order */}
@@ -2397,7 +2662,7 @@ const LeftAIView = ({ compact = false,
               if (!hasStreamingContent) {
                 return (
                   <div className="ai-thinking-row">
-                    <div className="ai-message-avatar"><img src={headSvg} alt="Wizard" style={{ width: 32, height: 32 }} /></div>
+                    <div className="ai-message-avatar"><img src={headSvg} alt="Wizard" style={{ width: 40, height: 40 }} /></div>
                     <span className="ai-thinking-dots">
                       <span>•</span>
                       <span>•</span>

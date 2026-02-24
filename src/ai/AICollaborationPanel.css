@@ -8,8 +8,8 @@
 }
 
 .ai-thinking-row .ai-message-avatar {
-  width: 32px;
-  height: 32px;
+  width: 40px;
+  height: 40px;
   border-radius: 8px;
   display: flex;
   align-items: center;
@@ -98,6 +98,78 @@
   border-bottom: 1px solid #260000;
   position: relative;
   gap: 16px;
+}
+
+/* Tabs Bar */
+.ai-tabs-bar {
+  background: #bdb5b5;
+  border-bottom: 1px solid rgba(38, 0, 0, 0.2);
+  padding: 0 16px;
+  overflow: hidden;
+}
+
+.ai-tabs-scroll {
+  display: flex;
+  gap: 6px;
+  overflow-x: auto;
+  padding: 6px 0 10px 0;
+  scrollbar-width: none;
+  /* Firefox */
+}
+
+.ai-tabs-scroll::-webkit-scrollbar {
+  display: none;
+  /* Chrome/Safari */
+}
+
+.ai-tab {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 14px;
+  background: rgba(38, 0, 0, 0.04);
+  border: 1px solid rgba(38, 0, 0, 0.1);
+  border-radius: 6px;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  font-size: 13px;
+  color: rgba(38, 0, 0, 0.6);
+  font-weight: 500;
+  position: relative;
+}
+
+.ai-tab:hover {
+  background: rgba(38, 0, 0, 0.08);
+  border-color: rgba(38, 0, 0, 0.2);
+  color: rgba(38, 0, 0, 0.8);
+  transform: translateY(-1px);
+}
+
+.ai-tab.active {
+  background: #260000;
+  color: #bdb5b5;
+  border-color: #260000;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+}
+
+.ai-tab-close {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: none;
+  border: none;
+  padding: 2px;
+  color: inherit;
+  opacity: 0.4;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  margin-right: -4px;
+}
+
+.ai-tab-close:hover {
+  opacity: 1;
+  transform: scale(1.1);
 }
 
 /* Mode dropdown styling */
@@ -293,8 +365,8 @@
 }
 
 .ai-message-avatar {
-  width: 32px;
-  height: 32px;
+  width: 40px;
+  height: 40px;
   border-radius: 8px;
   display: flex;
   align-items: center;
