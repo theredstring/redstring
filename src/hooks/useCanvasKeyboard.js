@@ -77,14 +77,12 @@ export const useCanvasKeyboard = ({
     // 2. Keyboard Movement (WASD / Arrows / Zoom)
     // ---------------------------------------------------------------------------
     useEffect(() => {
-        let lastFrameTime = 0;
+        let lastFrameTime = performance.now();
         let animationFrameId;
 
         const handleKeyboardMovement = (currentTime = performance.now()) => {
-            // Throttle to ensure consistent timing regardless of refresh rate
-            if (currentTime - lastFrameTime < 8) { // ~120fps max
-                return;
-            }
+            // Calculate delta time in seconds, capped to prevent huge jumps after tab freeze
+            const deltaTime = Math.min(0.05, (currentTime - lastFrameTime) / 1000);
             lastFrameTime = currentTime;
 
             // Check for conditions that should disable keyboard controls
@@ -100,10 +98,13 @@ export const useCanvasKeyboard = ({
 
             if (shouldDisableKeyboard) return;
 
+            // reference frame rate for speed constants
+            const frameRatio = deltaTime * 60;
+
             // Calculate movement (use lowercase only to avoid shift conflicts)
             let panDx = 0, panDy = 0;
             const panSensitivity = keyboardSettings?.panSensitivity ?? 0.5;
-            const currentPanSpeed = KEYBOARD_PAN_SPEED * (panSensitivity * 2);
+            const currentPanSpeed = KEYBOARD_PAN_SPEED * (panSensitivity * 2) * frameRatio;
 
             if (keysPressed.current['ArrowLeft'] || keysPressed.current['a']) panDx += currentPanSpeed;
             if (keysPressed.current['ArrowRight'] || keysPressed.current['d']) panDx -= currentPanSpeed;
@@ -124,15 +125,17 @@ export const useCanvasKeyboard = ({
             if (draggingNodeInfo || isAnimatingZoom) return;
 
             // USE GEOMETRIC ZOOM: consistent relative change across zoom levels
-            // Base factor is slightly smaller than old 0.05 absolute step to be less sensitive
-            const baseFactor = 1.05;
+            const baseFactor = 1.1;
             const sensitivity = keyboardSettings?.zoomSensitivity ?? 0.5;
             // Map 0 -> 1 sensitivity to 1.0 -> baseFactor scaling
             const zoomFactor = 1 + (baseFactor - 1) * sensitivity;
 
+            // Adjust factor by frame ratio to keep speed consistent across refresh rates
+            const timeAdjustedZoomFactor = zoomFactor ** frameRatio;
+
             let zoomMultiplier = 1;
-            if (keysPressed.current[' ']) zoomMultiplier = 1 / zoomFactor; // Space = zoom out
-            if (keysPressed.current['Shift']) zoomMultiplier = zoomFactor; // Shift = zoom in
+            if (keysPressed.current[' ']) zoomMultiplier = 1 / timeAdjustedZoomFactor; // Space = zoom out
+            if (keysPressed.current['Shift']) zoomMultiplier = timeAdjustedZoomFactor; // Shift = zoom in
 
             if (zoomMultiplier !== 1) {
                 setZoomLevel(prevZoom => {

@@ -164,7 +164,7 @@ const ToolCallCard = ({ toolCallId, toolName, status, args, result, error, times
     };
 
     // Debug logging
-    console.log('[ToolCallCard] Rendering:', { toolName, status, hasResult: !!result, result });
+    // console.log('[ToolCallCard] Rendering:', { toolName, status, hasResult: !!result, result });
 
     return (
         <div className={`tool-call-card ${getStatusClass()}`}>
