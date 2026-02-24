@@ -18,6 +18,11 @@ export const useGraphLayout = ({
     groupLayoutAlgorithm = 'force-directed',
     // Force tuner settings — individual force params for consistency with AI and interactive sim
     forceTunerSettings = null,
+    // Zoom/pan control for zoom-to-fit after auto-layout
+    setZoomLevel = null,
+    setPanOffset = null,
+    viewportSize = null,
+    maxZoom = 3,
 }) => {
     // ---------------------------------------------------------------------------
     // 1. Move Out of Bounds Nodes
@@ -254,11 +259,48 @@ export const useGraphLayout = ({
                 } catch (boundErr) {
                     console.warn('[useGraphLayout] Bound correction failed:', boundErr);
                 }
-                setTimeout(() => {
-                    window.dispatchEvent(new CustomEvent('rs-auto-layout-complete', {
-                        detail: { graphId: activeGraphId, nodeCount: updates.length }
-                    }));
-                }, 100);
+
+                // Zoom-to-fit: frame all nodes in viewport with padding
+                if (setZoomLevel && setPanOffset && viewportSize && updates.length > 0) {
+                    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+                    updates.forEach(update => {
+                        const node = layoutNodes.find(n => n.id === update.instanceId);
+                        const dims = baseDimsById.get(update.instanceId);
+                        const width = dims?.currentWidth || node?.width || 150;
+                        const height = dims?.currentHeight || node?.height || 150;
+                        minX = Math.min(minX, update.x);
+                        minY = Math.min(minY, update.y);
+                        maxX = Math.max(maxX, update.x + width);
+                        maxY = Math.max(maxY, update.y + height);
+                    });
+
+                    const nodesWidth = maxX - minX;
+                    const nodesHeight = maxY - minY;
+                    const nodesCenterX = (minX + maxX) / 2;
+                    const nodesCenterY = (minY + maxY) / 2;
+
+                    const padding = Math.max(200, Math.min(viewportSize.width, viewportSize.height) * 0.15);
+                    const targetZoomX = viewportSize.width / (nodesWidth + padding * 2);
+                    const targetZoomY = viewportSize.height / (nodesHeight + padding * 2);
+                    let targetZoom = Math.min(targetZoomX, targetZoomY);
+                    targetZoom = Math.max(Math.min(targetZoom, maxZoom), 0.2);
+
+                    const targetPanX = (viewportSize.width / 2) - (nodesCenterX - canvasSize.offsetX) * targetZoom;
+                    const targetPanY = (viewportSize.height / 2) - (nodesCenterY - canvasSize.offsetY) * targetZoom;
+
+                    setZoomLevel(targetZoom);
+                    setPanOffset({ x: targetPanX, y: targetPanY });
+
+                    console.log('[useGraphLayout] Zoom-to-fit:', {
+                        targetZoom: Math.round(targetZoom * 1000) / 1000,
+                        pan: { x: Math.round(targetPanX), y: Math.round(targetPanY) },
+                        bounds: { width: Math.round(nodesWidth), height: Math.round(nodesHeight) }
+                    });
+                }
+
+                window.dispatchEvent(new CustomEvent('rs-auto-layout-complete', {
+                    detail: { graphId: activeGraphId, nodeCount: updates.length }
+                }));
             }, 0);
         } catch (error) {
             console.error('[useGraphLayout] Failed to apply layout:', error);
@@ -278,7 +320,11 @@ export const useGraphLayout = ({
         canvasSize,
         groupLayoutAlgorithm,
         graphsMap,
-        forceTunerSettings
+        forceTunerSettings,
+        setZoomLevel,
+        setPanOffset,
+        viewportSize,
+        maxZoom
     ]);
 
 

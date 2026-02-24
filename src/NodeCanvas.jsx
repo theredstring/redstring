@@ -1870,7 +1870,11 @@ function NodeCanvas() {
     layoutScaleMultiplier,
     layoutIterationPreset,
     groupLayoutAlgorithm,
-    forceTunerSettings
+    forceTunerSettings,
+    setZoomLevel,
+    setPanOffset,
+    viewportSize,
+    maxZoom: MAX_ZOOM
   });
 
 
@@ -7600,7 +7604,7 @@ function NodeCanvas() {
         // Debounce for 500ms to batch rapid mutations
         // This prevents layout thrashing during quick wizard operations
         debounceTimer = setTimeout(() => {
-          setAutoLayoutRunning(true);
+          applyAutoLayoutToActiveGraph();
           debounceTimer = null;
         }, 500);
       }
@@ -7664,8 +7668,6 @@ function NodeCanvas() {
       window.removeEventListener('rs-select-node', handleSelectNode);
     };
   }, [nodes, setSelectedInstanceIds, setSelectedNodeIdForPieMenu]);
-
-  // Auto-layout zoom-to-fit is handled in ForceSimulationModal's onSimulationComplete callback
 
   // Listen for navigation events from the Wizard and other systems
   useEffect(() => {
@@ -7854,7 +7856,7 @@ function NodeCanvas() {
           setForceSimModalVisible(true);
         }}
         onAutoLayoutGraph={() => {
-          setAutoLayoutRunning(true);
+          applyAutoLayoutToActiveGraph();
         }}
         onCondenseNodes={condenseGraphNodes}
         onNewUniverse={async () => {
@@ -12249,34 +12251,7 @@ function NodeCanvas() {
         }}
         autoStart={autoLayoutRunning}
         invisible={autoLayoutRunning && !forceSimModalVisible}
-        onSimulationComplete={() => {
-          setAutoLayoutRunning(false);
-          // Zoom-to-fit: frame all nodes in viewport with padding
-          setTimeout(() => {
-            if (!hydratedNodes || hydratedNodes.length === 0 || !viewportSize || !canvasSize) return;
-            let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
-            hydratedNodes.forEach(node => {
-              const dims = baseDimsById.get(node.id) || getNodeDimensions(node, false, null);
-              minX = Math.min(minX, node.x);
-              minY = Math.min(minY, node.y);
-              maxX = Math.max(maxX, node.x + dims.currentWidth);
-              maxY = Math.max(maxY, node.y + dims.currentHeight);
-            });
-            const nodesWidth = maxX - minX;
-            const nodesHeight = maxY - minY;
-            const nodesCenterX = (minX + maxX) / 2;
-            const nodesCenterY = (minY + maxY) / 2;
-            const padding = Math.max(200, Math.min(viewportSize.width, viewportSize.height) * 0.15);
-            const targetZoomX = viewportSize.width / (nodesWidth + padding * 2);
-            const targetZoomY = viewportSize.height / (nodesHeight + padding * 2);
-            let targetZoom = Math.min(targetZoomX, targetZoomY);
-            targetZoom = Math.max(Math.min(targetZoom, MAX_ZOOM), 0.2);
-            const targetPanX = (viewportSize.width / 2) - (nodesCenterX - canvasSize.offsetX) * targetZoom;
-            const targetPanY = (viewportSize.height / 2) - (nodesCenterY - canvasSize.offsetY) * targetZoom;
-            setZoomLevel(targetZoom);
-            setPanOffset({ x: targetPanX, y: targetPanY });
-          }, 50);
-        }}
+        onSimulationComplete={() => setAutoLayoutRunning(false)}
         autoLayoutDuration={1000}
         graphId={activeGraphId}
         storeActions={storeActions}

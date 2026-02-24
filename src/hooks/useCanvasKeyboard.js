@@ -45,6 +45,44 @@ export const useCanvasKeyboard = ({
     abstractionCarouselVisible,
     keyboardSettings,
 }) => {
+    // Use a Ref to keep track of the latest prop values without restarting the effect
+    // This is critical for performance to avoid tearing down and rebuilding the RAF loop every frame
+    const props = {
+        activeGraphId,
+        storeActions,
+        graphsMap,
+        nodePrototypesMap,
+        edgesMap,
+        selectedInstanceIds,
+        setSelectedInstanceIds,
+        selectedEdgeId,
+        selectedEdgeIds,
+        clipboardRef,
+        keysPressed,
+        mousePositionRef, // {x, y} in client coords
+        panOffset,
+        setPanOffset,
+        zoomLevel,
+        setZoomLevel,
+        canvasSize, // {width, height, offsetX, offsetY}
+        viewportSize, // {width, height}
+        viewportBounds, // {x, y, width, height}
+        draggingNodeInfo,
+        isAnimatingZoom,
+        // UI State flags
+        isPaused,
+        nodeNamePrompt,
+        connectionNamePrompt,
+        abstractionPrompt,
+        isHeaderEditing,
+        isRightPanelInputFocused,
+        isLeftPanelInputFocused,
+        abstractionCarouselVisible,
+        keyboardSettings,
+    };
+    const paramsRef = useRef(props);
+    paramsRef.current = props;
+
     // ---------------------------------------------------------------------------
     // 1. Global Undo/Redo Shortcuts
     // ---------------------------------------------------------------------------
