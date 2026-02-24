@@ -553,11 +553,11 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
     textSettings: (() => {
       try {
         return {
-          fontSize: parseFloat(localStorage.getItem('redstring_text_font_size')) || 1.2,
+          fontSize: parseFloat(localStorage.getItem('redstring_text_font_size')) || 1.4,
           lineSpacing: parseFloat(localStorage.getItem('redstring_text_line_spacing')) || 1.0,
         };
       } catch (_) {
-        return { fontSize: 1.2, lineSpacing: 1.0 };
+        return { fontSize: 1.4, lineSpacing: 1.0 };
       }
     })(),
 
@@ -1038,6 +1038,10 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
           // Ensure agentConfig defaults to null if not provided
           const agentConfig = prototypeData.agentConfig !== undefined ? prototypeData.agentConfig : null;
           draft.nodePrototypes.set(prototypeId, { ...prototypeData, id: prototypeId, createdAt, agentConfig });
+
+          // Save the new prototype by default
+          draft.savedNodeIds.add(prototypeId);
+          draft.savedNodeIds = new Set(draft.savedNodeIds);
         }
       }));
     },
@@ -2110,6 +2114,10 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
               description: node.description || '',
               createdAt: new Date().toISOString()
             });
+
+            // Save the new prototype by default
+            draft.savedNodeIds.add(protoId);
+            draft.savedNodeIds = new Set(draft.savedNodeIds);
           }
 
           // Add instance to graph
@@ -2207,6 +2215,10 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
                       definitionGraphIds: [],
                       createdAt: new Date().toISOString()
                     });
+
+                    // Save the new connection prototype by default
+                    draft.savedNodeIds.add(defProtoId);
+                    draft.savedNodeIds = new Set(draft.savedNodeIds);
                   }
                   connectionProtoCache.set(connectionTypeName, defProtoId);
                 }
@@ -2270,6 +2282,11 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
                       definitionGraphIds: [],
                       createdAt: new Date().toISOString()
                     });
+
+                    // Save the new connection prototype by default
+                    draft.savedNodeIds.add(defProtoId);
+                    draft.savedNodeIds = new Set(draft.savedNodeIds);
+
                     definitionNodeIds = [defProtoId];
                     connectionProtoCache.set(connectionTypeName, defProtoId);
                     console.log(`[applyBulkGraphUpdates] Created connection prototype: "${connectionTypeName}" (${defProtoId})`);
@@ -2380,6 +2397,11 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
           draft.openGraphIds.unshift(newGraphId);
         }
         draft.expandedGraphIds.add(newGraphId);
+
+        // Save the defining node by default
+        draft.savedNodeIds.add(definingPrototypeId);
+        // Ensure reference change for persistence
+        draft.savedNodeIds = new Set(draft.savedNodeIds);
 
         console.log(`[Store] Created and activated new empty graph: ${newGraphId} ('${newGraphName}') defined by prototype ${definingPrototypeId}.`);
       }));

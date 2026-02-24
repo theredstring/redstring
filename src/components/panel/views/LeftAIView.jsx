@@ -1585,8 +1585,13 @@ const LeftAIView = ({ compact = false,
       }));
 
       // Build rich context with actual graph data (not just ID)
-      const activeGraphData = activeGraphId && graphsMap && graphsMap.has(activeGraphId)
-        ? graphsMap.get(activeGraphId)
+      let effectiveActiveGraphId = activeGraphId;
+      if (persona === 'druid' && druidInstance?.workspaceGraphId) {
+        effectiveActiveGraphId = druidInstance.workspaceGraphId;
+      }
+
+      const activeGraphData = effectiveActiveGraphId && graphsMap && graphsMap.has(effectiveActiveGraphId)
+        ? graphsMap.get(effectiveActiveGraphId)
         : null;
 
       // Extract nodes and edges for LLM context (token-limited to top 50 nodes)
@@ -1618,7 +1623,7 @@ const LeftAIView = ({ compact = false,
         const edgeCount = Array.isArray(activeGraphData.edgeIds) ? activeGraphData.edgeIds.length : 0;
 
         graphStructure = {
-          id: activeGraphId,
+          id: effectiveActiveGraphId,
           name: activeGraphData.name || 'Unnamed',
           nodeCount: instances.length,
           edgeCount,
@@ -1630,7 +1635,7 @@ const LeftAIView = ({ compact = false,
       // Build graph state for new Wizard endpoint
       // CRITICAL: Convert Map objects to arrays for JSON serialization
       const graphState = {
-        graphs: activeGraphId && graphsMap ? Array.from(graphsMap.values()).map(g => {
+        graphs: effectiveActiveGraphId && graphsMap ? Array.from(graphsMap.values()).map(g => {
           // Convert instances Map to array for serialization
           const instancesArray = g.instances instanceof Map
             ? Array.from(g.instances.values())
@@ -1705,7 +1710,7 @@ const LeftAIView = ({ compact = false,
             };
           }).filter(Boolean);
         })() : [],
-        activeGraphId: activeGraphId || null
+        activeGraphId: effectiveActiveGraphId || null
       };
 
       console.log('[Wizard] Starting request to /api/wizard', {
@@ -1734,6 +1739,7 @@ const LeftAIView = ({ compact = false,
           config: {
             cid: `wizard-${Date.now()}`,
             systemPrompt: persona === 'druid' ? DRUID_SYSTEM_PROMPT : undefined,
+            persona: persona,
             apiConfig: apiConfig ? {
               provider: effectiveProvider || apiConfig.provider,
               endpoint: apiConfig.endpoint,
@@ -1862,6 +1868,14 @@ const LeftAIView = ({ compact = false,
                       blocks[lastTextIdx] = { ...blocks[lastTextIdx], content: blocks[lastTextIdx].content.trimEnd() };
                     }
                     if (msg.content) msg.content = msg.content.trimEnd();
+
+                    // Druid cognitive processing
+                    if (persona === 'druid' && druidInstance) {
+                      druidInstance.processMessage(msg.content, [...updated, msg].map(m => ({
+                        role: m.sender === 'ai' ? 'assistant' : 'user',
+                        content: m.content
+                      })));
+                    }
                   }
 
                   msg.contentBlocks = blocks;

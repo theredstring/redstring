@@ -146,7 +146,9 @@ app.post('/api/wizard', async (req, res) => {
       temperature: apiConfig.settings?.temperature,
       maxTokens: apiConfig.settings?.max_tokens,
       cid: config?.cid || `wizard-${Date.now()}`,
-      conversationHistory: conversationHistory || []
+      conversationHistory: conversationHistory || [],
+      systemPrompt: config?.systemPrompt,
+      maxIterations: config?.persona === 'druid' ? 25 : 10
     };
 
     console.log('[Wizard] Request:', {

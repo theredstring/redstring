@@ -254,20 +254,79 @@ class DruidInstance {
    * @returns {Object} - Structuring status and metadata
    */
   async processMessage(message, conversationHistory = []) {
+    if (!message) return { extracted: 0, created: 0, updated: 0, complete: false };
+
     console.log('[DruidInstance] Processing message for thought structuring...');
 
     // Store conversation context
     this.conversationContext = conversationHistory;
 
-    // TODO: Implement automatic concept extraction
-    // For now, this is a placeholder that will be enhanced
-
     const status = {
       extracted: 0,
       created: 0,
       updated: 0,
-      complete: false
+      complete: this.isComplete()
     };
+
+    // Parse <druid_thought> tag
+    const thoughtMatch = message.match(/<druid_thought>([\s\S]*?)<\/druid_thought>/);
+    if (!thoughtMatch) {
+      console.log('[DruidInstance] No <druid_thought> tag found');
+      return status;
+    }
+
+    const thoughtContent = thoughtMatch[1].trim();
+    const lines = thoughtContent.split('\n');
+
+    for (const line of lines) {
+      const parts = line.split(':');
+      if (parts.length < 2) continue;
+
+      const type = parts[0].trim().toLowerCase();
+      const content = parts.slice(1).join(':').trim();
+
+      let targetGraphId = null;
+      let nodeColor = '#888';
+
+      if (type.includes('goal')) {
+        targetGraphId = this.cognitiveGraphIds.goals;
+        nodeColor = '#DC2626';
+      } else if (type.includes('plan')) {
+        targetGraphId = this.cognitiveGraphIds.plans;
+        nodeColor = '#DB2777';
+      } else if (type.includes('observation')) {
+        targetGraphId = this.cognitiveGraphIds.observations;
+        nodeColor = '#16A34A';
+      }
+
+      if (targetGraphId && content) {
+        // Create a node for this thought in the respective cognitive graph
+        // We use a generic node creation but in the context of the cognitive graph
+        const state = this.store.getState();
+
+        // Find or create a generic "Druid Thought" prototype if needed
+        let thoughtProto = Array.from(state.nodePrototypes.values()).find(p => p.name === 'Druid Thought');
+        if (!thoughtProto) {
+          const protoId = uuidv4();
+          state.addNodePrototype({
+            id: protoId,
+            name: 'Druid Thought',
+            color: '#9333EA',
+            description: 'An internal thought or state item for the Druid'
+          });
+          thoughtProto = { id: protoId };
+        }
+
+        state.addNodeInstance(targetGraphId, thoughtProto.id, {
+          x: Math.random() * 400 - 200,
+          y: Math.random() * 400 - 200,
+          name: content
+        });
+
+        status.created++;
+        status.extracted++;
+      }
+    }
 
     console.log('[DruidInstance] Message processing status:', status);
     return status;

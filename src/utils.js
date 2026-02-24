@@ -2,11 +2,10 @@ import {
   NODE_WIDTH,
   NODE_HEIGHT,
   NODE_PADDING,
-  AVERAGE_CHAR_WIDTH,
-  LINE_HEIGHT_ESTIMATE,
   EXPANDED_NODE_WIDTH,
   NAME_AREA_FACTOR
 } from './constants'; // Import necessary constants
+import useGraphStore from './store/graphStore.jsx'; // Import store for textSettings
 
 // Reusable DOM nodes for text/description measurement to avoid per-call allocations.
 let measurementContainer = null;
@@ -17,6 +16,12 @@ const ensureMeasurementElements = () => {
   if (typeof document === 'undefined') {
     return null;
   }
+
+  // Get current text settings from the store
+  const textSettings = useGraphStore.getState().textSettings;
+  const scaledFontSize = 20 * textSettings.fontSize;
+  const scaledLineHeight = 28 * textSettings.lineSpacing;
+  const scaledDescriptionLineHeight = 24 * textSettings.lineSpacing;
 
   if (!measurementContainer) {
     measurementContainer = document.createElement('div');
@@ -36,26 +41,28 @@ const ensureMeasurementElements = () => {
   if (!measurementSpan) {
     measurementSpan = document.createElement('span');
     const style = measurementSpan.style;
-    style.fontSize = '20px';
     style.fontFamily = "'EmOne', sans-serif";
     style.fontWeight = 'bold';
     style.whiteSpace = 'nowrap';
     style.display = 'inline-block';
     measurementContainer.appendChild(measurementSpan);
   }
+  // Always update font size to match current settings
+  measurementSpan.style.fontSize = `${scaledFontSize}px`;
 
   if (!descriptionMeasurementDiv) {
     descriptionMeasurementDiv = document.createElement('div');
     const style = descriptionMeasurementDiv.style;
-    style.fontSize = '20px';
     style.fontWeight = 'normal';
-    style.lineHeight = '24px';
     style.wordWrap = 'break-word';
     style.overflowWrap = 'break-word';
     style.whiteSpace = 'normal';
     style.display = 'block';
     measurementContainer.appendChild(descriptionMeasurementDiv);
   }
+  // Always update font size and line height to match current settings
+  descriptionMeasurementDiv.style.fontSize = `${scaledFontSize}px`;
+  descriptionMeasurementDiv.style.lineHeight = `${scaledDescriptionLineHeight}px`;
 
   return {
     textSpan: measurementSpan,
@@ -115,7 +122,9 @@ export const getNodeDimensions = (node, isPreviewing = false, descriptionContent
 
   // PERFORMANCE: Check cache first
   // Create cache key based on all properties that affect dimensions
-  const cacheKey = `${nodeName}-${thumbnailSrc || 'noimg'}-${isPreviewing}-${descriptionContent || 'nodesc'}`;
+  // Include text settings to invalidate cache when text size changes
+  const textSettings = useGraphStore.getState().textSettings;
+  const cacheKey = `${nodeName}-${thumbnailSrc || 'noimg'}-${isPreviewing}-${descriptionContent || 'nodesc'}-${textSettings.fontSize}-${textSettings.lineSpacing}`;
 
   const cached = dimensionCache.get(cacheKey);
   if (cached) {
@@ -151,7 +160,10 @@ export const getNodeDimensions = (node, isPreviewing = false, descriptionContent
   }
 
   // --- Text Measurement ---
-  let textWidth = nodeName.length * AVERAGE_CHAR_WIDTH;
+  // Use textSettings already declared above for cache key
+  const scaledCharWidth = 12 * textSettings.fontSize; // Match Node.jsx and calculateTextAreaHeight
+
+  let textWidth = nodeName.length * scaledCharWidth;
   const measurementElements = ensureMeasurementElements();
   if (measurementElements?.textSpan) {
     const { textSpan } = measurementElements;
@@ -243,7 +255,7 @@ export const getNodeDimensions = (node, isPreviewing = false, descriptionContent
     innerNetworkHeight = 0;
     descriptionAreaHeight = 0;
   } else {
-    // --- Node WITHOUT Image --- 
+    // --- Node WITHOUT Image ---
     const isSingleWord = !nodeName.includes(' ');
 
     // Determine width based on text length, clamped between NODE_WIDTH and EXPANDED_NODE_WIDTH
@@ -251,9 +263,10 @@ export const getNodeDimensions = (node, isPreviewing = false, descriptionContent
     currentWidth = Math.max(NODE_WIDTH, Math.min(textWidthWithBuffer + 2 * NODE_PADDING, EXPANDED_NODE_WIDTH));
 
     let textBlockHeight;
+    const scaledLineHeight = 28 * textSettings.lineSpacing;
     // If it's a single word and not at max width, don't let it wrap.
     if (isSingleWord && currentWidth < EXPANDED_NODE_WIDTH) {
-      textBlockHeight = LINE_HEIGHT_ESTIMATE;
+      textBlockHeight = scaledLineHeight;
     } else {
       // Otherwise, calculate wrapping based on the node's actual current width.
       const actualTextWidth = currentWidth - 56; // Account for average padding (28px per side: between 22px single-line and 30px multi-line)
@@ -325,15 +338,20 @@ export const getNodeDimensions = (node, isPreviewing = false, descriptionContent
 // Add other utility functions here if needed 
 
 export const calculateTextAreaHeight = (name, width) => {
+  // Get current text settings from the store for scaled measurements
+  const textSettings = useGraphStore.getState().textSettings;
+  const scaledLineHeight = 28 * textSettings.lineSpacing;
+  const scaledCharWidth = 12 * textSettings.fontSize; // Match Node.jsx calculation
+
   // The width parameter should already be the available text width
   const textWidth = width;
   if (textWidth <= 0) {
-    return LINE_HEIGHT_ESTIMATE;
+    return scaledLineHeight;
   }
-  const charsPerLine = Math.floor(textWidth / AVERAGE_CHAR_WIDTH);
+  const charsPerLine = Math.floor(textWidth / scaledCharWidth);
 
   if (!name || charsPerLine <= 0) {
-    return LINE_HEIGHT_ESTIMATE;
+    return scaledLineHeight;
   }
 
   const words = name.split(' ');
@@ -368,7 +386,7 @@ export const calculateTextAreaHeight = (name, width) => {
     }
   }
 
-  return lineCount * LINE_HEIGHT_ESTIMATE;
+  return lineCount * scaledLineHeight;
 };
 
 /**

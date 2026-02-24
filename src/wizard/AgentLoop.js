@@ -167,7 +167,7 @@ function updateGraphState(graphState, _toolName, _args, result) {
   }
 }
 
-const MAX_ITERATIONS = 10;
+const DEFAULT_MAX_ITERATIONS = 10;
 
 /**
  * Run the agent loop
@@ -221,7 +221,8 @@ export async function* runAgent(userMessage, graphState, config = {}, ensureSche
 
   const tools = getToolDefinitions();
 
-  for (let iteration = 0; iteration < MAX_ITERATIONS; iteration++) {
+  const maxIterations = config.maxIterations || DEFAULT_MAX_ITERATIONS;
+  for (let iteration = 0; iteration < maxIterations; iteration++) {
     try {
       let iterationContent = '';
       let iterationToolCalls = [];
@@ -327,5 +328,5 @@ export async function* runAgent(userMessage, graphState, config = {}, ensureSche
 
   // Max iterations reached
   yield { type: 'response', content: 'Reached maximum iterations. Task may be incomplete.' };
-  yield { type: 'done', iterations: MAX_ITERATIONS };
+  yield { type: 'done', iterations: maxIterations };
 }
