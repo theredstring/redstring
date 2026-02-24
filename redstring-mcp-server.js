@@ -105,22 +105,7 @@ const createNetworkServer = () => {
 };
 
 const { server: networkServer, protocol: networkProtocol } = createNetworkServer();
-
-networkServer.listen(PORT, () => {
-  console.error(`MCP ${networkProtocol.toUpperCase()} listening on ${PORT}`);
-  console.error(`Redstring MCP Server running on port ${PORT} (${networkProtocol.toUpperCase()}) and stdio (MCP)`);
-  console.error(`GitHub OAuth callback URL: ${networkProtocol}://localhost:${PORT}/oauth/callback`);
-  console.error('Waiting for Redstring store bridge...');
-});
-networkServer.on('error', (err) => {
-  if (err && err.code === 'EADDRINUSE') {
-    console.error(`⚠️ Port ${PORT} is already in use. Continuing in stdio-only mode (HTTP bridge handled by existing server).`);
-  } else if (err && err.code === 'EACCES') {
-    console.error(`⚠️ Unable to bind to port ${PORT}. Continuing in stdio-only mode.`);
-  } else {
-    console.error('⚠️ MCP network server failed to start:', err?.message || err, '— continuing in stdio-only mode.');
-  }
-});
+// HTTP listen is deferred to main() — stdio must connect first to keep the event loop alive.
 
 // --- Early minimal bridge so UI never 404s even if later init fails ---
 const earlyBridgeState = {
@@ -6492,16 +6477,31 @@ async function main() {
     // Don't exit the process, just log the error
   });
 
-  // Try to start MCP stdio server for AI model communication without blocking HTTP
-  (async () => {
-    try {
-      const transport = new StdioServerTransport();
-      await server.connect(transport);
-      console.error('ℹ️ MCP stdio initialized');
-    } catch (e) {
-      console.error('⚠️ MCP stdio unavailable, continuing HTTP-only mode:', e?.message || e);
+  // CRITICAL: Connect stdio FIRST and AWAIT it.
+  // stdin becomes an active event loop handle, preventing Node.js
+  // from exiting even if the HTTP server fails to bind.
+  try {
+    const transport = new StdioServerTransport();
+    await server.connect(transport);
+    console.error('ℹ️ MCP stdio initialized');
+  } catch (e) {
+    console.error('⚠️ MCP stdio failed:', e?.message || e);
+  }
+
+  // THEN attempt HTTP listen (non-fatal if port is taken).
+  // Placed AFTER stdio so the process stays alive regardless.
+  networkServer.listen(PORT, () => {
+    console.error(`MCP ${networkProtocol.toUpperCase()} listening on ${PORT}`);
+    console.error(`Redstring MCP Server running on port ${PORT}`);
+    console.error('Waiting for Redstring store bridge...');
+  });
+  networkServer.on('error', (err) => {
+    if (err && err.code === 'EADDRINUSE') {
+      console.error(`⚠️ Port ${PORT} already in use. Continuing stdio-only.`);
+    } else {
+      console.error('⚠️ HTTP server error:', err?.message || err, '— continuing stdio-only.');
     }
-  })();
+  });
 
   // The bridge will be set up when Redstring connects
   global.setupRedstringBridge = setupRedstringBridge;
