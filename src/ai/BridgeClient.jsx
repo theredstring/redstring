@@ -6,6 +6,15 @@ import { navigateOnGraphSwitch } from '../services/canvasNavigationService.js';
 const MAX_LAYOUT_NODES = 400;
 const MAX_SUMMARY_EDGES = 600;
 
+const normalizeId = (val, keyHint) => {
+  if (!val) return null;
+  if (typeof val === 'string') return val;
+  if (typeof val === 'object') {
+    return val.id || (keyHint && val[keyHint]) || val.graphId || val.prototypeId || val.instanceId || val.nodeId || val.edgeId;
+  }
+  return val;
+};
+
 const safePrototypeName = (prototypes, prototypeId) => {
   if (!prototypeId) return 'Unknown Prototype';
   const proto = prototypes.get(prototypeId);
@@ -521,8 +530,9 @@ const BridgeClient = () => {
             // Helper to mark activity
             _markActive: () => { lastActivityRef.current = Date.now(); },
 
-            ensureGraph: async (graphId, initialData) => {
+            ensureGraph: async (rawId, initialData) => {
               lastActivityRef.current = Date.now();
+              const graphId = normalizeId(rawId, 'graphId');
               console.log('MCPBridge: Calling ensureGraph', graphId, initialData);
               const st = useGraphStore.getState();
               if (!st.graphs.has(graphId)) {
@@ -530,10 +540,12 @@ const BridgeClient = () => {
               }
               return { success: true, graphId };
             },
-            addNodePrototype: async (prototypeId, prototypeData) => {
-              console.log('MCPBridge: Calling addNodePrototype', prototypeId, prototypeData);
-              // Ensure the prototypeData has the correct id
-              const dataWithId = { ...prototypeData, id: prototypeId };
+            addNodePrototype: async (arg1, arg2) => {
+              const data = (arg2 || (arg1 && typeof arg1 === 'object' ? arg1 : {}));
+              const prototypeId = normalizeId(arg1, 'id') || data.id || data.prototypeId;
+              console.log('MCPBridge: Calling addNodePrototype', prototypeId, data);
+
+              const dataWithId = { ...data, id: prototypeId };
               state.addNodePrototype(dataWithId);
               try {
                 const protoName = String(dataWithId?.name || 'Concept');
@@ -542,24 +554,35 @@ const BridgeClient = () => {
               } catch { }
               return { success: true, prototypeId };
             },
-            addNodeInstance: async (graphId, prototypeId, position, instanceId) => {
-              console.log('MCPBridge: Calling addNodeInstance', graphId, prototypeId, position, instanceId);
+            addNodeInstance: async (arg1, arg2, arg3, arg4) => {
+              const graphId = normalizeId(arg1, 'graphId');
+              const prototypeId = normalizeId(arg2 || arg1, 'prototypeId');
+              const position = arg3 || (arg1 && typeof arg1 === 'object' ? arg1.position : undefined);
+              const instanceId = normalizeId(arg4 || arg1, 'instanceId');
+
+              console.log('MCPBridge: Calling addNodeInstance', { graphId, prototypeId, position, instanceId });
               state.addNodeInstance(graphId, prototypeId, position, instanceId);
               return { success: true, instanceId };
             },
-            removeNodeInstance: async (graphId, instanceId) => {
+            removeNodeInstance: async (arg1, arg2) => {
+              const graphId = normalizeId(arg1, 'graphId');
+              const instanceId = normalizeId(arg2 || arg1, 'instanceId');
+
               console.log('MCPBridge: Calling removeNodeInstance', graphId, instanceId);
               state.removeNodeInstance(graphId, instanceId);
               return { success: true, instanceId };
             },
-            updateNodePrototype: async (prototypeId, updates) => {
+            updateNodePrototype: async (arg1, arg2) => {
+              const prototypeId = normalizeId(arg1, 'id');
+              const updates = arg2 || (arg1 && typeof arg1 === 'object' ? arg1.updates || arg1 : {});
               console.log('MCPBridge: Calling updateNodePrototype', prototypeId, updates);
               state.updateNodePrototype(prototypeId, (prototype) => {
                 Object.assign(prototype, updates);
               });
               return { success: true, prototypeId };
             },
-            setActiveGraph: async (graphId) => {
+            setActiveGraph: async (rawId) => {
+              const graphId = normalizeId(rawId, 'graphId');
               console.log('MCPBridge: Calling setActiveGraph', graphId);
               state.setActiveGraph(graphId);
               try {
@@ -572,7 +595,8 @@ const BridgeClient = () => {
               } catch { }
               return { success: true, graphId };
             },
-            openGraph: async (graphId) => {
+            openGraph: async (rawId) => {
+              const graphId = normalizeId(rawId, 'graphId');
               console.log('MCPBridge: Calling openGraphTab', graphId);
               state.openGraphTab(graphId);
               try {
@@ -687,10 +711,12 @@ const BridgeClient = () => {
               state.openRightPanelNodeTab(nodeId);
               return { success: true, nodeId };
             },
-            addEdge: async (graphId, edgeData) => {
+            addEdge: async (arg1, arg2) => {
+              const graphId = normalizeId(arg1, 'graphId');
+              const edgeData = arg2 || (arg1 && typeof arg1 === 'object' ? arg1.edgeData : undefined);
               console.log('MCPBridge: Calling addEdge', graphId, edgeData);
               state.addEdge(graphId, edgeData);
-              return { success: true, edgeId: edgeData.id };
+              return { success: true, edgeId: edgeData?.id };
             },
             updateEdgeDirectionality: async (edgeId, arrowsToward) => {
               console.log('MCPBridge: Calling updateEdgeDirectionality', edgeId, arrowsToward);
@@ -721,7 +747,8 @@ const BridgeClient = () => {
               state.setNodeType(nodeId, typeNodeId);
               return { success: true };
             },
-            closeGraphTab: async (graphId) => {
+            closeGraphTab: async (rawId) => {
+              const graphId = normalizeId(rawId, 'graphId');
               console.log('MCPBridge: Calling closeGraphTab', graphId);
               state.closeGraphTab(graphId);
               return { success: true };
@@ -741,11 +768,16 @@ const BridgeClient = () => {
               const gId = result.graphId || st.activeGraphId;
               if (!gId) return { success: false, error: 'No active graph' };
 
+              const prototypeId = result.prototypeId || `proto-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+              const instanceId = result.instanceId || `inst-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+
               st.applyBulkGraphUpdates(gId, {
                 nodes: [{
                   name: result.name,
                   color: result.color || '#5B6CFF',
                   description: result.description || '',
+                  prototypeId,
+                  instanceId,
                   x: Math.random() * 600 + 200,
                   y: Math.random() * 500 + 200
                 }]
@@ -754,7 +786,7 @@ const BridgeClient = () => {
               if (!result.description || result.description.trim() === '') {
                 enrichNodeWithWikipedia(result.name, gId).catch(() => { });
               }
-              return { success: true, name: result.name };
+              return { success: true, name: result.name, prototypeId, instanceId, graphId: gId };
             },
 
             updateNode: async (result) => {
@@ -808,8 +840,13 @@ const BridgeClient = () => {
               console.log('MCPBridge: Calling Wizard createEdge', result.sourceName, '→', result.targetName);
               const st = useGraphStore.getState();
               const gId = result.graphId || st.activeGraphId;
-              if (!gId) return { success: false };
+              if (!gId) return { success: false, error: 'No active graph' };
 
+              // Check if source and target instances exist
+              const graph = st.graphs.get(gId);
+              if (!graph) return { success: false, error: 'Graph not found' };
+
+              // applyBulkGraphUpdates will attempt to resolve names to IDs
               st.applyBulkGraphUpdates(gId, {
                 nodes: [],
                 edges: [{
@@ -820,7 +857,10 @@ const BridgeClient = () => {
                   definitionNode: result.type ? { name: result.type, color: '#708090' } : null
                 }]
               });
-              return { success: true };
+
+              // Note: applyBulkGraphUpdates internally generates the edge ID if not provided, 
+              // but it doesn't return it easily here. For now success: true is a step forward.
+              return { success: true, graphId: gId, sourceName: result.sourceName, targetName: result.targetName, type: result.type };
             },
 
             createPopulatedGraph: async (result) => {
@@ -1825,7 +1865,7 @@ const BridgeClient = () => {
                   // Special handling: openGraph with missing graph should be deferred
                   if (pendingAction.action === 'openGraph') {
                     try {
-                      const gid = Array.isArray(pendingAction.params) ? pendingAction.params[0] : pendingAction.params;
+                      const gid = normalizeId(Array.isArray(pendingAction.params) ? pendingAction.params[0] : pendingAction.params, 'graphId');
                       const stBefore = useGraphStore.getState();
                       if (!stBefore.graphs.has(gid)) {
                         // Try ensureGraph based on bridge data
@@ -1858,13 +1898,15 @@ const BridgeClient = () => {
 
                   // For addNodeInstance, ensure the graph and prototype exist in the store first
                   if (pendingAction.action === 'addNodeInstance') {
-                    const [graphId, prototypeId, position, instanceId] = pendingAction.params;
-                    console.log('🔍 MCP Bridge: Checking if graph and prototype exist before adding instance...');
+                    const graphId = normalizeId(Array.isArray(pendingAction.params) ? pendingAction.params[0] : (pendingAction.params?.graphId), 'graphId');
+                    const prototypeId = normalizeId(Array.isArray(pendingAction.params) ? pendingAction.params[1] : (pendingAction.params?.prototypeId), 'prototypeId');
+
+                    console.log('🔍 MCP Bridge: Checking existence before action:', pendingAction.action, { graphId, prototypeId });
 
                     // Get current store state
                     const currentState = useGraphStore.getState();
-                    const graphExists = currentState.graphs.has(graphId);
-                    const prototypeExists = currentState.nodePrototypes.has(prototypeId);
+                    const graphExists = graphId ? currentState.graphs.has(graphId) : true;
+                    const prototypeExists = prototypeId ? currentState.nodePrototypes.has(prototypeId) : true;
 
                     console.log('🔍 MCP Bridge: Graph exists:', graphExists, 'Prototype exists:', prototypeExists);
 
@@ -1987,6 +2029,13 @@ const BridgeClient = () => {
                   // Acknowledge completion to bridge server if id exists
                   try {
                     if (pendingAction.id) {
+                      // CRITICAL: Force an immediate state sync BEFORE acknowledging completion
+                      // This ensures that when the MCP server follows up with a getRealRedstringState,
+                      // it receives the absolute latest data from the store.
+                      if (pendingAction.action !== 'chat' && pendingAction.action !== 'navigateTo') {
+                        await sendStoreToServer().catch(err => console.warn('⚠️ MCP Bridge: Immediate state sync failed:', err));
+                      }
+
                       await bridgeFetch('/api/bridge/action-completed', {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },

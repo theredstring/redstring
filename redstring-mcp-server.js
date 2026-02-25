@@ -234,11 +234,27 @@ You have access to these tools. Use them to perform actions.
           }
 
           const graph = state.graphs.get(targetGraphId);
-          // Mutation: send action to bridge
-          pendingActions.push({ action: 'openGraph', params: [{ graphId: targetGraphId }], timestamp: Date.now() });
+          // Use the prioritized bridge queue (3001)
+          const bridgePayload = {
+            action: 'openGraph',
+            params: [targetGraphId] // Send string ID directly
+          };
+
+          const enqueueResp = await fetch(`http://127.0.0.1:${BRIDGE_PORT}/api/bridge/pending-actions/enqueue`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ actions: [bridgePayload] })
+          });
+          const enqueueData = await enqueueResp.json();
+
+          if (enqueueData.ok && enqueueData.actionIds?.length > 0) {
+            await waitForActionCompletion(enqueueData.actionIds, 30000);
+            // Refresh state to ensure activeGraphId is updated in local MCP cache
+            await getRealRedstringState();
+          }
 
           return {
-            content: [{ type: "text", text: `✅ Opening and activating graph "${graph.name}".` }]
+            content: [{ type: "text", text: JSON.stringify({ success: true, graphId: targetGraphId, name: graph.name }) }]
           };
         } catch (error) {
           return {
@@ -332,8 +348,24 @@ You have access to these tools. Use them to perform actions.
     },
     async (params) => {
       return toolQueue.enqueue('navigate_to', async () => {
-        pendingActions.push({ action: 'navigateTo', params: [params], timestamp: Date.now() });
-        return { content: [{ type: "text", text: `✅ Navigating view...` }] };
+        // Use the prioritized bridge queue (3001)
+        const bridgePayload = {
+          action: 'navigateTo',
+          params: [params]
+        };
+
+        const enqueueResp = await fetch(`http://127.0.0.1:${BRIDGE_PORT}/api/bridge/pending-actions/enqueue`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ actions: [bridgePayload] })
+        });
+        const enqueueData = await enqueueResp.json();
+
+        if (enqueueData.ok && enqueueData.actionIds?.length > 0) {
+          await waitForActionCompletion(enqueueData.actionIds, 10000);
+        }
+
+        return { content: [{ type: "text", text: JSON.stringify({ success: true, navigated: true }) }] };
       });
     }
   );
@@ -348,11 +380,45 @@ You have access to these tools. Use them to perform actions.
     async ({ operations }) => {
       return toolQueue.enqueue('apply_mutations', async () => {
         try {
-          const actions = getRealRedstringActions();
-          await actions.applyMutations(operations);
-          return { content: [{ type: "text", text: `✅ Applied ${operations.length} mutations.` }] };
+          const cid = `mcp-${Date.now()}`;
+          console.error(`[Bridge] apply_mutations: Enqueuing ${operations.length} operations`);
+
+          // Use the prioritized bridge queue (3001)
+          const bridgePayload = {
+            action: 'applyMutations',
+            params: [operations]
+          };
+
+          const enqueueResp = await fetch(`http://127.0.0.1:${BRIDGE_PORT}/api/bridge/pending-actions/enqueue`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ actions: [bridgePayload] })
+          });
+          const enqueueData = await enqueueResp.json();
+
+          let result = { success: true, count: operations.length };
+
+          if (enqueueData.ok && enqueueData.actionIds?.length > 0) {
+            console.error(`[MCP] Waiting for batch mutations: ${enqueueData.actionIds.join(', ')}`);
+            const waitResult = await waitForActionCompletion(enqueueData.actionIds, 30000);
+
+            if (waitResult.timedOut) {
+              console.error(`[MCP] Warning: Batch mutations timed out`);
+            } else if (waitResult.completed) {
+              console.error(`[MCP] Batch mutations completed successfully`);
+              const bridgeResult = waitResult.results[enqueueData.actionIds[0]];
+              if (bridgeResult) {
+                result = { ...result, ...bridgeResult };
+              }
+              // Refresh the state immediately
+              await getRealRedstringState();
+            }
+          }
+
+          return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
         } catch (error) {
-          return { content: [{ type: "text", text: `Error: ${error.message}` }], isError: true };
+          console.error(`[MCP] apply_mutations error:`, error);
+          return { content: [{ type: "text", text: JSON.stringify({ error: error.message, status: 'failed' }) }], isError: true };
         }
       });
     }
@@ -370,9 +436,34 @@ You have access to these tools. Use them to perform actions.
     },
     async (args) => {
       return toolQueue.enqueue('abstraction_add', async () => {
-        const actions = getRealRedstringActions();
-        await actions.applyMutations([{ type: 'addToAbstractionChain', ...args }]);
-        return { content: [{ type: "text", text: `✅ Added to abstraction chain.` }] };
+        try {
+          // Use the prioritized bridge queue (3001)
+          const bridgePayload = {
+            action: 'applyMutations',
+            params: [[{ type: 'addToAbstractionChain', ...args }]]
+          };
+
+          const enqueueResp = await fetch(`http://127.0.0.1:${BRIDGE_PORT}/api/bridge/pending-actions/enqueue`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ actions: [bridgePayload] })
+          });
+          const enqueueData = await enqueueResp.json();
+
+          let result = { success: true };
+
+          if (enqueueData.ok && enqueueData.actionIds?.length > 0) {
+            const waitResult = await waitForActionCompletion(enqueueData.actionIds, 30000);
+            if (waitResult.completed) {
+              // Refresh state
+              await getRealRedstringState();
+            }
+          }
+
+          return { content: [{ type: "text", text: JSON.stringify(result) }] };
+        } catch (error) {
+          return { content: [{ type: "text", text: JSON.stringify({ error: error.message }) }], isError: true };
+        }
       });
     }
   );
@@ -383,6 +474,7 @@ async function waitForActionCompletion(actionIds, timeoutMs = 30000) {
   const startTime = Date.now();
   let delay = 250;
   const maxDelay = 2000;
+  const results = {};
 
   while (Date.now() - startTime < timeoutMs) {
     let allDone = true;
@@ -393,17 +485,19 @@ async function waitForActionCompletion(actionIds, timeoutMs = 30000) {
         if (data.status !== 'completed') {
           allDone = false;
           break;
+        } else {
+          results[actionId] = data.result;
         }
       } catch {
         allDone = false;
         break;
       }
     }
-    if (allDone) return { completed: true };
+    if (allDone) return { completed: true, results };
     await new Promise(r => setTimeout(r, delay));
     delay = Math.min(delay * 1.5, maxDelay);
   }
-  return { completed: false, timedOut: true };
+  return { completed: false, timedOut: true, results };
 }
 
 // Register all wizard tools as MCP tools
@@ -437,18 +531,18 @@ async function registerWizardTools() {
         async (args) => {
           return toolQueue.enqueue(name, async () => {
             try {
+              // Fetch fresh state before execution
               const state = await getRealRedstringState();
               const plainState = toPlainState(state);
               const cid = `mcp-${Date.now()}`;
 
               console.error(`[MCP] Executing Wizard tool: ${name} (Mapped to ${def.name})`, args);
-              const result = await executeTool(def.name, args, plainState, cid, () => { });
+              let result = await executeTool(def.name, args, plainState, cid, () => { });
 
               // If result contains an action, it's a mutation - enqueue it and wait for completion
               if (result && result.action) {
                 console.error(`[MCP] Enqueuing mutation from tool ${name}:`, result.action);
                 try {
-                  // Correct structure for wizard-server's enqueue endpoint
                   const bridgePayload = {
                     action: result.action,
                     params: [result] // Pass the whole result object as the single parameter
@@ -465,10 +559,19 @@ async function registerWizardTools() {
                   if (enqueueData.ok && enqueueData.actionIds?.length > 0) {
                     console.error(`[MCP] Waiting for action completion: ${enqueueData.actionIds.join(', ')}`);
                     const waitResult = await waitForActionCompletion(enqueueData.actionIds, 30000);
+
                     if (waitResult.timedOut) {
                       console.error(`[MCP] Warning: Action completion timed out for ${name}`);
-                    } else {
+                    } else if (waitResult.completed) {
                       console.error(`[MCP] Action completed successfully for ${name}`);
+                      // Capture the real result from the bridge (enriched with IDs)
+                      const bridgeResult = waitResult.results[enqueueData.actionIds[0]];
+                      if (bridgeResult) {
+                        result = { ...result, ...bridgeResult };
+                      }
+
+                      // CRITICAL: Refresh the state immediately after mutation
+                      await getRealRedstringState();
                     }
                   }
                 } catch (err) {
@@ -476,36 +579,14 @@ async function registerWizardTools() {
                 }
               }
 
-              // Format result for MCP — keep mutating responses compact, read responses full
-              let text = '';
-              if (typeof result === 'string') {
-                text = result;
-              } else if (result.error) {
-                text = `Error: ${result.error}`;
-              } else if (result.action) {
-                // Mutating tool — return concise summary to avoid stdio framing issues
-                const parts = [];
-                if (result.graphName) parts.push(`graph: "${result.graphName}"`);
-                if (result.graphId) parts.push(`graphId: ${result.graphId}`);
-                if (result.nodeCount) parts.push(`${result.nodeCount} node(s)`);
-                if (result.edgeCount) parts.push(`${result.edgeCount} edge(s)`);
-                if (result.groupCount) parts.push(`${result.groupCount} group(s)`);
-                if (result.name) parts.push(`"${result.name}"`);
-                text = parts.length > 0
-                  ? `${result.action} completed: ${parts.join(', ')}`
-                  : `${result.action} completed successfully`;
-              } else {
-                // Read-only tool — return full data (readGraph, searchNodes, etc.)
-                text = JSON.stringify(result);
-              }
-
+              // Return full JSON result for ALL tools to enable immediate chaining
               return {
-                content: [{ type: "text", text }]
+                content: [{ type: "text", text: JSON.stringify(result, null, 2) }]
               };
             } catch (error) {
               console.error(`[MCP] Wizard tool ${name} error:`, error);
               return {
-                content: [{ type: "text", text: `Error: ${error.message}` }],
+                content: [{ type: "text", text: JSON.stringify({ error: error.message, status: 'failed' }) }],
                 isError: true
               };
             }
@@ -2046,6 +2127,17 @@ app.post('/api/bridge/action-feedback', (req, res) => {
   } catch (err) {
     console.error('Bridge action feedback error:', err);
     res.status(500).json({ error: err.message });
+  }
+});
+
+// Action started endpoint
+app.post('/api/bridge/action-started', (req, res) => {
+  try {
+    const { actionId, action, params } = req.body;
+    console.error(`[Bridge] Action started: ${action} (${actionId})`);
+    res.json({ success: true });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
   }
 });
 
