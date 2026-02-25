@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Undo2 } from 'lucide-react';
+import { Undo2, Loader2, CheckCircle2, XCircle, Circle, ChevronDown } from 'lucide-react';
 import './ToolCallCard.css';
 
 const ToolCallCard = ({ toolCallId, toolName, status, args, result, error, timestamp, executionTime, isUndone, onUndo }) => {
@@ -19,10 +19,10 @@ const ToolCallCard = ({ toolCallId, toolName, status, args, result, error, times
 
     const getStatusIcon = () => {
         switch (status) {
-            case 'running': return '⏳';
-            case 'completed': return '✓';
-            case 'failed': return '✗';
-            default: return '○';
+            case 'running': return <Loader2 size={14} className="tool-icon-spin" />;
+            case 'completed': return <CheckCircle2 size={14} />;
+            case 'failed': return <XCircle size={14} />;
+            default: return <Circle size={14} />;
         }
     };
 
@@ -202,7 +202,7 @@ const ToolCallCard = ({ toolCallId, toolName, status, args, result, error, times
                             </div>
                         )}
 
-                        <span className={`expand-icon ${isExpanded ? 'expanded' : ''}`} style={{ marginLeft: (status === 'completed' && result && !error) ? '0' : 'auto' }}>▾</span>
+                        <span className={`expand-icon ${isExpanded ? 'expanded' : ''}`} style={{ marginLeft: (status === 'completed' && result && !error) ? '0' : 'auto' }}><ChevronDown size={12} /></span>
                     </div>
                     {getSummaryText() && (
                         <div className="tool-call-summary">{getSummaryText()}</div>

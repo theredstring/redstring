@@ -252,11 +252,11 @@ You have access to these tools. Use them to perform actions.
     async ({ includeMetadata = true }) => {
       try {
         const state = await getRealRedstringState();
-        if (!state || !state.graphs) return JSON.stringify({ error: "No state" });
+        if (!state || !state.graphs) return { content: [{ type: "text", text: "Error: No state available" }], isError: true };
         let targetGraphId = state.activeGraphId || (state.openGraphIds?.[0]);
-        if (!targetGraphId) return JSON.stringify({ error: "No active graph" });
+        if (!targetGraphId) return { content: [{ type: "text", text: "Error: No active graph" }], isError: true };
         const graph = state.graphs.get(targetGraphId);
-        if (!graph) return JSON.stringify({ error: "Graph not found" });
+        if (!graph) return { content: [{ type: "text", text: "Error: Graph not found" }], isError: true };
 
         const spatialMap = {
           canvasSize: { width: 1000, height: 600 },
@@ -266,7 +266,7 @@ You have access to these tools. Use them to perform actions.
             return { id: inst.id, name: proto?.name, x: inst.x, y: inst.y, color: proto?.color };
           })
         };
-        return { content: [{ type: "text", text: JSON.stringify(spatialMap, null, 2) }] };
+        return { content: [{ type: "text", text: JSON.stringify(spatialMap) }] };
       } catch (error) {
         return { content: [{ type: "text", text: `Error: ${error.message}` }], isError: true };
       }
@@ -325,6 +325,34 @@ You have access to these tools. Use them to perform actions.
   );
 }
 
+// Wait for the browser to finish executing enqueued actions
+async function waitForActionCompletion(actionIds, timeoutMs = 30000) {
+  const startTime = Date.now();
+  let delay = 250;
+  const maxDelay = 2000;
+
+  while (Date.now() - startTime < timeoutMs) {
+    let allDone = true;
+    for (const actionId of actionIds) {
+      try {
+        const resp = await fetch(`http://127.0.0.1:${BRIDGE_PORT}/api/bridge/action-status/${actionId}`);
+        const data = await resp.json();
+        if (data.status !== 'completed') {
+          allDone = false;
+          break;
+        }
+      } catch {
+        allDone = false;
+        break;
+      }
+    }
+    if (allDone) return { completed: true };
+    await new Promise(r => setTimeout(r, delay));
+    delay = Math.min(delay * 1.5, maxDelay);
+  }
+  return { completed: false, timedOut: true };
+}
+
 // Register all wizard tools as MCP tools
 async function registerWizardTools() {
   console.error('[MCP] Registering Wizard tools...');
@@ -362,7 +390,7 @@ async function registerWizardTools() {
             console.error(`[MCP] Executing Wizard tool: ${name} (Mapped to ${def.name})`, args);
             const result = await executeTool(def.name, args, plainState, cid, () => { });
 
-            // If result contains an action, it's a mutation - enqueue it
+            // If result contains an action, it's a mutation - enqueue it and wait for completion
             if (result && result.action) {
               console.error(`[MCP] Enqueuing mutation from tool ${name}:`, result.action);
               try {
@@ -372,17 +400,29 @@ async function registerWizardTools() {
                   params: [result] // Pass the whole result object as the single parameter
                 };
 
-                await fetch(`http://127.0.0.1:${BRIDGE_PORT}/api/bridge/pending-actions/enqueue`, {
+                const enqueueResp = await fetch(`http://127.0.0.1:${BRIDGE_PORT}/api/bridge/pending-actions/enqueue`, {
                   method: 'POST',
                   headers: { 'Content-Type': 'application/json' },
                   body: JSON.stringify({ actions: [bridgePayload] })
                 });
+                const enqueueData = await enqueueResp.json();
+
+                // Wait for the browser to actually execute the action
+                if (enqueueData.ok && enqueueData.actionIds?.length > 0) {
+                  console.error(`[MCP] Waiting for action completion: ${enqueueData.actionIds.join(', ')}`);
+                  const waitResult = await waitForActionCompletion(enqueueData.actionIds, 30000);
+                  if (waitResult.timedOut) {
+                    console.error(`[MCP] Warning: Action completion timed out for ${name}`);
+                  } else {
+                    console.error(`[MCP] Action completed successfully for ${name}`);
+                  }
+                }
               } catch (err) {
                 console.error(`[MCP] Failed to enqueue mutation: ${err.message}`);
               }
             }
 
-            // Format result for MCP
+            // Format result for MCP — keep response compact to avoid stdio framing issues
             let text = '';
             if (typeof result === 'string') {
               text = result;
@@ -390,8 +430,20 @@ async function registerWizardTools() {
               text = result.summary;
             } else if (result.error) {
               text = `Error: ${result.error}`;
+            } else if (result.action) {
+              // Mutating tool — return concise summary, not the full spec
+              const parts = [];
+              if (result.graphName) parts.push(`graph: "${result.graphName}"`);
+              if (result.graphId) parts.push(`graphId: ${result.graphId}`);
+              if (result.nodeCount) parts.push(`${result.nodeCount} node(s)`);
+              if (result.edgeCount) parts.push(`${result.edgeCount} edge(s)`);
+              if (result.groupCount) parts.push(`${result.groupCount} group(s)`);
+              if (result.name) parts.push(`"${result.name}"`);
+              text = parts.length > 0
+                ? `${result.action} completed: ${parts.join(', ')}`
+                : `${result.action} completed successfully`;
             } else {
-              text = JSON.stringify(result, null, 2);
+              text = JSON.stringify(result);
             }
 
             return {

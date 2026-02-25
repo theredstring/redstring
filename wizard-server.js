@@ -315,6 +315,7 @@ function broadcastEvent(event) {
 let pendingActions = [];
 const inflightActionIds = new Set();
 const inflightMeta = new Map(); // id -> { ts, action, params }
+const completedActions = new Map(); // id -> { result, completedAt }
 let telemetry = [];
 let chatLog = [];
 
@@ -364,11 +365,14 @@ app.post('/api/bridge/pending-actions/enqueue', (req, res) => {
       expanded.push(a);
     }
     const id = (suffix) => `pa-${Date.now()}-${Math.random().toString(36).slice(2, 8)}-${suffix}`;
+    const generatedIds = [];
     for (const a of expanded) {
-      pendingActions.push({ id: id(a.action || 'act'), action: a.action, params: a.params, timestamp: Date.now() });
+      const actionId = id(a.action || 'act');
+      generatedIds.push(actionId);
+      pendingActions.push({ id: actionId, action: a.action, params: a.params, timestamp: Date.now() });
       telemetry.push({ ts: Date.now(), type: 'tool_call', name: a.action, args: a.params, status: 'queued' });
     }
-    res.json({ ok: true, enqueued: actions.length });
+    res.json({ ok: true, enqueued: actions.length, actionIds: generatedIds });
   } catch (err) {
     console.error('[Wizard] Enqueue error:', err);
     res.status(500).json({ error: String(err?.message || err) });
@@ -378,7 +382,7 @@ app.post('/api/bridge/pending-actions/enqueue', (req, res) => {
 // POST action completed - UI calls this when an action is done
 app.post('/api/bridge/action-completed', (req, res) => {
   try {
-    const { actionId } = req.body || {};
+    const { actionId, result } = req.body || {};
     if (actionId) {
       pendingActions = pendingActions.filter(a => a.id !== actionId);
       inflightActionIds.delete(actionId);
@@ -387,12 +391,30 @@ app.post('/api/bridge/action-completed', (req, res) => {
         telemetry.push({ ts: Date.now(), type: 'tool_call', name: meta.action, args: meta.params, status: 'completed', id: actionId });
         inflightMeta.delete(actionId);
       }
+      // Store completion for MCP server polling
+      completedActions.set(actionId, { result, completedAt: Date.now() });
+      setTimeout(() => completedActions.delete(actionId), 300000); // 5 min TTL
     }
     res.json({ success: true });
   } catch (err) {
     console.error('[Wizard] Action completed error:', err);
     res.status(500).json({ error: String(err?.message || err) });
   }
+});
+
+// GET action status - MCP server polls this to wait for completion
+app.get('/api/bridge/action-status/:actionId', (req, res) => {
+  const { actionId } = req.params;
+  if (completedActions.has(actionId)) {
+    return res.json({ status: 'completed', ...completedActions.get(actionId) });
+  }
+  if (inflightActionIds.has(actionId)) {
+    return res.json({ status: 'running' });
+  }
+  if (pendingActions.some(a => a.id === actionId)) {
+    return res.json({ status: 'pending' });
+  }
+  res.json({ status: 'unknown' });
 });
 
 // POST action feedback - for warnings and errors

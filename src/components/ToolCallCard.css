@@ -27,8 +27,16 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  font-size: 12px;
   margin-top: 2px;
+  color: rgba(38, 0, 0, 0.5);
+}
+
+.status-completed .tool-icon {
+  color: rgba(76, 175, 80, 0.8);
+}
+
+.status-failed .tool-icon {
+  color: rgba(244, 67, 54, 0.8);
 }
 
 .tool-header-content {
@@ -62,11 +70,12 @@
 }
 
 .expand-icon {
-  font-size: 10px;
   color: rgba(38, 0, 0, 0.6);
   transition: transform 0.2s ease;
   margin-left: auto;
   flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
 }
 
 .expand-icon.expanded {
@@ -97,6 +106,15 @@
     opacity: 1;
     max-height: 500px;
   }
+}
+
+@keyframes tool-icon-spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+.tool-icon-spin {
+  animation: tool-icon-spin 1s linear infinite;
 }
 
 .detail-section {
