@@ -21,6 +21,40 @@ import { getToolDefinitions, executeTool } from './src/wizard/tools/index.js';
 // Load environment variables (debug off to avoid noisy logs)
 dotenv.config({ quiet: true });
 
+/**
+ * Simple promise-based queue to serialize tool execution
+ */
+class ToolQueue {
+  constructor() {
+    this.queue = Promise.resolve();
+    this.lastToolCall = null;
+    this.callCount = 0;
+  }
+
+  async enqueue(name, task) {
+    const sequence = ++this.callCount;
+    const prev = this.queue;
+
+    this.queue = (async () => {
+      await prev;
+      console.error(`[Queue] #${sequence} Starting: ${name}`);
+      const startTime = Date.now();
+      try {
+        const result = await task();
+        console.error(`[Queue] #${sequence} Finished: ${name} (${Date.now() - startTime}ms)`);
+        return result;
+      } catch (err) {
+        console.error(`[Queue] #${sequence} Failed: ${name} - ${err.message}`);
+        throw err;
+      }
+    })();
+
+    return this.queue;
+  }
+}
+
+const toolQueue = new ToolQueue();
+
 // Create MCP server instance
 const server = new McpServer({
   name: "redstring",
@@ -107,12 +141,13 @@ async function registerInternalTools() {
       authHeader: z.string().optional().describe("Authorization header (internal use)")
     },
     async ({ message, context = {}, conversationHistory = [], authHeader }) => {
-      try {
-        const state = await getRealRedstringState();
-        const activeGraph = state.activeGraphId ? state.graphs.get(state.activeGraphId) : null;
-        const graphInfo = activeGraph ? `${activeGraph.name} (${activeGraph.instances?.size || 0} instances)` : 'No active graph';
+      return toolQueue.enqueue('chat', async () => {
+        try {
+          const state = await getRealRedstringState();
+          const activeGraph = state.activeGraphId ? state.graphs.get(state.activeGraphId) : null;
+          const graphInfo = activeGraph ? `${activeGraph.name} (${activeGraph.instances?.size || 0} instances)` : 'No active graph';
 
-        const systemPrompt = `You are an AI assistant helping with a Redstring knowledge graph system. 
+          const systemPrompt = `You are an AI assistant helping with a Redstring knowledge graph system. 
 
 Current Context:
 - Active Graph: ${graphInfo}
@@ -123,36 +158,37 @@ Current Context:
 You have access to these tools. Use them to perform actions.
 `;
 
-        const headers = { 'Content-Type': 'application/json' };
-        if (authHeader) headers['Authorization'] = authHeader;
+          const headers = { 'Content-Type': 'application/json' };
+          if (authHeader) headers['Authorization'] = authHeader;
 
-        const response = await fetch(`http://localhost:${BRIDGE_PORT}/api/ai/chat`, {
-          method: 'POST',
-          headers,
-          body: JSON.stringify({
-            message,
-            systemPrompt,
-            context,
-            model: context.preferredModel,
-            conversationHistory
-          })
-        });
+          const response = await fetch(`http://localhost:${BRIDGE_PORT}/api/ai/chat`, {
+            method: 'POST',
+            headers,
+            body: JSON.stringify({
+              message,
+              systemPrompt,
+              context,
+              model: context.preferredModel,
+              conversationHistory
+            })
+          });
 
-        if (!response.ok) {
-          const errorText = await response.text();
-          throw new Error(`AI API call failed: ${response.status} ${errorText}`);
+          if (!response.ok) {
+            const errorText = await response.text();
+            throw new Error(`AI API call failed: ${response.status} ${errorText}`);
+          }
+
+          const data = await response.json();
+          return {
+            content: [{ type: "text", text: data.response || data.text || '' }]
+          };
+        } catch (error) {
+          return {
+            content: [{ type: "text", text: `Error: ${error.message}` }],
+            isError: true
+          };
         }
-
-        const data = await response.json();
-        return {
-          content: [{ type: "text", text: data.response || data.text || '' }]
-        };
-      } catch (error) {
-        return {
-          content: [{ type: "text", text: `Error: ${error.message}` }],
-          isError: true
-        };
-      }
+      });
     }
   );
 
@@ -166,46 +202,51 @@ You have access to these tools. Use them to perform actions.
       autoExpand: z.boolean().optional().default(true)
     },
     async ({ graphId }) => {
-      try {
-        const state = await getRealRedstringState();
-        let targetGraphId = graphId;
+      return toolQueue.enqueue('open_graph', async () => {
+        try {
+          const state = await getRealRedstringState();
+          let targetGraphId = graphId;
 
-        if (!state.graphs.has(graphId)) {
-          const lowercaseQuery = graphId.toLowerCase();
-          const graphs = Array.from(state.graphs.values());
+          if (!state.graphs.has(graphId)) {
+            const lowercaseQuery = graphId.toLowerCase();
+            const graphs = Array.from(state.graphs.values());
 
-          const exactMatch = graphs.find(g => g.name.toLowerCase() === lowercaseQuery);
-          if (exactMatch) {
-            targetGraphId = exactMatch.id;
-          } else {
-            const partialMatches = graphs.filter(g =>
-              g.name.toLowerCase().includes(lowercaseQuery) || lowercaseQuery.includes(g.name.toLowerCase())
-            );
-
-            if (partialMatches.length === 1) {
-              targetGraphId = partialMatches[0].id;
-            } else if (partialMatches.length > 1) {
-              return {
-                content: [{ type: "text", text: `Multiple graphs found for "${graphId}": ${partialMatches.map(g => `"${g.name}"`).join(', ')}. Please be more specific.` }]
-              };
+            const exactMatch = graphs.find(g => g.name.toLowerCase() === lowercaseQuery);
+            if (exactMatch) {
+              targetGraphId = exactMatch.id;
             } else {
-              return {
-                content: [{ type: "text", text: `Graph "${graphId}" not found.` }]
-              };
+              const partialMatches = graphs.filter(g =>
+                g.name.toLowerCase().includes(lowercaseQuery) || lowercaseQuery.includes(g.name.toLowerCase())
+              );
+
+              if (partialMatches.length === 1) {
+                targetGraphId = partialMatches[0].id;
+              } else if (partialMatches.length > 1) {
+                return {
+                  content: [{ type: "text", text: `Multiple graphs found for "${graphId}": ${partialMatches.map(g => `"${g.name}"`).join(', ')}. Please be more specific.` }]
+                };
+              } else {
+                return {
+                  content: [{ type: "text", text: `Graph "${graphId}" not found.` }]
+                };
+              }
             }
           }
-        }
 
-        const graph = state.graphs.get(targetGraphId);
-        return {
-          content: [{ type: "text", text: `✅ Opening and activating graph "${graph.name}".` }]
-        };
-      } catch (error) {
-        return {
-          content: [{ type: "text", text: `Error: ${error.message}` }],
-          isError: true
-        };
-      }
+          const graph = state.graphs.get(targetGraphId);
+          // Mutation: send action to bridge
+          pendingActions.push({ action: 'openGraph', params: [{ graphId: targetGraphId }], timestamp: Date.now() });
+
+          return {
+            content: [{ type: "text", text: `✅ Opening and activating graph "${graph.name}".` }]
+          };
+        } catch (error) {
+          return {
+            content: [{ type: "text", text: `Error: ${error.message}` }],
+            isError: true
+          };
+        }
+      });
     }
   );
 
@@ -215,14 +256,16 @@ You have access to these tools. Use them to perform actions.
     "List all available graph workspaces",
     {},
     async () => {
-      try {
-        const state = await getRealRedstringState();
-        const graphs = Array.from(state.graphs.values());
-        const response = `**Available Graphs:**\n${graphs.map(g => `- ${g.name} (${g.id})`).join('\n')}`;
-        return { content: [{ type: "text", text: response }] };
-      } catch (error) {
-        return { content: [{ type: "text", text: `Error listing graphs: ${error.message}` }], isError: true };
-      }
+      return toolQueue.enqueue('list_available_graphs', async () => {
+        try {
+          const state = await getRealRedstringState();
+          const graphs = Array.from(state.graphs.values());
+          const response = `**Available Graphs:**\n${graphs.map(g => `- ${g.name} (${g.id})`).join('\n')}`;
+          return { content: [{ type: "text", text: response }] };
+        } catch (error) {
+          return { content: [{ type: "text", text: `Error listing graphs: ${error.message}` }], isError: true };
+        }
+      });
     }
   );
 
@@ -232,13 +275,15 @@ You have access to these tools. Use them to perform actions.
     "Verify the current state of the Redstring store and provide explicit debugging information",
     {},
     async () => {
-      try {
-        const state = await getRealRedstringState();
-        const response = `**Redstring Store State Verification**\n\n**Store Statistics:**\n- **Total Graphs:** ${state.graphs.size}\n- **Total Prototypes:** ${state.nodePrototypes.size}\n- **Total Edges:** ${state.edges.size}\n- **Open Graphs:** ${state.openGraphIds.length}\n- **Active Graph:** ${state.activeGraphId || 'None'}`;
-        return { content: [{ type: "text", text: response }] };
-      } catch (error) {
-        return { content: [{ type: "text", text: `Error verifying Redstring store state: ${error.message}` }], isError: true };
-      }
+      return toolQueue.enqueue('verify_state', async () => {
+        try {
+          const state = await getRealRedstringState();
+          const response = `**Redstring Store State Verification**\n\n**Store Statistics:**\n- **Total Graphs:** ${state.graphs.size}\n- **Total Prototypes:** ${state.nodePrototypes.size}\n- **Total Edges:** ${state.edges.size}\n- **Open Graphs:** ${state.openGraphIds.length}\n- **Active Graph:** ${state.activeGraphId || 'None'}`;
+          return { content: [{ type: "text", text: response }] };
+        } catch (error) {
+          return { content: [{ type: "text", text: `Error verifying Redstring store state: ${error.message}` }], isError: true };
+        }
+      });
     }
   );
 
@@ -250,26 +295,28 @@ You have access to these tools. Use them to perform actions.
       includeMetadata: z.boolean().optional().describe("Include detailed clustering and layout analysis")
     },
     async ({ includeMetadata = true }) => {
-      try {
-        const state = await getRealRedstringState();
-        if (!state || !state.graphs) return { content: [{ type: "text", text: "Error: No state available" }], isError: true };
-        let targetGraphId = state.activeGraphId || (state.openGraphIds?.[0]);
-        if (!targetGraphId) return { content: [{ type: "text", text: "Error: No active graph" }], isError: true };
-        const graph = state.graphs.get(targetGraphId);
-        if (!graph) return { content: [{ type: "text", text: "Error: Graph not found" }], isError: true };
+      return toolQueue.enqueue('get_spatial_map', async () => {
+        try {
+          const state = await getRealRedstringState();
+          if (!state || !state.graphs) return { content: [{ type: "text", text: "Error: No state available" }], isError: true };
+          let targetGraphId = state.activeGraphId || (state.openGraphIds?.[0]);
+          if (!targetGraphId) return { content: [{ type: "text", text: "Error: No active graph" }], isError: true };
+          const graph = state.graphs.get(targetGraphId);
+          if (!graph) return { content: [{ type: "text", text: "Error: Graph not found" }], isError: true };
 
-        const spatialMap = {
-          canvasSize: { width: 1000, height: 600 },
-          activeGraph: graph.name,
-          nodes: Array.from(graph.instances?.values() || []).map(inst => {
-            const proto = state.nodePrototypes.get(inst.prototypeId);
-            return { id: inst.id, name: proto?.name, x: inst.x, y: inst.y, color: proto?.color };
-          })
-        };
-        return { content: [{ type: "text", text: JSON.stringify(spatialMap) }] };
-      } catch (error) {
-        return { content: [{ type: "text", text: `Error: ${error.message}` }], isError: true };
-      }
+          const spatialMap = {
+            canvasSize: { width: 1000, height: 600 },
+            activeGraph: graph.name,
+            nodes: Array.from(graph.instances?.values() || []).map(inst => {
+              const proto = state.nodePrototypes.get(inst.prototypeId);
+              return { id: inst.id, name: proto?.name, x: inst.x, y: inst.y, color: proto?.color };
+            })
+          };
+          return { content: [{ type: "text", text: JSON.stringify(spatialMap) }] };
+        } catch (error) {
+          return { content: [{ type: "text", text: `Error: ${error.message}` }], isError: true };
+        }
+      });
     }
   );
 
@@ -284,8 +331,10 @@ You have access to these tools. Use them to perform actions.
       zoom: z.number().optional()
     },
     async (params) => {
-      pendingActions.push({ action: 'navigateTo', params: [params], timestamp: Date.now() });
-      return { content: [{ type: "text", text: `✅ Navigating view...` }] };
+      return toolQueue.enqueue('navigate_to', async () => {
+        pendingActions.push({ action: 'navigateTo', params: [params], timestamp: Date.now() });
+        return { content: [{ type: "text", text: `✅ Navigating view...` }] };
+      });
     }
   );
 
@@ -297,13 +346,15 @@ You have access to these tools. Use them to perform actions.
       operations: z.array(z.object({}).passthrough()).describe("Array of operations to apply")
     },
     async ({ operations }) => {
-      try {
-        const actions = getRealRedstringActions();
-        await actions.applyMutations(operations);
-        return { content: [{ type: "text", text: `✅ Applied ${operations.length} mutations.` }] };
-      } catch (error) {
-        return { content: [{ type: "text", text: `Error: ${error.message}` }], isError: true };
-      }
+      return toolQueue.enqueue('apply_mutations', async () => {
+        try {
+          const actions = getRealRedstringActions();
+          await actions.applyMutations(operations);
+          return { content: [{ type: "text", text: `✅ Applied ${operations.length} mutations.` }] };
+        } catch (error) {
+          return { content: [{ type: "text", text: `Error: ${error.message}` }], isError: true };
+        }
+      });
     }
   );
 
@@ -318,9 +369,11 @@ You have access to these tools. Use them to perform actions.
       newNodeId: z.string()
     },
     async (args) => {
-      const actions = getRealRedstringActions();
-      await actions.applyMutations([{ type: 'addToAbstractionChain', ...args }]);
-      return { content: [{ type: "text", text: `✅ Added to abstraction chain.` }] };
+      return toolQueue.enqueue('abstraction_add', async () => {
+        const actions = getRealRedstringActions();
+        await actions.applyMutations([{ type: 'addToAbstractionChain', ...args }]);
+        return { content: [{ type: "text", text: `✅ Added to abstraction chain.` }] };
+      });
     }
   );
 }
@@ -382,79 +435,81 @@ async function registerWizardTools() {
         def.description,
         shape,
         async (args) => {
-          try {
-            const state = await getRealRedstringState();
-            const plainState = toPlainState(state);
-            const cid = `mcp-${Date.now()}`;
+          return toolQueue.enqueue(name, async () => {
+            try {
+              const state = await getRealRedstringState();
+              const plainState = toPlainState(state);
+              const cid = `mcp-${Date.now()}`;
 
-            console.error(`[MCP] Executing Wizard tool: ${name} (Mapped to ${def.name})`, args);
-            const result = await executeTool(def.name, args, plainState, cid, () => { });
+              console.error(`[MCP] Executing Wizard tool: ${name} (Mapped to ${def.name})`, args);
+              const result = await executeTool(def.name, args, plainState, cid, () => { });
 
-            // If result contains an action, it's a mutation - enqueue it and wait for completion
-            if (result && result.action) {
-              console.error(`[MCP] Enqueuing mutation from tool ${name}:`, result.action);
-              try {
-                // Correct structure for wizard-server's enqueue endpoint
-                const bridgePayload = {
-                  action: result.action,
-                  params: [result] // Pass the whole result object as the single parameter
-                };
+              // If result contains an action, it's a mutation - enqueue it and wait for completion
+              if (result && result.action) {
+                console.error(`[MCP] Enqueuing mutation from tool ${name}:`, result.action);
+                try {
+                  // Correct structure for wizard-server's enqueue endpoint
+                  const bridgePayload = {
+                    action: result.action,
+                    params: [result] // Pass the whole result object as the single parameter
+                  };
 
-                const enqueueResp = await fetch(`http://127.0.0.1:${BRIDGE_PORT}/api/bridge/pending-actions/enqueue`, {
-                  method: 'POST',
-                  headers: { 'Content-Type': 'application/json' },
-                  body: JSON.stringify({ actions: [bridgePayload] })
-                });
-                const enqueueData = await enqueueResp.json();
+                  const enqueueResp = await fetch(`http://127.0.0.1:${BRIDGE_PORT}/api/bridge/pending-actions/enqueue`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ actions: [bridgePayload] })
+                  });
+                  const enqueueData = await enqueueResp.json();
 
-                // Wait for the browser to actually execute the action
-                if (enqueueData.ok && enqueueData.actionIds?.length > 0) {
-                  console.error(`[MCP] Waiting for action completion: ${enqueueData.actionIds.join(', ')}`);
-                  const waitResult = await waitForActionCompletion(enqueueData.actionIds, 30000);
-                  if (waitResult.timedOut) {
-                    console.error(`[MCP] Warning: Action completion timed out for ${name}`);
-                  } else {
-                    console.error(`[MCP] Action completed successfully for ${name}`);
+                  // Wait for the browser to actually execute the action
+                  if (enqueueData.ok && enqueueData.actionIds?.length > 0) {
+                    console.error(`[MCP] Waiting for action completion: ${enqueueData.actionIds.join(', ')}`);
+                    const waitResult = await waitForActionCompletion(enqueueData.actionIds, 30000);
+                    if (waitResult.timedOut) {
+                      console.error(`[MCP] Warning: Action completion timed out for ${name}`);
+                    } else {
+                      console.error(`[MCP] Action completed successfully for ${name}`);
+                    }
                   }
+                } catch (err) {
+                  console.error(`[MCP] Failed to enqueue mutation: ${err.message}`);
                 }
-              } catch (err) {
-                console.error(`[MCP] Failed to enqueue mutation: ${err.message}`);
               }
-            }
 
-            // Format result for MCP — keep mutating responses compact, read responses full
-            let text = '';
-            if (typeof result === 'string') {
-              text = result;
-            } else if (result.error) {
-              text = `Error: ${result.error}`;
-            } else if (result.action) {
-              // Mutating tool — return concise summary to avoid stdio framing issues
-              const parts = [];
-              if (result.graphName) parts.push(`graph: "${result.graphName}"`);
-              if (result.graphId) parts.push(`graphId: ${result.graphId}`);
-              if (result.nodeCount) parts.push(`${result.nodeCount} node(s)`);
-              if (result.edgeCount) parts.push(`${result.edgeCount} edge(s)`);
-              if (result.groupCount) parts.push(`${result.groupCount} group(s)`);
-              if (result.name) parts.push(`"${result.name}"`);
-              text = parts.length > 0
-                ? `${result.action} completed: ${parts.join(', ')}`
-                : `${result.action} completed successfully`;
-            } else {
-              // Read-only tool — return full data (readGraph, searchNodes, etc.)
-              text = JSON.stringify(result);
-            }
+              // Format result for MCP — keep mutating responses compact, read responses full
+              let text = '';
+              if (typeof result === 'string') {
+                text = result;
+              } else if (result.error) {
+                text = `Error: ${result.error}`;
+              } else if (result.action) {
+                // Mutating tool — return concise summary to avoid stdio framing issues
+                const parts = [];
+                if (result.graphName) parts.push(`graph: "${result.graphName}"`);
+                if (result.graphId) parts.push(`graphId: ${result.graphId}`);
+                if (result.nodeCount) parts.push(`${result.nodeCount} node(s)`);
+                if (result.edgeCount) parts.push(`${result.edgeCount} edge(s)`);
+                if (result.groupCount) parts.push(`${result.groupCount} group(s)`);
+                if (result.name) parts.push(`"${result.name}"`);
+                text = parts.length > 0
+                  ? `${result.action} completed: ${parts.join(', ')}`
+                  : `${result.action} completed successfully`;
+              } else {
+                // Read-only tool — return full data (readGraph, searchNodes, etc.)
+                text = JSON.stringify(result);
+              }
 
-            return {
-              content: [{ type: "text", text }]
-            };
-          } catch (error) {
-            console.error(`[MCP] Wizard tool ${name} error:`, error);
-            return {
-              content: [{ type: "text", text: `Error: ${error.message}` }],
-              isError: true
-            };
-          }
+              return {
+                content: [{ type: "text", text }]
+              };
+            } catch (error) {
+              console.error(`[MCP] Wizard tool ${name} error:`, error);
+              return {
+                content: [{ type: "text", text: `Error: ${error.message}` }],
+                isError: true
+              };
+            }
+          });
         }
       );
     };
