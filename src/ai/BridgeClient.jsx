@@ -1575,6 +1575,10 @@ const BridgeClient = () => {
             instanceCount: graph.instances?.size || 0,
             // CRITICAL: Include edgeIds for semantic graph queries
             edgeIds: Array.isArray(graph.edgeIds) ? graph.edgeIds : [],
+            // CRITICAL: Include groups for MCP tool queries
+            groups: graph.groups instanceof Map
+              ? Array.from(graph.groups.values())
+              : Array.isArray(graph.groups) ? graph.groups : [],
             // Include instance data for spatial reasoning (only for active graph to keep payload small)
             instances: id === state.activeGraphId && graph.instances ?
               Object.fromEntries(Array.from(graph.instances.entries()).map(([instanceId, instance]) => [

@@ -64,7 +64,7 @@ export async function convertToThingGroup(args, graphState, cid, ensureScheduler
 
   const newPrototypeName = thingName || groupData?.name || groupName || 'Thing Group';
 
-  console.log('[convertToThingGroup] Converting group:', groupName || groupId, '| resolved:', resolvedGroupId || 'will resolve on client', '| thingName:', newPrototypeName);
+  console.error('[convertToThingGroup] Converting group:', groupName || groupId, '| resolved:', resolvedGroupId || 'will resolve on client', '| thingName:', newPrototypeName);
 
   return {
     action: 'convertToThingGroup',

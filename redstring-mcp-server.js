@@ -1287,28 +1287,22 @@ async function getRealRedstringState(retryCount = 0) {
       graphs: new Map((data.graphs || []).map(graph => {
         const instancesMap = graph.instances ? new Map(Object.entries(graph.instances)) : new Map();
 
-        // Debug instances conversion for active graph
-        if (graph.id === data.activeGraphId) {
-          console.error(`🔍 Converting instances for active graph ${graph.id}:`, {
-            hasInstances: !!graph.instances,
-            instancesType: typeof graph.instances,
-            instancesKeys: graph.instances ? Object.keys(graph.instances) : 'none',
-            convertedMapSize: instancesMap.size
-          });
-        }
+        // Deserialize groups if present (sent as array, convert to array for tool compatibility)
+        const groups = Array.isArray(graph.groups) ? graph.groups : [];
 
         return [graph.id, {
           ...graph,
-          instances: instancesMap
+          instances: instancesMap,
+          groups
         }];
       })),
       nodePrototypes: new Map((data.nodePrototypes || []).map(prototype => [prototype.id, prototype])),
-      edges: new Map(), // We don't have edge data in the minimal format
+      edges: new Map((data.graphEdges || []).map(edge => [edge.id, edge])),
       activeGraphId: data.activeGraphId,
       openGraphIds: data.openGraphIds || [],
-      expandedGraphIds: new Set(), // Not included in minimal format
-      savedNodeIds: new Set(), // Not included in minimal format
-      savedGraphIds: new Set(), // Not included in minimal format
+      expandedGraphIds: new Set(),
+      savedNodeIds: new Set(),
+      savedGraphIds: new Set(),
       summary: data.summary
     };
 

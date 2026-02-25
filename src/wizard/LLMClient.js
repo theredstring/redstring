@@ -136,7 +136,7 @@ async function* streamOpenRouter(messages, tools, { endpoint, model, apiKey, tem
                 const index = toolCall.index ?? 0;
                 if (!currentToolCall || currentToolCall.index !== index) {
                   if (currentToolCall) {
-                    console.log('[LLMClient:OpenRouter] Yielding tool_call (transition):', currentToolCall.function?.name);
+                    console.error('[LLMClient:OpenRouter] Yielding tool_call (transition):', currentToolCall.function?.name);
 
                     let parsedArgs = {};
                     try {
@@ -169,13 +169,13 @@ async function* streamOpenRouter(messages, tools, { endpoint, model, apiKey, tem
 
             // Text content
             if (delta?.content) {
-              console.log('[LLMClient:OpenRouter] Text delta:', JSON.stringify(delta.content));
+              console.error('[LLMClient:OpenRouter] Text delta:', JSON.stringify(delta.content));
               yield { type: 'text', content: delta.content };
             }
 
             // Finish tool call if done
             if (choice.finish_reason === 'tool_calls' && currentToolCall) {
-              console.log('[LLMClient:OpenRouter] Yielding tool_call (finish):', currentToolCall.function?.name);
+              console.error('[LLMClient:OpenRouter] Yielding tool_call (finish):', currentToolCall.function?.name);
 
               let parsedArgs = {};
               try {
@@ -203,7 +203,7 @@ async function* streamOpenRouter(messages, tools, { endpoint, model, apiKey, tem
 
     // Flush remaining tool call
     if (currentToolCall) {
-      console.log('[LLMClient:OpenRouter] Yielding tool_call (flush):', currentToolCall.function?.name);
+      console.error('[LLMClient:OpenRouter] Yielding tool_call (flush):', currentToolCall.function?.name);
       // #region agent log
       debugLogSync('LLMClient.js:streamOpenRouter:TOOL_CALL_FLUSH', 'Flushing tool call', { name: currentToolCall.function?.name, hasArgs: !!currentToolCall.function?.arguments }, 'debug-session', 'H');
       // #endregion

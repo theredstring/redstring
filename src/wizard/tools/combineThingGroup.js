@@ -56,7 +56,7 @@ export async function combineThingGroup(args, graphState, cid, ensureSchedulerSt
     throw new Error('Either groupId or groupName is required.');
   }
 
-  console.log('[combineThingGroup] Combining group:', groupName || groupId, '| resolved:', resolvedGroupId || 'will resolve on client');
+  console.error('[combineThingGroup] Combining group:', groupName || groupId, '| resolved:', resolvedGroupId || 'will resolve on client');
 
   return {
     action: 'combineThingGroup',

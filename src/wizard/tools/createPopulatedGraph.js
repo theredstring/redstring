@@ -15,12 +15,12 @@ import queueManager from '../../services/queue/Queue.js';
 export async function createPopulatedGraph(args, graphState, cid, ensureSchedulerStarted) {
   const { name, description = '', nodes = [], edges = [], groups = [] } = args;
 
-  console.log('[createPopulatedGraph] Called with:');
-  console.log('[createPopulatedGraph] - name:', name);
-  console.log('[createPopulatedGraph] - nodes:', nodes.length, 'items');
-  console.log('[createPopulatedGraph] - edges:', edges.length, 'items');
-  console.log('[createPopulatedGraph] - groups:', groups.length, 'items');
-  console.log('[createPopulatedGraph] - edges detail:', JSON.stringify(edges, null, 2));
+  console.error('[createPopulatedGraph] Called with:');
+  console.error('[createPopulatedGraph] - name:', name);
+  console.error('[createPopulatedGraph] - nodes:', nodes.length, 'items');
+  console.error('[createPopulatedGraph] - edges:', edges.length, 'items');
+  console.error('[createPopulatedGraph] - groups:', groups.length, 'items');
+  console.error('[createPopulatedGraph] - edges detail:', JSON.stringify(edges));
 
   if (!name) {
     throw new Error('Graph name is required');

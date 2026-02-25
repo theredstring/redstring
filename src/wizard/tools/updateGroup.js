@@ -60,7 +60,7 @@ export async function updateGroup(args, graphState, cid, ensureSchedulerStarted)
   if (addMembers.length > 0) updates.addMembers = addMembers;
   if (removeMembers.length > 0) updates.removeMembers = removeMembers;
 
-  console.log('[updateGroup] Updating group:', groupName || groupId, '| resolved:', resolvedGroupId || 'will resolve on client', '| updates:', Object.keys(updates));
+  console.error('[updateGroup] Updating group:', groupName || groupId, '| resolved:', resolvedGroupId || 'will resolve on client', '| updates:', Object.keys(updates));
 
   return {
     action: 'updateGroup',

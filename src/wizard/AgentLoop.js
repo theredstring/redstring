@@ -34,7 +34,7 @@ function updateGraphState(graphState, _toolName, _args, result) {
       edgeIds: [],
       groups: []
     });
-    console.log('[updateGraphState] createGraph: activeGraphId =', result.graphId);
+    console.error('[updateGraphState] createGraph: activeGraphId =', result.graphId);
   } else if (result.action === 'createNode') {
     // Add the new node to the active graph's instances so name-based lookups work
     const activeGraph = (graphState.graphs || []).find(g => g.id === graphState.activeGraphId);
@@ -54,7 +54,7 @@ function updateGraphState(graphState, _toolName, _args, result) {
         color: result.color,
         description: result.description
       });
-      console.log('[updateGraphState] createNode:', result.name, '→ instances:', activeGraph.instances.length, 'protos:', graphState.nodePrototypes.length);
+      console.error('[updateGraphState] createNode:', result.name, '→ instances:', activeGraph.instances.length, 'protos:', graphState.nodePrototypes.length);
     } else {
       console.warn('[updateGraphState] createNode FAILED: no active graph for id', graphState.activeGraphId, '| available:', (graphState.graphs || []).map(g => g.id));
     }
@@ -74,7 +74,7 @@ function updateGraphState(graphState, _toolName, _args, result) {
         inst.name = result.updates.name;
       }
     }
-    console.log('[updateGraphState] updateNode:', result.originalName, '→', result.updates.name || '(no name change)', '| proto found:', !!proto);
+    console.error('[updateGraphState] updateNode:', result.originalName, '→', result.updates.name || '(no name change)', '| proto found:', !!proto);
   } else if (result.action === 'deleteNode') {
     // Remove the node from graphState so it's no longer findable
     const activeGraph = (graphState.graphs || []).find(g => g.id === graphState.activeGraphId);
@@ -91,7 +91,7 @@ function updateGraphState(graphState, _toolName, _args, result) {
         });
       }
     }
-    console.log('[updateGraphState] deleteNode:', result.name, '| before:', beforeCount, '→ after:', activeGraph?.instances?.length || 0);
+    console.error('[updateGraphState] deleteNode:', result.name, '| before:', beforeCount, '→ after:', activeGraph?.instances?.length || 0);
   } else if (result.action === 'createPopulatedGraph' && result.spec) {
     // New populated graph — update activeGraphId and add graph + nodes
     graphState.activeGraphId = result.graphId;
@@ -188,7 +188,7 @@ export async function* runAgent(userMessage, graphState, config = {}, ensureSche
   const instanceCount = activeGraph?.instances
     ? (Array.isArray(activeGraph.instances) ? activeGraph.instances.length : Object.keys(activeGraph.instances).length)
     : 0;
-  console.log('[AgentLoop] Graph context:', {
+  console.error('[AgentLoop] Graph context:', {
     activeGraphId: graphState?.activeGraphId,
     activeGraphName: activeGraph?.name,
     instanceCount,
@@ -211,7 +211,7 @@ export async function* runAgent(userMessage, graphState, config = {}, ensureSche
       content: msg.content
     }));
 
-  console.log('[AgentLoop] Conversation history:', historyMessages.length, 'messages');
+  console.error('[AgentLoop] Conversation history:', historyMessages.length, 'messages');
 
   const messages = [
     { role: 'system', content: fullSystemPrompt + '\n\n' + contextStr },
@@ -237,17 +237,17 @@ export async function* runAgent(userMessage, graphState, config = {}, ensureSche
           const newContent = chunk.content;
           if (newContent) {
             iterationContent += newContent;
-            console.log('[AgentLoop] Yielding text chunk:', JSON.stringify(newContent));
+            console.error('[AgentLoop] Yielding text chunk:', JSON.stringify(newContent));
             yield { type: 'response', content: newContent };
           }
         } else if (chunk.type === 'tool_call') {
           iterationToolCalls.push(chunk);
-          console.log('[AgentLoop] Yielding tool_call:', chunk.name);
+          console.error('[AgentLoop] Yielding tool_call:', chunk.name);
           yield chunk;
         }
       }
 
-      console.log('[AgentLoop] Iteration', iteration, 'complete. Content length:', iterationContent.length);
+      console.error('[AgentLoop] Iteration', iteration, 'complete. Content length:', iterationContent.length);
 
       // Add this iteration's response to history for the next iteration
       if (iterationContent || iterationToolCalls.length > 0) {

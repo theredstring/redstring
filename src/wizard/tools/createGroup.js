@@ -61,7 +61,7 @@ export async function createGroup(args, graphState, cid, ensureSchedulerStarted)
     resolvedMemberIds = [...new Set([...resolvedMemberIds, ...foundIds])];
   }
 
-  console.log('[createGroup] Creating group:', name, '| members resolved:', resolvedMemberIds.length, '| memberNames:', memberNames);
+  console.error('[createGroup] Creating group:', name, '| members resolved:', resolvedMemberIds.length, '| memberNames:', memberNames);
 
   return {
     action: 'createGroup',

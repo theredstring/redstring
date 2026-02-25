@@ -54,7 +54,7 @@ export async function deleteGroup(args, graphState, cid, ensureSchedulerStarted)
     throw new Error('Either groupId or groupName is required.');
   }
 
-  console.log('[deleteGroup] Deleting group:', groupName || groupId, '| resolved:', resolvedGroupId || 'will resolve on client');
+  console.error('[deleteGroup] Deleting group:', groupName || groupId, '| resolved:', resolvedGroupId || 'will resolve on client');
 
   return {
     action: 'deleteGroup',

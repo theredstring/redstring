@@ -62,7 +62,7 @@ export async function updateNode(args, graphState, cid, ensureSchedulerStarted) 
   const resolved = resolveNodeByName(lookupName, nodePrototypes, graphs, activeGraphId);
 
   if (resolved) {
-    console.log('[updateNode] Resolved:', lookupName, '→', resolved.prototypeId);
+    console.error('[updateNode] Resolved:', lookupName, '→', resolved.prototypeId);
   } else {
     // Node not in server-side graphState — still return action so client can resolve by name
     console.warn('[updateNode] Not found in graphState, delegating to client:', lookupName);

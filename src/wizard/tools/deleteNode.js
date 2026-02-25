@@ -62,7 +62,7 @@ export async function deleteNode(args, graphState, cid, ensureSchedulerStarted) 
   const resolved = resolveNodeByName(lookupName, nodePrototypes, graphs, activeGraphId);
 
   if (resolved) {
-    console.log('[deleteNode] Resolved:', lookupName, '→', resolved.instanceId);
+    console.error('[deleteNode] Resolved:', lookupName, '→', resolved.instanceId);
   } else {
     // Node not in server-side graphState — still return action so client can resolve by name
     console.warn('[deleteNode] Not found in graphState, delegating to client:', lookupName);

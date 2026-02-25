@@ -63,13 +63,13 @@ export async function createEdge(args, graphState, cid, ensureSchedulerStarted) 
   const resolvedTarget = resolveNodeByName(targetId, nodePrototypes, graphs, activeGraphId);
 
   if (resolvedSource) {
-    console.log('[createEdge] Resolved source:', sourceId, '→', resolvedSource.instanceId);
+    console.error('[createEdge] Resolved source:', sourceId, '→', resolvedSource.instanceId);
   } else {
     console.warn('[createEdge] Source not found in graphState, delegating to client:', sourceId);
   }
 
   if (resolvedTarget) {
-    console.log('[createEdge] Resolved target:', targetId, '→', resolvedTarget.instanceId);
+    console.error('[createEdge] Resolved target:', targetId, '→', resolvedTarget.instanceId);
   } else {
     console.warn('[createEdge] Target not found in graphState, delegating to client:', targetId);
   }
