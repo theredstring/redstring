@@ -1579,12 +1579,15 @@ const BridgeClient = () => {
             groups: graph.groups instanceof Map
               ? Array.from(graph.groups.values())
               : Array.isArray(graph.groups) ? graph.groups : [],
-            // Include instance data for spatial reasoning (only for active graph to keep payload small)
-            instances: id === state.activeGraphId && graph.instances ?
+            // Include instance data for all graphs (MCP tools need names for resolution)
+            instances: graph.instances ?
               Object.fromEntries(Array.from(graph.instances.entries()).map(([instanceId, instance]) => [
                 instanceId, {
                   id: instance.id,
                   prototypeId: instance.prototypeId,
+                  name: instance.name || '',
+                  description: instance.description || '',
+                  color: instance.color || '',
                   x: instance.x || 0,
                   y: instance.y || 0,
                   scale: instance.scale || 1

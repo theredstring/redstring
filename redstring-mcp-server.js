@@ -422,16 +422,14 @@ async function registerWizardTools() {
               }
             }
 
-            // Format result for MCP — keep response compact to avoid stdio framing issues
+            // Format result for MCP — keep mutating responses compact, read responses full
             let text = '';
             if (typeof result === 'string') {
               text = result;
-            } else if (result.summary) {
-              text = result.summary;
             } else if (result.error) {
               text = `Error: ${result.error}`;
             } else if (result.action) {
-              // Mutating tool — return concise summary, not the full spec
+              // Mutating tool — return concise summary to avoid stdio framing issues
               const parts = [];
               if (result.graphName) parts.push(`graph: "${result.graphName}"`);
               if (result.graphId) parts.push(`graphId: ${result.graphId}`);
@@ -443,6 +441,7 @@ async function registerWizardTools() {
                 ? `${result.action} completed: ${parts.join(', ')}`
                 : `${result.action} completed successfully`;
             } else {
+              // Read-only tool — return full data (readGraph, searchNodes, etc.)
               text = JSON.stringify(result);
             }
 
