@@ -22,6 +22,17 @@ export function buildContext(graphState) {
   if (activeGraph) {
     context += `\n\nCURRENT WEB: "${activeGraph.name}"`;
 
+    // Check if this graph is a definition graph for any node
+    const definingNodes = nodePrototypes.filter(proto =>
+      Array.isArray(proto.definitionGraphIds) &&
+      proto.definitionGraphIds.includes(activeGraphId)
+    );
+    if (definingNodes.length > 0) {
+      const nodeNames = definingNodes.map(p => p.name).join(', ');
+      context += `\n⚡ This web is a DEFINITION GRAPH for: ${nodeNames}`;
+      context += '\n   (You are inside a node, viewing/editing what it is made of)';
+    }
+
     // Extract instances
     const instances = activeGraph.instances instanceof Map
       ? Array.from(activeGraph.instances.values())
@@ -52,12 +63,21 @@ export function buildContext(graphState) {
         nodeNameById.set(inst.id, name);
       }
 
-      // List ALL nodes with descriptions
+      // List ALL nodes with descriptions and expandable indicators
       const nodeLines = instances.map(inst => {
         const proto = inst.prototypeId ? protoMap.get(inst.prototypeId) : null;
         const name = inst.name || proto?.name || inst.id;
         const desc = inst.description || proto?.description || '';
-        return desc ? `  - ${name}: ${desc}` : `  - ${name}`;
+
+        // Check if node has definition graphs (expandable)
+        const defGraphIds = proto?.definitionGraphIds;
+        const hasDefinitions = Array.isArray(defGraphIds) && defGraphIds.length > 0;
+        const expandable = hasDefinitions
+          ? ` 🔍[${defGraphIds.length} definition graph${defGraphIds.length !== 1 ? 's' : ''} - use navigateDefinition or decomposeNode]`
+          : '';
+
+        const namePart = `${name}${expandable}`;
+        return desc ? `  - ${namePart}: ${desc}` : `  - ${namePart}`;
       });
       context += `\nThings:\n${nodeLines.join('\n')}`;
 

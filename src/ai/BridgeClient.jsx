@@ -612,6 +612,7 @@ const BridgeClient = () => {
                       name: graph.name,
                       description: graph.description || '',
                       instanceCount: graph.instances?.size || 0,
+                      definingNodeIds: Array.isArray(graph.definingNodeIds) ? [...graph.definingNodeIds] : [],
                       instances: id === s.activeGraphId && graph.instances ?
                         Object.fromEntries(Array.from(graph.instances.entries()).map(([instanceId, instance]) => [
                           instanceId, {
@@ -623,7 +624,11 @@ const BridgeClient = () => {
                           }
                         ])) : undefined
                     })),
-                    nodePrototypes: Array.from(s.nodePrototypes.entries()).map(([nid, prototype]) => ({ id: nid, name: prototype.name })),
+                    nodePrototypes: Array.from(s.nodePrototypes.entries()).map(([nid, prototype]) => ({
+                      id: nid,
+                      name: prototype.name,
+                      definitionGraphIds: Array.isArray(prototype.definitionGraphIds) ? [...prototype.definitionGraphIds] : []
+                    })),
                     activeGraphId: s.activeGraphId,
                     activeGraphName: s.activeGraphId ? (s.graphs.get(s.activeGraphId)?.name || null) : null,
                     openGraphIds: s.openGraphIds,
@@ -664,6 +669,7 @@ const BridgeClient = () => {
                     description: graph.description || '',
                     instanceCount: graph.instances?.size || 0,
                     edgeIds: Array.isArray(graph.edgeIds) ? graph.edgeIds : [],
+                    definingNodeIds: Array.isArray(graph.definingNodeIds) ? [...graph.definingNodeIds] : [],
                     // CRITICAL: Include instances so read_graph_structure can find nodes
                     instances: graph.instances ?
                       Object.fromEntries(Array.from(graph.instances.entries()).map(([instanceId, instance]) => [
@@ -680,7 +686,8 @@ const BridgeClient = () => {
                     id: p.id,
                     name: p.name,
                     color: p.color,
-                    description: p.description || ''
+                    description: p.description || '',
+                    definitionGraphIds: Array.isArray(p.definitionGraphIds) ? [...p.definitionGraphIds] : []
                   })),
                   edges: Array.from(s2.edges.values()),
                   activeGraphId: s2.activeGraphId,
@@ -1191,6 +1198,325 @@ const BridgeClient = () => {
               }
               return { success: true, navigated: true };
             },
+
+            // --- GROUP ACTION HANDLERS (P2 fix for MCP) ---
+
+            createGroup: async (result) => {
+              console.log('MCPBridge: Calling Wizard createGroup', result.name);
+              const st = useGraphStore.getState();
+              const gId = result.graphId || st.activeGraphId;
+              if (!gId) return { success: false, error: 'No active graph' };
+
+              st.createGroup(gId, {
+                name: result.name,
+                color: result.color || '#8B0000',
+                memberInstanceIds: result.memberInstanceIds || []
+              });
+              return { success: true, graphId: gId, groupName: result.name };
+            },
+
+            updateGroup: async (result) => {
+              console.log('MCPBridge: Calling Wizard updateGroup', result.groupName || result.groupId);
+              const st = useGraphStore.getState();
+              const gId = result.graphId || st.activeGraphId;
+              if (!gId) return { success: false, error: 'No active graph' };
+
+              const graph = st.graphs.get(gId);
+              if (!graph) return { success: false, error: 'Graph not found' };
+
+              // Resolve group by ID or name
+              let resolvedGroupId = result.groupId;
+              if (!resolvedGroupId && result.groupName) {
+                const groupsIterable = graph.groups instanceof Map
+                  ? Array.from(graph.groups.values())
+                  : Array.isArray(graph.groups) ? graph.groups : Object.values(graph.groups);
+                const nameLower = result.groupName.toLowerCase().trim();
+                const group = groupsIterable.find(g => String(g.name || '').toLowerCase().trim() === nameLower);
+                if (group) resolvedGroupId = group.id;
+              }
+
+              if (!resolvedGroupId) return { success: false, error: 'Group not found' };
+
+              st.updateGroup(gId, resolvedGroupId, (group) => {
+                if (result.updates.name) group.name = result.updates.name;
+                if (result.updates.color) group.color = result.updates.color;
+                if (result.updates.addMembers && result.updates.addMembers.length > 0) {
+                  group.memberInstanceIds = [...new Set([...group.memberInstanceIds, ...result.updates.addMembers])];
+                }
+                if (result.updates.removeMembers && result.updates.removeMembers.length > 0) {
+                  group.memberInstanceIds = group.memberInstanceIds.filter(id => !result.updates.removeMembers.includes(id));
+                }
+              });
+              return { success: true, groupId: resolvedGroupId };
+            },
+
+            deleteGroup: async (result) => {
+              console.log('MCPBridge: Calling Wizard deleteGroup', result.groupName || result.groupId);
+              const st = useGraphStore.getState();
+              const gId = result.graphId || st.activeGraphId;
+              if (!gId) return { success: false, error: 'No active graph' };
+
+              const graph = st.graphs.get(gId);
+              if (!graph) return { success: false, error: 'Graph not found' };
+
+              // Resolve group by ID or name
+              let resolvedGroupId = result.groupId;
+              if (!resolvedGroupId && result.groupName) {
+                const groupsIterable = graph.groups instanceof Map
+                  ? Array.from(graph.groups.values())
+                  : Array.isArray(graph.groups) ? graph.groups : Object.values(graph.groups);
+                const nameLower = result.groupName.toLowerCase().trim();
+                const group = groupsIterable.find(g => String(g.name || '').toLowerCase().trim() === nameLower);
+                if (group) resolvedGroupId = group.id;
+              }
+
+              if (!resolvedGroupId) return { success: false, error: 'Group not found' };
+
+              st.deleteGroup(gId, resolvedGroupId);
+              return { success: true, groupId: resolvedGroupId };
+            },
+
+            convertToThingGroup: async (result) => {
+              console.log('MCPBridge: Calling Wizard convertToThingGroup', result.groupName || result.groupId);
+              const st = useGraphStore.getState();
+              const gId = result.graphId || st.activeGraphId;
+              if (!gId) return { success: false, error: 'No active graph' };
+
+              const graph = st.graphs.get(gId);
+              if (!graph) return { success: false, error: 'Graph not found' };
+
+              // Resolve group by ID or name
+              let resolvedGroupId = result.groupId;
+              if (!resolvedGroupId && result.groupName) {
+                const groupsIterable = graph.groups instanceof Map
+                  ? Array.from(graph.groups.values())
+                  : Array.isArray(graph.groups) ? graph.groups : Object.values(graph.groups);
+                const nameLower = result.groupName.toLowerCase().trim();
+                const group = groupsIterable.find(g => String(g.name || '').toLowerCase().trim() === nameLower);
+                if (group) resolvedGroupId = group.id;
+              }
+
+              if (!resolvedGroupId) return { success: false, error: 'Group not found' };
+
+              // Convert to thing-group (calls convertGroupToNodeGroup)
+              st.convertGroupToNodeGroup(
+                gId,
+                resolvedGroupId,
+                null, // nodePrototypeId (null = will be resolved or created)
+                result.createNewThing !== false, // createNewPrototype (default true)
+                result.thingName || result.groupName,
+                result.newThingColor
+              );
+              return { success: true, groupId: resolvedGroupId, thingName: result.thingName };
+            },
+
+            combineThingGroup: async (result) => {
+              console.log('MCPBridge: Calling Wizard combineThingGroup', result.groupName || result.groupId);
+              const st = useGraphStore.getState();
+              const gId = result.graphId || st.activeGraphId;
+              if (!gId) return { success: false, error: 'No active graph' };
+
+              const graph = st.graphs.get(gId);
+              if (!graph) return { success: false, error: 'Graph not found' };
+
+              // Resolve group by ID or name
+              let resolvedGroupId = result.groupId;
+              if (!resolvedGroupId && result.groupName) {
+                const groupsIterable = graph.groups instanceof Map
+                  ? Array.from(graph.groups.values())
+                  : Array.isArray(graph.groups) ? graph.groups : Object.values(graph.groups);
+                const nameLower = result.groupName.toLowerCase().trim();
+                const group = groupsIterable.find(g => String(g.name || '').toLowerCase().trim() === nameLower);
+                if (group) resolvedGroupId = group.id;
+              }
+
+              if (!resolvedGroupId) return { success: false, error: 'Group not found' };
+
+              // Combine thing-group (calls combineNodeGroup)
+              st.combineNodeGroup(gId, resolvedGroupId);
+              return { success: true, groupId: resolvedGroupId };
+            },
+
+            // --- RECURSIVE COMPOSITION TOOLS ---
+
+            navigateDefinition: async (result) => {
+              console.log('MCPBridge: Calling navigateDefinition', result.nodeName);
+              const st = useGraphStore.getState();
+
+              if (result.created) {
+                // No definition graph exists - create new one
+                const graphId = st.createAndAssignGraphDefinition(result.prototypeId);
+                navigateOnGraphSwitch(graphId);
+                console.log('MCPBridge: Created new definition graph', graphId, 'for prototype', result.prototypeId);
+                return { success: true, graphId, prototypeId: result.prototypeId, created: true };
+              } else {
+                // Open existing definition graph
+                st.openGraphTabAndBringToTop(result.graphId, result.prototypeId);
+                navigateOnGraphSwitch(result.graphId);
+                console.log('MCPBridge: Navigated to definition graph', result.graphId);
+                return { success: true, graphId: result.graphId, prototypeId: result.prototypeId, created: false };
+              }
+            },
+
+            condenseToNode: async (result) => {
+              console.log('MCPBridge: Calling condenseToNode', result.nodeName);
+              const st = useGraphStore.getState();
+              const gId = result.graphId || st.activeGraphId;
+              if (!gId) return { success: false, error: 'No active graph' };
+
+              // 1. Create group with resolved member IDs
+              st.createGroup(gId, {
+                name: result.nodeName,
+                color: result.nodeColor || '#8B0000',
+                memberInstanceIds: result.resolvedMemberIds
+              });
+
+              // 2. Find the group we just created (match by name)
+              const updatedGraph = useGraphStore.getState().graphs.get(gId);
+              let newGroupId = null;
+              const groupsIterable = updatedGraph.groups instanceof Map
+                ? Array.from(updatedGraph.groups.values())
+                : Array.isArray(updatedGraph.groups) ? updatedGraph.groups : Object.values(updatedGraph.groups);
+              const nameLower = result.nodeName.toLowerCase().trim();
+              const group = groupsIterable.find(g => String(g.name || '').toLowerCase().trim() === nameLower);
+              if (group) newGroupId = group.id;
+
+              if (!newGroupId) return { success: false, error: 'Failed to create group' };
+
+              // 3. Convert to thing-group (creates prototype + definition graph from members)
+              st.convertGroupToNodeGroup(
+                gId,
+                newGroupId,
+                null, // nodePrototypeId - null means create new
+                true, // createNewPrototype
+                result.nodeName,
+                result.nodeColor || '#8B0000'
+              );
+
+              // 4. Optionally collapse
+              if (result.collapse) {
+                st.combineNodeGroup(gId, newGroupId);
+              }
+
+              // 5. Trigger auto-layout
+              setTimeout(() => {
+                if (typeof window !== 'undefined') {
+                  window.dispatchEvent(new CustomEvent('rs-trigger-auto-layout', { detail: { graphId: gId } }));
+                }
+              }, 600);
+
+              return { success: true, groupId: newGroupId, nodeName: result.nodeName, collapsed: result.collapse };
+            },
+
+            decomposeNode: async (result) => {
+              const st = useGraphStore.getState();
+              const gId = result.graphId;
+              const defGraphId = result.definitionGraphId;
+              const originalInstId = result.originalInstanceId;
+
+              // 1. Remove the original node instance
+              st.removeNodeInstance(gId, originalInstId);
+              console.error(`[BridgeClient] decomposeNode: Removed original instance ${originalInstId}`);
+
+              // 2. Copy instances from definition graph to active graph with new IDs
+              const oldToNewInstMap = new Map();
+              const newInstanceIds = [];
+
+              for (const defInst of result.definitionInstances || []) {
+                const newInstId = `inst-decomp-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+                oldToNewInstMap.set(defInst.instanceId, newInstId);
+                newInstanceIds.push(newInstId);
+
+                const position = {
+                  x: defInst.x || 0,
+                  y: defInst.y || 0,
+                  scale: defInst.scale || 1
+                };
+
+                st.addNodeInstance(gId, defInst.prototypeId, position, newInstId);
+              }
+
+              console.error(`[BridgeClient] decomposeNode: Copied ${newInstanceIds.length} instances from definition graph`);
+
+              // 3. Copy edges from definition graph with remapped instance IDs
+              const defGraph = st.graphs.get(defGraphId);
+              if (defGraph && result.definitionEdgeIds?.length > 0) {
+                for (const edgeId of result.definitionEdgeIds) {
+                  const edge = defGraph.edges?.get?.(edgeId);
+                  if (!edge) continue;
+
+                  // Remap source and destination
+                  const newSourceId = oldToNewInstMap.get(edge.sourceId);
+                  const newDestId = oldToNewInstMap.get(edge.destinationId);
+                  if (!newSourceId || !newDestId) continue;
+
+                  // Remap arrowsToward Set
+                  const newArrowsToward = new Set();
+                  if (edge.directionality?.arrowsToward) {
+                    for (const oldId of edge.directionality.arrowsToward) {
+                      const newId = oldToNewInstMap.get(oldId);
+                      if (newId) newArrowsToward.add(newId);
+                    }
+                  }
+
+                  // Create edge with remapped data
+                  st.addEdge(gId, {
+                    sourceId: newSourceId,
+                    destinationId: newDestId,
+                    directionality: {
+                      arrowsToward: newArrowsToward
+                    }
+                  });
+                }
+                console.error(`[BridgeClient] decomposeNode: Copied ${result.definitionEdgeIds.length} edges`);
+              }
+
+              // 4. Create a group containing all new instances
+              const groupColor = '#8B0000'; // Default thing-group color
+              const groupData = {
+                name: result.nodeName,
+                color: groupColor,
+                memberInstanceIds: newInstanceIds
+              };
+              st.createGroup(gId, groupData);
+
+              // 5. Find the newly created group by name
+              const activeGraph = st.graphs.get(gId);
+              const newGroup = Array.from(activeGraph?.groups?.values?.() || [])
+                .find(g => g.name === result.nodeName);
+
+              if (!newGroup) {
+                console.error('[BridgeClient] decomposeNode: Failed to find newly created group');
+                return { success: false, error: 'Failed to find group after creation' };
+              }
+
+              // 6. Convert group to thing-group using EXISTING prototype (not creating new)
+              st.convertGroupToNodeGroup(
+                gId,
+                newGroup.id,
+                result.prototypeId, // Use existing prototype
+                false, // createNewPrototype = false
+                null, // name (not needed since we're using existing)
+                null  // color (not needed since we're using existing)
+              );
+
+              console.error(`[BridgeClient] decomposeNode: Converted group to thing-group with existing prototype ${result.prototypeId}`);
+
+              // 7. Trigger auto-layout
+              setTimeout(() => {
+                if (typeof window !== 'undefined') {
+                  window.dispatchEvent(new CustomEvent('rs-trigger-auto-layout', { detail: { graphId: gId } }));
+                }
+              }, 600);
+
+              return {
+                success: true,
+                groupId: newGroup.id,
+                nodeName: result.nodeName,
+                instanceCount: newInstanceIds.length
+              };
+            },
+
             applyMutations: async (operations) => {
               console.groupCollapsed('MCPBridge: Applying batch mutations');
               console.log('Operation count:', operations?.length || 0);
@@ -1619,6 +1945,8 @@ const BridgeClient = () => {
             groups: graph.groups instanceof Map
               ? Array.from(graph.groups.values())
               : Array.isArray(graph.groups) ? graph.groups : [],
+            // CRITICAL: Include definingNodeIds for recursive composition
+            definingNodeIds: Array.isArray(graph.definingNodeIds) ? [...graph.definingNodeIds] : [],
             // Include instance data for all graphs (MCP tools need names for resolution)
             instances: graph.instances ?
               Object.fromEntries(Array.from(graph.instances.entries()).map(([instanceId, instance]) => [
@@ -1640,7 +1968,8 @@ const BridgeClient = () => {
             id,
             name: prototype.name,
             color: prototype.color || '#5B6CFF',
-            description: prototype.description || ''
+            description: prototype.description || '',
+            definitionGraphIds: Array.isArray(prototype.definitionGraphIds) ? [...prototype.definitionGraphIds] : []
           })),
 
           // UI state

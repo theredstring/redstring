@@ -164,6 +164,112 @@ function updateGraphState(graphState, _toolName, _args, result) {
         activeGraph.groups = activeGraph.groups.filter(g => g.name !== result.groupName);
       }
     }
+  } else if (result.action === 'convertToThingGroup') {
+    // Mark group as thing-group in predictive state
+    const activeGraph = (graphState.graphs || []).find(g => g.id === graphState.activeGraphId);
+    if (activeGraph && activeGraph.groups) {
+      const group = activeGraph.groups.find(g =>
+        g.id === result.groupId || (result.groupName && g.name === result.groupName)
+      );
+      if (group) {
+        group.linkedNodePrototypeId = result.prototypeId || 'proto-thing-group';
+        group.isThingGroup = true;
+      }
+    }
+  } else if (result.action === 'combineThingGroup') {
+    // Remove group, add single node instance in its place
+    const activeGraph = (graphState.graphs || []).find(g => g.id === graphState.activeGraphId);
+    if (activeGraph && activeGraph.groups) {
+      const groupIndex = activeGraph.groups.findIndex(g =>
+        g.id === result.groupId || (result.groupName && g.name === result.groupName)
+      );
+      if (groupIndex >= 0) {
+        const group = activeGraph.groups[groupIndex];
+        activeGraph.groups.splice(groupIndex, 1);
+        // Add a single instance representing the combined node
+        activeGraph.instances = activeGraph.instances || [];
+        activeGraph.instances.push({
+          id: `inst-combined-${Date.now()}`,
+          prototypeId: group.linkedNodePrototypeId || 'proto-combined',
+          name: group.name
+        });
+      }
+    }
+  } else if (result.action === 'navigateDefinition') {
+    // Switch to the definition graph
+    if (result.graphId) {
+      graphState.activeGraphId = result.graphId;
+      console.error('[updateGraphState] navigateDefinition: activeGraphId =', result.graphId);
+    }
+  } else if (result.action === 'condenseToNode') {
+    const activeGraph = (graphState.graphs || []).find(g => g.id === graphState.activeGraphId);
+    if (activeGraph) {
+      if (result.collapse) {
+        // Remove member instances, add single condensed node
+        const removedNames = new Set((result.memberNames || []).map(n => n.toLowerCase().trim()));
+        activeGraph.instances = (activeGraph.instances || []).filter(i => {
+          const name = (i.name || '').toLowerCase().trim();
+          return !removedNames.has(name);
+        });
+        activeGraph.instances.push({
+          id: `inst-condensed-${Date.now()}`,
+          prototypeId: `proto-condensed-${Date.now()}`,
+          name: result.nodeName
+        });
+      } else {
+        // Just add the group (members remain)
+        activeGraph.groups = activeGraph.groups || [];
+        activeGraph.groups.push({
+          id: result.groupId || `group-${Date.now()}`,
+          name: result.nodeName,
+          color: result.nodeColor,
+          memberInstanceIds: result.resolvedMemberIds || [],
+          linkedNodePrototypeId: 'proto-condensed',
+          isThingGroup: true
+        });
+      }
+    }
+  } else if (result.action === 'decomposeNode') {
+    // Remove original instance, add decomposed instances from definition graph, add group
+    const activeGraph = (graphState.graphs || []).find(g => g.id === graphState.activeGraphId);
+    if (activeGraph) {
+      // Remove the original instance
+      if (result.originalInstanceId) {
+        const beforeCount = (activeGraph.instances || []).length;
+        activeGraph.instances = (activeGraph.instances || []).filter(i => i.id !== result.originalInstanceId);
+        console.error('[updateGraphState] decomposeNode: Removed original instance', result.originalInstanceId, '| before:', beforeCount, '→ after:', activeGraph.instances.length);
+      }
+
+      // Add decomposed instances from definition graph
+      activeGraph.instances = activeGraph.instances || [];
+      for (const defInst of result.definitionInstances || []) {
+        const newInstId = `inst-decomp-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+        activeGraph.instances.push({
+          id: newInstId,
+          prototypeId: defInst.prototypeId,
+          name: defInst.name,
+          x: defInst.x || 0,
+          y: defInst.y || 0,
+          scale: defInst.scale || 1
+        });
+      }
+
+      // Add thing-group
+      activeGraph.groups = activeGraph.groups || [];
+      const decomposedInstIds = (result.definitionInstances || []).map(() =>
+        `inst-decomp-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
+      );
+      activeGraph.groups.push({
+        id: `group-decomp-${Date.now()}`,
+        name: result.nodeName,
+        color: '#8B0000',
+        memberInstanceIds: decomposedInstIds,
+        linkedNodePrototypeId: result.prototypeId,
+        isThingGroup: true
+      });
+
+      console.error('[updateGraphState] decomposeNode:', result.nodeName, '→ added', (result.definitionInstances || []).length, 'instances');
+    }
   }
 }
 

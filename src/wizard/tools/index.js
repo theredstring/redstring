@@ -24,6 +24,10 @@ import { convertToThingGroup } from './convertToThingGroup.js';
 import { combineThingGroup } from './combineThingGroup.js';
 import { updateEdge } from './updateEdge.js';
 import { replaceEdges } from './replaceEdges.js';
+import { listNodeDefinitions } from './listNodeDefinitions.js';
+import { navigateDefinition } from './navigateDefinition.js';
+import { condenseToNode } from './condenseToNode.js';
+import { decomposeNode } from './decomposeNode.js';
 
 const TOOLS = {
   createNode,
@@ -46,7 +50,11 @@ const TOOLS = {
   deleteGroup,
   convertToThingGroup,
   combineThingGroup,
-  replaceEdges
+  replaceEdges,
+  listNodeDefinitions,
+  navigateDefinition,
+  condenseToNode,
+  decomposeNode
 };
 
 /**
@@ -431,6 +439,59 @@ export function getToolDefinitions() {
           groupName: { type: 'string', description: 'Name of the Thing-Group to collapse' }
         },
         required: ['groupName']
+      }
+    },
+    {
+      name: 'listNodeDefinitions',
+      description: 'Inspect a node\'s definition graphs (read-only). Shows which definition graphs exist, whether they\'re empty, and their node/edge counts. Use this before navigating or decomposing to understand what definition graphs are available.',
+      parameters: {
+        type: 'object',
+        properties: {
+          nodeName: { type: 'string', description: 'Name of the node whose definition graphs to inspect (fuzzy matched)' }
+        },
+        required: ['nodeName']
+      }
+    },
+    {
+      name: 'navigateDefinition',
+      description: 'Navigate into a node\'s definition graph (agentic "Expand"). Opens the definition graph as the active graph so you can view or edit what the node is made of. If no definition graph exists, creates one. If multiple exist and no index provided, prefers the first empty one to populate.',
+      parameters: {
+        type: 'object',
+        properties: {
+          nodeName: { type: 'string', description: 'Name of the node whose definition graph to navigate into (fuzzy matched)' },
+          definitionIndex: { type: 'number', description: 'Optional: which definition graph to open (0-based index). Auto-selects if omitted (prefers empty graphs).' }
+        },
+        required: ['nodeName']
+      }
+    },
+    {
+      name: 'condenseToNode',
+      description: 'Package selected nodes into a new concept with a definition graph. Creates a group from the member nodes, converts it to a Thing-Group (which creates the definition graph), and optionally collapses to a single node. This is how you create new compositional abstractions. Inverse of decomposeNode.',
+      parameters: {
+        type: 'object',
+        properties: {
+          memberNames: {
+            type: 'array',
+            items: { type: 'string' },
+            description: 'Names of existing nodes in the active graph to condense into the new concept'
+          },
+          nodeName: { type: 'string', description: 'Name for the new concept/Thing' },
+          nodeColor: { type: 'string', description: 'Optional hex color for the new concept' },
+          collapse: { type: 'boolean', description: 'If true, replaces member nodes with single node. If false, keeps members visible as a Thing-Group. Default: false.' }
+        },
+        required: ['memberNames', 'nodeName']
+      }
+    },
+    {
+      name: 'decomposeNode',
+      description: 'Replace a node with a Thing-Group containing its definition graph contents. The node instance is removed and its definition graph\'s components are materialized in its place - like unpacking a box, the box goes away and the parts appear. The node prototype still exists globally. Inverse of condenseToNode.',
+      parameters: {
+        type: 'object',
+        properties: {
+          nodeName: { type: 'string', description: 'Name of the node to decompose (must have a non-empty definition graph)' },
+          definitionIndex: { type: 'number', description: 'Optional: which definition graph to decompose (0-based index). Default: 0.' }
+        },
+        required: ['nodeName']
       }
     }
   ];

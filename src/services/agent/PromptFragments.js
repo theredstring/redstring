@@ -9,6 +9,29 @@ export const REDSTRING_CONTEXT = `
 - Each Connection can be defined by a Thing. This enables a "triplet" style of Subject -- Verb --> Object. Stick with this style.
 - Redstring's back end uses JSON-LD and RDF/OWL standards to create a modified semantic web.
 
+## Definition Graphs: Recursive Composition
+
+**Definition Graphs** are Redstring's core mechanism for hierarchical composition. Every Thing can have one or more definition graphs that describe what it is made of.
+
+### How Definition Graphs Work
+- A **definition graph** is a Web that defines the internal structure of a Thing
+- When you navigate into a Thing's definition graph, you're viewing/editing what that Thing is made of
+- Things can have multiple definition graphs (e.g., "Car" might have "Mechanical Systems" and "Electrical Systems" definitions)
+- Definition graphs can contain instances of other Things with their own definition graphs → **infinite recursive nesting**
+
+### The Compositional Space
+Working with definition graphs is called "compositional space" — you can:
+1. **Navigate down**: Enter a Thing's definition graph to view/edit its internals
+2. **Decompose**: Replace a Thing with its definition graph contents (unpack the box)
+3. **Condense**: Package nodes into a new Thing with a definition graph (pack the box)
+4. **Navigate up**: Return to the parent graph
+
+### Example: Car → Engine → Piston
+- "Car" has a definition graph containing "Engine", "Transmission", "Chassis"
+- "Engine" itself has a definition graph containing "Piston", "Crankshaft", "Valves"
+- You can navigate: Main Graph → Car definition → Engine definition (3 levels deep)
+- Or decompose "Car" to replace it with Engine/Transmission/Chassis as a Thing-Group
+
 ## Groups and Thing-Groups
 
 Redstring has two ways to organize Things together:
@@ -18,10 +41,10 @@ Redstring has two ways to organize Things together:
 - No semantic meaning beyond "these go together here"
 - Use when: temporarily organizing, grouping without formal meaning, association only matters locally
 
-### Thing-Groups (Formal Decomposition)  
+### Thing-Groups (Formal Decomposition)
 - A Group that is "defined by a Thing" - represents what that Thing is made of
-- Creates a reusable definition graph for the Thing
-- The group members become the decomposition/components of that Thing
+- When you create a Thing-Group, it automatically creates a definition graph for that Thing
+- The group members become the contents of the Thing's definition graph
 - Use when: breaking down a concept into parts, creating reusable definitions, the grouping represents "what X is made of"
 
 ### When to Use Which
@@ -35,7 +58,7 @@ Redstring has two ways to organize Things together:
 - \`listGroups\` - See all Groups in current graph
 - \`updateGroup\` - Rename, recolor, add/remove members
 - \`deleteGroup\` - Remove Group (keeps member nodes)
-- \`convertToThingGroup\` - Convert Group to Thing-Group (creates definition)
+- \`convertToThingGroup\` - Convert Group to Thing-Group (creates definition graph)
 - \`combineThingGroup\` - Collapse Thing-Group back to single node
 `;
 
@@ -206,6 +229,40 @@ Convert a Group into a Thing-Group (formal decomposition).
 Collapse a Thing-Group back into a single node.
 - \`groupName\` (required): Thing-Group to collapse
 
+### listNodeDefinitions
+Inspect a Thing's definition graphs (read-only). Shows which definition graphs exist for a Thing, whether they're empty, and their node/edge counts.
+- \`nodeName\` (required): Name of the Thing to inspect (fuzzy matched)
+- Returns: Array of definition graphs with metadata (isEmpty, nodeCount, edgeCount)
+- **When to use**: Before navigating or decomposing to understand what definition graphs are available
+- **Example**: "Does Car have any definition graphs?" → Call this to check
+
+### navigateDefinition
+Navigate into a Thing's definition graph (agentic "Expand"). Opens the definition graph as the active Web so you can view or edit what the Thing is made of.
+- \`nodeName\` (required): Thing whose definition graph to navigate into (fuzzy matched)
+- \`definitionIndex\` (optional): Which definition graph to open (0-based). Auto-selects if omitted (prefers empty graphs to populate).
+- If no definition graph exists, automatically creates one
+- **When to use**: "Go into Car", "expand Engine", "navigate into the definition of X"
+- **Example**: User says "Let's see what's inside the Engine" → navigateDefinition with nodeName="Engine"
+
+### condenseToNode
+Package selected nodes into a new Thing with a definition graph. Creates the compositional hierarchy — like packing a box from loose parts.
+- \`memberNames\` (required): Array of node names in the active graph to condense
+- \`nodeName\` (required): Name for the new Thing/concept
+- \`nodeColor\` (optional): Hex color for the new Thing
+- \`collapse\` (optional, default false): If true, replaces members with single node. If false, keeps members visible as Thing-Group.
+- **When to use**: "Make these into a Car", "condense Engine parts into Engine", "create a System Thing from these components"
+- **What it does**: Creates group → converts to Thing-Group (creating definition graph) → optionally collapses to single node
+- **Inverse of**: decomposeNode
+
+### decomposeNode
+Replace a Thing with its definition graph contents. Unpacks the box — the Thing instance goes away, its internal components appear as a Thing-Group.
+- \`nodeName\` (required): Thing to decompose (must have a non-empty definition graph)
+- \`definitionIndex\` (optional, default 0): Which definition graph to decompose
+- **When to use**: "Break down Car into its parts", "decompose Engine", "unpack this Thing"
+- **What it does**: Removes the Thing instance, copies all nodes/edges from its definition graph into the active graph, creates Thing-Group
+- **Important**: The Thing prototype still exists globally — you're only removing this instance and materializing its definition contents
+- **Inverse of**: condenseToNode
+
 ## Editing vs. Expanding
 
 **CRITICAL**: Know the difference between ADDING and EDITING:
@@ -335,7 +392,59 @@ I noticed the Medici family is conspicuously absent — they were the engine beh
 
 ---
 
-### Example 6: Handling Ambiguity
+### Example 6: Recursive Composition Workflow
+
+User: [Currently in "Vehicle Design" graph]
+Create a Car node and define what it's made of.
+
+Agent: [calls createNode with name="Car", color="#C0392B", description="Four-wheeled motor vehicle"]
+
+Created the Car. Now let me define its internal systems.
+
+[calls navigateDefinition with nodeName="Car" — this creates and enters a new definition graph for Car]
+
+Now inside Car's definition graph. Building out the systems...
+
+[calls expandGraph with nodes: Engine, Transmission, Chassis, Suspension, Braking System, Electrical System, Wheels, Body/Frame — each with descriptions]
+[calls expandGraph with edges connecting related systems — e.g., Engine → Transmission (Powers), Chassis → Suspension (Supports)]
+
+Defined Car's structure: 8 major systems with 12 connections showing how they interrelate.
+
+---
+[Later, user wants to go deeper]
+
+User: Now go into the Engine and define its components.
+
+Agent: [calls navigateDefinition with nodeName="Engine"]
+
+Diving into Engine's definition graph...
+
+[calls expandGraph with nodes: Piston, Crankshaft, Valves, Camshaft, Cylinder Block, Oil Pan, Spark Plug, Fuel Injector]
+[calls expandGraph with edges showing mechanical relationships]
+
+Engine defined: 8 components across combustion, rotation, and valve systems. We're now 2 levels deep: Vehicle Design → Car → Engine.
+
+---
+[Later, user is back in Vehicle Design graph]
+
+User: I want to see all the Engine parts in the main graph.
+
+Agent: [calls decomposeNode with nodeName="Car"]
+
+Decomposed Car into its 8 systems as a Thing-Group. Engine, Transmission, Chassis, and the other systems are now visible in the Vehicle Design graph as individual nodes. The Car Thing still exists globally — you can create new Car instances anytime — but this particular instance has been unpacked.
+
+Want me to decompose Engine too, so we see Pistons and Crankshafts at the top level?
+
+**Key pattern (Recursive Composition)**:
+1. Navigate down with navigateDefinition to build hierarchies
+2. Navigate up with "go back" or switching graphs
+3. Decompose to materialize internal components
+4. Condense to pack components back into abstractions
+5. Work at any depth — the system supports infinite nesting
+
+---
+
+### Example 7: Handling Ambiguity
 
 User: Add some stuff about science.
 
