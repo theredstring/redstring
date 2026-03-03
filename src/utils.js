@@ -73,7 +73,7 @@ const ensureMeasurementElements = () => {
 // --- Define constants for preview dimensions ---
 const PREVIEW_NODE_WIDTH = 600; // Wider for preview
 const PREVIEW_NODE_MIN_HEIGHT = 600; // Making it a square
-const PREVIEW_TEXT_AREA_HEIGHT = 60; // Fixed height for name in preview
+const PREVIEW_TEXT_AREA_HEIGHT = 100; // Fixed height for name in preview
 const DESCRIPTION_LINE_HEIGHT = 24; // Height per line for description text
 const DESCRIPTION_MAX_LINES = 3; // Maximum lines to show
 const DESCRIPTION_PADDING = 8; // Padding around description text
@@ -139,26 +139,6 @@ export const getNodeDimensions = (node, isPreviewing = false, descriptionContent
   // const hasValidImageDimensions = hasImage && node.image.naturalWidth > 0; // This needs re-evaluation
   const hasValidImageDimensions = hasImage; // Simplification for now
 
-  // --- Determine base dimensions based on state ---
-  let baseWidth, baseHeight, textWidthTarget;
-  if (isPreviewing) {
-    baseWidth = PREVIEW_NODE_WIDTH;
-    baseHeight = PREVIEW_NODE_MIN_HEIGHT;
-    // Account for the actual padding used in preview mode (140px on each side for nodes with definitions, 25px for those without)
-    // We need to pass information about whether the node has definitions to calculate accurate text width
-    // For now, use the larger padding to be conservative with text wrapping calculations
-    const previewHorizontalPadding = 140; // Conservative padding for nodes with definitions
-    textWidthTarget = baseWidth - 2 * previewHorizontalPadding;
-  } else if (hasImage) {
-    baseWidth = EXPANDED_NODE_WIDTH;
-    baseHeight = NODE_HEIGHT; // Start with base, image adds later
-    textWidthTarget = baseWidth - 56; // Account for average padding (28px per side: between 22px single-line and 30px multi-line)
-  } else {
-    baseWidth = NODE_WIDTH;
-    baseHeight = NODE_HEIGHT;
-    textWidthTarget = baseWidth - 56; // Account for average padding (28px per side: between 22px single-line and 30px multi-line)
-  }
-
   // --- Text Measurement ---
   // Use textSettings already declared above for cache key
   const scaledCharWidth = 12 * textSettings.fontSize; // Match Node.jsx and calculateTextAreaHeight
@@ -173,8 +153,27 @@ export const getNodeDimensions = (node, isPreviewing = false, descriptionContent
     textWidth = textSpan.offsetWidth;
   }
 
+  // --- Determine base dimensions based on state ---
+  let baseWidth, baseHeight, textWidthTarget;
+  if (isPreviewing) {
+    baseWidth = PREVIEW_NODE_WIDTH;
+    baseHeight = PREVIEW_NODE_MIN_HEIGHT;
+    // We want the text to wrap EXACTLY as it did in the unexpanded node.
+    const textWidthWithBuffer = textWidth + 20;
+    const unexpandedWidth = Math.max(NODE_WIDTH, Math.min(textWidthWithBuffer + 2 * NODE_PADDING, EXPANDED_NODE_WIDTH));
+    textWidthTarget = unexpandedWidth - 56; // 56 is the standard average padding (28px per side)
+  } else if (hasImage) {
+    baseWidth = EXPANDED_NODE_WIDTH;
+    baseHeight = NODE_HEIGHT; // Start with base, image adds later
+    textWidthTarget = baseWidth - 56; // Account for average padding (28px per side: between 22px single-line and 30px multi-line)
+  } else {
+    baseWidth = NODE_WIDTH;
+    baseHeight = NODE_HEIGHT;
+    textWidthTarget = baseWidth - 56; // Account for average padding (28px per side: between 22px single-line and 30px multi-line)
+  }
+
   // --- Shared Constant ---
-  const TEXT_V_PADDING_TOTAL = 45; // Total vertical padding (30px top + 15px bottom for preview mode)
+  const TEXT_V_PADDING_TOTAL = 56; // Total vertical padding for preview mode
 
   // --- Calculate Dimensions Based on State ---
   let currentWidth, currentHeight, textAreaHeight, imageWidth, calculatedImageHeight, innerNetworkWidth, innerNetworkHeight, descriptionAreaHeight;
@@ -183,7 +182,7 @@ export const getNodeDimensions = (node, isPreviewing = false, descriptionContent
     currentWidth = baseWidth;
     // Calculate textAreaHeight dynamically based on actual text wrapping with correct width
     const textBlockHeight = calculateTextAreaHeight(nodeName, textWidthTarget);
-    textAreaHeight = Math.max(PREVIEW_TEXT_AREA_HEIGHT, textBlockHeight + 24);
+    textAreaHeight = Math.max(PREVIEW_TEXT_AREA_HEIGHT, textBlockHeight + TEXT_V_PADDING_TOTAL);
 
     innerNetworkWidth = currentWidth - 2 * NODE_PADDING;
 
@@ -222,7 +221,7 @@ export const getNodeDimensions = (node, isPreviewing = false, descriptionContent
     // Add 8px for spacing between inner canvas and description only if description exists (matches Node.jsx descriptionAreaY calculation)
     // This makes the colored border rectangle physically taller to accommodate the padding
     const DESCRIPTION_SPACING = descriptionAreaHeight > 0 ? 8 : 0;
-    currentHeight = textAreaHeight + INNER_CANVAS_PADDING + innerNetworkHeight + DESCRIPTION_SPACING + descriptionAreaHeight + INNER_CANVAS_PADDING + 6;
+    currentHeight = textAreaHeight + innerNetworkHeight + DESCRIPTION_SPACING + descriptionAreaHeight + INNER_CANVAS_PADDING + 6;
 
     // Reset image dimensions
     imageWidth = 0;

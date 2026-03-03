@@ -73,7 +73,7 @@ export function buildContext(graphState) {
         const defGraphIds = proto?.definitionGraphIds;
         const hasDefinitions = Array.isArray(defGraphIds) && defGraphIds.length > 0;
         const expandable = hasDefinitions
-          ? ` 🔍[${defGraphIds.length} definition graph${defGraphIds.length !== 1 ? 's' : ''} - use navigateDefinition or decomposeNode]`
+          ? ` 🔍[${defGraphIds.length} definition graph${defGraphIds.length !== 1 ? 's' : ''} - use switchToGraph to view, decomposeNode to unpack]`
           : '';
 
         const namePart = `${name}${expandable}`;

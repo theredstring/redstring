@@ -131,7 +131,7 @@ const Node = ({
   const INNER_CANVAS_PADDING = 24;
 
   // Calculate description area position (below InnerNetwork when previewing) with minimal spacing
-  const descriptionAreaY = contentAreaY + (isPreviewing ? INNER_CANVAS_PADDING : 0) + innerNetworkHeight + (isPreviewing ? 8 : 0);
+  const descriptionAreaY = contentAreaY + innerNetworkHeight + (isPreviewing ? 8 : 0);
 
   // No longer need text width calculation since arrows are in top-right corner
 
@@ -166,6 +166,13 @@ const Node = ({
 
   // Calculate dynamic text color based on node background
   const nodeTextColor = useMemo(() => getTextColor(node.color || '#800000'), [node.color]);
+
+  // For previewing, we want text to wrap exactly as it did when unexpanded
+  const unexpandedDims = React.useMemo(() => {
+    // Pass a dummy descriptionContent if needed, or null if getNodeDimensions doesn't use it for unexpanded
+    return isPreviewing ? getNodeDimensions(node, false, null) : null;
+  }, [node, isPreviewing]);
+  const previewTextMaxWidth = unexpandedDims ? unexpandedDims.currentWidth - 56 : undefined; // 56px = 2 * 28px (padding for unexpanded node name)
 
   // Determine if text will be multiline for conditional padding
   const isMultiline = useMemo(() => {
@@ -329,7 +336,7 @@ const Node = ({
         <clipPath id={innerClipPathId}>
           <rect
             x={nodeX + NODE_PADDING} // Use absolute nodeX
-            y={contentAreaY + (isPreviewing ? INNER_CANVAS_PADDING : 0) + 0.01} // Use calculated absolute contentAreaY + offset
+            y={contentAreaY + 0.01} // Use calculated absolute contentAreaY + offset
             width={innerNetworkWidth}
             height={innerNetworkHeight}
             rx={16}
@@ -343,7 +350,7 @@ const Node = ({
           {isPreviewing && innerNetworkWidth > 0 && innerNetworkHeight > 0 && (
             <rect
               x={nodeX + NODE_PADDING}
-              y={contentAreaY + (isPreviewing ? INNER_CANVAS_PADDING : 0) + 0.01}
+              y={contentAreaY + 0.01}
               width={innerNetworkWidth}
               height={innerNetworkHeight}
               rx={16}
@@ -370,21 +377,10 @@ const Node = ({
         style={{ transition: 'width 0.3s ease, height 0.3s ease, fill 0.2s ease' }}
       />
 
-      {/* ForeignObject for Name - Use absolute coords */}
       <foreignObject
-        x={(() => {
-          if (!isPreviewing) return nodeX; // normal mode
-          // Reserve space for header buttons on the left and nav on the right
-          const reserveLeft = hasAnyDefinitions ? 110 : 40;
-          return nodeX - reserveLeft;
-        })()} // Expand left in preview to preserve text wrap width
+        x={nodeX}
         y={nodeY} // Use absolute nodeY
-        width={(() => {
-          if (!isPreviewing) return currentWidth; // normal mode
-          const reserveLeft = hasAnyDefinitions ? 110 : 40;
-          const reserveRight = hasAnyDefinitions ? 140 : 40;
-          return currentWidth + reserveLeft + reserveRight;
-        })()}
+        width={currentWidth}
         height={textAreaHeight}
         style={{
           transition: 'width 0.3s ease, height 0.3s ease',
@@ -401,17 +397,13 @@ const Node = ({
             justifyContent: isPreviewing ? (isMultiline ? 'flex-start' : 'center') : 'center',
             width: '100%',
             height: '100%',
-            // Use a single computed side padding consistently between
-            // wrapping calculation and applied styles
             padding: (() => {
               const baseSidePadding = (isMultiline ? 30 : 22);
               if (!isPreviewing) {
                 return `20px ${baseSidePadding}px`;
               }
-              // In preview, compensate for reserved button space without changing text wrap width
-              const reserveLeft = hasAnyDefinitions ? 110 : 40;
-              const reserveRight = hasAnyDefinitions ? 140 : 40;
-              return `28px ${reserveRight + baseSidePadding}px 15px ${reserveLeft + baseSidePadding}px`;
+              // Standard padding, let maxWidth handle the wrap constraint identically to unexpanded nodes
+              return `26px ${baseSidePadding}px 20px ${baseSidePadding}px`;
             })(),
             boxSizing: 'border-box',
             pointerEvents: isEditingOnCanvas ? 'auto' : 'none',
@@ -445,6 +437,7 @@ const Node = ({
                 minWidth: 0,
                 display: 'inline-block',
                 width: '100%',
+                maxWidth: isPreviewing && previewTextMaxWidth ? `${previewTextMaxWidth}px` : '100%',
                 transition: 'color 0.3s ease',
                 hyphens: 'auto',
               }}
@@ -491,7 +484,7 @@ const Node = ({
               <>
                 <foreignObject
                   x={nodeX + NODE_PADDING}
-                  y={contentAreaY + INNER_CANVAS_PADDING}
+                  y={contentAreaY}
                   width={Math.max(1, innerNetworkWidth)}
                   height={Math.max(1, innerNetworkHeight)}
                   style={{ pointerEvents: 'auto' }}
@@ -579,7 +572,7 @@ const Node = ({
               // Show "Create Definition" interface when no definitions exist
               <foreignObject
                 x={nodeX + NODE_PADDING}
-                y={contentAreaY + INNER_CANVAS_PADDING}
+                y={contentAreaY}
                 width={innerNetworkWidth}
                 height={innerNetworkHeight}
                 style={{
@@ -723,7 +716,7 @@ const Node = ({
           {/* Plus Button - Left side of title area */}
           <foreignObject
             x={nodeX + 25} // Closer to title
-            y={nodeY + (textAreaHeight / 2) - 16} // Center vertically with title
+            y={nodeY + (textAreaHeight / 2) - 13} // Center vertically with title
             width={32}
             height={32}
             style={{
@@ -763,7 +756,7 @@ const Node = ({
           {hasAnyDefinitions && (
             <foreignObject
               x={nodeX + 55} // Position closer to plus button
-              y={nodeY + (textAreaHeight / 2) - 16} // Center vertically with title
+              y={nodeY + (textAreaHeight / 2) - 13} // Center vertically with title
               width={32}
               height={32}
               style={{
@@ -818,7 +811,7 @@ const Node = ({
           {hasAnyDefinitions && (
             <foreignObject
               x={nodeX + 85} // Position closer to delete button
-              y={nodeY + (textAreaHeight / 2) - 16} // Center vertically with title
+              y={nodeY + (textAreaHeight / 2) - 13} // Center vertically with title
               width={32}
               height={32}
               style={{
@@ -856,7 +849,7 @@ const Node = ({
           {hasAnyDefinitions && (
             <foreignObject
               x={nodeX + 115} // Position to the right of expand button
-              y={nodeY + (textAreaHeight / 2) - 16} // Center vertically with title
+              y={nodeY + (textAreaHeight / 2) - 13} // Center vertically with title
               width={32}
               height={32}
               style={{
@@ -909,7 +902,7 @@ const Node = ({
                 {/* Left Arrow - Navigate to previous definition */}
                 <foreignObject
                   x={leftArrowX}
-                  y={nodeY + (textAreaHeight / 2) - 16} // Center vertically with title
+                  y={nodeY + (textAreaHeight / 2) - 13} // Center vertically with title
                   width={arrowSize}
                   height={arrowSize}
                   style={{
@@ -958,7 +951,7 @@ const Node = ({
                 {/* Number Indicator - Show current definition index */}
                 <foreignObject
                   x={numberX}
-                  y={nodeY + (textAreaHeight / 2) - 16} // Center vertically with title
+                  y={nodeY + (textAreaHeight / 2) - 13} // Center vertically with title
                   width={numberWidth}
                   height={32}
                   style={{
@@ -1007,7 +1000,7 @@ const Node = ({
                 {/* Right Arrow - Navigate to next definition */}
                 <foreignObject
                   x={rightArrowX}
-                  y={nodeY + (textAreaHeight / 2) - 16} // Center vertically with title
+                  y={nodeY + (textAreaHeight / 2) - 13} // Center vertically with title
                   width={arrowSize}
                   height={arrowSize}
                   style={{

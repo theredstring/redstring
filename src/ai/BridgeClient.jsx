@@ -2,8 +2,62 @@ import { useEffect, useRef } from 'react';
 import useGraphStore from '../store/graphStore.jsx';
 import { bridgeEventSource, bridgeFetch } from '../services/bridgeConfig.js';
 import { navigateOnGraphSwitch } from '../services/canvasNavigationService.js';
+import { applyLayout, FORCE_LAYOUT_DEFAULTS } from '../services/graphLayoutService.js';
 
 const MAX_LAYOUT_NODES = 400;
+
+/**
+ * Apply force-directed layout to a graph that isn't currently rendered (no DOM dimensions).
+ * Reads instances/edges from the store, uses estimated node sizes, and writes positions back.
+ */
+function applyOffscreenLayout(st, graphId) {
+  const graph = st.graphs.get(graphId);
+  if (!graph) return;
+
+  const instances = Array.from(graph.instances?.values() || []);
+  if (instances.length === 0) return;
+
+  const nodeSpacing = FORCE_LAYOUT_DEFAULTS.nodeSpacing || 140;
+  const defaultSize = 180;
+
+  const layoutNodes = instances.map(inst => {
+    const proto = st.nodePrototypes.get(inst.prototypeId);
+    const name = proto?.name || '';
+    const estimatedWidth = Math.max(defaultSize, name.length * 12 + 60);
+    const estimatedHeight = defaultSize;
+    return {
+      id: inst.id,
+      prototypeId: inst.prototypeId,
+      x: typeof inst.x === 'number' ? inst.x : 0,
+      y: typeof inst.y === 'number' ? inst.y : 0,
+      width: estimatedWidth,
+      height: estimatedHeight,
+      labelWidth: estimatedWidth,
+      labelHeight: estimatedHeight,
+      imageHeight: 0,
+      nodeSize: Math.max(estimatedWidth, estimatedHeight, nodeSpacing)
+    };
+  });
+
+  const edges = Array.from(graph.edges?.values() || []);
+  const layoutEdges = edges
+    .filter(e => e && e.sourceId && e.destinationId)
+    .map(e => ({ sourceId: e.sourceId, destinationId: e.destinationId }));
+
+  const updates = applyLayout(layoutNodes, layoutEdges, 'force-directed', {
+    width: 2000,
+    height: 2000,
+    padding: 300,
+    useExistingPositions: false,
+  });
+
+  if (updates && updates.length > 0) {
+    st.updateMultipleNodeInstancePositions(graphId, updates, {
+      finalize: true, source: 'auto-layout', algorithm: 'force-directed'
+    });
+    console.error('[BridgeClient] Applied offscreen auto-layout to graph', graphId, 'for', updates.length, 'nodes');
+  }
+}
 const MAX_SUMMARY_EDGES = 600;
 
 const normalizeId = (val, keyHint) => {
@@ -901,11 +955,16 @@ const BridgeClient = () => {
 
               st.applyBulkGraphUpdates(gId, bulkData);
 
-              setTimeout(() => {
-                if (typeof window !== 'undefined') {
-                  window.dispatchEvent(new CustomEvent('rs-trigger-auto-layout', { detail: { graphId: gId } }));
-                }
-              }, 600);
+              // Auto-layout: offscreen if not active, DOM-based if active
+              if (gId !== st.activeGraphId) {
+                applyOffscreenLayout(st, gId);
+              } else {
+                setTimeout(() => {
+                  if (typeof window !== 'undefined') {
+                    window.dispatchEvent(new CustomEvent('rs-trigger-auto-layout', { detail: { graphId: gId } }));
+                  }
+                }, 600);
+              }
 
               const nodeNames = result.spec.nodes.map(n => n.name);
               setTimeout(() => {
@@ -943,11 +1002,16 @@ const BridgeClient = () => {
 
               st.applyBulkGraphUpdates(gId, bulkData);
 
-              setTimeout(() => {
-                if (typeof window !== 'undefined') {
-                  window.dispatchEvent(new CustomEvent('rs-trigger-auto-layout', { detail: { graphId: gId } }));
-                }
-              }, 600);
+              // Auto-layout: offscreen if not active, DOM-based if active
+              if (gId !== st.activeGraphId) {
+                applyOffscreenLayout(st, gId);
+              } else {
+                setTimeout(() => {
+                  if (typeof window !== 'undefined') {
+                    window.dispatchEvent(new CustomEvent('rs-trigger-auto-layout', { detail: { graphId: gId } }));
+                  }
+                }, 600);
+              }
 
               const nodeNames = result.spec.nodes.map(n => n.name);
               setTimeout(() => {
@@ -1347,13 +1411,14 @@ const BridgeClient = () => {
 
               // The prototypeId from the tool is a PREDICTIVE ID from AgentLoop
               // which doesn't match the real store. Resolve by NAME instead.
+              // Take LAST match — Maps iterate in insertion order, and the most recently
+              // created prototype is the one the user just made.
               let realPrototypeId = result.prototypeId;
               const nodeName = (result.nodeName || '').toLowerCase().trim();
               if (nodeName) {
                 for (const [pid, proto] of st.nodePrototypes) {
                   if ((proto.name || '').toLowerCase().trim() === nodeName) {
                     realPrototypeId = pid;
-                    break;
                   }
                 }
               }
@@ -1869,14 +1934,13 @@ const BridgeClient = () => {
                       results.push({ type: op.type, ok: true, id: op.graphId });
                       break;
                     case 'addDefinitionGraph': {
-                      // Resolve prototype by NAME (predictive IDs from AgentLoop don't match real store)
+                      // Resolve prototype by NAME — take LAST match (most recently created)
                       let realProtoId = op.prototypeId;
                       const nameSearch = (op.nodeName || '').toLowerCase().trim();
                       if (nameSearch) {
                         for (const [pid, proto] of store.nodePrototypes) {
                           if ((proto.name || '').toLowerCase().trim() === nameSearch) {
                             realProtoId = pid;
-                            break;
                           }
                         }
                       }

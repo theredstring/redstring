@@ -10,6 +10,7 @@ import { HEADER_HEIGHT } from '../../../constants.js';
 import ToolCallCard from '../../ToolCallCard.jsx';
 import { DRUID_SYSTEM_PROMPT } from '../../../services/agent/DruidPrompt.js';
 import useGraphStore from '../../../store/graphStore.jsx';
+import { applyLayout, FORCE_LAYOUT_DEFAULTS } from '../../../services/graphLayoutService.js';
 import DruidInstance from '../../../services/DruidInstance.js';
 import { searchWikipedia, getWikipediaPage, getWikipediaImages } from '../SharedPanelContent.jsx';
 import { normalizeLabel, calculateTextSimilarity } from '../../../services/entityMatching.js';
@@ -217,6 +218,63 @@ async function enrichMultipleNodes(nodeNames, graphId) {
   console.log(`[Auto-Enrich] Enriched ${successful}/${nodeNames.length} nodes`);
 
   return results;
+}
+
+/**
+ * Apply force-directed layout to a graph that isn't currently rendered (no DOM dimensions).
+ * Reads instances/edges from the store, uses estimated node sizes, and writes positions back.
+ */
+function applyOffscreenLayout(store, graphId) {
+  const graph = store.graphs.get(graphId);
+  if (!graph) return;
+
+  const instances = Array.from(graph.instances?.values() || []);
+  if (instances.length === 0) return;
+
+  const nodeSpacing = FORCE_LAYOUT_DEFAULTS.nodeSpacing || 140;
+  const defaultSize = 180; // reasonable default for nodes without DOM measurement
+
+  const layoutNodes = instances.map(inst => {
+    const proto = store.nodePrototypes.get(inst.prototypeId);
+    const name = proto?.name || '';
+    // Estimate width based on name length (rough heuristic)
+    const estimatedWidth = Math.max(defaultSize, name.length * 12 + 60);
+    const estimatedHeight = defaultSize;
+    return {
+      id: inst.id,
+      prototypeId: inst.prototypeId,
+      x: typeof inst.x === 'number' ? inst.x : 0,
+      y: typeof inst.y === 'number' ? inst.y : 0,
+      width: estimatedWidth,
+      height: estimatedHeight,
+      labelWidth: estimatedWidth,
+      labelHeight: estimatedHeight,
+      imageHeight: 0,
+      nodeSize: Math.max(estimatedWidth, estimatedHeight, nodeSpacing)
+    };
+  });
+
+  const edges = Array.from(graph.edges?.values() || []);
+  const layoutEdges = edges
+    .filter(e => e && e.sourceId && e.destinationId)
+    .map(e => ({ sourceId: e.sourceId, destinationId: e.destinationId }));
+
+  const layoutWidth = 2000;
+  const layoutHeight = 2000;
+
+  const updates = applyLayout(layoutNodes, layoutEdges, 'force-directed', {
+    width: layoutWidth,
+    height: layoutHeight,
+    padding: 300,
+    useExistingPositions: false,
+  });
+
+  if (updates && updates.length > 0) {
+    store.updateMultipleNodeInstancePositions(graphId, updates, {
+      finalize: true, source: 'auto-layout', algorithm: 'force-directed'
+    });
+    console.log('[Wizard] Applied offscreen auto-layout to graph', graphId, 'for', updates.length, 'nodes');
+  }
 }
 
 /**
@@ -834,6 +892,83 @@ function applyToolResultToStore(toolName, result, toolCallId) {
     return;
   }
 
+  // Handle addDefinitionGraph — create a definition graph for a node WITHOUT changing activeGraphId
+  if (result.action === 'addDefinitionGraph') {
+    const graphId = result.graphId;
+    const nodeName = (result.nodeName || '').toLowerCase().trim();
+    console.log('[Wizard] Applying addDefinitionGraph to store:', result.nodeName, '→', graphId);
+
+    // Resolve prototype by name — take LAST match (most recently created)
+    // because Maps iterate in insertion order and there may be old prototypes with the same name
+    let realProtoId = result.prototypeId;
+    if (nodeName) {
+      for (const [pid, proto] of store.nodePrototypes) {
+        if ((proto.name || '').toLowerCase().trim() === nodeName) {
+          realProtoId = pid;
+          // Don't break — take the LAST match (most recently created prototype)
+        }
+      }
+    }
+
+    if (!realProtoId) {
+      console.error('[Wizard] addDefinitionGraph: Could not find prototype for:', result.nodeName);
+      return;
+    }
+
+    store.createDefinitionGraphWithId(graphId, realProtoId);
+    console.log('[Wizard] Successfully created definition graph:', graphId, 'for prototype:', realProtoId);
+    return;
+  }
+
+  // Handle removeDefinitionGraph — remove a definition graph from a node
+  if (result.action === 'removeDefinitionGraph') {
+    const nodeName = (result.nodeName || '').toLowerCase().trim();
+    console.log('[Wizard] Applying removeDefinitionGraph to store:', result.nodeName);
+
+    // Resolve prototype by name — take LAST match (most recently created)
+    let realProtoId = null;
+    if (nodeName) {
+      for (const [pid, proto] of store.nodePrototypes) {
+        if ((proto.name || '').toLowerCase().trim() === nodeName) {
+          realProtoId = pid;
+        }
+      }
+    }
+
+    if (!realProtoId) {
+      console.error('[Wizard] removeDefinitionGraph: Could not find prototype for:', result.nodeName);
+      return;
+    }
+
+    const proto = store.nodePrototypes.get(realProtoId);
+    const newDefIds = (proto.definitionGraphIds || []).filter(id => id !== result.graphId);
+    store.updateNodePrototype(realProtoId, { definitionGraphIds: newDefIds });
+    store.deleteGraph(result.graphId);
+    console.log('[Wizard] Successfully removed definition graph:', result.graphId, 'from:', result.nodeName);
+    return;
+  }
+
+  // Handle switchToGraph — change the active graph (explicit user navigation)
+  if (result.action === 'switchToGraph') {
+    console.log('[Wizard] Applying switchToGraph to store:', result.graphId, result.graphName);
+    const targetGraph = store.graphs.get(result.graphId);
+    if (!targetGraph) {
+      console.error('[Wizard] switchToGraph: Graph not found:', result.graphId);
+      return;
+    }
+    store.openGraphTabAndBringToTop(result.graphId);
+    // Dispatch navigation event for canvas
+    setTimeout(() => {
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('rs-navigate-graph', {
+          detail: { graphId: result.graphId }
+        }));
+      }
+    }, 100);
+    console.log('[Wizard] Successfully switched to graph:', result.graphId);
+    return;
+  }
+
   // Handle createPopulatedGraph
   if (result.action === 'createPopulatedGraph' && result.spec) {
     console.log('[Wizard] Applying createPopulatedGraph to store:', result.graphName);
@@ -874,17 +1009,18 @@ function applyToolResultToStore(toolName, result, toolCallId) {
 
     console.log('[Wizard] Successfully populated graph:', graphId);
 
-    // 4. Trigger auto-layout so nodes get properly positioned
-    //    (same as clicking Edit > Auto-Layout from the menu)
-    //    Use a delay to ensure the graph is fully rendered with node dimensions
-    setTimeout(() => {
-      if (typeof window !== 'undefined') {
-        console.log('[Wizard] Triggering auto-layout for new graph:', graphId);
-        window.dispatchEvent(new CustomEvent('rs-trigger-auto-layout', {
-          detail: { graphId }
-        }));
-      }
-    }, 600);
+    // 4. Auto-layout: use offscreen layout if not active, otherwise trigger DOM-based layout
+    if (graphId !== store.activeGraphId) {
+      applyOffscreenLayout(store, graphId);
+    } else {
+      setTimeout(() => {
+        if (typeof window !== 'undefined') {
+          window.dispatchEvent(new CustomEvent('rs-trigger-auto-layout', {
+            detail: { graphId }
+          }));
+        }
+      }, 600);
+    }
 
     // 5. NEW: Launch batch Wikipedia enrichment asynchronously
     // Wait 1s for nodes to be fully created in store
@@ -932,15 +1068,18 @@ function applyToolResultToStore(toolName, result, toolCallId) {
 
     console.log('[Wizard] Successfully expanded graph:', activeGraphId);
 
-    // Trigger auto-layout so new nodes get properly positioned
-    setTimeout(() => {
-      if (typeof window !== 'undefined') {
-        console.log('[Wizard] Triggering auto-layout for expanded graph:', activeGraphId);
-        window.dispatchEvent(new CustomEvent('rs-trigger-auto-layout', {
-          detail: { graphId: activeGraphId }
-        }));
-      }
-    }, 600);
+    // Auto-layout: use offscreen layout if not active, otherwise trigger DOM-based layout
+    if (activeGraphId !== store.activeGraphId) {
+      applyOffscreenLayout(store, activeGraphId);
+    } else {
+      setTimeout(() => {
+        if (typeof window !== 'undefined') {
+          window.dispatchEvent(new CustomEvent('rs-trigger-auto-layout', {
+            detail: { graphId: activeGraphId }
+          }));
+        }
+      }, 600);
+    }
 
     // NEW: Launch batch Wikipedia enrichment asynchronously
     // Wait 1s for nodes to be fully created in store

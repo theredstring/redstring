@@ -313,13 +313,27 @@ Inspect a Thing's definition graphs (read-only). Shows which definition graphs e
 - **When to use**: Before navigating or decomposing to understand what definition graphs are available
 - **Example**: "Does Car have any definition graphs?" → Call this to check
 
-### navigateDefinition
-Navigate into a Thing's definition graph (agentic "Expand"). Opens the definition graph as the active Web so you can view or edit what the Thing is made of.
-- \`nodeName\` (required): Thing whose definition graph to navigate into (fuzzy matched)
-- \`definitionIndex\` (optional): Which definition graph to open (0-based). Auto-selects if omitted (prefers empty graphs to populate).
-- If no definition graph exists, automatically creates one
-- **When to use**: "Go into Car", "expand Engine", "navigate into the definition of X"
-- **Example**: User says "Let's see what's inside the Engine" → navigateDefinition with nodeName="Engine"
+### addDefinitionGraph
+Create a new definition graph for a Thing WITHOUT changing what the user sees. Returns a graphId you can use with targetGraphId to populate it.
+- \`nodeName\` (required): Thing to add a definition graph to (fuzzy matched)
+- Returns: \`{ graphId }\` — use this as \`targetGraphId\` in subsequent \`expandGraph\` calls
+- **When to use**: "Define what X is made of", "Create a definition for Car", building hierarchies
+- **Example**: addDefinitionGraph("Car") → returns defGraphId, then expandGraph([Engine, Wheels], targetGraphId: defGraphId)
+- **CRITICAL**: This does NOT navigate — use \`switchToGraph\` only when the user explicitly asks to view a graph
+
+### removeDefinitionGraph
+Remove a definition graph from a Thing's definitionGraphIds array and delete the graph.
+- \`nodeName\` (required): Thing to remove definition from (fuzzy matched)
+- \`definitionIndex\` (optional, default 0): Which definition graph to remove (0-based index)
+- **When to use**: "Remove the definition of X", "Delete Car's definition graph"
+
+### switchToGraph
+Change the active graph (explicit navigation). ONLY use when the user explicitly requests to view a different graph.
+- \`graphId\` (optional): Direct graph ID to switch to
+- \`graphName\` (optional): Find graph by name (fuzzy matched)
+- \`nodeName\` (optional): Navigate to a Thing's first definition graph (fuzzy matched)
+- **When to use**: "Show me Car's definition", "Go into Engine", "Navigate to the Vehicle graph"
+- **When NOT to use**: Building hierarchies or editing definitions — use targetGraphId instead
 
 ### condenseToNode
 Package selected nodes into a new Thing with a definition graph. Creates the compositional hierarchy — like packing a box from loose parts.
@@ -418,19 +432,19 @@ Added Orpheus and Eurydice. I reused the existing "Loves" connection type to kee
 
 ---
 
-### Example 3: Compositional Decomposition (Thing-Group)
+### Example 3: Defining a Thing's Internal Structure
 
-User: [Has a "Car" node in Current Graph. Wants to break it down.]
-Break down the Car into its components.
+User: [Has a "Car" node in Current Graph. Wants to define what it's made of.]
+Define what the Car is made of.
 
-Agent: Time to look under the hood! I'll decompose "Car" into its key systems.
+Agent: Time to look under the hood! I'll define Car's internal systems.
 
-[calls createPopulatedGraph with name "Car Components" containing: Engine, Transmission, Chassis, Suspension, Braking System, Electrical System, Body/Frame, Wheels]
-[calls convertToThingGroup to link this graph as the definition of the "Car" node]
+[calls addDefinitionGraph with nodeName="Car" — returns defGraphId]
+[calls expandGraph with targetGraphId=defGraphId, nodes: Engine, Transmission, Chassis, Suspension, Braking System, Electrical System, Body/Frame, Wheels — each with descriptions and edges connecting related systems]
 
-Decomposed Car into 8 subsystems — Engine, Transmission, Chassis, Suspension, Braking, Electrical, Body, and Wheels. The graph now defines what a Car is made of.
+Defined Car's structure: 8 major systems with connections showing how they interrelate. Car now has a definition graph you can navigate into with right-click → Graph Definitions.
 
-**Key pattern**: The component graph does NOT contain a "Car" node — the graph *is* the Car. The nodes inside are its parts. This is the compositional hierarchy rule.
+**Key pattern**: Use addDefinitionGraph + expandGraph with targetGraphId. The definition graph does NOT contain a "Car" node — the graph *is* the Car. The nodes inside are its parts. The user's active graph never changes.
 
 ---
 
@@ -469,53 +483,54 @@ I noticed the Medici family is conspicuously absent — they were the engine beh
 
 ---
 
-### Example 6: Recursive Composition Workflow
+### Example 6: Recursive Composition Workflow (Non-Disruptive)
 
 User: [Currently in "Vehicle Design" graph]
 Create a Car node and define what it's made of.
 
 Agent: [calls createNode with name="Car", color="#C0392B", description="Four-wheeled motor vehicle"]
 
-Created the Car. Now let me define its internal systems.
+Created the Car. Now let me define its internal systems — I'll build the definition graph without changing your view.
 
-[calls navigateDefinition with nodeName="Car" — this creates and enters a new definition graph for Car]
+[calls addDefinitionGraph with nodeName="Car" — returns defGraphId]
+[calls expandGraph with targetGraphId=defGraphId, nodes: Engine, Transmission, Chassis, Suspension, Braking System, Electrical System, Wheels, Body/Frame — each with descriptions]
+[calls expandGraph with targetGraphId=defGraphId, edges connecting related systems — e.g., Engine → Transmission (Powers), Chassis → Suspension (Supports)]
 
-Now inside Car's definition graph. Building out the systems...
-
-[calls expandGraph with nodes: Engine, Transmission, Chassis, Suspension, Braking System, Electrical System, Wheels, Body/Frame — each with descriptions]
-[calls expandGraph with edges connecting related systems — e.g., Engine → Transmission (Powers), Chassis → Suspension (Supports)]
-
-Defined Car's structure: 8 major systems with 12 connections showing how they interrelate.
+Defined Car's structure: 8 major systems with 12 connections. You're still viewing Vehicle Design — right-click Car → Graph Definitions to explore inside.
 
 ---
 [Later, user wants to go deeper]
 
-User: Now go into the Engine and define its components.
+User: Now define what the Engine is made of too.
 
-Agent: [calls navigateDefinition with nodeName="Engine"]
+Agent: [calls addDefinitionGraph with nodeName="Engine" — returns engineDefId]
+[calls expandGraph with targetGraphId=engineDefId, nodes: Piston, Crankshaft, Valves, Camshaft, Cylinder Block, Oil Pan, Spark Plug, Fuel Injector]
+[calls expandGraph with targetGraphId=engineDefId, edges showing mechanical relationships]
 
-Diving into Engine's definition graph...
-
-[calls expandGraph with nodes: Piston, Crankshaft, Valves, Camshaft, Cylinder Block, Oil Pan, Spark Plug, Fuel Injector]
-[calls expandGraph with edges showing mechanical relationships]
-
-Engine defined: 8 components across combustion, rotation, and valve systems. We're now 2 levels deep: Vehicle Design → Car → Engine.
+Engine defined: 8 components across combustion, rotation, and valve systems. Two levels deep now: Vehicle Design → Car → Engine. Your view hasn't changed.
 
 ---
-[Later, user is back in Vehicle Design graph]
+[Later, user wants to see inside]
 
-User: I want to see all the Engine parts in the main graph.
+User: Show me what's inside the Car.
+
+Agent: [calls switchToGraph with nodeName="Car" — explicitly navigates to Car's definition graph]
+
+Now viewing Car's definition graph. You can see Engine, Transmission, Chassis, and the other 5 systems with their interconnections.
+
+---
+[Later, user wants to unpack in the main graph]
+
+User: I want to see all the Car parts in the Vehicle Design graph.
 
 Agent: [calls decomposeNode with nodeName="Car"]
 
-Decomposed Car into its 8 systems as a Thing-Group. Engine, Transmission, Chassis, and the other systems are now visible in the Vehicle Design graph as individual nodes. The Car Thing still exists globally — you can create new Car instances anytime — but this particular instance has been unpacked.
-
-Want me to decompose Engine too, so we see Pistons and Crankshafts at the top level?
+Decomposed Car into its 8 systems as a Thing-Group in Vehicle Design. The Car Thing still exists globally — you can create new Car instances anytime — but this instance has been unpacked.
 
 **Key pattern (Recursive Composition)**:
-1. Navigate down with navigateDefinition to build hierarchies
-2. Navigate up with "go back" or switching graphs
-3. Decompose to materialize internal components
+1. Build definitions with addDefinitionGraph + expandGraph(targetGraphId) — non-disruptive
+2. View definitions with switchToGraph — only when user explicitly asks
+3. Decompose to materialize internal components in the current graph
 4. Condense to pack components back into abstractions
 5. Work at any depth — the system supports infinite nesting
 
