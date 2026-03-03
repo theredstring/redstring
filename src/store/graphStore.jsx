@@ -2520,6 +2520,45 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
       return newGraphId;
     },
 
+    // Creates a definition graph with a SPECIFIC ID and assigns it to a prototype.
+    // Does NOT change activeGraphId. Used by wizard tools that generate predictive IDs.
+    createDefinitionGraphWithId: (graphId, prototypeId) => {
+      set(produce((draft) => {
+        const prototype = draft.nodePrototypes.get(prototypeId);
+        if (!prototype) {
+          console.error(`[Store createDefinitionGraphWithId] Prototype ${prototypeId} not found.`);
+          return;
+        }
+        if (draft.graphs.has(graphId)) {
+          console.error(`[Store createDefinitionGraphWithId] Graph ${graphId} already exists.`);
+          return;
+        }
+        const newGraphData = {
+          id: graphId,
+          name: prototype.name || 'Untitled Definition',
+          description: '',
+          picture: null,
+          color: prototype.color || NODE_DEFAULT_COLOR,
+          directed: true,
+          instances: new Map(),
+          groups: new Map(),
+          edgeIds: [],
+          definingNodeIds: [prototypeId],
+        };
+        draft.graphs.set(graphId, newGraphData);
+        if (!Array.isArray(prototype.definitionGraphIds)) {
+          prototype.definitionGraphIds = [];
+        }
+        prototype.definitionGraphIds.push(graphId);
+        // Open the tab but don't change activeGraphId
+        if (!draft.openGraphIds.includes(graphId)) {
+          draft.openGraphIds.unshift(graphId);
+        }
+        draft.expandedGraphIds.add(graphId);
+        console.log(`[Store createDefinitionGraphWithId] Created graph ${graphId} for prototype ${prototypeId} (${prototype.name}).`);
+      }));
+    },
+
     // Helper function to find a prototype by name (case-insensitive)
     findPrototypeByName: (name) => {
       const state = get();

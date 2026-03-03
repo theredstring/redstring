@@ -1343,14 +1343,32 @@ const BridgeClient = () => {
               console.log('MCPBridge: Calling addDefinitionGraph', result.nodeName);
               const st = useGraphStore.getState();
 
-              // Create definition graph WITHOUT changing activeGraphId
-              const graphId = st.createAndAssignGraphDefinition(result.prototypeId);
+              const graphId = result.graphId;
 
-              // Open the tab but DON'T navigate (keeps user's active graph unchanged)
-              st.openGraphTabAndBringToTop(graphId);
+              // The prototypeId from the tool is a PREDICTIVE ID from AgentLoop
+              // which doesn't match the real store. Resolve by NAME instead.
+              let realPrototypeId = result.prototypeId;
+              const nodeName = (result.nodeName || '').toLowerCase().trim();
+              if (nodeName) {
+                for (const [pid, proto] of st.nodePrototypes) {
+                  if ((proto.name || '').toLowerCase().trim() === nodeName) {
+                    realPrototypeId = pid;
+                    break;
+                  }
+                }
+              }
 
-              console.error('[BridgeClient] addDefinitionGraph: Created graph', graphId, 'for prototype', result.prototypeId);
-              return { success: true, graphId, prototypeId: result.prototypeId, nodeName: result.nodeName };
+              console.error('[BridgeClient] addDefinitionGraph: Resolved prototype', result.prototypeId, '→', realPrototypeId, 'for', result.nodeName);
+
+              // Use the dedicated store function that creates a graph with a specific ID
+              st.createDefinitionGraphWithId(graphId, realPrototypeId);
+
+              // Verify it was created
+              const verify = useGraphStore.getState();
+              const created = verify.graphs.has(graphId);
+              console.error('[BridgeClient] addDefinitionGraph:', created ? 'SUCCESS' : 'FAILED', '| graphId:', graphId, '| realProtoId:', realPrototypeId);
+
+              return { success: created, graphId, prototypeId: realPrototypeId, nodeName: result.nodeName };
             },
 
             removeDefinitionGraph: async (result) => {
@@ -1851,18 +1869,29 @@ const BridgeClient = () => {
                       results.push({ type: op.type, ok: true, id: op.graphId });
                       break;
                     case 'addDefinitionGraph': {
-                      // Create a new definition graph for a node without changing activeGraphId
-                      const graphId = store.createAndAssignGraphDefinition(op.prototypeId);
-                      // Open the tab but DON'T navigate (keeps user's active graph unchanged)
-                      store.openGraphTabAndBringToTop(graphId);
+                      // Resolve prototype by NAME (predictive IDs from AgentLoop don't match real store)
+                      let realProtoId = op.prototypeId;
+                      const nameSearch = (op.nodeName || '').toLowerCase().trim();
+                      if (nameSearch) {
+                        for (const [pid, proto] of store.nodePrototypes) {
+                          if ((proto.name || '').toLowerCase().trim() === nameSearch) {
+                            realProtoId = pid;
+                            break;
+                          }
+                        }
+                      }
+
+                      store.createDefinitionGraphWithId(op.graphId, realProtoId);
+
+                      const created = useGraphStore.getState().graphs.has(op.graphId);
+                      console.error('[BridgeClient] addDefinitionGraph (applyMutations):', created ? 'SUCCESS' : 'FAILED', '| graphId:', op.graphId, '| resolvedProto:', realProtoId);
+
                       try {
-                        const s2 = useGraphStore.getState();
-                        const proto = s2.nodePrototypes.get(op.prototypeId);
+                        const proto = useGraphStore.getState().nodePrototypes.get(realProtoId);
                         const friendly = `Created definition graph for "${proto?.name || op.nodeName}"`;
                         window.dispatchEvent(new CustomEvent('rs-telemetry', { detail: [{ ts: Date.now(), type: 'info', name: 'applyMutations', message: friendly }] }));
-                        console.error('[BridgeClient] addDefinitionGraph: Created graph', graphId, 'for prototype', op.prototypeId);
                       } catch { }
-                      results.push({ type: op.type, ok: true, prototypeId: op.prototypeId, graphId });
+                      results.push({ type: op.type, ok: created, prototypeId: realProtoId, graphId: op.graphId });
                       break;
                     }
                     case 'removeDefinitionGraph': {

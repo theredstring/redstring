@@ -131,7 +131,7 @@ const Node = ({
   const INNER_CANVAS_PADDING = 24;
 
   // Calculate description area position (below InnerNetwork when previewing) with minimal spacing
-  const descriptionAreaY = contentAreaY + innerNetworkHeight + (isPreviewing ? 8 : 0);
+  const descriptionAreaY = contentAreaY + (isPreviewing ? INNER_CANVAS_PADDING : 0) + innerNetworkHeight + (isPreviewing ? 8 : 0);
 
   // No longer need text width calculation since arrows are in top-right corner
 
@@ -329,13 +329,29 @@ const Node = ({
         <clipPath id={innerClipPathId}>
           <rect
             x={nodeX + NODE_PADDING} // Use absolute nodeX
-            y={contentAreaY + 0.01} // Use calculated absolute contentAreaY
+            y={contentAreaY + (isPreviewing ? INNER_CANVAS_PADDING : 0) + 0.01} // Use calculated absolute contentAreaY + offset
             width={innerNetworkWidth}
             height={innerNetworkHeight}
-            rx={NODE_CORNER_RADIUS}
-            ry={NODE_CORNER_RADIUS}
+            rx={16}
+            ry={16}
           />
         </clipPath>
+
+        {/* Mask for creating a true transparent cutout in the node background for the preview area */}
+        <mask id={`${idPrefix}node-mask-${instanceId}`}>
+          <rect x={nodeX - 50} y={nodeY - 50} width={currentWidth + 100} height={currentHeight + 100} fill="white" />
+          {isPreviewing && innerNetworkWidth > 0 && innerNetworkHeight > 0 && (
+            <rect
+              x={nodeX + NODE_PADDING}
+              y={contentAreaY + (isPreviewing ? INNER_CANVAS_PADDING : 0) + 0.01}
+              width={innerNetworkWidth}
+              height={innerNetworkHeight}
+              rx={16}
+              ry={16}
+              fill="black"
+            />
+          )}
+        </mask>
       </defs>
 
       {/* Background Rect - Use absolute coords */}
@@ -350,6 +366,7 @@ const Node = ({
         fill={node.color || 'maroon'}
         stroke={isSelected ? 'black' : 'none'}
         strokeWidth={12}
+        mask={`url(#${idPrefix}node-mask-${instanceId})`}
         style={{ transition: 'width 0.3s ease, height 0.3s ease, fill 0.2s ease' }}
       />
 
@@ -467,20 +484,14 @@ const Node = ({
       {isPreviewing && innerNetworkWidth > 0 && innerNetworkHeight > 0 && (
         <g style={{ transition: 'opacity 0.3s ease', opacity: 1 }} >
           <g clipPath={`url(#${innerClipPathId})`}>
-            <rect
-              x={nodeX + NODE_PADDING} // Use absolute nodeX
-              y={contentAreaY} // Use calculated absolute contentAreaY
-              width={innerNetworkWidth}
-              height={innerNetworkHeight}
-              fill="rgba(255, 255, 255, 0.2)"
-            />
+            {/* The transparent cutout is handled by the mask on the node-background rect */}
 
             {hasAnyDefinitions ? (
               // Show existing graph definition with UniversalNodeRenderer for faithful representations
               <>
                 <foreignObject
                   x={nodeX + NODE_PADDING}
-                  y={contentAreaY}
+                  y={contentAreaY + INNER_CANVAS_PADDING}
                   width={Math.max(1, innerNetworkWidth)}
                   height={Math.max(1, innerNetworkHeight)}
                   style={{ pointerEvents: 'auto' }}
@@ -568,7 +579,7 @@ const Node = ({
               // Show "Create Definition" interface when no definitions exist
               <foreignObject
                 x={nodeX + NODE_PADDING}
-                y={contentAreaY}
+                y={contentAreaY + INNER_CANVAS_PADDING}
                 width={innerNetworkWidth}
                 height={innerNetworkHeight}
                 style={{
@@ -594,7 +605,7 @@ const Node = ({
                     transition: 'all 0.2s ease',
                   }}
                   onMouseEnter={(e) => {
-                    e.currentTarget.style.backgroundColor = 'rgba(255, 255, 255, 0.2)';
+                    e.currentTarget.style.backgroundColor = 'rgba(0, 0, 0, 0.1)';
                   }}
                   onMouseLeave={(e) => {
                     e.currentTarget.style.backgroundColor = 'transparent';
