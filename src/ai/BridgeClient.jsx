@@ -955,16 +955,13 @@ const BridgeClient = () => {
 
               st.applyBulkGraphUpdates(gId, bulkData);
 
-              // Auto-layout: offscreen if not active, DOM-based if active
-              if (gId !== st.activeGraphId) {
-                applyOffscreenLayout(st, gId);
-              } else {
-                setTimeout(() => {
-                  if (typeof window !== 'undefined') {
-                    window.dispatchEvent(new CustomEvent('rs-trigger-auto-layout', { detail: { graphId: gId } }));
-                  }
-                }, 600);
-              }
+              // Auto-layout: offscreen immediately, then event for DOM override
+              applyOffscreenLayout(st, gId);
+              setTimeout(() => {
+                if (typeof window !== 'undefined') {
+                  window.dispatchEvent(new CustomEvent('rs-trigger-auto-layout', { detail: { graphId: gId } }));
+                }
+              }, 600);
 
               const nodeNames = result.spec.nodes.map(n => n.name);
               setTimeout(() => {
@@ -1002,16 +999,13 @@ const BridgeClient = () => {
 
               st.applyBulkGraphUpdates(gId, bulkData);
 
-              // Auto-layout: offscreen if not active, DOM-based if active
-              if (gId !== st.activeGraphId) {
-                applyOffscreenLayout(st, gId);
-              } else {
-                setTimeout(() => {
-                  if (typeof window !== 'undefined') {
-                    window.dispatchEvent(new CustomEvent('rs-trigger-auto-layout', { detail: { graphId: gId } }));
-                  }
-                }, 600);
-              }
+              // Auto-layout: offscreen immediately, then event for DOM override
+              applyOffscreenLayout(st, gId);
+              setTimeout(() => {
+                if (typeof window !== 'undefined') {
+                  window.dispatchEvent(new CustomEvent('rs-trigger-auto-layout', { detail: { graphId: gId } }));
+                }
+              }, 600);
 
               const nodeNames = result.spec.nodes.map(n => n.name);
               setTimeout(() => {
@@ -2016,17 +2010,18 @@ const BridgeClient = () => {
                   )
                 );
 
-                if (structuralChanges.length > 0 && a && typeof window !== 'undefined') {
+                if (structuralChanges.length > 0 && a) {
                   console.log(`MCPBridge: Triggering auto-layout for ${structuralChanges.length} structural change${structuralChanges.length !== 1 ? 's' : ''}`);
 
-                  // Dispatch event to trigger auto-layout (same as manual command)
-                  // This uses the debounced handler in NodeCanvas which batches rapid mutations
-                  window.dispatchEvent(new CustomEvent('rs-trigger-auto-layout', {
-                    detail: { graphId: a }
-                  }));
+                  // Offscreen layout for all graphs (works even if not active)
+                  applyOffscreenLayout(useGraphStore.getState(), a);
 
-                  // Note: Layout completion will trigger view navigation via rs-auto-layout-complete event
-                  // No need to manually navigate here
+                  // Also dispatch event so DOM-based layout can override with real dimensions
+                  if (typeof window !== 'undefined') {
+                    window.dispatchEvent(new CustomEvent('rs-trigger-auto-layout', {
+                      detail: { graphId: a }
+                    }));
+                  }
                 }
               } catch { }
               console.groupEnd();

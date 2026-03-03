@@ -1009,18 +1009,16 @@ function applyToolResultToStore(toolName, result, toolCallId) {
 
     console.log('[Wizard] Successfully populated graph:', graphId);
 
-    // 4. Auto-layout: use offscreen layout if not active, otherwise trigger DOM-based layout
-    if (graphId !== store.activeGraphId) {
-      applyOffscreenLayout(store, graphId);
-    } else {
-      setTimeout(() => {
-        if (typeof window !== 'undefined') {
-          window.dispatchEvent(new CustomEvent('rs-trigger-auto-layout', {
-            detail: { graphId }
-          }));
-        }
-      }, 600);
-    }
+    // 4. Auto-layout: apply offscreen layout immediately (works for all graphs),
+    //    then also dispatch event so DOM-based layout can override with real dimensions
+    applyOffscreenLayout(store, graphId);
+    setTimeout(() => {
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('rs-trigger-auto-layout', {
+          detail: { graphId }
+        }));
+      }
+    }, 600);
 
     // 5. NEW: Launch batch Wikipedia enrichment asynchronously
     // Wait 1s for nodes to be fully created in store
@@ -1068,18 +1066,16 @@ function applyToolResultToStore(toolName, result, toolCallId) {
 
     console.log('[Wizard] Successfully expanded graph:', activeGraphId);
 
-    // Auto-layout: use offscreen layout if not active, otherwise trigger DOM-based layout
-    if (activeGraphId !== store.activeGraphId) {
-      applyOffscreenLayout(store, activeGraphId);
-    } else {
-      setTimeout(() => {
-        if (typeof window !== 'undefined') {
-          window.dispatchEvent(new CustomEvent('rs-trigger-auto-layout', {
-            detail: { graphId: activeGraphId }
-          }));
-        }
-      }, 600);
-    }
+    // Auto-layout: apply offscreen layout immediately (works for all graphs),
+    //    then also dispatch event so DOM-based layout can override with real dimensions
+    applyOffscreenLayout(store, activeGraphId);
+    setTimeout(() => {
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('rs-trigger-auto-layout', {
+          detail: { graphId: activeGraphId }
+        }));
+      }
+    }, 600);
 
     // NEW: Launch batch Wikipedia enrichment asynchronously
     // Wait 1s for nodes to be fully created in store
