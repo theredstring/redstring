@@ -28,23 +28,24 @@ function generateConnectionColor(name) {
 
 /**
  * Replace edges between existing nodes in bulk
- * @param {Object} args - { edges: [{ source, target, type, directionality? }] }
+ * @param {Object} args - { edges: [{ source, target, type, directionality? }], targetGraphId? }
  * @param {Object} graphState - Current graph state
  * @param {string} cid - Conversation ID
  * @param {Function} ensureSchedulerStarted - Function to start scheduler
  * @returns {Promise<Object>} { action, replacements }
  */
 export async function replaceEdges(args, graphState, cid, ensureSchedulerStarted) {
-    const { edges = [] } = args;
+    const { edges = [], targetGraphId } = args;
 
     if (!edges || edges.length === 0) {
         throw new Error('At least one edge is required');
     }
 
     const { activeGraphId } = graphState;
+    const graphId = targetGraphId || activeGraphId;
 
-    if (!activeGraphId) {
-        throw new Error('No active graph. Please open or create a graph first.');
+    if (!graphId) {
+        throw new Error('No target graph specified and no active graph available.');
     }
 
     // Build edge specs with proper title casing and definition nodes
@@ -67,7 +68,7 @@ export async function replaceEdges(args, graphState, cid, ensureSchedulerStarted
 
     return {
         action: 'replaceEdges',
-        graphId: activeGraphId,
+        graphId,
         edgeCount: edgeSpecs.length,
         replacements: edgeSpecs
     };

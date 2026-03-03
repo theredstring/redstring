@@ -1,7 +1,8 @@
 /**
- * expandGraph - Add multiple nodes and edges to the ACTIVE graph
- * 
+ * expandGraph - Add multiple nodes and edges to a graph
+ *
  * Unlike createPopulatedGraph which creates a new graph, this adds to an existing one.
+ * Can target any graph via targetGraphId, or defaults to active graph.
  * Uses the same direct UI application pattern (bypassing the queue) for reliability.
  */
 
@@ -27,23 +28,24 @@ function generateConnectionColor(name) {
 
 /**
  * Expand graph with multiple nodes and edges
- * @param {Object} args - { nodes: [{ name, color?, description? }], edges: [{ source, target, type?, definitionNode? }] }
+ * @param {Object} args - { nodes: [{ name, color?, description? }], edges: [{ source, target, type?, definitionNode? }], targetGraphId?: string }
  * @param {Object} graphState - Current graph state
  * @param {string} cid - Conversation ID
  * @param {Function} ensureSchedulerStarted - Function to start scheduler
  * @returns {Promise<Object>} { action, nodesAdded, edgesAdded, spec }
  */
 export async function expandGraph(args, graphState, cid, ensureSchedulerStarted) {
-  const { nodes = [], edges = [], groups = [] } = args;
+  const { nodes = [], edges = [], groups = [], targetGraphId } = args;
 
   if ((!nodes || nodes.length === 0) && (!edges || edges.length === 0)) {
     throw new Error('At least one node or edge is required');
   }
 
   const { activeGraphId } = graphState;
+  const graphId = targetGraphId || activeGraphId;
 
-  if (!activeGraphId) {
-    throw new Error('No active graph. Please open or create a graph first.');
+  if (!graphId) {
+    throw new Error('No target graph specified and no active graph available.');
   }
 
   // Build node specs
@@ -81,7 +83,7 @@ export async function expandGraph(args, graphState, cid, ensureSchedulerStarted)
   // Return full spec so UI can apply it directly (same pattern as createPopulatedGraph)
   return {
     action: 'expandGraph',
-    graphId: activeGraphId,
+    graphId, // Can be activeGraphId or targetGraphId
     // For ToolCallCard summary (counts)
     nodesAdded: nodeSpecs.map(n => n.name),
     edgesAdded: edgeSpecs,

@@ -1339,23 +1339,52 @@ const BridgeClient = () => {
 
             // --- RECURSIVE COMPOSITION TOOLS ---
 
-            navigateDefinition: async (result) => {
-              console.log('MCPBridge: Calling navigateDefinition', result.nodeName);
+            addDefinitionGraph: async (result) => {
+              console.log('MCPBridge: Calling addDefinitionGraph', result.nodeName);
               const st = useGraphStore.getState();
 
-              if (result.created) {
-                // No definition graph exists - create new one
-                const graphId = st.createAndAssignGraphDefinition(result.prototypeId);
-                navigateOnGraphSwitch(graphId);
-                console.log('MCPBridge: Created new definition graph', graphId, 'for prototype', result.prototypeId);
-                return { success: true, graphId, prototypeId: result.prototypeId, created: true };
-              } else {
-                // Open existing definition graph
-                st.openGraphTabAndBringToTop(result.graphId, result.prototypeId);
-                navigateOnGraphSwitch(result.graphId);
-                console.log('MCPBridge: Navigated to definition graph', result.graphId);
-                return { success: true, graphId: result.graphId, prototypeId: result.prototypeId, created: false };
+              // Create definition graph WITHOUT changing activeGraphId
+              const graphId = st.createAndAssignGraphDefinition(result.prototypeId);
+
+              // Open the tab but DON'T navigate (keeps user's active graph unchanged)
+              st.openGraphTabAndBringToTop(graphId);
+
+              console.error('[BridgeClient] addDefinitionGraph: Created graph', graphId, 'for prototype', result.prototypeId);
+              return { success: true, graphId, prototypeId: result.prototypeId, nodeName: result.nodeName };
+            },
+
+            removeDefinitionGraph: async (result) => {
+              console.log('MCPBridge: Calling removeDefinitionGraph', result.nodeName);
+              const st = useGraphStore.getState();
+
+              const proto = st.nodePrototypes.get(result.prototypeId);
+              if (!proto) {
+                console.error('[BridgeClient] removeDefinitionGraph: Prototype not found', result.prototypeId);
+                return { success: false, error: 'Prototype not found' };
               }
+
+              // Filter out the graphId from definitionGraphIds
+              const newDefIds = (proto.definitionGraphIds || []).filter(id => id !== result.graphId);
+              st.updateNodePrototype(result.prototypeId, { definitionGraphIds: newDefIds });
+
+              // Delete the graph itself
+              st.deleteGraph(result.graphId);
+
+              console.error('[BridgeClient] removeDefinitionGraph: Removed graph', result.graphId, 'from prototype', result.prototypeId);
+              return { success: true, prototypeId: result.prototypeId, graphId: result.graphId };
+            },
+
+            switchToGraph: async (result) => {
+              console.log('MCPBridge: Calling switchToGraph', result.graphId);
+              const st = useGraphStore.getState();
+
+              // Explicit navigation to a graph (changes activeGraphId)
+              st.openGraphTabAndBringToTop(result.graphId);
+              navigateOnGraphSwitch(result.graphId);
+
+              const graph = st.graphs.get(result.graphId);
+              console.error('[BridgeClient] switchToGraph: Navigated to', result.graphId, graph?.name);
+              return { success: true, graphId: result.graphId, graphName: graph?.name || result.graphName };
             },
 
             condenseToNode: async (result) => {
@@ -1821,6 +1850,56 @@ const BridgeClient = () => {
                       store.deleteGraph(op.graphId);
                       results.push({ type: op.type, ok: true, id: op.graphId });
                       break;
+                    case 'addDefinitionGraph': {
+                      // Create a new definition graph for a node without changing activeGraphId
+                      const graphId = store.createAndAssignGraphDefinition(op.prototypeId);
+                      // Open the tab but DON'T navigate (keeps user's active graph unchanged)
+                      store.openGraphTabAndBringToTop(graphId);
+                      try {
+                        const s2 = useGraphStore.getState();
+                        const proto = s2.nodePrototypes.get(op.prototypeId);
+                        const friendly = `Created definition graph for "${proto?.name || op.nodeName}"`;
+                        window.dispatchEvent(new CustomEvent('rs-telemetry', { detail: [{ ts: Date.now(), type: 'info', name: 'applyMutations', message: friendly }] }));
+                        console.error('[BridgeClient] addDefinitionGraph: Created graph', graphId, 'for prototype', op.prototypeId);
+                      } catch { }
+                      results.push({ type: op.type, ok: true, prototypeId: op.prototypeId, graphId });
+                      break;
+                    }
+                    case 'removeDefinitionGraph': {
+                      // Remove a definition graph from a node's definitionGraphIds array
+                      const st = useGraphStore.getState();
+                      const proto = st.nodePrototypes.get(op.prototypeId);
+                      if (!proto) {
+                        results.push({ type: op.type, ok: false, error: 'Prototype not found' });
+                        break;
+                      }
+                      // Filter out the graphId from definitionGraphIds
+                      const newDefIds = (proto.definitionGraphIds || []).filter(id => id !== op.graphId);
+                      st.updateNodePrototype(op.prototypeId, { definitionGraphIds: newDefIds });
+                      // Delete the graph itself
+                      st.deleteGraph(op.graphId);
+                      try {
+                        const friendly = `Removed definition graph from "${proto?.name || op.nodeName}"`;
+                        window.dispatchEvent(new CustomEvent('rs-telemetry', { detail: [{ ts: Date.now(), type: 'info', name: 'applyMutations', message: friendly }] }));
+                        console.error('[BridgeClient] removeDefinitionGraph: Removed graph', op.graphId, 'from prototype', op.prototypeId);
+                      } catch { }
+                      results.push({ type: op.type, ok: true, prototypeId: op.prototypeId, graphId: op.graphId });
+                      break;
+                    }
+                    case 'switchToGraph': {
+                      // Explicit navigation to a graph (changes activeGraphId)
+                      store.openGraphTabAndBringToTop(op.graphId);
+                      navigateOnGraphSwitch(op.graphId);
+                      try {
+                        const s2 = useGraphStore.getState();
+                        const g = s2.graphs.get(op.graphId);
+                        const friendly = `Switched to graph "${g?.name || op.graphName || op.graphId}"`;
+                        window.dispatchEvent(new CustomEvent('rs-telemetry', { detail: [{ ts: Date.now(), type: 'info', name: 'applyMutations', message: friendly }] }));
+                        console.error('[BridgeClient] switchToGraph: Navigated to', op.graphId);
+                      } catch { }
+                      results.push({ type: op.type, ok: true, graphId: op.graphId });
+                      break;
+                    }
                     default:
                       results.push({ type: op.type, ok: false, error: 'Unknown operation type' });
                   }

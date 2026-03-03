@@ -36,13 +36,14 @@ function updateGraphState(graphState, _toolName, _args, result) {
     });
     console.error('[updateGraphState] createGraph: activeGraphId =', result.graphId);
   } else if (result.action === 'createNode') {
-    // Add the new node to the active graph's instances so name-based lookups work
-    const activeGraph = (graphState.graphs || []).find(g => g.id === graphState.activeGraphId);
-    if (activeGraph) {
+    // Add the new node to the target graph's instances so name-based lookups work
+    const targetGraphId = result.graphId || graphState.activeGraphId;
+    const targetGraph = (graphState.graphs || []).find(g => g.id === targetGraphId);
+    if (targetGraph) {
       const protoId = `proto-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
       const instId = `inst-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
-      activeGraph.instances = activeGraph.instances || [];
-      activeGraph.instances.push({
+      targetGraph.instances = targetGraph.instances || [];
+      targetGraph.instances.push({
         id: instId,
         prototypeId: protoId,
         name: result.name
@@ -54,9 +55,9 @@ function updateGraphState(graphState, _toolName, _args, result) {
         color: result.color,
         description: result.description
       });
-      console.error('[updateGraphState] createNode:', result.name, '→ instances:', activeGraph.instances.length, 'protos:', graphState.nodePrototypes.length);
+      console.error('[updateGraphState] createNode:', result.name, '→ instances:', targetGraph.instances.length, 'protos:', graphState.nodePrototypes.length, '| graph:', targetGraphId);
     } else {
-      console.warn('[updateGraphState] createNode FAILED: no active graph for id', graphState.activeGraphId, '| available:', (graphState.graphs || []).map(g => g.id));
+      console.warn('[updateGraphState] createNode FAILED: no graph for id', targetGraphId, '| available:', (graphState.graphs || []).map(g => g.id));
     }
   } else if (result.action === 'updateNode' && result.updates) {
     // Update the node's name/properties in graphState so subsequent lookups use the new name
@@ -67,40 +68,58 @@ function updateGraphState(graphState, _toolName, _args, result) {
       if (result.updates.description !== undefined) proto.description = result.updates.description;
     }
     // Also update instance name if present
-    const activeGraph = (graphState.graphs || []).find(g => g.id === graphState.activeGraphId);
-    if (activeGraph) {
-      const inst = (activeGraph.instances || []).find(i => i.id === result.instanceId);
+    const targetGraphId = result.graphId || graphState.activeGraphId;
+    const targetGraph = (graphState.graphs || []).find(g => g.id === targetGraphId);
+    if (targetGraph) {
+      const inst = (targetGraph.instances || []).find(i => i.id === result.instanceId);
       if (inst && result.updates.name) {
         inst.name = result.updates.name;
       }
     }
-    console.error('[updateGraphState] updateNode:', result.originalName, '→', result.updates.name || '(no name change)', '| proto found:', !!proto);
+    console.error('[updateGraphState] updateNode:', result.originalName, '→', result.updates.name || '(no name change)', '| proto found:', !!proto, '| graph:', targetGraphId);
   } else if (result.action === 'deleteNode') {
     // Remove the node from graphState so it's no longer findable
-    const activeGraph = (graphState.graphs || []).find(g => g.id === graphState.activeGraphId);
-    const beforeCount = activeGraph?.instances?.length || 0;
-    if (activeGraph && activeGraph.instances) {
+    const targetGraphId = result.graphId || graphState.activeGraphId;
+    const targetGraph = (graphState.graphs || []).find(g => g.id === targetGraphId);
+    const beforeCount = targetGraph?.instances?.length || 0;
+    if (targetGraph && targetGraph.instances) {
       if (result.instanceId) {
-        activeGraph.instances = activeGraph.instances.filter(i => i.id !== result.instanceId);
+        targetGraph.instances = targetGraph.instances.filter(i => i.id !== result.instanceId);
       } else if (result.name) {
         // Fallback: remove by name when instanceId wasn't resolved
         const nameLower = result.name.toLowerCase().trim();
-        activeGraph.instances = activeGraph.instances.filter(i => {
+        targetGraph.instances = targetGraph.instances.filter(i => {
           const instName = (i.name || '').toLowerCase().trim();
           return instName !== nameLower;
         });
       }
     }
-    console.error('[updateGraphState] deleteNode:', result.name, '| before:', beforeCount, '→ after:', activeGraph?.instances?.length || 0);
+    console.error('[updateGraphState] deleteNode:', result.name, '| before:', beforeCount, '→ after:', targetGraph?.instances?.length || 0, '| graph:', targetGraphId);
   } else if (result.action === 'createPopulatedGraph' && result.spec) {
     // New populated graph — update activeGraphId and add graph + nodes
     graphState.activeGraphId = result.graphId;
     graphState.graphs = graphState.graphs || [];
-    const newInstances = (result.spec.nodes || []).map((n, idx) => ({
-      id: `inst-${Date.now()}-${idx}`,
-      prototypeId: `proto-${Date.now()}-${idx}`,
-      name: n.name
-    }));
+    graphState.nodePrototypes = graphState.nodePrototypes || [];
+
+    const newInstances = (result.spec.nodes || []).map((n, idx) => {
+      const protoId = `proto-${Date.now()}-${idx}`;
+
+      // Add prototype to global registry
+      graphState.nodePrototypes.push({
+        id: protoId,
+        name: n.name,
+        color: n.color || '#5B6CFF',
+        description: n.description || '',
+        definitionGraphIds: []
+      });
+
+      return {
+        id: `inst-${Date.now()}-${idx}`,
+        prototypeId: protoId,
+        name: n.name
+      };
+    });
+
     graphState.graphs.push({
       id: result.graphId,
       name: result.graphName,
@@ -108,38 +127,61 @@ function updateGraphState(graphState, _toolName, _args, result) {
       edgeIds: [],
       groups: []
     });
+
+    console.error('[updateGraphState] createPopulatedGraph: added', newInstances.length, 'nodes with prototypes to new graph', result.graphId);
   } else if (result.action === 'expandGraph' && result.spec) {
-    // Nodes added to active graph
-    const activeGraph = (graphState.graphs || []).find(g => g.id === graphState.activeGraphId);
-    if (activeGraph) {
-      activeGraph.instances = activeGraph.instances || [];
+    // Nodes added to target graph
+    const targetGraphId = result.graphId || graphState.activeGraphId;
+    const targetGraph = (graphState.graphs || []).find(g => g.id === targetGraphId);
+    if (targetGraph) {
+      targetGraph.instances = targetGraph.instances || [];
+      graphState.nodePrototypes = graphState.nodePrototypes || [];
+
       (result.spec.nodes || []).forEach((n, idx) => {
-        activeGraph.instances.push({
-          id: `inst-${Date.now()}-${idx}-${Math.random().toString(36).slice(2, 6)}`,
-          prototypeId: `proto-${Date.now()}-${idx}`,
+        const protoId = `proto-${Date.now()}-${idx}`;
+        const instId = `inst-${Date.now()}-${idx}-${Math.random().toString(36).slice(2, 6)}`;
+
+        // Add instance to target graph
+        targetGraph.instances.push({
+          id: instId,
+          prototypeId: protoId,
           name: n.name
         });
+
+        // Add prototype to global registry so subsequent tools can find it by name
+        graphState.nodePrototypes.push({
+          id: protoId,
+          name: n.name,
+          color: n.color || '#5B6CFF',
+          description: n.description || '',
+          definitionGraphIds: []
+        });
       });
+
+      console.error('[updateGraphState] expandGraph: added', (result.spec.nodes || []).length, 'nodes with prototypes to', targetGraphId);
     }
   } else if (result.action === 'createEdge') {
-    const activeGraph = (graphState.graphs || []).find(g => g.id === graphState.activeGraphId);
-    if (activeGraph) {
-      activeGraph.edgeIds = activeGraph.edgeIds || [];
-      activeGraph.edgeIds.push(`edge-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`);
+    const targetGraphId = result.graphId || graphState.activeGraphId;
+    const targetGraph = (graphState.graphs || []).find(g => g.id === targetGraphId);
+    if (targetGraph) {
+      targetGraph.edgeIds = targetGraph.edgeIds || [];
+      targetGraph.edgeIds.push(`edge-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`);
     }
   } else if (result.action === 'updateEdge' && result.updates) {
     // Predictive state for updateEdge could update the edge in local state, but we only store edgeIds here
     // So nothing to deeply change structurally unless we want to maintain an edges map in AgentLoop
   } else if (result.action === 'deleteEdge') {
-    const activeGraph = (graphState.graphs || []).find(g => g.id === graphState.activeGraphId);
-    if (activeGraph && result.edgeId) {
-      activeGraph.edgeIds = (activeGraph.edgeIds || []).filter(id => id !== result.edgeId);
+    const targetGraphId = result.graphId || graphState.activeGraphId;
+    const targetGraph = (graphState.graphs || []).find(g => g.id === targetGraphId);
+    if (targetGraph && result.edgeId) {
+      targetGraph.edgeIds = (targetGraph.edgeIds || []).filter(id => id !== result.edgeId);
     }
   } else if (result.action === 'createGroup') {
-    const activeGraph = (graphState.graphs || []).find(g => g.id === graphState.activeGraphId);
-    if (activeGraph) {
-      activeGraph.groups = activeGraph.groups || [];
-      activeGraph.groups.push({
+    const targetGraphId = result.graphId || graphState.activeGraphId;
+    const targetGraph = (graphState.graphs || []).find(g => g.id === targetGraphId);
+    if (targetGraph) {
+      targetGraph.groups = targetGraph.groups || [];
+      targetGraph.groups.push({
         id: `group-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
         name: result.name,
         color: result.color,
@@ -147,28 +189,31 @@ function updateGraphState(graphState, _toolName, _args, result) {
       });
     }
   } else if (result.action === 'updateGroup' && result.updates) {
-    const activeGraph = (graphState.graphs || []).find(g => g.id === graphState.activeGraphId);
-    if (activeGraph && activeGraph.groups) {
-      const gObj = activeGraph.groups.find(g => g.id === result.groupId || (result.groupName && g.name === result.groupName));
+    const targetGraphId = result.graphId || graphState.activeGraphId;
+    const targetGraph = (graphState.graphs || []).find(g => g.id === targetGraphId);
+    if (targetGraph && targetGraph.groups) {
+      const gObj = targetGraph.groups.find(g => g.id === result.groupId || (result.groupName && g.name === result.groupName));
       if (gObj) {
         if (result.updates.name) gObj.name = result.updates.name;
         if (result.updates.color) gObj.color = result.updates.color;
       }
     }
   } else if (result.action === 'deleteGroup') {
-    const activeGraph = (graphState.graphs || []).find(g => g.id === graphState.activeGraphId);
-    if (activeGraph && activeGraph.groups) {
+    const targetGraphId = result.graphId || graphState.activeGraphId;
+    const targetGraph = (graphState.graphs || []).find(g => g.id === targetGraphId);
+    if (targetGraph && targetGraph.groups) {
       if (result.groupId) {
-        activeGraph.groups = activeGraph.groups.filter(g => g.id !== result.groupId);
+        targetGraph.groups = targetGraph.groups.filter(g => g.id !== result.groupId);
       } else if (result.groupName) {
-        activeGraph.groups = activeGraph.groups.filter(g => g.name !== result.groupName);
+        targetGraph.groups = targetGraph.groups.filter(g => g.name !== result.groupName);
       }
     }
   } else if (result.action === 'convertToThingGroup') {
     // Mark group as thing-group in predictive state
-    const activeGraph = (graphState.graphs || []).find(g => g.id === graphState.activeGraphId);
-    if (activeGraph && activeGraph.groups) {
-      const group = activeGraph.groups.find(g =>
+    const targetGraphId = result.graphId || graphState.activeGraphId;
+    const targetGraph = (graphState.graphs || []).find(g => g.id === targetGraphId);
+    if (targetGraph && targetGraph.groups) {
+      const group = targetGraph.groups.find(g =>
         g.id === result.groupId || (result.groupName && g.name === result.groupName)
       );
       if (group) {
@@ -178,48 +223,97 @@ function updateGraphState(graphState, _toolName, _args, result) {
     }
   } else if (result.action === 'combineThingGroup') {
     // Remove group, add single node instance in its place
-    const activeGraph = (graphState.graphs || []).find(g => g.id === graphState.activeGraphId);
-    if (activeGraph && activeGraph.groups) {
-      const groupIndex = activeGraph.groups.findIndex(g =>
+    const targetGraphId = result.graphId || graphState.activeGraphId;
+    const targetGraph = (graphState.graphs || []).find(g => g.id === targetGraphId);
+    if (targetGraph && targetGraph.groups) {
+      const groupIndex = targetGraph.groups.findIndex(g =>
         g.id === result.groupId || (result.groupName && g.name === result.groupName)
       );
       if (groupIndex >= 0) {
-        const group = activeGraph.groups[groupIndex];
-        activeGraph.groups.splice(groupIndex, 1);
+        const group = targetGraph.groups[groupIndex];
+        targetGraph.groups.splice(groupIndex, 1);
         // Add a single instance representing the combined node
-        activeGraph.instances = activeGraph.instances || [];
-        activeGraph.instances.push({
+        targetGraph.instances = targetGraph.instances || [];
+        targetGraph.instances.push({
           id: `inst-combined-${Date.now()}`,
           prototypeId: group.linkedNodePrototypeId || 'proto-combined',
           name: group.name
         });
       }
     }
+  } else if (result.action === 'addDefinitionGraph') {
+    // Add new definition graph for a node (WITHOUT changing activeGraphId)
+    graphState.graphs = graphState.graphs || [];
+    graphState.graphs.push({
+      id: result.graphId,
+      name: result.nodeName || 'Definition',
+      instances: [],
+      edgeIds: [],
+      groups: []
+    });
+
+    // Update prototype's definitionGraphIds array
+    const proto = (graphState.nodePrototypes || []).find(p => p.id === result.prototypeId);
+    if (proto) {
+      proto.definitionGraphIds = proto.definitionGraphIds || [];
+      proto.definitionGraphIds.push(result.graphId);
+    }
+
+    console.error('[updateGraphState] addDefinitionGraph: created', result.graphId, 'for', result.nodeName, '| activeGraphId unchanged');
+  } else if (result.action === 'removeDefinitionGraph') {
+    // Remove definition graph from node's definitionGraphIds
+    const proto = (graphState.nodePrototypes || []).find(p => p.id === result.prototypeId);
+    if (proto && Array.isArray(proto.definitionGraphIds)) {
+      proto.definitionGraphIds = proto.definitionGraphIds.filter(id => id !== result.graphId);
+    }
+
+    // Optionally remove the graph from graphs array
+    graphState.graphs = (graphState.graphs || []).filter(g => g.id !== result.graphId);
+
+    console.error('[updateGraphState] removeDefinitionGraph: removed', result.graphId, 'from', result.nodeName);
+  } else if (result.action === 'switchToGraph') {
+    // Explicitly change active graph (user requested navigation)
+    graphState.activeGraphId = result.graphId;
+    console.error('[updateGraphState] switchToGraph: activeGraphId =', result.graphId);
   } else if (result.action === 'navigateDefinition') {
-    // Switch to the definition graph
-    if (result.graphId) {
+    // Legacy support for navigateDefinition (will be removed in Phase 5)
+    if (result.created) {
+      // New definition graph was created - generate predictive ID and add to state
+      const newGraphId = `graph-def-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+      graphState.activeGraphId = newGraphId;
+      graphState.graphs = graphState.graphs || [];
+      graphState.graphs.push({
+        id: newGraphId,
+        name: result.nodeName || 'Definition',
+        instances: [],
+        edgeIds: [],
+        groups: []
+      });
+      console.error('[updateGraphState] navigateDefinition: created new definition graph', newGraphId, 'for', result.nodeName);
+    } else if (result.graphId) {
       graphState.activeGraphId = result.graphId;
       console.error('[updateGraphState] navigateDefinition: activeGraphId =', result.graphId);
     }
   } else if (result.action === 'condenseToNode') {
-    const activeGraph = (graphState.graphs || []).find(g => g.id === graphState.activeGraphId);
-    if (activeGraph) {
+    const targetGraphId = result.graphId || graphState.activeGraphId;
+    const targetGraph = (graphState.graphs || []).find(g => g.id === targetGraphId);
+    if (targetGraph) {
       if (result.collapse) {
         // Remove member instances, add single condensed node
         const removedNames = new Set((result.memberNames || []).map(n => n.toLowerCase().trim()));
-        activeGraph.instances = (activeGraph.instances || []).filter(i => {
+        targetGraph.instances = (targetGraph.instances || []).filter(i => {
           const name = (i.name || '').toLowerCase().trim();
           return !removedNames.has(name);
         });
-        activeGraph.instances.push({
+        targetGraph.instances.push({
           id: `inst-condensed-${Date.now()}`,
           prototypeId: `proto-condensed-${Date.now()}`,
           name: result.nodeName
         });
       } else {
         // Just add the group (members remain)
-        activeGraph.groups = activeGraph.groups || [];
-        activeGraph.groups.push({
+        targetGraph.groups = targetGraph.groups || [];
+        targetGraph.groups.push({
           id: result.groupId || `group-${Date.now()}`,
           name: result.nodeName,
           color: result.nodeColor,
@@ -231,20 +325,21 @@ function updateGraphState(graphState, _toolName, _args, result) {
     }
   } else if (result.action === 'decomposeNode') {
     // Remove original instance, add decomposed instances from definition graph, add group
-    const activeGraph = (graphState.graphs || []).find(g => g.id === graphState.activeGraphId);
-    if (activeGraph) {
+    const targetGraphId = result.graphId || graphState.activeGraphId;
+    const targetGraph = (graphState.graphs || []).find(g => g.id === targetGraphId);
+    if (targetGraph) {
       // Remove the original instance
       if (result.originalInstanceId) {
-        const beforeCount = (activeGraph.instances || []).length;
-        activeGraph.instances = (activeGraph.instances || []).filter(i => i.id !== result.originalInstanceId);
-        console.error('[updateGraphState] decomposeNode: Removed original instance', result.originalInstanceId, '| before:', beforeCount, '→ after:', activeGraph.instances.length);
+        const beforeCount = (targetGraph.instances || []).length;
+        targetGraph.instances = (targetGraph.instances || []).filter(i => i.id !== result.originalInstanceId);
+        console.error('[updateGraphState] decomposeNode: Removed original instance', result.originalInstanceId, '| before:', beforeCount, '→ after:', targetGraph.instances.length);
       }
 
       // Add decomposed instances from definition graph
-      activeGraph.instances = activeGraph.instances || [];
+      targetGraph.instances = targetGraph.instances || [];
       for (const defInst of result.definitionInstances || []) {
         const newInstId = `inst-decomp-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-        activeGraph.instances.push({
+        targetGraph.instances.push({
           id: newInstId,
           prototypeId: defInst.prototypeId,
           name: defInst.name,
@@ -255,11 +350,11 @@ function updateGraphState(graphState, _toolName, _args, result) {
       }
 
       // Add thing-group
-      activeGraph.groups = activeGraph.groups || [];
+      targetGraph.groups = targetGraph.groups || [];
       const decomposedInstIds = (result.definitionInstances || []).map(() =>
         `inst-decomp-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
       );
-      activeGraph.groups.push({
+      targetGraph.groups.push({
         id: `group-decomp-${Date.now()}`,
         name: result.nodeName,
         color: '#8B0000',

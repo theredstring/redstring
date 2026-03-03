@@ -131,7 +131,7 @@ const Node = ({
   const INNER_CANVAS_PADDING = 24;
 
   // Calculate description area position (below InnerNetwork when previewing) with minimal spacing
-  const descriptionAreaY = contentAreaY + (isPreviewing ? INNER_CANVAS_PADDING : 0) + innerNetworkHeight + (isPreviewing ? 8 : 0);
+  const descriptionAreaY = contentAreaY + innerNetworkHeight + (isPreviewing ? 8 : 0);
 
   // No longer need text width calculation since arrows are in top-right corner
 
@@ -329,7 +329,7 @@ const Node = ({
         <clipPath id={innerClipPathId}>
           <rect
             x={nodeX + NODE_PADDING} // Use absolute nodeX
-            y={contentAreaY + (isPreviewing ? INNER_CANVAS_PADDING : 0) + 0.01} // Use calculated absolute contentAreaY + offset
+            y={contentAreaY + 0.01} // Use calculated absolute contentAreaY
             width={innerNetworkWidth}
             height={innerNetworkHeight}
             rx={NODE_CORNER_RADIUS}
@@ -469,10 +469,10 @@ const Node = ({
           <g clipPath={`url(#${innerClipPathId})`}>
             <rect
               x={nodeX + NODE_PADDING} // Use absolute nodeX
-              y={contentAreaY + (isPreviewing ? INNER_CANVAS_PADDING : 0)} // Use calculated absolute contentAreaY
+              y={contentAreaY} // Use calculated absolute contentAreaY
               width={innerNetworkWidth}
               height={innerNetworkHeight}
-              fill="rgba(255, 255, 255, 0.1)"
+              fill="rgba(255, 255, 255, 0.2)"
             />
 
             {hasAnyDefinitions ? (
@@ -480,7 +480,7 @@ const Node = ({
               <>
                 <foreignObject
                   x={nodeX + NODE_PADDING}
-                  y={contentAreaY + INNER_CANVAS_PADDING}
+                  y={contentAreaY}
                   width={Math.max(1, innerNetworkWidth)}
                   height={Math.max(1, innerNetworkHeight)}
                   style={{ pointerEvents: 'auto' }}
@@ -568,7 +568,7 @@ const Node = ({
               // Show "Create Definition" interface when no definitions exist
               <foreignObject
                 x={nodeX + NODE_PADDING}
-                y={contentAreaY + INNER_CANVAS_PADDING}
+                y={contentAreaY}
                 width={innerNetworkWidth}
                 height={innerNetworkHeight}
                 style={{
@@ -584,7 +584,7 @@ const Node = ({
                     flexDirection: 'column',
                     alignItems: 'center',
                     justifyContent: 'center',
-                    backgroundColor: 'rgba(255, 255, 255, 0.2)',
+                    backgroundColor: 'transparent',
                     color: nodeTextColor,
                     fontSize: '16px',
                     fontWeight: 'bold',
@@ -594,10 +594,10 @@ const Node = ({
                     transition: 'all 0.2s ease',
                   }}
                   onMouseEnter={(e) => {
-                    e.currentTarget.style.backgroundColor = 'rgba(255, 255, 255, 0.4)';
+                    e.currentTarget.style.backgroundColor = 'rgba(255, 255, 255, 0.2)';
                   }}
                   onMouseLeave={(e) => {
-                    e.currentTarget.style.backgroundColor = 'rgba(255, 255, 255, 0.2)';
+                    e.currentTarget.style.backgroundColor = 'transparent';
                   }}
                   onClick={(e) => {
                     e.stopPropagation();

@@ -4,13 +4,13 @@
  */
 
 /**
- * Find group by name in active graph
+ * Find group by name in a graph
  */
-function findGroupByName(name, graphState) {
-  const { graphs = [], activeGraphId } = graphState;
-  if (!activeGraphId) return null;
+function findGroupByName(name, graphState, graphId) {
+  const { graphs = [] } = graphState;
+  if (!graphId) return null;
 
-  const graph = graphs.find(g => g.id === activeGraphId);
+  const graph = graphs.find(g => g.id === graphId);
   if (!graph || !graph.groups) return null;
 
   const groupsIterable = graph.groups instanceof Map
@@ -27,26 +27,27 @@ function findGroupByName(name, graphState) {
 
 /**
  * Combine (collapse) a Thing-Group into a single node
- * @param {Object} args - { groupId?, groupName? }
+ * @param {Object} args - { groupId?, groupName?, targetGraphId? }
  * @param {Object} graphState - Current graph state
  * @param {string} cid - Conversation ID
  * @param {Function} ensureSchedulerStarted - Function to start scheduler
  * @returns {Promise<Object>} Combine spec for UI application
  */
 export async function combineThingGroup(args, graphState, cid, ensureSchedulerStarted) {
-  const { groupId, groupName } = args;
+  const { groupId, groupName, targetGraphId } = args;
 
   const { activeGraphId } = graphState;
+  const graphId = targetGraphId || activeGraphId;
 
-  if (!activeGraphId) {
-    throw new Error('No active graph. Please open or create a graph first.');
+  if (!graphId) {
+    throw new Error('No target graph specified and no active graph available.');
   }
 
   // Resolve group ID from name if needed
   let resolvedGroupId = groupId;
   let groupData = null;
   if (!resolvedGroupId && groupName) {
-    groupData = findGroupByName(groupName, graphState);
+    groupData = findGroupByName(groupName, graphState, graphId);
     if (groupData) {
       resolvedGroupId = groupData.id;
     }
@@ -60,7 +61,7 @@ export async function combineThingGroup(args, graphState, cid, ensureSchedulerSt
 
   return {
     action: 'combineThingGroup',
-    graphId: activeGraphId,
+    graphId,
     groupId: resolvedGroupId || null,
     groupName: groupName || null,
     combined: true

@@ -3,13 +3,13 @@
  */
 
 /**
- * Find group by name in active graph
+ * Find group by name in a graph
  */
-function findGroupByName(name, graphState) {
-  const { graphs = [], activeGraphId } = graphState;
-  if (!activeGraphId) return null;
+function findGroupByName(name, graphState, graphId) {
+  const { graphs = [] } = graphState;
+  if (!graphId) return null;
 
-  const graph = graphs.find(g => g.id === activeGraphId);
+  const graph = graphs.find(g => g.id === graphId);
   if (!graph || !graph.groups) return null;
 
   const groupsIterable = graph.groups instanceof Map
@@ -26,25 +26,26 @@ function findGroupByName(name, graphState) {
 
 /**
  * Update a group
- * @param {Object} args - { groupId?, groupName?, newName?, newColor?, addMembers?, removeMembers? }
+ * @param {Object} args - { groupId?, groupName?, newName?, newColor?, addMembers?, removeMembers?, targetGraphId? }
  * @param {Object} graphState - Current graph state
  * @param {string} cid - Conversation ID
  * @param {Function} ensureSchedulerStarted - Function to start scheduler
  * @returns {Promise<Object>} Update spec for UI application
  */
 export async function updateGroup(args, graphState, cid, ensureSchedulerStarted) {
-  const { groupId, groupName, newName, newColor, addMembers = [], removeMembers = [] } = args;
+  const { groupId, groupName, newName, newColor, addMembers = [], removeMembers = [], targetGraphId } = args;
 
   const { activeGraphId } = graphState;
+  const graphId = targetGraphId || activeGraphId;
 
-  if (!activeGraphId) {
-    throw new Error('No active graph. Please open or create a graph first.');
+  if (!graphId) {
+    throw new Error('No target graph specified and no active graph available.');
   }
 
   // Resolve group ID from name if needed
   let resolvedGroupId = groupId;
   if (!resolvedGroupId && groupName) {
-    const group = findGroupByName(groupName, graphState);
+    const group = findGroupByName(groupName, graphState, graphId);
     if (group) {
       resolvedGroupId = group.id;
     }
@@ -64,7 +65,7 @@ export async function updateGroup(args, graphState, cid, ensureSchedulerStarted)
 
   return {
     action: 'updateGroup',
-    graphId: activeGraphId,
+    graphId,
     groupId: resolvedGroupId || null,
     groupName: groupName || null,
     updates,

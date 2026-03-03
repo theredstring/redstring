@@ -5,18 +5,18 @@
 /**
  * Resolve a node by name from graph state
  */
-function resolveNodeByName(name, nodePrototypes, graphs, activeGraphId) {
+function resolveNodeByName(name, nodePrototypes, graphs, graphId) {
   const queryLower = (name || '').toLowerCase().trim();
   if (!queryLower) return null;
 
-  const activeGraph = graphs.find(g => g.id === activeGraphId);
-  if (!activeGraph) return null;
+  const targetGraph = graphs.find(g => g.id === graphId);
+  if (!targetGraph) return null;
 
-  const instances = Array.isArray(activeGraph.instances)
-    ? activeGraph.instances
-    : activeGraph.instances instanceof Map
-      ? Array.from(activeGraph.instances.values())
-      : Object.values(activeGraph.instances || {});
+  const instances = Array.isArray(targetGraph.instances)
+    ? targetGraph.instances
+    : targetGraph.instances instanceof Map
+      ? Array.from(targetGraph.instances.values())
+      : Object.values(targetGraph.instances || {});
 
   // Try exact match first
   for (const inst of instances) {
@@ -41,26 +41,28 @@ function resolveNodeByName(name, nodePrototypes, graphs, activeGraphId) {
 
 /**
  * Create an edge between two nodes
- * @param {Object} args - { sourceId, targetId, type }
+ * @param {Object} args - { sourceId, targetId, type, targetGraphId? }
  * @param {Object} graphState - Current graph state
  * @param {string} cid - Conversation ID
  * @param {Function} ensureSchedulerStarted - Function to start scheduler
  * @returns {Promise<Object>} Edge spec for UI application
  */
 export async function createEdge(args, graphState, cid, ensureSchedulerStarted) {
-  const { sourceId, targetId, type } = args;
+  const { sourceId, targetId, type, targetGraphId } = args;
   if (!sourceId || !targetId) {
     throw new Error('sourceId and targetId are required');
   }
 
   const { nodePrototypes = [], graphs = [], activeGraphId } = graphState;
-  if (!activeGraphId) {
-    throw new Error('No active graph');
+  const graphId = targetGraphId || activeGraphId;
+
+  if (!graphId) {
+    throw new Error('No target graph specified and no active graph available.');
   }
 
   // Resolve source and target by name
-  const resolvedSource = resolveNodeByName(sourceId, nodePrototypes, graphs, activeGraphId);
-  const resolvedTarget = resolveNodeByName(targetId, nodePrototypes, graphs, activeGraphId);
+  const resolvedSource = resolveNodeByName(sourceId, nodePrototypes, graphs, graphId);
+  const resolvedTarget = resolveNodeByName(targetId, nodePrototypes, graphs, graphId);
 
   if (resolvedSource) {
     console.error('[createEdge] Resolved source:', sourceId, '→', resolvedSource.instanceId);
@@ -76,7 +78,7 @@ export async function createEdge(args, graphState, cid, ensureSchedulerStarted) 
 
   return {
     action: 'createEdge',
-    graphId: activeGraphId,
+    graphId,
     sourceName: resolvedSource?.name || sourceId,
     targetName: resolvedTarget?.name || targetId,
     sourceInstanceId: resolvedSource?.instanceId || null,

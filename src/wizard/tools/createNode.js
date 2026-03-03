@@ -1,29 +1,31 @@
 /**
- * createNode - Create a single node in the active graph
+ * createNode - Create a single node in a graph (defaults to active)
  */
 
 /**
  * Create a node
- * @param {Object} args - { name, color?, description? }
+ * @param {Object} args - { name, color?, description?, targetGraphId? }
  * @param {Object} graphState - Current graph state
  * @param {string} cid - Conversation ID
  * @param {Function} ensureSchedulerStarted - Function to start scheduler
  * @returns {Promise<Object>} Node spec for UI application
  */
 export async function createNode(args, graphState, cid, ensureSchedulerStarted) {
-  const { name, color, description } = args;
+  const { name, color, description, targetGraphId } = args;
   if (!name) {
     throw new Error('name is required');
   }
 
   const { activeGraphId } = graphState;
-  if (!activeGraphId) {
-    throw new Error('No active graph. Please open or create a graph first.');
+  const graphId = targetGraphId || activeGraphId;
+
+  if (!graphId) {
+    throw new Error('No target graph specified and no active graph available.');
   }
 
   return {
     action: 'createNode',
-    graphId: activeGraphId,
+    graphId,
     name,
     color: color || '#5B6CFF',
     description: description || ''

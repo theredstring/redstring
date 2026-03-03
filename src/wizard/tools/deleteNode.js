@@ -5,18 +5,18 @@
 /**
  * Resolve a node by name from graph state
  */
-function resolveNodeByName(name, nodePrototypes, graphs, activeGraphId) {
+function resolveNodeByName(name, nodePrototypes, graphs, graphId) {
   const queryLower = (name || '').toLowerCase().trim();
   if (!queryLower) return null;
 
-  const activeGraph = graphs.find(g => g.id === activeGraphId);
-  if (!activeGraph) return null;
+  const targetGraph = graphs.find(g => g.id === graphId);
+  if (!targetGraph) return null;
 
-  const instances = Array.isArray(activeGraph.instances)
-    ? activeGraph.instances
-    : activeGraph.instances instanceof Map
-      ? Array.from(activeGraph.instances.values())
-      : Object.values(activeGraph.instances || {});
+  const instances = Array.isArray(targetGraph.instances)
+    ? targetGraph.instances
+    : targetGraph.instances instanceof Map
+      ? Array.from(targetGraph.instances.values())
+      : Object.values(targetGraph.instances || {});
 
   // Try exact match first
   for (const inst of instances) {
@@ -41,25 +41,27 @@ function resolveNodeByName(name, nodePrototypes, graphs, activeGraphId) {
 
 /**
  * Delete a node
- * @param {Object} args - { nodeName }
+ * @param {Object} args - { nodeName, targetGraphId? }
  * @param {Object} graphState - Current graph state
  * @param {string} cid - Conversation ID
  * @param {Function} ensureSchedulerStarted - Function to start scheduler
  * @returns {Promise<Object>} Delete spec for UI application
  */
 export async function deleteNode(args, graphState, cid, ensureSchedulerStarted) {
-  const { nodeName, nodeId, name } = args;
+  const { nodeName, nodeId, name, targetGraphId } = args;
   const lookupName = nodeName || nodeId || name;
   if (!lookupName) {
     throw new Error('nodeName is required');
   }
 
   const { nodePrototypes = [], graphs = [], activeGraphId } = graphState;
-  if (!activeGraphId) {
-    throw new Error('No active graph');
+  const graphId = targetGraphId || activeGraphId;
+
+  if (!graphId) {
+    throw new Error('No target graph specified and no active graph available.');
   }
 
-  const resolved = resolveNodeByName(lookupName, nodePrototypes, graphs, activeGraphId);
+  const resolved = resolveNodeByName(lookupName, nodePrototypes, graphs, graphId);
 
   if (resolved) {
     console.error('[deleteNode] Resolved:', lookupName, '→', resolved.instanceId);
@@ -70,7 +72,7 @@ export async function deleteNode(args, graphState, cid, ensureSchedulerStarted) 
 
   return {
     action: 'deleteNode',
-    graphId: activeGraphId,
+    graphId,
     instanceId: resolved?.instanceId || null,
     prototypeId: resolved?.prototypeId || null,
     name: resolved?.name || lookupName,

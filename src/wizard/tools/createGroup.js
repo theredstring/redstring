@@ -3,13 +3,13 @@
  */
 
 /**
- * Find instance IDs by node names in the active graph
+ * Find instance IDs by node names in a graph
  */
-function findInstanceIdsByNames(names, graphState) {
-  const { graphs = [], activeGraphId, nodePrototypes = [] } = graphState;
-  if (!activeGraphId) return [];
+function findInstanceIdsByNames(names, graphState, graphId) {
+  const { graphs = [], nodePrototypes = [] } = graphState;
+  if (!graphId) return [];
 
-  const graph = graphs.find(g => g.id === activeGraphId);
+  const graph = graphs.find(g => g.id === graphId);
   if (!graph || !graph.instances) return [];
 
   const instances = graph.instances instanceof Map
@@ -39,25 +39,26 @@ function findInstanceIdsByNames(names, graphState) {
 
 /**
  * Create a group
- * @param {Object} args - { name, memberNames?, color? }
+ * @param {Object} args - { name, memberNames?, color?, targetGraphId? }
  * @param {Object} graphState - Current graph state
  * @param {string} cid - Conversation ID
  * @param {Function} ensureSchedulerStarted - Function to start scheduler
  * @returns {Promise<Object>} Group spec for UI application
  */
 export async function createGroup(args, graphState, cid, ensureSchedulerStarted) {
-  const { name = 'Group', memberNames = [], memberInstanceIds = [], color } = args;
+  const { name = 'Group', memberNames = [], memberInstanceIds = [], color, targetGraphId } = args;
 
   const { activeGraphId } = graphState;
+  const graphId = targetGraphId || activeGraphId;
 
-  if (!activeGraphId) {
-    throw new Error('No active graph. Please open or create a graph first.');
+  if (!graphId) {
+    throw new Error('No target graph specified and no active graph available.');
   }
 
   // Resolve member names to instance IDs if available in graphState
   let resolvedMemberIds = [...memberInstanceIds];
   if (memberNames.length > 0) {
-    const foundIds = findInstanceIdsByNames(memberNames, graphState);
+    const foundIds = findInstanceIdsByNames(memberNames, graphState, graphId);
     resolvedMemberIds = [...new Set([...resolvedMemberIds, ...foundIds])];
   }
 
@@ -65,7 +66,7 @@ export async function createGroup(args, graphState, cid, ensureSchedulerStarted)
 
   return {
     action: 'createGroup',
-    graphId: activeGraphId,
+    graphId,
     name,
     color: color || '#8B0000',
     memberNames,

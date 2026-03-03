@@ -4,13 +4,13 @@
  */
 
 /**
- * Find group by name in active graph
+ * Find group by name in a graph
  */
-function findGroupByName(name, graphState) {
-  const { graphs = [], activeGraphId } = graphState;
-  if (!activeGraphId) return null;
+function findGroupByName(name, graphState, graphId) {
+  const { graphs = [] } = graphState;
+  if (!graphId) return null;
 
-  const graph = graphs.find(g => g.id === activeGraphId);
+  const graph = graphs.find(g => g.id === graphId);
   if (!graph || !graph.groups) return null;
 
   const groupsIterable = graph.groups instanceof Map
@@ -27,7 +27,7 @@ function findGroupByName(name, graphState) {
 
 /**
  * Convert a group to a Thing-Group
- * @param {Object} args - { groupId?, groupName?, thingName?, createNewThing?, newThingColor? }
+ * @param {Object} args - { groupId?, groupName?, thingName?, createNewThing?, newThingColor?, targetGraphId? }
  * @param {Object} graphState - Current graph state
  * @param {string} cid - Conversation ID
  * @param {Function} ensureSchedulerStarted - Function to start scheduler
@@ -39,20 +39,22 @@ export async function convertToThingGroup(args, graphState, cid, ensureScheduler
     groupName,
     thingName,
     createNewThing = true,
-    newThingColor
+    newThingColor,
+    targetGraphId
   } = args;
 
   const { activeGraphId } = graphState;
+  const graphId = targetGraphId || activeGraphId;
 
-  if (!activeGraphId) {
-    throw new Error('No active graph. Please open or create a graph first.');
+  if (!graphId) {
+    throw new Error('No target graph specified and no active graph available.');
   }
 
   // Resolve group ID from name if needed
   let resolvedGroupId = groupId;
   let groupData = null;
   if (!resolvedGroupId && groupName) {
-    groupData = findGroupByName(groupName, graphState);
+    groupData = findGroupByName(groupName, graphState, graphId);
     if (groupData) {
       resolvedGroupId = groupData.id;
     }
@@ -68,7 +70,7 @@ export async function convertToThingGroup(args, graphState, cid, ensureScheduler
 
   return {
     action: 'convertToThingGroup',
-    graphId: activeGraphId,
+    graphId,
     groupId: resolvedGroupId || null,
     groupName: groupName || null,
     thingName: newPrototypeName,

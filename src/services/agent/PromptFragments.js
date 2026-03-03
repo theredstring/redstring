@@ -32,6 +32,83 @@ Working with definition graphs is called "compositional space" — you can:
 - You can navigate: Main Graph → Car definition → Engine definition (3 levels deep)
 - Or decompose "Car" to replace it with Engine/Transmission/Chassis as a Thing-Group
 
+## Non-Disruptive Definition Editing with targetGraphId
+
+**CRITICAL**: You can edit ANY graph without changing what the user sees. This is the key to building deep compositional hierarchies without disrupting workflow.
+
+### The targetGraphId Parameter
+All graph-mutating tools accept an optional \`targetGraphId\` parameter:
+- \`createNode\`, \`updateNode\`, \`deleteNode\`
+- \`createEdge\`, \`updateEdge\`, \`deleteEdge\`, \`replaceEdges\`
+- \`expandGraph\` (the most important one for populating definitions)
+- \`createGroup\`, \`updateGroup\`, \`deleteGroup\`, \`convertToThingGroup\`, \`combineThingGroup\`
+
+**If omitted**: Tools operate on the active graph (what the user is viewing)
+**If provided**: Tools operate on the specified graph (user's view stays unchanged)
+
+### Workflow: Build Definition Hierarchies Non-Disruptively
+
+**OLD (disruptive) approach**:
+1. User viewing "Vehicles" graph
+2. navigateDefinition("Car") → user's view hijacked to Car's definition graph
+3. expandGraph([Engine, Wheels]) → adds to Car's definition
+4. navigateDefinition("Engine") → view hijacked again
+5. expandGraph([Piston, Crankshaft]) → adds to Engine's definition
+
+**NEW (non-disruptive) approach**:
+1. User viewing "Vehicles" graph
+2. addDefinitionGraph("Car") → returns \`defGraphId1\`, user still sees "Vehicles"
+3. expandGraph([Engine, Wheels], targetGraphId: defGraphId1) → populates Car's definition silently
+4. addDefinitionGraph("Engine") → returns \`defGraphId2\`, user still sees "Vehicles"
+5. expandGraph([Piston, Crankshaft], targetGraphId: defGraphId2) → populates Engine's definition silently
+
+**User's active graph never changed** - they're still viewing "Vehicles" while you built a 3-level hierarchy behind the scenes.
+
+### When to Use switchToGraph vs targetGraphId
+
+**Use switchToGraph** ONLY when:
+- User explicitly says "show me", "go into", "navigate to", "open"
+- Example: "show me what's inside Car" → use switchToGraph
+
+**Use targetGraphId** when:
+- User says "define what X is made of" (no navigation request)
+- You're building hierarchies as part of a larger task
+- Example: "Create a Car and define its systems" → use addDefinitionGraph + targetGraphId
+
+### Example Patterns
+
+**Pattern 1: Define a concept's structure**
+\`\`\`
+User: "Create a Car and define what it's made of"
+You:
+1. createNode("Car") → in active graph
+2. addDefinitionGraph("Car") → returns defGraphId
+3. expandGraph([Engine, Transmission, Chassis], targetGraphId: defGraphId) → populates definition
+Result: User still sees their original graph, Car now has a populated definition
+\`\`\`
+
+**Pattern 2: Multi-level hierarchy**
+\`\`\`
+User: "Create a Computer and define its components down to the chip level"
+You:
+1. createNode("Computer") → in active graph
+2. addDefinitionGraph("Computer") → returns compDefId
+3. expandGraph([Motherboard, CPU, RAM], targetGraphId: compDefId)
+4. addDefinitionGraph("CPU") → returns cpuDefId
+5. expandGraph([ALU, Registers, Cache], targetGraphId: cpuDefId)
+6. addDefinitionGraph("ALU") → returns aluDefId
+7. expandGraph([Adder, Multiplier, Logic Gates], targetGraphId: aluDefId)
+Result: 4-level hierarchy built without ever changing user's view
+\`\`\`
+
+**Pattern 3: Explicit navigation (rare)**
+\`\`\`
+User: "Show me what's inside the Engine"
+You:
+1. switchToGraph(nodeName: "Engine") → explicitly changes active graph
+Result: User now views Engine's definition graph
+\`\`\`
+
 ## Groups and Thing-Groups
 
 Redstring has two ways to organize Things together:

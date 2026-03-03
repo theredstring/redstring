@@ -17,26 +17,28 @@ function resolveEdgeByName(edgeId, graphState) {
 
 /**
  * Delete an edge
- * @param {Object} args - { edgeId, sourceName?, targetName? }
+ * @param {Object} args - { edgeId, sourceName?, targetName?, targetGraphId? }
  * @param {Object} graphState - Current graph state
  * @param {string} cid - Conversation ID
  * @param {Function} ensureSchedulerStarted - Function to start scheduler
  * @returns {Promise<Object>} Delete spec for UI application
  */
 export async function deleteEdge(args, graphState, cid, ensureSchedulerStarted) {
-  const { edgeId, sourceName, targetName } = args;
+  const { edgeId, sourceName, targetName, targetGraphId } = args;
   if (!edgeId && !sourceName) {
     throw new Error('edgeId or sourceName/targetName is required');
   }
 
   const { activeGraphId } = graphState;
-  if (!activeGraphId) {
-    throw new Error('No active graph');
+  const graphId = targetGraphId || activeGraphId;
+
+  if (!graphId) {
+    throw new Error('No target graph specified and no active graph available.');
   }
 
   return {
     action: 'deleteEdge',
-    graphId: activeGraphId,
+    graphId,
     edgeId: edgeId || null,
     sourceName: sourceName || null,
     targetName: targetName || null,
