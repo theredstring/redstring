@@ -1152,7 +1152,7 @@ const LeftAIView = ({ compact = false,
   const [wizardStage, setWizardStage] = React.useState(null); // Track current wizard stage
   const [druidInstance, setDruidInstance] = React.useState(null); // Druid cognitive state manager
   const [conversations, setConversations] = React.useState([
-    { id: 'default', title: 'Conversation-1', messages: [], timestamp: new Date().toISOString() }
+    { id: 'default', title: 'New Chat', messages: [], timestamp: new Date().toISOString() }
   ]);
   const [activeConversationId, setActiveConversationId] = React.useState('default');
   const [editingTabId, setEditingTabId] = React.useState(null);
@@ -1340,9 +1340,9 @@ const LeftAIView = ({ compact = false,
 
   // Auto-name generation helper
   const generateConversationTitle = (text) => {
-    if (!text) return 'New Conversation';
+    if (!text) return 'New Chat';
     let cleanText = text.replace(/^[^a-zA-Z0-9]+/, '').trim();
-    if (!cleanText) return 'New Conversation';
+    if (!cleanText) return 'New Chat';
     if (cleanText.length > 25) {
       return cleanText.substring(0, 25).trim() + '…';
     }
@@ -1361,7 +1361,7 @@ const LeftAIView = ({ compact = false,
 
   const handleTabRenameCommit = () => {
     if (editingTabId) {
-      const newTitle = editingTabTitle.trim() || 'Conversation';
+      const newTitle = editingTabTitle.trim() || 'New Chat';
       setConversations(prev => prev.map(c =>
         c.id === editingTabId ? { ...c, title: newTitle } : c
       ));
@@ -1852,7 +1852,7 @@ const LeftAIView = ({ compact = false,
 
     // Auto-name if first message in a generic tab
     const currentConv = conversations.find(c => c.id === activeConversationId);
-    if (currentConv && currentConv.messages.length === 0 && /^Conversation-\d+$/.test(currentConv.title)) {
+    if (currentConv && currentConv.messages.length === 0 && (currentConv.title === 'New Chat' || (activeGraphId && graphsMap?.get(activeGraphId)?.name === currentConv.title))) {
       const newTitle = generateConversationTitle(userMessage);
       setConversations(prev => prev.map(c =>
         c.id === activeConversationId ? { ...c, title: newTitle } : c
@@ -2388,17 +2388,12 @@ const LeftAIView = ({ compact = false,
 
   const handleNewConversation = () => {
     const newId = `conv_${Date.now()}`;
-    const existingChatNumbers = conversations
-      .map(c => {
-        const match = c.title.match(/Conversation-(\d+)/);
-        return match ? parseInt(match[1]) : 0;
-      })
-      .filter(n => n > 0);
-    const nextNumber = existingChatNumbers.length > 0 ? Math.max(...existingChatNumbers) + 1 : conversations.length + 1;
+    const activeGraphData = activeGraphId && graphsMap ? graphsMap.get(activeGraphId) : null;
+    const defaultTitle = activeGraphData?.name ? activeGraphData.name : 'New Chat';
 
     const newConv = {
       id: newId,
-      title: `Conversation-${nextNumber}`,
+      title: defaultTitle,
       messages: [],
       timestamp: new Date().toISOString()
     };
