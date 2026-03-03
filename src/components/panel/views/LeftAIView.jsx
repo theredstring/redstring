@@ -1155,6 +1155,8 @@ const LeftAIView = ({ compact = false,
     { id: 'default', title: 'Conversation-1', messages: [], timestamp: new Date().toISOString() }
   ]);
   const [activeConversationId, setActiveConversationId] = React.useState('default');
+  const [editingTabId, setEditingTabId] = React.useState(null);
+  const [editingTabTitle, setEditingTabTitle] = React.useState('');
   const [isHydrated, setIsHydrated] = React.useState(false);
 
   const [fileStatus, setFileStatus] = React.useState(null);
@@ -1333,6 +1335,45 @@ const LeftAIView = ({ compact = false,
 
       // Also clear from immediate localStorage
       localStorage.removeItem(`rs.aiChat.messages.${activeConversationId}`);
+    }
+  };
+
+  // Auto-name generation helper
+  const generateConversationTitle = (text) => {
+    if (!text) return 'New Conversation';
+    let cleanText = text.replace(/^[^a-zA-Z0-9]+/, '').trim();
+    if (!cleanText) return 'New Conversation';
+    if (cleanText.length > 25) {
+      return cleanText.substring(0, 25).trim() + '…';
+    }
+    return cleanText;
+  };
+
+  // Tab renaming handlers
+  const handleTabDoubleClick = (id, currentTitle) => {
+    setEditingTabId(id);
+    setEditingTabTitle(currentTitle);
+  };
+
+  const handleTabRenameChange = (e) => {
+    setEditingTabTitle(e.target.value);
+  };
+
+  const handleTabRenameCommit = () => {
+    if (editingTabId) {
+      const newTitle = editingTabTitle.trim() || 'Conversation';
+      setConversations(prev => prev.map(c =>
+        c.id === editingTabId ? { ...c, title: newTitle } : c
+      ));
+      setEditingTabId(null);
+    }
+  };
+
+  const handleTabRenameKeyDown = (e) => {
+    if (e.key === 'Enter') {
+      handleTabRenameCommit();
+    } else if (e.key === 'Escape') {
+      setEditingTabId(null);
     }
   };
 
@@ -1808,6 +1849,16 @@ const LeftAIView = ({ compact = false,
     }
 
     // Normal message handling
+
+    // Auto-name if first message in a generic tab
+    const currentConv = conversations.find(c => c.id === activeConversationId);
+    if (currentConv && currentConv.messages.length === 0 && /^Conversation-\d+$/.test(currentConv.title)) {
+      const newTitle = generateConversationTitle(userMessage);
+      setConversations(prev => prev.map(c =>
+        c.id === activeConversationId ? { ...c, title: newTitle } : c
+      ));
+    }
+
     addMessage('user', userMessage);
     setCurrentInput('');
     setIsProcessing(true);
@@ -2608,8 +2659,22 @@ const LeftAIView = ({ compact = false,
               key={conv.id}
               className={`ai-tab ${activeConversationId === conv.id ? 'active' : ''}`}
               onClick={() => handleTabSwitch(conv.id)}
+              onDoubleClick={() => handleTabDoubleClick(conv.id, conv.title)}
             >
-              <span className="ai-tab-title">{conv.title}</span>
+              {editingTabId === conv.id ? (
+                <input
+                  className="ai-tab-title-input"
+                  value={editingTabTitle}
+                  onChange={handleTabRenameChange}
+                  onBlur={handleTabRenameCommit}
+                  onKeyDown={handleTabRenameKeyDown}
+                  autoFocus
+                  onFocus={e => e.target.select()}
+                  onClick={e => e.stopPropagation()}
+                />
+              ) : (
+                <span className="ai-tab-title">{conv.title}</span>
+              )}
               {conversations.length > 1 && (
                 <button
                   className="ai-tab-close"

@@ -153,6 +153,24 @@
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
 }
 
+.ai-tab-title-input {
+  background: transparent;
+  border: none;
+  border-bottom: 1px solid rgba(38, 0, 0, 0.4);
+  color: inherit;
+  font-family: inherit;
+  font-size: inherit;
+  font-weight: inherit;
+  outline: none;
+  padding: 0;
+  margin: 0;
+  width: 120px;
+}
+
+.ai-tab.active .ai-tab-title-input {
+  border-bottom-color: rgba(189, 181, 181, 0.6);
+}
+
 .ai-tab-close {
   display: flex;
   align-items: center;

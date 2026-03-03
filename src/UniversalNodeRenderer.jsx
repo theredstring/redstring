@@ -43,36 +43,7 @@ const ConnectionText = ({
 
   return (
     <g>
-      {/* Background glow for better readability */}
-      {isHovered && (
-        <text
-          x={midX}
-          y={midY}
-          fill="none"
-          fontSize={fontSize}
-          fontWeight="bold"
-          textAnchor="middle"
-          dominantBaseline="middle"
-          transform={`rotate(${adjustedAngle}, ${midX}, ${midY})`}
-          stroke={(() => {
-            const raw = connection.color || '#000000';
-            // Use getTextColor for glow so it contrasts correctly with background
-            const suggested = getTextColor(raw);
-            return suggested === '#bdb5b5' ? raw : suggested;
-          })()}
-          strokeWidth={strokeWidth * 2}
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          opacity="0.4"
-          filter={`drop-shadow(0 0 4px ${connection.color || '#000000'})`}
-          fontFamily="'EmOne', sans-serif"
-          style={{ pointerEvents: 'none' }}
-        >
-          {displayName}
-        </text>
-      )}
-
-      {/* Main text with stroke */}
+      {/* Main text with stroke - uses drop-shadow for hover glow instead of a separate element */}
       <text
         x={midX}
         y={midY}
@@ -82,16 +53,13 @@ const ConnectionText = ({
         textAnchor="middle"
         dominantBaseline="middle"
         transform={`rotate(${adjustedAngle}, ${midX}, ${midY})`}
-        stroke={(() => {
-          const raw = connection.color || '#000000';
-          // Now that getTextColor returns a matching light color, we can just use raw as the stroke
-          return raw;
-        })()}
+        stroke={connection.color || '#000000'}
         strokeWidth={strokeWidth}
         strokeLinecap="round"
         strokeLinejoin="round"
         paintOrder="stroke fill"
         fontFamily="'EmOne', sans-serif"
+        /* filter applied on parent <g> for unified glow */
         style={{ pointerEvents: 'none' }}
       >
         {displayName}
@@ -677,8 +645,7 @@ const UniversalNodeRenderer = ({
           }
 
           return (
-            <g key={`connection-${conn.id}`}>
-              {/* Glow filter disabled - was causing connections to disappear */}
+            <g key={`connection-${conn.id}`} filter={isStableHovered ? `drop-shadow(0 0 8px ${conn.color || '#000000'})` : 'none'}>
 
               {/* Invisible hover area that matches the visual connection line exactly */}
               {interactive && adjustedPath && (
@@ -715,7 +682,7 @@ const UniversalNodeRenderer = ({
                   stroke={conn.color || '#000000'}
                   strokeWidth={Math.max(4, conn.strokeWidth * 1.5)}
                   strokeLinecap="round"
-                  filter={isHovered ? `drop-shadow(0 0 8px ${conn.color || '#000000'})` : 'none'}
+                  /* filter applied on parent <g> for unified glow */
                   style={{
                     pointerEvents: 'none', // Don't interfere with hover area above
                     transition: 'none' // Disable animation temporarily
@@ -741,22 +708,7 @@ const UniversalNodeRenderer = ({
                     style={{ cursor: interactive ? 'pointer' : 'default' }}
                     onClick={interactive ? (e) => { e.stopPropagation(); onToggleArrow?.(conn.id, conn.sourceId); } : undefined}
                   >
-                    {/* Background glow for arrow - only on hover */}
-                    {isHovered && (
-                      <polygon
-                        points={`${-16 * arrowScale},${20 * arrowScale} ${16 * arrowScale},${20 * arrowScale} 0,${-20 * arrowScale}`}
-                        fill={conn.color || '#000000'}
-                        stroke={conn.color || '#000000'}
-                        strokeWidth={Math.max(2, conn.strokeWidth * 1.2)}
-                        strokeLinejoin="round"
-                        strokeLinecap="round"
-                        opacity="0.3"
-                        style={{
-                          filter: `blur(2px) drop-shadow(0 0 6px ${conn.color || '#000000'})`,
-                          pointerEvents: 'none'
-                        }}
-                      />
-                    )}
+                    {/* Glow applied on parent <g> for unified effect */}
                     {/* Main arrow */}
                     <polygon
                       points={`${-16 * arrowScale},${20 * arrowScale} ${16 * arrowScale},${20 * arrowScale} 0,${-20 * arrowScale}`}
@@ -766,7 +718,7 @@ const UniversalNodeRenderer = ({
                       strokeLinejoin="round"
                       strokeLinecap="round"
                       paintOrder="stroke fill"
-                      filter={isHovered ? `drop-shadow(0 0 8px ${conn.color || '#000000'})` : 'none'}
+                    /* filter applied on parent <g> */
                     />
 
                     {/* Invisible larger hitbox for easier clicking */}
@@ -804,22 +756,7 @@ const UniversalNodeRenderer = ({
                     style={{ cursor: interactive ? 'pointer' : 'default' }}
                     onClick={interactive ? (e) => { e.stopPropagation(); onToggleArrow?.(conn.id, conn.targetId || conn.destinationId); } : undefined}
                   >
-                    {/* Background glow for arrow - only on hover */}
-                    {isHovered && (
-                      <polygon
-                        points={`${-16 * arrowScale},${20 * arrowScale} ${16 * arrowScale},${20 * arrowScale} 0,${-20 * arrowScale}`}
-                        fill={conn.color || '#000000'}
-                        stroke={conn.color || '#000000'}
-                        strokeWidth={Math.max(2, conn.strokeWidth * 1.2)}
-                        strokeLinejoin="round"
-                        strokeLinecap="round"
-                        opacity="0.3"
-                        style={{
-                          filter: `blur(2px) drop-shadow(0 0 6px ${conn.color || '#000000'})`,
-                          pointerEvents: 'none'
-                        }}
-                      />
-                    )}
+                    {/* Glow applied on parent <g> for unified effect */}
                     {/* Main arrow */}
                     <polygon
                       points={`${-16 * arrowScale},${20 * arrowScale} ${16 * arrowScale},${20 * arrowScale} 0,${-20 * arrowScale}`}
@@ -829,7 +766,7 @@ const UniversalNodeRenderer = ({
                       strokeLinejoin="round"
                       strokeLinecap="round"
                       paintOrder="stroke fill"
-                      filter={isHovered ? `drop-shadow(0 0 8px ${conn.color || '#000000'})` : 'none'}
+                    /* filter applied on parent <g> */
                     />
 
                     {/* Invisible larger hitbox for easier clicking */}
@@ -900,6 +837,7 @@ const UniversalNodeRenderer = ({
                             e.stopPropagation();
                             onToggleArrow?.(conn.id, conn.sourceId);
                           }}
+                          onMouseLeave={() => handleConnectionMouseLeave(conn)}
                         />
 
                         {/* Invisible larger hitbox for easier clicking */}
@@ -918,6 +856,7 @@ const UniversalNodeRenderer = ({
                             e.stopPropagation();
                             onToggleArrow?.(conn.id, conn.sourceId);
                           }}
+                          onMouseLeave={() => handleConnectionMouseLeave(conn)}
                         />
                       </g>
                     );
@@ -959,6 +898,7 @@ const UniversalNodeRenderer = ({
                             e.stopPropagation();
                             onToggleArrow?.(conn.id, conn.targetId || conn.destinationId);
                           }}
+                          onMouseLeave={() => handleConnectionMouseLeave(conn)}
                         />
 
                         {/* Invisible larger hitbox for easier clicking */}
@@ -977,6 +917,7 @@ const UniversalNodeRenderer = ({
                             e.stopPropagation();
                             onToggleArrow?.(conn.id, conn.targetId || conn.destinationId);
                           }}
+                          onMouseLeave={() => handleConnectionMouseLeave(conn)}
                         />
                       </g>
                     );

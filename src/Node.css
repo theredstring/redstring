@@ -19,19 +19,19 @@
   -webkit-tap-highlight-color: transparent;
 }
 
-.node.selected .node-background {
+.node.selected>.node-background {
   /* Use node-background directly for stroke */
   stroke: black;
   stroke-width: 8px;
 }
 
-.node.dragging .node-background {
+.node.dragging>.node-background {
   /* Use node-background directly for filter */
   filter: drop-shadow(0px 8px 10px rgba(0, 0, 0, 0.4));
 }
 
 /* Add style for previewing state */
-.node.previewing .node-background {
+.node.previewing>.node-background {
   /* stroke: #a0a0a0; */
   /* Removed light grey stroke */
   filter: drop-shadow(0px 10px 15px rgba(0, 0, 0, 0.2));

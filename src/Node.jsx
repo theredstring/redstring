@@ -599,7 +599,7 @@ const Node = ({
                     alignItems: 'center',
                     justifyContent: 'center',
                     backgroundColor: 'transparent',
-                    color: nodeTextColor,
+                    color: '#716C6C',
                     fontSize: '16px',
                     fontWeight: 'bold',
                     textAlign: 'center',
