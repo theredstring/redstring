@@ -21,6 +21,10 @@ export function generateDescription(context, state) {
             desc = `Deleted "${proto?.name || 'node'}"`;
             break;
         }
+        case 'node_delete_batch': {
+            desc = `Deleted ${context.count || 'multiple'} nodes`;
+            break;
+        }
         case 'node_type_change': {
             const proto = state.nodePrototypes?.get(context.nodeId);
             const typeNode = context.typeNodeId ? state.nodePrototypes?.get(context.typeNodeId) : null;
@@ -58,8 +62,13 @@ export function generateDescription(context, state) {
         case 'group_delete':
             desc = `Deleted group`;
             break;
+        case 'group_convert':
+            desc = `Converted group to defining node`;
+            break;
+        case 'group_combine':
+            desc = `Combined into group`;
+            break;
 
-        // Position updates (usually bulk)
         // Position updates (usually bulk)
         case 'position_update':
         case 'node_position': {

@@ -216,12 +216,13 @@ const saveCoordinatorMiddleware = (config) => {
 
       // --- History Recording (Batched) ---
       const recordableTypes = new Set([
-        'node_place', 'node_delete', 'node_type_change', 'node_update',
+        'node_place', 'node_delete', 'node_delete_batch', 'node_type_change', 'node_update',
         'edge_create', 'edge_delete', 'edge_update', 'edge_type_change',
-        'group_create', 'group_update', 'group_delete', 'group_convert',
+        'group_create', 'group_update', 'group_delete', 'group_convert', 'group_combine',
         'prototype_create', 'prototype_update', 'prototype_delete',
         'position_update', 'node_position',
-        'graph_create', 'graph_delete', 'graph_update'
+        'graph_create', 'graph_delete', 'graph_update',
+        'paste', 'bulk_update'
       ]);
 
       if (changeContext.ignore) {

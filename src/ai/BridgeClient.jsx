@@ -3,6 +3,7 @@ import useGraphStore from '../store/graphStore.jsx';
 import { bridgeEventSource, bridgeFetch } from '../services/bridgeConfig.js';
 import { navigateOnGraphSwitch } from '../services/canvasNavigationService.js';
 import { applyLayout, FORCE_LAYOUT_DEFAULTS } from '../services/graphLayoutService.js';
+import { getNodeDimensions } from '../utils';
 
 const MAX_LAYOUT_NODES = 400;
 
@@ -10,7 +11,9 @@ const MAX_LAYOUT_NODES = 400;
  * Apply force-directed layout to a graph that isn't currently rendered (no DOM dimensions).
  * Reads instances/edges from the store, uses estimated node sizes, and writes positions back.
  */
-function applyOffscreenLayout(st, graphId) {
+function applyOffscreenLayout(graphId) {
+  // Always fetch fresh state — callers may have just mutated the store
+  const st = useGraphStore.getState();
   const graph = st.graphs.get(graphId);
   if (!graph) return;
 
@@ -18,45 +21,63 @@ function applyOffscreenLayout(st, graphId) {
   if (instances.length === 0) return;
 
   const nodeSpacing = FORCE_LAYOUT_DEFAULTS.nodeSpacing || 140;
-  const defaultSize = 180;
 
+  // Build layout nodes using getNodeDimensions (same fallback useGraphLayout uses)
   const layoutNodes = instances.map(inst => {
     const proto = st.nodePrototypes.get(inst.prototypeId);
-    const name = proto?.name || '';
-    const estimatedWidth = Math.max(defaultSize, name.length * 12 + 60);
-    const estimatedHeight = defaultSize;
+    const dims = getNodeDimensions({ name: proto?.name || '', thumbnailSrc: proto?.thumbnailSrc }, false, null);
+    const labelWidth = dims?.currentWidth ?? nodeSpacing;
+    const labelHeight = dims?.currentHeight ?? nodeSpacing;
     return {
       id: inst.id,
       prototypeId: inst.prototypeId,
       x: typeof inst.x === 'number' ? inst.x : 0,
       y: typeof inst.y === 'number' ? inst.y : 0,
-      width: estimatedWidth,
-      height: estimatedHeight,
-      labelWidth: estimatedWidth,
-      labelHeight: estimatedHeight,
-      imageHeight: 0,
-      nodeSize: Math.max(estimatedWidth, estimatedHeight, nodeSpacing)
+      width: labelWidth,
+      height: labelHeight,
+      labelWidth,
+      labelHeight,
+      imageHeight: dims?.calculatedImageHeight ?? 0,
+      nodeSize: Math.max(labelWidth, labelHeight, nodeSpacing)
     };
   });
 
-  const edges = Array.from(graph.edges?.values() || []);
-  const layoutEdges = edges
+  // Read edges via graph.edgeIds → store.edges (graph.edges doesn't exist)
+  const layoutEdges = (graph.edgeIds || [])
+    .map(eId => st.edges.get(eId))
     .filter(e => e && e.sourceId && e.destinationId)
     .map(e => ({ sourceId: e.sourceId, destinationId: e.destinationId }));
 
-  const updates = applyLayout(layoutNodes, layoutEdges, 'force-directed', {
+  // Pass groups if available
+  const groups = Array.from(graph.groups?.values() || []);
+
+  let updates = applyLayout(layoutNodes, layoutEdges, 'force-directed', {
     width: 2000,
     height: 2000,
     padding: 300,
     useExistingPositions: false,
+    groups,
   });
 
-  if (updates && updates.length > 0) {
-    st.updateMultipleNodeInstancePositions(graphId, updates, {
-      finalize: true, source: 'auto-layout', algorithm: 'force-directed'
-    });
-    console.error('[BridgeClient] Applied offscreen auto-layout to graph', graphId, 'for', updates.length, 'nodes');
+  if (!updates || updates.length === 0) return;
+
+  // Recenter: shift layout so bounding box center is at (1000, 1000)
+  let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+  updates.forEach(u => {
+    if (u.x < minX) minX = u.x;
+    if (u.y < minY) minY = u.y;
+    if (u.x > maxX) maxX = u.x;
+    if (u.y > maxY) maxY = u.y;
+  });
+  if (Number.isFinite(minX)) {
+    const shiftX = 1000 - (minX + maxX) / 2;
+    const shiftY = 1000 - (minY + maxY) / 2;
+    updates = updates.map(u => ({ ...u, x: Math.round(u.x + shiftX), y: Math.round(u.y + shiftY) }));
   }
+
+  st.updateMultipleNodeInstancePositions(graphId, updates, {
+    finalize: true, source: 'auto-layout', algorithm: 'force-directed'
+  });
 }
 const MAX_SUMMARY_EDGES = 600;
 
@@ -956,7 +977,7 @@ const BridgeClient = () => {
               st.applyBulkGraphUpdates(gId, bulkData);
 
               // Auto-layout: offscreen immediately, then event for DOM override
-              applyOffscreenLayout(st, gId);
+              try { applyOffscreenLayout(gId); } catch (e) { console.error('[BridgeClient] Offscreen layout failed:', e); }
               setTimeout(() => {
                 if (typeof window !== 'undefined') {
                   window.dispatchEvent(new CustomEvent('rs-trigger-auto-layout', { detail: { graphId: gId } }));
@@ -1000,7 +1021,7 @@ const BridgeClient = () => {
               st.applyBulkGraphUpdates(gId, bulkData);
 
               // Auto-layout: offscreen immediately, then event for DOM override
-              applyOffscreenLayout(st, gId);
+              try { applyOffscreenLayout(gId); } catch (e) { console.error('[BridgeClient] Offscreen layout failed:', e); }
               setTimeout(() => {
                 if (typeof window !== 'undefined') {
                   window.dispatchEvent(new CustomEvent('rs-trigger-auto-layout', { detail: { graphId: gId } }));
@@ -2014,7 +2035,7 @@ const BridgeClient = () => {
                   console.log(`MCPBridge: Triggering auto-layout for ${structuralChanges.length} structural change${structuralChanges.length !== 1 ? 's' : ''}`);
 
                   // Offscreen layout for all graphs (works even if not active)
-                  applyOffscreenLayout(useGraphStore.getState(), a);
+                  try { applyOffscreenLayout(a); } catch (e) { console.error('[BridgeClient] Offscreen layout failed:', e); }
 
                   // Also dispatch event so DOM-based layout can override with real dimensions
                   if (typeof window !== 'undefined') {

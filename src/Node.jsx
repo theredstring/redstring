@@ -149,6 +149,7 @@ const Node = ({
   const hasAnyDefinitions = definitionGraphIds.length > 0;
   // Access store state before any memoizations that depend on it
   const graphsMap = useGraphStore((state) => state.graphs);
+  const edgesMap = useGraphStore((state) => state.edges);
   const textSettings = useGraphStore((state) => state.textSettings);
   const nodePrototypesMap = useGraphStore((state) => state.nodePrototypes);
 
@@ -225,11 +226,13 @@ const Node = ({
   const currentGraphEdges = useMemo(() => {
     if (!isPreviewing || !currentGraphId) return [];
     const graphData = graphsMap.get(currentGraphId);
-    if (!graphData || !graphData.edges) return [];
+    if (!graphData || !graphData.edgeIds) return [];
 
-    // Manual edge filtering to avoid storeState dependency
-    return Array.from(graphData.edges.values());
-  }, [isPreviewing, currentGraphId, graphsMap]);
+    // Map edge IDs to actual edge data from the global edges map
+    return graphData.edgeIds
+      .map(edgeId => edgesMap.get(edgeId))
+      .filter(edge => edge !== undefined);
+  }, [isPreviewing, currentGraphId, graphsMap, edgesMap]);
 
   // Get the current definition graph's description
   const currentGraphDescription = useMemo(() => {
@@ -393,8 +396,8 @@ const Node = ({
             display: 'flex',
             flexDirection: 'column',
             alignItems: 'center',
-            // In preview, center single-line vertically to align with header buttons
-            justifyContent: isPreviewing ? (isMultiline ? 'flex-start' : 'center') : 'center',
+            // In preview, center all text vertically to align with header buttons
+            justifyContent: 'center',
             width: '100%',
             height: '100%',
             padding: (() => {
@@ -402,8 +405,8 @@ const Node = ({
               if (!isPreviewing) {
                 return `20px ${baseSidePadding}px`;
               }
-              // Standard padding, let maxWidth handle the wrap constraint identically to unexpanded nodes
-              return `26px ${baseSidePadding}px 20px ${baseSidePadding}px`;
+              // Symmetrical padding for exact vertical center
+              return `20px ${baseSidePadding}px`;
             })(),
             boxSizing: 'border-box',
             pointerEvents: isEditingOnCanvas ? 'auto' : 'none',
@@ -477,7 +480,13 @@ const Node = ({
       {isPreviewing && innerNetworkWidth > 0 && innerNetworkHeight > 0 && (
         <g style={{ transition: 'opacity 0.3s ease', opacity: 1 }} >
           <g clipPath={`url(#${innerClipPathId})`}>
-            {/* The transparent cutout is handled by the mask on the node-background rect */}
+            <rect
+              x={nodeX + NODE_PADDING}
+              y={contentAreaY}
+              width={innerNetworkWidth}
+              height={innerNetworkHeight}
+              fill="#BEB5B5"
+            />
 
             {hasAnyDefinitions ? (
               // Show existing graph definition with UniversalNodeRenderer for faithful representations
@@ -496,6 +505,7 @@ const Node = ({
                     <UniversalNodeRenderer
                       nodes={currentGraphNodes.map(n => ({
                         ...n,
+                        isSelected: false, // Prevent inherited selection ring
                         width: getNodeDimensions(n, false, null).currentWidth,
                         height: getNodeDimensions(n, false, null).currentHeight,
                         imageSrc: n.thumbnailSrc, // Pass image source for display
