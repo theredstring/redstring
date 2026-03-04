@@ -993,13 +993,15 @@ function applyToolResultToStore(toolName, result, toolCallId) {
     console.log('[Wizard] Edges count:', result.spec.edges?.length || 0);
     console.log('[Wizard] Groups count:', result.spec.groups?.length || 0);
 
-    // 1. Create the graph first
-    const graphId = store.createNewGraph({
-      id: result.graphId,
-      name: result.graphName,
-      description: result.description || ''
-    });
-
+    // 1. Create the graph first if it doesn't exist
+    let graphId = result.graphId;
+    if (!store.graphs.has(graphId)) {
+      graphId = store.createNewGraph({
+        id: result.graphId,
+        name: result.graphName,
+        description: result.description || ''
+      });
+    }
     // 2. Prepare bulk updates - use unique IDs for each node
     const bulkData = {
       nodes: result.spec.nodes.map((n, idx) => ({

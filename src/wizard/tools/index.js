@@ -311,6 +311,7 @@ export function getToolDefinitions() {
         properties: {
           name: { type: 'string', description: 'REQUIRED: A descriptive name for the new graph workspace (e.g., "Solar System", "Romeo and Juliet Characters"). Must always be provided.' },
           description: { type: 'string', description: 'Optional description of the graph' },
+          targetGraphId: { type: 'string', description: 'Optional: ID of graph to populate. If provided, this tool will populate an existing graph instead of creating a new one. This is the ONLY single-call way to populate a pre-existing graph with groups.' },
           nodes: {
             type: 'array',
             description: 'Array of nodes to create. Give each node a brief description!',

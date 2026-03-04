@@ -348,9 +348,9 @@ const Node = ({
         </clipPath>
 
         {/* Mask for creating a true transparent cutout in the node background for the preview area */}
-        <mask id={`${idPrefix}node-mask-${instanceId}`}>
-          <rect x={nodeX - 50} y={nodeY - 50} width={currentWidth + 100} height={currentHeight + 100} fill="white" />
-          {isPreviewing && innerNetworkWidth > 0 && innerNetworkHeight > 0 && (
+        {isPreviewing && innerNetworkWidth > 0 && innerNetworkHeight > 0 && (
+          <mask id={`${idPrefix}node-mask-${instanceId}`}>
+            <rect x={nodeX - 200} y={nodeY - 200} width={currentWidth + 400} height={currentHeight + 400} fill="white" />
             <rect
               x={nodeX + NODE_PADDING}
               y={contentAreaY + 0.01}
@@ -360,8 +360,8 @@ const Node = ({
               ry={16}
               fill="black"
             />
-          )}
-        </mask>
+          </mask>
+        )}
       </defs>
 
       {/* Background Rect - Use absolute coords */}
@@ -376,7 +376,7 @@ const Node = ({
         fill={node.color || 'maroon'}
         stroke={isSelected ? 'black' : 'none'}
         strokeWidth={12}
-        mask={`url(#${idPrefix}node-mask-${instanceId})`}
+        mask={isPreviewing && innerNetworkWidth > 0 && innerNetworkHeight > 0 ? `url(#${idPrefix}node-mask-${instanceId})` : undefined}
         style={{ transition: 'width 0.3s ease, height 0.3s ease, fill 0.2s ease' }}
       />
 

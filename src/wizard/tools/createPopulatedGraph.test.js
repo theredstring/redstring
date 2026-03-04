@@ -142,7 +142,7 @@ describe('createPopulatedGraph', () => {
     expect(result.description).toBe('');
   });
 
-  it('throws error when name is missing', async () => {
+  it('throws error when name and targetGraphId are missing', async () => {
     const graphState = {
       graphs: [],
       nodePrototypes: []
@@ -155,7 +155,27 @@ describe('createPopulatedGraph', () => {
         mockCid,
         mockEnsureSchedulerStarted
       )
-    ).rejects.toThrow('Graph name is required');
+    ).rejects.toThrow('Graph name is required when creating a new graph');
+  });
+
+  it('allows missing name if targetGraphId is provided', async () => {
+    const graphState = {
+      graphs: [],
+      nodePrototypes: []
+    };
+
+    const result = await createPopulatedGraph(
+      {
+        targetGraphId: 'existing-graph-id',
+        nodes: [{ name: 'Node One' }]
+      },
+      graphState,
+      mockCid,
+      mockEnsureSchedulerStarted
+    );
+
+    expect(result.graphId).toBe('existing-graph-id');
+    expect(result.graphName).toBe('existing graph');
   });
 
   it('throws error when nodes array is empty', async () => {

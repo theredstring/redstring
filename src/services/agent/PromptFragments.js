@@ -234,8 +234,9 @@ Add NEW nodes and edges to the ACTIVE graph. This is strictly for ADDING new con
 - **IMPORTANT**: If you want to CHANGE existing connections (e.g., update their type), use \`updateEdge\` or \`replaceEdges\` instead. Using \`expandGraph\` to "fix" connections will create DUPLICATES.
 
 ### createPopulatedGraph
-Create a NEW graph with nodes, edges, AND groups in one operation. **You MUST always provide the \`name\` parameter.**
-- \`name\` (**REQUIRED** - will error without it): A descriptive name for the new graph workspace (e.g., "Solar System", "Romeo and Juliet Characters")
+Create a NEW graph with nodes, edges, AND groups in one operation. **You MUST always provide the \`name\` parameter** if you are creating a new graph.
+- \`targetGraphId\` (optional): If provided, this tool will populate an **existing** graph instead of creating a new one. This is the **ONLY** single-call way to populate a pre-existing graph with groups. Use this instead of \`expandGraph\` when you need to add nodes, connections, AND groups simultaneously to an existing graph.
+- \`name\` (**REQUIRED** if not using \`targetGraphId\`): A descriptive name for the new graph workspace (e.g., "Solar System", "Romeo and Juliet Characters")
 - \`description\` (optional): Description of the graph
 - \`nodes\` (required): Array of { name, color, description }
   - **ALWAYS include description** for each node - what it represents

@@ -13,25 +13,26 @@ import queueManager from '../../services/queue/Queue.js';
  * @returns {Promise<Object>} { graphId, graphName, nodesAdded, edgesAdded, groupsAdded }
  */
 export async function createPopulatedGraph(args, graphState, cid, ensureSchedulerStarted) {
-  const { name, description = '', nodes = [], edges = [], groups = [] } = args;
+  const { name, description = '', nodes = [], edges = [], groups = [], targetGraphId } = args;
 
   console.error('[createPopulatedGraph] Called with:');
   console.error('[createPopulatedGraph] - name:', name);
   console.error('[createPopulatedGraph] - nodes:', nodes.length, 'items');
   console.error('[createPopulatedGraph] - edges:', edges.length, 'items');
   console.error('[createPopulatedGraph] - groups:', groups.length, 'items');
+  console.error('[createPopulatedGraph] - targetGraphId:', targetGraphId);
   console.error('[createPopulatedGraph] - edges detail:', JSON.stringify(edges));
 
-  if (!name) {
-    throw new Error('Graph name is required');
+  if (!name && !targetGraphId) {
+    throw new Error('Graph name is required when creating a new graph');
   }
 
   if (!nodes || nodes.length === 0) {
     throw new Error('At least one node is required');
   }
 
-  // Generate a graph ID for the new graph
-  const graphId = `graph-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+  // Generate a graph ID for the new graph or use targetGraphId
+  const graphId = targetGraphId || `graph-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 
   // Helper to convert to Title Case
   const toTitleCase = (str) => {
@@ -115,7 +116,7 @@ export async function createPopulatedGraph(args, graphState, cid, ensureSchedule
   return {
     action: 'createPopulatedGraph',
     graphId,
-    graphName: name,
+    graphName: name || 'existing graph',
     description,
     // For ToolCallCard summary (counts)
     nodeCount: nodeSpecs.length,
