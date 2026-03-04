@@ -179,7 +179,8 @@ export const resolvePaletteColor = (paletteName, colorString) => {
  */
 export const buildPalettePromptFragment = () => {
     let fragment = "## Available Color Palettes\n\n";
-    fragment += "When you create maps, nodes, graphs, and connection definitions, you should generally ensure color consistency by picking ONE palette from the options below and sticking to it. For their `color` property, just provide the name of the color in the palette (e.g. \"tan\").\n\n";
+    fragment += "When creating maps, nodes, and graphs, you are STRONGLY ENCOURAGED to use ONE of the predefined palettes listed below for color consistency. For every `color` property, provide the exact name of the color from your chosen palette (e.g., \"tan\").\n\n";
+    fragment += "You may only invent a custom thematic palette (and use raw hex codes) if the user explicitly requests one, or if the domain strictly requires specific semantic colors not available below (e.g., subway lines). Otherwise, stick to these palettes:\n\n";
 
     for (const [key, palette] of Object.entries(PALETTES)) {
         const colorNames = Object.keys(palette.colors).join(", ");
@@ -187,4 +188,16 @@ export const buildPalettePromptFragment = () => {
     }
 
     return fragment;
+};
+
+/**
+ * Builds a compact description of available palettes and colors
+ * suitable for inclusion in JSON schema descriptions for MCP tools.
+ */
+export const getPaletteSchemaDescription = () => {
+    let desc = "REQUIRED: You MUST choose one of these available palettes and strictly use its color names: ";
+    const entries = Object.entries(PALETTES).map(([key, palette]) => {
+        return `"${key}" (${Object.keys(palette.colors).join(", ")})`;
+    });
+    return desc + entries.join("; ") + ".";
 };

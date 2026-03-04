@@ -92,9 +92,9 @@ export function getToolDefinitions() {
       parameters: {
         type: 'object',
         properties: {
-          palette: { type: 'string', description: `Optional: Name of the color palette to use for the node. ${getPaletteSchemaDescription()}` },
+          palette: { type: 'string', description: `Optional: Name of the predefined color palette to use. ${getPaletteSchemaDescription()} If omitted or using a custom palette, provide hex codes in 'color'.` },
           name: { type: 'string', description: 'The node\'s display name' },
-          color: { type: 'string', description: 'Color name from the chosen palette (e.g. "tan", "navy-blue"), OR a hex color like "#8B0000". If omitted, gets random palette color.' },
+          color: { type: 'string', description: 'Color name from the chosen palette (e.g. "tan", "navy-blue"), OR a hex color. Prefer palette names unless a custom color is strictly required.' },
           description: { type: 'string', description: 'What this node represents' },
           targetGraphId: { type: 'string', description: 'Optional: ID of graph to create node in. Use this to populate definition graphs non-disruptively. If omitted, uses active graph.' }
         },
@@ -246,7 +246,7 @@ export function getToolDefinitions() {
       parameters: {
         type: 'object',
         properties: {
-          palette: { type: 'string', description: `Optional: Name of the color palette to use for the graph. ${getPaletteSchemaDescription()}` },
+          palette: { type: 'string', description: `Optional: Name of the predefined color palette to use for the graph. ${getPaletteSchemaDescription()}` },
           nodes: {
             type: 'array',
             description: 'Array of nodes to create',
@@ -254,7 +254,7 @@ export function getToolDefinitions() {
               type: 'object',
               properties: {
                 name: { type: 'string' },
-                color: { type: 'string', description: 'Color name from chosen palette, OR hex color' },
+                color: { type: 'string', description: 'Color name from chosen palette, OR hex color if using a custom theme.' },
                 description: { type: 'string' }
               },
               required: ['name']
@@ -323,7 +323,7 @@ export function getToolDefinitions() {
               type: 'object',
               properties: {
                 name: { type: 'string', description: 'Node name - use Title Case (e.g., "Romeo Montague", not "romeo_montague")' },
-                color: { type: 'string', description: 'Color name from the chosen palette (e.g. "tan", "navy-blue"), OR a hex color like "#8B0000"' },
+                color: { type: 'string', description: 'Color name from chosen palette, OR hex color if using a custom theme.' },
                 description: { type: 'string', description: 'Brief description of what this node represents - ALWAYS include this!' }
               },
               required: ['name']
@@ -347,7 +347,7 @@ export function getToolDefinitions() {
                   description: 'REQUIRED: Defines what this connection type means. Use Title Case for name!',
                   properties: {
                     name: { type: 'string', description: 'Connection type name in Title Case (e.g., "Loves", "Parent Of", "Orbits")' },
-                    color: { type: 'string', description: 'Color name from the chosen palette, OR hex color for this connection type' },
+                    color: { type: 'string', description: 'Color name from chosen palette, OR hex color.' },
                     description: { type: 'string', description: 'What this connection means' }
                   },
                   required: ['name']
@@ -363,7 +363,7 @@ export function getToolDefinitions() {
               type: 'object',
               properties: {
                 name: { type: 'string', description: 'Group name (e.g., "House Montague", "Engineering Team")' },
-                color: { type: 'string', description: 'Color name from the chosen palette, OR hex color for this group' },
+                color: { type: 'string', description: 'Color name from chosen palette, OR hex color.' },
                 memberNames: { type: 'array', items: { type: 'string' }, description: 'Names of nodes that belong to this group - must EXACTLY match names in the nodes array' }
               },
               required: ['name', 'memberNames']
