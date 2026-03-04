@@ -2,6 +2,8 @@
  * createNode - Create a single node in a graph (defaults to active)
  */
 
+import { resolvePaletteColor } from '../../ai/palettes.js';
+
 /**
  * Create a node
  * @param {Object} args - { name, color?, description?, targetGraphId? }
@@ -11,7 +13,7 @@
  * @returns {Promise<Object>} Node spec for UI application
  */
 export async function createNode(args, graphState, cid, ensureSchedulerStarted) {
-  const { name, color, description, targetGraphId } = args;
+  const { name, color, description, targetGraphId, palette } = args;
   if (!name) {
     throw new Error('name is required');
   }
@@ -27,7 +29,7 @@ export async function createNode(args, graphState, cid, ensureSchedulerStarted) 
     action: 'createNode',
     graphId,
     name,
-    color: color || '#5B6CFF',
+    color: resolvePaletteColor(palette, color),
     description: description || ''
   };
 }

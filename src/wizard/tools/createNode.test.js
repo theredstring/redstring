@@ -5,6 +5,11 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { createNode } from './createNode.js';
 
+vi.mock('../../ai/palettes.js', () => ({
+  resolvePaletteColor: vi.fn((palette, color) => color || '#5B6CFF'),
+  getRandomPalette: vi.fn(() => 'test-palette')
+}));
+
 describe('createNode', () => {
   const mockCid = 'test-cid-123';
 
@@ -87,6 +92,6 @@ describe('createNode', () => {
 
     await expect(
       createNode({ name: 'Test Node' }, graphState, mockCid, null)
-    ).rejects.toThrow('No active graph');
+    ).rejects.toThrow('No target graph specified and no active graph available.');
   });
 });

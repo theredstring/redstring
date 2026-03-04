@@ -5,6 +5,11 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { expandGraph } from './expandGraph.js';
 
+vi.mock('../../ai/palettes.js', () => ({
+  resolvePaletteColor: vi.fn((palette, color) => color || '#5B6CFF'),
+  getRandomPalette: vi.fn(() => 'test-palette')
+}));
+
 describe('expandGraph', () => {
   const mockEnsureSchedulerStarted = vi.fn();
   const mockCid = 'test-cid-123';
@@ -97,7 +102,7 @@ describe('expandGraph', () => {
 
     await expect(
       expandGraph({ nodes: [{ name: 'Node One' }] }, graphState, mockCid, mockEnsureSchedulerStarted)
-    ).rejects.toThrow('No active graph');
+    ).rejects.toThrow('No target graph specified and no active graph available.');
   });
 
   it('handles missing nodes array', async () => {

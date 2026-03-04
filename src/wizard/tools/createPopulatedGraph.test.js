@@ -14,6 +14,11 @@ vi.mock('../../services/queue/Queue.js', () => ({
   }
 }));
 
+vi.mock('../../ai/palettes.js', () => ({
+  resolvePaletteColor: vi.fn((palette, color) => color || '#5B6CFF'),
+  getRandomPalette: vi.fn(() => 'test-palette')
+}));
+
 describe('createPopulatedGraph', () => {
   const mockEnsureSchedulerStarted = vi.fn();
   const mockCid = 'test-cid-123';

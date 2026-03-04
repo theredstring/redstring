@@ -1,3 +1,7 @@
+import { buildPalettePromptFragment } from '../../ai/palettes.js';
+
+export const PALETTE_INSTRUCTIONS = buildPalettePromptFragment();
+
 export const REDSTRING_CONTEXT = `
 ## How Redstring Works
 

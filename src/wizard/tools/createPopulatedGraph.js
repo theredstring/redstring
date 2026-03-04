@@ -3,6 +3,7 @@
  */
 
 import queueManager from '../../services/queue/Queue.js';
+import { resolvePaletteColor, getRandomPalette } from '../../ai/palettes.js';
 
 /**
  * Create a new graph and populate it with nodes, edges, and groups
@@ -13,7 +14,7 @@ import queueManager from '../../services/queue/Queue.js';
  * @returns {Promise<Object>} { graphId, graphName, nodesAdded, edgesAdded, groupsAdded }
  */
 export async function createPopulatedGraph(args, graphState, cid, ensureSchedulerStarted) {
-  const { name, description = '', nodes = [], edges = [], groups = [], targetGraphId } = args;
+  const { name, description = '', nodes = [], edges = [], groups = [], targetGraphId, palette } = args;
 
   console.error('[createPopulatedGraph] Called with:');
   console.error('[createPopulatedGraph] - name:', name);
@@ -50,10 +51,13 @@ export async function createPopulatedGraph(args, graphState, cid, ensureSchedule
     return `hsl(${hue}, 60%, 45%)`;
   };
 
+  // Pick a palette if none provided
+  const activePalette = palette || getRandomPalette();
+
   // Build unified spec for both queue and UI
   const nodeSpecs = nodes.map(n => ({
     name: n.name,
-    color: n.color || '#5B6CFF',
+    color: resolvePaletteColor(activePalette, n.color),
     description: n.description || ''
   }));
 
@@ -70,7 +74,7 @@ export async function createPopulatedGraph(args, graphState, cid, ensureSchedule
       type: titleCaseName || 'Connection',
       definitionNode: titleCaseName ? {
         name: titleCaseName,
-        color: inputDefNode?.color || generateConnectionColor(titleCaseName),
+        color: resolvePaletteColor(activePalette, inputDefNode?.color || generateConnectionColor(titleCaseName)),
         description: inputDefNode?.description || ''
       } : null
     };
@@ -78,7 +82,7 @@ export async function createPopulatedGraph(args, graphState, cid, ensureSchedule
 
   const groupSpecs = (groups || []).map(g => ({
     name: g.name,
-    color: g.color || '#8B0000',
+    color: resolvePaletteColor(activePalette, g.color || '#8B0000'),
     memberNames: g.memberNames || []
   }));
 

@@ -1,4 +1,4 @@
-import { REDSTRING_CONTEXT, REDSTRING_TOOLS, EXAMPLE_FLOWS, REDSTRING_FORMATTING } from './PromptFragments.js';
+import { REDSTRING_CONTEXT, REDSTRING_TOOLS, EXAMPLE_FLOWS, REDSTRING_FORMATTING, PALETTE_INSTRUCTIONS } from './PromptFragments.js';
 
 export const DRUID_SYSTEM_PROMPT = `
 You are The Druid, a wise and proactive co-creator of this Knowledge Graph in the program Redstring.

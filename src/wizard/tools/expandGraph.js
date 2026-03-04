@@ -6,6 +6,8 @@
  * Uses the same direct UI application pattern (bypassing the queue) for reliability.
  */
 
+import { resolvePaletteColor, getRandomPalette } from '../../ai/palettes.js';
+
 /**
  * Convert string to Title Case
  */
@@ -35,7 +37,7 @@ function generateConnectionColor(name) {
  * @returns {Promise<Object>} { action, nodesAdded, edgesAdded, spec }
  */
 export async function expandGraph(args, graphState, cid, ensureSchedulerStarted) {
-  const { nodes = [], edges = [], groups = [], targetGraphId } = args;
+  const { nodes = [], edges = [], groups = [], targetGraphId, palette } = args;
 
   if ((!nodes || nodes.length === 0) && (!edges || edges.length === 0)) {
     throw new Error('At least one node or edge is required');
@@ -48,10 +50,13 @@ export async function expandGraph(args, graphState, cid, ensureSchedulerStarted)
     throw new Error('No target graph specified and no active graph available.');
   }
 
+  // Pick a palette if none provided
+  const activePalette = palette || getRandomPalette();
+
   // Build node specs
   const nodeSpecs = nodes.map(n => ({
     name: n.name,
-    color: n.color || '#5B6CFF',
+    color: resolvePaletteColor(activePalette, n.color),
     description: n.description || ''
   }));
 
@@ -68,7 +73,7 @@ export async function expandGraph(args, graphState, cid, ensureSchedulerStarted)
       type: titleCaseName || 'Connection',
       definitionNode: titleCaseName ? {
         name: titleCaseName,
-        color: inputDefNode?.color || generateConnectionColor(titleCaseName),
+        color: resolvePaletteColor(activePalette, inputDefNode?.color || generateConnectionColor(titleCaseName)),
         description: inputDefNode?.description || ''
       } : null
     };
@@ -76,7 +81,7 @@ export async function expandGraph(args, graphState, cid, ensureSchedulerStarted)
 
   const groupSpecs = (groups || []).map(g => ({
     name: g.name,
-    color: g.color || '#8B0000',
+    color: resolvePaletteColor(activePalette, g.color || '#8B0000'),
     memberNames: g.memberNames || []
   }));
 
