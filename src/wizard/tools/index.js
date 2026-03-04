@@ -31,6 +31,7 @@ import { removeDefinitionGraph } from './removeDefinitionGraph.js';
 import { switchToGraph } from './switchToGraph.js';
 import { condenseToNode } from './condenseToNode.js';
 import { decomposeNode } from './decomposeNode.js';
+import { askMultipleChoice } from './askMultipleChoice.js';
 
 const TOOLS = {
   createNode,
@@ -59,7 +60,8 @@ const TOOLS = {
   removeDefinitionGraph,
   switchToGraph,
   condenseToNode,
-  decomposeNode
+  decomposeNode,
+  askMultipleChoice
 };
 
 /**
@@ -537,6 +539,23 @@ export function getToolDefinitions() {
           definitionIndex: { type: 'number', description: 'Optional: which definition graph to decompose (0-based index). Default: 0.' }
         },
         required: ['nodeName']
+      }
+    },
+    {
+      name: 'askMultipleChoice',
+      description: 'Ask the user a multiple-choice question. Execution will pause until the user answers.',
+      parameters: {
+        type: 'object',
+        properties: {
+          question: { type: 'string', description: 'The question to ask the user' },
+          options: {
+            type: 'array',
+            items: { type: 'string' },
+            description: 'List of specific choices to offer'
+          },
+          allowOther: { type: 'boolean', description: 'Whether to show an "Other" option (free text override). Defaults to true.' }
+        },
+        required: ['question', 'options']
       }
     }
   ];

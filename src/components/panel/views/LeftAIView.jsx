@@ -4,6 +4,7 @@ import * as fileStorage from '../../../store/fileStorage.js';
 import APIKeySetup from '../../../ai/components/APIKeySetup.jsx';
 import mcpClient from '../../../services/mcpClient.js';
 import apiKeyManager from '../../../services/apiKeyManager.js';
+import MultipleChoiceOverlay from '../../../ai/components/MultipleChoiceOverlay.jsx';
 import { bridgeFetch, bridgeEventSource } from '../../../services/bridgeConfig.js';
 import StandardDivider from '../../StandardDivider.jsx';
 import { HEADER_HEIGHT } from '../../../constants.js';
@@ -1770,14 +1771,15 @@ const LeftAIView = ({ compact = false,
     }
   };
 
-  const handleSendMessage = async () => {
-    if (!currentInput.trim() || isProcessing) return;
+  const handleSendMessage = async (overrideInput) => {
+    const inputToUse = typeof overrideInput === 'string' ? overrideInput : currentInput;
+    if (!inputToUse.trim() || isProcessing) return;
 
     // Trigger active mode for faster polling
     if (window.redstringStoreActions && window.redstringStoreActions._markActive) {
       window.redstringStoreActions._markActive();
     }
-    const userMessage = currentInput.trim();
+    const userMessage = inputToUse.trim();
 
 
 
@@ -2888,6 +2890,35 @@ const LeftAIView = ({ compact = false,
             })()}
             <div ref={messagesEndRef} />
           </div>
+
+          {(() => {
+            const lastMessage = messages[messages.length - 1];
+            if (!lastMessage || lastMessage.sender !== 'ai' || !lastMessage.contentBlocks) return null;
+
+            // Find the last tool call in this message
+            const toolCalls = lastMessage.contentBlocks.filter(b => b.type === 'tool_call');
+            const lastBlock = toolCalls[toolCalls.length - 1];
+
+            if (lastBlock && lastBlock.name === 'askMultipleChoice' && lastBlock.result && lastBlock.result.__requiresUserInput && !lastBlock.isUndone && !lastBlock.isDismissed) {
+              return (
+                <MultipleChoiceOverlay
+                  question={lastBlock.result.question}
+                  options={lastBlock.result.options}
+                  allowOther={lastBlock.result.allowOther}
+                  onSelect={(option) => {
+                    // We don't need to change currentInput, we just send it
+                    setCurrentInput('');
+                    handleSendMessage(option);
+                  }}
+                  onDismiss={() => {
+                    upsertToolCall({ id: lastBlock.id, isDismissed: true });
+                  }}
+                />
+              );
+            }
+            return null;
+          })()}
+
           <div className="ai-input-container" style={{ marginBottom: toggleClearance }}>
             <textarea ref={inputRef} value={currentInput} onChange={(e) => setCurrentInput(e.target.value)} onKeyPress={handleKeyPress} placeholder={viewMode === 'druid' ? "Share an observation and I'll build upon it..." : viewMode === 'wizard' ? "Ask anything and I'll cast my spells..." : "Ask me anything about your knowledge graph..."} disabled={isProcessing} className="ai-input" rows={2} />
             {isProcessing && currentAgentRequest ? (

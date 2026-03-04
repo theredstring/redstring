@@ -1,0 +1,129 @@
+.mc-overlay-container {
+    background: #bdb5b5;
+    border: 1px solid #260000;
+    border-radius: 0;
+    padding: 16px 24px 16px 16px;
+    /* Extra right padding for scrollbar clearance */
+    margin-bottom: 12px;
+    margin-left: 12px;
+    margin-right: 12px;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    animation: slideUpFade 0.3s ease-out forwards;
+}
+
+@keyframes slideUpFade {
+    from {
+        opacity: 0;
+        transform: translateY(10px);
+    }
+
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+.mc-question {
+    color: #260000;
+    font-size: 14px;
+    font-weight: 600;
+    font-family: 'EmOne', sans-serif;
+    line-height: 1.4;
+    margin-bottom: 4px;
+}
+
+.mc-options {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.mc-option-button {
+    background: rgba(38, 0, 0, 0.05);
+    border: 1px solid #260000;
+    color: #260000;
+    padding: 8px 16px;
+    border-radius: 0;
+    font-family: 'EmOne', sans-serif;
+    font-weight: 600;
+    font-size: 13px;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    width: 100%;
+    text-align: left;
+}
+
+.mc-option-button:hover {
+    background: rgba(38, 0, 0, 0.15);
+    border-color: #260000;
+    transform: translateY(-1px);
+}
+
+.mc-option-button:active {
+    transform: translateY(0);
+}
+
+.mc-option-none {
+    background: #8B0000;
+    border-color: #8B0000;
+    color: #DEDADA;
+    text-align: left;
+}
+
+.mc-option-none:hover {
+    background: #600000;
+    border-color: #600000;
+}
+
+.mc-option-other {
+    background: transparent;
+    border: 1px dashed rgba(38, 0, 0, 0.4);
+}
+
+.mc-option-other:hover {
+    background: rgba(38, 0, 0, 0.05);
+    border: 1px dashed rgba(38, 0, 0, 0.6);
+}
+
+.mc-other-form {
+    display: flex;
+    gap: 8px;
+    margin-top: 4px;
+}
+
+.mc-other-input {
+    flex: 1;
+    background: rgba(38, 0, 0, 0.05);
+    border: 1px solid rgba(38, 0, 0, 0.2);
+    border-radius: 0;
+    padding: 8px 12px;
+    color: #260000;
+    font-family: 'EmOne', sans-serif;
+    font-size: 13px;
+    outline: none;
+}
+
+.mc-other-input:focus {
+    border-color: rgba(38, 0, 0, 0.4);
+    background: rgba(38, 0, 0, 0.1);
+}
+
+.mc-other-submit {
+    background: rgba(38, 0, 0, 0.1);
+    color: #260000;
+    border: 1px solid #260000;
+    border-radius: 0;
+    padding: 0 16px;
+    font-size: 13px;
+    font-family: 'EmOne', sans-serif;
+    font-weight: 600;
+    cursor: pointer;
+    transition: background 0.2s ease;
+}
+
+.mc-other-submit:hover {
+    background: rgba(38, 0, 0, 0.2);
+}
