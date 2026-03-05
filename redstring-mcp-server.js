@@ -506,6 +506,11 @@ async function registerWizardTools() {
   const definitions = getToolDefinitions();
 
   for (const def of definitions) {
+    // Filter out tools that are strictly for the Redstring UI and shouldn't be exposed via MCP
+    if (def.name === 'askMultipleChoice') {
+      continue;
+    }
+
     // Helper to register a tool with a specific name
     const registerWith = (name) => {
       // Skip if already registered manually
