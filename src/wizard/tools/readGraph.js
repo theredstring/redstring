@@ -58,7 +58,24 @@ export async function readGraph(args, graphState) {
         const name = nodeNameById.get(inst.id) || inst.id;
         const description = nodeDescById.get(inst.id) || '';
         const color = nodeColorById.get(inst.id) || '';
-        return { id: inst.id, name, description, color };
+
+        const proto = protoMap.get(inst.prototypeId);
+        let type = null;
+        if (proto?.typeNodeId) {
+            type = nodeNameById.get(proto.typeNodeId) || protoMap.get(proto.typeNodeId)?.name || proto.typeNodeId;
+        }
+
+        let abstractionChainsSummary = undefined;
+        if (proto?.abstractionChains && Object.keys(proto.abstractionChains).length > 0) {
+            abstractionChainsSummary = Object.entries(proto.abstractionChains)
+                .map(([dim, chain]) => `${dim} (${Array.isArray(chain) ? chain.length : 0} nodes)`)
+                .join(', ');
+        }
+
+        const nodeObj = { id: inst.id, name, description, color };
+        if (type) nodeObj.type = type;
+        if (abstractionChainsSummary) nodeObj.abstractionChains = abstractionChainsSummary;
+        return nodeObj;
     });
 
     // --- Edges output ---------------------------------------------------------

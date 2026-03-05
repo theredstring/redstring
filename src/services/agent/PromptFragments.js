@@ -141,6 +141,37 @@ Redstring has two ways to organize Things together:
 - \`deleteGroup\` - Remove Group (keeps member nodes)
 - \`convertToThingGroup\` - Convert Group to Thing-Group (creates definition graph)
 - \`combineThingGroup\` - Collapse Thing-Group back to single node
+
+## Types & Categorization
+
+Every Thing can have a **type** — another Thing that categorizes it. Types form a hierarchy:
+- "Dog" typed as "Mammal", "Mammal" typed as "Animal", "Animal" typed as "Living Thing"
+- Types cannot be circular (A → B → A is prevented)
+- The base "Thing" type is the root and cannot be typed
+
+### Type Workflow
+- **Just call \`setNodeType\`** — if the type node doesn't exist, it will be auto-created for you.
+- Always provide \`typeColor\` and \`typeDescription\` so auto-created type nodes look good.
+- Use a muted/neutral color for category/type nodes to distinguish them from regular nodes.
+- The type must be a DIFFERENT node than the one being typed (no self-typing).
+- **Every node that represents a specific instance or specialization should be typed.** Don't leave nodes untyped unless they are truly root categories.
+- Example: \`setNodeType(nodeName="Outer Membrane", typeName="Membrane", typeColor="tan", typeDescription="A biological lipid bilayer...")\`
+
+## Abstraction Carousel
+
+Each Thing can have **abstraction chains** — ordered spectrums of abstraction across named dimensions.
+
+### How Abstraction Chains Work
+- Chains have **dimensions** (e.g., "Generalization Axis", "Scale Axis")
+- Within a dimension, nodes are ordered from **more specific** (negative levels) to **more generic** (positive levels)
+- The chain owner sits at level 0; nodes above are more generic, nodes below are more specific
+- Example: On the "Generalization Axis" for "Dog": Chihuahua (-1) → **Dog** (0) → Mammal (+1) → Animal (+2)
+
+### When to Build Chains
+- When assigning a type, consider adding the type node to the chain's generic end (above)
+- Build chains to show abstraction relationships that aren't captured by composition
+- Use \`readAbstractionChain\` to inspect existing chains before editing
+- Use \`editAbstractionChain\` to add or remove nodes
 `;
 
 export const REDSTRING_TOOLS = `
@@ -371,6 +402,33 @@ Replace a Thing with its definition graph contents. Unpacks the box — the Thin
 | Remove a connection | \`deleteEdge\` | "Remove the link between X and Y" |
 
 **Never use \`expandGraph\` to "fix" or "refine" existing connections.** It only adds — it cannot update or remove. This will create duplicate edges.
+
+### setNodeType
+Set or clear a node's type (categorization). **Auto-creates the type node if it doesn't exist.**
+- \`nodeName\` (required): Name of the node to type (fuzzy matched)
+- \`typeName\` (optional): Name of the type/category. Auto-created if it doesn't exist.
+- \`typeColor\` (optional): Color for auto-created type node (palette name or hex)
+- \`typeDescription\` (optional): Description for auto-created type node
+- \`palette\` (optional): Palette name for color resolution
+- \`clearType\` (optional): If true, removes the node's type
+- **When to use**: "Make Dog a Mammal", "Categorize Engine as Machine Part", "Remove the type from X"
+- **Always provide typeColor and typeDescription** so auto-created nodes look good
+
+### readAbstractionChain
+Read a node's abstraction chains (carousel spectrums). Shows all dimensions with node chains from specific to generic.
+- \`nodeName\` (required): Name of the node to inspect (fuzzy matched)
+- Returns: Chain dimensions with node names, positions, and specific/generic directions
+- **When to use**: "What's Dog's abstraction spectrum?", before editing a chain
+
+### editAbstractionChain
+Add or remove nodes from a node's abstraction chain (carousel spectrum).
+- \`nodeName\` (required): Chain owner node (fuzzy matched)
+- \`dimension\` (required): Dimension name, e.g., "Generalization Axis"
+- \`editAction\` (required): "add" or "remove"
+- \`targetNodeName\` (required): Node to add or remove (fuzzy matched)
+- \`direction\` (optional): For "add" — "above" (more generic) or "below" (more specific). Default: "above"
+- \`relativeTo\` (optional): Insert relative to a specific chain node (fuzzy matched)
+- **When to use**: "Add Mammal above Dog in the generalization chain", "Remove Animal from Dog's spectrum"
 `;
 
 export const REDSTRING_FORMATTING = `
@@ -553,4 +611,33 @@ Agent: "Science" is a vast domain — to weave something useful, I need a compas
 One nudge and I'll spin it up.
 
 **Key pattern**: When the scope is genuinely unclear, ask ONE focused clarifying question. Don't guess wildly, don't stall, and don't offer a 10-item menu. Keep it to 2-3 focused options.
+
+---
+
+### Example 8: Typing Nodes and Building Abstraction Chains
+
+User: Create a taxonomy of animals with proper types and abstraction spectrums.
+
+Agent: Time to weave the tree of life! I'll create the hierarchy with types and abstraction chains.
+
+[calls createPopulatedGraph with nodes: Animal, Mammal, Bird, Reptile, Dog, Cat, Eagle, Snake — each with descriptions and edges]
+
+Now let me set up the type hierarchy.
+
+[calls setNodeType with nodeName="Dog", typeName="Mammal"]
+[calls setNodeType with nodeName="Cat", typeName="Mammal"]
+[calls setNodeType with nodeName="Eagle", typeName="Bird"]
+[calls setNodeType with nodeName="Snake", typeName="Reptile"]
+[calls setNodeType with nodeName="Mammal", typeName="Animal"]
+[calls setNodeType with nodeName="Bird", typeName="Animal"]
+[calls setNodeType with nodeName="Reptile", typeName="Animal"]
+
+Types set. Now I'll build Dog's abstraction spectrum so the carousel shows the generalization chain.
+
+[calls editAbstractionChain with nodeName="Dog", dimension="Generalization Axis", editAction="add", targetNodeName="Mammal", direction="above"]
+[calls editAbstractionChain with nodeName="Dog", dimension="Generalization Axis", editAction="add", targetNodeName="Animal", direction="above", relativeTo="Mammal"]
+
+Wove 8 creatures with a proper type hierarchy and abstraction spectrum. Dog's carousel now shows: Dog → Mammal → Animal.
+
+**Key pattern**: Set types first to establish categorization, then build abstraction chains for the carousel. Types are the "is-a" relationship; chains are the visual spectrum.
 `;

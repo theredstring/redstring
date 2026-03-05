@@ -20,6 +20,11 @@ let SYSTEM_PROMPT = WIZARD_SYSTEM_PROMPT;
 /**
  * Keep graphState in sync after mutating tool calls so subsequent
  * tools within the same agent loop see up-to-date state.
+ *
+ * ╔══════════════════════════════════════════════════════════════════════════╗
+ * ║  ADDING A NEW TOOL? You MUST add a handler here! This is step 4 of 5. ║
+ * ║  Read .agent/workflows/add-wizard-tool.md for the full checklist.      ║
+ * ╚══════════════════════════════════════════════════════════════════════════╝
  */
 function updateGraphState(graphState, _toolName, _args, result) {
   if (!result || result.error) return;
@@ -364,6 +369,43 @@ function updateGraphState(graphState, _toolName, _args, result) {
       });
 
       console.error('[updateGraphState] decomposeNode:', result.nodeName, '→ added', (result.definitionInstances || []).length, 'instances');
+    }
+  } else if (result.action === 'setNodeType') {
+    // Update prototype's typeNodeId in predictive state
+    const proto = (graphState.nodePrototypes || []).find(p => p.id === result.nodeId);
+
+    // If auto-creating a type node, add it to predictive state
+    if (result.autoCreate) {
+      const newProtoId = `proto-auto-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+      graphState.nodePrototypes = graphState.nodePrototypes || [];
+      graphState.nodePrototypes.push({
+        id: newProtoId,
+        name: result.autoCreate.name,
+        color: result.autoCreate.color || '#A0A0A0',
+        description: result.autoCreate.description || ''
+      });
+      if (proto) proto.typeNodeId = newProtoId;
+      console.error('[updateGraphState] setNodeType (auto-created prototype only):', result.autoCreate.name, '→', newProtoId);
+    } else if (proto) {
+      proto.typeNodeId = result.typeNodeId || null;
+      console.error('[updateGraphState] setNodeType:', proto.name, '→', result.typeNodeId);
+    }
+  } else if (result.action === 'editAbstractionChain') {
+    // Update prototype's abstractionChains in predictive state
+    const proto = (graphState.nodePrototypes || []).find(p => p.id === result.nodeId);
+    if (proto) {
+      proto.abstractionChains = proto.abstractionChains || {};
+      if (result.operationType === 'addToAbstractionChain') {
+        proto.abstractionChains[result.dimension] = proto.abstractionChains[result.dimension] || [];
+        if (!proto.abstractionChains[result.dimension].includes(result.newNodeId)) {
+          proto.abstractionChains[result.dimension].push(result.newNodeId);
+        }
+      } else if (result.operationType === 'removeFromAbstractionChain') {
+        if (Array.isArray(proto.abstractionChains[result.dimension])) {
+          proto.abstractionChains[result.dimension] = proto.abstractionChains[result.dimension].filter(id => id !== result.nodeToRemove);
+        }
+      }
+      console.error('[updateGraphState] editAbstractionChain:', result.operationType, proto.name);
     }
   }
 }

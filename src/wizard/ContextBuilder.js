@@ -76,7 +76,13 @@ export function buildContext(graphState) {
           ? ` 🔍[${defGraphIds.length} definition graph${defGraphIds.length !== 1 ? 's' : ''} - use switchToGraph to view, decomposeNode to unpack]`
           : '';
 
-        const namePart = `${name}${expandable}`;
+        let typeStr = '';
+        if (proto?.typeNodeId) {
+          const typeProto = protoMap.get(proto.typeNodeId);
+          if (typeProto) typeStr = ` [Type: ${typeProto.name || proto.typeNodeId}]`;
+        }
+
+        const namePart = `${name}${typeStr}${expandable}`;
         return desc ? `  - ${namePart}: ${desc}` : `  - ${namePart}`;
       });
       context += `\nThings:\n${nodeLines.join('\n')}`;
@@ -153,6 +159,20 @@ export function buildContext(graphState) {
   if (colors.size > 0) {
     const colorList = Array.from(colors).slice(0, 8).join(', ');
     context += `\n\nColor palette in use: ${colorList}${colors.size > 8 ? '...' : ''}`;
+  }
+
+  // Type palette
+  const types = new Set();
+  nodePrototypes.forEach(proto => {
+    if (proto.typeNodeId) {
+      const typeProto = nodePrototypes.find(p => p.id === proto.typeNodeId);
+      if (typeProto) types.add(typeProto.name);
+    }
+  });
+
+  if (types.size > 0) {
+    const typeList = Array.from(types).slice(0, 8).join(', ');
+    context += `\nTypes in use: ${typeList}${types.size > 8 ? '...' : ''}`;
   }
 
   return context;

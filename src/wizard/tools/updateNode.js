@@ -48,7 +48,7 @@ function resolveNodeByName(name, nodePrototypes, graphs, graphId) {
  * @returns {Promise<Object>} Update spec for UI application
  */
 export async function updateNode(args, graphState, cid, ensureSchedulerStarted) {
-  const { nodeName, nodeId, name, color, description, targetGraphId } = args;
+  const { nodeName, nodeId, name, color, description, targetGraphId, typeNodeId } = args;
   const lookupName = nodeName || nodeId;
   if (!lookupName) {
     throw new Error('nodeName is required');
@@ -74,6 +74,7 @@ export async function updateNode(args, graphState, cid, ensureSchedulerStarted) 
   if (name !== undefined) updates.name = name;
   if (color !== undefined) updates.color = color;
   if (description !== undefined) updates.description = description;
+  if (typeNodeId !== undefined) updates.typeNodeId = typeNodeId;
 
   return {
     action: 'updateNode',

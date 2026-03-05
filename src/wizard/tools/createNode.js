@@ -13,7 +13,7 @@ import { resolvePaletteColor } from '../../ai/palettes.js';
  * @returns {Promise<Object>} Node spec for UI application
  */
 export async function createNode(args, graphState, cid, ensureSchedulerStarted) {
-  const { name, color, description, targetGraphId, palette } = args;
+  const { name, color, description, targetGraphId, palette, typeNodeId } = args;
   if (!name) {
     throw new Error('name is required');
   }
@@ -30,6 +30,7 @@ export async function createNode(args, graphState, cid, ensureSchedulerStarted) 
     graphId,
     name,
     color: resolvePaletteColor(palette, color),
-    description: description || ''
+    description: description || '',
+    typeNodeId: typeNodeId || null
   };
 }

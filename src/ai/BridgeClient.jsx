@@ -824,10 +824,38 @@ const BridgeClient = () => {
               state.swapNodeInChain(currentNodeId, newNodeId);
               return { success: true };
             },
-            setNodeType: async (nodeId, typeNodeId) => {
-              console.log('MCPBridge: Calling setNodeType', nodeId, typeNodeId);
-              state.setNodeType(nodeId, typeNodeId);
-              return { success: true };
+            setNodeType: async (nodeIdOrResult, typeNodeId) => {
+              // Handle both direct calls (nodeId, typeNodeId) and wizard result objects ({nodeId, typeNodeId, autoCreate?})
+              const nId = typeof nodeIdOrResult === 'object' ? nodeIdOrResult.nodeId : nodeIdOrResult;
+              let tId = typeof nodeIdOrResult === 'object' ? nodeIdOrResult.typeNodeId : typeNodeId;
+              const msg = typeof nodeIdOrResult === 'object' ? nodeIdOrResult.message : undefined;
+              const autoCreate = typeof nodeIdOrResult === 'object' ? nodeIdOrResult.autoCreate : undefined;
+
+              const st = useGraphStore.getState();
+              if (!st.nodePrototypes.has(nId)) {
+                return { success: false, error: `Node ${nId} not found` };
+              }
+
+              // Auto-create the type node if needed
+              if (autoCreate && !tId) {
+                const newProtoId = `proto-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+
+                st.addNodePrototype({
+                  id: newProtoId,
+                  name: autoCreate.name,
+                  color: autoCreate.color || '#A0A0A0',
+                  description: autoCreate.description || '',
+                  typeNodeId: null,
+                  definitionGraphIds: []
+                });
+
+                tId = newProtoId;
+                console.log('MCPBridge: Auto-created type node (prototype only):', autoCreate.name, '→', newProtoId);
+              }
+
+              console.log('MCPBridge: Calling setNodeType', nId, '→', tId);
+              st.setNodeType(nId, tId);
+              return { success: true, nodeId: nId, typeNodeId: tId, ...(msg ? { message: msg } : {}) };
             },
             closeGraphTab: async (rawId) => {
               const graphId = normalizeId(rawId, 'graphId');
@@ -868,6 +896,17 @@ const BridgeClient = () => {
               if (!result.description || result.description.trim() === '') {
                 enrichNodeWithWikipedia(result.name, gId).catch(() => { });
               }
+
+              // Set type if provided
+              if (result.typeNodeId) {
+                try {
+                  st.setNodeType(prototypeId, result.typeNodeId);
+                  console.log('MCPBridge: setNodeType on new node', prototypeId, '→', result.typeNodeId);
+                } catch (e) {
+                  console.warn('MCPBridge: setNodeType failed on createNode:', e.message);
+                }
+              }
+
               return { success: true, name: result.name, prototypeId, instanceId, graphId: gId };
             },
 
@@ -890,6 +929,17 @@ const BridgeClient = () => {
                 if (result.updates.color !== undefined) prototype.color = result.updates.color;
                 if (result.updates.description !== undefined) prototype.description = result.updates.description;
               });
+
+              // Set type if provided in updates
+              if (result.updates.typeNodeId !== undefined) {
+                try {
+                  st.setNodeType(realProtoId, result.updates.typeNodeId);
+                  console.log('MCPBridge: setNodeType on updateNode', realProtoId, '→', result.updates.typeNodeId);
+                } catch (e) {
+                  console.warn('MCPBridge: setNodeType failed on updateNode:', e.message);
+                }
+              }
+
               return { success: true, prototypeId: realProtoId };
             },
 
@@ -1470,6 +1520,35 @@ const BridgeClient = () => {
 
               console.error('[BridgeClient] removeDefinitionGraph: Removed graph', result.graphId, 'from prototype', result.prototypeId);
               return { success: true, prototypeId: result.prototypeId, graphId: result.graphId };
+            },
+
+            editAbstractionChain: async (result) => {
+              console.log('MCPBridge: Calling editAbstractionChain', result.operationType, result.nodeId);
+              const st = useGraphStore.getState();
+
+              if (!st.nodePrototypes.has(result.nodeId)) {
+                return { success: false, error: `Node ${result.nodeId} not found` };
+              }
+
+              if (result.operationType === 'addToAbstractionChain') {
+                st.addToAbstractionChain(
+                  result.nodeId,
+                  result.dimension,
+                  result.direction,
+                  result.newNodeId,
+                  result.insertRelativeToNodeId
+                );
+              } else if (result.operationType === 'removeFromAbstractionChain') {
+                st.removeFromAbstractionChain(
+                  result.nodeId,
+                  result.dimension,
+                  result.nodeToRemove
+                );
+              } else {
+                return { success: false, error: `Unknown operation type: ${result.operationType}` };
+              }
+
+              return { success: true, message: result.message };
             },
 
             switchToGraph: async (result) => {
@@ -2157,7 +2236,9 @@ const BridgeClient = () => {
             name: prototype.name,
             color: prototype.color || '#5B6CFF',
             description: prototype.description || '',
-            definitionGraphIds: Array.isArray(prototype.definitionGraphIds) ? [...prototype.definitionGraphIds] : []
+            definitionGraphIds: Array.isArray(prototype.definitionGraphIds) ? [...prototype.definitionGraphIds] : [],
+            typeNodeId: prototype.typeNodeId || null,
+            abstractionChains: prototype.abstractionChains || {}
           })),
 
           // UI state

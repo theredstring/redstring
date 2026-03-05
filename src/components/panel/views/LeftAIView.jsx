@@ -296,8 +296,14 @@ function applyOffscreenLayout(graphId) {
 }
 
 /**
- * Apply wizard tool results to the store
- * This bridges the gap between server-side tool execution and client-side store
+ * Apply wizard tool results to the store.
+ * This bridges the gap between server-side tool execution and client-side store.
+ *
+ * ╔══════════════════════════════════════════════════════════════════════════╗
+ * ║  ADDING A NEW TOOL? You MUST add a handler here! This is step 3 of 5. ║
+ * ║  Read .agent/workflows/add-wizard-tool.md for the full checklist.      ║
+ * ║  Without a handler here, the tool will appear to work but NOT persist. ║
+ * ╚══════════════════════════════════════════════════════════════════════════╝
  */
 function applyToolResultToStore(toolName, result, toolCallId) {
   console.log('[Wizard] applyToolResultToStore called:', toolName, 'action:', result?.action, 'hasSpec:', !!result?.spec);
@@ -1103,7 +1109,72 @@ function applyToolResultToStore(toolName, result, toolCallId) {
         console.warn('[Auto-Enrich] Batch enrichment failed:', err);
       });
     }, 1000);
-  } else if (result.action === 'selectNode' && result.found && result.node) {
+  }
+
+  // Handle setNodeType — set or clear a node's type, auto-creating the type node if needed
+  if (result.action === 'setNodeType') {
+    console.log('[Wizard] Applying setNodeType to store:', result.nodeId, '→', result.typeNodeId, 'autoCreate:', !!result.autoCreate);
+
+    let typeNodeId = result.typeNodeId;
+
+    // Auto-create the type node if needed
+    if (result.autoCreate && !typeNodeId) {
+      const newProtoId = `proto-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+
+      store.addNodePrototype({
+        id: newProtoId,
+        name: result.autoCreate.name,
+        color: result.autoCreate.color || '#A0A0A0',
+        description: result.autoCreate.description || '',
+        typeNodeId: null,
+        definitionGraphIds: []
+      });
+
+      typeNodeId = newProtoId;
+      console.log('[Wizard] Auto-created type node (prototype only):', result.autoCreate.name, '→', newProtoId);
+    }
+
+    if (result.nodeId && store.nodePrototypes.has(result.nodeId)) {
+      store.setNodeType(result.nodeId, typeNodeId);
+      console.log('[Wizard] Successfully set node type:', result.nodeId, '→', typeNodeId);
+    } else {
+      console.error('[Wizard] setNodeType: Node not found:', result.nodeId);
+    }
+    return;
+  }
+
+  // Handle editAbstractionChain — add or remove nodes from abstraction chains
+  if (result.action === 'editAbstractionChain') {
+    console.log('[Wizard] Applying editAbstractionChain to store:', result.operationType, result.nodeId);
+
+    if (!result.nodeId || !store.nodePrototypes.has(result.nodeId)) {
+      console.error('[Wizard] editAbstractionChain: Node not found:', result.nodeId);
+      return;
+    }
+
+    if (result.operationType === 'addToAbstractionChain') {
+      store.addToAbstractionChain(
+        result.nodeId,
+        result.dimension,
+        result.direction,
+        result.newNodeId,
+        result.insertRelativeToNodeId
+      );
+      console.log('[Wizard] Successfully added to abstraction chain:', result.dimension);
+    } else if (result.operationType === 'removeFromAbstractionChain') {
+      store.removeFromAbstractionChain(
+        result.nodeId,
+        result.dimension,
+        result.nodeToRemove
+      );
+      console.log('[Wizard] Successfully removed from abstraction chain:', result.dimension);
+    } else {
+      console.error('[Wizard] editAbstractionChain: Unknown operation type:', result.operationType);
+    }
+    return;
+  }
+
+  if (result.action === 'selectNode' && result.found && result.node) {
     // Dispatch event for NodeCanvas to select and focus on the node
     console.log(`[Wizard] Selecting node: "${result.node.name}" (${result.node.instanceId})`);
     setTimeout(() => {

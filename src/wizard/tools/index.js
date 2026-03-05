@@ -1,6 +1,11 @@
 /**
  * Tool registry and executor
  * Maps tool names to implementations and executes them
+ *
+ * ╔══════════════════════════════════════════════════════════════════╗
+ * ║  ADDING A NEW TOOL? Read .agent/workflows/add-wizard-tool.md   ║
+ * ║  There are 5 places you must update. This file is only step 2. ║
+ * ╚══════════════════════════════════════════════════════════════════╝
  */
 
 import { getPaletteSchemaDescription } from '../../ai/palettes.js';
@@ -32,6 +37,9 @@ import { switchToGraph } from './switchToGraph.js';
 import { condenseToNode } from './condenseToNode.js';
 import { decomposeNode } from './decomposeNode.js';
 import { askMultipleChoice } from './askMultipleChoice.js';
+import { setNodeType } from './setNodeType.js';
+import { readAbstractionChain } from './readAbstractionChain.js';
+import { editAbstractionChain } from './editAbstractionChain.js';
 
 const TOOLS = {
   createNode,
@@ -61,7 +69,10 @@ const TOOLS = {
   switchToGraph,
   condenseToNode,
   decomposeNode,
-  askMultipleChoice
+  askMultipleChoice,
+  setNodeType,
+  readAbstractionChain,
+  editAbstractionChain
 };
 
 /**
@@ -98,7 +109,8 @@ export function getToolDefinitions() {
           name: { type: 'string', description: 'The node\'s display name' },
           color: { type: 'string', description: 'Color name from the chosen palette (e.g. "tan", "navy-blue"), OR a hex color. Prefer palette names unless a custom color is strictly required.' },
           description: { type: 'string', description: 'What this node represents' },
-          targetGraphId: { type: 'string', description: 'Optional: ID of graph to create node in. Use this to populate definition graphs non-disruptively. If omitted, uses active graph.' }
+          targetGraphId: { type: 'string', description: 'Optional: ID of graph to create node in. Use this to populate definition graphs non-disruptively. If omitted, uses active graph.' },
+          typeNodeId: { type: 'string', description: 'Optional: Prototype ID of the type node to assign. Sets the node\'s type/category. Use setNodeType tool for name-based assignment.' }
         },
         required: ['name']
       }
@@ -113,7 +125,8 @@ export function getToolDefinitions() {
           name: { type: 'string', description: 'New name for the node' },
           color: { type: 'string', description: 'New color' },
           description: { type: 'string', description: 'New description' },
-          targetGraphId: { type: 'string', description: 'Optional: ID of graph containing the node. If omitted, uses active graph.' }
+          targetGraphId: { type: 'string', description: 'Optional: ID of graph containing the node. If omitted, uses active graph.' },
+          typeNodeId: { type: 'string', description: 'Optional: Prototype ID of the type node to assign. Sets the node\'s type/category.' }
         },
         required: ['nodeName']
       }
@@ -555,6 +568,49 @@ export function getToolDefinitions() {
           }
         },
         required: ['question', 'options']
+      }
+    },
+    {
+      name: 'setNodeType',
+      description: 'Set or clear a node\'s type (categorization). Types create a hierarchy: e.g., "Dog" typed as "Mammal". If the type node doesn\'t exist yet, it will be AUTO-CREATED. Always provide typeColor and typeDescription when the type node might not exist yet.',
+      parameters: {
+        type: 'object',
+        properties: {
+          nodeName: { type: 'string', description: 'Name of the node to set the type on (fuzzy matched)' },
+          typeName: { type: 'string', description: 'Name of the type/category node. If it doesn\'t exist, it will be auto-created. Omit if clearing.' },
+          typeColor: { type: 'string', description: 'Color for the type node if it needs to be created (palette name or hex). Use a muted/neutral tone for category nodes.' },
+          typeDescription: { type: 'string', description: 'Description for the type node if it needs to be created.' },
+          palette: { type: 'string', description: 'Palette name for typeColor resolution.' },
+          clearType: { type: 'boolean', description: 'If true, removes the type from the node. Omit typeName when clearing.' }
+        },
+        required: ['nodeName']
+      }
+    },
+    {
+      name: 'readAbstractionChain',
+      description: 'Read a node\'s abstraction chains (carousel spectrums). Shows all dimensions with their chain of nodes from more specific to more generic. Use this to understand a node\'s position in abstraction hierarchies.',
+      parameters: {
+        type: 'object',
+        properties: {
+          nodeName: { type: 'string', description: 'Name of the node to read chains for (fuzzy matched)' }
+        },
+        required: ['nodeName']
+      }
+    },
+    {
+      name: 'editAbstractionChain',
+      description: 'Add or remove nodes from a node\'s abstraction chain (carousel spectrum). Chains represent spectrums of abstraction across a dimension (e.g., "Generalization Axis"). Nodes above are more generic; nodes below are more specific.',
+      parameters: {
+        type: 'object',
+        properties: {
+          nodeName: { type: 'string', description: 'Name of the chain owner node (fuzzy matched)' },
+          dimension: { type: 'string', description: 'Dimension name, e.g., "Generalization Axis"' },
+          editAction: { type: 'string', enum: ['add', 'remove'], description: '"add" to insert a node, "remove" to take one out' },
+          targetNodeName: { type: 'string', description: 'Name of the node to add or remove (fuzzy matched)' },
+          direction: { type: 'string', enum: ['above', 'below'], description: 'For "add": "above" inserts toward more generic, "below" inserts toward more specific. Defaults to "above".' },
+          relativeTo: { type: 'string', description: 'Optional: Name of a node already in the chain to insert relative to (fuzzy matched)' }
+        },
+        required: ['nodeName', 'dimension', 'editAction', 'targetNodeName']
       }
     }
   ];
