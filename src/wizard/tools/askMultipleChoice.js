@@ -7,7 +7,6 @@ export async function askMultipleChoice(args) {
         __requiresUserInput: true,
         type: 'multiple_choice',
         question: args.question,
-        options: args.options,
-        allowOther: args.allowOther !== undefined ? args.allowOther : true
+        options: args.options
     };
 }

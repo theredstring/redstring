@@ -9,7 +9,7 @@ import './MultipleChoiceOverlay.css';
  * @param {Function} props.onSelect Callback when an option is selected or submitted
  * @param {Function} props.onDismiss Callback when the None button is clicked to dismiss
  */
-export default function MultipleChoiceOverlay({ question, options, allowOther, onSelect, onDismiss }) {
+export default function MultipleChoiceOverlay({ question, options, onSelect, onDismiss }) {
     const [otherText, setOtherText] = useState('');
     const [showOtherInput, setShowOtherInput] = useState(false);
 
@@ -49,7 +49,7 @@ export default function MultipleChoiceOverlay({ question, options, allowOther, o
                     None
                 </button>
 
-                {allowOther && !showOtherInput && (
+                {!showOtherInput && (
                     <button
                         className="mc-option-button mc-option-other"
                         onClick={() => setShowOtherInput(true)}

@@ -2904,7 +2904,6 @@ const LeftAIView = ({ compact = false,
                 <MultipleChoiceOverlay
                   question={lastBlock.result.question}
                   options={lastBlock.result.options}
-                  allowOther={lastBlock.result.allowOther}
                   onSelect={(option) => {
                     // We don't need to change currentInput, we just send it
                     setCurrentInput('');

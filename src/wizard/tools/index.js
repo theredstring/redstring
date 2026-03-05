@@ -552,8 +552,7 @@ export function getToolDefinitions() {
             type: 'array',
             items: { type: 'string' },
             description: 'List of specific choices to offer'
-          },
-          allowOther: { type: 'boolean', description: 'Whether to show an "Other" option (free text override). Defaults to true.' }
+          }
         },
         required: ['question', 'options']
       }
