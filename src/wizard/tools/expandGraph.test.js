@@ -54,12 +54,18 @@ describe('expandGraph', () => {
     expect(result.spec.nodes[0]).toEqual({
       name: 'Node One',
       color: '#FF0000',
-      description: 'First node'
+      description: 'First node',
+      type: null,
+      typeColor: '#A0A0A0',
+      typeDescription: ''
     });
     expect(result.spec.nodes[1]).toEqual({
       name: 'Node Two',
       color: '#5B6CFF',
-      description: ''
+      description: '',
+      type: null,
+      typeColor: '#A0A0A0',
+      typeDescription: ''
     });
 
     // Verify edge specs with title case and definitionNode

@@ -1009,12 +1009,51 @@ function applyToolResultToStore(toolName, result, toolCallId) {
         description: result.description || ''
       });
     }
+
+    // Helper to resolve or create type prototypes
+    const typeMap = new Map(); // lowercase type name -> protoId
+
+    // First pass: gather all unique types needed
+    (result.spec.nodes || []).forEach(n => {
+      if (n.type) {
+        const tLower = n.type.toLowerCase().trim();
+        if (!typeMap.has(tLower)) {
+          // Check if it already exists in the store
+          let existingProtoId = null;
+          for (const [pid, proto] of store.nodePrototypes) {
+            if ((proto.name || '').toLowerCase().trim() === tLower) {
+              existingProtoId = pid;
+              break;
+            }
+          }
+          if (existingProtoId) {
+            typeMap.set(tLower, existingProtoId);
+          } else {
+            const newProtoId = `proto-auto-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+            typeMap.set(tLower, newProtoId);
+
+            // Create it!
+            store.addNodePrototype({
+              id: newProtoId,
+              name: n.type,
+              color: n.typeColor || '#A0A0A0',
+              description: n.typeDescription || '',
+              typeNodeId: null,
+              definitionGraphIds: []
+            });
+            console.log('[Wizard] Auto-created inline type node (prototype only):', n.type, '→', newProtoId);
+          }
+        }
+      }
+    });
+
     // 2. Prepare bulk updates - use unique IDs for each node
     const bulkData = {
       nodes: result.spec.nodes.map((n, idx) => ({
         name: n.name,
         color: n.color,
         description: n.description,
+        typeNodeId: n.type ? typeMap.get(n.type.toLowerCase().trim()) : null,
         prototypeId: `proto-${Date.now()}-${idx}-${Math.random().toString(36).slice(2, 8)}`,
         instanceId: `inst-${Date.now()}-${idx}-${Math.random().toString(36).slice(2, 8)}`,
         x: Math.random() * 600 + 200,
@@ -1065,12 +1104,50 @@ function applyToolResultToStore(toolName, result, toolCallId) {
       return;
     }
 
+    // Helper to resolve or create type prototypes
+    const typeMap = new Map(); // lowercase type name -> protoId
+
+    // First pass: gather all unique types needed
+    (result.spec.nodes || []).forEach(n => {
+      if (n.type) {
+        const tLower = n.type.toLowerCase().trim();
+        if (!typeMap.has(tLower)) {
+          // Check if it already exists in the store
+          let existingProtoId = null;
+          for (const [pid, proto] of store.nodePrototypes) {
+            if ((proto.name || '').toLowerCase().trim() === tLower) {
+              existingProtoId = pid;
+              break;
+            }
+          }
+          if (existingProtoId) {
+            typeMap.set(tLower, existingProtoId);
+          } else {
+            const newProtoId = `proto-auto-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+            typeMap.set(tLower, newProtoId);
+
+            // Create it!
+            store.addNodePrototype({
+              id: newProtoId,
+              name: n.type,
+              color: n.typeColor || '#A0A0A0',
+              description: n.typeDescription || '',
+              typeNodeId: null,
+              definitionGraphIds: []
+            });
+            console.log('[Wizard] Auto-created inline type node (prototype only):', n.type, '→', newProtoId);
+          }
+        }
+      }
+    });
+
     // Prepare bulk updates with unique IDs for each NEW node
     const bulkData = {
       nodes: result.spec.nodes.map((n, idx) => ({
         name: n.name,
         color: n.color,
         description: n.description,
+        typeNodeId: n.type ? typeMap.get(n.type.toLowerCase().trim()) : null,
         prototypeId: `proto-${Date.now()}-${idx}-${Math.random().toString(36).slice(2, 8)}`,
         instanceId: `inst-${Date.now()}-${idx}-${Math.random().toString(36).slice(2, 8)}`,
         x: Math.random() * 600 + 200,

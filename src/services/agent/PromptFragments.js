@@ -155,7 +155,9 @@ Every Thing can have a **type** — another Thing that categorizes it. Types for
 - Use a muted/neutral color for category/type nodes to distinguish them from regular nodes.
 - The type must be a DIFFERENT node than the one being typed (no self-typing).
 - **Every node that represents a specific instance or specialization should be typed.** Don't leave nodes untyped unless they are truly root categories.
-- Example: \`setNodeType(nodeName="Outer Membrane", typeName="Membrane", typeColor="tan", typeDescription="A biological lipid bilayer...")\`
+- **BULK CREATION RULE:** Whenever you use \`createPopulatedGraph\` or \`expandGraph\`, do NOT use \`setNodeType\`. Instead, provide the \`type\`, \`typeColor\`, and \`typeDescription\` fields directly inline in the node definition array! This is much faster.
+- Example inline: \`{ name: "Outer Membrane", type: "Membrane", typeColor: "tan" }\`
+- Example tool: \`setNodeType(nodeName="Outer Membrane", typeName="Membrane", typeColor="tan", typeDescription="A biological lipid bilayer...")\`
 
 ## Abstraction Carousel
 

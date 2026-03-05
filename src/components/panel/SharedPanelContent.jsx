@@ -669,8 +669,8 @@ const WikipediaEnrichment = ({ nodeData, onUpdateNode }) => {
         >
           <BookOpen size={12} />
           {isSearching ? 'Searching Wikipedia...' :
-           nodeData.semanticMetadata?.autoEnriched ? 'Re-Pull from Wikipedia' :
-           'Pull from Wikipedia & Link'}
+            nodeData.semanticMetadata?.autoEnriched ? 'Re-Pull from Wikipedia' :
+              'Pull from Wikipedia & Link'}
         </button>
       )}
 
@@ -1427,10 +1427,17 @@ const SharedPanelContent = ({
 
       {/* Type Section - under title */}
       {(() => {
-        // Get the type name
-        const typeName = nodeData.typeNodeId && nodePrototypes
-          ? nodePrototypes.get(nodeData.typeNodeId)?.name || 'Type'
-          : 'Thing';
+        // Get the type name and color
+        const typePrototype = nodeData.typeNodeId && nodePrototypes
+          ? nodePrototypes.get(nodeData.typeNodeId)
+          : null;
+        const typeName = typePrototype?.name || 'Thing';
+        const typeColor = typePrototype?.color || '#8B0000';
+
+        if (typeName === 'Type') {
+          console.error(`[TypeRenderingBug] typeName is "Type"! nodeData.typeNodeId:`, nodeData.typeNodeId);
+          console.error(`[TypeRenderingBug] typePrototype:`, typePrototype);
+        }
 
         return (
           <div style={{
@@ -1459,8 +1466,8 @@ const SharedPanelContent = ({
                   <button
                     onClick={() => onTypeSelect && onTypeSelect(nodeData.id)}
                     style={{
-                      backgroundColor: '#8B0000',
-                      color: '#bdb5b5',
+                      backgroundColor: typeColor,
+                      color: getTextColor(typeColor),
                       border: 'none',
                       borderRadius: '8px',
                       padding: '5px 8px 3px 8px',
@@ -1499,8 +1506,8 @@ const SharedPanelContent = ({
                 <button
                   onClick={() => onTypeSelect && onTypeSelect(nodeData.id)}
                   style={{
-                    backgroundColor: '#8B0000',
-                    color: '#bdb5b5',
+                    backgroundColor: typeColor,
+                    color: getTextColor(typeColor),
                     border: 'none',
                     borderRadius: '8px',
                     padding: '5px 8px 3px 8px',

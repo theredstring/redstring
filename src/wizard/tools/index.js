@@ -257,7 +257,7 @@ export function getToolDefinitions() {
     },
     {
       name: 'expandGraph',
-      description: 'Add multiple nodes and/or edges at once (bulk operation). By default adds to active graph, but you can specify targetGraphId to populate any graph (e.g., definition graphs) non-disruptively. Must provide at least one node or at least one edge.',
+      description: 'Add multiple nodes and/or edges at once (bulk operation). By default adds to active graph, but you can specify targetGraphId to populate any graph (e.g., definition graphs) non-disruptively. Must provide at least one node or at least one edge. TYPE YOUR NODES: After expanding a graph with this tool, you MUST immediately call setNodeType to type any new nodes you just created!',
       parameters: {
         type: 'object',
         properties: {
@@ -270,7 +270,10 @@ export function getToolDefinitions() {
               properties: {
                 name: { type: 'string' },
                 color: { type: 'string', description: 'Color name from chosen palette, OR hex color if using a custom theme.' },
-                description: { type: 'string' }
+                description: { type: 'string' },
+                type: { type: 'string', description: 'Optional: name of the category/type this node falls under (e.g., "Mammal" for a "Dog" node).' },
+                typeColor: { type: 'string', description: 'Optional: color for the type node, supports palettes. Use muted colors.' },
+                typeDescription: { type: 'string', description: 'Optional: brief description of the type itself.' }
               },
               required: ['name']
             }
@@ -323,7 +326,7 @@ export function getToolDefinitions() {
     },
     {
       name: 'createPopulatedGraph',
-      description: 'Create a NEW graph with nodes, edges, AND groups in one operation. You MUST always provide a "name" for the graph. ALWAYS include edges with definitionNode to show relationships! ALWAYS include meaningful groups when they exist (factions, categories, houses, teams, departments, etc). CONNECTION DENSITY: Every node should have 2-3 edges minimum.',
+      description: 'Create a NEW graph with nodes, edges, AND groups in one operation. You MUST always provide a "name" for the graph. ALWAYS include edges with definitionNode to show relationships! ALWAYS include meaningful groups when they exist. CONNECTION DENSITY: Every node should have 2-3 edges minimum. TYPE YOUR NODES: After creating a graph with this tool, you MUST immediately call setNodeType to type as many of the generated nodes as possible!',
       parameters: {
         type: 'object',
         properties: {
@@ -339,9 +342,12 @@ export function getToolDefinitions() {
               properties: {
                 name: { type: 'string', description: 'Node name - use Title Case (e.g., "Romeo Montague", not "romeo_montague")' },
                 color: { type: 'string', description: 'Color name from chosen palette, OR hex color if using a custom theme.' },
-                description: { type: 'string', description: 'Brief description of what this node represents - ALWAYS include this!' }
+                description: { type: 'string', description: 'Very brief summary of what this node represents' },
+                type: { type: 'string', description: 'Highly recommended: name of the category/type this node falls under (e.g., "Character" or "Location").' },
+                typeColor: { type: 'string', description: 'Optional: color for the type node, supports palettes. Use muted colors for types.' },
+                typeDescription: { type: 'string', description: 'Optional: brief description of the type itself.' }
               },
-              required: ['name']
+              required: ['name', 'description']
             }
           },
           edges: {

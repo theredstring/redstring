@@ -2113,6 +2113,8 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
               name: node.name,
               color: node.color || NODE_DEFAULT_COLOR,
               description: node.description || '',
+              typeNodeId: node.typeNodeId || null,
+              definitionGraphIds: [],
               createdAt: new Date().toISOString()
             });
 

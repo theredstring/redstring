@@ -4,6 +4,7 @@ import { PANEL_CLOSE_ICON_SIZE } from '../constants';
 import { rdfResolver } from '../services/rdfResolver.js';
 import { enrichFromSemanticWeb, fastEnrichFromSemanticWeb } from '../services/semanticWebQuery.js';
 import { knowledgeFederation } from '../services/knowledgeFederation.js';
+import { getTextColor } from '../utils/colorUtils.js';
 import useGraphStore from '../store/graphStore.jsx';
 
 // DOI validation regex
@@ -23,15 +24,15 @@ const isValidURL = (string) => {
 const extractDOI = (input) => {
   // Direct DOI format
   if (DOI_REGEX.test(input)) return input;
-  
+
   // DOI URL formats
   const doiUrlMatch = input.match(/(?:https?:\/\/)?(?:www\.)?(?:dx\.)?doi\.org\/(10\.\d{4,}\/[-._;()\/:a-zA-Z0-9]+)/);
   if (doiUrlMatch) return doiUrlMatch[1];
-  
+
   // PubMed URL with DOI
   const pubmedMatch = input.match(/pubmed\.ncbi\.nlm\.nih\.gov\/(\d+)/);
   if (pubmedMatch) return `pubmed:${pubmedMatch[1]}`;
-  
+
   return null;
 };
 
@@ -62,7 +63,7 @@ const SemanticLinkInput = ({ onAdd, placeholder, type, icon: Icon, defaultValue 
 
   const handleAdd = () => {
     if (!isValid) return;
-    
+
     let processedValue = input;
     if (type === 'doi') {
       const extracted = extractDOI(input);
@@ -70,7 +71,7 @@ const SemanticLinkInput = ({ onAdd, placeholder, type, icon: Icon, defaultValue 
         processedValue = extracted.startsWith('10.') ? `doi:${extracted}` : extracted;
       }
     }
-    
+
     onAdd(processedValue);
     setInput('');
     setIsValid(false);
@@ -134,7 +135,7 @@ const ExternalLinkCard = ({ link, onRemove, provenance = null }) => {
         const last = parts[parts.length - 1] || '';
         if (/^Q\d+$/i.test(last)) return last;
       }
-    } catch {}
+    } catch { }
     return null;
   };
 
@@ -152,7 +153,7 @@ const ExternalLinkCard = ({ link, onRemove, provenance = null }) => {
         const labels = entity.labels || {};
         const label = labels.en?.value || Object.values(labels)[0]?.value || null;
         if (!cancelled) setWikidataLabel(label || null);
-      } catch {}
+      } catch { }
     })();
     return () => { cancelled = true; };
   }, [link]);
@@ -368,14 +369,14 @@ const WikipediaSearch = ({ onSelect }) => {
 
   const searchWikipedia = async (searchTerm) => {
     if (!searchTerm.trim()) return;
-    
+
     setLoading(true);
     try {
       // Use search API first for better semantic results
       const searchResponse = await fetch(
         `https://en.wikipedia.org/api/rest_v1/page/search?q=${encodeURIComponent(searchTerm)}&limit=10`
       );
-      
+
       if (searchResponse.ok) {
         const searchData = await searchResponse.json();
         if (searchData.pages && searchData.pages.length > 0) {
@@ -385,7 +386,7 @@ const WikipediaSearch = ({ onSelect }) => {
           const exactResponse = await fetch(
             `https://en.wikipedia.org/api/rest_v1/page/summary/${encodeURIComponent(searchTerm)}`
           );
-          
+
           if (exactResponse.ok) {
             const data = await exactResponse.json();
             setResults([{
@@ -426,7 +427,7 @@ const WikipediaSearch = ({ onSelect }) => {
   const handleInputChange = (e) => {
     const value = e.target.value;
     setQuery(value);
-    
+
     // If it looks like a Wikipedia URL, clear results to indicate it's ready
     if (handleDirectURL(value)) {
       setResults([]);
@@ -441,7 +442,7 @@ const WikipediaSearch = ({ onSelect }) => {
       setQuery('');
       return;
     }
-    
+
     // Otherwise, search
     searchWikipedia(query);
   };
@@ -506,7 +507,7 @@ const WikipediaSearch = ({ onSelect }) => {
                 alignItems: 'flex-start'
               }}
             >
-              <div 
+              <div
                 onClick={() => onSelect(result.url || `https://en.wikipedia.org/wiki/${result.title}`)}
                 style={{ flex: 1 }}
               >
@@ -558,7 +559,7 @@ const RDFSchemaPropertiesSection = ({ nodeData, onUpdate }) => {
       .split(',')
       .map(s => s.trim())
       .filter(s => s.length > 0);
-    
+
     onUpdate({
       ...nodeData,
       'rdfs:seeAlso': seeAlsoArray
@@ -658,7 +659,7 @@ const SemanticClassificationSection = ({ nodeData, onUpdate }) => {
     if (colonIdx > -1) raw = uri.slice(colonIdx + 1);
     try {
       raw = decodeURIComponent(raw);
-    } catch {}
+    } catch { }
     raw = raw.split('/').pop() || raw;
     raw = raw.replace(/_/g, ' ');
     return titleCase(raw);
@@ -677,7 +678,7 @@ const SemanticClassificationSection = ({ nodeData, onUpdate }) => {
     let targetTypeId = existing?.id;
     if (!targetTypeId) {
       // Create new type prototype (avoid bloat by reusing name; user can merge later if needed)
-      const newTypeId = `type-${Date.now()}-${Math.random().toString(36).slice(2,8)}`;
+      const newTypeId = `type-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
       addNodePrototype({
         id: newTypeId,
         name: prettyName,
@@ -718,13 +719,13 @@ const SemanticClassificationSection = ({ nodeData, onUpdate }) => {
             gap: 6,
             padding: '6px 10px',
             background: typePrototype.color || '#8B0000',
-            color: '#bdb5b5',
+            color: getTextColor(typePrototype.color || '#8B0000'),
             borderRadius: '12px',
             border: '1px solid rgba(0,0,0,0.15)',
             cursor: 'pointer'
           }}
-          onClick={() => openRightPanelNodeTab?.(typePrototype.id)}
-          title="Open type"
+            onClick={() => openRightPanelNodeTab?.(typePrototype.id)}
+            title="Open type"
           >
             <span style={{ fontWeight: 'bold' }}>{titleCase(typePrototype.name || 'Thing')}</span>
             <span style={{ fontSize: '10px', opacity: 0.8 }}>(type)</span>
@@ -736,9 +737,9 @@ const SemanticClassificationSection = ({ nodeData, onUpdate }) => {
 
       {/* Quick Ontology Mappings */}
       <div style={{ marginBottom: '6px' }}>
-        <label style={{ 
-          display: 'block', 
-          fontSize: '14px', 
+        <label style={{
+          display: 'block',
+          fontSize: '14px',
           color: '#8B0000',
           marginBottom: '6px',
           fontWeight: 'bold'
@@ -751,7 +752,7 @@ const SemanticClassificationSection = ({ nodeData, onUpdate }) => {
             return (
               <button
                 key={onto.id}
-                onClick={() => isSelected 
+                onClick={() => isSelected
                   ? removeEquivalentClass(onto.id)
                   : addEquivalentClass(onto.id, 'quick-select')
                 }
@@ -776,15 +777,15 @@ const SemanticClassificationSection = ({ nodeData, onUpdate }) => {
       {/* Current Classifications */}
       {equivalentClasses.length > 0 && (
         <div style={{ marginTop: 6 }}>
-                  <label style={{ 
-          display: 'block', 
-          fontSize: '14px', 
-          color: '#8B0000', 
-          marginBottom: '6px',
-          fontWeight: 'bold'
-        }}>
-          Current Classifications ({equivalentClasses.length}):
-        </label>
+          <label style={{
+            display: 'block',
+            fontSize: '14px',
+            color: '#8B0000',
+            marginBottom: '6px',
+            fontWeight: 'bold'
+          }}>
+            Current Classifications ({equivalentClasses.length}):
+          </label>
           {equivalentClasses.map((cls, index) => (
             <div
               key={index}
@@ -801,9 +802,9 @@ const SemanticClassificationSection = ({ nodeData, onUpdate }) => {
               }}
             >
               <div>
-                <code style={{ 
-                  backgroundColor: 'rgba(0,0,0,0.03)', 
-                  padding: '2px 4px', 
+                <code style={{
+                  backgroundColor: 'rgba(0,0,0,0.03)',
+                  padding: '2px 4px',
                   borderRadius: '3px',
                   fontSize: '12px',
                   color: '#260000'
@@ -811,9 +812,9 @@ const SemanticClassificationSection = ({ nodeData, onUpdate }) => {
                   {cls['@id']}
                 </code>
                 {cls.source && (
-                  <span style={{ 
-                    marginLeft: '8px', 
-                    fontSize: '11px', 
+                  <span style={{
+                    marginLeft: '8px',
+                    fontSize: '11px',
                     color: '#260000',
                     fontStyle: 'italic'
                   }}>
@@ -865,18 +866,18 @@ const SemanticClassificationSection = ({ nodeData, onUpdate }) => {
       {/* Abstraction Chains - Future Feature */}
       {Object.keys(abstractionChains).length > 0 && (
         <div style={{ marginTop: '15px' }}>
-          <label style={{ 
-            display: 'block', 
-            fontSize: '14px', 
-            color: '#8B0000', 
+          <label style={{
+            display: 'block',
+            fontSize: '14px',
+            color: '#8B0000',
             marginBottom: '8px',
             fontWeight: 'bold'
           }}>
             Abstraction Chains:
           </label>
-          <div style={{ 
-            fontSize: '12px', 
-            color: '#260000', 
+          <div style={{
+            fontSize: '12px',
+            color: '#260000',
             fontStyle: 'italic',
             marginTop: '8px'
           }}>
@@ -891,11 +892,11 @@ const SemanticClassificationSection = ({ nodeData, onUpdate }) => {
 // Provenance badge component
 const ProvenanceBadge = ({ provenance, field }) => {
   if (!provenance || !provenance[field]) return null;
-  
+
   const p = provenance[field];
-  const sourceText = p.source === 'multi_source' ? 'Multi' : 
-                    p.source === 'single_strong' ? 'Single' : 'Auto';
-  
+  const sourceText = p.source === 'multi_source' ? 'Multi' :
+    p.source === 'single_strong' ? 'Single' : 'Auto';
+
   return (
     <span
       style={{
@@ -962,7 +963,7 @@ const SemanticEditor = ({ nodeData, onUpdate, isUltraSlim = false }) => {
       syncMetadata: {},
       provenance: {}
     };
-    
+
     const newIdentity = { ...currentIdentity, ...updates };
     onUpdate({ ...nodeData, semanticIdentity: newIdentity });
   };
@@ -970,7 +971,7 @@ const SemanticEditor = ({ nodeData, onUpdate, isUltraSlim = false }) => {
   // Handle mode change
   const handleModeChange = (newMode) => {
     setSemanticIdentityMode(newMode);
-    updateSemanticIdentity({ 
+    updateSemanticIdentity({
       mode: newMode,
       lastModeChange: new Date().toISOString()
     });
@@ -980,14 +981,14 @@ const SemanticEditor = ({ nodeData, onUpdate, isUltraSlim = false }) => {
   const performReadSync = async () => {
     try {
       setEnrichmentState({ isEnriching: true, progress: { stage: 'Syncing from semantic web...' }, results: null, error: null });
-      
+
       // Pull from semantic web
       const enrichmentResults = await fastEnrichFromSemanticWeb(nodeData.name, { timeout: 20000 });
-      
+
       if (!enrichmentResults?.suggestions) {
         throw new Error('No semantic web data found');
       }
-      
+
       // Create diff between current and incoming data
       const incoming = enrichmentResults.suggestions;
       const current = nodeData;
@@ -1000,22 +1001,22 @@ const SemanticEditor = ({ nodeData, onUpdate, isUltraSlim = false }) => {
         externalLinks: {
           current: current.externalLinks || [],
           incoming: incoming.externalLinks || [],
-          new: (incoming.externalLinks || []).filter(link => 
+          new: (incoming.externalLinks || []).filter(link =>
             !(current.externalLinks || []).includes(canonicalizeLink(link))
           )
         },
         equivalentClasses: {
           current: current.equivalentClasses || [],
           incoming: incoming.equivalentClasses || [],
-          new: (incoming.equivalentClasses || []).filter(cls => 
-            !(current.equivalentClasses || []).some(existing => 
-              (existing['@id'] || existing.id || '').toLowerCase() === 
+          new: (incoming.equivalentClasses || []).filter(cls =>
+            !(current.equivalentClasses || []).some(existing =>
+              (existing['@id'] || existing.id || '').toLowerCase() ===
               (cls['@id'] || cls.id || '').toLowerCase()
             )
           )
         }
       };
-      
+
       // Update semantic identity with sync metadata
       updateSemanticIdentity({
         lastSync: new Date().toISOString(),
@@ -1029,10 +1030,10 @@ const SemanticEditor = ({ nodeData, onUpdate, isUltraSlim = false }) => {
           }
         }
       });
-      
+
       setEnrichmentState({ isEnriching: false, progress: {}, results: diff, error: null });
       return diff;
-      
+
     } catch (error) {
       console.error('[ReadSync] Failed:', error);
       setEnrichmentState({ isEnriching: false, progress: {}, results: null, error: error.message });
@@ -1044,7 +1045,7 @@ const SemanticEditor = ({ nodeData, onUpdate, isUltraSlim = false }) => {
   const generateConsolidatePreview = async () => {
     const readData = await performReadSync();
     if (!readData) return;
-    
+
     // Create merged preview using simple merge logic
     const merged = {
       ...nodeData,
@@ -1053,7 +1054,7 @@ const SemanticEditor = ({ nodeData, onUpdate, isUltraSlim = false }) => {
       equivalentClasses: [...(nodeData.equivalentClasses || []), ...readData.equivalentClasses.new],
       lastConsolidated: new Date().toISOString()
     };
-    
+
     setConsolidatePreview({ original: nodeData, merged, diff: readData });
     setShowConsolidatePreview(true);
   };
@@ -1081,7 +1082,7 @@ const SemanticEditor = ({ nodeData, onUpdate, isUltraSlim = false }) => {
       }
 
       setEnrichmentState({ isEnriching: true, progress: { stage: 'Writing to semantic web...' }, results: null, error: null });
-      
+
       // Guardrails: explicit writes only, single-source soft-apply
       const writeData = {
         name: nodeData.name,
@@ -1091,10 +1092,10 @@ const SemanticEditor = ({ nodeData, onUpdate, isUltraSlim = false }) => {
         writeMode: 'explicit', // Only explicit user-initiated writes
         target: targetEndpoint
       };
-      
+
       // Simulate write operation (would be actual API call in production)
       await new Promise(resolve => setTimeout(resolve, 2000));
-      
+
       // Update write state and semantic identity
       setWriteState({ isDirty: false, lastWrite: new Date().toISOString(), writeTarget: targetEndpoint });
       updateSemanticIdentity({
@@ -1108,9 +1109,9 @@ const SemanticEditor = ({ nodeData, onUpdate, isUltraSlim = false }) => {
           }
         }
       });
-      
+
       setEnrichmentState({ isEnriching: false, progress: {}, results: { success: true, target: targetEndpoint }, error: null });
-      
+
     } catch (error) {
       console.error('[WriteSync] Failed:', error);
       setEnrichmentState({ isEnriching: false, progress: {}, results: null, error: `Write failed: ${error.message}` });
@@ -1126,7 +1127,7 @@ const SemanticEditor = ({ nodeData, onUpdate, isUltraSlim = false }) => {
 
   // Guardrails: prevent accidental auto-apply in write mode
   const isWriteModeGuarded = semanticIdentityMode === 'write';
-  
+
   // Override auto-apply when in write mode (guardrail)
   const safeAutoApply = (updates) => {
     if (isWriteModeGuarded) {
@@ -1143,7 +1144,7 @@ const SemanticEditor = ({ nodeData, onUpdate, isUltraSlim = false }) => {
       const u = new URL(uri);
       u.hash = '';
       // strip common tracking params
-      ['utm_source','utm_medium','utm_campaign','utm_term','utm_content'].forEach(p => u.searchParams.delete(p));
+      ['utm_source', 'utm_medium', 'utm_campaign', 'utm_term', 'utm_content'].forEach(p => u.searchParams.delete(p));
       const pathname = u.pathname.endsWith('/') ? u.pathname.slice(0, -1) : u.pathname;
       u.pathname = pathname;
       u.protocol = u.protocol.toLowerCase();
@@ -1174,7 +1175,7 @@ const SemanticEditor = ({ nodeData, onUpdate, isUltraSlim = false }) => {
   // Handle semantic web enrichment
   const handleEnrichFromSemanticWeb = async () => {
     if (!nodeData?.name) return;
-    
+
     setEnrichmentState({
       isEnriching: true,
       progress: {
@@ -1190,16 +1191,16 @@ const SemanticEditor = ({ nodeData, onUpdate, isUltraSlim = false }) => {
       // Update progress as we go
       setEnrichmentState(prev => ({
         ...prev,
-        progress: { 
-          wikidata: 'active', 
-          dbpedia: 'pending', 
-          wikipedia: 'pending' 
+        progress: {
+          wikidata: 'active',
+          dbpedia: 'pending',
+          wikipedia: 'pending'
         }
       }));
-      
+
       // Use our fast semantic web enrichment for immediate results
       const enrichmentResults = await fastEnrichFromSemanticWeb(nodeData.name, { timeout: 15000 });
-      
+
       // Update progress to show completion
       setEnrichmentState(prev => ({
         ...prev,
@@ -1209,7 +1210,7 @@ const SemanticEditor = ({ nodeData, onUpdate, isUltraSlim = false }) => {
           wikipedia: enrichmentResults.sources.wikipedia?.found ? 'completed' : 'failed'
         }
       }));
-      
+
       // Set final results
       setEnrichmentState({
         isEnriching: false,
@@ -1281,7 +1282,7 @@ const SemanticEditor = ({ nodeData, onUpdate, isUltraSlim = false }) => {
         // Swallow auto-import errors silently but log
         console.warn('[SemanticEditor] Auto-import at 80% failed:', e);
       }
-      
+
     } catch (error) {
       console.error('[SemanticEditor] Enrichment failed:', error);
       setEnrichmentState({
@@ -1297,7 +1298,7 @@ const SemanticEditor = ({ nodeData, onUpdate, isUltraSlim = false }) => {
   // Resolve external links to RDF data
   const resolveExternalLinks = async () => {
     const resolved = new Map();
-    
+
     for (const link of externalLinks) {
       try {
         const rdfData = await rdfResolver.resolveURI(link, { timeout: 10000 });
@@ -1308,7 +1309,7 @@ const SemanticEditor = ({ nodeData, onUpdate, isUltraSlim = false }) => {
         console.warn(`Failed to resolve ${link}:`, error);
       }
     }
-    
+
     setResolvedData(resolved);
     return resolved;
   };
@@ -1342,10 +1343,10 @@ const SemanticEditor = ({ nodeData, onUpdate, isUltraSlim = false }) => {
         const enrichmentResults = await fastEnrichFromSemanticWeb(name, { timeout: 15000 });
         const conf = Number(enrichmentResults?.suggestions?.confidence || 0);
         const sources = enrichmentResults?.sources || {};
-        const sourcesFound = ['wikidata','dbpedia','wikipedia'].reduce((n,k)=> n + (sources[k]?.found ? 1 : 0), 0);
+        const sourcesFound = ['wikidata', 'dbpedia', 'wikipedia'].reduce((n, k) => n + (sources[k]?.found ? 1 : 0), 0);
 
         // simple title match check
-        const clean = (s) => (s || '').toLowerCase().replace(/[_-]+/g,' ').replace(/[^a-z0-9\s]/g,'').replace(/\s+/g,' ').trim();
+        const clean = (s) => (s || '').toLowerCase().replace(/[_-]+/g, ' ').replace(/[^a-z0-9\s]/g, '').replace(/\s+/g, ' ').trim();
         const nodeClean = clean(name);
         const suggestionTitle = enrichmentResults?.suggestions?.title || name; // fallback
         const suggClean = clean(suggestionTitle);
@@ -1366,11 +1367,11 @@ const SemanticEditor = ({ nodeData, onUpdate, isUltraSlim = false }) => {
             links.forEach(l => canonMerged.add(canonicalizeLink(l)));
             updates.externalLinks = Array.from(canonMerged);
             onUpdate(updates);
-            setAutoApplied(prev => [{ field: 'externalLinks', prev: null, next: 'applied', sourceMode: oneStrongSource ? 'single' : 'multi', confidence: conf, sourcesFound, ts: Date.now() }, ...prev].slice(0,5));
+            setAutoApplied(prev => [{ field: 'externalLinks', prev: null, next: 'applied', sourceMode: oneStrongSource ? 'single' : 'multi', confidence: conf, sourcesFound, ts: Date.now() }, ...prev].slice(0, 5));
           }
         } else {
           // Present suggestions only, capture meta
-          const items = (enrichmentResults?.suggestions?.externalLinks || []).slice(0,5);
+          const items = (enrichmentResults?.suggestions?.externalLinks || []).slice(0, 5);
           setLastSuggestionsMeta({
             confidence: conf,
             sourcesFound,
@@ -1383,7 +1384,7 @@ const SemanticEditor = ({ nodeData, onUpdate, isUltraSlim = false }) => {
       }
     }, 600);
     return () => clearTimeout(t);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [nodeData?.name]);
 
 
@@ -1391,7 +1392,7 @@ const SemanticEditor = ({ nodeData, onUpdate, isUltraSlim = false }) => {
   // Handle mass knowledge import
   const handleMassImport = async () => {
     if (!nodeData?.name) return;
-    
+
     setFederationState({
       isImporting: true,
       progress: { stage: 'initializing', entity: nodeData.name, level: 0 },
@@ -1424,7 +1425,7 @@ const SemanticEditor = ({ nodeData, onUpdate, isUltraSlim = false }) => {
       });
 
       console.log(`[SemanticEditor] Mass import completed: ${results.totalEntities} entities, ${results.totalRelationships} relationships`);
-      
+
     } catch (error) {
       console.error('[SemanticEditor] Mass import failed:', error);
       setFederationState({
@@ -1438,22 +1439,22 @@ const SemanticEditor = ({ nodeData, onUpdate, isUltraSlim = false }) => {
 
 
   return (
-    <div style={{ 
-      padding: '0 0 10px 0', 
+    <div style={{
+      padding: '0 0 10px 0',
       fontFamily: "'EmOne', sans-serif"
     }}>
 
 
       {/* RDF Schema Properties Section */}
-      <RDFSchemaPropertiesSection 
-        nodeData={nodeData} 
-        onUpdate={onUpdate} 
+      <RDFSchemaPropertiesSection
+        nodeData={nodeData}
+        onUpdate={onUpdate}
       />
 
       {/* Classification inside Semantic Profile */}
       <div style={{ marginTop: '8px' }}>
-        <SemanticClassificationSection 
-          nodeData={nodeData} 
+        <SemanticClassificationSection
+          nodeData={nodeData}
           onUpdate={onUpdate}
         />
       </div>
@@ -1559,7 +1560,7 @@ const SemanticEditor = ({ nodeData, onUpdate, isUltraSlim = false }) => {
                   {!nodeData.description && enrichmentState.results?.description && (
                     <button onClick={() => applySuggestion('description', enrichmentState.results.description)} style={{ padding: '4px 8px', border: '1px solid #ccc', borderRadius: '4px', background: 'transparent', color: '#260000', fontSize: '12px', cursor: 'pointer' }}>Replace description</button>
                   )}
-                  <button onClick={() => {/* alias placeholder */}} style={{ padding: '4px 8px', border: '1px solid #ccc', borderRadius: '4px', background: 'transparent', color: '#260000', fontSize: '12px', cursor: 'pointer' }}>Add alias</button>
+                  <button onClick={() => {/* alias placeholder */ }} style={{ padding: '4px 8px', border: '1px solid #ccc', borderRadius: '4px', background: 'transparent', color: '#260000', fontSize: '12px', cursor: 'pointer' }}>Add alias</button>
                 </div>
               </div>
             ))}
@@ -1598,33 +1599,33 @@ const SemanticEditor = ({ nodeData, onUpdate, isUltraSlim = false }) => {
             {enrichmentState.isEnriching ? 'Enriching...' : 'Enrich from Web'}
           </button>
           */}
-          
+
           {showAdvanced && (
-          <button
-            onClick={handleMassImport}
-            disabled={enrichmentState.isEnriching || federationState.isImporting}
-            style={{
-              backgroundColor: (enrichmentState.isEnriching || federationState.isImporting) ? '#666' : '#4B0082',
-              color: '#EFE8E5',
-              border: 'none',
-              padding: '6px 10px',
-              borderRadius: '4px',
-              cursor: (enrichmentState.isEnriching || federationState.isImporting) ? 'not-allowed' : 'pointer',
-              fontSize: '11px',
-              display: 'flex',
-              alignItems: 'center',
-              gap: '6px',
-              fontWeight: 'bold'
-            }}
-            onMouseEnter={(e) => !(enrichmentState.isEnriching || federationState.isImporting) && (e.currentTarget.style.backgroundColor = '#6A0DAD')}
-            onMouseLeave={(e) => !(enrichmentState.isEnriching || federationState.isImporting) && (e.currentTarget.style.backgroundColor = '#4B0082')}
-            title="Import entire knowledge cluster (entities + relationships)"
-          >
-            {federationState.isImporting ? <Loader2 size={14} style={{animation: 'spin 1s linear infinite'}} /> : <Globe size={14} />}
-            {federationState.isImporting ? 'Importing...' : 'Mass Import'}
-          </button>
+            <button
+              onClick={handleMassImport}
+              disabled={enrichmentState.isEnriching || federationState.isImporting}
+              style={{
+                backgroundColor: (enrichmentState.isEnriching || federationState.isImporting) ? '#666' : '#4B0082',
+                color: '#EFE8E5',
+                border: 'none',
+                padding: '6px 10px',
+                borderRadius: '4px',
+                cursor: (enrichmentState.isEnriching || federationState.isImporting) ? 'not-allowed' : 'pointer',
+                fontSize: '11px',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '6px',
+                fontWeight: 'bold'
+              }}
+              onMouseEnter={(e) => !(enrichmentState.isEnriching || federationState.isImporting) && (e.currentTarget.style.backgroundColor = '#6A0DAD')}
+              onMouseLeave={(e) => !(enrichmentState.isEnriching || federationState.isImporting) && (e.currentTarget.style.backgroundColor = '#4B0082')}
+              title="Import entire knowledge cluster (entities + relationships)"
+            >
+              {federationState.isImporting ? <Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} /> : <Globe size={14} />}
+              {federationState.isImporting ? 'Importing...' : 'Mass Import'}
+            </button>
           )}
-          
+
           {showAdvanced && externalLinks.length > 0 && (
             <button
               onClick={resolveExternalLinks}
@@ -1662,8 +1663,8 @@ const SemanticEditor = ({ nodeData, onUpdate, isUltraSlim = false }) => {
 
         {/* Progress Display */}
         {enrichmentState.isEnriching && (
-          <div style={{ 
-            fontSize: '11px', 
+          <div style={{
+            fontSize: '11px',
             color: '#666'
           }}>
             <div style={{ marginBottom: '4px', fontWeight: 'bold' }}>Enriching from semantic web...</div>
@@ -1702,7 +1703,7 @@ const SemanticEditor = ({ nodeData, onUpdate, isUltraSlim = false }) => {
             fontSize: '12px'
           }}>
             <div style={{ fontWeight: 'bold', marginBottom: '8px', color: '#8B0000' }}>Enrichment Suggestions:</div>
-            
+
             {enrichmentState.results.description && (
               <div style={{ marginBottom: '8px' }}>
                 <div style={{ fontWeight: 'bold', marginBottom: '4px' }}>Description:</div>
@@ -1727,7 +1728,7 @@ const SemanticEditor = ({ nodeData, onUpdate, isUltraSlim = false }) => {
                 )}
               </div>
             )}
-            
+
             {enrichmentState.results.externalLinks.length > 0 && (
               <div style={{ marginBottom: '8px' }}>
                 <div style={{ fontWeight: 'bold', marginBottom: '4px' }}>External Links:</div>
@@ -1754,7 +1755,7 @@ const SemanticEditor = ({ nodeData, onUpdate, isUltraSlim = false }) => {
                 ))}
               </div>
             )}
-            
+
             {enrichmentState.results.equivalentClasses.length > 0 && (
               <div style={{ marginBottom: '8px' }}>
                 <div style={{ fontWeight: 'bold', marginBottom: '4px' }}>Classifications:</div>
@@ -1780,7 +1781,7 @@ const SemanticEditor = ({ nodeData, onUpdate, isUltraSlim = false }) => {
                 ))}
               </div>
             )}
-            
+
             <div style={{ fontSize: '10px', color: '#666', marginTop: '8px' }}>Confidence: {(enrichmentState.results.confidence * 100).toFixed(0)}%</div>
           </div>
         )}
@@ -1798,8 +1799,8 @@ const SemanticEditor = ({ nodeData, onUpdate, isUltraSlim = false }) => {
           borderRadius: '6px',
           border: '1px solid #e0e0e0'
         }}>
-          <div style={{ 
-            fontSize: '12px', 
+          <div style={{
+            fontSize: '12px',
             color: '#4B0082',
             fontWeight: 'bold',
             marginBottom: '8px',
@@ -1847,7 +1848,7 @@ const SemanticEditor = ({ nodeData, onUpdate, isUltraSlim = false }) => {
         </div>
       )}
 
-      
+
       {/* Semantic Classification moved into Semantic Profile above */}
 
       {/* Resolved RDF Data Display */}
@@ -1961,25 +1962,25 @@ const SemanticEditor = ({ nodeData, onUpdate, isUltraSlim = false }) => {
             fontFamily: "'EmOne', sans-serif"
           }}>
             <h3 style={{ margin: '0 0 16px 0', color: '#260000' }}>Consolidate Preview</h3>
-            
+
             <div style={{ marginBottom: '16px' }}>
               <h4 style={{ margin: '0 0 8px 0', color: '#260000', fontSize: '14px' }}>Changes to apply:</h4>
-              
+
               {consolidatePreview.diff.description.changed && (
                 <div style={{ marginBottom: '8px', padding: '8px', backgroundColor: 'rgba(220, 38, 38, 0.1)', borderRadius: '4px' }}>
-                  <strong>Description:</strong><br/>
+                  <strong>Description:</strong><br />
                   <span style={{ color: '#666', fontSize: '12px' }}>
                     Current: {consolidatePreview.diff.description.current || '(empty)'}
-                  </span><br/>
+                  </span><br />
                   <span style={{ color: '#059669', fontSize: '12px' }}>
                     New: {consolidatePreview.diff.description.incoming}
                   </span>
                 </div>
               )}
-              
+
               {consolidatePreview.diff.externalLinks.new.length > 0 && (
                 <div style={{ marginBottom: '8px', padding: '8px', backgroundColor: 'rgba(5, 150, 105, 0.1)', borderRadius: '4px' }}>
-                  <strong>New External Links ({consolidatePreview.diff.externalLinks.new.length}):</strong><br/>
+                  <strong>New External Links ({consolidatePreview.diff.externalLinks.new.length}):</strong><br />
                   {consolidatePreview.diff.externalLinks.new.slice(0, 3).map((link, i) => (
                     <div key={i} style={{ fontSize: '11px', color: '#666' }}>• {link}</div>
                   ))}
@@ -1988,10 +1989,10 @@ const SemanticEditor = ({ nodeData, onUpdate, isUltraSlim = false }) => {
                   )}
                 </div>
               )}
-              
+
               {consolidatePreview.diff.equivalentClasses.new.length > 0 && (
                 <div style={{ marginBottom: '8px', padding: '8px', backgroundColor: 'rgba(79, 70, 229, 0.1)', borderRadius: '4px' }}>
-                  <strong>New Classifications ({consolidatePreview.diff.equivalentClasses.new.length}):</strong><br/>
+                  <strong>New Classifications ({consolidatePreview.diff.equivalentClasses.new.length}):</strong><br />
                   {consolidatePreview.diff.equivalentClasses.new.slice(0, 3).map((cls, i) => (
                     <div key={i} style={{ fontSize: '11px', color: '#666' }}>• {cls['@id'] || cls.id || 'Unknown'}</div>
                   ))}
@@ -2001,7 +2002,7 @@ const SemanticEditor = ({ nodeData, onUpdate, isUltraSlim = false }) => {
                 </div>
               )}
             </div>
-            
+
             <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
               <button
                 onClick={() => setShowConsolidatePreview(false)}

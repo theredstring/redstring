@@ -57,7 +57,10 @@ export async function expandGraph(args, graphState, cid, ensureSchedulerStarted)
   const nodeSpecs = nodes.map(n => ({
     name: n.name,
     color: resolvePaletteColor(activePalette, n.color),
-    description: n.description || ''
+    description: n.description || '',
+    type: n.type || null,
+    typeColor: resolvePaletteColor(activePalette, n.typeColor || '#A0A0A0'),
+    typeDescription: n.typeDescription || ''
   }));
 
   // Build edge specs with definitionNode handling (same as createPopulatedGraph)

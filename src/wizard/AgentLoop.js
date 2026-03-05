@@ -106,6 +106,38 @@ function updateGraphState(graphState, _toolName, _args, result) {
     graphState.graphs = graphState.graphs || [];
     graphState.nodePrototypes = graphState.nodePrototypes || [];
 
+    // Helper to extract and track inline types
+    const typeMap = new Map();
+    (result.spec.nodes || []).forEach(n => {
+      if (n.type) {
+        const tLower = n.type.toLowerCase().trim();
+        if (!typeMap.has(tLower)) {
+          let existingProtoId = null;
+          for (const proto of graphState.nodePrototypes) {
+            if ((proto.name || '').toLowerCase().trim() === tLower) {
+              existingProtoId = proto.id;
+              break;
+            }
+          }
+          if (existingProtoId) {
+            typeMap.set(tLower, existingProtoId);
+          } else {
+            const newProtoId = `proto-auto-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+            typeMap.set(tLower, newProtoId);
+            graphState.nodePrototypes.push({
+              id: newProtoId,
+              name: n.type,
+              color: n.typeColor || '#A0A0A0',
+              description: n.typeDescription || '',
+              typeNodeId: null,
+              definitionGraphIds: []
+            });
+            console.error('[updateGraphState] Auto-created inline type node (predictive):', n.type, '→', newProtoId);
+          }
+        }
+      }
+    });
+
     const newInstances = (result.spec.nodes || []).map((n, idx) => {
       const protoId = `proto-${Date.now()}-${idx}`;
 
@@ -115,6 +147,7 @@ function updateGraphState(graphState, _toolName, _args, result) {
         name: n.name,
         color: n.color || '#5B6CFF',
         description: n.description || '',
+        typeNodeId: n.type ? typeMap.get(n.type.toLowerCase().trim()) : null,
         definitionGraphIds: []
       });
 
@@ -142,6 +175,38 @@ function updateGraphState(graphState, _toolName, _args, result) {
       targetGraph.instances = targetGraph.instances || [];
       graphState.nodePrototypes = graphState.nodePrototypes || [];
 
+      // Helper to extract and track inline types
+      const typeMap = new Map();
+      (result.spec.nodes || []).forEach(n => {
+        if (n.type) {
+          const tLower = n.type.toLowerCase().trim();
+          if (!typeMap.has(tLower)) {
+            let existingProtoId = null;
+            for (const proto of graphState.nodePrototypes) {
+              if ((proto.name || '').toLowerCase().trim() === tLower) {
+                existingProtoId = proto.id;
+                break;
+              }
+            }
+            if (existingProtoId) {
+              typeMap.set(tLower, existingProtoId);
+            } else {
+              const newProtoId = `proto-auto-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+              typeMap.set(tLower, newProtoId);
+              graphState.nodePrototypes.push({
+                id: newProtoId,
+                name: n.type,
+                color: n.typeColor || '#A0A0A0',
+                description: n.typeDescription || '',
+                typeNodeId: null,
+                definitionGraphIds: []
+              });
+              console.error('[updateGraphState] Auto-created inline type node (predictive):', n.type, '→', newProtoId);
+            }
+          }
+        }
+      });
+
       (result.spec.nodes || []).forEach((n, idx) => {
         const protoId = `proto-${Date.now()}-${idx}`;
         const instId = `inst-${Date.now()}-${idx}-${Math.random().toString(36).slice(2, 6)}`;
@@ -159,6 +224,7 @@ function updateGraphState(graphState, _toolName, _args, result) {
           name: n.name,
           color: n.color || '#5B6CFF',
           description: n.description || '',
+          typeNodeId: n.type ? typeMap.get(n.type.toLowerCase().trim()) : null,
           definitionGraphIds: []
         });
       });
