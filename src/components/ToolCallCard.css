@@ -22,17 +22,17 @@
 }
 
 .tool-icon {
-  width: 14px;
-  height: 14px;
+  width: 18px;
+  height: 18px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  margin-top: 2px;
+  margin-top: 5px;
   color: rgba(38, 0, 0, 0.5);
 }
 
 .status-completed .tool-icon {
-  color: rgba(76, 175, 80, 0.8);
+  color: #516A02;
 }
 
 .status-failed .tool-icon {
@@ -70,7 +70,8 @@
 }
 
 .expand-icon {
-  color: rgba(38, 0, 0, 0.6);
+  color: #260000;
+  opacity: 0.8;
   transition: transform 0.2s ease;
   margin-left: auto;
   flex-shrink: 0;
@@ -109,8 +110,13 @@
 }
 
 @keyframes tool-icon-spin {
-  from { transform: rotate(0deg); }
-  to { transform: rotate(360deg); }
+  from {
+    transform: rotate(0deg);
+  }
+
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 .tool-icon-spin {
@@ -215,7 +221,7 @@
 }
 
 .status-completed .tool-call-header {
-  border-left: 2px solid rgba(76, 175, 80, 0.5);
+  border-left: 5px solid #516A02;
 }
 
 .status-failed .tool-call-header {

@@ -1,9 +1,11 @@
 import React, { useState } from 'react';
-import { Undo2, Loader2, CheckCircle2, XCircle, Circle, ChevronDown } from 'lucide-react';
+import { Undo2, Loader2, CheckCircle2, XCircle, Circle, ChevronDown, X } from 'lucide-react';
+import ConfirmDialog from './shared/ConfirmDialog.jsx';
 import './ToolCallCard.css';
 
 const ToolCallCard = ({ toolCallId, toolName, status, args, result, error, timestamp, executionTime, isUndone, onUndo }) => {
     const [isExpanded, setIsExpanded] = useState(false);
+    const [isUndoConfirmOpen, setIsUndoConfirmOpen] = useState(false);
 
     // Ensure args is an object
     let parsedArgs = {};
@@ -19,10 +21,10 @@ const ToolCallCard = ({ toolCallId, toolName, status, args, result, error, times
 
     const getStatusIcon = () => {
         switch (status) {
-            case 'running': return <Loader2 size={14} className="tool-icon-spin" />;
-            case 'completed': return <CheckCircle2 size={14} />;
-            case 'failed': return <XCircle size={14} />;
-            default: return <Circle size={14} />;
+            case 'running': return <Loader2 size={18} className="tool-icon-spin" />;
+            case 'completed': return <CheckCircle2 size={18} />;
+            case 'failed': return <XCircle size={18} />;
+            default: return <Circle size={18} />;
         }
     };
 
@@ -38,7 +40,7 @@ const ToolCallCard = ({ toolCallId, toolName, status, args, result, error, times
     const getStatusText = () => {
         switch (status) {
             case 'running': return 'Running...';
-            case 'completed': return 'Completed';
+            case 'completed': return '';
             case 'failed': return 'Failed';
             default: return '';
         }
@@ -182,27 +184,42 @@ const ToolCallCard = ({ toolCallId, toolName, status, args, result, error, times
                         {status === 'completed' && result && !error && (
                             <div className="tool-undo-container" style={{ margin: '0 8px 0 auto', display: 'flex', alignItems: 'center' }}>
                                 {isUndone ? (
-                                    <span style={{ fontSize: '11px', opacity: 0.5, fontStyle: 'italic', display: 'flex', alignItems: 'center', gap: '3px' }}><Undo2 size={11} /> Undone</span>
+                                    <span style={{ color: '#7A0000', display: 'flex', alignItems: 'center', gap: '3px', opacity: 1 }} title="Tool call undone">
+                                        <X size={16} />
+                                    </span>
                                 ) : (
-                                    <button
-                                        onClick={(e) => {
-                                            e.stopPropagation();
-                                            if (onUndo && toolCallId) onUndo(toolCallId);
-                                        }}
-                                        style={{
-                                            background: 'transparent', border: '1px solid currentColor', borderRadius: '4px',
-                                            color: 'inherit', fontSize: '11px', padding: '2px 6px', cursor: 'pointer',
-                                            display: 'flex', alignItems: 'center', gap: '4px', opacity: 0.7
-                                        }}
-                                        title="Undo this action"
-                                    >
-                                        <Undo2 size={11} /> Undo
-                                    </button>
+                                    <>
+                                        <button
+                                            onClick={(e) => {
+                                                e.stopPropagation();
+                                                setIsUndoConfirmOpen(true);
+                                            }}
+                                            style={{
+                                                background: 'transparent', border: 'none',
+                                                color: '#260000', padding: '2px', cursor: 'pointer',
+                                                display: 'flex', alignItems: 'center', opacity: 0.8
+                                            }}
+                                            title="Undo this action"
+                                        >
+                                            <X size={16} />
+                                        </button>
+                                        <ConfirmDialog
+                                            isOpen={isUndoConfirmOpen}
+                                            onClose={() => setIsUndoConfirmOpen(false)}
+                                            onConfirm={() => {
+                                                if (onUndo && toolCallId) onUndo(toolCallId);
+                                            }}
+                                            title="Undo Tool Call"
+                                            message="Are you sure you want to undo this tool call? This will revert the changes made to the graph."
+                                            confirmLabel="Undo"
+                                            variant="danger"
+                                        />
+                                    </>
                                 )}
                             </div>
                         )}
 
-                        <span className={`expand-icon ${isExpanded ? 'expanded' : ''}`} style={{ marginLeft: (status === 'completed' && result && !error) ? '0' : 'auto' }}><ChevronDown size={12} /></span>
+                        <span className={`expand-icon ${isExpanded ? 'expanded' : ''}`} style={{ marginLeft: (status === 'completed' && result && !error) ? '0' : 'auto' }}><ChevronDown size={16} /></span>
                     </div>
                     {getSummaryText() && (
                         <div className="tool-call-summary">{getSummaryText()}</div>

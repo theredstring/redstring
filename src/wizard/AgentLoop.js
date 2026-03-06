@@ -588,8 +588,7 @@ export async function* runAgent(userMessage, graphState, config = {}, ensureSche
     .replace('{graphName}', graphState.activeGraphId ? (graphState.graphs?.find(g => g.id === graphState.activeGraphId)?.name || 'Unknown') : 'None')
     .replace('{nodeList}', contextStr.includes('Existing Things') ? contextStr.split('Existing Things:')[1]?.split('\n')[0] || '' : '')
     .replace('{edgeList}', '')
-    .replace(/{maxIterations}/g, String(maxIterations))
-    .replace(/{toolCount}/g, String(tools.length));
+    .replace(/{maxIterations}/g, String(maxIterations));
 
   // Build messages array with conversation history
   const conversationHistory = config.conversationHistory || [];
@@ -652,8 +651,21 @@ export async function* runAgent(userMessage, graphState, config = {}, ensureSche
         });
       }
 
-      // If no tool calls, LLM decided task is complete
+      // If no tool calls, check if the model stopped mid-batch
       if (iterationToolCalls.length === 0) {
+        // If previous iterations had tool calls AND we haven't hit max iterations,
+        // the model may have stopped mid-work. Nudge it to continue.
+        const hadPriorToolCalls = messages.some(m => m.tool_calls && m.tool_calls.length > 0);
+        const textSuggestsContinuation = iterationContent && /\b(shall|will|proceed|continue|remaining|next|rest)\b/i.test(iterationContent);
+
+        if (hadPriorToolCalls && textSuggestsContinuation && iteration < maxIterations - 1) {
+          console.error('[AgentLoop] Model stopped mid-batch with continuation language. Nudging to continue.');
+          messages.push({
+            role: 'user',
+            content: 'Continue — call the tools now for the remaining items. Do not narrate, just call them.'
+          });
+          continue; // Skip to next iteration
+        }
         yield { type: 'done', iterations: iteration + 1 };
         return;
       }

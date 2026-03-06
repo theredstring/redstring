@@ -1,5 +1,5 @@
 import React from 'react';
-import { Bot, Key, Settings, RotateCcw, Send, User, Square, Copy, Trash2, Brain, Wrench, Plus, X } from 'lucide-react';
+import { Bot, Key, Settings, RotateCcw, Undo2, Send, User, Square, Copy, Trash2, Brain, Wrench, Plus, X } from 'lucide-react';
 import * as fileStorage from '../../../store/fileStorage.js';
 import APIKeySetup from '../../../ai/components/APIKeySetup.jsx';
 import mcpClient from '../../../services/mcpClient.js';
@@ -9,6 +9,7 @@ import { bridgeFetch, bridgeEventSource } from '../../../services/bridgeConfig.j
 import StandardDivider from '../../StandardDivider.jsx';
 import { HEADER_HEIGHT } from '../../../constants.js';
 import ToolCallCard from '../../ToolCallCard.jsx';
+import ConfirmDialog from '../../shared/ConfirmDialog.jsx';
 import { DRUID_SYSTEM_PROMPT } from '../../../services/agent/DruidPrompt.js';
 import useGraphStore from '../../../store/graphStore.jsx';
 import { applyLayout, FORCE_LAYOUT_DEFAULTS } from '../../../services/graphLayoutService.js';
@@ -1406,6 +1407,8 @@ const LeftAIView = ({ compact = false,
   const [editingTabId, setEditingTabId] = React.useState(null);
   const [editingTabTitle, setEditingTabTitle] = React.useState('');
   const [isHydrated, setIsHydrated] = React.useState(false);
+  const [chatUndoMessageId, setChatUndoMessageId] = React.useState(null);
+  const [isChatUndoOpen, setIsChatUndoOpen] = React.useState(false);
 
   const [fileStatus, setFileStatus] = React.useState(null);
   React.useEffect(() => {
@@ -1568,6 +1571,57 @@ const LeftAIView = ({ compact = false,
 
   const messagesEndRef = React.useRef(null);
   const inputRef = React.useRef(null);
+
+  const handleChatUndo = (targetMessageId) => {
+    const messageIndex = messages.findIndex(m => m.id === targetMessageId);
+    if (messageIndex === -1) return;
+
+    // The messages to remove (target and all subsequent)
+    const messagesToRemove = messages.slice(messageIndex);
+
+    // Find all tool calls in ai messages that need to be undone
+    const store = useGraphStore.getState();
+    // Go in reverse order to undo newest first
+    for (let i = messagesToRemove.length - 1; i >= 0; i--) {
+      const msg = messagesToRemove[i];
+      if (msg.sender === 'ai' && msg.contentBlocks) {
+        // Go through blocks in reverse
+        for (let j = msg.contentBlocks.length - 1; j >= 0; j--) {
+          const block = msg.contentBlocks[j];
+          if (block.type === 'tool_call' && block.status === 'completed' && !block.isUndone && block.id) {
+            store.revertWizardAction(block.id);
+          }
+        }
+      }
+    }
+
+    // Get the target user message's text
+    const targetMessage = messagesToRemove[0];
+    let textToRestore = '';
+    if (targetMessage.contentBlocks) {
+      textToRestore = targetMessage.contentBlocks
+        .filter(b => b.type === 'text')
+        .map(b => b.content)
+        .join('\n');
+    } else if (targetMessage.content) {
+      textToRestore = targetMessage.content;
+    }
+
+    // Keep messages before the target
+    const newMessages = messages.slice(0, messageIndex);
+
+    setMessages(newMessages);
+    setCurrentInput(textToRestore);
+
+    // Update conversations array
+    setConversations(prev => prev.map(c =>
+      c.id === activeConversationId ? { ...c, messages: newMessages, timestamp: new Date().toISOString() } : c
+    ));
+
+    if (inputRef.current) {
+      setTimeout(() => inputRef.current.focus(), 0);
+    }
+  };
 
   // handleClearConversation updated for the new tab system
   const handleClearConversation = () => {
@@ -3052,6 +3106,17 @@ const LeftAIView = ({ compact = false,
 
 
       <div className="ai-panel-content">
+        <ConfirmDialog
+          isOpen={isChatUndoOpen}
+          onClose={() => setIsChatUndoOpen(false)}
+          onConfirm={() => {
+            if (chatUndoMessageId) handleChatUndo(chatUndoMessageId);
+          }}
+          title="Revert Conversation"
+          message="Are you sure you want to revert to this point? All subsequent actions will be undone, and the conversation will be restored."
+          confirmLabel="Revert"
+          variant="danger"
+        />
         <div className="ai-chat-mode">
           <div className="ai-messages" style={{ display: 'flex', flexDirection: 'column', height: '100%', justifyContent: messages.length === 0 ? 'center' : 'flex-start' }}>
             {isHydrated && isConnected && messages.length === 0 && (
@@ -3060,59 +3125,90 @@ const LeftAIView = ({ compact = false,
                 <div style={{ color: '#555', fontFamily: "'EmOne', sans-serif", fontSize: '14px' }}>What will we build today?</div>
               </div>
             )}
-            {messages.map((message) => (
-              <div key={message.id} className={`ai-message ai-message-${message.sender}`} style={{ alignSelf: message.sender === 'user' ? 'flex-end' : 'flex-start', maxWidth: '85%' }}>
-                <div className="ai-message-avatar">
-                  {message.sender === 'user' ? <User size={24} /> : message.sender === 'system' ? null : <img src={headSvg} alt="Wizard" style={{ width: 40, height: 40 }} />}
+            {messages.map((message, idx) => {
+              const prevMessage = idx > 0 ? messages[idx - 1] : null;
+              const isNewSection = prevMessage && prevMessage.sender !== message.sender;
+
+              return (
+                <div
+                  key={message.id}
+                  className={`ai-message ai-message-${message.sender}`}
+                  style={{
+                    alignSelf: message.sender === 'user' ? 'flex-end' : 'flex-start',
+                    maxWidth: '85%',
+                    marginTop: isNewSection ? '24px' : '8px'
+                  }}
+                >
+                  <div className="ai-message-avatar">
+                    {message.sender === 'user' ? <User size={24} /> : message.sender === 'system' ? null : <img src={headSvg} alt="Wizard" style={{ width: 40, height: 40 }} />}
+                  </div>
+                  <div className="ai-message-content">
+                    {/* Render content blocks in chronological order */}
+                    {message.contentBlocks && message.contentBlocks.length > 0 ? (
+                      message.contentBlocks.map((block, i) => {
+                        if (block.type === 'text' && block.content) {
+                          return (
+                            <div
+                              key={`text-${i}`}
+                              className="ai-message-text"
+                              style={{ userSelect: 'text', cursor: 'text' }}
+                              dangerouslySetInnerHTML={{ __html: renderMarkdown(block.content) }}
+                            />
+                          );
+                        }
+                        if (block.type === 'tool_call') {
+                          return (
+                            <ToolCallCard
+                              key={block.id || `tc-${i}`}
+                              toolCallId={block.id}
+                              toolName={block.name}
+                              status={block.status || 'running'}
+                              args={block.args}
+                              result={block.result}
+                              error={block.error}
+                              timestamp={block.timestamp}
+                              executionTime={block.executionTime}
+                              isUndone={block.isUndone}
+                              onUndo={(id) => {
+                                useGraphStore.getState().revertWizardAction(id);
+                                upsertToolCall({ id, isUndone: true });
+                              }}
+                            />
+                          );
+                        }
+                        return null;
+                      })
+                    ) : message.content ? (
+                      /* Fallback for old-format messages without contentBlocks */
+                      <div
+                        className="ai-message-text"
+                        style={{ userSelect: 'text', cursor: 'text' }}
+                        dangerouslySetInnerHTML={{ __html: renderMarkdown(message.content) }}
+                      />
+                    ) : null}
+                    <div className="ai-message-timestamp" style={{ display: 'flex', alignItems: 'center', gap: '6px', width: '100%', justifyContent: message.sender === 'user' ? 'flex-end' : 'flex-start' }}>
+                      {new Date(message.timestamp).toLocaleTimeString()}
+                      {message.sender === 'user' && (
+                        <button
+                          onClick={() => {
+                            setChatUndoMessageId(message.id);
+                            setIsChatUndoOpen(true);
+                          }}
+                          style={{
+                            background: 'transparent', border: 'none', color: '#260000',
+                            padding: '0', cursor: 'pointer', opacity: 0.8, display: 'flex', alignItems: 'center',
+                            marginTop: '-2px'
+                          }}
+                          title="Revert conversation to here"
+                        >
+                          <Undo2 size={16} />
+                        </button>
+                      )}
+                    </div>
+                  </div>
                 </div>
-                <div className="ai-message-content">
-                  {/* Render content blocks in chronological order */}
-                  {message.contentBlocks && message.contentBlocks.length > 0 ? (
-                    message.contentBlocks.map((block, i) => {
-                      if (block.type === 'text' && block.content) {
-                        return (
-                          <div
-                            key={`text-${i}`}
-                            className="ai-message-text"
-                            style={{ userSelect: 'text', cursor: 'text' }}
-                            dangerouslySetInnerHTML={{ __html: renderMarkdown(block.content) }}
-                          />
-                        );
-                      }
-                      if (block.type === 'tool_call') {
-                        return (
-                          <ToolCallCard
-                            key={block.id || `tc-${i}`}
-                            toolCallId={block.id}
-                            toolName={block.name}
-                            status={block.status || 'running'}
-                            args={block.args}
-                            result={block.result}
-                            error={block.error}
-                            timestamp={block.timestamp}
-                            executionTime={block.executionTime}
-                            isUndone={block.isUndone}
-                            onUndo={(id) => {
-                              useGraphStore.getState().revertWizardAction(id);
-                              upsertToolCall({ id, isUndone: true });
-                            }}
-                          />
-                        );
-                      }
-                      return null;
-                    })
-                  ) : message.content ? (
-                    /* Fallback for old-format messages without contentBlocks */
-                    <div
-                      className="ai-message-text"
-                      style={{ userSelect: 'text', cursor: 'text' }}
-                      dangerouslySetInnerHTML={{ __html: renderMarkdown(message.content) }}
-                    />
-                  ) : null}
-                  <div className="ai-message-timestamp">{new Date(message.timestamp).toLocaleTimeString()}</div>
-                </div>
-              </div>
-            ))}
+              );
+            })}
             {isProcessing && (() => {
               // Find the streaming message to check if it has content
               const streamingMsg = messages.find(m => m.isStreaming);
