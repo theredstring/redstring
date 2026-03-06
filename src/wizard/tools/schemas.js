@@ -6,7 +6,7 @@ export function getToolDefinitions() {
     return [
         {
             name: 'createNode',
-            description: 'Create a single node (Thing). By default creates in the active graph, but you can specify targetGraphId to create in any graph (e.g., definition graphs) without changing what the user sees.',
+            description: 'Create a single node in the active or target graph.',
             parameters: {
                 type: 'object',
                 properties: {
@@ -14,17 +14,17 @@ export function getToolDefinitions() {
                     name: {
                         type: 'string', description: 'The node\'s display name'
                     },
-                    color: { type: 'string', description: 'Color name from the chosen palette (e.g. "tan", "navy-blue"), OR a hex color. Prefer palette names unless a custom color is strictly required.' },
+                    color: { type: 'string', description: 'Color name from palette (e.g. "tan") or hex code.' },
                     description: { type: 'string', description: 'What this node represents' },
-                    targetGraphId: { type: 'string', description: 'Optional: ID of graph to create node in. Use this to populate definition graphs non-disruptively. If omitted, uses active graph.' },
-                    typeNodeId: { type: 'string', description: 'Optional: Prototype ID of the type node to assign. Sets the node\'s type/ category.Use setNodeType tool for name - based assignment.' }
+                    targetGraphId: { type: 'string', description: 'Graph ID to create in. If omitted, uses active graph.' },
+                    typeNodeId: { type: 'string', description: 'Prototype ID of type node. Use setNodeType for name-based assignment.' }
                 },
                 required: ['name']
             }
         },
         {
             name: 'updateNode',
-            description: 'Update an existing node\'s properties.Use the current node name to identify which node to update.',
+            description: 'Update an existing node\'s properties by name.',
             parameters: {
                 type: 'object',
                 properties: {
@@ -32,7 +32,7 @@ export function getToolDefinitions() {
                     name: { type: 'string', description: 'New name for the node' },
                     color: { type: 'string', description: 'New color' },
                     description: { type: 'string', description: 'New description' },
-                    targetGraphId: { type: 'string', description: 'Optional: ID of graph containing the node. If omitted, uses active graph.' },
+                    targetGraphId: { type: 'string', description: 'Graph ID. If omitted, uses active graph.' },
                     typeNodeId: {
                         type: 'string', description: 'Optional: Prototype ID of the type node to assign. Sets the node\'s type / category.'
                     }
@@ -42,12 +42,12 @@ export function getToolDefinitions() {
         },
         {
             name: 'deleteNode',
-            description: 'Remove a node and its connections. Use the node name to identify which node to delete.',
+            description: 'Remove a node and its connections by name.',
             parameters: {
                 type: 'object',
                 properties: {
                     nodeName: { type: 'string', description: 'Name of the node to delete (fuzzy matched)' },
-                    targetGraphId: { type: 'string', description: 'Optional: ID of graph containing the node. If omitted, uses active graph.' }
+                    targetGraphId: { type: 'string', description: 'Graph ID. If omitted, uses active graph.' }
                 },
                 required: ['nodeName']
             }
@@ -76,7 +76,7 @@ export function getToolDefinitions() {
                     targetName: { type: 'string', description: 'Name of the target node' },
                     type: { type: 'string', description: 'New relationship type' },
                     directionality: { type: 'string', description: '"unidirectional", "bidirectional", "reverse", or "none"' },
-                    targetGraphId: { type: 'string', description: 'Optional: ID of graph containing the edge. If omitted, uses active graph.' }
+                    targetGraphId: { type: 'string', description: 'Graph ID. If omitted, uses active graph.' }
                 },
                 required: ['sourceName', 'targetName']
             }
@@ -90,19 +90,19 @@ export function getToolDefinitions() {
                     edgeId: { type: 'string', description: 'The edge ID to delete (if known)' },
                     sourceName: { type: 'string', description: 'Name of the source node (fuzzy matched)' },
                     targetName: { type: 'string', description: 'Name of the target node (fuzzy matched)' },
-                    targetGraphId: { type: 'string', description: 'Optional: ID of graph containing the edge. If omitted, uses active graph.' }
+                    targetGraphId: { type: 'string', description: 'Graph ID. If omitted, uses active graph.' }
                 },
                 required: []
             }
         },
         {
             name: 'searchNodes',
-            description: 'Search for nodes. By default searches the active graph, but you can specify targetGraphId to search any graph. Omit query to browse ALL nodes. Provide a query to filter by keyword or name. Supports limit/offset for large graphs.',
+            description: 'Search for nodes by keyword in active or target graph. Omit query to list all.',
             parameters: {
                 type: 'object',
                 properties: {
                     query: { type: 'string', description: 'Optional. Search keyword or name. Omit to return all nodes. Individual words work best for broad searches.' },
-                    targetGraphId: { type: 'string', description: 'Optional: ID of graph to search within. If omitted, uses active graph.' },
+                    targetGraphId: { type: 'string', description: 'Graph ID. If omitted, uses active graph.' },
                     limit: { type: 'number', description: 'Max results to return. Defaults to 100.' },
                     offset: { type: 'number', description: 'Skips this many results for pagination. Use with hasMore=true responses.' }
                 },
@@ -111,12 +111,12 @@ export function getToolDefinitions() {
         },
         {
             name: 'searchConnections',
-            description: 'Search for connections/edges. By default searches the active graph, but you can specify targetGraphId to search any graph. Omit query to browse ALL connections. Provide a query to filter by connection type or node name. Supports limit/offset.',
+            description: 'Search for connections by keyword in active or target graph. Omit query to list all.',
             parameters: {
                 type: 'object',
                 properties: {
                     query: { type: 'string', description: 'Optional. Search keyword - can be a connection type (e.g., "contains") or node name. Omit to return all connections.' },
-                    targetGraphId: { type: 'string', description: 'Optional: ID of graph to search within. If omitted, uses active graph.' },
+                    targetGraphId: { type: 'string', description: 'Graph ID. If omitted, uses active graph.' },
                     limit: { type: 'number', description: 'Max results to return. Defaults to 100.' },
                     offset: { type: 'number', description: 'Skips this many results for pagination. Use with hasMore=true responses.' }
                 },
@@ -125,7 +125,7 @@ export function getToolDefinitions() {
         },
         {
             name: 'selectNode',
-            description: 'Find and select a specific node on the canvas by name. The node will be highlighted and focused. Use this when the user asks to "find", "show me", "focus on", or "select" a specific node.',
+            description: 'Select and highlight a node on the canvas by name (fuzzy matched).',
             parameters: {
                 type: 'object',
                 properties: {
@@ -147,11 +147,11 @@ export function getToolDefinitions() {
         },
         {
             name: 'readGraph',
-            description: 'Read a FULL graph (active graph by default, or provide targetGraphId). Returns all nodes, edges, and groups. Use this to inspect any graph without hijacking the user\'s view.',
+            description: 'Read all nodes, edges, and groups from a graph.',
             parameters: {
                 type: 'object',
                 properties: {
-                    targetGraphId: { type: 'string', description: 'Optional: ID of graph to read. If omitted, uses active graph.' }
+                    targetGraphId: { type: 'string', description: 'Graph ID. If omitted, uses active graph.' }
                 },
                 required: []
             }
@@ -171,7 +171,7 @@ export function getToolDefinitions() {
         },
         {
             name: 'expandGraph',
-            description: 'Add multiple nodes, edges, and/or groups at once to an EXISTING graph. By default adds to active graph, but you can specify targetGraphId to populate any graph non-disruptively. Do NOT use this to create new graph workspaces. Must provide at least one node or edge.',
+            description: 'Add nodes, edges, and groups to an existing graph. Provide at least one node or edge.',
             parameters: {
                 type: 'object',
                 properties: {
@@ -218,13 +218,13 @@ export function getToolDefinitions() {
                             required: ['name', 'memberNames']
                         }
                     },
-                    targetGraphId: { type: 'string', description: 'Optional: ID of existing graph to add items to. If omitted, uses active graph.' }
+                    targetGraphId: { type: 'string', description: 'Graph ID. If omitted, uses active graph.' }
                 }
             }
         },
         {
             name: 'replaceEdges',
-            description: 'Bulk-replace connections between existing nodes. Finds existing edges between each source/target pair and updates them, or creates new ones if none exist. Use this INSTEAD of expandGraph when refining or correcting connection types on an existing graph.',
+            description: 'Bulk-replace or update connections between existing nodes.',
             parameters: {
                 type: 'object',
                 properties: {
@@ -246,19 +246,19 @@ export function getToolDefinitions() {
                             required: ['source', 'target', 'type']
                         }
                     },
-                    targetGraphId: { type: 'string', description: 'Optional: ID of graph containing the edges. If omitted, uses active graph.' }
+                    targetGraphId: { type: 'string', description: 'Graph ID. If omitted, uses active graph.' }
                 },
                 required: ['edges']
             }
         },
         {
             name: 'createPopulatedGraph',
-            description: 'Create a BRAND NEW graph workspace with nodes, edges, and groups. ONLY use this when creating a new graph. Do NOT use this to populate an existing graph.',
+            description: 'Create a new graph workspace with nodes, edges, and groups. Triggers auto-layout.',
             parameters: {
                 type: 'object',
                 properties: {
                     palette: { type: 'string', description: 'Palette name (see system prompt for options).' },
-                    name: { type: 'string', description: 'REQUIRED: A descriptive name for the new graph workspace.' },
+                    name: { type: 'string', description: 'Name for the new graph workspace.' },
                     color: { type: 'string', description: 'Optional color for the node that defines this graph, from the chosen palette OR hex color.' },
                     description: { type: 'string', description: 'Optional description of the graph' },
                     nodes: {
@@ -279,12 +279,12 @@ export function getToolDefinitions() {
                     },
                     edges: {
                         type: 'array',
-                        description: 'REQUIRED: Array of edges connecting nodes. Each edge MUST have definitionNode with name and color. Every node should have 2-3 edges minimum!',
+                        description: 'Array of edges. Each must have a definitionNode.',
                         items: {
                             type: 'object',
                             properties: {
-                                source: { type: 'string', description: 'Source node name - MUST match a name in the nodes array or edge will be dropped' },
-                                target: { type: 'string', description: 'Target node name - MUST match a name in the nodes array or edge will be dropped' },
+                                source: { type: 'string', description: 'Source node name (must match a node in the nodes array)' },
+                                target: { type: 'string', description: 'Target node name (must match a node in the nodes array)' },
                                 directionality: {
                                     type: 'string',
                                     enum: ['unidirectional', 'bidirectional', 'none', 'reverse'],
@@ -292,7 +292,7 @@ export function getToolDefinitions() {
                                 },
                                 definitionNode: {
                                     type: 'object',
-                                    description: 'REQUIRED: Defines what this connection type means. Use Title Case for name!',
+                                    description: 'Defines the connection type. Use Title Case for name.',
                                     properties: {
                                         name: { type: 'string', description: 'Connection type name in Title Case (e.g., "Loves", "Parent Of", "Orbits")' },
                                         color: { type: 'string', description: 'Color name from chosen palette, OR hex color.' },
@@ -306,7 +306,7 @@ export function getToolDefinitions() {
                     },
                     groups: {
                         type: 'array',
-                        description: 'Groups to organize nodes (factions, houses, categories, teams). INCLUDE THESE when natural groupings exist!',
+                        description: 'Groups to organize nodes into categories or factions.',
                         items: {
                             type: 'object',
                             properties: {
@@ -323,7 +323,7 @@ export function getToolDefinitions() {
         },
         {
             name: 'createGroup',
-            description: 'Create a visual Group to organize nodes together. Use this for loose associations within the current graph. For formal decomposition of a concept, create the group first then use convertToThingGroup.',
+            description: 'Create a visual group to organize nodes together.',
             parameters: {
                 type: 'object',
                 properties: {
@@ -334,7 +334,7 @@ export function getToolDefinitions() {
                         description: 'Names of existing nodes to include in the group'
                     },
                     color: { type: 'string', description: 'Hex color like "#8B0000"' },
-                    targetGraphId: { type: 'string', description: 'Optional: ID of graph to create group in. If omitted, uses active graph.' }
+                    targetGraphId: { type: 'string', description: 'Graph ID. If omitted, uses active graph.' }
                 },
                 required: ['name', 'memberNames']
             }
@@ -367,7 +367,7 @@ export function getToolDefinitions() {
                         items: { type: 'string' },
                         description: 'Names of nodes to remove from the group'
                     },
-                    targetGraphId: { type: 'string', description: 'Optional: ID of graph containing the group. If omitted, uses active graph.' }
+                    targetGraphId: { type: 'string', description: 'Graph ID. If omitted, uses active graph.' }
                 },
                 required: ['groupName']
             }
@@ -379,14 +379,14 @@ export function getToolDefinitions() {
                 type: 'object',
                 properties: {
                     groupName: { type: 'string', description: 'Name of the group to delete' },
-                    targetGraphId: { type: 'string', description: 'Optional: ID of graph containing the group. If omitted, uses active graph.' }
+                    targetGraphId: { type: 'string', description: 'Graph ID. If omitted, uses active graph.' }
                 },
                 required: ['groupName']
             }
         },
         {
             name: 'convertToThingGroup',
-            description: 'Convert a regular Group into a Thing-Group, making it a formal decomposition of a Thing/concept. This creates a definition graph for that Thing. Use when the grouping represents "what X is made of" or should be reusable.',
+            description: 'Convert a Group into a Thing-Group, creating a definition graph for that Thing.',
             parameters: {
                 type: 'object',
                 properties: {
@@ -394,26 +394,26 @@ export function getToolDefinitions() {
                     thingName: { type: 'string', description: 'Name for the Thing that defines this group (can be existing or new)' },
                     createNewThing: { type: 'boolean', description: 'If true, creates a new Thing. If false, tries to find existing Thing by thingName.' },
                     newThingColor: { type: 'string', description: 'Color for the new Thing if creating one' },
-                    targetGraphId: { type: 'string', description: 'Optional: ID of graph containing the group. If omitted, uses active graph.' }
+                    targetGraphId: { type: 'string', description: 'Graph ID. If omitted, uses active graph.' }
                 },
                 required: ['groupName']
             }
         },
         {
             name: 'combineThingGroup',
-            description: 'Collapse a Thing-Group back into a single node representing the Thing. All member nodes are removed and replaced with one node of the linked Thing type.',
+            description: 'Collapse a Thing-Group back into a single node.',
             parameters: {
                 type: 'object',
                 properties: {
                     groupName: { type: 'string', description: 'Name of the Thing-Group to collapse' },
-                    targetGraphId: { type: 'string', description: 'Optional: ID of graph containing the group. If omitted, uses active graph.' }
+                    targetGraphId: { type: 'string', description: 'Graph ID. If omitted, uses active graph.' }
                 },
                 required: ['groupName']
             }
         },
         {
             name: 'listNodeDefinitions',
-            description: 'Inspect a node\'s definition graphs(read - only).Shows which definition graphs exist, whether they\'re empty, and their node/edge counts. Use this before navigating or decomposing to understand what definition graphs are available.',
+            description: 'List a node\'s definition graphs with their node/edge counts.',
             parameters: {
                 type: 'object',
                 properties: {
@@ -424,7 +424,7 @@ export function getToolDefinitions() {
         },
         {
             name: 'populateDefinitionGraph',
-            description: 'Creates a definition graph for a node and populates it with components in one step. Use this instead of addDefinitionGraph + expandGraph to avoid execution disruption. By building definitions this way, the user\'s view stays unchanged while you edit definition graphs.',
+            description: 'Create and populate a definition graph for a node in one step. Non-disruptive.',
             parameters: {
                 type: 'object',
                 properties: {
@@ -493,7 +493,7 @@ export function getToolDefinitions() {
         },
         {
             name: 'removeDefinitionGraph',
-            description: 'Remove a definition graph from a node\'s definitionGraphIds array.Optionally deletes the graph entirely.',
+            description: 'Remove a definition graph from a node.',
             parameters: {
                 type: 'object',
                 properties: {
@@ -505,7 +505,7 @@ export function getToolDefinitions() {
         },
         {
             name: 'switchToGraph',
-            description: 'Change the active graph (explicit navigation). Use ONLY when the user explicitly requests navigation (e.g., "show me", "go into", "navigate to", "open"). For editing definition graphs without disrupting the user\'s view, use addDefinitionGraph + targetGraphId pattern instead.',
+            description: 'Navigate to a different graph. Only use when user explicitly asks to navigate.',
             parameters: {
                 type: 'object',
                 properties: {
@@ -517,7 +517,7 @@ export function getToolDefinitions() {
         },
         {
             name: 'condenseToNode',
-            description: 'Package selected nodes into a new concept with a definition graph. Creates a group from the member nodes, converts it to a Thing-Group (which creates the definition graph), and optionally collapses to a single node. This is how you create new compositional abstractions. Inverse of decomposeNode.',
+            description: 'Package selected nodes into a new concept with a definition graph. Inverse of decomposeNode.',
             parameters: {
                 type: 'object',
                 properties: {
@@ -535,7 +535,7 @@ export function getToolDefinitions() {
         },
         {
             name: 'decomposeNode',
-            description: 'Replace a node with a Thing-Group containing its definition graph contents. The node instance is removed and its definition graph\'s components are materialized in its place - like unpacking a box, the box goes away and the parts appear.The node prototype still exists globally.Inverse of condenseToNode.',
+            description: 'Unpack a node into its definition graph contents as a Thing-Group. Inverse of condenseToNode.',
             parameters: {
                 type: 'object',
                 properties: {
@@ -563,7 +563,7 @@ export function getToolDefinitions() {
         },
         {
             name: 'setNodeType',
-            description: 'Set or clear a node\'s type(categorization).Types create a hierarchy: e.g., "Dog" typed as "Mammal". If the type node doesn\'t exist yet, it will be AUTO-CREATED. Always provide typeColor and typeDescription when the type node might not exist yet.',
+            description: 'Set or clear a node\'s type/category. Auto-creates type node if needed.',
             parameters: {
                 type: 'object',
                 properties: {
@@ -581,7 +581,7 @@ export function getToolDefinitions() {
         },
         {
             name: 'readAbstractionChain',
-            description: 'Read a node\'s abstraction chains(carousel spectrums).Shows all dimensions with their chain of nodes from more specific to more generic.Use this to understand a node\'s position in abstraction hierarchies.',
+            description: 'Read a node\'s abstraction chains across all dimensions.',
             parameters: {
                 type: 'object',
                 properties: {
@@ -592,7 +592,7 @@ export function getToolDefinitions() {
         },
         {
             name: 'editAbstractionChain',
-            description: 'Add or remove nodes from a node\'s abstraction chain(carousel spectrum).Chains represent spectrums of abstraction across a dimension(e.g., "Generalization Axis").Nodes above are more generic; nodes below are more specific.',
+            description: 'Add or remove nodes from an abstraction chain dimension.',
             parameters: {
                 type: 'object',
                 properties: {

@@ -7,7 +7,7 @@ import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { callLLM, streamLLM } from './LLMClient.js';
-import { buildContext } from './ContextBuilder.js';
+import { buildContext, truncateContext } from './ContextBuilder.js';
 import { executeTool, getToolDefinitions } from './tools/index.js';
 import { WIZARD_SYSTEM_PROMPT } from '../services/agent/WizardPrompt.js';
 
@@ -552,6 +552,26 @@ function updateGraphState(graphState, _toolName, _args, result) {
 const DEFAULT_MAX_ITERATIONS = 10;
 
 /**
+ * Sanitize tool results before sending to LLM conversation history.
+ * Strips UI-only data (spec field, verbose arrays) to save tokens.
+ * The original result is still yielded to the UI and used by updateGraphState.
+ */
+function sanitizeResultForLLM(result) {
+  if (!result || !result.action) return result;
+  const cleaned = { ...result };
+  // Remove spec field — it's for UI rendering, not LLM consumption
+  delete cleaned.spec;
+  // Simplify edge arrays to just counts when counts are available
+  if (Array.isArray(cleaned.edgesAdded) && cleaned.edgeCount !== undefined) {
+    delete cleaned.edgesAdded;
+  }
+  if (Array.isArray(cleaned.groupsAdded) && cleaned.groupCount !== undefined) {
+    delete cleaned.groupsAdded;
+  }
+  return cleaned;
+}
+
+/**
  * Run the agent loop
  * @param {string} userMessage - User's message
  * @param {Object} graphState - Current graph state from UI
@@ -562,8 +582,8 @@ const DEFAULT_MAX_ITERATIONS = 10;
 export async function* runAgent(userMessage, graphState, config = {}, ensureSchedulerStarted, abortSignal = null) {
   const cid = config.cid || `wizard-${Date.now()}`;
 
-  // Build context
-  const contextStr = buildContext(graphState);
+  // Build initial context
+  const initialContext = truncateContext(buildContext(graphState), 4000);
 
   // Debug logging for graph context
   const activeGraph = graphState?.graphs?.find(g => g.id === graphState.activeGraphId);
@@ -576,7 +596,7 @@ export async function* runAgent(userMessage, graphState, config = {}, ensureSche
     instanceCount,
     edgeCount: activeGraph?.edgeIds?.length || 0,
     graphCount: graphState?.graphs?.length || 0,
-    contextPreview: contextStr.substring(0, 300)
+    contextPreview: initialContext.substring(0, 300)
   });
 
   const baseSystemPrompt = config.systemPrompt || SYSTEM_PROMPT || 'You are The Wizard, a helpful assistant for building knowledge graphs.';
@@ -584,16 +604,19 @@ export async function* runAgent(userMessage, graphState, config = {}, ensureSche
   const tools = getToolDefinitions();
   const maxIterations = config.maxIterations || DEFAULT_MAX_ITERATIONS;
 
-  const fullSystemPrompt = baseSystemPrompt
+  // Build static system prompt template (context will be appended fresh each iteration)
+  const systemPromptTemplate = baseSystemPrompt
     .replace('{graphName}', graphState.activeGraphId ? (graphState.graphs?.find(g => g.id === graphState.activeGraphId)?.name || 'Unknown') : 'None')
-    .replace('{nodeList}', contextStr.includes('Existing Things') ? contextStr.split('Existing Things:')[1]?.split('\n')[0] || '' : '')
+    .replace('{nodeList}', '')
     .replace('{edgeList}', '')
     .replace(/{maxIterations}/g, String(maxIterations));
 
-  // Build messages array with conversation history
+  // Build messages array with conversation history (sliding window)
   const conversationHistory = config.conversationHistory || [];
+  const MAX_HISTORY_MESSAGES = 20;
   const historyMessages = conversationHistory
     .filter(msg => msg.content && msg.content.trim()) // Filter out empty messages
+    .slice(-MAX_HISTORY_MESSAGES) // Keep only recent history
     .map(msg => ({
       role: msg.role === 'user' ? 'user' : 'assistant',
       content: msg.content
@@ -602,7 +625,7 @@ export async function* runAgent(userMessage, graphState, config = {}, ensureSche
   console.error('[AgentLoop] Conversation history:', historyMessages.length, 'messages');
 
   const messages = [
-    { role: 'system', content: fullSystemPrompt + '\n\n' + contextStr },
+    { role: 'system', content: systemPromptTemplate + '\n\n' + initialContext },
     ...historyMessages, // Include prior conversation for context
     { role: 'user', content: userMessage }
   ];
@@ -612,6 +635,11 @@ export async function* runAgent(userMessage, graphState, config = {}, ensureSche
   const iterationSignatures = [];
 
   for (let iteration = 0; iteration < maxIterations; iteration++) {
+    // Rebuild context from (potentially mutated) graphState so LLM sees current state
+    if (iteration > 0) {
+      const freshContext = truncateContext(buildContext(graphState), 4000);
+      messages[0] = { role: 'system', content: systemPromptTemplate + '\n\n' + freshContext };
+    }
     if (abortSignal?.aborted) {
       yield { type: 'done', iterations: iteration };
       return;
@@ -708,11 +736,11 @@ export async function* runAgent(userMessage, graphState, config = {}, ensureSche
             id: toolCall.id
           };
 
-          // Add tool result to conversation for LLM to verify
+          // Add sanitized tool result to conversation (strip UI-only data to save tokens)
           messages.push({
             role: 'tool',
             tool_call_id: toolCall.id,
-            content: JSON.stringify(result)
+            content: JSON.stringify(sanitizeResultForLLM(result))
           });
         } catch (error) {
           // Stream error event

@@ -92,7 +92,9 @@ describe('ContextBuilder', () => {
       expect(context).toContain('Test Graph');
       expect(context).toContain('2 Thing');
       expect(context).toContain('1 Connection');
-      expect(context).toContain('Existing Things: Node One, Node Two');
+      expect(context).toContain('Things:');
+      expect(context).toContain('Node One');
+      expect(context).toContain('Node Two');
     });
 
     it('handles array instances format', () => {
@@ -143,11 +145,11 @@ describe('ContextBuilder', () => {
 
       const context = buildContext(graphState);
       expect(context).toContain('15 Thing');
-      // Should only show first 10 names
-      const namesMatch = context.match(/Existing Things: (.+)/);
-      expect(namesMatch).toBeTruthy();
-      const names = namesMatch[1].split(', ');
-      expect(names.length).toBeLessThanOrEqual(25);
+      // Should list node names under Things:
+      expect(context).toContain('Things:');
+      // Verify nodes are listed (format: "  - Node N")
+      const nodeLines = context.split('\n').filter(l => l.trim().startsWith('- Node'));
+      expect(nodeLines.length).toBe(15);
     });
 
     it('extracts color palette from prototypes', () => {
