@@ -104,7 +104,6 @@
 .ai-tabs-bar {
   background: #bdb5b5;
   border-bottom: 1px solid rgba(38, 0, 0, 0.2);
-  padding: 0 16px;
   overflow: hidden;
 }
 
@@ -112,7 +111,7 @@
   display: flex;
   gap: 6px;
   overflow-x: auto;
-  padding: 6px 0 10px 0;
+  padding: 6px 16px 10px 16px;
   scrollbar-width: none;
   /* Firefox */
 }
