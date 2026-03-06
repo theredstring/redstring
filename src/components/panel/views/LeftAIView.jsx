@@ -2951,7 +2951,14 @@ const LeftAIView = ({ compact = false,
 
       {/* Tabs Bar */}
       <div className="ai-tabs-bar">
-        <div className="ai-tabs-scroll">
+        <div
+          className="ai-tabs-scroll"
+          onWheel={(e) => {
+            if (e.deltaY !== 0) {
+              e.currentTarget.scrollLeft += e.deltaY;
+            }
+          }}
+        >
           {conversations.map(conv => (
             <div
               key={conv.id}
