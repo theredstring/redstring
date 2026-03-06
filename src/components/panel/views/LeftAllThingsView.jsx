@@ -1,5 +1,6 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { Merge, ChevronRight } from 'lucide-react';
+import { VirtuosoGrid } from 'react-virtuoso';
 import DuplicateManager from '../../DuplicateManager.jsx';
 import AllThingsNodeItem from '../items/AllThingsNodeItem.jsx';
 import StandardDivider from '../../StandardDivider.jsx';
@@ -30,6 +31,27 @@ const LeftAllThingsView = ({
       action: () => setShowDuplicateManager(true)
     }
   ];
+
+  const gridComponents = useMemo(() => {
+    return {
+      List: React.forwardRef((props, ref) => (
+        <div
+          {...props}
+          ref={ref}
+          style={{
+            ...props.style,
+            display: 'grid',
+            gridTemplateColumns: panelWidth > 250 ? '1fr 1fr' : '1fr',
+            gap: panelWidth > 250 ? '8px' : '0px',
+            width: '100%',
+          }}
+        />
+      )),
+      Item: React.forwardRef((props, ref) => (
+        <div {...props} ref={ref} style={{ ...props.style, display: 'flex', flexDirection: 'column', minWidth: 0, width: '100%' }} />
+      ))
+    };
+  }, [panelWidth]);
 
   return (
     <div
@@ -123,47 +145,51 @@ const LeftAllThingsView = ({
                         if (el) { sectionContentRefs.current.set(typeId, el); } else { sectionContentRefs.current.delete(typeId); }
                       }}
                       style={{
-                        display: 'grid',
-                        gridTemplateColumns: panelWidth > 250 ? '1fr 1fr' : '1fr',
-                        gap: panelWidth > 250 ? '8px' : '0px',
+                        height: `${Math.min(Math.ceil(nodes.length / (panelWidth > 250 ? 2 : 1)) * 42 + 16, 400)}px`,
                         marginTop: '8px',
                         paddingBottom: '8px',
                       }}
                     >
-                      {nodes.map(node => {
-                        const handleSingleClick = () => {
-                          if (node.definitionGraphIds && node.definitionGraphIds.length > 0) {
-                            const graphIdToOpen = node.definitionGraphIds[0];
-                            openGraphTab?.(graphIdToOpen, node.id);
-                          } else if (createAndAssignGraphDefinition) {
-                            createAndAssignGraphDefinition(node.id);
-                          } else {
-                            console.error('[Panel All Node Click] Missing required actions');
-                          }
-                        };
-                        const handleDoubleClick = () => { openRightPanelNodeTab?.(node.id); };
+                      <VirtuosoGrid
+                        style={{ height: '100%', width: '100%', overflowX: 'hidden' }}
+                        totalCount={nodes.length}
+                        components={gridComponents}
+                        itemContent={(index) => {
+                          const node = nodes[index];
+                          const handleSingleClick = () => {
+                            if (node.definitionGraphIds && node.definitionGraphIds.length > 0) {
+                              const graphIdToOpen = node.definitionGraphIds[0];
+                              openGraphTab?.(graphIdToOpen, node.id);
+                            } else if (createAndAssignGraphDefinition) {
+                              createAndAssignGraphDefinition(node.id);
+                            } else {
+                              console.error('[Panel All Node Click] Missing required actions');
+                            }
+                          };
+                          const handleDoubleClick = () => { openRightPanelNodeTab?.(node.id); };
 
-                        // Check if node has semantic web data (for glow effect)
-                        const hasSemanticData = node.equivalentClasses?.length > 0 || node.externalLinks?.length > 0;
+                          // Check if node has semantic web data (for glow effect)
+                          const hasSemanticData = node.equivalentClasses?.length > 0 || node.externalLinks?.length > 0;
 
-                        return (
-                          <AllThingsNodeItem
-                            key={node.id}
-                            node={node}
-                            onClick={handleSingleClick}
-                            onDoubleClick={handleDoubleClick}
-                            isActive={node.id === activeDefinitionNodeId}
-                            hasSemanticData={hasSemanticData}
-                            onDelete={(nodeId) => {
-                              // Delete the node prototype
-                              if (storeActions?.deleteNodePrototype) {
-                                storeActions.deleteNodePrototype(nodeId);
-                              }
-                            }}
-                            duplicateNodePrototype={storeActions?.duplicateNodePrototype}
-                          />
-                        );
-                      })}
+                          return (
+                            <AllThingsNodeItem
+                              key={node.id}
+                              node={node}
+                              onClick={handleSingleClick}
+                              onDoubleClick={handleDoubleClick}
+                              isActive={node.id === activeDefinitionNodeId}
+                              hasSemanticData={hasSemanticData}
+                              onDelete={(nodeId) => {
+                                // Delete the node prototype
+                                if (storeActions?.deleteNodePrototype) {
+                                  storeActions.deleteNodePrototype(nodeId);
+                                }
+                              }}
+                              duplicateNodePrototype={storeActions?.duplicateNodePrototype}
+                            />
+                          );
+                        }}
+                      />
                     </div>
                   </div>
                 )}

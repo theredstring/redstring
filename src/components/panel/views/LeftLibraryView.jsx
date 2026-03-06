@@ -1,5 +1,6 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { Merge, ChevronRight } from 'lucide-react';
+import { VirtuosoGrid } from 'react-virtuoso';
 import DuplicateManager from '../../DuplicateManager.jsx';
 import SavedNodeItem from '../items/SavedNodeItem.jsx';
 import StandardDivider from '../../StandardDivider.jsx';
@@ -30,6 +31,27 @@ const LeftLibraryView = ({
       action: () => setShowDuplicateManager(true)
     }
   ];
+
+  const gridComponents = useMemo(() => {
+    return {
+      List: React.forwardRef((props, ref) => (
+        <div
+          {...props}
+          ref={ref}
+          style={{
+            ...props.style,
+            display: 'grid',
+            gridTemplateColumns: panelWidth > 250 ? '1fr 1fr' : '1fr',
+            gap: panelWidth > 250 ? '8px' : '0px',
+            width: '100%',
+          }}
+        />
+      )),
+      Item: React.forwardRef((props, ref) => (
+        <div {...props} ref={ref} style={{ ...props.style, display: 'flex', flexDirection: 'column', minWidth: 0, width: '100%' }} />
+      ))
+    };
+  }, [panelWidth]);
 
   return (
     <div
@@ -116,37 +138,41 @@ const LeftLibraryView = ({
                         if (el) { sectionContentRefs.current.set(typeId, el); } else { sectionContentRefs.current.delete(typeId); }
                       }}
                       style={{
-                        display: 'grid',
-                        gridTemplateColumns: panelWidth > 250 ? '1fr 1fr' : '1fr',
-                        gap: panelWidth > 250 ? '8px' : '0px',
+                        height: `${Math.min(Math.ceil(nodes.length / (panelWidth > 250 ? 2 : 1)) * 42 + 16, 400)}px`,
                         marginTop: '8px',
                         paddingBottom: '8px',
                       }}
                     >
-                      {nodes.map(node => {
-                        const handleSingleClick = () => {
-                          if (node.definitionGraphIds && node.definitionGraphIds.length > 0) {
-                            const graphIdToOpen = node.definitionGraphIds[0];
-                            openGraphTab?.(graphIdToOpen, node.id);
-                          } else if (createAndAssignGraphDefinition) {
-                            createAndAssignGraphDefinition(node.id);
-                          } else {
-                            console.error('[Panel Saved Node Click] Missing required actions');
-                          }
-                        };
-                        const handleDoubleClick = () => { openRightPanelNodeTab?.(node.id); };
-                        const handleUnsave = () => { toggleSavedNode?.(node.id); };
-                        return (
-                          <SavedNodeItem
-                            key={node.id}
-                            node={node}
-                            onClick={handleSingleClick}
-                            onDoubleClick={handleDoubleClick}
-                            onUnsave={handleUnsave}
-                            isActive={node.id === activeDefinitionNodeId}
-                          />
-                        );
-                      })}
+                      <VirtuosoGrid
+                        style={{ height: '100%', width: '100%', overflowX: 'hidden' }}
+                        totalCount={nodes.length}
+                        components={gridComponents}
+                        itemContent={(index) => {
+                          const node = nodes[index];
+                          const handleSingleClick = () => {
+                            if (node.definitionGraphIds && node.definitionGraphIds.length > 0) {
+                              const graphIdToOpen = node.definitionGraphIds[0];
+                              openGraphTab?.(graphIdToOpen, node.id);
+                            } else if (createAndAssignGraphDefinition) {
+                              createAndAssignGraphDefinition(node.id);
+                            } else {
+                              console.error('[Panel Saved Node Click] Missing required actions');
+                            }
+                          };
+                          const handleDoubleClick = () => { openRightPanelNodeTab?.(node.id); };
+                          const handleUnsave = () => { toggleSavedNode?.(node.id); };
+                          return (
+                            <SavedNodeItem
+                              key={node.id}
+                              node={node}
+                              onClick={handleSingleClick}
+                              onDoubleClick={handleDoubleClick}
+                              onUnsave={handleUnsave}
+                              isActive={node.id === activeDefinitionNodeId}
+                            />
+                          );
+                        }}
+                      />
                     </div>
                   </div>
                 )}
