@@ -7,6 +7,7 @@
  */
 
 import { resolvePaletteColor, getRandomPalette } from '../../ai/palettes.js';
+import { validateEdges } from './edgeValidator.js';
 
 /**
  * Convert string to Title Case
@@ -97,8 +98,11 @@ export async function populateDefinitionGraph(args, graphState, cid, ensureSched
         typeDescription: n.typeDescription || ''
     }));
 
+    // Validate edges: strip any that reference nodes not in the nodes array
+    const { validEdges, droppedEdges } = validateEdges(nodeSpecs, edges || []);
+
     // Build edge specs with definitionNode handling (same as createPopulatedGraph)
-    const edgeSpecs = (edges || []).map(e => {
+    const edgeSpecs = validEdges.map(e => {
         const inputDefNode = e.definitionNode;
         const typeName = inputDefNode?.name || e.type || '';
         const titleCaseName = toTitleCase(typeName);
@@ -134,6 +138,11 @@ export async function populateDefinitionGraph(args, graphState, cid, ensureSched
         nodeCount: nodeSpecs.length,
         edgeCount: edgeSpecs.length,
         groupCount: groupSpecs.length,
+        // Edge validation feedback for LLM
+        droppedEdges,
+        edgeWarning: droppedEdges.length > 0
+            ? `${droppedEdges.length} edge(s) were dropped because they referenced nodes not in the nodes array: ${droppedEdges.map(d => `${d.source} → ${d.target} (${d.reason})`).join('; ')}`
+            : null,
         // Include full spec for UI to apply
         spec: {
             nodes: nodeSpecs,

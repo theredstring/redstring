@@ -165,7 +165,8 @@ export function getToolDefinitions() {
             parameters: {
                 type: 'object',
                 properties: {
-                    name: { type: 'string', description: 'Graph name' }
+                    name: { type: 'string', description: 'Graph name' },
+                    color: { type: 'string', description: 'Optional color for the node that defines this graph, from the chosen palette OR hex color.' }
                 },
                 required: ['name']
             }
@@ -260,6 +261,7 @@ export function getToolDefinitions() {
                 properties: {
                     palette: { type: 'string', description: `Optional: Name of the color palette to use for the graph. ${getPaletteSchemaDescription()}` },
                     name: { type: 'string', description: 'REQUIRED: A descriptive name for the new graph workspace.' },
+                    color: { type: 'string', description: 'Optional color for the node that defines this graph, from the chosen palette OR hex color.' },
                     description: { type: 'string', description: 'Optional description of the graph' },
                     nodes: {
                         type: 'array',
@@ -283,8 +285,8 @@ export function getToolDefinitions() {
                         items: {
                             type: 'object',
                             properties: {
-                                source: { type: 'string', description: 'Source node name - must EXACTLY match a name in the nodes array' },
-                                target: { type: 'string', description: 'Target node name - must EXACTLY match a name in the nodes array' },
+                                source: { type: 'string', description: 'Source node name - MUST match a name in the nodes array or edge will be dropped' },
+                                target: { type: 'string', description: 'Target node name - MUST match a name in the nodes array or edge will be dropped' },
                                 directionality: {
                                     type: 'string',
                                     enum: ['unidirectional', 'bidirectional', 'none', 'reverse'],
@@ -448,7 +450,7 @@ export function getToolDefinitions() {
                     },
                     edges: {
                         type: 'array',
-                        description: 'Array of edges to create inside the definition graph',
+                        description: 'Array of edges to create inside the definition graph. Highly recommended unless creating a simple Set or Collection. Every edge MUST have a definitionNode.',
                         items: {
                             type: 'object',
                             properties: {
@@ -607,4 +609,35 @@ export function getToolDefinitions() {
             }
         }
     ];
+}
+
+/**
+ * Tools that are too complex for small local LLMs (7B parameter models).
+ * These tools cause infinite loops and misuse when exposed to models
+ * that lack the reasoning ability to use them correctly.
+ */
+const ADVANCED_TOOLS = new Set([
+    'condenseToNode',
+    'decomposeNode',
+    'convertToThingGroup',
+    'combineThingGroup',
+    'editAbstractionChain',
+    'readAbstractionChain',
+    'listNodeDefinitions',
+    'removeDefinitionGraph',
+    'switchToGraph',
+    'getNodeContext',
+    'searchConnections',
+    'updateEdge',
+    'updateGroup',
+    'listGroups',
+]);
+
+/**
+ * Get filtered tool definitions for local/small LLMs.
+ * Removes advanced composition and navigation tools that cause spiraling.
+ * @returns {Array} Filtered tool definitions
+ */
+export function getLocalToolDefinitions() {
+    return getToolDefinitions().filter(t => !ADVANCED_TOOLS.has(t.name));
 }

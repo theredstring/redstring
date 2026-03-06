@@ -325,7 +325,8 @@ function applyToolResultToStore(toolName, result, toolCallId) {
     store.createNewGraph({
       id: result.graphId,
       name: result.graphName,
-      description: result.description || ''
+      description: result.description || '',
+      color: result.color || null
     });
     console.log('[Wizard] Successfully created empty graph:', result.graphId);
     return;
@@ -1104,7 +1105,8 @@ function applyToolResultToStore(toolName, result, toolCallId) {
       graphId = store.createNewGraph({
         id: result.graphId,
         name: result.graphName,
-        description: result.description || ''
+        description: result.description || '',
+        color: result.color || null
       });
     }
 
@@ -1389,6 +1391,15 @@ const LeftAIView = ({ compact = false,
   const [currentInput, setCurrentInput] = React.useState('');
   const [isProcessing, setIsProcessing] = React.useState(false);
   const [showAdvanced, setShowAdvanced] = React.useState(false);
+  const [currentApiConfig, setCurrentApiConfig] = React.useState(null);
+
+  // Load current API config when advanced options are shown
+  React.useEffect(() => {
+    if (showAdvanced) {
+      apiKeyManager.getAPIKeyInfo().then(setCurrentApiConfig);
+    }
+  }, [showAdvanced]);
+
   const [showToolsDropdown, setShowToolsDropdown] = React.useState(false);
   const [wizardTools, setWizardTools] = React.useState([]);
   const [selectedTestTool, setSelectedTestTool] = React.useState(null);
@@ -2484,7 +2495,14 @@ const LeftAIView = ({ compact = false,
                   const msg = { ...updated[idx] };
                   const blocks = Array.isArray(msg.contentBlocks) ? [...msg.contentBlocks] : [];
 
-                  if (event.type === 'tool_call') {
+                  if (event.type === 'tool_call_start') {
+                    const existingIndex = blocks.findIndex(b => b.type === 'tool_call' && b.id === event.id);
+                    if (existingIndex >= 0) {
+                      if (event.name) blocks[existingIndex] = { ...blocks[existingIndex], name: event.name };
+                    } else {
+                      blocks.push({ type: 'tool_call', id: event.id, name: event.name || 'Resolving spell...', args: {}, status: 'running', expanded: false });
+                    }
+                  } else if (event.type === 'tool_call') {
                     const existingIndex = blocks.findIndex(b => b.type === 'tool_call' && b.id === event.id);
                     if (existingIndex >= 0) {
                       blocks[existingIndex] = { ...blocks[existingIndex], name: event.name, args: event.args, status: 'running' };
@@ -2948,6 +2966,63 @@ const LeftAIView = ({ compact = false,
           </div>
         )}
       </div>
+
+      {/* Advanced Options Panel */}
+      {showAdvanced && (
+        <div className="ai-advanced-panel" style={{
+          padding: '12px',
+          backgroundColor: '#1a1a1a',
+          borderBottom: '1px solid #333',
+          fontSize: '12px',
+          color: '#ccc',
+          animation: 'slideDown 0.2s ease-out'
+        }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+            <div style={{ fontWeight: 'bold', display: 'flex', alignItems: 'center', gap: '6px' }}>
+              <Settings size={14} />
+              Advanced Configuration
+            </div>
+            <button
+              onClick={() => setShowAdvanced(false)}
+              style={{ background: 'none', border: 'none', color: '#666', cursor: 'pointer', padding: '2px' }}
+            >
+              <X size={14} />
+            </button>
+          </div>
+
+          <div style={{ display: 'grid', gridTemplateColumns: '80px 1fr', gap: '4px 8px' }}>
+            <span style={{ color: '#888' }}>Provider:</span>
+            <span style={{ fontFamily: 'monospace' }}>{currentApiConfig?.provider || 'None'}</span>
+
+            <span style={{ color: '#888' }}>Model:</span>
+            <span style={{ fontFamily: 'monospace' }}>{currentApiConfig?.model || 'Default'}</span>
+
+            <span style={{ color: '#888' }}>Endpoint:</span>
+            <span style={{
+              fontFamily: 'monospace',
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
+              whiteSpace: 'nowrap'
+            }} title={currentApiConfig?.endpoint}>
+              {currentApiConfig?.endpoint || 'Default'}
+            </span>
+          </div>
+
+          <div style={{ marginTop: '10px', paddingTop: '8px', borderTop: '1px solid #2a2a2a', display: 'flex', gap: '8px' }}>
+            <button
+              className="ai-flat-button"
+              style={{ fontSize: '11px', padding: '4px 8px' }}
+              onClick={() => {
+                setShowAPIKeySetup(true);
+                setShowAdvanced(false);
+              }}
+            >
+              Change Config
+            </button>
+          </div>
+        </div>
+      )}
+
 
       {/* Tabs Bar */}
       <div className="ai-tabs-bar">

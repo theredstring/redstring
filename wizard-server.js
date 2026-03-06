@@ -13,6 +13,7 @@ import cors from 'cors';
 import net from 'net';
 import { runAgent } from './src/wizard/AgentLoop.js';
 import { getToolDefinitions, executeTool } from './src/wizard/tools/index.js';
+import { callLLM } from './src/wizard/LLMClient.js';
 import { debugLogSync } from './src/utils/debugLogger.js';
 
 const app = express();
@@ -158,14 +159,27 @@ app.post('/api/wizard', async (req, res) => {
       model: llmConfig.model
     });
 
+    const abortController = new AbortController();
+    req.on('aborted', () => {
+      console.log('[Wizard] Client request aborted, canceling agent loop');
+      abortController.abort();
+    });
+
     try {
-      for await (const event of runAgent(message, graphState || {}, llmConfig, ensureSchedulerStarted)) {
+      for await (const event of runAgent(message, graphState || {}, llmConfig, ensureSchedulerStarted, abortController.signal)) {
         res.write(`data: ${JSON.stringify(event)}\n\n`);
       }
       res.write(`data: ${JSON.stringify({ type: 'done' })}\n\n`);
     } catch (error) {
-      console.error('[Wizard] Agent error:', error);
-      res.write(`data: ${JSON.stringify({ type: 'error', message: error.message })}\n\n`);
+      if (error.name === 'AbortError' || error.message?.includes('aborted')) {
+        console.log('[Wizard] Agent loop aborted gracefully on server');
+        if (!res.headersSent) {
+          res.write(`data: ${JSON.stringify({ type: 'done' })}\n\n`);
+        }
+      } else {
+        console.error('[Wizard] Agent error:', error);
+        res.write(`data: ${JSON.stringify({ type: 'error', message: error.message })}\n\n`);
+      }
     }
 
     res.end();
@@ -177,6 +191,44 @@ app.post('/api/wizard', async (req, res) => {
       res.write(`data: ${JSON.stringify({ type: 'error', message: error.message })}\n\n`);
       res.end();
     }
+  }
+});
+
+// ─────────────────────────────────────────────────────────────
+// Simple Chat Endpoint (for Questions and tests)
+// ─────────────────────────────────────────────────────────────
+
+app.post('/api/ai/chat', async (req, res) => {
+  try {
+    const { message, context, systemPrompt, model: reqModel } = req.body || {};
+    const apiKey = req.headers.authorization?.replace(/^Bearer\s+/i, '') || '';
+
+    if (!apiKey) {
+      return res.status(401).json({ error: 'API key required' });
+    }
+
+    const apiConfig = context?.apiConfig || {};
+
+    const config = {
+      apiKey,
+      provider: apiConfig.provider || 'openrouter',
+      endpoint: apiConfig.endpoint,
+      model: reqModel || apiConfig.model,
+      temperature: 0.7,
+      maxTokens: 1024
+    };
+
+    const messages = [];
+    if (systemPrompt) {
+      messages.push({ role: 'system', content: systemPrompt });
+    }
+    messages.push({ role: 'user', content: message || 'test' });
+
+    const { content } = await callLLM(messages, [], config);
+    res.json({ response: content || 'Success' });
+  } catch (err) {
+    console.error('[Wizard] /api/ai/chat error:', err);
+    res.status(500).json({ error: String(err?.message || err) });
   }
 });
 

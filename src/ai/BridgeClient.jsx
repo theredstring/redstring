@@ -270,7 +270,106 @@ const BridgeClient = () => {
     return () => { mountedRef.current = false; };
   }, []);
 
+  /**
+   * Check if the bridge server is responding
+   */
+  const checkBridgeHealth = async () => {
+    try {
+      const response = await bridgeFetch('/api/bridge/telemetry', {
+        method: 'GET',
+        // Small timeout to fail fast
+        signal: AbortSignal.timeout(2000)
+      });
+      return response.ok;
+    } catch (e) {
+      return false;
+    }
+  };
+
+  // Function to handle connection recovery
+  const handleConnectionRecovery = async () => {
+    const connectionState = connectionStateRef.current;
+
+    console.log(`🔄 MCP Bridge: Attempting reconnection (attempt ${connectionState.reconnectAttempts + 1}/${connectionState.maxReconnectAttempts})`);
+
+    const isHealthy = await checkBridgeHealth();
+
+    if (isHealthy) {
+      console.log('✅ MCP Bridge: Server is healthy, re-establishing connection...');
+
+      // Reset connection state
+      connectionState.isConnected = true;
+      connectionState.lastSuccessfulConnection = Date.now();
+      connectionState.reconnectAttempts = 0;
+
+      // Clear reconnection interval
+      if (reconnectIntervalRef.current) {
+        clearInterval(reconnectIntervalRef.current);
+        reconnectIntervalRef.current = null;
+      }
+
+      // Re-register actions and restart polling
+      try {
+        // Trigger re-registration via event
+        window.dispatchEvent(new CustomEvent('rs-bridge-reconnect'));
+        console.log('🎉 MCP Bridge: Reconnection signal sent!');
+      } catch (error) {
+        console.error('❌ MCP Bridge: Failed to send reconnection signal:', error);
+        connectionState.isConnected = false;
+      }
+    } else {
+      connectionState.reconnectAttempts++;
+
+      if (connectionState.reconnectAttempts >= connectionState.maxReconnectAttempts) {
+        console.log('🔌 MCP Bridge: Max reconnection attempts reached - this is normal if the bridge connector isn\'t running');
+        if (reconnectIntervalRef.current) {
+          clearInterval(reconnectIntervalRef.current);
+          reconnectIntervalRef.current = null;
+        }
+      } else {
+        const nextAttemptDelay = Math.min(1000 * Math.pow(2, connectionState.reconnectAttempts), 30000);
+        console.log(`⏳ MCP Bridge: Next reconnection attempt in ${nextAttemptDelay / 1000}s - this is normal if the bridge connector isn't running`);
+      }
+    }
+  };
+
+  // Function to start reconnection process
+  const startReconnection = () => {
+    const connectionState = connectionStateRef.current;
+
+    if (connectionState.isConnected) {
+      connectionState.isConnected = false;
+      console.log('🔌 MCP Bridge: Connection lost, starting reconnection process... - this is normal if the bridge connector isn\'t running');
+    }
+
+    // Stop normal polling
+    if (dataIntervalRef.current) {
+      clearInterval(dataIntervalRef.current);
+      dataIntervalRef.current = null;
+    }
+    // Tear down SSE while disconnected to avoid network spam
+    try {
+      if (eventSourceRef.current) {
+        eventSourceRef.current.close();
+        eventSourceRef.current = null;
+      }
+    } catch { }
+
+    // Start reconnection attempts if not already running
+    if (!reconnectIntervalRef.current) {
+      connectionState.reconnectAttempts = 0;
+      handleConnectionRecovery(); // Immediate first attempt
+
+      // Set up periodic reconnection attempts with exponential backoff
+      reconnectIntervalRef.current = setInterval(() => {
+        const currentDelay = Math.min(5000 * Math.pow(2, connectionState.reconnectAttempts), 30000);
+        setTimeout(handleConnectionRecovery, currentDelay);
+      }, 5000);
+    }
+  };
+
   useEffect(() => {
+
     /**
      * Calculate Wikipedia confidence score for auto-enrichment
      * Returns 0.0 to 1.0, with 0.90+ indicating "dead match" quality
@@ -413,103 +512,30 @@ const BridgeClient = () => {
       return Promise.allSettled(enrichmentPromises);
     }
 
-    // Function to handle connection recovery
-    const handleConnectionRecovery = async () => {
-      const connectionState = connectionStateRef.current;
+    // Listen for reconnection signal
+    const handleReconnectEvent = () => {
+      registerStoreActions();
+      sendStoreToServer();
 
-      console.log(`🔄 MCP Bridge: Attempting reconnection (attempt ${connectionState.reconnectAttempts + 1}/${connectionState.maxReconnectAttempts})`);
-
-      const isHealthy = await checkBridgeHealth();
-
-      if (isHealthy) {
-        console.log('✅ MCP Bridge: Server is healthy, re-establishing connection...');
-
-        // Reset connection state
-        connectionState.isConnected = true;
-        connectionState.lastSuccessfulConnection = Date.now();
-        connectionState.reconnectAttempts = 0;
-
-        // Clear reconnection interval
-        if (reconnectIntervalRef.current) {
-          clearInterval(reconnectIntervalRef.current);
-          reconnectIntervalRef.current = null;
-        }
-
-        // Re-register actions and restart polling
-        try {
-          await registerStoreActions();
-          await sendStoreToServer();
-
-          // Restart normal polling
-          if (dataIntervalRef.current) {
-            clearInterval(dataIntervalRef.current);
-          }
-          dataIntervalRef.current = setInterval(sendStoreToServer, 10000);
-
-          console.log('🎉 MCP Bridge: Connection fully restored!');
-          // Ensure SSE is established only when connected
-          try {
-            if (!eventSourceRef.current) {
-              const es = bridgeEventSource('/events/stream');
-              eventSourceRef.current = es;
-              es.addEventListener('PATCH_APPLIED', () => { });
-              es.onerror = () => { try { es.close(); } catch { }; eventSourceRef.current = null; };
-            }
-          } catch { }
-        } catch (error) {
-          console.error('❌ MCP Bridge: Failed to re-establish full connection:', error);
-          connectionState.isConnected = false;
-        }
-      } else {
-        connectionState.reconnectAttempts++;
-
-        if (connectionState.reconnectAttempts >= connectionState.maxReconnectAttempts) {
-          console.log('🔌 MCP Bridge: Max reconnection attempts reached - this is normal if the bridge connector isn\'t running');
-          if (reconnectIntervalRef.current) {
-            clearInterval(reconnectIntervalRef.current);
-            reconnectIntervalRef.current = null;
-          }
-        } else {
-          const nextAttemptDelay = Math.min(1000 * Math.pow(2, connectionState.reconnectAttempts), 30000);
-          console.log(`⏳ MCP Bridge: Next reconnection attempt in ${nextAttemptDelay / 1000}s - this is normal if the bridge connector isn't running`);
-        }
-      }
-    };
-
-    // Function to start reconnection process
-    const startReconnection = () => {
-      const connectionState = connectionStateRef.current;
-
-      if (connectionState.isConnected) {
-        connectionState.isConnected = false;
-        console.log('🔌 MCP Bridge: Connection lost, starting reconnection process... - this is normal if the bridge connector isn\'t running');
-      }
-
-      // Stop normal polling
+      // Restart normal polling
       if (dataIntervalRef.current) {
         clearInterval(dataIntervalRef.current);
-        dataIntervalRef.current = null;
       }
-      // Tear down SSE while disconnected to avoid network spam
+      dataIntervalRef.current = setInterval(sendStoreToServer, 10000);
+
+      // Ensure SSE is established only when connected
       try {
-        if (eventSourceRef.current) {
-          eventSourceRef.current.close();
-          eventSourceRef.current = null;
+        if (!eventSourceRef.current) {
+          const es = bridgeEventSource('/events/stream');
+          eventSourceRef.current = es;
+          es.addEventListener('PATCH_APPLIED', () => { });
+          es.onerror = () => { try { es.close(); } catch { }; eventSourceRef.current = null; };
         }
       } catch { }
-
-      // Start reconnection attempts if not already running
-      if (!reconnectIntervalRef.current) {
-        connectionState.reconnectAttempts = 0;
-        handleConnectionRecovery(); // Immediate first attempt
-
-        // Set up periodic reconnection attempts with exponential backoff
-        reconnectIntervalRef.current = setInterval(() => {
-          const currentDelay = Math.min(5000 * Math.pow(2, connectionState.reconnectAttempts), 30000);
-          setTimeout(handleConnectionRecovery, currentDelay);
-        }, 5000);
-      }
     };
+
+    window.addEventListener('rs-bridge-reconnect', handleReconnectEvent);
+
 
     // Function to register store actions with the bridge server
     const registerStoreActions = async () => {

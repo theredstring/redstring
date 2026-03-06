@@ -42,7 +42,7 @@ function normalizeTools(tools) {
  * @param {Object} config - Optional config override
  * @returns {AsyncGenerator} Yields chunks with type, content, toolCalls
  */
-export async function* streamLLM(messages, tools = [], config = {}) {
+export async function* streamLLM(messages, tools = [], config = {}, signal = null) {
   const defaults = getDefaultConfig();
   const provider = config.provider || defaults.provider;
   const endpoint = config.endpoint || defaults.endpoint;
@@ -54,11 +54,11 @@ export async function* streamLLM(messages, tools = [], config = {}) {
   const normalizedTools = normalizeTools(tools);
 
   if (provider === 'openrouter') {
-    yield* streamOpenRouter(messages, normalizedTools, { endpoint, model, apiKey, temperature, maxTokens });
+    yield* streamOpenRouter(messages, normalizedTools, { endpoint, model, apiKey, temperature, maxTokens }, signal);
   } else if (provider === 'anthropic') {
-    yield* streamAnthropic(messages, normalizedTools, { endpoint, model, apiKey, temperature, maxTokens });
+    yield* streamAnthropic(messages, normalizedTools, { endpoint, model, apiKey, temperature, maxTokens }, signal);
   } else if (provider === 'openai' || provider === 'local') {
-    yield* streamOpenAI(messages, normalizedTools, { endpoint, model, apiKey, temperature, maxTokens });
+    yield* streamOpenAI(messages, normalizedTools, { endpoint, model, apiKey, temperature, maxTokens }, signal);
   } else {
     throw new Error(`Unsupported provider: ${provider}`);
   }
@@ -67,7 +67,7 @@ export async function* streamLLM(messages, tools = [], config = {}) {
 /**
  * Stream from OpenRouter API
  */
-async function* streamOpenRouter(messages, tools, { endpoint, model, apiKey, temperature, maxTokens }) {
+async function* streamOpenRouter(messages, tools, { endpoint, model, apiKey, temperature, maxTokens }, signal = null) {
   const payload = {
     model,
     messages,
@@ -89,7 +89,8 @@ async function* streamOpenRouter(messages, tools, { endpoint, model, apiKey, tem
       'HTTP-Referer': 'https://redstring.io',
       'X-Title': 'Redstring Knowledge Graph'
     },
-    body: JSON.stringify(payload)
+    body: JSON.stringify(payload),
+    signal
   });
 
   if (!response.ok) {
@@ -105,6 +106,10 @@ async function* streamOpenRouter(messages, tools, { endpoint, model, apiKey, tem
 
   try {
     while (true) {
+      if (signal?.aborted) {
+        reader.cancel();
+        break;
+      }
       const { done, value } = await reader.read();
       if (done) break;
 
@@ -154,9 +159,19 @@ async function* streamOpenRouter(messages, tools, { endpoint, model, apiKey, tem
                     };
                   }
                   currentToolCall = { index, id: toolCall.id, function: { name: '', arguments: '' } };
+                  yield {
+                    type: 'tool_call_start',
+                    id: toolCall.id,
+                    name: toolCall.function?.name || ''
+                  };
                 }
                 if (toolCall.function?.name) {
                   currentToolCall.function.name = toolCall.function.name;
+                  yield {
+                    type: 'tool_call_start', // Update the start event with the name once available
+                    id: currentToolCall.id,
+                    name: currentToolCall.function.name
+                  };
                 }
                 if (toolCall.function?.arguments) {
                   currentToolCall.function.arguments += toolCall.function.arguments;
@@ -236,7 +251,7 @@ debugLogSync('LLMClient.js:MODULE_LOADED', 'LLMClient module loaded', {}, 'debug
 /**
  * Stream from Anthropic API
  */
-async function* streamAnthropic(messages, tools, { endpoint, model, apiKey, temperature, maxTokens }) {
+async function* streamAnthropic(messages, tools, { endpoint, model, apiKey, temperature, maxTokens }, signal = null) {
   // Anthropic uses a different message format
   const systemMessage = messages.find(m => m.role === 'system');
   const conversationMessages = messages.filter(m => m.role !== 'system');
@@ -258,7 +273,8 @@ async function* streamAnthropic(messages, tools, { endpoint, model, apiKey, temp
       'x-api-key': apiKey,
       'anthropic-version': '2023-06-01'
     },
-    body: JSON.stringify(payload)
+    body: JSON.stringify(payload),
+    signal
   });
 
   if (!response.ok) {
@@ -273,6 +289,10 @@ async function* streamAnthropic(messages, tools, { endpoint, model, apiKey, temp
 
   try {
     while (true) {
+      if (signal?.aborted) {
+        reader.cancel();
+        break;
+      }
       const { done, value } = await reader.read();
       if (done) break;
 
@@ -299,6 +319,11 @@ async function* streamAnthropic(messages, tools, { endpoint, model, apiKey, temp
                 id: chunk.content_block.id,
                 name: chunk.content_block.name,
                 input: {}
+              };
+              yield {
+                type: 'tool_call_start',
+                id: currentToolCall.id,
+                name: currentToolCall.name
               };
             }
 
@@ -339,7 +364,7 @@ async function* streamAnthropic(messages, tools, { endpoint, model, apiKey, temp
 /**
  * Stream from OpenAI-compatible API (OpenAI, Ollama, etc.)
  */
-async function* streamOpenAI(messages, tools, { endpoint, model, apiKey, temperature, maxTokens }) {
+async function* streamOpenAI(messages, tools, { endpoint, model, apiKey, temperature, maxTokens }, signal = null) {
   const payload = {
     model,
     messages,
@@ -360,7 +385,8 @@ async function* streamOpenAI(messages, tools, { endpoint, model, apiKey, tempera
   const response = await fetch(endpoint, {
     method: 'POST',
     headers,
-    body: JSON.stringify(payload)
+    body: JSON.stringify(payload),
+    signal
   });
 
   if (!response.ok) {
@@ -378,6 +404,10 @@ async function* streamOpenAI(messages, tools, { endpoint, model, apiKey, tempera
 
   try {
     while (true) {
+      if (signal?.aborted) {
+        reader.cancel();
+        break;
+      }
       const { done, value } = await reader.read();
       if (done) break;
 
@@ -419,9 +449,19 @@ async function* streamOpenAI(messages, tools, { endpoint, model, apiKey, tempera
                     };
                   }
                   currentToolCall = { index, id: toolCall.id, function: { name: '', arguments: '' } };
+                  yield {
+                    type: 'tool_call_start',
+                    id: toolCall.id,
+                    name: toolCall.function?.name || ''
+                  };
                 }
                 if (toolCall.function?.name) {
                   currentToolCall.function.name = toolCall.function.name;
+                  yield {
+                    type: 'tool_call_start',
+                    id: currentToolCall.id,
+                    name: currentToolCall.function.name
+                  };
                 }
                 if (toolCall.function?.arguments) {
                   currentToolCall.function.arguments += toolCall.function.arguments;
@@ -491,12 +531,12 @@ async function* streamOpenAI(messages, tools, { endpoint, model, apiKey, tempera
  * @param {Object} config - Optional config override
  * @returns {Promise<Object>} { content, toolCalls }
  */
-export async function callLLM(messages, tools = [], config = {}) {
+export async function callLLM(messages, tools = [], config = {}, signal = null) {
   let content = '';
   const toolCalls = [];
   const seenToolCallIds = new Set();
 
-  for await (const chunk of streamLLM(messages, tools, config)) {
+  for await (const chunk of streamLLM(messages, tools, config, signal)) {
     if (chunk.type === 'text') {
       content += chunk.content;
     } else if (chunk.type === 'tool_call') {

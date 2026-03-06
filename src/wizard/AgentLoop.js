@@ -8,7 +8,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import { callLLM, streamLLM } from './LLMClient.js';
 import { buildContext } from './ContextBuilder.js';
-import { executeTool, getToolDefinitions } from './tools/index.js';
+import { executeTool, getToolDefinitions, getLocalToolDefinitions } from './tools/index.js';
 import { WIZARD_SYSTEM_PROMPT } from '../services/agent/WizardPrompt.js';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -550,6 +550,8 @@ function updateGraphState(graphState, _toolName, _args, result) {
 }
 
 const DEFAULT_MAX_ITERATIONS = 10;
+const LOCAL_MAX_ITERATIONS = 4;
+const MAX_TOOL_CALLS_PER_ITERATION = 10;
 
 /**
  * Run the agent loop
@@ -559,7 +561,7 @@ const DEFAULT_MAX_ITERATIONS = 10;
  * @param {Function} ensureSchedulerStarted - Function to start scheduler
  * @returns {AsyncGenerator} Yields events: { type, ... }
  */
-export async function* runAgent(userMessage, graphState, config = {}, ensureSchedulerStarted) {
+export async function* runAgent(userMessage, graphState, config = {}, ensureSchedulerStarted, abortSignal = null) {
   const cid = config.cid || `wizard-${Date.now()}`;
 
   // Build context
@@ -581,8 +583,13 @@ export async function* runAgent(userMessage, graphState, config = {}, ensureSche
 
   const baseSystemPrompt = config.systemPrompt || SYSTEM_PROMPT || 'You are The Wizard, a helpful assistant for building knowledge graphs.';
 
-  const tools = getToolDefinitions();
-  const maxIterations = config.maxIterations || DEFAULT_MAX_ITERATIONS;
+  const isLocalModel = config.provider === 'local';
+  const tools = isLocalModel ? getLocalToolDefinitions() : getToolDefinitions();
+  const maxIterations = config.maxIterations || (isLocalModel ? LOCAL_MAX_ITERATIONS : DEFAULT_MAX_ITERATIONS);
+
+  if (isLocalModel) {
+    console.error('[AgentLoop] Local model detected — using filtered tools (' + tools.length + ' tools), maxIterations=' + maxIterations + ', maxToolCallsPerIteration=' + MAX_TOOL_CALLS_PER_ITERATION);
+  }
 
   const fullSystemPrompt = baseSystemPrompt
     .replace('{graphName}', graphState.activeGraphId ? (graphState.graphs?.find(g => g.id === graphState.activeGraphId)?.name || 'Unknown') : 'None')
@@ -608,7 +615,14 @@ export async function* runAgent(userMessage, graphState, config = {}, ensureSche
   ];
 
 
+  // Loop detection: track tool call signatures per iteration to detect cycles
+  const iterationSignatures = [];
+
   for (let iteration = 0; iteration < maxIterations; iteration++) {
+    if (abortSignal?.aborted) {
+      yield { type: 'done', iterations: iteration };
+      return;
+    }
     try {
       let iterationContent = '';
       let iterationToolCalls = [];
@@ -617,7 +631,7 @@ export async function* runAgent(userMessage, graphState, config = {}, ensureSche
       // Track what we've yielded to prevent duplicates
       let yieldedChars = 0;
 
-      for await (const chunk of streamLLM(messages, tools, config)) {
+      for await (const chunk of streamLLM(messages, tools, config, abortSignal)) {
         if (chunk.type === 'text') {
           // Only yield new content (dedupe in case of stream issues)
           const newContent = chunk.content;
@@ -626,14 +640,41 @@ export async function* runAgent(userMessage, graphState, config = {}, ensureSche
             console.error('[AgentLoop] Yielding text chunk:', JSON.stringify(newContent));
             yield { type: 'response', content: newContent };
           }
+        } else if (chunk.type === 'tool_call_start') {
+          console.error('[AgentLoop] Yielding tool_call_start:', chunk.name);
+          yield chunk;
         } else if (chunk.type === 'tool_call') {
           iterationToolCalls.push(chunk);
-          console.error('[AgentLoop] Yielding tool_call:', chunk.name);
+          console.error('[AgentLoop] Yielding tool_call (final):', chunk.name);
           yield chunk;
         }
       }
 
-      console.error('[AgentLoop] Iteration', iteration, 'complete. Content length:', iterationContent.length);
+      // Cap tool calls per iteration for local models (they can spam dozens)
+      if (isLocalModel && iterationToolCalls.length > MAX_TOOL_CALLS_PER_ITERATION) {
+        const dropped = iterationToolCalls.length - MAX_TOOL_CALLS_PER_ITERATION;
+        console.error(`[AgentLoop] Local model emitted ${iterationToolCalls.length} tool calls — capping at ${MAX_TOOL_CALLS_PER_ITERATION}, dropping ${dropped}`);
+        iterationToolCalls = iterationToolCalls.slice(0, MAX_TOOL_CALLS_PER_ITERATION);
+      }
+
+      console.error('[AgentLoop] Iteration', iteration, 'complete. Content length:', iterationContent.length, 'Tool calls:', iterationToolCalls.length);
+
+      // Loop detection: build a signature from tool names this iteration
+      if (iterationToolCalls.length > 0) {
+        const sig = iterationToolCalls.map(tc => tc.name).sort().join(',');
+        iterationSignatures.push(sig);
+
+        // Detect if the last 2 iterations called the exact same set of tools
+        if (iterationSignatures.length >= 2) {
+          const prev = iterationSignatures[iterationSignatures.length - 2];
+          if (sig === prev) {
+            console.error(`[AgentLoop] Loop detected: iteration ${iteration} repeated the same tool pattern as iteration ${iteration - 1}: [${sig}]. Stopping.`);
+            yield { type: 'response', content: 'I noticed I was repeating the same actions. Stopping to avoid an infinite loop.' };
+            yield { type: 'done', iterations: iteration + 1, reason: 'loop_detected' };
+            return;
+          }
+        }
+      }
 
       // Add this iteration's response to history for the next iteration
       if (iterationContent || iterationToolCalls.length > 0) {
@@ -653,18 +694,20 @@ export async function* runAgent(userMessage, graphState, config = {}, ensureSche
 
       // If no tool calls, check if the model stopped mid-batch
       if (iterationToolCalls.length === 0) {
-        // If previous iterations had tool calls AND we haven't hit max iterations,
-        // the model may have stopped mid-work. Nudge it to continue.
-        const hadPriorToolCalls = messages.some(m => m.tool_calls && m.tool_calls.length > 0);
-        const textSuggestsContinuation = iterationContent && /\b(shall|will|proceed|continue|remaining|next|rest)\b/i.test(iterationContent);
+        // For local models, never auto-continue — they need to stop and let
+        // the user respond, especially when they ask "shall I continue?"
+        if (!isLocalModel) {
+          const hadPriorToolCalls = messages.some(m => m.tool_calls && m.tool_calls.length > 0);
+          const textSuggestsContinuation = iterationContent && /\b(shall|will|proceed|continue|remaining|next|rest)\b/i.test(iterationContent);
 
-        if (hadPriorToolCalls && textSuggestsContinuation && iteration < maxIterations - 1) {
-          console.error('[AgentLoop] Model stopped mid-batch with continuation language. Nudging to continue.');
-          messages.push({
-            role: 'user',
-            content: 'Continue — call the tools now for the remaining items. Do not narrate, just call them.'
-          });
-          continue; // Skip to next iteration
+          if (hadPriorToolCalls && textSuggestsContinuation && iteration < maxIterations - 1) {
+            console.error('[AgentLoop] Model stopped mid-batch with continuation language. Nudging to continue.');
+            messages.push({
+              role: 'user',
+              content: 'Continue — call the tools now for the remaining items. Do not narrate, just call them.'
+            });
+            continue; // Skip to next iteration
+          }
         }
         yield { type: 'done', iterations: iteration + 1 };
         return;
@@ -672,6 +715,7 @@ export async function* runAgent(userMessage, graphState, config = {}, ensureSche
 
       // Execute tools sequentially
       for (const toolCall of iterationToolCalls) {
+        if (abortSignal?.aborted) break;
         try {
           // Execute tool
           const result = await executeTool(
@@ -719,6 +763,10 @@ export async function* runAgent(userMessage, graphState, config = {}, ensureSche
 
       // Loop continues - LLM will verify results and decide: more work or respond
     } catch (error) {
+      if (error.name === 'AbortError' || error.message?.includes('aborted')) {
+        console.error('[AgentLoop] Agent loop aborted gracefully');
+        return;
+      }
       yield { type: 'error', message: error.message };
       yield { type: 'done', iterations: iteration + 1 };
       return;

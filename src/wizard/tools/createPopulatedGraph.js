@@ -4,6 +4,7 @@
 
 import queueManager from '../../services/queue/Queue.js';
 import { resolvePaletteColor, getRandomPalette } from '../../ai/palettes.js';
+import { validateEdges } from './edgeValidator.js';
 
 /**
  * Create a new graph and populate it with nodes, edges, and groups
@@ -14,7 +15,7 @@ import { resolvePaletteColor, getRandomPalette } from '../../ai/palettes.js';
  * @returns {Promise<Object>} { graphId, graphName, nodesAdded, edgesAdded, groupsAdded }
  */
 export async function createPopulatedGraph(args, graphState, cid, ensureSchedulerStarted) {
-  const { name, description = '', nodes = [], edges = [], groups = [], targetGraphId, palette } = args;
+  const { name, description = '', nodes = [], edges = [], groups = [], targetGraphId, palette, color } = args;
 
   console.error('[createPopulatedGraph] Called with:');
   console.error('[createPopulatedGraph] - name:', name);
@@ -64,7 +65,10 @@ export async function createPopulatedGraph(args, graphState, cid, ensureSchedule
     typeDescription: n.typeDescription || ''
   }));
 
-  const edgeSpecs = (edges || []).map(e => {
+  // Validate edges: strip any that reference nodes not in the nodes array
+  const { validEdges, droppedEdges } = validateEdges(nodeSpecs, edges || []);
+
+  const edgeSpecs = validEdges.map(e => {
     // Handle both old format (type string) and new format (definitionNode object)
     const inputDefNode = e.definitionNode;
     const typeName = inputDefNode?.name || e.type || '';
@@ -118,13 +122,14 @@ export async function createPopulatedGraph(args, graphState, cid, ensureSchedule
   // const goalId = queueManager.enqueue('goalQueue', { ... });
   // if (ensureSchedulerStarted) ensureSchedulerStarted();
 
-  // Return full spec so UI can apply it directly
+  // Returns full spec so UI can apply it directly
   // Note: nodesAdded/edgesAdded are ARRAYS for ToolCallCard display
   return {
     action: 'createPopulatedGraph',
     graphId,
     graphName: name || 'existing graph',
     description,
+    color: resolvePaletteColor(activePalette, color || args.color), // Added color resolution
     // For ToolCallCard summary (counts)
     nodeCount: nodeSpecs.length,
     edgeCount: edgeSpecs.length,
@@ -134,6 +139,11 @@ export async function createPopulatedGraph(args, graphState, cid, ensureSchedule
     edgesAdded: edgeSpecs,
     groupsAdded: groupSpecs.map(g => g.name),
     goalId: null, // Executor pipeline disabled — UI handles creation + layout directly
+    // Edge validation feedback for LLM
+    droppedEdges,
+    edgeWarning: droppedEdges.length > 0
+      ? `${droppedEdges.length} edge(s) were dropped because they referenced nodes not in the nodes array: ${droppedEdges.map(d => `${d.source} → ${d.target} (${d.reason})`).join('; ')}`
+      : null,
     // Include full spec for UI to apply
     spec: {
       nodes: nodeSpecs,

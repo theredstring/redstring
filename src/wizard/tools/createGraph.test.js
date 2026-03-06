@@ -5,6 +5,11 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { createGraph } from './createGraph.js';
 
+vi.mock('../../ai/palettes.js', () => ({
+  resolvePaletteColor: vi.fn((palette, color) => color || '#5B6CFF'),
+  getRandomPalette: vi.fn(() => 'test-palette')
+}));
+
 describe('createGraph', () => {
   const mockCid = 'test-cid-123';
 
@@ -30,6 +35,22 @@ describe('createGraph', () => {
     expect(result.graphName).toBe('Test Graph');
     expect(result.description).toBe('');
     expect(result.goalId).toBeNull();
+  });
+
+  it('resolves and returns the color property', async () => {
+    const graphState = {
+      graphs: [],
+      nodePrototypes: []
+    };
+
+    const result = await createGraph(
+      { name: 'Test Graph', color: 'sky-blue' },
+      graphState,
+      mockCid,
+      null
+    );
+
+    expect(result.color).toBe('sky-blue');
   });
 
   it('throws error when name is missing', async () => {

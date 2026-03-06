@@ -31,13 +31,7 @@ const APIKeySetup = ({ onKeySet, onClose, inline = false }) => {
     loadRecentModels();
   }, []);
 
-  // Initialize defaults when component loads
-  useEffect(() => {
-    if (!existingKeyInfo) {
-      setEndpoint(apiKeyManager.getDefaultEndpoint(provider));
-      setModel(apiKeyManager.getDefaultModel(provider));
-    }
-  }, [provider, existingKeyInfo]);
+
 
   const loadExistingKey = async () => {
     try {
@@ -51,7 +45,11 @@ const APIKeySetup = ({ onKeySet, onClose, inline = false }) => {
         setAllowKeyEdit(false);
       } else {
         setAllowKeyEdit(true);
+        // Set defaults if no existing key is found
+        setEndpoint(apiKeyManager.getDefaultEndpoint(provider));
+        setModel(apiKeyManager.getDefaultModel(provider));
       }
+
     } catch (error) {
       console.error('Failed to load existing key info:', error);
     }
@@ -351,8 +349,10 @@ const APIKeySetup = ({ onKeySet, onClose, inline = false }) => {
     setAllowKeyEdit(false);
     setApiKey('');
     setShowKey(false);
+    // Keep the values, just clear the info object to show the form
     setExistingKeyInfo(null);
   };
+
 
   return (
     <div className={`api-key-setup ${inline ? 'api-key-setup-inline' : ''}`}>
@@ -524,9 +524,22 @@ const APIKeySetup = ({ onKeySet, onClose, inline = false }) => {
                       />
                       {selectedPreset?.commonModels.length > 0 && (
                         <div className="model-suggestions">
-                          Common models: {selectedPreset.commonModels.join(', ')}
+                          Common models: {selectedPreset.commonModels.map((m, i) => (
+                            <React.Fragment key={m}>
+                              <button
+                                type="button"
+                                className="suggestion-link"
+                                onClick={() => setModel(m)}
+                                style={{ background: 'none', border: 'none', color: '#5b6cff', padding: 0, textDecoration: 'underline', cursor: 'pointer', fontSize: 'inherit' }}
+                              >
+                                {m}
+                              </button>
+                              {i < selectedPreset.commonModels.length - 1 ? ', ' : ''}
+                            </React.Fragment>
+                          ))}
                         </div>
                       )}
+
                       <small className="field-help">
                         Model name as recognized by your local LLM server
                       </small>
@@ -544,8 +557,34 @@ const APIKeySetup = ({ onKeySet, onClose, inline = false }) => {
                       {connectionTestResult && (
                         <div className={`connection-test-result ${connectionTestResult.success ? 'success' : 'error'}`}>
                           {connectionTestResult.success ? <CheckCircle size={16} /> : <AlertCircle size={16} />}
-                          <span>{connectionTestResult.message}</span>
+                          <span>
+                            {connectionTestResult.message}
+                            {connectionTestResult.success && connectionTestResult.models?.length > 0 && (
+                              <div style={{ marginTop: '4px', display: 'flex', flexWrap: 'wrap', gap: '4px' }}>
+                                {connectionTestResult.models.slice(0, 5).map(m => (
+                                  <button
+                                    key={m}
+                                    type="button"
+                                    onClick={() => setModel(m)}
+                                    className="model-tag-suggestion"
+                                    style={{
+                                      fontSize: '10px',
+                                      padding: '2px 6px',
+                                      backgroundColor: '#2a2a2a',
+                                      border: '1px solid #444',
+                                      borderRadius: '4px',
+                                      color: '#eee',
+                                      cursor: 'pointer'
+                                    }}
+                                  >
+                                    Use {m}
+                                  </button>
+                                ))}
+                              </div>
+                            )}
+                          </span>
                         </div>
+
                       )}
                     </div>
                   </div>

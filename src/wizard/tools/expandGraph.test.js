@@ -127,8 +127,12 @@ describe('expandGraph', () => {
 
     expect(result.nodeCount).toBe(0);
     expect(result.spec.nodes).toHaveLength(0);
-    expect(result.edgeCount).toBe(1);
-    expect(result.spec.edges).toHaveLength(1);
+    // Edges referencing non-existent nodes are now correctly dropped
+    expect(result.edgeCount).toBe(0);
+    expect(result.spec.edges).toHaveLength(0);
+    expect(result.droppedEdges).toHaveLength(1);
+    expect(result.droppedEdges[0].source).toBe('Node A');
+    expect(result.droppedEdges[0].target).toBe('Node B');
   });
 
   it('handles missing edges array', async () => {

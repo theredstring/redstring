@@ -1,5 +1,10 @@
 # Wizard Test Suite Walkthrough
 
+### 1. Wizard Runtime Fixes
+- **Syntax Error Resolution**: Fixed unescaped backticks in `src/services/agent/WizardPrompt.js` by replacing them with single quotes. This ensures the template literal doesn't terminate prematurely.
+- **Port Conflict**: Resolved "Port 3001 in use" error by terminating the background bridge process.
+- **Bridge Server**: Verified the bridge server now starts correctly on port 3001 within the Electron lifecycle.
+
 I have successfully redesigned the testing script for "The Wizard" and implemented the necessary tools in the MCP server to support it.
 
 ## 1. New MCP Tools
@@ -19,6 +24,24 @@ I created a robust test script that:
 
 ## 3. Test Results
 The test script executes successfully, confirming the tools are correctly implemented and reachable.
+### 🛑 Agent Cancellation Flow
+The "stop" button now terminates backend activity instantly:
+- **wizard-server.js**: Detects client disconnection using `req.on('aborted')` (which proved much more reliable than `close`) and triggers an `AbortSignal`.
+- **AgentLoop.js**: Breaks the iteration loop and tool execution loop immediately upon receiving the signal.
+- **Error Handling**: Gracefully handles and suppresses `AbortError` to prevent confusing messages in the UI.
+- **LLMClient.js**: Propagates the signal to the `fetch` call, killing active streaming requests to AI providers.
+
+---
+
+## 4. Restored Question Mode & API Testing
+Re-introduced the missing `/api/ai/chat` endpoint to `wizard-server.js`. The lighter-weight server had initially dropped this endpoint, breaking the "Test Key" button and the non-autonomous Question mode. Both features are now fully functional and correctly utilize `callLLM`.
+
+---
+
+### ✅ Summary of Verification
+- The Wizard can now correctly reach the backend endpoint.
+- **Important**: If using Ollama, ensure you use a model that supports tools (e.g., `llama3.1:8b` or `llama3.2`). The base `llama3` model will return an API error when the Wizard attempts to use its tools.
+- SSE streaming is stable.
 
 ### Execution Summary
 *   **Environment**: Bridge Daemon (port 3001) and MCP Server (port 3002) running simultaneously.
@@ -27,6 +50,15 @@ The test script executes successfully, confirming the tools are correctly implem
 *   **`create_edge`**: ✅ **Success**. Tool accepts `definitionNodeIds` and `directionality`, queuing the `addEdge` action.
 *   **`search_nodes`**: ⚠️ **Limitation**. Returns HTTP 404 because the standalone `bridge-daemon.js` does not implement the search endpoint (it relies on the UI for search index).
 *   **State Persistence**: ⚠️ **Limitation**. Actions are queued in the MCP server but not processed into the bridge state because the Redstring UI (which acts as the executor) is not running. This causes subsequent read operations to report "Not Found", which is expected in this headless test.
+
+### Model Persistence & Tool Support
+- **Ollama Tool Support**: Verified that `llama3.1` or `qwen2.5` is required for tool call support.
+- **UI Feedback Optimization**: Optimized the Wizard UI to show progress animations immediately when a tool call begins.
+- **Edge Creation & Tool Priority**: Established "Golden Tools" while allowing edge-free collections for sets.
+- **Agent Cancellation**: Verified that hitting the "stop" button now kills active backend iterations and LLM requests.
+2. Saved configuration.
+3. Verified `llama3.1` appears in the **Advanced Configuration** panel.
+4. Verified that clicking "Update Configuration" preserves the value.
 
 ### Conclusion
 The Wizard's tools are fully operational. The test suite validates that the AI can successfully construct valid graph operations. Full end-to-end persistence requires the Redstring UI to be running to consume the queued actions.

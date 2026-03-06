@@ -279,5 +279,79 @@ describe('createPopulatedGraph', () => {
     expect(result.edgesAdded[0].type).toBe('Loves');
     expect(result.edgesAdded[0].directionality).toBe('bidirectional');
   });
+
+  it('resolves and returns the color property for the graph', async () => {
+    const graphState = { graphs: [], nodePrototypes: [] };
+    const result = await createPopulatedGraph(
+      {
+        name: 'Colorful Graph',
+        color: 'sky-blue',
+        palette: 'ocean',
+        nodes: [{ name: 'A' }]
+      },
+      graphState,
+      mockCid,
+      mockEnsureSchedulerStarted
+    );
+
+    // The mock for resolvePaletteColor returns the color string if provided
+    expect(result.color).toBe('sky-blue');
+  });
+
+  it('drops edges referencing non-existent nodes and reports them', async () => {
+    const graphState = { graphs: [], nodePrototypes: [] };
+    const result = await createPopulatedGraph(
+      {
+        name: 'Grocery Store',
+        nodes: [
+          { name: 'Apples', description: 'Fruit' },
+          { name: 'Bread', description: 'Bakery item' }
+        ],
+        edges: [
+          { source: 'Apples', target: 'Bread', definitionNode: { name: 'Near' } },
+          { source: 'Apples', target: 'Produce Section', definitionNode: { name: 'Stocked In' } },
+          { source: 'Bread', target: 'Bakery Aisle', definitionNode: { name: 'Stocked In' } }
+        ]
+      },
+      graphState,
+      mockCid,
+      mockEnsureSchedulerStarted
+    );
+
+    // Only the valid edge should remain
+    expect(result.edgeCount).toBe(1);
+    expect(result.spec.edges).toHaveLength(1);
+    expect(result.spec.edges[0].source).toBe('Apples');
+    expect(result.spec.edges[0].target).toBe('Bread');
+
+    // Dropped edges should be reported
+    expect(result.droppedEdges).toHaveLength(2);
+    expect(result.droppedEdges[0].target).toBe('Produce Section');
+    expect(result.droppedEdges[1].target).toBe('Bakery Aisle');
+    expect(result.edgeWarning).toContain('2 edge(s) were dropped');
+  });
+
+  it('returns empty droppedEdges when all edges are valid', async () => {
+    const graphState = { graphs: [], nodePrototypes: [] };
+    const result = await createPopulatedGraph(
+      {
+        name: 'Test Graph',
+        nodes: [
+          { name: 'Node One' },
+          { name: 'Node Two' }
+        ],
+        edges: [
+          { source: 'Node One', target: 'Node Two', definitionNode: { name: 'Connects' } }
+        ]
+      },
+      graphState,
+      mockCid,
+      mockEnsureSchedulerStarted
+    );
+
+    expect(result.droppedEdges).toHaveLength(0);
+    expect(result.edgeWarning).toBeNull();
+    expect(result.edgeCount).toBe(1);
+  });
 });
 

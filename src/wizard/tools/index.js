@@ -99,5 +99,5 @@ export async function executeTool(name, args, graphState, cid, ensureSchedulerSt
  * Get tool definitions for LLM
  * @returns {Array} Tool definitions
  */
-export { getToolDefinitions } from './schemas.js';
+export { getToolDefinitions, getLocalToolDefinitions } from './schemas.js';
 
