@@ -8,7 +8,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import { callLLM, streamLLM } from './LLMClient.js';
 import { buildContext } from './ContextBuilder.js';
-import { executeTool, getToolDefinitions, getLocalToolDefinitions } from './tools/index.js';
+import { executeTool, getToolDefinitions } from './tools/index.js';
 import { WIZARD_SYSTEM_PROMPT } from '../services/agent/WizardPrompt.js';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -550,8 +550,6 @@ function updateGraphState(graphState, _toolName, _args, result) {
 }
 
 const DEFAULT_MAX_ITERATIONS = 10;
-const LOCAL_MAX_ITERATIONS = 4;
-const MAX_TOOL_CALLS_PER_ITERATION = 10;
 
 /**
  * Run the agent loop
@@ -583,13 +581,8 @@ export async function* runAgent(userMessage, graphState, config = {}, ensureSche
 
   const baseSystemPrompt = config.systemPrompt || SYSTEM_PROMPT || 'You are The Wizard, a helpful assistant for building knowledge graphs.';
 
-  const isLocalModel = config.provider === 'local';
-  const tools = isLocalModel ? getLocalToolDefinitions() : getToolDefinitions();
-  const maxIterations = config.maxIterations || (isLocalModel ? LOCAL_MAX_ITERATIONS : DEFAULT_MAX_ITERATIONS);
-
-  if (isLocalModel) {
-    console.error('[AgentLoop] Local model detected — using filtered tools (' + tools.length + ' tools), maxIterations=' + maxIterations + ', maxToolCallsPerIteration=' + MAX_TOOL_CALLS_PER_ITERATION);
-  }
+  const tools = getToolDefinitions();
+  const maxIterations = config.maxIterations || DEFAULT_MAX_ITERATIONS;
 
   const fullSystemPrompt = baseSystemPrompt
     .replace('{graphName}', graphState.activeGraphId ? (graphState.graphs?.find(g => g.id === graphState.activeGraphId)?.name || 'Unknown') : 'None')
@@ -650,13 +643,6 @@ export async function* runAgent(userMessage, graphState, config = {}, ensureSche
         }
       }
 
-      // Cap tool calls per iteration for local models (they can spam dozens)
-      if (isLocalModel && iterationToolCalls.length > MAX_TOOL_CALLS_PER_ITERATION) {
-        const dropped = iterationToolCalls.length - MAX_TOOL_CALLS_PER_ITERATION;
-        console.error(`[AgentLoop] Local model emitted ${iterationToolCalls.length} tool calls — capping at ${MAX_TOOL_CALLS_PER_ITERATION}, dropping ${dropped}`);
-        iterationToolCalls = iterationToolCalls.slice(0, MAX_TOOL_CALLS_PER_ITERATION);
-      }
-
       console.error('[AgentLoop] Iteration', iteration, 'complete. Content length:', iterationContent.length, 'Tool calls:', iterationToolCalls.length);
 
       // Loop detection: build a signature from tool names this iteration
@@ -692,23 +678,8 @@ export async function* runAgent(userMessage, graphState, config = {}, ensureSche
         });
       }
 
-      // If no tool calls, check if the model stopped mid-batch
+      // No tool calls = model is done. Return control to the user.
       if (iterationToolCalls.length === 0) {
-        // For local models, never auto-continue — they need to stop and let
-        // the user respond, especially when they ask "shall I continue?"
-        if (!isLocalModel) {
-          const hadPriorToolCalls = messages.some(m => m.tool_calls && m.tool_calls.length > 0);
-          const textSuggestsContinuation = iterationContent && /\b(shall|will|proceed|continue|remaining|next|rest)\b/i.test(iterationContent);
-
-          if (hadPriorToolCalls && textSuggestsContinuation && iteration < maxIterations - 1) {
-            console.error('[AgentLoop] Model stopped mid-batch with continuation language. Nudging to continue.');
-            messages.push({
-              role: 'user',
-              content: 'Continue — call the tools now for the remaining items. Do not narrate, just call them.'
-            });
-            continue; // Skip to next iteration
-          }
-        }
         yield { type: 'done', iterations: iteration + 1 };
         return;
       }

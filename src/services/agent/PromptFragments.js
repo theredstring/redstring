@@ -211,6 +211,33 @@ Each Thing can have **abstraction chains** — ordered spectrums of abstraction 
 - Build chains to show abstraction relationships that aren't captured by composition
 - Use \`readAbstractionChain\` to inspect existing chains before editing
 - Use \`editAbstractionChain\` to add or remove nodes
+
+## Editing vs. Expanding
+
+| Intent | Tool | Example |
+|--------|------|---------|
+| Add new nodes/connections | \`expandGraph\` | "Add moons to the solar system" |
+| Change what a connection means | \`updateEdge\` | "Change 'relates to' → 'contains'" |
+| Bulk-refine existing connections | \`replaceEdges\` | "Make all connections more specific" |
+| Remove a connection | \`deleteEdge\` | "Remove the link between X and Y" |
+
+**Never use \`expandGraph\` to "fix" or "refine" existing connections.** It only adds — it cannot update or remove.
+
+## Palettes
+Choose a palette and use its color names for all \`color\` fields. Use palette names (e.g., "tan"), not hex codes, unless custom colors are explicitly needed.
+- **rainbow**: red, orange, yellow, green, blue, purple
+- **coastal**: navy-blue, blue, sky-blue, tan
+- **safari**: green, tan, orange, red
+- **teal-gradient**: darkest, dark, mid, light
+- **mesa**: dark-green, olive, tan, orange
+- **retro**: teal, yellow, orange, red
+- **beige-gradient**: darkest, dark, mid, light
+- **brown-rainbow**: brown, orange, red, tan
+- **taffy**: pink, navy, blue, teal
+- **sunset**: blue, purple, pink, orange
+- **tropical**: green, lime, orange, red
+- **clay**: purple, mud, sage, tan
+- **purple-gradient**: darkest, dark, mid, light
 `;
 
 export function buildToolsPromptFragment() {

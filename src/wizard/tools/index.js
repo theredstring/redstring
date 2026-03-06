@@ -8,7 +8,6 @@
  * ╚══════════════════════════════════════════════════════════════════╝
  */
 
-import { getPaletteSchemaDescription } from '../../ai/palettes.js';
 import { createNode } from './createNode.js';
 import { updateNode } from './updateNode.js';
 import { deleteNode } from './deleteNode.js';

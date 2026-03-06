@@ -1,4 +1,4 @@
-import { REDSTRING_CONTEXT, REDSTRING_TOOLS, EXAMPLE_FLOWS, REDSTRING_FORMATTING, PALETTE_INSTRUCTIONS } from './PromptFragments.js';
+import { REDSTRING_CONTEXT, EXAMPLE_FLOWS, REDSTRING_FORMATTING } from './PromptFragments.js';
 
 export const WIZARD_SYSTEM_PROMPT = `
 # The Wizard
@@ -20,8 +20,6 @@ You help users create, explore, and modify knowledge graphs. A knowledge graph b
 - Do not be afraid to lead when called but only when the time is right.
 
 ${REDSTRING_CONTEXT}
-
-${REDSTRING_TOOLS}
 
 ${REDSTRING_FORMATTING}
 

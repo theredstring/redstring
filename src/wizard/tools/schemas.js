@@ -1,5 +1,3 @@
-import { getPaletteSchemaDescription } from '../../ai/palettes.js';
-
 /**
  * Get tool definitions for LLM
  * @returns {Array} Tool definitions
@@ -12,7 +10,7 @@ export function getToolDefinitions() {
             parameters: {
                 type: 'object',
                 properties: {
-                    palette: { type: 'string', description: `Optional: Name of the predefined color palette to use. ${getPaletteSchemaDescription()} If omitted or using a custom palette, provide hex codes in 'color'.` },
+                    palette: { type: 'string', description: 'Palette name (see system prompt for options). If omitted, a random palette is chosen.' },
                     name: {
                         type: 'string', description: 'The node\'s display name'
                     },
@@ -177,7 +175,7 @@ export function getToolDefinitions() {
             parameters: {
                 type: 'object',
                 properties: {
-                    palette: { type: 'string', description: `Optional: Name of the predefined color palette to use for the graph. ${getPaletteSchemaDescription()}` },
+                    palette: { type: 'string', description: 'Palette name (see system prompt for options).' },
                     nodes: {
                         type: 'array',
                         description: 'Array of nodes to create',
@@ -259,7 +257,7 @@ export function getToolDefinitions() {
             parameters: {
                 type: 'object',
                 properties: {
-                    palette: { type: 'string', description: `Optional: Name of the color palette to use for the graph. ${getPaletteSchemaDescription()}` },
+                    palette: { type: 'string', description: 'Palette name (see system prompt for options).' },
                     name: { type: 'string', description: 'REQUIRED: A descriptive name for the new graph workspace.' },
                     color: { type: 'string', description: 'Optional color for the node that defines this graph, from the chosen palette OR hex color.' },
                     description: { type: 'string', description: 'Optional description of the graph' },
@@ -431,7 +429,7 @@ export function getToolDefinitions() {
                 type: 'object',
                 properties: {
                     nodeName: { type: 'string', description: 'Name of the node to add a definition graph to (fuzzy matched)' },
-                    palette: { type: 'string', description: `Optional: Name of the predefined color palette to use for the graph. ${getPaletteSchemaDescription()}` },
+                    palette: { type: 'string', description: 'Palette name (see system prompt for options).' },
                     nodes: {
                         type: 'array',
                         description: 'Array of nodes to create inside the definition graph',
