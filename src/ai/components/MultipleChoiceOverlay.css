@@ -25,13 +25,31 @@
     }
 }
 
+.mc-question-header {
+    display: flex;
+    flex-direction: row;
+    align-items: flex-start;
+    gap: 12px;
+    margin-bottom: 4px;
+}
+
+.mc-wizard-face {
+    width: 36px;
+    height: 36px;
+    margin-top: 4px;
+    /* pushes it down a bit relative to the text */
+    flex-shrink: 0;
+}
+
 .mc-question {
     color: #260000;
     font-size: 14px;
     font-weight: 600;
     font-family: 'EmOne', sans-serif;
     line-height: 1.4;
-    margin-bottom: 4px;
+    margin-top: 2px;
+    /* aligns text slightly lower too if needed, or leave to let face drop */
+    margin-bottom: 0;
 }
 
 .mc-options {

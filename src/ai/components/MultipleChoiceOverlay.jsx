@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import './MultipleChoiceOverlay.css';
+import headSvg from '../../assets/svg/wizard/head.svg';
 
 /**
  * Overlay for rendering a multiple choice question from the AI
@@ -30,7 +31,10 @@ export default function MultipleChoiceOverlay({ question, options, onSelect, onD
 
     return (
         <div className="mc-overlay-container">
-            <div className="mc-question">{question}</div>
+            <div className="mc-question-header">
+                <img src={headSvg} alt="Wizard" className="mc-wizard-face" />
+                <div className="mc-question">{question}</div>
+            </div>
             <div className="mc-options">
                 {options.map((opt, i) => (
                     <button

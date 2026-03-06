@@ -1,4 +1,5 @@
 import { buildPalettePromptFragment } from '../../ai/palettes.js';
+import { getToolDefinitions } from '../../wizard/tools/schemas.js';
 
 export const PALETTE_INSTRUCTIONS = buildPalettePromptFragment();
 
@@ -176,221 +177,27 @@ Each Thing can have **abstraction chains** — ordered spectrums of abstraction 
 - Use \`editAbstractionChain\` to add or remove nodes
 `;
 
-export const REDSTRING_TOOLS = `
-## Your Tools
+export function buildToolsPromptFragment() {
+  const tools = getToolDefinitions();
+
+  const toolDescriptions = tools.map(t => {
+    let str = `### ${t.name}\n${t.description}\n`;
+    if (t.parameters && t.parameters.properties && Object.keys(t.parameters.properties).length > 0) {
+      for (const [pName, pVal] of Object.entries(t.parameters.properties)) {
+        const req = t.parameters.required && t.parameters.required.includes(pName) ? '(required)' : '(optional)';
+        str += `- \`${pName}\` ${req}: ${pVal.description}\n`;
+      }
+    } else {
+      str += `- No parameters required\n`;
+    }
+    return str.trim();
+  }).join('\n\n');
+
+  return `## Your Tools
 
 You have these tools available:
 
-### createNode
-Create a single node.
-- \`name\` (required): The node's display name
-- \`color\` (optional): Hex color like "#8B0000"
-- \`description\` (optional): What this node represents
-
-### updateNode
-Update an existing node.
-- \`nodeName\` (required): Current name of the node to update (fuzzy matched)
-- \`name\`, \`color\`, \`description\` (optional): New values
-
-### deleteNode
-Remove a node and its connections.
-- \`nodeName\` (required): Name of the node to delete (fuzzy matched)
-
-### createEdge
-Connect two nodes.
-- \`sourceId\` (required): Starting node
-- \`targetId\` (required): Ending node
-- \`type\` (optional): Relationship type like "contains"
-
-### updateEdge
-Update the type or directionality of an existing connection between two nodes.
-- \`sourceName\` (required): Name of the source node
-- \`targetName\` (required): Name of the target node
-- \`type\` (optional): New relationship type (e.g., "contains", "orbits")
-- \`directionality\` (optional): "unidirectional", "bidirectional", "reverse", or "none"
-- **When to use**: When you want to CHANGE what an existing connection means (e.g., "relates to" → "contains")
-- **When NOT to use**: For adding new connections — use \`expandGraph\` or \`createEdge\` instead
-
-### replaceEdges
-Bulk-replace connections between existing nodes. This finds existing edges between each source/target pair and updates them, or creates new edges if none exist. Use this instead of \`expandGraph\` when refining/correcting connection types on an existing graph.
-- \`edges\` (required): Array of { source, target, type, directionality? }
-- **When to use**: When asked to refine, correct, or improve multiple connections at once
-- **When NOT to use**: For adding brand-new nodes and connections — use \`expandGraph\` instead
-
-### deleteEdge
-Remove a connection.
-- \`edgeId\` (optional): The edge ID to delete
-- \`sourceName\` (optional): Name of the source node (fuzzy matched)
-- \`targetName\` (optional): Name of the target node (fuzzy matched)
-- At least \`edgeId\` or \`sourceName\`/\`targetName\` must be provided
-
-### readGraph ⭐ (use this first)
-Read the **full active graph** — all nodes (name, description, color, id), all connections (source → target, type), and all groups. No parameters needed.
-- **Always call this first** when asked to review, audit, or edit an existing graph.
-- If the graph is very large the response will include a \`warning\` field — in that case fall back to \`searchNodes\` or \`searchConnections\`.
-- **When to use**: Any time you need to understand what's already in the graph before making changes.
-- **When NOT to use**: Very large graphs (check for \`warning\` in the response).
-
-### searchNodes *(large-graph fallback)*
-Search nodes by keyword when \`readGraph\` returns a size warning.
-- \`query\` (optional): Keyword or name. Omit to page through all nodes.
-- \`limit\` / \`offset\` (optional): Pagination. Response includes \`total\`, \`returned\`, \`hasMore\`.
-- **When to use**: Large graphs where \`readGraph\` warns about size, or targeted lookups to retrieve specific IDs.
-- **When NOT to use**: When you haven't tried \`readGraph\` first on a small/medium graph.
-
-### searchConnections *(large-graph fallback)*
-Search connections by type or node name when \`readGraph\` returns a size warning.
-- \`query\` (optional): Connection type or node name. Omit to page through all.
-- \`limit\` / \`offset\` (optional): Pagination. Response includes \`total\`, \`returned\`, \`hasMore\`.
-- **When to use**: Large graphs where \`readGraph\` warns about size.
-- **When NOT to use**: When you haven't tried \`readGraph\` first.
-
-
-### selectNode
-Find and select a specific node on the canvas, highlighting it and panning the view to focus on it.
-- \`name\` (required): Name of the node to select (supports fuzzy matching)
-- The canvas will highlight the node and navigate to center it in the viewport
-- **When to use**: When the user says "find", "show me", "focus on", or "select" a node
-
-### getNodeContext
-Get a node and its neighbors.
-- \`nodeId\` (required): The node to examine
-- Returns the node and connected nodes
-
-### createGraph
-Create a new empty graph workspace (Web).
-- \`name\` (required): Graph name - this is the WORKSPACE name, NOT a node name
-- Use this when you need an empty workspace, then use createNode/expandGraph to add content
-- **Prefer createPopulatedGraph** if you already know what nodes to add
-
-### expandGraph
-Add NEW nodes and edges to the ACTIVE graph. This is strictly for ADDING new content — it will NOT update or replace existing connections.
-- \`nodes\` (optional): Array of { name, color, description }
-- \`edges\` (optional): Array of { source, target, type }
-- Must provide at least one node or one edge
-- **IMPORTANT**: If you want to CHANGE existing connections (e.g., update their type), use \`updateEdge\` or \`replaceEdges\` instead. Using \`expandGraph\` to "fix" connections will create DUPLICATES.
-
-### createPopulatedGraph
-Create a NEW graph with nodes, edges, AND groups in one operation. **You MUST always provide the \`name\` parameter** if you are creating a new graph.
-- \`targetGraphId\` (optional): If provided, this tool will populate an **existing** graph instead of creating a new one. This is the **ONLY** single-call way to populate a pre-existing graph with groups. Use this instead of \`expandGraph\` when you need to add nodes, connections, AND groups simultaneously to an existing graph.
-- \`name\` (**REQUIRED** if not using \`targetGraphId\`): A descriptive name for the new graph workspace (e.g., "Solar System", "Romeo and Juliet Characters")
-- \`description\` (optional): Description of the graph
-- \`nodes\` (required): Array of { name, color, description }
-  - **ALWAYS include description** for each node - what it represents
-  - Use **Title Case** for names (e.g., "Romeo Montague", not "romeo_montague")
-- \`edges\` (required!): Array with **rich connection definitions**
-  - \`source\`: Source node name - must EXACTLY match a node name
-  - \`target\`: Target node name - must EXACTLY match a node name
-  - \`directionality\`: Arrow direction
-    - \`"unidirectional"\` (default): Arrow points to target (→)
-    - \`"bidirectional"\`: Arrows on both ends (↔)
-    - \`"none"\`: No arrows, just a line (—)
-    - \`"reverse"\`: Arrow points to source (←)
-  - \`definitionNode\` (required!): Defines the connection type
-    - \`name\`: Connection type in **Title Case** (e.g., "Loves", "Parent Of", "Orbits")
-    - \`color\`: Hex color for this connection type
-    - \`description\`: What this connection means
-  - **CONNECTION DENSITY**: Every node should have 2-3 edges minimum!
-- \`groups\` (strongly encouraged): Array of { name, color, memberNames }
-  - **ALWAYS include groups** when natural groupings exist (factions, houses, teams, categories, departments, etc.)
-  - \`memberNames\` must **EXACTLY MATCH** node names
-
-**Example edge with proper definition:**
-\`\`\`json
-{
-  "source": "Romeo",
-  "target": "Juliet", 
-  "directionality": "bidirectional",
-  "definitionNode": {
-    "name": "Loves",
-    "color": "#E74C3C",
-    "description": "Romantic love between characters (Avoid phrasing like 'Defines the Loves relationship')"
-  }
-}
-\`\`\`
-
-**Example: "make a graph of Romeo and Juliet characters"**
-- nodes: Romeo, Juliet, Mercutio, Tybalt, etc. (with descriptions!)
-- edges: Romeo ↔ Juliet (Loves), Tybalt → Mercutio (Kills), etc.
-- groups: House Montague, House Capulet
-
-### createGroup
-Create a visual Group containing specified nodes.
-- \`name\` (required): Group name
-- \`memberNames\` (required): Array of node names to include
-- \`color\` (optional): Hex color
-
-### listGroups
-List all Groups in the active graph.
-- No parameters required
-- Returns Groups and Thing-Groups with their details
-
-### updateGroup
-Update an existing group.
-- \`groupName\` (required): Name of group to update
-- \`newName\`, \`newColor\`, \`addMembers\`, \`removeMembers\` (optional)
-
-### deleteGroup
-Remove a Group (member nodes are kept).
-- \`groupName\` (required): Name of group to delete
-
-### convertToThingGroup
-Convert a Group into a Thing-Group (formal decomposition).
-- \`groupName\` (required): Group to convert
-- \`thingName\` (optional): Name for the defining Thing
-- \`createNewThing\` (optional): Create new Thing or use existing
-
-### combineThingGroup
-Collapse a Thing-Group back into a single node.
-- \`groupName\` (required): Thing-Group to collapse
-
-### listNodeDefinitions
-Inspect a Thing's definition graphs (read-only). Shows which definition graphs exist for a Thing, whether they're empty, and their node/edge counts.
-- \`nodeName\` (required): Name of the Thing to inspect (fuzzy matched)
-- Returns: Array of definition graphs with metadata (isEmpty, nodeCount, edgeCount)
-- **When to use**: Before navigating or decomposing to understand what definition graphs are available
-- **Example**: "Does Car have any definition graphs?" → Call this to check
-
-### addDefinitionGraph
-Create a new definition graph for a Thing WITHOUT changing what the user sees. Returns a graphId you can use with targetGraphId to populate it.
-- \`nodeName\` (required): Thing to add a definition graph to (fuzzy matched)
-- Returns: \`{ graphId }\` — use this as \`targetGraphId\` in subsequent \`expandGraph\` calls
-- **When to use**: "Define what X is made of", "Create a definition for Car", building hierarchies
-- **Example**: addDefinitionGraph("Car") → returns defGraphId, then expandGraph([Engine, Wheels], targetGraphId: defGraphId)
-- **CRITICAL**: This does NOT navigate — use \`switchToGraph\` only when the user explicitly asks to view a graph
-
-### removeDefinitionGraph
-Remove a definition graph from a Thing's definitionGraphIds array and delete the graph.
-- \`nodeName\` (required): Thing to remove definition from (fuzzy matched)
-- \`definitionIndex\` (optional, default 0): Which definition graph to remove (0-based index)
-- **When to use**: "Remove the definition of X", "Delete Car's definition graph"
-
-### switchToGraph
-Change the active graph (explicit navigation). ONLY use when the user explicitly requests to view a different graph.
-- \`graphId\` (optional): Direct graph ID to switch to
-- \`graphName\` (optional): Find graph by name (fuzzy matched)
-- \`nodeName\` (optional): Navigate to a Thing's first definition graph (fuzzy matched)
-- **When to use**: "Show me Car's definition", "Go into Engine", "Navigate to the Vehicle graph"
-- **When NOT to use**: Building hierarchies or editing definitions — use targetGraphId instead
-
-### condenseToNode
-Package selected nodes into a new Thing with a definition graph. Creates the compositional hierarchy — like packing a box from loose parts.
-- \`memberNames\` (required): Array of node names in the active graph to condense
-- \`nodeName\` (required): Name for the new Thing/concept
-- \`nodeColor\` (optional): Hex color for the new Thing
-- \`collapse\` (optional, default false): If true, replaces members with single node. If false, keeps members visible as Thing-Group.
-- **When to use**: "Make these into a Car", "condense Engine parts into Engine", "create a System Thing from these components"
-- **What it does**: Creates group → converts to Thing-Group (creating definition graph) → optionally collapses to single node
-- **Inverse of**: decomposeNode
-
-### decomposeNode
-Replace a Thing with its definition graph contents. Unpacks the box — the Thing instance goes away, its internal components appear as a Thing-Group.
-- \`nodeName\` (required): Thing to decompose (must have a non-empty definition graph)
-- \`definitionIndex\` (optional, default 0): Which definition graph to decompose
-- **When to use**: "Break down Car into its parts", "decompose Engine", "unpack this Thing"
-- **What it does**: Removes the Thing instance, copies all nodes/edges from its definition graph into the active graph, creates Thing-Group
-- **Important**: The Thing prototype still exists globally — you're only removing this instance and materializing its definition contents
-- **Inverse of**: condenseToNode
+${toolDescriptions}
 
 ## Editing vs. Expanding
 
@@ -403,35 +210,10 @@ Replace a Thing with its definition graph contents. Unpacks the box — the Thin
 | Bulk-refine existing connections | \`replaceEdges\` | "Make all connections more specific" |
 | Remove a connection | \`deleteEdge\` | "Remove the link between X and Y" |
 
-**Never use \`expandGraph\` to "fix" or "refine" existing connections.** It only adds — it cannot update or remove. This will create duplicate edges.
+**Never use \`expandGraph\` to "fix" or "refine" existing connections.** It only adds — it cannot update or remove. This will create duplicate edges.`;
+}
 
-### setNodeType
-Set or clear a node's type (categorization). **Auto-creates the type node if it doesn't exist.**
-- \`nodeName\` (required): Name of the node to type (fuzzy matched)
-- \`typeName\` (optional): Name of the type/category. Auto-created if it doesn't exist.
-- \`typeColor\` (optional): Color for auto-created type node (palette name or hex)
-- \`typeDescription\` (optional): Description for auto-created type node
-- \`palette\` (optional): Palette name for color resolution
-- \`clearType\` (optional): If true, removes the node's type
-- **When to use**: "Make Dog a Mammal", "Categorize Engine as Machine Part", "Remove the type from X"
-- **Always provide typeColor and typeDescription** so auto-created nodes look good
-
-### readAbstractionChain
-Read a node's abstraction chains (carousel spectrums). Shows all dimensions with node chains from specific to generic.
-- \`nodeName\` (required): Name of the node to inspect (fuzzy matched)
-- Returns: Chain dimensions with node names, positions, and specific/generic directions
-- **When to use**: "What's Dog's abstraction spectrum?", before editing a chain
-
-### editAbstractionChain
-Add or remove nodes from a node's abstraction chain (carousel spectrum).
-- \`nodeName\` (required): Chain owner node (fuzzy matched)
-- \`dimension\` (required): Dimension name, e.g., "Generalization Axis"
-- \`editAction\` (required): "add" or "remove"
-- \`targetNodeName\` (required): Node to add or remove (fuzzy matched)
-- \`direction\` (optional): For "add" — "above" (more generic) or "below" (more specific). Default: "above"
-- \`relativeTo\` (optional): Insert relative to a specific chain node (fuzzy matched)
-- **When to use**: "Add Mammal above Dog in the generalization chain", "Remove Animal from Dog's spectrum"
-`;
+export const REDSTRING_TOOLS = buildToolsPromptFragment();
 
 export const REDSTRING_FORMATTING = `
 ## Formatting Rules
@@ -605,14 +387,12 @@ Decomposed Car into its 8 systems as a Thing-Group in Vehicle Design. The Car Th
 
 User: Add some stuff about science.
 
-Agent: "Science" is a vast domain — to weave something useful, I need a compass heading. Are you thinking:
-- A specific field (physics, biology, chemistry)?
-- The scientific method itself as a process?
-- Famous scientists and their contributions?
+Agent: [calls askMultipleChoice with:
+question: "'Science' is a vast domain. Which area should we focus on first?",
+options: ["A specific field (physics, biology, chemistry)", "The scientific method as a process", "Famous scientists and their contributions"]
+]
 
-One nudge and I'll spin it up.
-
-**Key pattern**: When the scope is genuinely unclear, ask ONE focused clarifying question. Don't guess wildly, don't stall, and don't offer a 10-item menu. Keep it to 2-3 focused options.
+**Key pattern**: When the scope is genuinely unclear, use the \`askMultipleChoice\` tool rather than asking open-ended questions in text. Don't guess wildly, but also don't use this tool if there's an obvious default—avoid being redundant.
 
 ---
 

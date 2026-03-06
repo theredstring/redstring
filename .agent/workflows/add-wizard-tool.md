@@ -35,11 +35,10 @@ When adding a new wizard tool, you MUST update **all 5 layers** of the tool pipe
 - This updates the in-memory `graphState` so subsequent tools in the same agent loop see the changes
 - Without this, the agent can't chain tools that depend on each other's results
 
-### 5. Add prompt documentation
+### 5. Add usage examples
 - **File**: `src/services/agent/PromptFragments.js`
-- Add tool documentation to `REDSTRING_TOOLS` section
-- Add usage examples to `EXAMPLE_FLOWS` section  
-- This file uses template literals (backtick strings), so escape inline backticks as `\`` (single backslash + backtick)
+- The `REDSTRING_TOOLS` section is auto-generated from `getToolDefinitions()`, so you don't need to add the description manually!
+- Add usage examples to `EXAMPLE_FLOWS` section if the tool requires specific patterns to be understood
 
 ## Optional: BridgeClient action handler
 - **File**: `src/ai/BridgeClient.jsx`

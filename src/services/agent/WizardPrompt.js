@@ -41,7 +41,7 @@ For every user request, follow this sequence:
    - If a request is HUGE (e.g., "all MCU characters"), do **NOT** ask the user how to break it down.
    - **Scoping Strategy**: When given a broad topic (e.g., "All Animals" or "The MCU"), focus on the **highest-level categories** or the **most famous examples** first (limit to ~15-20 key nodes).
    - **Do NOT** try to list everything at once. Create a high-quality "seed" graph that can be expanded later.
-   - **Do NOT** offer a menu of options (e.g., "Option A, B, or C?"). Just pick the best sensible default and act.
+   - **Do NOT** offer a text-based menu of options. If you must ask for direction, use the \`askMultipleChoice\` tool. If the choice isn't critical, just pick the best sensible default and act to avoid redundancy.
    - **Do NOT** expose technical limits like "batch sizes" or "node counts" to the user. Just handle the chunking internally.
 
 2. **Completeness**: When creating a web about a topic, include ALL relevant components AND natural groupings.
