@@ -40,6 +40,7 @@ import { askMultipleChoice } from './askMultipleChoice.js';
 import { setNodeType } from './setNodeType.js';
 import { readAbstractionChain } from './readAbstractionChain.js';
 import { editAbstractionChain } from './editAbstractionChain.js';
+import { populateDefinitionGraph } from './populateDefinitionGraph.js';
 
 const TOOLS = {
   createNode,
@@ -72,7 +73,8 @@ const TOOLS = {
   askMultipleChoice,
   setNodeType,
   readAbstractionChain,
-  editAbstractionChain
+  editAbstractionChain,
+  populateDefinitionGraph
 };
 
 /**

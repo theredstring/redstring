@@ -331,6 +331,79 @@ function updateGraphState(graphState, _toolName, _args, result) {
     }
 
     console.error('[updateGraphState] addDefinitionGraph: created', result.graphId, 'for', result.nodeName, '| activeGraphId unchanged');
+  } else if (result.action === 'populateDefinitionGraph' && result.spec) {
+    // 1. Add new definition graph for a node
+    graphState.graphs = graphState.graphs || [];
+    graphState.graphs.push({
+      id: result.graphId,
+      name: result.nodeName || 'Definition',
+      instances: [],
+      edgeIds: [],
+      groups: []
+    });
+
+    // 2. Update prototype's definitionGraphIds array
+    const proto = (graphState.nodePrototypes || []).find(p => p.id === result.prototypeId);
+    if (proto) {
+      proto.definitionGraphIds = proto.definitionGraphIds || [];
+      proto.definitionGraphIds.push(result.graphId);
+    }
+
+    // 3. Add nodes to this new graph
+    const targetGraph = graphState.graphs[graphState.graphs.length - 1];
+
+    // Helper to extract and track inline types
+    const typeMap = new Map();
+    (result.spec.nodes || []).forEach(n => {
+      if (n.type) {
+        const tLower = n.type.toLowerCase().trim();
+        if (!typeMap.has(tLower)) {
+          let existingProtoId = null;
+          for (const proto of graphState.nodePrototypes) {
+            if ((proto.name || '').toLowerCase().trim() === tLower) {
+              existingProtoId = proto.id;
+              break;
+            }
+          }
+          if (existingProtoId) {
+            typeMap.set(tLower, existingProtoId);
+          } else {
+            const newProtoId = `proto-auto-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+            typeMap.set(tLower, newProtoId);
+            graphState.nodePrototypes.push({
+              id: newProtoId,
+              name: n.type,
+              color: n.typeColor || '#A0A0A0',
+              description: n.typeDescription || '',
+              typeNodeId: null,
+              definitionGraphIds: []
+            });
+          }
+        }
+      }
+    });
+
+    (result.spec.nodes || []).forEach((n, idx) => {
+      const protoId = `proto-${Date.now()}-${idx}`;
+      const instId = `inst-${Date.now()}-${idx}-${Math.random().toString(36).slice(2, 6)}`;
+
+      targetGraph.instances.push({
+        id: instId,
+        prototypeId: protoId,
+        name: n.name
+      });
+
+      graphState.nodePrototypes.push({
+        id: protoId,
+        name: n.name,
+        color: n.color || '#5B6CFF',
+        description: n.description || '',
+        typeNodeId: n.type ? typeMap.get(n.type.toLowerCase().trim()) : null,
+        definitionGraphIds: []
+      });
+    });
+
+    console.error('[updateGraphState] populateDefinitionGraph: created', result.graphId, 'and expanded with', (result.spec.nodes || []).length, 'nodes');
   } else if (result.action === 'removeDefinitionGraph') {
     // Remove definition graph from node's definitionGraphIds
     const proto = (graphState.nodePrototypes || []).find(p => p.id === result.prototypeId);
@@ -507,9 +580,16 @@ export async function* runAgent(userMessage, graphState, config = {}, ensureSche
   });
 
   const baseSystemPrompt = config.systemPrompt || SYSTEM_PROMPT || 'You are The Wizard, a helpful assistant for building knowledge graphs.';
-  const fullSystemPrompt = baseSystemPrompt.replace('{graphName}', graphState.activeGraphId ? (graphState.graphs?.find(g => g.id === graphState.activeGraphId)?.name || 'Unknown') : 'None')
+
+  const tools = getToolDefinitions();
+  const maxIterations = config.maxIterations || DEFAULT_MAX_ITERATIONS;
+
+  const fullSystemPrompt = baseSystemPrompt
+    .replace('{graphName}', graphState.activeGraphId ? (graphState.graphs?.find(g => g.id === graphState.activeGraphId)?.name || 'Unknown') : 'None')
     .replace('{nodeList}', contextStr.includes('Existing Things') ? contextStr.split('Existing Things:')[1]?.split('\n')[0] || '' : '')
-    .replace('{edgeList}', ''); // Can be enhanced later
+    .replace('{edgeList}', '')
+    .replace(/{maxIterations}/g, String(maxIterations))
+    .replace(/{toolCount}/g, String(tools.length));
 
   // Build messages array with conversation history
   const conversationHistory = config.conversationHistory || [];
@@ -528,9 +608,7 @@ export async function* runAgent(userMessage, graphState, config = {}, ensureSche
     { role: 'user', content: userMessage }
   ];
 
-  const tools = getToolDefinitions();
 
-  const maxIterations = config.maxIterations || DEFAULT_MAX_ITERATIONS;
   for (let iteration = 0; iteration < maxIterations; iteration++) {
     try {
       let iterationContent = '';

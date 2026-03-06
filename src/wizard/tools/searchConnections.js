@@ -11,6 +11,8 @@ export async function searchConnections(args, graphState, cid, ensureSchedulerSt
 
     const { edges = [], nodePrototypes = [], graphs = [], activeGraphId } = graphState;
 
+    const targetGraphId = args.targetGraphId || activeGraphId;
+
     // Build a node name lookup (by ID) for resolving edge endpoints
     const nodeNameById = new Map();
     // protoMap used to resolve connection type from definitionNodeIds
@@ -23,8 +25,8 @@ export async function searchConnections(args, graphState, cid, ensureSchedulerSt
         }
     }
 
-    // Also pull instance names from the active graph
-    const activeGraph = graphs.find(g => g.id === activeGraphId);
+    // Also pull instance names from the target graph
+    const activeGraph = graphs.find(g => g.id === targetGraphId);
     if (activeGraph) {
         const instances = Array.isArray(activeGraph.instances)
             ? activeGraph.instances
@@ -37,7 +39,7 @@ export async function searchConnections(args, graphState, cid, ensureSchedulerSt
         }
     }
 
-    // Filter edges to only the active graph's edges
+    // Filter edges to only the target graph's edges
     const activeEdgeIds = new Set(activeGraph?.edgeIds || []);
     const activeEdges = edges.filter(e => activeEdgeIds.has(e.id) || activeEdgeIds.has(e.edgeId));
 

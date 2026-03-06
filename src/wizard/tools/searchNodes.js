@@ -11,6 +11,8 @@ export async function searchNodes(args, graphState, cid, ensureSchedulerStarted)
 
   const { nodePrototypes = [], graphs = [], activeGraphId } = graphState;
 
+  const targetGraphId = args.targetGraphId || activeGraphId;
+
   // Build a combined node list from prototypes + active graph instances
   // This ensures we find nodes even if prototypes list is incomplete
   const nodeMap = new Map(); // id -> { id, name, color, description }
@@ -27,8 +29,8 @@ export async function searchNodes(args, graphState, cid, ensureSchedulerStarted)
     }
   }
 
-  // Add instances from active graph (may have names not in prototypes)
-  const activeGraph = graphs.find(g => g.id === activeGraphId);
+  // Add instances from active target graph (may have names not in prototypes)
+  const activeGraph = graphs.find(g => g.id === targetGraphId);
   if (activeGraph) {
     const instances = Array.isArray(activeGraph.instances)
       ? activeGraph.instances

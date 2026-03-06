@@ -99,11 +99,12 @@ export function getToolDefinitions() {
         },
         {
             name: 'searchNodes',
-            description: 'Search for nodes in the active graph. Omit query to browse ALL nodes (best for small/medium graphs or when you are unsure what you are looking for). Provide a query to filter by keyword or name. Supports limit/offset for large graphs.',
+            description: 'Search for nodes. By default searches the active graph, but you can specify targetGraphId to search any graph. Omit query to browse ALL nodes. Provide a query to filter by keyword or name. Supports limit/offset for large graphs.',
             parameters: {
                 type: 'object',
                 properties: {
                     query: { type: 'string', description: 'Optional. Search keyword or name. Omit to return all nodes. Individual words work best for broad searches.' },
+                    targetGraphId: { type: 'string', description: 'Optional: ID of graph to search within. If omitted, uses active graph.' },
                     limit: { type: 'number', description: 'Max results to return. Defaults to 100.' },
                     offset: { type: 'number', description: 'Skips this many results for pagination. Use with hasMore=true responses.' }
                 },
@@ -112,11 +113,12 @@ export function getToolDefinitions() {
         },
         {
             name: 'searchConnections',
-            description: 'Search for connections/edges in the active graph. Omit query to browse ALL connections (best for small/medium graphs or when you are unsure what exists). Provide a query to filter by connection type or node name. Supports limit/offset for large graphs.',
+            description: 'Search for connections/edges. By default searches the active graph, but you can specify targetGraphId to search any graph. Omit query to browse ALL connections. Provide a query to filter by connection type or node name. Supports limit/offset.',
             parameters: {
                 type: 'object',
                 properties: {
                     query: { type: 'string', description: 'Optional. Search keyword - can be a connection type (e.g., "contains") or node name. Omit to return all connections.' },
+                    targetGraphId: { type: 'string', description: 'Optional: ID of graph to search within. If omitted, uses active graph.' },
                     limit: { type: 'number', description: 'Max results to return. Defaults to 100.' },
                     offset: { type: 'number', description: 'Skips this many results for pagination. Use with hasMore=true responses.' }
                 },
@@ -147,10 +149,12 @@ export function getToolDefinitions() {
         },
         {
             name: 'readGraph',
-            description: 'Read the FULL active graph — all nodes (with names, descriptions, colors), all connections (with source, target, type), and all groups. Use this as your first action when asked to audit, review, or modify an existing graph. Faster and more complete than searching. Includes a warning if the graph is very large.',
+            description: 'Read a FULL graph (active graph by default, or provide targetGraphId). Returns all nodes, edges, and groups. Use this to inspect any graph without hijacking the user\'s view.',
             parameters: {
                 type: 'object',
-                properties: {},
+                properties: {
+                    targetGraphId: { type: 'string', description: 'Optional: ID of graph to read. If omitted, uses active graph.' }
+                },
                 required: []
             }
         },
@@ -168,7 +172,7 @@ export function getToolDefinitions() {
         },
         {
             name: 'expandGraph',
-            description: 'Add multiple nodes and/or edges at once (bulk operation). By default adds to active graph, but you can specify targetGraphId to populate any graph (e.g., definition graphs) non-disruptively. Must provide at least one node or at least one edge. TYPE YOUR NODES: After expanding a graph with this tool, you MUST immediately call setNodeType to type any new nodes you just created!',
+            description: 'Add multiple nodes, edges, and/or groups at once to an EXISTING graph. By default adds to active graph, but you can specify targetGraphId to populate any graph non-disruptively. Do NOT use this to create new graph workspaces. Must provide at least one node or edge.',
             parameters: {
                 type: 'object',
                 properties: {
@@ -202,7 +206,20 @@ export function getToolDefinitions() {
                             required: ['source', 'target']
                         }
                     },
-                    targetGraphId: { type: 'string', description: 'Optional: ID of graph to add nodes/edges to. Use this to populate definition graphs without disrupting user view. If omitted, uses active graph.' }
+                    groups: {
+                        type: 'array',
+                        description: 'Optional: Array of groups to create',
+                        items: {
+                            type: 'object',
+                            properties: {
+                                name: { type: 'string' },
+                                color: { type: 'string' },
+                                memberNames: { type: 'array', items: { type: 'string' } }
+                            },
+                            required: ['name', 'memberNames']
+                        }
+                    },
+                    targetGraphId: { type: 'string', description: 'Optional: ID of existing graph to add items to. If omitted, uses active graph.' }
                 }
             }
         },
@@ -237,14 +254,13 @@ export function getToolDefinitions() {
         },
         {
             name: 'createPopulatedGraph',
-            description: 'Create a NEW graph with nodes, edges, AND groups in one operation. You MUST always provide a "name" for the graph. ALWAYS include edges with definitionNode to show relationships! ALWAYS include meaningful groups when they exist. CONNECTION DENSITY: Every node should have 2-3 edges minimum. TYPE YOUR NODES: After creating a graph with this tool, you MUST immediately call setNodeType to type as many of the generated nodes as possible!',
+            description: 'Create a BRAND NEW graph workspace with nodes, edges, and groups. ONLY use this when creating a new graph. Do NOT use this to populate an existing graph.',
             parameters: {
                 type: 'object',
                 properties: {
                     palette: { type: 'string', description: `Optional: Name of the color palette to use for the graph. ${getPaletteSchemaDescription()}` },
-                    name: { type: 'string', description: 'REQUIRED: A descriptive name for the new graph workspace (e.g., "Solar System", "Romeo and Juliet Characters"). Must always be provided.' },
+                    name: { type: 'string', description: 'REQUIRED: A descriptive name for the new graph workspace.' },
                     description: { type: 'string', description: 'Optional description of the graph' },
-                    targetGraphId: { type: 'string', description: 'Optional: ID of graph to populate. If provided, this tool will populate an existing graph instead of creating a new one. This is the ONLY single-call way to populate a pre-existing graph with groups.' },
                     nodes: {
                         type: 'array',
                         description: 'Array of nodes to create. Give each node a brief description!',
@@ -407,14 +423,72 @@ export function getToolDefinitions() {
             }
         },
         {
-            name: 'addDefinitionGraph',
-            description: 'Create a new definition graph for a node WITHOUT changing the user\'s active graph.Returns the new graphId which you can use with targetGraphId parameter to populate it.This is the non - disruptive way to build compositional hierarchies - the user\'s view stays unchanged while you edit definition graphs.',
+            name: 'populateDefinitionGraph',
+            description: 'Creates a definition graph for a node and populates it with components in one step. Use this instead of addDefinitionGraph + expandGraph to avoid execution disruption. By building definitions this way, the user\'s view stays unchanged while you edit definition graphs.',
             parameters: {
                 type: 'object',
                 properties: {
-                    nodeName: { type: 'string', description: 'Name of the node to add a definition graph to (fuzzy matched)' }
+                    nodeName: { type: 'string', description: 'Name of the node to add a definition graph to (fuzzy matched)' },
+                    palette: { type: 'string', description: `Optional: Name of the predefined color palette to use for the graph. ${getPaletteSchemaDescription()}` },
+                    nodes: {
+                        type: 'array',
+                        description: 'Array of nodes to create inside the definition graph',
+                        items: {
+                            type: 'object',
+                            properties: {
+                                name: { type: 'string' },
+                                color: { type: 'string', description: 'Color name from chosen palette, OR hex color if using a custom theme.' },
+                                description: { type: 'string' },
+                                type: { type: 'string', description: 'Optional: name of the category/type this node falls under (e.g., "Mammal" for a "Dog" node).' },
+                                typeColor: { type: 'string', description: 'Optional: color for the type node, supports palettes. Use muted colors.' },
+                                typeDescription: { type: 'string', description: 'Optional: brief description of the type itself.' }
+                            },
+                            required: ['name']
+                        }
+                    },
+                    edges: {
+                        type: 'array',
+                        description: 'Array of edges to create inside the definition graph',
+                        items: {
+                            type: 'object',
+                            properties: {
+                                source: { type: 'string', description: 'Source node name' },
+                                target: { type: 'string', description: 'Target node name' },
+                                directionality: {
+                                    type: 'string',
+                                    enum: ['unidirectional', 'bidirectional', 'none', 'reverse'],
+                                    description: 'Arrow direction: unidirectional (→), bidirectional (↔), none (—), reverse (←). Default: unidirectional'
+                                },
+                                type: { type: 'string', description: 'Relationship type' },
+                                definitionNode: {
+                                    type: 'object',
+                                    description: 'Defines what this connection type means.',
+                                    properties: {
+                                        name: { type: 'string', description: 'Connection type name in Title Case (e.g., "Loves", "Parent Of", "Orbits")' },
+                                        color: { type: 'string', description: 'Color name from chosen palette, OR hex color.' },
+                                        description: { type: 'string', description: 'What this connection means' }
+                                    },
+                                    required: ['name']
+                                }
+                            },
+                            required: ['source', 'target']
+                        }
+                    },
+                    groups: {
+                        type: 'array',
+                        description: 'Groups to organize nodes.',
+                        items: {
+                            type: 'object',
+                            properties: {
+                                name: { type: 'string', description: 'Group name (e.g., "Engineering Team")' },
+                                color: { type: 'string', description: 'Color name from chosen palette, OR hex color.' },
+                                memberNames: { type: 'array', items: { type: 'string' }, description: 'Names of nodes that belong to this group - must EXACTLY match names in the nodes array' }
+                            },
+                            required: ['name', 'memberNames']
+                        }
+                    }
                 },
-                required: ['nodeName']
+                required: ['nodeName', 'nodes', 'edges']
             }
         },
         {

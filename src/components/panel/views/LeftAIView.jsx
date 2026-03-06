@@ -944,6 +944,103 @@ function applyToolResultToStore(toolName, result, toolCallId) {
     return;
   }
 
+  // Handle populateDefinitionGraph — create definition graph AND expand it
+  if (result.action === 'populateDefinitionGraph' && result.spec) {
+    const graphId = result.graphId;
+    const nodeName = (result.nodeName || '').toLowerCase().trim();
+    console.log('[Wizard] Applying populateDefinitionGraph to store:', result.nodeName, '→', graphId);
+
+    // Resolve prototype by name — take LAST match
+    let realProtoId = result.prototypeId;
+    if (nodeName) {
+      for (const [pid, proto] of store.nodePrototypes) {
+        if ((proto.name || '').toLowerCase().trim() === nodeName) {
+          realProtoId = pid;
+        }
+      }
+    }
+
+    if (!realProtoId) {
+      console.error('[Wizard] populateDefinitionGraph: Could not find prototype for:', result.nodeName);
+      return;
+    }
+
+    // 1. Create the definition graph
+    store.createDefinitionGraphWithId(graphId, realProtoId);
+
+    // 2. Populate it (like expandGraph)
+    const typeMap = new Map();
+    (result.spec.nodes || []).forEach(n => {
+      if (n.type) {
+        const tLower = n.type.toLowerCase().trim();
+        if (!typeMap.has(tLower)) {
+          let existingProtoId = null;
+          for (const [pid, proto] of store.nodePrototypes) {
+            if ((proto.name || '').toLowerCase().trim() === tLower) {
+              existingProtoId = pid;
+              break;
+            }
+          }
+          if (existingProtoId) {
+            typeMap.set(tLower, existingProtoId);
+          } else {
+            const newProtoId = `proto-auto-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+            typeMap.set(tLower, newProtoId);
+            store.addNodePrototype({
+              id: newProtoId,
+              name: n.type,
+              color: n.typeColor || '#A0A0A0',
+              description: n.typeDescription || '',
+              typeNodeId: null,
+              definitionGraphIds: []
+            });
+            console.log('[Wizard] Auto-created inline type node:', n.type, '→', newProtoId);
+          }
+        }
+      }
+    });
+
+    const bulkData = {
+      nodes: result.spec.nodes.map((n, idx) => ({
+        name: n.name,
+        color: n.color,
+        description: n.description,
+        typeNodeId: n.type ? typeMap.get(n.type.toLowerCase().trim()) : null,
+        prototypeId: `proto-${Date.now()}-${idx}-${Math.random().toString(36).slice(2, 8)}`,
+        instanceId: `inst-${Date.now()}-${idx}-${Math.random().toString(36).slice(2, 8)}`,
+        x: Math.random() * 600 + 200,
+        y: Math.random() * 500 + 200
+      })),
+      edges: (result.spec.edges || []).map(e => ({
+        source: e.source,
+        target: e.target,
+        type: e.type || 'relates to',
+        directionality: e.directionality || 'unidirectional',
+        definitionNode: e.definitionNode || null
+      })),
+      groups: result.spec.groups || []
+    };
+
+    store.applyBulkGraphUpdates(graphId, bulkData);
+    console.log('[Wizard] Successfully populated definition graph:', graphId);
+
+    try { applyOffscreenLayout(graphId); } catch (e) { console.warn('[Wizard] Offscreen layout failed:', e); }
+    setTimeout(() => {
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('rs-trigger-auto-layout', { detail: { graphId } }));
+      }
+    }, 600);
+
+    const newNodeNames = result.spec.nodes.map(n => n.name);
+    setTimeout(() => {
+      enrichMultipleNodes(newNodeNames, graphId).catch(err => {
+        console.warn('[Auto-Enrich] Batch enrichment failed:', err);
+      });
+    }, 1000);
+
+    return;
+  }
+
   // Handle removeDefinitionGraph — remove a definition graph from a node
   if (result.action === 'removeDefinitionGraph') {
     const nodeName = (result.nodeName || '').toLowerCase().trim();

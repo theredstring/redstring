@@ -9,13 +9,15 @@
 export async function readGraph(args, graphState) {
     const { nodePrototypes = [], graphs = [], edges = [], activeGraphId } = graphState;
 
-    if (!activeGraphId) {
-        return { error: 'No active graph. Create or open a graph first.' };
+    const targetGraphId = args.targetGraphId || activeGraphId;
+
+    if (!targetGraphId) {
+        return { error: 'No graph specified. Create or open a graph first.' };
     }
 
-    const activeGraph = graphs.find(g => g.id === activeGraphId);
+    const activeGraph = graphs.find(g => g.id === targetGraphId);
     if (!activeGraph) {
-        return { error: `Active graph "${activeGraphId}" not found in state.` };
+        return { error: `Graph "${targetGraphId}" not found in state.` };
     }
 
     // --- Build node name/desc/color lookup AND a general prototype map ---------
@@ -143,7 +145,7 @@ export async function readGraph(args, graphState) {
 
     return {
         graphName: activeGraph.name,
-        graphId: activeGraphId,
+        graphId: targetGraphId,
         nodeCount: nodeList.length,
         edgeCount: edgeList.length,
         groupCount: groupList.length,
