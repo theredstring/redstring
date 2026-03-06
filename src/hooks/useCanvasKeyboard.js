@@ -282,19 +282,37 @@ export const useCanvasKeyboard = ({
             const cmdOrCtrl = isMac ? e.metaKey : e.ctrlKey;
 
             // Copy (Ctrl/Cmd+C)
-            if (cmdOrCtrl && e.key === 'c' && selectedInstanceIds.size > 0) {
-                e.preventDefault();
-                const currentGraph = graphsMap.get(activeGraphId);
-                if (currentGraph) {
-                    const copied = copySelection(selectedInstanceIds, currentGraph, nodePrototypesMap, edgesMap);
-                    clipboardRef.current = copied;
-                    console.log(`[useCanvasKeyboard] Copied ${selectedInstanceIds.size} nodes to clipboard`);
+            if (cmdOrCtrl && e.key.toLowerCase() === 'c') {
+                if (selectedInstanceIds.size > 0) {
+                    e.preventDefault();
+                    const currentGraph = graphsMap.get(activeGraphId);
+                    if (currentGraph) {
+                        const copied = copySelection(selectedInstanceIds, currentGraph, nodePrototypesMap, edgesMap);
+                        clipboardRef.current = copied;
+                        console.log(`[useCanvasKeyboard] Copied ${selectedInstanceIds.size} nodes to clipboard`);
+                    }
+                    return;
+                } else if (selectedEdgeId || selectedEdgeIds.size > 0) {
+                    e.preventDefault();
+                    const edgeIdToCopy = selectedEdgeId || Array.from(selectedEdgeIds)[0];
+                    const edgeToCopy = edgesMap.get(edgeIdToCopy);
+                    if (edgeToCopy) {
+                        clipboardRef.current = {
+                            type: 'edge_definitions',
+                            definitions: {
+                                color: edgeToCopy.color,
+                                typeNodeId: edgeToCopy.typeNodeId,
+                                definitionNodeIds: [...(edgeToCopy.definitionNodeIds || [])]
+                            }
+                        };
+                        console.log(`[useCanvasKeyboard] Copied edge definitions to clipboard`);
+                    }
+                    return;
                 }
-                return;
             }
 
             // Cut (Ctrl/Cmd+X)
-            if (cmdOrCtrl && e.key === 'x' && selectedInstanceIds.size > 0) {
+            if (cmdOrCtrl && e.key.toLowerCase() === 'x' && selectedInstanceIds.size > 0) {
                 e.preventDefault();
                 const currentGraph = graphsMap.get(activeGraphId);
                 if (currentGraph) {
@@ -314,48 +332,67 @@ export const useCanvasKeyboard = ({
             }
 
             // Paste (Ctrl/Cmd+V)
-            if (cmdOrCtrl && e.key === 'v' && clipboardRef.current) {
+            if (cmdOrCtrl && e.key.toLowerCase() === 'v' && clipboardRef.current) {
                 e.preventDefault();
                 const currentGraph = graphsMap.get(activeGraphId);
                 if (currentGraph) {
-                    // Determine target position
-                    let targetPos;
+                    if (clipboardRef.current.type === 'edge_definitions') {
+                        // Paste edge definitions onto selected edges
+                        const edgesToUpdate = new Set();
+                        if (selectedEdgeId) edgesToUpdate.add(selectedEdgeId);
+                        selectedEdgeIds.forEach(id => edgesToUpdate.add(id));
 
-                    // NOTE: We need mouse position or fallback. 
-                    // We use mousePositionRef passed from parent.
-                    // Note: In original code, it queried '.canvas' DOM rect. 
-                    // We can try to use viewportBounds or just query document.
-                    // Querying document is easiest for now to match behavior.
-                    const svgElement = document.querySelector('.canvas');
-                    const rect = svgElement?.getBoundingClientRect();
+                        if (edgesToUpdate.size > 0) {
+                            const defs = clipboardRef.current.definitions;
+                            edgesToUpdate.forEach(edgeId => {
+                                storeActions.updateEdge(edgeId, (draft) => {
+                                    if (defs.color) draft.color = defs.color;
+                                    draft.typeNodeId = defs.typeNodeId;
+                                    draft.definitionNodeIds = [...defs.definitionNodeIds];
+                                });
+                            });
+                            console.log(`[useCanvasKeyboard] Pasted edge definitions to ${edgesToUpdate.size} edges`);
+                        }
+                    } else if (clipboardRef.current.nodes) {
+                        // Determine target position
+                        let targetPos;
 
-                    if (rect && mousePositionRef.current) {
-                        // Desktop: use mouse position converted to canvas coords
-                        const clientX = mousePositionRef.current.x;
-                        const clientY = mousePositionRef.current.y;
-                        targetPos = {
-                            x: (clientX - rect.left - panOffset.x) / zoomLevel + canvasSize.offsetX,
-                            y: (clientY - rect.top - panOffset.y) / zoomLevel + canvasSize.offsetY
-                        };
-                        console.log(`[useCanvasKeyboard] Pasting at mouse position:`, targetPos);
-                    } else {
-                        // Mobile fallback: offset from original center
-                        targetPos = {
-                            x: clipboardRef.current.originalCenter.x + 50,
-                            y: clipboardRef.current.originalCenter.y + 50
-                        };
-                        console.log(`[useCanvasKeyboard] Pasting at fallback position:`, targetPos);
+                        // NOTE: We need mouse position or fallback. 
+                        // We use mousePositionRef passed from parent.
+                        // Note: In original code, it queried '.canvas' DOM rect. 
+                        // We can try to use viewportBounds or just query document.
+                        // Querying document is easiest for now to match behavior.
+                        const svgElement = document.querySelector('.canvas');
+                        const rect = svgElement?.getBoundingClientRect();
+
+                        if (rect && mousePositionRef.current) {
+                            // Desktop: use mouse position converted to canvas coords
+                            const clientX = mousePositionRef.current.x;
+                            const clientY = mousePositionRef.current.y;
+                            targetPos = {
+                                x: (clientX - rect.left - panOffset.x) / zoomLevel + canvasSize.offsetX,
+                                y: (clientY - rect.top - panOffset.y) / zoomLevel + canvasSize.offsetY
+                            };
+                            console.log(`[useCanvasKeyboard] Pasting at mouse position:`, targetPos);
+                        } else {
+                            // Mobile fallback: offset from original center
+                            targetPos = {
+                                x: clipboardRef.current.originalCenter.x + 50,
+                                y: clipboardRef.current.originalCenter.y + 50
+                            };
+                            console.log(`[useCanvasKeyboard] Pasting at fallback position:`, targetPos);
+                        }
+
+                        const result = pasteClipboard(
+                            clipboardRef.current,
+                            activeGraphId,
+                            targetPos,
+                            storeActions,
+                            currentGraph,
+                            getNodeDimensions
+                        );
+                        setSelectedInstanceIds(new Set(result.newInstanceIds));
                     }
-
-                    const result = pasteClipboard(
-                        clipboardRef.current,
-                        activeGraphId,
-                        targetPos,
-                        storeActions,
-                        currentGraph,
-                        getNodeDimensions
-                    );
-                    setSelectedInstanceIds(new Set(result.newInstanceIds));
                 }
                 return;
             }
