@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Merge } from 'lucide-react';
+import { Merge, ChevronRight } from 'lucide-react';
 import DuplicateManager from '../../DuplicateManager.jsx';
 import AllThingsNodeItem from '../items/AllThingsNodeItem.jsx';
 import StandardDivider from '../../StandardDivider.jsx';
@@ -106,7 +106,15 @@ const LeftAllThingsView = ({
                   onMouseLeave={(e) => { e.currentTarget.style.filter = 'brightness(1)'; e.currentTarget.style.transform = 'translateY(0px)'; }}
                 >
                   <span>{typeInfo.name} ({nodes.length})</span>
-                  <span style={{ display: 'inline-block', transition: 'transform 0.2s ease', transform: isCollapsed ? 'rotate(0deg)' : 'rotate(90deg)', fontSize: '14px', fontFamily: "'EmOne', sans-serif" }}>▶</span>
+                  <span style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    transition: 'transform 0.2s ease',
+                    transform: isCollapsed ? 'rotate(0deg)' : 'rotate(90deg)',
+                  }}>
+                    <ChevronRight size={16} />
+                  </span>
                 </div>
                 {!isCollapsed && (
                   <div style={{ overflow: 'hidden', transition: 'max-height 0.2s ease-out', maxHeight }}>

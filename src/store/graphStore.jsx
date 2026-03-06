@@ -242,8 +242,9 @@ const saveCoordinatorMiddleware = (config) => {
 
           // Accumulate into batch if patches exist
           if (currentPatches && currentPatches.length > 0) {
-            // Check if we should flush previous batch due to major context switch (e.g. domain change)
-            if (historyBatch.patches.length > 0 && historyBatch.domain !== domain) {
+            // Check if we should flush previous batch due to major context switch (e.g. domain change or actionId change)
+            const isDifferentAction = changeContext.actionId && historyBatch.actionId && changeContext.actionId !== historyBatch.actionId;
+            if (historyBatch.patches.length > 0 && (historyBatch.domain !== domain || isDifferentAction)) {
               // Flush immediately
               flushHistoryBatch();
             }
