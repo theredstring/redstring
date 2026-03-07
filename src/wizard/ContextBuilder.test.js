@@ -152,7 +152,7 @@ describe('ContextBuilder', () => {
       expect(nodeLines.length).toBe(15);
     });
 
-    it('extracts color palette from prototypes', () => {
+    it('does not include color palette in context (removed for compactness)', () => {
       const graphState = {
         graphs: [
           {
@@ -172,37 +172,7 @@ describe('ContextBuilder', () => {
       };
 
       const context = buildContext(graphState);
-      expect(context).toContain('Color palette');
-      expect(context).toContain('#FF0000');
-      expect(context).toContain('#00FF00');
-      expect(context).toContain('#0000FF');
-    });
-
-    it('limits color palette to 8 colors', () => {
-      const graphState = {
-        graphs: [
-          {
-            id: '1',
-            name: 'Test Graph',
-            instances: {},
-            edgeIds: []
-          }
-        ],
-        nodePrototypes: Array.from({ length: 15 }, (_, i) => ({
-          id: `proto-${i}`,
-          name: `Node ${i}`,
-          color: `#${i.toString(16).padStart(6, '0')}`
-        })),
-        edges: [],
-        activeGraphId: '1'
-      };
-
-      const context = buildContext(graphState);
-      const colorMatch = context.match(/Color palette in use: (.+)/);
-      expect(colorMatch).toBeTruthy();
-      const colors = colorMatch[1].split(', ');
-      expect(colors.length).toBeLessThanOrEqual(8);
-      expect(context).toContain('...');
+      expect(context).not.toContain('Color palette');
     });
 
     it('handles missing optional fields gracefully', () => {

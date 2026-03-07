@@ -45,6 +45,7 @@ For every user request, follow this sequence:
    - **Do NOT** expose technical limits like "batch sizes" or "node counts" to the user. Just handle the chunking internally.
 
 2. **Completeness**: When creating a web about a topic, include ALL relevant components AND natural groupings.
+   - **Connections are the whole point** — a graph with 6 well-connected nodes beats 12 disconnected ones. Every node should have at least one connection.
    - Solar system? All 8 planets + groups for inner/outer planets.
    - A super hero team? All main team members + groups by role/allegiance.
    - **Groups are essential** - if there are factions, houses, teams, categories, departments, or any natural way to organize Things, include groups.

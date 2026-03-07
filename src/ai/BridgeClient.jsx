@@ -1052,6 +1052,32 @@ const BridgeClient = () => {
 
               st.applyBulkGraphUpdates(gId, bulkData);
 
+              // Convert groups with definedBy into Thing-Groups
+              const groupSpecs = result.spec.groups || [];
+              const thingGroupSpecs = groupSpecs.filter(g => g.definedBy);
+              if (thingGroupSpecs.length > 0) {
+                const freshSt = useGraphStore.getState();
+                const graph = freshSt.graphs.get(gId);
+                if (graph?.groups) {
+                  for (const [groupId, group] of graph.groups) {
+                    const spec = thingGroupSpecs.find(g => g.name === group.name);
+                    if (spec?.definedBy) {
+                      let existingProtoId = null;
+                      for (const [pid, proto] of freshSt.nodePrototypes) {
+                        if (proto.name.toLowerCase() === spec.definedBy.name.toLowerCase()) {
+                          existingProtoId = pid; // take last match
+                        }
+                      }
+                      if (existingProtoId) {
+                        freshSt.convertGroupToNodeGroup(gId, groupId, existingProtoId, false);
+                      } else {
+                        freshSt.convertGroupToNodeGroup(gId, groupId, null, true, spec.definedBy.name, spec.definedBy.color || '#8B0000');
+                      }
+                    }
+                  }
+                }
+              }
+
               // Auto-layout: offscreen immediately, then event for DOM override
               try { applyOffscreenLayout(gId); } catch (e) { console.error('[BridgeClient] Offscreen layout failed:', e); }
               setTimeout(() => {
@@ -1095,6 +1121,32 @@ const BridgeClient = () => {
               };
 
               st.applyBulkGraphUpdates(gId, bulkData);
+
+              // Convert groups with definedBy into Thing-Groups
+              const groupSpecs = result.spec.groups || [];
+              const thingGroupSpecs = groupSpecs.filter(g => g.definedBy);
+              if (thingGroupSpecs.length > 0) {
+                const freshSt = useGraphStore.getState();
+                const graph = freshSt.graphs.get(gId);
+                if (graph?.groups) {
+                  for (const [groupId, group] of graph.groups) {
+                    const spec = thingGroupSpecs.find(g => g.name === group.name);
+                    if (spec?.definedBy) {
+                      let existingProtoId = null;
+                      for (const [pid, proto] of freshSt.nodePrototypes) {
+                        if (proto.name.toLowerCase() === spec.definedBy.name.toLowerCase()) {
+                          existingProtoId = pid; // take last match
+                        }
+                      }
+                      if (existingProtoId) {
+                        freshSt.convertGroupToNodeGroup(gId, groupId, existingProtoId, false);
+                      } else {
+                        freshSt.convertGroupToNodeGroup(gId, groupId, null, true, spec.definedBy.name, spec.definedBy.color || '#8B0000');
+                      }
+                    }
+                  }
+                }
+              }
 
               // Auto-layout: offscreen immediately, then event for DOM override
               try { applyOffscreenLayout(gId); } catch (e) { console.error('[BridgeClient] Offscreen layout failed:', e); }

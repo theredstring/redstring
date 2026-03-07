@@ -116,7 +116,8 @@ function toPlainState(state) {
     ...state,
     graphs: Array.from(state.graphs.values()).map(g => ({
       ...g,
-      instances: Array.from(g.instances?.values() || [])
+      instances: Array.from(g.instances?.values() || []),
+      groups: Array.from(g.groups?.values() || [])
     })),
     nodePrototypes: Array.from(state.nodePrototypes.values()),
     edges: Array.from(state.edges.values())

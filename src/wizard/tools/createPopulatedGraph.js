@@ -39,7 +39,9 @@ export async function createPopulatedGraph(args, graphState, cid, ensureSchedule
   // Helper to convert to Title Case
   const toTitleCase = (str) => {
     if (!str) return '';
-    return str.replace(/\w\S*/g, (txt) => txt.charAt(0).toUpperCase() + txt.substr(1).toLowerCase());
+    // Split camelCase: "isPartOf" → "is Part Of"
+    const spaced = str.replace(/([a-z])([A-Z])/g, '$1 $2');
+    return spaced.replace(/\w\S*/g, (txt) => txt.charAt(0).toUpperCase() + txt.substr(1).toLowerCase());
   };
 
   // Helper to generate a color for connection types
@@ -90,7 +92,12 @@ export async function createPopulatedGraph(args, graphState, cid, ensureSchedule
   const groupSpecs = (groups || []).map(g => ({
     name: g.name,
     color: resolvePaletteColor(activePalette, g.color || '#8B0000'),
-    memberNames: g.memberNames || []
+    memberNames: g.memberNames || [],
+    definedBy: g.definedBy ? {
+      name: g.definedBy.name,
+      color: resolvePaletteColor(activePalette, g.definedBy.color || '#8B0000'),
+      description: g.definedBy.description || ''
+    } : undefined
   }));
 
   // Build graph spec for the low-level task (with proper definitionNode)

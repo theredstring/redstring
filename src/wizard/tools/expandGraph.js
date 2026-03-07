@@ -14,7 +14,9 @@ import { validateEdges } from './edgeValidator.js';
  */
 function toTitleCase(str) {
   if (!str) return '';
-  return str.replace(/\w\S*/g, (txt) => txt.charAt(0).toUpperCase() + txt.substr(1).toLowerCase());
+  // Split camelCase: "isPartOf" → "is Part Of"
+  const spaced = str.replace(/([a-z])([A-Z])/g, '$1 $2');
+  return spaced.replace(/\w\S*/g, (txt) => txt.charAt(0).toUpperCase() + txt.substr(1).toLowerCase());
 }
 
 /**
@@ -90,7 +92,12 @@ export async function expandGraph(args, graphState, cid, ensureSchedulerStarted)
   const groupSpecs = (groups || []).map(g => ({
     name: g.name,
     color: resolvePaletteColor(activePalette, g.color || '#8B0000'),
-    memberNames: g.memberNames || []
+    memberNames: g.memberNames || [],
+    definedBy: g.definedBy ? {
+      name: g.definedBy.name,
+      color: resolvePaletteColor(activePalette, g.definedBy.color || '#8B0000'),
+      description: g.definedBy.description || ''
+    } : undefined
   }));
 
   // Return full spec so UI can apply it directly (same pattern as createPopulatedGraph)

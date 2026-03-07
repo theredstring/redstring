@@ -7,7 +7,7 @@ import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { callLLM, streamLLM } from './LLMClient.js';
-import { buildContext, truncateContext } from './ContextBuilder.js';
+import { buildContext } from './ContextBuilder.js';
 import { executeTool, getToolDefinitions } from './tools/index.js';
 import { WIZARD_SYSTEM_PROMPT } from '../services/agent/WizardPrompt.js';
 
@@ -583,7 +583,7 @@ export async function* runAgent(userMessage, graphState, config = {}, ensureSche
   const cid = config.cid || `wizard-${Date.now()}`;
 
   // Build initial context
-  const initialContext = truncateContext(buildContext(graphState), 4000);
+  const initialContext = buildContext(graphState);
 
   // Debug logging for graph context
   const activeGraph = graphState?.graphs?.find(g => g.id === graphState.activeGraphId);
@@ -637,7 +637,7 @@ export async function* runAgent(userMessage, graphState, config = {}, ensureSche
   for (let iteration = 0; iteration < maxIterations; iteration++) {
     // Rebuild context from (potentially mutated) graphState so LLM sees current state
     if (iteration > 0) {
-      const freshContext = truncateContext(buildContext(graphState), 4000);
+      const freshContext = buildContext(graphState);
       messages[0] = { role: 'system', content: systemPromptTemplate + '\n\n' + freshContext };
     }
     if (abortSignal?.aborted) {

@@ -63,18 +63,17 @@ export function buildContext(graphState) {
         nodeNameById.set(inst.id, name);
       }
 
-      // List ALL nodes with descriptions and expandable indicators
+      // List ALL nodes with compact descriptions
       const nodeLines = instances.map(inst => {
         const proto = inst.prototypeId ? protoMap.get(inst.prototypeId) : null;
         const name = inst.name || proto?.name || inst.id;
-        const desc = inst.description || proto?.description || '';
+        const rawDesc = inst.description || proto?.description || '';
+        const desc = rawDesc.length > 60 ? rawDesc.substring(0, 60) + '...' : rawDesc;
 
         // Check if node has definition graphs (expandable)
         const defGraphIds = proto?.definitionGraphIds;
         const hasDefinitions = Array.isArray(defGraphIds) && defGraphIds.length > 0;
-        const expandable = hasDefinitions
-          ? ` 🔍[${defGraphIds.length} definition graph${defGraphIds.length !== 1 ? 's' : ''} - use switchToGraph to view, decomposeNode to unpack]`
-          : '';
+        const expandable = hasDefinitions ? ' [has def]' : '';
 
         let typeStr = '';
         if (proto?.typeNodeId) {
@@ -148,17 +147,6 @@ export function buildContext(graphState) {
     context += '\nNo active web - create one or open an existing web.';
   } else {
     context += '\n\nNo webs yet - perfect time to create one!';
-  }
-
-  // Color palette
-  const colors = new Set();
-  nodePrototypes.forEach(proto => {
-    if (proto.color) colors.add(proto.color);
-  });
-
-  if (colors.size > 0) {
-    const colorList = Array.from(colors).slice(0, 8).join(', ');
-    context += `\n\nColor palette in use: ${colorList}${colors.size > 8 ? '...' : ''}`;
   }
 
   // Type palette

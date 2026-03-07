@@ -47,15 +47,18 @@ All graph-mutating and read-only tools accept optional \`targetGraphId\`. If omi
 4. Limit each tool call to ~8-12 nodes for reliability. Use multiple calls for larger requests.
 
 ## Edge Rules
+- Connection names must be plain English in Title Case: "Part Of", "Created By", "Influenced".
+- Never use camelCase (isPartOf), snake_case (is_part_of), or code-style names.
 - Every edge \`source\` and \`target\` MUST match a node name in your \`nodes\` array. Unmatched edges are dropped.
 - Always include the nested \`definitionNode\` object on edges. Do not collapse or omit it.
-- Verify your edges reference real nodes before submitting.
 
 ## Groups and Thing-Groups
 
-- **Groups**: Visual containers for loose association within a graph. No semantic meaning.
-- **Thing-Groups**: Formal decomposition — a Group defined by a Thing, creating a definition graph. Members become the Thing's components.
-- User says "group these" → Group. User says "X is made of these" → Thing-Group. Make this choice yourself.
+- **Groups**: Visual containers for loose categorization. No semantic meaning.
+- **Thing-Groups**: Formal composition — a Group backed by a node. Members become that node's components. The group visually represents the "inside" of that node.
+- For "X is made of Y, Z" relationships → use a Thing-Group (add \`definedBy\` to the group), not edges.
+- For peer relationships (X influences Y, X created Y) → use edges.
+- In bulk tools, set \`definedBy\` on a group to make it a Thing-Group in one step.
 
 ## Types & Categorization
 
@@ -147,9 +150,13 @@ export const EXAMPLE_FLOWS = `
 
 User: Make me a graph about the human brain.
 
-Agent: The seat of consciousness! I'll map it by **major lobes** (Frontal, Parietal, Temporal, Occipital) plus **subcortical structures** (Hippocampus, Amygdala, Thalamus, Cerebellum, Brain Stem), grouped by region.
+Agent: The seat of consciousness! I'll map it by **major lobes** plus **subcortical structures**, grouped by region.
 
-[calls createPopulatedGraph with ~12 nodes, rich edges, and 3 groups]
+[calls createPopulatedGraph with ~12 nodes, edges like:
+  { source: "Frontal Lobe", target: "Temporal Lobe", definitionNode: { name: "Connected To", description: "Neural pathway link" } },
+  { source: "Hippocampus", target: "Amygdala", definitionNode: { name: "Works With", description: "Collaborative processing" } },
+  { source: "Thalamus", target: "Frontal Lobe", definitionNode: { name: "Relays To", description: "Sensory signal routing" } }
+and groups: ["Cortical Lobes", "Subcortical Structures", "Brain Stem Complex"]]
 
 Wove 12 structures across 3 regions with 18 connections.
 

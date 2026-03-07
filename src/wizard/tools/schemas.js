@@ -207,13 +207,23 @@ export function getToolDefinitions() {
                     },
                     groups: {
                         type: 'array',
-                        description: 'Optional: Array of groups to create',
+                        description: 'Optional: Array of groups to create. Add definedBy to make a Thing-Group.',
                         items: {
                             type: 'object',
                             properties: {
                                 name: { type: 'string' },
                                 color: { type: 'string' },
-                                memberNames: { type: 'array', items: { type: 'string' } }
+                                memberNames: { type: 'array', items: { type: 'string' } },
+                                definedBy: {
+                                    type: 'object',
+                                    description: 'Optional. Makes this a Thing-Group backed by a node. Creates the node if needed.',
+                                    properties: {
+                                        name: { type: 'string', description: 'Name of the backing node' },
+                                        color: { type: 'string', description: 'Color for the node' },
+                                        description: { type: 'string', description: 'What this node represents' }
+                                    },
+                                    required: ['name']
+                                }
                             },
                             required: ['name', 'memberNames']
                         }
@@ -306,13 +316,23 @@ export function getToolDefinitions() {
                     },
                     groups: {
                         type: 'array',
-                        description: 'Groups to organize nodes into categories or factions.',
+                        description: 'Groups to organize nodes. Add definedBy to make a Thing-Group.',
                         items: {
                             type: 'object',
                             properties: {
                                 name: { type: 'string', description: 'Group name (e.g., "House Montague", "Engineering Team")' },
                                 color: { type: 'string', description: 'Color name from chosen palette, OR hex color.' },
-                                memberNames: { type: 'array', items: { type: 'string' }, description: 'Names of nodes that belong to this group - must EXACTLY match names in the nodes array' }
+                                memberNames: { type: 'array', items: { type: 'string' }, description: 'Names of nodes that belong to this group - must match names in the nodes array' },
+                                definedBy: {
+                                    type: 'object',
+                                    description: 'Optional. Makes this a Thing-Group backed by a node. Creates the node if needed.',
+                                    properties: {
+                                        name: { type: 'string', description: 'Name of the backing node' },
+                                        color: { type: 'string', description: 'Color for the node' },
+                                        description: { type: 'string', description: 'What this node represents' }
+                                    },
+                                    required: ['name']
+                                }
                             },
                             required: ['name', 'memberNames']
                         }
