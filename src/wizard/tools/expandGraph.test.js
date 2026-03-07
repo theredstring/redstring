@@ -32,7 +32,11 @@ describe('expandGraph', () => {
           { name: 'Node Two' }
         ],
         edges: [
-          { source: 'Node One', target: 'Node Two', type: 'connects' }
+          {
+            source: 'Node One',
+            target: 'Node Two',
+            definitionNode: { name: 'Connects', description: 'Test connection' }
+          }
         ]
       },
       graphState,

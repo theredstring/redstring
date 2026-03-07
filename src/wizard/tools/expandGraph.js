@@ -70,6 +70,23 @@ export async function expandGraph(args, graphState, cid, ensureSchedulerStarted)
   const existingNodeNames = (graphState.nodePrototypes || []).map(p => p.name).filter(Boolean);
   const { validEdges, droppedEdges } = validateEdges(nodeSpecs, edges || [], existingNodeNames);
 
+  // Strict validation: require definitionNode on all edges
+  for (let i = 0; i < validEdges.length; i++) {
+    const e = validEdges[i];
+    if (!e.definitionNode || typeof e.definitionNode !== 'object') {
+      throw new Error(
+        `Edge ${i + 1} (${e.source} → ${e.target}) is missing required field 'definitionNode'. ` +
+        `Check for typos in your JSON - did you write 'definition,Node' or 'definitionnode' instead of 'definitionNode'?`
+      );
+    }
+    if (!e.definitionNode.name) {
+      throw new Error(
+        `Edge ${i + 1} (${e.source} → ${e.target}): definitionNode must have a 'name' property. ` +
+        `Example: definitionNode: { name: "Connects To", description: "..." }`
+      );
+    }
+  }
+
   // Build edge specs with definitionNode handling (same as createPopulatedGraph)
   const edgeSpecs = validEdges.map(e => {
     const inputDefNode = e.definitionNode;

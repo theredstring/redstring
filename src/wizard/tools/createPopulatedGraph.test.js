@@ -42,7 +42,11 @@ describe('createPopulatedGraph', () => {
           { name: 'Node Two', color: '#00FF00' }
         ],
         edges: [
-          { source: 'Node One', target: 'Node Two', type: 'connects' }
+          {
+            source: 'Node One',
+            target: 'Node Two',
+            definitionNode: { name: 'Connects', description: 'Test connection' }
+          }
         ]
       },
       graphState,
@@ -102,30 +106,29 @@ describe('createPopulatedGraph', () => {
     expect(result.spec.nodes[0].description).toBe('');
   });
 
-  it('handles edges without type - defaults to Connection', async () => {
+  it('throws error when edge is missing definitionNode', async () => {
     const graphState = {
       graphs: [],
       nodePrototypes: []
     };
 
-    const result = await createPopulatedGraph(
-      {
-        name: 'Test Graph',
-        nodes: [
-          { name: 'Node One' },
-          { name: 'Node Two' }
-        ],
-        edges: [
-          { source: 'Node One', target: 'Node Two' }
-        ]
-      },
-      graphState,
-      mockCid,
-      mockEnsureSchedulerStarted
-    );
-
-    expect(result.spec.edges[0].type).toBe('Connection');
-    expect(result.spec.edges[0].definitionNode).toBeNull();
+    await expect(
+      createPopulatedGraph(
+        {
+          name: 'Test Graph',
+          nodes: [
+            { name: 'Node One' },
+            { name: 'Node Two' }
+          ],
+          edges: [
+            { source: 'Node One', target: 'Node Two' }
+          ]
+        },
+        graphState,
+        mockCid,
+        mockEnsureSchedulerStarted
+      )
+    ).rejects.toThrow('Edge 1 (Node One → Node Two) is missing required field \'definitionNode\'');
   });
 
   it('uses empty description for graph when not provided', async () => {
