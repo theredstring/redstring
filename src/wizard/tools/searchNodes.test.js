@@ -85,10 +85,13 @@ describe('searchNodes', () => {
     expect(result.results.length).toBeLessThanOrEqual(20);
   });
 
-  it('throws error when query is missing', async () => {
-    await expect(
-      searchNodes({}, mockGraphState, mockCid, mockEnsureSchedulerStarted)
-    ).rejects.toThrow('query is required');
+  it('returns all nodes when query is omitted', async () => {
+    const result = await searchNodes({}, mockGraphState, mockCid, mockEnsureSchedulerStarted);
+
+    expect(result.results).toBeDefined();
+    expect(result.total).toBe(3);
+    expect(result.returned).toBe(3);
+    expect(result.message).toContain('Showing all');
   });
 
   it('handles empty nodePrototypes array', async () => {

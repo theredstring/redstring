@@ -66,6 +66,6 @@ describe('updateEdge', () => {
 
         await expect(
             updateEdge({ sourceName: 'inst-1', targetName: 'inst-2' }, graphState, mockCid, mockEnsureSchedulerStarted)
-        ).rejects.toThrow('No active graph');
+        ).rejects.toThrow('No target graph specified and no active graph available');
     });
 });

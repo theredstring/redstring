@@ -76,7 +76,7 @@ describe('deleteNode', () => {
   it('throws error when no active graph', async () => {
     await expect(
       deleteNode({ nodeName: 'Temp' }, { graphs: [], nodePrototypes: [] }, mockCid, null)
-    ).rejects.toThrow('No active graph');
+    ).rejects.toThrow('No target graph specified and no active graph available');
   });
 
   it('falls back to nodeId param for backward compat', async () => {

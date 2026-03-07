@@ -84,7 +84,7 @@ describe('replaceEdges', () => {
                 mockCid,
                 mockEnsureSchedulerStarted
             )
-        ).rejects.toThrow('No active graph');
+        ).rejects.toThrow('No target graph specified and no active graph available');
     });
 
     it('defaults directionality to unidirectional', async () => {

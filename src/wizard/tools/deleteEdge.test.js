@@ -66,7 +66,7 @@ describe('deleteEdge', () => {
 
     await expect(
       deleteEdge({ edgeId: 'edge-1' }, graphState, mockCid, mockEnsureSchedulerStarted)
-    ).rejects.toThrow('No active graph');
+    ).rejects.toThrow('No target graph specified and no active graph available');
   });
 
   // Removed ensureSchedulerStarted test as direct UI tools no longer call it

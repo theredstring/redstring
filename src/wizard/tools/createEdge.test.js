@@ -89,7 +89,7 @@ describe('createEdge', () => {
 
     await expect(
       createEdge({ sourceId: 'inst-1', targetId: 'inst-2' }, graphState, mockCid, mockEnsureSchedulerStarted)
-    ).rejects.toThrow('No active graph');
+    ).rejects.toThrow('No target graph specified and no active graph available');
   });
 
   // Removed ensureSchedulerStarted test as direct UI tools no longer call it
