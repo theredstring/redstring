@@ -2800,17 +2800,17 @@ const BridgeClient = () => {
       }
     };
 
-    // Check for bridge updates every 1s; guard with mountedRef to auto-resume after remounts
+    // Check for bridge updates every 250ms; guard with mountedRef to auto-resume after remounts
     // Adaptive polling loop
     const pollingLoop = async () => {
       if (!mountedRef.current) return;
 
       const now = Date.now();
       const timeSinceActivity = now - lastActivityRef.current;
-      const isIdle = timeSinceActivity > 30000; // 30 seconds idle
+      const isIdle = timeSinceActivity > 60000; // 60 seconds idle
 
-      // Fast poll (1s) if active, slow poll (5s) if idle
-      const interval = isIdle ? 5000 : 1000;
+      // Fast poll (250ms) if active, slow poll (3s) if idle
+      const interval = isIdle ? 3000 : 250;
 
       await checkForBridgeUpdates();
 

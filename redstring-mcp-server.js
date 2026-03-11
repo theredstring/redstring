@@ -473,8 +473,8 @@ You have access to these tools. Use them to perform actions.
 // Wait for the browser to finish executing enqueued actions
 async function waitForActionCompletion(actionIds, timeoutMs = 30000) {
   const startTime = Date.now();
-  let delay = 250;
-  const maxDelay = 2000;
+  let delay = 100;
+  const maxDelay = 500;
   const results = {};
 
   while (Date.now() - startTime < timeoutMs) {
