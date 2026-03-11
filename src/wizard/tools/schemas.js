@@ -625,6 +625,41 @@ export function getToolDefinitions() {
                 },
                 required: ['nodeName', 'dimension', 'editAction', 'targetNodeName']
             }
+        },
+        {
+            name: 'getPrototype',
+            description: 'Get the detailed properties of a Node Prototype directly (name, description, color, type properties, definition graphs).',
+            parameters: {
+                type: 'object',
+                properties: {
+                    prototypeId: { type: 'string', description: 'Exact ID of the prototype' },
+                    nodeName: { type: 'string', description: 'Fuzzy matched name of the node (if ID is unknown)' }
+                },
+                required: []
+            }
+        },
+        {
+            name: 'getInstancesOfPrototype',
+            description: 'Find all instances of a specific prototype across the entire workspace. Useful for seeing where a concept is used.',
+            parameters: {
+                type: 'object',
+                properties: {
+                    prototypeId: { type: 'string', description: 'Exact ID of the prototype' },
+                    nodeName: { type: 'string', description: 'Fuzzy matched name of the node (if ID is unknown)' }
+                },
+                required: []
+            }
+        },
+        {
+            name: 'getGraphInstances',
+            description: 'List all raw instances inside a specific graph, showing their instanceId and the prototypeId they refer to.',
+            parameters: {
+                type: 'object',
+                properties: {
+                    graphId: { type: 'string', description: 'Optional: ID of the graph to inspect, defaults to active graph if omitted' }
+                },
+                required: []
+            }
         }
     ];
 }

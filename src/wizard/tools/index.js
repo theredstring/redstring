@@ -41,6 +41,10 @@ import { readAbstractionChain } from './readAbstractionChain.js';
 import { editAbstractionChain } from './editAbstractionChain.js';
 import { populateDefinitionGraph } from './populateDefinitionGraph.js';
 
+import { getPrototype } from './getPrototype.js';
+import { getInstancesOfPrototype } from './getInstancesOfPrototype.js';
+import { getGraphInstances } from './getGraphInstances.js';
+
 const TOOLS = {
   createNode,
   updateNode,
@@ -73,7 +77,10 @@ const TOOLS = {
   setNodeType,
   readAbstractionChain,
   editAbstractionChain,
-  populateDefinitionGraph
+  populateDefinitionGraph,
+  getPrototype,
+  getInstancesOfPrototype,
+  getGraphInstances
 };
 
 /**
