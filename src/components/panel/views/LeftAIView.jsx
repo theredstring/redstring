@@ -925,9 +925,12 @@ function applyToolResultToStore(toolName, result, toolCallId) {
     console.log('[Wizard] Applying addDefinitionGraph to store:', result.nodeName, '→', graphId);
 
     // Resolve prototype by name — take LAST match (most recently created)
-    // because Maps iterate in insertion order and there may be old prototypes with the same name
-    let realProtoId = result.prototypeId;
-    if (nodeName) {
+    // Resolve prototype by ID if possible, otherwise fallback to name
+    let realProtoId = result.prototypeId && store.nodePrototypes.has(result.prototypeId) 
+      ? result.prototypeId 
+      : null;
+
+    if (!realProtoId && nodeName) {
       for (const [pid, proto] of store.nodePrototypes) {
         if ((proto.name || '').toLowerCase().trim() === nodeName) {
           realProtoId = pid;
@@ -952,9 +955,12 @@ function applyToolResultToStore(toolName, result, toolCallId) {
     const nodeName = (result.nodeName || '').toLowerCase().trim();
     console.log('[Wizard] Applying populateDefinitionGraph to store:', result.nodeName, '→', graphId);
 
-    // Resolve prototype by name — take LAST match
-    let realProtoId = result.prototypeId;
-    if (nodeName) {
+    // Resolve prototype by ID if possible, otherwise fallback to name
+    let realProtoId = result.prototypeId && store.nodePrototypes.has(result.prototypeId) 
+      ? result.prototypeId 
+      : null;
+
+    if (!realProtoId && nodeName) {
       for (const [pid, proto] of store.nodePrototypes) {
         if ((proto.name || '').toLowerCase().trim() === nodeName) {
           realProtoId = pid;

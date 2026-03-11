@@ -82,10 +82,15 @@ export async function populateDefinitionGraph(args, graphState, cid, ensureSched
         throw new Error(`Node "${nodeName}" not found. Cannot add definition graph to a node that doesn't exist.`);
     }
 
-    // Generate a predictive ID for the new definition graph
-    const newGraphId = `graph-def-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
-
-    console.error('[populateDefinitionGraph] Creating new definition graph for', nodeName, '→', newGraphId);
+    // Generate or reuse a predictive ID for the definition graph
+    let newGraphId;
+    if (prototype.definitionGraphIds && prototype.definitionGraphIds.length > 0) {
+        newGraphId = prototype.definitionGraphIds[0];
+        console.error('[populateDefinitionGraph] Reusing existing definition graph for', nodeName, '→', newGraphId);
+    } else {
+        newGraphId = `graph-def-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+        console.error('[populateDefinitionGraph] Creating new definition graph for', nodeName, '→', newGraphId);
+    }
 
     // Pick a palette if none provided
     const activePalette = palette || getRandomPalette();

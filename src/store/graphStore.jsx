@@ -2534,7 +2534,11 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
           return;
         }
         if (draft.graphs.has(graphId)) {
-          console.error(`[Store createDefinitionGraphWithId] Graph ${graphId} already exists.`);
+          console.log(`[Store createDefinitionGraphWithId] Graph ${graphId} already exists. Ensuring it is open.`);
+          if (!draft.openGraphIds.includes(graphId)) {
+            draft.openGraphIds.unshift(graphId);
+          }
+          draft.expandedGraphIds.add(graphId);
           return;
         }
         const newGraphData = {
