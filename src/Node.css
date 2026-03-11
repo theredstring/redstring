@@ -115,8 +115,7 @@
   transition: transform 0.1s ease;
 }
 
-/* Long press feedback disabled for mobile drag UX */
-.node.long-press-active {}
+
 
 @keyframes pulse {
 

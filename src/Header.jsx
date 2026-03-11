@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { HEADER_HEIGHT } from './constants';
 import RedstringMenu from './RedstringMenu';
-import { Bookmark, Plus, ScanSearch, HelpCircle, Bug } from 'lucide-react';
+import { Bookmark, Plus, ScanSearch, HelpCircle, Bug, Settings } from 'lucide-react';
 import HeaderGraphTab from './HeaderGraphTab';
 import { showContextMenu } from './components/GlobalContextMenu';
 import { getTextColor } from './utils/colorUtils.js';
@@ -523,6 +523,66 @@ const Header = ({
             size={22}
             color="#7A0000"
             strokeWidth={3}
+          />
+        </div>
+      </div>
+
+      {/* Settings Button - positioned after help button */}
+      <div
+        title="Settings"
+        style={{
+          position: 'absolute',
+          left: `${HEADER_HEIGHT * 2 + 10}px`,
+          top: 0,
+          height: `${HEADER_HEIGHT}px`,
+          width: `${HEADER_HEIGHT}px`,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          cursor: 'pointer',
+          backgroundColor: 'transparent',
+          zIndex: 10002,
+          pointerEvents: 'auto'
+        }}
+        onClick={(e) => {
+          e.stopPropagation();
+          e.preventDefault();
+          window.dispatchEvent(new Event('openSettingsModal'));
+        }}
+        onMouseEnter={(e) => {
+          const circle = e.currentTarget.querySelector('.header-btn-circle');
+          if (circle) {
+            circle.style.transform = 'scale(1.06)';
+            circle.style.boxShadow = '0 2px 6px rgba(0,0,0,0.15)';
+          }
+        }}
+        onMouseLeave={(e) => {
+          const circle = e.currentTarget.querySelector('.header-btn-circle');
+          if (circle) {
+            circle.style.transform = 'scale(1)';
+            circle.style.boxShadow = 'none';
+          }
+        }}
+      >
+        <div
+          className="header-btn-circle"
+          style={{
+            width: '36px',
+            height: '36px',
+            borderRadius: '50%',
+            backgroundColor: '#ffffff',
+            border: '3px solid #7A0000',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            transition: 'transform 120ms ease, box-shadow 120ms ease',
+            pointerEvents: 'auto'
+          }}
+        >
+          <Settings
+            size={20}
+            color="#7A0000"
+            strokeWidth={2.5}
           />
         </div>
       </div>

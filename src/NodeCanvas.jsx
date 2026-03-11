@@ -100,6 +100,7 @@ import UnifiedSelector from './UnifiedSelector'; // Import the new unified selec
 import OrbitOverlay from './components/OrbitOverlay.jsx';
 import StorageSetupModal from './components/StorageSetupModal.jsx';
 import HelpModal from './components/HelpModal.jsx';
+import SettingsModal from './components/SettingsModal.jsx';
 import CanvasConfirmDialog from './components/shared/CanvasConfirmDialog.jsx';
 
 
@@ -946,6 +947,9 @@ function NodeCanvas() {
   // Help modal state
   const [showHelpModal, setShowHelpModal] = useState(false);
 
+  // Settings modal state
+  const [showSettingsModal, setShowSettingsModal] = useState(false);
+
   // Helper to get storage key with test mode support
 
 
@@ -1128,6 +1132,20 @@ function NodeCanvas() {
 
     window.addEventListener('openHelpModal', handler);
     return () => window.removeEventListener('openHelpModal', handler);
+  }, []);
+
+  // Open Settings modal when event is dispatched from menu
+  useEffect(() => {
+    if (typeof window === 'undefined') return undefined;
+
+    const handler = () => {
+      try {
+        setShowSettingsModal(true);
+      } catch { }
+    };
+
+    window.addEventListener('openSettingsModal', handler);
+    return () => window.removeEventListener('openSettingsModal', handler);
   }, []);
 
   // Open Onboarding modal when event is dispatched from Help menu
@@ -12308,6 +12326,12 @@ function NodeCanvas() {
       <HelpModal
         isVisible={showHelpModal}
         onClose={() => setShowHelpModal(false)}
+      />
+
+      {/* Settings Modal */}
+      <SettingsModal
+        isVisible={showSettingsModal}
+        onClose={() => setShowSettingsModal(false)}
       />
 
       {/* <div>NodeCanvas Simplified - Testing Loop</div> */}
