@@ -59,6 +59,8 @@ export async function* streamLLM(messages, tools = [], config = {}, signal = nul
     yield* streamAnthropic(messages, normalizedTools, { endpoint, model, apiKey, temperature, maxTokens }, signal);
   } else if (provider === 'openai' || provider === 'local') {
     yield* streamOpenAI(messages, normalizedTools, { endpoint, model, apiKey, temperature, maxTokens }, signal);
+  } else if (provider === 'google') {
+    yield* streamGemini(messages, normalizedTools, { model, apiKey, temperature, maxTokens }, signal);
   } else {
     throw new Error(`Unsupported provider: ${provider}`);
   }
@@ -518,6 +520,157 @@ async function* streamOpenAI(messages, tools, { endpoint, model, apiKey, tempera
         args: parsedArgs,
         id: currentToolCall.id
       };
+    }
+  } finally {
+    reader.releaseLock();
+  }
+}
+
+/**
+ * Stream from Google Gemini API
+ * Uses the Gemini generateContent (streaming) REST endpoint.
+ * Gemini has its own message/tool format — not OpenAI-compatible.
+ */
+async function* streamGemini(messages, tools, { model, apiKey, temperature, maxTokens }, signal = null) {
+  // Convert OpenAI-style messages to Gemini contents format
+  const systemParts = [];
+  const contents = [];
+  // Map tool_call_id -> function name (for pairing results with calls)
+  const toolCallIdToName = new Map();
+
+  for (const msg of messages) {
+    if (msg.role === 'system') {
+      // Gemini uses a separate systemInstruction field
+      systemParts.push({ text: msg.content || '' });
+
+    } else if (msg.role === 'assistant') {
+      // Assistant turn: possibly has tool_calls (function calls)
+      const parts = [];
+      if (msg.content) parts.push({ text: msg.content });
+      if (Array.isArray(msg.tool_calls)) {
+        for (const tc of msg.tool_calls) {
+          const fnName = tc.function?.name || tc.name || '';
+          let fnArgs = {};
+          try { fnArgs = JSON.parse(tc.function?.arguments || '{}'); } catch { fnArgs = tc.args || {}; }
+          toolCallIdToName.set(tc.id, fnName);
+          parts.push({ functionCall: { name: fnName, args: fnArgs } });
+        }
+      }
+      if (parts.length > 0) contents.push({ role: 'model', parts });
+
+    } else if (msg.role === 'tool') {
+      // OpenAI-style tool result -> Gemini user functionResponse
+      let resultObj = {};
+      try { resultObj = JSON.parse(msg.content || '{}'); } catch { resultObj = { result: msg.content }; }
+      const fnName = toolCallIdToName.get(msg.tool_call_id) || msg.tool_call_id || 'unknown';
+      contents.push({
+        role: 'user',
+        parts: [{ functionResponse: { name: fnName, response: resultObj } }]
+      });
+
+    } else {
+      // User message (plain string or array)
+      if (Array.isArray(msg.content)) {
+        const parts = [];
+        for (const item of msg.content) {
+          if (item.type === 'text') parts.push({ text: item.text || '' });
+        }
+        if (parts.length > 0) contents.push({ role: 'user', parts });
+      } else {
+        contents.push({ role: 'user', parts: [{ text: msg.content || '' }] });
+      }
+    }
+  }
+
+  // Convert tool definitions to Gemini functionDeclarations format
+  let geminiTools = undefined;
+  if (tools && tools.length > 0) {
+    geminiTools = [{
+      functionDeclarations: tools.map(t => ({
+        name: t.function?.name || t.name,
+        description: t.function?.description || t.description || '',
+        parameters: t.function?.parameters || t.parameters || { type: 'object', properties: {} }
+      }))
+    }];
+  }
+
+  const effectiveModel = model || 'gemini-2.5-flash';
+  const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${effectiveModel}:streamGenerateContent?alt=sse&key=${apiKey}`;
+
+  const payload = {
+    contents,
+    ...(systemParts.length > 0 ? { systemInstruction: { parts: systemParts } } : {}),
+    ...(geminiTools ? { tools: geminiTools } : {}),
+    generationConfig: {
+      temperature: temperature ?? 0.7,
+      maxOutputTokens: maxTokens ?? 8192
+    }
+  };
+
+  const response = await fetch(endpoint, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+    signal
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    throw new Error(`Google Gemini API error (${response.status}): ${errorText}`);
+  }
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = '';
+
+  try {
+    while (true) {
+      if (signal?.aborted) {
+        reader.cancel();
+        break;
+      }
+      const { done, value } = await reader.read();
+      if (done) break;
+
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split('\n');
+      buffer = lines.pop() || '';
+
+      for (const line of lines) {
+        if (!line.startsWith('data: ')) continue;
+        const data = line.slice(6).trim();
+        if (!data || data === '[DONE]') continue;
+
+        try {
+          const chunk = JSON.parse(data);
+          const candidate = chunk.candidates?.[0];
+          if (!candidate) continue;
+
+          const parts = candidate.content?.parts || [];
+          for (const part of parts) {
+            if (part.text) {
+              yield { type: 'text', content: part.text };
+            } else if (part.functionCall) {
+              // Gemini returns the full function call in one chunk (not streamed incrementally)
+              const fnId = `gemini-fn-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+              yield {
+                type: 'tool_call_start',
+                id: fnId,
+                name: part.functionCall.name
+              };
+              yield {
+                type: 'tool_call',
+                name: part.functionCall.name,
+                args: part.functionCall.args || {},
+                id: fnId
+              };
+            }
+          }
+        } catch (e) {
+          // Skip malformed JSON chunks
+          continue;
+        }
+      }
     }
   } finally {
     reader.releaseLock();

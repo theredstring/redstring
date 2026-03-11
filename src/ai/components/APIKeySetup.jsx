@@ -25,6 +25,7 @@ const APIKeySetup = ({ onKeySet, onClose, inline = false }) => {
   const [isTestingConnection, setIsTestingConnection] = useState(false);
 
   const providers = apiKeyManager.getCommonProviders();
+  const geminiModels = apiKeyManager.getGeminiModels();
 
   useEffect(() => {
     loadExistingKey();
@@ -597,6 +598,28 @@ const APIKeySetup = ({ onKeySet, onClose, inline = false }) => {
                 </div>
               )}
             </div>
+
+            {/* Gemini Model Selection */}
+            {provider === 'google' && (
+              <div className="form-group">
+                <label htmlFor="geminiModel">Gemini Model</label>
+                <select
+                  id="geminiModel"
+                  value={model}
+                  onChange={(e) => setModel(e.target.value)}
+                  disabled={isLoading}
+                  className="model-input"
+                >
+                  {geminiModels.map(m => (
+                    <option key={m.id} value={m.id}>{m.name}</option>
+                  ))}
+                </select>
+                <small className="field-help">
+                  Get a free API key at{' '}
+                  <a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noopener noreferrer">Google AI Studio</a>.
+                </small>
+              </div>
+            )}
 
             {/* Model Selection - Always show for OpenRouter */}
             {provider === 'openrouter' && (

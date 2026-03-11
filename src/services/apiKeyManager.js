@@ -384,7 +384,7 @@ class APIKeyManager {
       'openai': 'gpt-4o',
       'openrouter': 'anthropic/claude-3-sonnet', // Fixed: Use the correct model name
       'local': 'llama2', // Ollama default
-      'google': 'gemini-pro',
+      'google': 'gemini-2.5-flash',
       'cohere': 'command-r',
       'custom': ''
     };
@@ -415,6 +415,21 @@ class APIKeyManager {
    * Get common provider presets (updated with OpenRouter)
    * @returns {Array} List of common providers for quick selection
    */
+  /**
+   * Get available Google Gemini models (free tier)
+   * @returns {Array} List of Gemini model IDs and display names
+   */
+  getGeminiModels() {
+    return [
+      { id: 'gemini-2.5-flash', name: 'Gemini 2.5 Flash (recommended)' },
+      { id: 'gemini-2.5-flash-lite', name: 'Gemini 2.5 Flash Lite' },
+      { id: 'gemini-2.0-flash', name: 'Gemini 2.0 Flash' },
+      { id: 'gemini-2.0-flash-lite', name: 'Gemini 2.0 Flash Lite' },
+      { id: 'gemini-1.5-pro', name: 'Gemini 1.5 Pro' },
+      { id: 'gemini-1.5-flash', name: 'Gemini 1.5 Flash' }
+    ];
+  }
+
   getCommonProviders() {
     return [
       { id: 'openrouter', name: 'OpenRouter (200+ Models)' },
