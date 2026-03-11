@@ -11,29 +11,58 @@
 /**
  * Fuzzy match node name against prototypes
  */
-function findPrototypeByName(nodeName, nodePrototypes) {
+function findPrototypeByName(nodeName, nodePrototypes, graphState = null) {
   const nameLower = String(nodeName || '').toLowerCase().trim();
   if (!nameLower) return null;
+
+  let matches = [];
 
   // Exact match first
   for (const proto of nodePrototypes) {
     if (String(proto.name || '').toLowerCase().trim() === nameLower) {
-      return proto;
+      matches.push(proto);
     }
   }
 
-  // Partial match (contains)
-  for (const proto of nodePrototypes) {
-    if (String(proto.name || '').toLowerCase().trim().includes(nameLower)) {
-      return proto;
+  // Partial match (contains) if no exact
+  if (matches.length === 0) {
+    for (const proto of nodePrototypes) {
+      if (String(proto.name || '').toLowerCase().trim().includes(nameLower)) {
+        matches.push(proto);
+      }
     }
   }
 
-  return null;
+  if (matches.length === 0) return null;
+  if (matches.length === 1) return matches[0];
+
+  // Prioritize active graph instances
+  if (graphState && graphState.activeGraphId && graphState.graphs) {
+    const activeGraph = graphState.graphs.find(g => g.id === graphState.activeGraphId);
+    if (activeGraph && activeGraph.instances) {
+      for (const match of matches) {
+        if (activeGraph.instances.some(inst => inst.prototypeId === match.id)) {
+          return match;
+        }
+      }
+    }
+  }
+
+  // Fallback to least recent / most recent (UI did LAST)
+  return matches[matches.length - 1];
 }
 
-export async function decomposeNode(args, graphState, cid, ensureSchedulerStarted) {
+/**
+ * Decompose a node into its definition graph contents (Thing-Group)
+ * @param {Object} args - { nodeName, definitionIndex } 
+ * @param {Object} graphState - Current state
+ */
+export async function decomposeNode(args, graphState) {
   const { nodeName, definitionIndex = 0 } = args;
+
+  if (!nodeName) {
+    throw new Error('nodeName is required');
+  }
 
   const { nodePrototypes = [], graphs = [], activeGraphId } = graphState;
 
@@ -46,10 +75,10 @@ export async function decomposeNode(args, graphState, cid, ensureSchedulerStarte
     throw new Error(`Active graph ${activeGraphId} not found in state.`);
   }
 
-  // Find the prototype
-  const prototype = findPrototypeByName(nodeName, nodePrototypes);
+  // Find the target prototype
+  const prototype = findPrototypeByName(nodeName, nodePrototypes, graphState);
   if (!prototype) {
-    throw new Error(`Node "${nodeName}" not found. Cannot decompose a node that doesn't exist.`);
+    throw new Error(`Node "${nodeName}" not found. Cannot decompose.`);
   }
 
   // Check definition graphs

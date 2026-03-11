@@ -1772,6 +1772,10 @@ const LeftAIView = ({ compact = false,
     }
 
     return () => {
+      // Cleanup global getters
+      delete window.__rs_getTabs;
+      delete window.__rs_getWizardStatus;
+      
       if (eventSource) {
         try {
           eventSource.close();
@@ -1781,6 +1785,40 @@ const LeftAIView = ({ compact = false,
       }
     };
   }, []);
+
+  // Set up event listeners for direct UI control (e.g., from MCP server or Bridge)
+  React.useEffect(() => {
+    // These need to re-bind when state changes so they have access to latest state
+    // but the `useEffect` above for SSE only runs once. We'll use refs or simply update these getters
+    window.__rs_getTabs = () => ({ conversations, activeConversationId });
+    window.__rs_getWizardStatus = () => ({ hasAPIKey, isConnected, isProcessing, activeGraphId });
+
+    const handleSendWizardMsg = (e) => {
+      if (e.detail && typeof e.detail.message === 'string') {
+        handleSendMessage(e.detail.message);
+      }
+    };
+
+    const handleSwitchTab = (e) => {
+      if (e.detail && e.detail.id) {
+        handleTabSwitch(e.detail.id);
+      }
+    };
+
+    const handleNewTab = () => {
+      handleNewConversation();
+    };
+
+    window.addEventListener('rs-send-wizard-message', handleSendWizardMsg);
+    window.addEventListener('rs-switch-wizard-tab', handleSwitchTab);
+    window.addEventListener('rs-new-wizard-tab', handleNewTab);
+
+    return () => {
+      window.removeEventListener('rs-send-wizard-message', handleSendWizardMsg);
+      window.removeEventListener('rs-switch-wizard-tab', handleSwitchTab);
+      window.removeEventListener('rs-new-wizard-tab', handleNewTab);
+    };
+  }, [conversations, activeConversationId, hasAPIKey, isConnected, isProcessing, activeGraphId]);
 
   React.useEffect(() => {
     // Fetch wizard tools on load

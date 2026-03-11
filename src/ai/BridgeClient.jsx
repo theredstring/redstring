@@ -622,6 +622,26 @@ const BridgeClient = () => {
           chat: {
             description: 'Send a message to the AI model',
             parameters: ['message', 'context']
+          },
+          sendWizardMessage: {
+            description: 'Simulate the user sending a message via the Wizard text input',
+            parameters: ['message']
+          },
+          getWizardTabs: {
+            description: 'Get current wizard conversations (tabs)',
+            parameters: []
+          },
+          getWizardStatus: {
+            description: 'Get current wizard status (API key configured, is processing, connected)',
+            parameters: []
+          },
+          switchWizardTab: {
+            description: 'Switch the active wizard tab',
+            parameters: ['conversationId']
+          },
+          createWizardTab: {
+            description: 'Create a new wizard conversation tab',
+            parameters: []
           }
         };
 
@@ -888,6 +908,52 @@ const BridgeClient = () => {
               console.log('MCPBridge: Calling closeGraphTab', graphId);
               state.closeGraphTab(graphId);
               return { success: true };
+            },
+            sendWizardMessage: async (message) => {
+              try {
+                window.dispatchEvent(new CustomEvent('rs-send-wizard-message', { detail: { message } }));
+                return { success: true };
+              } catch (e) {
+                return { error: String(e) };
+              }
+            },
+            getWizardTabs: async () => {
+              try {
+                if (typeof window.__rs_getTabs === 'function') {
+                  const data = window.__rs_getTabs();
+                  return { success: true, ...data };
+                }
+                return { error: 'Global tab getter not found' };
+              } catch (e) {
+                return { error: String(e) };
+              }
+            },
+            getWizardStatus: async () => {
+              try {
+                if (typeof window.__rs_getWizardStatus === 'function') {
+                  const data = window.__rs_getWizardStatus();
+                  return { success: true, ...data };
+                }
+                return { error: 'Global status getter not found' };
+              } catch (e) {
+                return { error: String(e) };
+              }
+            },
+            switchWizardTab: async (conversationId) => {
+              try {
+                window.dispatchEvent(new CustomEvent('rs-switch-wizard-tab', { detail: { id: conversationId } }));
+                return { success: true };
+              } catch (e) {
+                return { error: String(e) };
+              }
+            },
+            createWizardTab: async () => {
+              try {
+                window.dispatchEvent(new CustomEvent('rs-new-wizard-tab'));
+                return { success: true };
+              } catch (e) {
+                return { error: String(e) };
+              }
             },
             chat: async (message, context) => {
               lastActivityRef.current = Date.now();

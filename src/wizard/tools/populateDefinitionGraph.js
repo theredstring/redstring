@@ -34,25 +34,45 @@ function generateConnectionColor(name) {
 /**
  * Fuzzy match node name against prototypes
  */
-function findPrototypeByName(nodeName, nodePrototypes) {
+function findPrototypeByName(nodeName, nodePrototypes, graphState = null) {
     const nameLower = String(nodeName || '').toLowerCase().trim();
     if (!nameLower) return null;
+
+    let matches = [];
 
     // Exact match first
     for (const proto of nodePrototypes) {
         if (String(proto.name || '').toLowerCase().trim() === nameLower) {
-            return proto;
+            matches.push(proto);
         }
     }
 
-    // Partial match (contains)
-    for (const proto of nodePrototypes) {
-        if (String(proto.name || '').toLowerCase().trim().includes(nameLower)) {
-            return proto;
+    // Partial match (contains) if no exact matches
+    if (matches.length === 0) {
+        for (const proto of nodePrototypes) {
+            if (String(proto.name || '').toLowerCase().trim().includes(nameLower)) {
+                matches.push(proto);
+            }
         }
     }
 
-    return null;
+    if (matches.length === 0) return null;
+    if (matches.length === 1) return matches[0];
+
+    // Multiple matches found. If we have graph state, prefer the one actually visible in the active graph
+    if (graphState && graphState.activeGraphId && graphState.graphs) {
+        const activeGraph = graphState.graphs.find(g => g.id === graphState.activeGraphId);
+        if (activeGraph && activeGraph.instances) {
+            for (const match of matches) {
+                if (activeGraph.instances.some(inst => inst.prototypeId === match.id)) {
+                    return match;
+                }
+            }
+        }
+    }
+
+    // Fallback: return the LAST match (most recently created)
+    return matches[matches.length - 1];
 }
 
 /**
@@ -76,7 +96,7 @@ export async function populateDefinitionGraph(args, graphState, cid, ensureSched
     const { nodePrototypes = [] } = graphState;
 
     // Find the prototype
-    const prototype = findPrototypeByName(nodeName, nodePrototypes);
+    const prototype = findPrototypeByName(nodeName, nodePrototypes, graphState);
 
     if (!prototype) {
         throw new Error(`Node "${nodeName}" not found. Cannot add definition graph to a node that doesn't exist.`);
