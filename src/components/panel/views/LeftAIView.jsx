@@ -369,12 +369,17 @@ function applyToolResultToStore(toolName, result, toolCallId) {
       console.error('[Wizard] updateNode: Missing originalName or updates');
       return;
     }
-    // Find the real prototype by name in the store
-    let realProtoId = null;
-    for (const [protoId, proto] of store.nodePrototypes) {
-      if ((proto.name || '').toLowerCase().trim() === lookupName) {
-        realProtoId = protoId;
-        break;
+    // Find the real prototype by ID first, then fallback to name
+    let realProtoId = result.prototypeId && store.nodePrototypes.has(result.prototypeId)
+      ? result.prototypeId
+      : null;
+
+    if (!realProtoId) {
+      for (const [protoId, proto] of store.nodePrototypes) {
+        if ((proto.name || '').toLowerCase().trim() === lookupName) {
+          realProtoId = protoId;
+          break;
+        }
       }
     }
     if (!realProtoId) {
@@ -404,14 +409,19 @@ function applyToolResultToStore(toolName, result, toolCallId) {
       console.error('[Wizard] deleteNode: Graph not found:', graphId);
       return;
     }
-    // Find the real instance by name
-    let realInstanceId = null;
-    for (const [instId, inst] of graph.instances) {
-      const proto = store.nodePrototypes.get(inst.prototypeId);
-      const nodeName = (proto?.name || '').toLowerCase().trim();
-      if (nodeName === lookupName) {
-        realInstanceId = instId;
-        break;
+    // Find the real instance by ID first, then fallback to name
+    let realInstanceId = result.instanceId && graph.instances.has(result.instanceId)
+      ? result.instanceId
+      : null;
+
+    if (!realInstanceId) {
+      for (const [instId, inst] of graph.instances) {
+        const proto = store.nodePrototypes.get(inst.prototypeId);
+        const nodeName = (proto?.name || '').toLowerCase().trim();
+        if (nodeName === lookupName) {
+          realInstanceId = instId;
+          break;
+        }
       }
     }
     if (!realInstanceId) {
@@ -434,6 +444,8 @@ function applyToolResultToStore(toolName, result, toolCallId) {
     store.applyBulkGraphUpdates(graphId, {
       nodes: [],
       edges: [{
+        sourceId: result.sourceId,
+        targetId: result.targetId,
         source: result.sourceName,
         target: result.targetName,
         type: result.type || 'relates to',
@@ -456,15 +468,19 @@ function applyToolResultToStore(toolName, result, toolCallId) {
     const graph = store.graphs.get(graphId);
     if (!graph) return;
 
-    let sourceInstId = null, targetInstId = null;
-    const sourceNameLookup = (result.sourceName || '').toLowerCase().trim();
-    const targetNameLookup = (result.targetName || '').toLowerCase().trim();
+    let sourceInstId = result.sourceId && graph.instances.has(result.sourceId) ? result.sourceId : null;
+    let targetInstId = result.targetId && graph.instances.has(result.targetId) ? result.targetId : null;
 
-    for (const [instId, inst] of graph.instances) {
-      const p = store.nodePrototypes.get(inst.prototypeId);
-      const n = (p?.name || '').toLowerCase().trim();
-      if (n === sourceNameLookup) sourceInstId = instId;
-      if (n === targetNameLookup) targetInstId = instId;
+    if (!sourceInstId || !targetInstId) {
+      const sourceNameLookup = (result.sourceName || '').toLowerCase().trim();
+      const targetNameLookup = (result.targetName || '').toLowerCase().trim();
+
+      for (const [instId, inst] of graph.instances) {
+        const p = store.nodePrototypes.get(inst.prototypeId);
+        const n = (p?.name || '').toLowerCase().trim();
+        if (!sourceInstId && n === sourceNameLookup) sourceInstId = instId;
+        if (!targetInstId && n === targetNameLookup) targetInstId = instId;
+      }
     }
 
     if (!sourceInstId || !targetInstId) {
@@ -551,21 +567,28 @@ function applyToolResultToStore(toolName, result, toolCallId) {
       console.log('[Wizard] Successfully deleted edge by ID:', result.edgeId);
       return;
     }
-    // Otherwise try to find edge by source/target names
-    if (result.sourceName && result.targetName) {
+    // Otherwise try to find edge by source/target names/ids
+    if ((result.sourceName && result.targetName) || (result.sourceId && result.targetId)) {
       const graph = store.graphs.get(graphId);
       if (!graph) return;
-      const srcLower = result.sourceName.toLowerCase().trim();
-      const tgtLower = result.targetName.toLowerCase().trim();
-      // Build name→instanceId map
-      const nameToInstId = new Map();
-      for (const [instId, inst] of graph.instances) {
-        const proto = store.nodePrototypes.get(inst.prototypeId);
-        const name = (proto?.name || '').toLowerCase().trim();
-        if (name) nameToInstId.set(name, instId);
+      
+      let srcInstId = result.sourceId && graph.instances.has(result.sourceId) ? result.sourceId : null;
+      let tgtInstId = result.targetId && graph.instances.has(result.targetId) ? result.targetId : null;
+      
+      if (!srcInstId || !tgtInstId) {
+        const srcLower = (result.sourceName || '').toLowerCase().trim();
+        const tgtLower = (result.targetName || '').toLowerCase().trim();
+        // Build name→instanceId map
+        const nameToInstId = new Map();
+        for (const [instId, inst] of graph.instances) {
+          const proto = store.nodePrototypes.get(inst.prototypeId);
+          const name = (proto?.name || '').toLowerCase().trim();
+          if (name) nameToInstId.set(name, instId);
+        }
+        if (!srcInstId) srcInstId = nameToInstId.get(srcLower);
+        if (!tgtInstId) tgtInstId = nameToInstId.get(tgtLower);
       }
-      const srcInstId = nameToInstId.get(srcLower);
-      const tgtInstId = nameToInstId.get(tgtLower);
+      
       if (srcInstId && tgtInstId) {
         for (const edgeId of (graph.edgeIds || [])) {
           const edge = store.edges.get(edgeId);
@@ -574,7 +597,7 @@ function applyToolResultToStore(toolName, result, toolCallId) {
             (edge.sourceId === tgtInstId && edge.destinationId === srcInstId)
           )) {
             store.removeEdge(edgeId);
-            console.log('[Wizard] Successfully deleted edge by names:', result.sourceName, '→', result.targetName);
+            console.log('[Wizard] Successfully deleted edge between:', srcInstId, 'and', tgtInstId);
             return;
           }
         }
@@ -606,10 +629,15 @@ function applyToolResultToStore(toolName, result, toolCallId) {
     const newEdges = []; // Edges to create (no existing edge found)
 
     for (const replacement of (result.replacements || [])) {
-      const srcLower = (replacement.source || '').toLowerCase().trim();
-      const tgtLower = (replacement.target || '').toLowerCase().trim();
-      const srcInstId = nameToInstId.get(srcLower);
-      const tgtInstId = nameToInstId.get(tgtLower);
+      let srcInstId = replacement.sourceId && graph.instances.has(replacement.sourceId) ? replacement.sourceId : null;
+      let tgtInstId = replacement.targetId && graph.instances.has(replacement.targetId) ? replacement.targetId : null;
+
+      if (!srcInstId || !tgtInstId) {
+        const srcLower = (replacement.source || '').toLowerCase().trim();
+        const tgtLower = (replacement.target || '').toLowerCase().trim();
+        if (!srcInstId) srcInstId = nameToInstId.get(srcLower);
+        if (!tgtInstId) tgtInstId = nameToInstId.get(tgtLower);
+      }
 
       if (!srcInstId || !tgtInstId) {
         console.warn('[Wizard] replaceEdges: Could not resolve:', replacement.source, '→', replacement.target);
@@ -678,6 +706,8 @@ function applyToolResultToStore(toolName, result, toolCallId) {
       } else {
         // No existing edge — queue for creation
         newEdges.push({
+          sourceId: replacement.sourceId,
+          targetId: replacement.targetId,
           source: replacement.source,
           target: replacement.target,
           type: replacement.type || 'Connection',

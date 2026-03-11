@@ -2,10 +2,32 @@ import React, { useState, useEffect } from 'react';
 import { HEADER_HEIGHT } from './constants';
 import { gitFederationService } from './services/gitFederationService';
 import saveCoordinator from './services/SaveCoordinator';
+import { useViewportBounds } from './hooks/useViewportBounds';
+import useGraphStore from './store/graphStore.jsx';
 
 const SaveStatusDisplay = () => {
   const [statusText, setStatusText] = useState('Loading...');
   const [isCTA, setIsCTA] = useState(false);
+  const [isVisible, setIsVisible] = useState(true);
+
+  const leftPanelExpanded = useGraphStore(state => state.leftPanelExpanded);
+  const rightPanelExpanded = useGraphStore(state => state.rightPanelExpanded);
+  const typeListMode = useGraphStore(state => state.typeListMode);
+  
+  const viewportBounds = useViewportBounds(
+    leftPanelExpanded,
+    rightPanelExpanded,
+    typeListMode !== 'closed'
+  );
+
+  useEffect(() => {
+    if (statusText === 'Saved') {
+      const timer = setTimeout(() => setIsVisible(false), 2000);
+      return () => clearTimeout(timer);
+    } else {
+      setIsVisible(true);
+    }
+  }, [statusText]);
 
   useEffect(() => {
     let cancelled = false;
@@ -120,27 +142,30 @@ const SaveStatusDisplay = () => {
       className="save-status-display"
       style={{
         position: 'fixed',
-        bottom: 0,
-        right: 0,
-        margin: '0 10px 10px 0',
+        left: viewportBounds ? viewportBounds.x + viewportBounds.width / 2 : '50%',
+        bottom: viewportBounds ? viewportBounds.bottomReserved + 15 : 15, // Using 15px so it floats nicely
+        transform: 'translateX(-50%) scale(1)',
         height: `${HEADER_HEIGHT}px`,
-        width: `${HEADER_HEIGHT * 3}px`,
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
-        background: '#260000',
-        border: '2px solid #260000',
-        borderRadius: '8px',
+        background: 'transparent',
+        border: 'none',
         padding: 0,
-        color: '#bdb5b5',
+        color: '#260000',
         zIndex: 20000,
-        boxShadow: '0 0 0 3px #BDB5B5, 0 2px 5px rgba(0, 0, 0, 0.2)',
         fontSize: '16px',
         fontFamily: "'EmOne', sans-serif",
-        fontWeight: 'normal',
+        fontWeight: 'bold', // Strong text handles stroke better visually
+        WebkitTextStroke: '2px #BDB5B5',
+        // Optional text shadow wrapper for cross browser and bolder effect
+        textShadow: '-1px -1px 0 #BDB5B5, 1px -1px 0 #BDB5B5, -1px 1px 0 #BDB5B5, 1px 1px 0 #BDB5B5',
         userSelect: 'none',
         cursor: isCTA ? 'pointer' : 'default',
-        textDecoration: 'none'
+        textDecoration: 'none',
+        opacity: isVisible ? 1 : 0,
+        transition: 'opacity 0.5s ease',
+        pointerEvents: isVisible ? 'auto' : 'none'
       }}
       onClick={() => {
         if (isCTA) {
@@ -152,14 +177,14 @@ const SaveStatusDisplay = () => {
       onMouseEnter={(e) => {
         if (!isCTA) return;
         try {
-          e.currentTarget.style.transform = 'scale(1.06)';
-          e.currentTarget.style.transition = 'transform 120ms ease';
+          e.currentTarget.style.transform = 'translateX(-50%) scale(1.06)';
+          e.currentTarget.style.transition = 'opacity 0.5s ease, transform 120ms ease';
         } catch { }
       }}
       onMouseLeave={(e) => {
         if (!isCTA) return;
         try {
-          e.currentTarget.style.transform = 'scale(1)';
+          e.currentTarget.style.transform = 'translateX(-50%) scale(1)';
         } catch { }
       }}
     >
