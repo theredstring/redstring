@@ -7,7 +7,7 @@ import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { callLLM, streamLLM } from './LLMClient.js';
-import { buildContext } from './ContextBuilder.js';
+import { buildContext, buildPersistentContextHeader } from './ContextBuilder.js';
 import { executeTool, getToolDefinitions } from './tools/index.js';
 import { WIZARD_SYSTEM_PROMPT } from '../services/agent/WizardPrompt.js';
 
@@ -581,9 +581,10 @@ function sanitizeResultForLLM(result) {
  */
 export async function* runAgent(userMessage, graphState, config = {}, ensureSchedulerStarted, abortSignal = null) {
   const cid = config.cid || `wizard-${Date.now()}`;
+  const contextItems = config.contextItems || [];
 
-  // Build initial context
-  const initialContext = buildContext(graphState);
+  // Build initial context (respects contextItems toggles from UI)
+  const initialContext = buildPersistentContextHeader(graphState, contextItems);
 
   // Debug logging for graph context
   const activeGraph = graphState?.graphs?.find(g => g.id === graphState.activeGraphId);
@@ -637,7 +638,7 @@ export async function* runAgent(userMessage, graphState, config = {}, ensureSche
   for (let iteration = 0; iteration < maxIterations; iteration++) {
     // Rebuild context from (potentially mutated) graphState so LLM sees current state
     if (iteration > 0) {
-      const freshContext = buildContext(graphState);
+      const freshContext = buildPersistentContextHeader(graphState, contextItems);
       messages[0] = { role: 'system', content: systemPromptTemplate + '\n\n' + freshContext };
     }
     if (abortSignal?.aborted) {
@@ -673,17 +674,23 @@ export async function* runAgent(userMessage, graphState, config = {}, ensureSche
 
       console.error('[AgentLoop] Iteration', iteration, 'complete. Content length:', iterationContent.length, 'Tool calls:', iterationToolCalls.length);
 
-      // Loop detection: build a signature from tool names this iteration
+      // Loop detection: build a signature from tools and their arguments this iteration
       if (iterationToolCalls.length > 0) {
-        const sig = iterationToolCalls.map(tc => tc.name).sort().join(',');
+        const sig = iterationToolCalls
+          .map(tc => `${tc.name}:${JSON.stringify(tc.args)}`)
+          .sort()
+          .join('|');
         iterationSignatures.push(sig);
 
-        // Detect if the last 2 iterations called the exact same set of tools
-        if (iterationSignatures.length >= 2) {
-          const prev = iterationSignatures[iterationSignatures.length - 2];
-          if (sig === prev) {
-            console.error(`[AgentLoop] Loop detected: iteration ${iteration} repeated the same tool pattern as iteration ${iteration - 1}: [${sig}]. Stopping.`);
-            yield { type: 'response', content: 'I noticed I was repeating the same actions. Stopping to avoid an infinite loop.' };
+        // Stop if the EXACT same tool call pattern (names AND arguments) repeats 3 times consecutively
+        if (iterationSignatures.length >= 3) {
+          const last = iterationSignatures[iterationSignatures.length - 1];
+          const prev1 = iterationSignatures[iterationSignatures.length - 2];
+          const prev2 = iterationSignatures[iterationSignatures.length - 3];
+
+          if (last === prev1 && last === prev2) {
+            console.error(`[AgentLoop] Infinite loop detected: iteration ${iteration} repeated the exact same tool calls and arguments for 3 iterations: [${sig}]. Stopping.`);
+            yield { type: 'response', content: 'I noticed I was repeating the exact same actions multiple times. Stopping to avoid an infinite loop.' };
             yield { type: 'done', iterations: iteration + 1, reason: 'loop_detected' };
             return;
           }

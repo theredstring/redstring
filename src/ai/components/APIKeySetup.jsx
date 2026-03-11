@@ -25,8 +25,7 @@ const APIKeySetup = ({ onKeySet, onClose, inline = false }) => {
   const [isTestingConnection, setIsTestingConnection] = useState(false);
 
   const providers = apiKeyManager.getCommonProviders();
-  const geminiModels = apiKeyManager.getGeminiModels();
-  const anthropicModels = apiKeyManager.getAnthropicModels();
+  const providerModels = apiKeyManager.getModelsForProvider(provider);
 
   useEffect(() => {
     loadExistingKey();
@@ -185,12 +184,6 @@ const APIKeySetup = ({ onKeySet, onClose, inline = false }) => {
 
       // For custom providers, use the custom name
       const finalProvider = provider === 'custom' ? customProviderName : provider;
-
-      console.log('[APIKeySetup] Storing API key:', {
-        provider: finalProvider,
-        endpoint: endpoint.trim(),
-        model: model.trim()
-      });
 
       // Store the API key with configuration
       await apiKeyManager.storeAPIKey(keyToStore, finalProvider, {
@@ -610,72 +603,71 @@ const APIKeySetup = ({ onKeySet, onClose, inline = false }) => {
               )}
             </div>
 
-            {/* Gemini Model Selection */}
-            {provider === 'google' && (
+            {/* Model Selection - Top level for all providers */}
+            {provider !== 'local' && (
               <div className="form-group">
-                <label htmlFor="geminiModel">Gemini Model</label>
-                <select
-                  id="geminiModel"
-                  value={model}
-                  onChange={(e) => {
-                    console.log('[APIKeySetup] Selected Gemini model:', e.target.value);
-                    setModel(e.target.value);
-                  }}
-                  disabled={isLoading}
-                  className="model-input"
-                >
-                  {geminiModels.map(m => (
-                    <option key={m.id} value={m.id}>{m.name}</option>
-                  ))}
-                </select>
-                <small className="field-help">
-                  Get a free API key at{' '}
-                  <a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noopener noreferrer">Google AI Studio</a>.
-                </small>
-              </div>
-            )}
+                <label htmlFor="model">Model</label>
+                
+                {providerModels.length > 0 ? (
+                  <div className="model-selection-wrapper">
+                    <select
+                      id="model-presets"
+                      className="model-input"
+                      value={providerModels.some(m => m.id === model) ? model : 'custom'}
+                      onChange={(e) => {
+                        if (e.target.value !== 'custom') {
+                          setModel(e.target.value);
+                        }
+                      }}
+                      disabled={isLoading}
+                    >
+                      {providerModels.map(m => (
+                        <option key={m.id} value={m.id}>{m.name}</option>
+                      ))}
+                      <option value="custom">Custom / Other...</option>
+                    </select>
 
-            {/* Anthropic Model Selection */}
-            {provider === 'anthropic' && (
-              <div className="form-group">
-                <label htmlFor="anthropicModel">Claude Model</label>
-                <select
-                  id="anthropicModel"
-                  value={model}
-                  onChange={(e) => {
-                    console.log('[APIKeySetup] Selected Anthropic model:', e.target.value);
-                    setModel(e.target.value);
-                  }}
-                  disabled={isLoading}
-                  className="model-input"
-                >
-                  {anthropicModels.map(m => (
-                    <option key={m.id} value={m.id}>{m.name}</option>
-                  ))}
-                </select>
-                <small className="field-help">
-                  Manage your keys at the{' '}
-                  <a href="https://console.anthropic.com/" target="_blank" rel="noopener noreferrer">Anthropic Console</a>.
-                </small>
-              </div>
-            )}
-
-            {/* Model Selection - Always show for OpenRouter */}
-            {provider === 'openrouter' && (
-              <div className="form-group">
-                <label htmlFor="model">Model ID</label>
-                <input
-                  id="model"
-                  type="text"
-                  value={model}
-                  onChange={(e) => setModel(e.target.value)}
-                  placeholder="e.g., anthropic/claude-3-sonnet"
-                  disabled={isLoading}
-                  className="model-input"
-                />
-                <small className="field-help">
-                  Enter the model ID from OpenRouter. Examples: anthropic/claude-3-sonnet, openai/gpt-4o, google/gemini-pro-1.5
-                </small>
+                    {(providerModels.every(m => m.id !== model) || providerModels.find(m => m.id === model) === undefined || model === 'custom') && (
+                      <div className="custom-model-input mt-2">
+                        <input
+                          id="model"
+                          type="text"
+                          value={model === 'custom' ? '' : model}
+                          onChange={(e) => setModel(e.target.value)}
+                          placeholder="Enter model ID (e.g. gpt-4o)"
+                          disabled={isLoading}
+                          className="model-input"
+                        />
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  <input
+                    id="model"
+                    type="text"
+                    value={model}
+                    onChange={(e) => setModel(e.target.value)}
+                    placeholder={`e.g., ${apiKeyManager.getDefaultModel(provider)}`}
+                    disabled={isLoading}
+                    className="model-input"
+                  />
+                )}
+                
+                {provider === 'google' && (
+                  <small className="field-help">
+                    Get a API key at <a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noopener noreferrer">Google AI Studio</a>.
+                  </small>
+                )}
+                {provider === 'anthropic' && (
+                  <small className="field-help">
+                    Manage keys at <a href="https://console.anthropic.com/" target="_blank" rel="noopener noreferrer">Anthropic Console</a>.
+                  </small>
+                )}
+                {provider === 'openrouter' && (
+                  <small className="field-help">
+                    Enter the model ID from OpenRouter. Examples: anthropic/claude-3-sonnet, openai/gpt-4o
+                  </small>
+                )}
               </div>
             )}
 
@@ -686,9 +678,7 @@ const APIKeySetup = ({ onKeySet, onClose, inline = false }) => {
                   id="recentModel"
                   className="recent-model-select"
                   value=""
-                  onChange={(e) => {
-                    handleRecentModelSelect(e.target.value);
-                  }}
+                  onChange={(e) => handleRecentModelSelect(e.target.value)}
                 >
                   <option value="">Select a recent model…</option>
                   {recentModels.map((m) => (
@@ -728,23 +718,6 @@ const APIKeySetup = ({ onKeySet, onClose, inline = false }) => {
                   </small>
                 </div>
 
-                {provider !== 'openrouter' && (
-                  <div className="form-group">
-                    <label htmlFor="model">Model</label>
-                    <input
-                      id="model"
-                      type="text"
-                      value={model}
-                      onChange={(e) => setModel(e.target.value)}
-                      placeholder={`Default: ${apiKeyManager.getDefaultModel(provider)}`}
-                      disabled={isLoading}
-                      className="model-input"
-                    />
-                    <small className="field-help">
-                      Model name/ID to use for API calls. Leave empty to use default.
-                    </small>
-                  </div>
-                )}
               </div>
             )}
 

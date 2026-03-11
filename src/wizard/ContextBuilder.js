@@ -20,7 +20,8 @@ export function buildContext(graphState) {
   // Active graph info
   const activeGraph = graphs.find(g => g.id === activeGraphId);
   if (activeGraph) {
-    context += `\n\nCURRENT WEB: "${activeGraph.name}"`;
+    context += `\n\n## Environment Snapshot`;
+    context += `\nCURRENT WEB (open on user's screen): "${activeGraph.name}"`;
 
     // Check if this graph is a definition graph for any node
     const definingNodes = nodePrototypes.filter(proto =>
@@ -141,6 +142,13 @@ export function buildContext(graphState) {
         context += `\nGroups:\n${groupLines.join('\n')}`;
       }
     }
+
+    // Lightweight roster of OTHER webs (so LLM knows what else exists)
+    const otherGraphs = graphs.filter(g => g.id !== activeGraphId);
+    if (otherGraphs.length > 0) {
+      const otherNames = otherGraphs.slice(0, 8).map(g => `"${g.name}"`).join(', ');
+      context += `\nOther webs available: ${otherNames}${otherGraphs.length > 8 ? ` (+${otherGraphs.length - 8} more)` : ''}`;
+    }
   } else if (graphs.length > 0) {
     const graphNames = graphs.slice(0, 3).map(g => `"${g.name}"`).join(', ');
     context += `\n\nAVAILABLE WEBS: ${graphs.length} total (${graphNames}${graphs.length > 3 ? '...' : ''})`;
@@ -190,5 +198,40 @@ export function truncateContext(context, maxLength = 4000) {
   }
 
   return truncated + suffix;
+}
+
+/**
+ * Build persistent context header respecting UI context toggles
+ * @param {Object} graphState - Graph state from UI
+ * @param {Array} contextItems - Array of { type, id, label, enabled } from UI context chips
+ * @returns {string} Formatted context header for system prompt
+ */
+export function buildPersistentContextHeader(graphState, contextItems = []) {
+  if (!graphState) {
+    return 'No graph state available.';
+  }
+
+  // Check if 'activeGraph' context is enabled (defaults to true if no items specified)
+  const activeGraphItem = contextItems.find(item => item.type === 'activeGraph');
+  const includeActiveGraph = !activeGraphItem || activeGraphItem.enabled !== false;
+
+  if (includeActiveGraph) {
+    // Use the full buildContext which includes Environment Snapshot framing
+    return buildContext(graphState);
+  }
+
+  // Active graph context is disabled — provide minimal info
+  const { graphs = [] } = graphState;
+  let context = '';
+
+  if (graphs.length > 0) {
+    const graphNames = graphs.slice(0, 5).map(g => `"${g.name}"`).join(', ');
+    context += `\n\nAvailable webs: ${graphs.length} total (${graphNames}${graphs.length > 5 ? '...' : ''})`;
+    context += '\n(Active graph context is disabled by user.)';
+  } else {
+    context += '\n\nNo webs yet - perfect time to create one!';
+  }
+
+  return context;
 }
 

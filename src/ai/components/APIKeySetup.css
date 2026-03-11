@@ -614,3 +614,6 @@
   border-color: #F00000;
   box-shadow: 0 0 0 2px rgba(240, 0, 0, 0.1);
 }
+.mt-2 {
+  margin-top: 8px;
+}

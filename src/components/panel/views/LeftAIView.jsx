@@ -1464,6 +1464,11 @@ const LeftAIView = ({ compact = false,
   const [chatUndoMessageId, setChatUndoMessageId] = React.useState(null);
   const [isChatUndoOpen, setIsChatUndoOpen] = React.useState(false);
 
+  // Persistent context items (Cursor-style @ chips)
+  const [contextItems, setContextItems] = React.useState([
+    { type: 'activeGraph', id: null, label: 'Active Graph', enabled: true }
+  ]);
+
   const [fileStatus, setFileStatus] = React.useState(null);
   React.useEffect(() => {
     let mounted = true;
@@ -1480,6 +1485,23 @@ const LeftAIView = ({ compact = false,
     const t = setInterval(fetchFileStatus, 3000);
     return () => { mounted = false; clearInterval(t); };
   }, []);
+
+  // Auto-sync context chips with active graph
+  React.useEffect(() => {
+    const graphName = activeGraphId && graphsMap?.has(activeGraphId)
+      ? (graphsMap.get(activeGraphId).name || 'Unnamed')
+      : null;
+    setContextItems(prev => prev.map(item => {
+      if (item.type === 'activeGraph') {
+        return {
+          ...item,
+          id: activeGraphId || null,
+          label: graphName ? `Web: ${graphName}` : 'No Active Web'
+        };
+      }
+      return item;
+    }));
+  }, [activeGraphId, graphsMap]);
 
   // Load conversations from workspace on mount
   React.useEffect(() => {
@@ -2502,6 +2524,7 @@ const LeftAIView = ({ compact = false,
         body: JSON.stringify({
           message: question,
           graphState,
+          contextItems: contextItems.filter(item => item.enabled),
           conversationHistory: recentMessages, // Include conversation history for context
           config: {
             cid: `wizard-${Date.now()}`,
@@ -3421,6 +3444,25 @@ const LeftAIView = ({ compact = false,
             }
             return null;
           })()}
+
+          {/* Persistent context chips (Cursor-style @) */}
+          <div className="ai-context-bar">
+            {contextItems.map((item, idx) => (
+              <button
+                key={item.type + idx}
+                className={`ai-context-chip ${item.enabled ? 'active' : 'disabled'}`}
+                onClick={() => {
+                  setContextItems(prev => prev.map((ci, i) =>
+                    i === idx ? { ...ci, enabled: !ci.enabled } : ci
+                  ));
+                }}
+                title={item.enabled ? `Click to exclude ${item.label} from context` : `Click to include ${item.label} in context`}
+              >
+                <span className="ai-context-chip-label">@ {item.label}</span>
+                <span className="ai-context-chip-toggle">{item.enabled ? '×' : '+'}</span>
+              </button>
+            ))}
+          </div>
 
           <div className="ai-input-container" style={{ marginBottom: toggleClearance }}>
             <textarea ref={inputRef} value={currentInput} onChange={(e) => setCurrentInput(e.target.value)} onKeyPress={handleKeyPress} placeholder={viewMode === 'druid' ? "Share an observation and I'll build upon it..." : viewMode === 'wizard' ? "Ask anything and I'll cast my spells..." : "Ask me anything about your knowledge graph..."} disabled={isProcessing} className="ai-input" rows={2} />

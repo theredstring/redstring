@@ -448,6 +448,18 @@ class APIKeyManager {
     ];
   }
 
+  /**
+   * Get available models for a specific provider
+   * @param {string} provider - Provider ID
+   * @returns {Array} List of model objects
+   */
+  getModelsForProvider(provider) {
+    if (provider === 'google') return this.getGeminiModels();
+    if (provider === 'anthropic') return this.getAnthropicModels();
+    if (provider === 'openrouter') return this.getOpenRouterModels();
+    return [];
+  }
+
   getCommonProviders() {
     return [
       { id: 'openrouter', name: 'OpenRouter (200+ Models)' },
