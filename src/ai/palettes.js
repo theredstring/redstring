@@ -123,12 +123,16 @@ export const PALETTES = {
 // Helper function to get an array of available palette names
 export const getPaletteNames = () => Object.keys(PALETTES);
 
+// Normalize a palette or color key: lowercase and replace spaces with hyphens
+// so AI-provided strings like "Rainbow" or "navy blue" still resolve correctly
+const normalizeKey = (str) => str?.toLowerCase().replace(/\s+/g, '-') ?? '';
+
 // Helper function to get a specific color's hex code from a palette
-// e.g., getColorFromPalette("safari", "tan") -> "#F5F5DC"
+// e.g., getColorFromPalette("safari", "tan") -> "#FFE797"
 export const getColorFromPalette = (paletteName, colorName) => {
-    const palette = PALETTES[paletteName];
+    const palette = PALETTES[normalizeKey(paletteName)];
     if (!palette) return null;
-    return palette.colors[colorName] || null;
+    return palette.colors[normalizeKey(colorName)] || null;
 };
 
 // Helper function to get a random palette name
@@ -139,7 +143,7 @@ export const getRandomPalette = () => {
 
 // Helper function to get a random color from a specific palette
 export const getRandomColorFromPalette = (paletteName) => {
-    const palette = PALETTES[paletteName];
+    const palette = PALETTES[normalizeKey(paletteName)];
     if (!palette) return null;
     const colorKeys = Object.keys(palette.colors);
     if (colorKeys.length === 0) return null;
