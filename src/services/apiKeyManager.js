@@ -380,7 +380,7 @@ class APIKeyManager {
    */
   getDefaultModel(provider) {
     const models = {
-      'anthropic': 'claude-3-sonnet-20240229',
+      'anthropic': 'claude-3-5-sonnet-20241022',
       'openai': 'gpt-4o',
       'openrouter': 'anthropic/claude-3-sonnet', // Fixed: Use the correct model name
       'local': 'llama2', // Ollama default
@@ -388,7 +388,7 @@ class APIKeyManager {
       'cohere': 'command-r',
       'custom': ''
     };
-    return models[provider] || 'anthropic/claude-3-sonnet'; // Fixed: Use the correct model name
+    return models[provider] || 'claude-3-5-sonnet-20241022';
   }
 
   /**
@@ -427,6 +427,18 @@ class APIKeyManager {
       { id: 'gemini-2.0-flash-lite', name: 'Gemini 2.0 Flash Lite' },
       { id: 'gemini-1.5-pro', name: 'Gemini 1.5 Pro' },
       { id: 'gemini-1.5-flash', name: 'Gemini 1.5 Flash' }
+    ];
+  }
+
+  /**
+   * Get available Anthropic Claude models
+   * @returns {Array} List of Anthropic model IDs and display names
+   */
+  getAnthropicModels() {
+    return [
+      { id: 'claude-3-5-sonnet-20241022', name: 'Claude 3.5 Sonnet' },
+      { id: 'claude-3-5-haiku-20241022', name: 'Claude 3.5 Haiku' },
+      { id: 'claude-3-opus-20240229', name: 'Claude 3 Opus' }
     ];
   }
 

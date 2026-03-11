@@ -256,19 +256,62 @@ debugLogSync('LLMClient.js:MODULE_LOADED', 'LLMClient module loaded', {}, 'debug
 async function* streamAnthropic(messages, tools, { endpoint, model, apiKey, temperature, maxTokens }, signal = null) {
   // Anthropic uses a different message format
   const systemMessage = messages.find(m => m.role === 'system');
-  const conversationMessages = messages.filter(m => m.role !== 'system');
+  
+  // Transform OpenAI-style messages to Anthropic format
+  const conversationMessages = [];
+  for (const msg of messages) {
+    if (msg.role === 'system') continue;
+
+    if (msg.role === 'assistant') {
+      const content = [];
+      if (typeof msg.content === 'string' && msg.content) {
+        content.push({ type: 'text', text: msg.content });
+      }
+      if (Array.isArray(msg.tool_calls)) {
+        for (const tc of msg.tool_calls) {
+          const fnName = tc.function?.name || tc.name || '';
+          let fnArgs = {};
+          try { fnArgs = JSON.parse(tc.function?.arguments || '{}'); } catch { fnArgs = tc.args || {}; }
+          content.push({
+            type: 'tool_use',
+            id: tc.id,
+            name: fnName,
+            input: fnArgs
+          });
+        }
+      }
+      if (content.length > 0) {
+        conversationMessages.push({ role: 'assistant', content });
+      }
+    } else if (msg.role === 'tool') {
+      // Tool results are user messages with tool_result blocks
+      let resultObj = {};
+      try { resultObj = JSON.parse(msg.content || '{}'); } catch { resultObj = { result: msg.content }; }
+      conversationMessages.push({
+        role: 'user',
+        content: [{
+          type: 'tool_result',
+          tool_use_id: msg.tool_call_id,
+          content: JSON.stringify(resultObj)
+        }]
+      });
+    } else {
+      // User message
+      conversationMessages.push({ role: 'user', content: msg.content });
+    }
+  }
 
   const payload = {
-    model,
-    max_tokens: maxTokens,
+    model: model || 'claude-3-5-sonnet-20241022',
+    max_tokens: maxTokens || 8192,
     system: systemMessage?.content || '',
     messages: conversationMessages,
     ...(tools && tools.length > 0 ? { tools } : {}),
-    temperature,
+    temperature: temperature ?? 0.7,
     stream: true
   };
 
-  const response = await fetch(endpoint, {
+  const response = await fetch(endpoint || 'https://api.anthropic.com/v1/messages', {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -288,6 +331,7 @@ async function* streamAnthropic(messages, tools, { endpoint, model, apiKey, temp
   const decoder = new TextDecoder();
   let buffer = '';
   let currentToolCall = null;
+  let toolArgsBuffer = '';
 
   try {
     while (true) {
@@ -319,9 +363,9 @@ async function* streamAnthropic(messages, tools, { endpoint, model, apiKey, temp
             if (chunk.type === 'content_block_start' && chunk.content_block?.type === 'tool_use') {
               currentToolCall = {
                 id: chunk.content_block.id,
-                name: chunk.content_block.name,
-                input: {}
+                name: chunk.content_block.name
               };
+              toolArgsBuffer = '';
               yield {
                 type: 'tool_call_start',
                 id: currentToolCall.id,
@@ -329,28 +373,30 @@ async function* streamAnthropic(messages, tools, { endpoint, model, apiKey, temp
               };
             }
 
-            // Tool use delta
+            // Tool use delta (accumulate parameters)
             if (chunk.type === 'content_block_delta' && chunk.delta?.type === 'input_json_delta') {
               if (currentToolCall) {
-                // Accumulate JSON input
-                const partial = chunk.delta.partial_json || '';
-                try {
-                  currentToolCall.input = JSON.parse(partial);
-                } catch {
-                  // Partial JSON, will complete later
-                }
+                toolArgsBuffer += chunk.delta.partial_json || '';
               }
             }
 
             // Tool use stop
             if (chunk.type === 'content_block_stop' && currentToolCall) {
+              let parsedArgs = {};
+              try {
+                parsedArgs = JSON.parse(toolArgsBuffer || '{}');
+              } catch (e) {
+                console.warn('[LLMClient:Anthropic] Partial/invalid JSON for tool args:', toolArgsBuffer);
+                parsedArgs = { error: 'Truncated tool arguments' };
+              }
               yield {
                 type: 'tool_call',
                 name: currentToolCall.name,
-                args: currentToolCall.input,
+                args: parsedArgs,
                 id: currentToolCall.id
               };
               currentToolCall = null;
+              toolArgsBuffer = '';
             }
           } catch (e) {
             continue;

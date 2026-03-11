@@ -26,6 +26,7 @@ const APIKeySetup = ({ onKeySet, onClose, inline = false }) => {
 
   const providers = apiKeyManager.getCommonProviders();
   const geminiModels = apiKeyManager.getGeminiModels();
+  const anthropicModels = apiKeyManager.getAnthropicModels();
 
   useEffect(() => {
     loadExistingKey();
@@ -617,6 +618,28 @@ const APIKeySetup = ({ onKeySet, onClose, inline = false }) => {
                 <small className="field-help">
                   Get a free API key at{' '}
                   <a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noopener noreferrer">Google AI Studio</a>.
+                </small>
+              </div>
+            )}
+
+            {/* Anthropic Model Selection */}
+            {provider === 'anthropic' && (
+              <div className="form-group">
+                <label htmlFor="anthropicModel">Claude Model</label>
+                <select
+                  id="anthropicModel"
+                  value={model}
+                  onChange={(e) => setModel(e.target.value)}
+                  disabled={isLoading}
+                  className="model-input"
+                >
+                  {anthropicModels.map(m => (
+                    <option key={m.id} value={m.id}>{m.name}</option>
+                  ))}
+                </select>
+                <small className="field-help">
+                  Manage your keys at the{' '}
+                  <a href="https://console.anthropic.com/" target="_blank" rel="noopener noreferrer">Anthropic Console</a>.
                 </small>
               </div>
             )}
