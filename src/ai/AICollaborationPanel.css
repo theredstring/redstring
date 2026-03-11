@@ -611,6 +611,68 @@
   }
 }
 
+/* Context Chip Bar (Cursor-style @ context) */
+.ai-context-bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 8px 20px 4px;
+  background: #bdb5b5;
+}
+
+.ai-context-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 10px;
+  border-radius: 12px;
+  font-family: 'EmOne', sans-serif;
+  font-size: 12px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  border: 1px solid transparent;
+  line-height: 1.3;
+}
+
+.ai-context-chip.active {
+  background: rgba(38, 0, 0, 0.10);
+  color: #260000;
+  border-color: rgba(38, 0, 0, 0.25);
+}
+
+.ai-context-chip.active:hover {
+  background: rgba(38, 0, 0, 0.16);
+  border-color: rgba(38, 0, 0, 0.35);
+}
+
+.ai-context-chip.disabled {
+  background: rgba(38, 0, 0, 0.03);
+  color: rgba(38, 0, 0, 0.35);
+  border-color: rgba(38, 0, 0, 0.10);
+  text-decoration: line-through;
+}
+
+.ai-context-chip.disabled:hover {
+  background: rgba(38, 0, 0, 0.06);
+  color: rgba(38, 0, 0, 0.5);
+  text-decoration: none;
+}
+
+.ai-context-chip-label {
+  font-weight: 500;
+}
+
+.ai-context-chip-toggle {
+  font-size: 14px;
+  font-weight: 600;
+  opacity: 0.6;
+  line-height: 1;
+}
+
+.ai-context-chip:hover .ai-context-chip-toggle {
+  opacity: 1;
+}
+
 /* Input Container */
 .ai-input-container {
   padding: 16px 20px;

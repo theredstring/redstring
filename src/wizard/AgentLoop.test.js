@@ -16,6 +16,7 @@ vi.mock('./LLMClient.js', () => ({
 
 vi.mock('./ContextBuilder.js', () => ({
   buildContext: vi.fn(() => 'Mock context'),
+  buildPersistentContextHeader: vi.fn(() => 'Mock persistent context'),
   truncateContext: vi.fn((ctx) => ctx)
 }));
 
@@ -246,7 +247,8 @@ describe('AgentLoop', () => {
 
   describe('context building', () => {
     it('includes context in system prompt', async () => {
-      buildContext.mockReturnValue('Mock context string');
+      const { buildPersistentContextHeader } = await import('./ContextBuilder.js');
+      buildPersistentContextHeader.mockReturnValue('Mock persistent context string');
 
       streamLLM.mockImplementation(async function* () {
         yield { type: 'text', content: 'Hello' };
@@ -257,12 +259,12 @@ describe('AgentLoop', () => {
         events.push(event);
       }
 
-      expect(buildContext).toHaveBeenCalledWith(mockGraphState);
+      expect(buildPersistentContextHeader).toHaveBeenCalledWith(mockGraphState, []);
       expect(streamLLM).toHaveBeenCalledWith(
         expect.arrayContaining([
           expect.objectContaining({
             role: 'system',
-            content: expect.stringContaining('Mock context string')
+            content: expect.stringContaining('Mock persistent context string')
           })
         ]),
         expect.any(Array),
