@@ -301,9 +301,11 @@ function applyOffscreenLayout(graphId) {
  * This bridges the gap between server-side tool execution and client-side store.
  *
  * ╔══════════════════════════════════════════════════════════════════════════╗
- * ║  ADDING A NEW TOOL? You MUST add a handler here! This is step 3 of 5. ║
+ * ║  ADDING A NEW TOOL? You MUST add a handler here! This is step 3 of 4. ║
  * ║  Read .agent/workflows/add-wizard-tool.md for the full checklist.      ║
  * ║  Without a handler here, the tool will appear to work but NOT persist. ║
+ * ║  NOTE: The MCP bridge is now automatically proxied — no BridgeClient   ║
+ * ║  handler needed! Just add your handler here and it works everywhere.   ║
  * ╚══════════════════════════════════════════════════════════════════════════╝
  */
 function applyToolResultToStore(toolName, result, toolCallId) {
@@ -1413,6 +1415,11 @@ function applyToolResultToStore(toolName, result, toolCallId) {
       }
     }, 500);
   }
+}
+
+// Export raw store pipeline for MCP bridge to use as a fallback handler
+if (typeof window !== 'undefined') {
+  window.__rs_applyToolResultToStore = applyToolResultToStore;
 }
 
 // Internal AI Collaboration View component (migrated from src/ai/AICollaborationPanel.jsx)
