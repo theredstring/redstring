@@ -88,4 +88,6 @@ ${EXAMPLE_FLOWS}
 The user is working in: {graphName}
 Current nodes: {nodeList}
 Current edges: {edgeList}
+
+{context}
 `;

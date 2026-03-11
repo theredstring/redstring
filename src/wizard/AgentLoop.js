@@ -608,25 +608,24 @@ export async function* runAgent(userMessage, graphState, config = {}, ensureSche
   // Build static system prompt template (context will be appended fresh each iteration)
   const systemPromptTemplate = baseSystemPrompt
     .replace('{graphName}', graphState.activeGraphId ? (graphState.graphs?.find(g => g.id === graphState.activeGraphId)?.name || 'Unknown') : 'None')
-    .replace('{nodeList}', '')
-    .replace('{edgeList}', '')
     .replace(/{maxIterations}/g, String(maxIterations));
 
   // Build messages array with conversation history (sliding window)
   const conversationHistory = config.conversationHistory || [];
   const MAX_HISTORY_MESSAGES = 20;
   const historyMessages = conversationHistory
-    .filter(msg => msg.content && msg.content.trim()) // Filter out empty messages
+    .filter(msg => (msg.content && msg.content.trim()) || (msg.role === 'assistant' && Array.isArray(msg.tool_calls) && msg.tool_calls.length > 0)) // Include non-empty messages OR tool calls
     .slice(-MAX_HISTORY_MESSAGES) // Keep only recent history
     .map(msg => ({
       role: msg.role === 'user' ? 'user' : 'assistant',
-      content: msg.content
+      content: msg.content || null,
+      tool_calls: msg.role === 'assistant' ? msg.tool_calls : undefined
     }));
 
   console.error('[AgentLoop] Conversation history:', historyMessages.length, 'messages');
 
   const messages = [
-    { role: 'system', content: systemPromptTemplate + '\n\n' + initialContext },
+    { role: 'system', content: systemPromptTemplate.replace('{context}', initialContext) },
     ...historyMessages, // Include prior conversation for context
     { role: 'user', content: userMessage }
   ];
@@ -639,7 +638,7 @@ export async function* runAgent(userMessage, graphState, config = {}, ensureSche
     // Rebuild context from (potentially mutated) graphState so LLM sees current state
     if (iteration > 0) {
       const freshContext = buildPersistentContextHeader(graphState, contextItems);
-      messages[0] = { role: 'system', content: systemPromptTemplate + '\n\n' + freshContext };
+      messages[0] = { role: 'system', content: systemPromptTemplate.replace('{context}', freshContext) };
     }
     if (abortSignal?.aborted) {
       yield { type: 'done', iterations: iteration };
