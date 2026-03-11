@@ -660,6 +660,18 @@ export function getToolDefinitions() {
                 },
                 required: []
             }
+        },
+        {
+            name: 'inspectWorkspace',
+            description: 'Quick comprehensive overview of the workspace. Returns all nodes, edges, and groups with their important IDs, organized by type. Much faster than searchNodes + searchConnections for getting a complete picture.',
+            parameters: {
+                type: 'object',
+                properties: {
+                    graphId: { type: 'string', description: 'Optional: ID of a specific graph to inspect, defaults to active graph' },
+                    includeAllGraphs: { type: 'boolean', description: 'If true, returns summaries for ALL graphs in the workspace' }
+                },
+                required: []
+            }
         }
     ];
 }

@@ -44,6 +44,7 @@ import { populateDefinitionGraph } from './populateDefinitionGraph.js';
 import { getPrototype } from './getPrototype.js';
 import { getInstancesOfPrototype } from './getInstancesOfPrototype.js';
 import { getGraphInstances } from './getGraphInstances.js';
+import { inspectWorkspace } from './inspectWorkspace.js';
 
 const TOOLS = {
   createNode,
@@ -80,7 +81,8 @@ const TOOLS = {
   populateDefinitionGraph,
   getPrototype,
   getInstancesOfPrototype,
-  getGraphInstances
+  getGraphInstances,
+  inspectWorkspace
 };
 
 /**

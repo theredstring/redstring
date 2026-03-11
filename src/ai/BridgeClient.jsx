@@ -1645,6 +1645,122 @@ const BridgeClient = () => {
               return { success: created, graphId, prototypeId: realPrototypeId, nodeName: result.nodeName };
             },
 
+            populateDefinitionGraph: async (result) => {
+              console.log('MCPBridge: Calling populateDefinitionGraph', result.nodeName, '→', result.graphId);
+              const st = useGraphStore.getState();
+
+              const graphId = result.graphId;
+              if (!graphId || !result.spec) {
+                return { success: false, error: 'Missing graphId or spec' };
+              }
+
+              // Resolve prototype ID — prioritize provided ID, fallback to name match
+              let realPrototypeId = result.prototypeId && st.nodePrototypes.has(result.prototypeId)
+                ? result.prototypeId
+                : null;
+
+              if (!realPrototypeId) {
+                const nodeName = (result.nodeName || '').toLowerCase().trim();
+                if (nodeName) {
+                  for (const [pid, proto] of st.nodePrototypes) {
+                    if ((proto.name || '').toLowerCase().trim() === nodeName) {
+                      realPrototypeId = pid; // Take LAST match
+                    }
+                  }
+                }
+              }
+
+              if (!realPrototypeId) {
+                console.error('[BridgeClient] populateDefinitionGraph: Could not find prototype for:', result.nodeName);
+                return { success: false, error: `Prototype not found for "${result.nodeName}"` };
+              }
+
+              console.error('[BridgeClient] populateDefinitionGraph: Resolved prototype →', realPrototypeId);
+
+              // 1. Create the definition graph
+              st.createDefinitionGraphWithId(graphId, realPrototypeId);
+
+              // 2. Build type map for inline type nodes
+              const typeMap = new Map();
+              (result.spec.nodes || []).forEach(n => {
+                if (n.type) {
+                  const tLower = n.type.toLowerCase().trim();
+                  if (!typeMap.has(tLower)) {
+                    let existingProtoId = null;
+                    for (const [pid, proto] of st.nodePrototypes) {
+                      if ((proto.name || '').toLowerCase().trim() === tLower) {
+                        existingProtoId = pid;
+                        break;
+                      }
+                    }
+                    if (existingProtoId) {
+                      typeMap.set(tLower, existingProtoId);
+                    } else {
+                      const newProtoId = `proto-auto-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+                      typeMap.set(tLower, newProtoId);
+                      st.addNodePrototype({
+                        id: newProtoId,
+                        name: n.type,
+                        color: n.typeColor || '#A0A0A0',
+                        description: n.typeDescription || '',
+                        typeNodeId: null,
+                        definitionGraphIds: []
+                      });
+                    }
+                  }
+                }
+              });
+
+              // 3. Build bulk data
+              const bulkData = {
+                nodes: result.spec.nodes.map((n, idx) => ({
+                  name: n.name,
+                  color: n.color,
+                  description: n.description,
+                  typeNodeId: n.type ? typeMap.get(n.type.toLowerCase().trim()) : null,
+                  prototypeId: `proto-${Date.now()}-${idx}-${Math.random().toString(36).slice(2, 8)}`,
+                  instanceId: `inst-${Date.now()}-${idx}-${Math.random().toString(36).slice(2, 8)}`,
+                  x: Math.random() * 600 + 200,
+                  y: Math.random() * 500 + 200
+                })),
+                edges: (result.spec.edges || []).map(e => ({
+                  source: e.source,
+                  target: e.target,
+                  type: e.type || 'relates to',
+                  directionality: e.directionality || 'unidirectional',
+                  definitionNode: e.definitionNode || null
+                })),
+                groups: result.spec.groups || []
+              };
+
+              st.applyBulkGraphUpdates(graphId, bulkData);
+
+              // 4. Trigger layout
+              try { applyOffscreenLayout(graphId); } catch (e) { console.warn('[BridgeClient] Offscreen layout failed:', e); }
+              setTimeout(() => {
+                if (typeof window !== 'undefined') {
+                  window.dispatchEvent(new CustomEvent('rs-trigger-auto-layout', { detail: { graphId } }));
+                }
+              }, 600);
+
+              // 5. Auto-enrich nodes
+              const newNodeNames = result.spec.nodes.map(n => n.name);
+              setTimeout(() => {
+                enrichMultipleNodes(newNodeNames, graphId).catch(err => {
+                  console.warn('[BridgeClient] Batch enrichment failed:', err);
+                });
+              }, 1000);
+
+              // Verify
+              const verify = useGraphStore.getState();
+              const created = verify.graphs.has(graphId);
+              const graph = verify.graphs.get(graphId);
+              console.error('[BridgeClient] populateDefinitionGraph:', created ? 'SUCCESS' : 'FAILED',
+                '| graphId:', graphId, '| instances:', graph?.instances?.size || 0);
+
+              return { success: created, graphId, prototypeId: realPrototypeId, nodeName: result.nodeName };
+            },
+
             removeDefinitionGraph: async (result) => {
               console.log('MCPBridge: Calling removeDefinitionGraph', result.nodeName);
               const st = useGraphStore.getState();
