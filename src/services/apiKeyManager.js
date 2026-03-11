@@ -43,6 +43,12 @@ class APIKeyManager {
         name: (config.profileName || provider)
       };
 
+      console.log('[API Key Manager] Saving keyData to profile:', {
+        provider: keyData.provider,
+        model: keyData.model,
+        endpoint: keyData.endpoint
+      });
+
       // Save into profiles list
       const profiles = await this._getProfilesInternal();
       const id = (config.profileId) || `prof_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;

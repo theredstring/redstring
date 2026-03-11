@@ -69,13 +69,17 @@ const APIKeySetup = ({ onKeySet, onClose, inline = false }) => {
   };
 
   const handleProviderChange = (newProvider) => {
+    console.log('[APIKeySetup] Changing provider to:', newProvider);
     setProvider(newProvider);
     setSelectedPreset(null);
     setConnectionTestResult(null);
     // Auto-set defaults for known providers
     if (newProvider !== 'custom') {
-      setEndpoint(apiKeyManager.getDefaultEndpoint(newProvider));
-      setModel(apiKeyManager.getDefaultModel(newProvider));
+      const defaultEndpoint = apiKeyManager.getDefaultEndpoint(newProvider);
+      const defaultModel = apiKeyManager.getDefaultModel(newProvider);
+      console.log('[APIKeySetup] Setting defaults for', newProvider, { endpoint: defaultEndpoint, model: defaultModel });
+      setEndpoint(defaultEndpoint);
+      setModel(defaultModel);
     } else {
       setEndpoint('');
       setModel('');
@@ -181,6 +185,12 @@ const APIKeySetup = ({ onKeySet, onClose, inline = false }) => {
 
       // For custom providers, use the custom name
       const finalProvider = provider === 'custom' ? customProviderName : provider;
+
+      console.log('[APIKeySetup] Storing API key:', {
+        provider: finalProvider,
+        endpoint: endpoint.trim(),
+        model: model.trim()
+      });
 
       // Store the API key with configuration
       await apiKeyManager.storeAPIKey(keyToStore, finalProvider, {
@@ -607,7 +617,10 @@ const APIKeySetup = ({ onKeySet, onClose, inline = false }) => {
                 <select
                   id="geminiModel"
                   value={model}
-                  onChange={(e) => setModel(e.target.value)}
+                  onChange={(e) => {
+                    console.log('[APIKeySetup] Selected Gemini model:', e.target.value);
+                    setModel(e.target.value);
+                  }}
                   disabled={isLoading}
                   className="model-input"
                 >
@@ -629,7 +642,10 @@ const APIKeySetup = ({ onKeySet, onClose, inline = false }) => {
                 <select
                   id="anthropicModel"
                   value={model}
-                  onChange={(e) => setModel(e.target.value)}
+                  onChange={(e) => {
+                    console.log('[APIKeySetup] Selected Anthropic model:', e.target.value);
+                    setModel(e.target.value);
+                  }}
                   disabled={isLoading}
                   className="model-input"
                 >

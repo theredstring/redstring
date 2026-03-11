@@ -76,18 +76,8 @@ const TypeList = ({ nodes, setSelectedNodes, selectedNodes = new Set() }) => {
       
     // If no specific types are used (or no active graph), include base types
     if (typeNodes.length === 0) {
-      typeNodes = Array.from(nodePrototypesMap.values())
-        .filter(prototype => {
-          // A prototype is a valid type node if:
-          // 1. It has no parent type (typeNodeId is null), AND
-          // 2. It's not a graph-defining prototype (doesn't define any graphs)
-          //    OR it's the special base "Thing" prototype
-          const isUntyped = !prototype.typeNodeId;
-          const isBaseThingPrototype = prototype.id === 'base-thing-prototype';
-          const isGraphDefining = prototype.definitionGraphIds && prototype.definitionGraphIds.length > 0;
-          
-          return isUntyped && (isBaseThingPrototype || !isGraphDefining);
-        });
+      const baseThing = nodePrototypesMap.get('base-thing-prototype');
+      typeNodes = baseThing ? [baseThing] : [];
     }
     
     return typeNodes;
