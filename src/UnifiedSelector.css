@@ -27,3 +27,8 @@
 .unified-selector-scroll::-webkit-scrollbar-corner {
   background: transparent;
 }
+
+.unified-selector-scroll,
+.unified-selector-scroll * {
+  box-sizing: border-box;
+}

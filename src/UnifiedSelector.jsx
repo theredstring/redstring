@@ -150,20 +150,14 @@ const UnifiedSelector = ({
   const gridOuterWidth = containerMaxWidth;
   const gridInnerPadding = isMobilePortrait ? 10 : (isSmallScreen ? 12 : 16);
 
-  // Grid responsive columns with smaller cards - optimized for mobile portrait, compact on desktop
+  // Grid responsive columns - now handled via CSS auto-fill for true dynamic behavior
   const cardMinWidth = isMobilePortrait ? (isExtraSmall ? 110 : 130) : (isSmallScreen ? 120 : 115);
-  const minimumColumns = isMobilePortrait ? (isExtraSmall ? 2 : 2) : (isSmallScreen ? 1 : 2);
-  const columns = Math.max(
-    minimumColumns,
-    Math.floor((gridOuterWidth - gridInnerPadding * 2) / (cardMinWidth + 12))
-  );
   const dialogTitleSize = isMobilePortrait ? '16px' : (isSmallScreen ? '18px' : '18px');
   const subtitleFontSize = isMobilePortrait ? '13px' : (isSmallScreen ? '14px' : '14px');
   const inputPadding = isMobilePortrait ? '10px' : (isSmallScreen ? '9px' : '9px');
   const actionButtonMinWidth = isMobilePortrait ? '52px' : (isSmallScreen ? '48px' : '48px');
   const actionButtonMinHeight = isMobilePortrait ? '52px' : (isSmallScreen ? '48px' : '40px');
   const cardHeight = isMobilePortrait ? (isExtraSmall ? '100px' : '105px') : (isSmallScreen ? '110px' : '75px');
-  const gridTemplateColumns = `repeat(${columns}, 1fr)`;
 
   // Touch-friendly sizing on mobile, compact on desktop
   const iconSize = isMobilePortrait ? 22 : 18;
@@ -213,6 +207,7 @@ const UnifiedSelector = ({
               position: 'relative',
               flexShrink: 0,
               maxWidth: '100%',
+              boxSizing: 'border-box',
               pointerEvents: 'auto'
             }}
             onClick={(e) => e.stopPropagation()}
@@ -323,7 +318,8 @@ const UnifiedSelector = ({
                 boxShadow: '0 2px 10px rgba(0,0,0,0.2)',
                 display: 'flex',
                 flexDirection: 'column',
-                minHeight: 0
+                minHeight: 0,
+                boxSizing: 'border-box'
               }}
             >
               {/* Header area inside outer, reserved for future buttons */}
@@ -370,7 +366,7 @@ const UnifiedSelector = ({
                   <div
                     style={{
                       display: 'grid',
-                      gridTemplateColumns: gridTemplateColumns,
+                      gridTemplateColumns: `repeat(auto-fill, minmax(${cardMinWidth}px, 1fr))`,
                       gap: isSmallScreen ? '10px' : '8px',
                       alignContent: 'start'
                     }}
