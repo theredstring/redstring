@@ -31,7 +31,7 @@ export const initializeGitStorage = async (provider) => {
   currentProvider = provider;
   isInitialized = true;
 
-  console.log('[GitStorage] Initialized with provider:', provider.name);
+  // console.log('[GitStorage] Initialized with provider:', provider.name);
 
   // Test connection
   try {
@@ -39,7 +39,7 @@ export const initializeGitStorage = async (provider) => {
     if (!isAvailable) {
       throw new Error('Provider is not available');
     }
-    console.log('[GitStorage] Provider connection verified');
+    // console.log('[GitStorage] Provider connection verified');
   } catch (error) {
     console.error('[GitStorage] Provider connection failed:', error);
     throw error;
@@ -69,27 +69,27 @@ export const loadFromGit = async () => {
   }
 
   try {
-    console.log('[GitStorage] Loading data from Git repository...');
+    // console.log('[GitStorage] Loading data from Git repository...');
 
     // Try to load the main universe file
     let content;
     try {
       content = await currentProvider.readSemanticFile(MAIN_FILE_NAME);
-      console.log('[GitStorage] Loaded main universe file');
+      // console.log('[GitStorage] Loaded main universe file');
     } catch (error) {
-      console.log('[GitStorage] Main file not found, trying backup...');
+      // console.log('[GitStorage] Main file not found, trying backup...');
       try {
         content = await currentProvider.readSemanticFile(BACKUP_FILE_NAME);
-        console.log('[GitStorage] Loaded backup file');
+        // console.log('[GitStorage] Loaded backup file');
       } catch (backupError) {
-        console.log('[GitStorage] No existing files found, starting fresh');
+        // console.log('[GitStorage] No existing files found, starting fresh');
         return null; // Return null to indicate no existing data
       }
     }
 
     // Parse the content
     const redstringData = JSON.parse(content);
-    console.log('[GitStorage] Successfully parsed Redstring data');
+    // console.log('[GitStorage] Successfully parsed Redstring data');
 
     return redstringData;
   } catch (error) {
@@ -107,7 +107,7 @@ export const saveToGit = async (storeState, showSuccess = true) => {
   }
 
   try {
-    console.log('[GitStorage] Saving data to Git repository...');
+    // console.log('[GitStorage] Saving data to Git repository...');
 
     // Export current state to Redstring format
     const redstringData = exportToRedstring(storeState);
@@ -122,7 +122,7 @@ export const saveToGit = async (storeState, showSuccess = true) => {
     lastSaveTime = Date.now();
 
     if (showSuccess) {
-      console.log('[GitStorage] Successfully saved to Git repository');
+      // console.log('[GitStorage] Successfully saved to Git repository');
     }
 
     return true;
@@ -145,7 +145,7 @@ export const setupGitAutoSave = (getStoreStateFn) => {
     clearInterval(autoSaveInterval);
   }
 
-  console.log('[GitStorage] Setting up auto-save (every', AUTO_SAVE_INTERVAL, 'ms)');
+  // console.log('[GitStorage] Setting up auto-save (every', AUTO_SAVE_INTERVAL, 'ms)');
 
   autoSaveInterval = setInterval(async () => {
     if (!isAutoSaveEnabled) return;
@@ -241,6 +241,7 @@ export const importFromGit = async (storeActions) => {
   try {
     const redstringData = await loadFromGit();
     if (redstringData) {
+      // console.log('[GitStorage] Importing data from Git');
       const { storeState, errors } = importFromRedstring(redstringData);
 
       if (errors && errors.length > 0) {
@@ -250,7 +251,7 @@ export const importFromGit = async (storeActions) => {
       if (storeState) {
         const success = storeActions.loadUniverseFromFile(storeState);
         if (success) {
-          console.log('[GitStorage] Successfully imported data from Git');
+          // console.log('[GitStorage] Successfully imported data from Git');
           return true;
         } else {
           console.error('[GitStorage] Failed to apply imported state to store');
@@ -277,9 +278,9 @@ export const createUniverseInGit = async (storeState) => {
   }
 
   try {
-    console.log('[GitStorage] Creating initial universe file in Git...');
+    // console.log('[GitStorage] Creating initial universe file in Git...');
     await saveToGit(storeState, false);
-    console.log('[GitStorage] Initial universe file created');
+    // console.log('[GitStorage] Initial universe file created');
     return true;
   } catch (error) {
     console.error('[GitStorage] Failed to create initial universe file:', error);

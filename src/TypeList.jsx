@@ -35,7 +35,7 @@ const TypeList = ({ nodes, setSelectedNodes, selectedNodes = new Set() }) => {
       .some(prototype => prototype.id === 'base-thing-prototype');
     
     if (!hasBaseThingPrototype) {
-      console.log(`[TypeList] Base "Thing" prototype missing, creating it...`);
+      // console.log(`[TypeList] Base "Thing" prototype missing, creating it...`);
       // Create the missing base "Thing" prototype
       const storeActions = useGraphStore.getState();
       storeActions.addNodePrototype({
@@ -138,7 +138,7 @@ const TypeList = ({ nodes, setSelectedNodes, selectedNodes = new Set() }) => {
           setNodeTypeAction(nodeId, nodeType.id);
         }
       });
-      console.log(`Set type of ${selectedNodes.size} nodes to ${nodeType.name}`);
+      // console.log(`Set type of ${selectedNodes.size} nodes to ${nodeType.name}`);
     } else {
       // If no nodes are selected, select all nodes of this type
       const nodesOfType = nodes.filter(node => {
@@ -148,7 +148,7 @@ const TypeList = ({ nodes, setSelectedNodes, selectedNodes = new Set() }) => {
       });
       const nodeIds = nodesOfType.map(node => node.id);
       setSelectedNodes(new Set(nodeIds));
-      console.log(`Selected ${nodeIds.length} nodes of type ${nodeType.name}`);
+      // console.log(`Selected ${nodeIds.length} nodes of type ${nodeType.name}`);
     }
   };
 
@@ -185,7 +185,7 @@ const TypeList = ({ nodes, setSelectedNodes, selectedNodes = new Set() }) => {
     if (edgesOfType.length > 0) {
       const setSelectedEdgeIds = useGraphStore.getState().setSelectedEdgeIds;
       setSelectedEdgeIds(edgesOfType);
-      console.log(`Selected ${edgesOfType.length} edges of type ${edgeType.name}`);
+      // console.log(`Selected ${edgesOfType.length} edges of type ${edgeType.name}`);
     }
     
     // Open the panel tab for the connection type's defining node

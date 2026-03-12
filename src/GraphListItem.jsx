@@ -41,7 +41,7 @@ const GraphListItem = forwardRef(({
     },
     canDrag: () => {
       const canDrag = !!graphData.definingNodeIds?.[0];
-      console.log('[GraphListItem] canDrag check for', graphData.name, 'definingNodeId:', graphData.definingNodeIds?.[0], 'canDrag:', canDrag);
+      // console.log('[GraphListItem] canDrag check for', graphData.name, 'definingNodeId:', graphData.definingNodeIds?.[0], 'canDrag:', canDrag);
       return canDrag;
     },
     collect: (monitor) => ({

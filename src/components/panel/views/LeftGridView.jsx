@@ -55,26 +55,13 @@ const LeftGridView = ({
             onClick={onOpenSearch}
             title="Search Open Things"
           />
-          <button
+          <PanelIconButton
+            icon={Plus}
+            size={20}
             onClick={() => createNewGraph({ name: 'New Thing' })}
-            style={{
-              backgroundColor: 'transparent',
-              border: 'none',
-              color: '#260000',
-              cursor: 'pointer',
-              padding: '4px',
-              borderRadius: '4px',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              outline: 'none',
-            }}
-            onMouseEnter={(e) => e.currentTarget.style.backgroundColor = 'rgba(38, 0, 0, 0.1)'}
-            onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
             title="Create New Thing with Graph Definition"
-          >
-            <Plus size={20} />
-          </button>
+          />
+
         </div>
       </div>
 

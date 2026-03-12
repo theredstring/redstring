@@ -105,13 +105,13 @@ const LeftAllThingsView = ({
           const isLastSection = index === array.length - 1;
 
           // Debug logging
-          console.log(`[AllThingsView] Rendering type ${typeId}:`, {
-            typeName: typeInfo.name,
-            nodeCount: nodes.length,
-            isCollapsed,
-            maxHeight,
-            nodes: nodes.map(n => ({ id: n.id, name: n.name }))
-          });
+          // console.log(`[AllThingsView] Rendering type ${typeId}:`, {
+          //   typeName: typeInfo.name,
+          //   nodeCount: nodes.length,
+          //   isCollapsed,
+          //   maxHeight,
+          //   nodes: nodes.map(n => ({ id: n.id, name: n.name }))
+          // });
           return (
             <div key={typeId}>
               <div style={{ marginBottom: '10px' }}>

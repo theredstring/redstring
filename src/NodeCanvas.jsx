@@ -701,14 +701,14 @@ function NodeCanvas() {
           (currentState.nodePrototypes instanceof Map ? currentState.nodePrototypes.size > 0 : Object.keys(currentState.nodePrototypes).length > 0);
 
         if (hasBackendLoadedData) {
-          console.log('[NodeCanvas] Backend already loaded universe data, skipping old fileStorage restore');
+          // console.log('[NodeCanvas] Backend already loaded universe data, skipping old fileStorage restore');
           // Backend has loaded data, don't try old restore path
           return;
         }
 
         // Wait a moment for backend to load if universe-backend-ready event hasn't fired yet
         if (typeof window !== 'undefined' && !window._universeBackendReady) {
-          console.log('[NodeCanvas] Waiting for universe backend to finish loading...');
+          // console.log('[NodeCanvas] Waiting for universe backend to finish loading...');
           await new Promise((resolve) => {
             const timeout = setTimeout(resolve, 2000); // Max wait 2 seconds
             const handler = () => {
@@ -726,7 +726,7 @@ function NodeCanvas() {
           (stateAfterWait.nodePrototypes instanceof Map ? stateAfterWait.nodePrototypes.size > 0 : Object.keys(stateAfterWait.nodePrototypes).length > 0);
 
         if (hasDataAfterWait) {
-          console.log('[NodeCanvas] Backend loaded universe data while waiting, skipping old restore');
+          // console.log('[NodeCanvas] Backend loaded universe data while waiting, skipping old restore');
           return;
         }
 

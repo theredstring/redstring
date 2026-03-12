@@ -48,7 +48,7 @@ class SaveCoordinator {
     this.workerDirty = false;
     this.nextStateToProcess = null;
 
-    console.log('[SaveCoordinator] Initialized with simple batched saves');
+    // console.log('[SaveCoordinator] Initialized with simple batched saves');
   }
 
   // Status notification system
@@ -78,7 +78,7 @@ class SaveCoordinator {
     try {
       this.saveWorker = new Worker(new URL('./save.worker.js', import.meta.url), { type: 'module' });
       this.saveWorker.onmessage = this.handleWorkerMessage.bind(this);
-      console.log('[SaveCoordinator] Save worker initialized');
+      // console.log('[SaveCoordinator] Save worker initialized');
     } catch (e) {
       console.warn('[SaveCoordinator] Failed to initialize save worker:', e);
       this.saveWorker = null;
@@ -87,7 +87,7 @@ class SaveCoordinator {
     // Initialize Git autosave policy
     gitAutosavePolicy.initialize(gitSyncEngine, this);
 
-    console.log('[SaveCoordinator] Initialized with dependencies and autosave policy');
+    // console.log('[SaveCoordinator] Initialized with dependencies and autosave policy');
     this.notifyStatus('info', 'Save coordinator ready with Git autosave policy');
   }
 
@@ -105,7 +105,7 @@ class SaveCoordinator {
         this.pendingString = jsonString; // Store the pre-serialized string
         this.pendingRedstringData = redstringData; // Store the pre-computed object
 
-        console.log('[SaveCoordinator] Change detected by worker, hash:', hash.substring(0, 8));
+        // console.log('[SaveCoordinator] Change detected by worker, hash:', hash.substring(0, 8));
         this.isDirty = true;
         this.notifyStatus('info', 'Changes detected');
 
@@ -177,7 +177,7 @@ class SaveCoordinator {
   onStateChange(newState, changeContext = {}) {
     if (!this.isEnabled || !newState) {
       if (!this.isEnabled) {
-        console.log('[SaveCoordinator] State change ignored - not enabled');
+        // console.log('[SaveCoordinator] State change ignored - not enabled');
       }
       return;
     }
@@ -200,6 +200,7 @@ class SaveCoordinator {
                            
       if (isInteracting) {
         if (!this.isGlobalDragging) {
+          /*
           console.log('[SaveCoordinator] Interaction started:', { 
             isDragging: changeContext.isDragging, 
             isPanning: changeContext.isPanning,
@@ -208,11 +209,12 @@ class SaveCoordinator {
             phase: changeContext.phase,
             type: changeContext.type
           });
+          */
         }
         this.isGlobalDragging = true;
       } else if (changeContext.phase === 'end' || changeContext.phase === 'complete') {
         if (this.isGlobalDragging) {
-          console.log('[SaveCoordinator] Interaction ended');
+          // console.log('[SaveCoordinator] Interaction ended');
           this._lastInteractionEndTime = Date.now();
         }
         this.isGlobalDragging = false;
@@ -229,8 +231,8 @@ class SaveCoordinator {
           const interactionType = changeContext.isDragging ? 'drag' : 
                                  changeContext.isPanning ? 'pan' :
                                  changeContext.isPinching ? 'pinch' : 'interaction';
-          console.log(`[SaveCoordinator] ${interactionType.charAt(0).toUpperCase() + interactionType.slice(1)} in progress - deferring processing`);
-          this._lastDragLogTime = now;
+          // console.log(`[SaveCoordinator] ${interactionType.charAt(0).toUpperCase() + interactionType.slice(1)} in progress - deferring processing`);
+          this._lastInteractionEndTime = Date.now(); // Update end time to prevent immediate save after stutter
         }
         return;
       }
@@ -241,7 +243,7 @@ class SaveCoordinator {
 
       // If interaction just ended, force immediate processing logic  
       if ((changeContext.phase === 'end' || changeContext.phase === 'complete') && !isInteracting) {
-        console.log('[SaveCoordinator] Interaction ended, triggering processing');
+        // console.log('[SaveCoordinator] Interaction ended, triggering processing');
         // Clear worker timer to force fresh processing after interaction
         if (this.workerTimer) {
           clearTimeout(this.workerTimer);
@@ -274,9 +276,9 @@ class SaveCoordinator {
     if (this.saveTimer) {
       clearTimeout(this.saveTimer);
     }
-
-    console.log(`[SaveCoordinator] Scheduling write in ${DEBOUNCE_MS}ms`);
-
+    
+    // console.log(`[SaveCoordinator] Scheduling write in ${DEBOUNCE_MS}ms`);
+    
     // Schedule new save
     this.saveTimer = setTimeout(() => {
       this.executeSave();
@@ -290,7 +292,7 @@ class SaveCoordinator {
     // CRITICAL: Don't execute save during ANY user interaction (drag, pan, pinch, zoom animation)
     // This prevents choppy performance and ensures we only save when the user is done interacting
     if (this.isGlobalDragging) {
-      console.log('[SaveCoordinator] executeSave blocked - user interaction still in progress, rescheduling');
+      // console.log('[SaveCoordinator] executeSave blocked - user interaction still in progress, rescheduling');
       this.scheduleSave(); // Reschedule for after interaction ends
       return;
     }
@@ -301,7 +303,7 @@ class SaveCoordinator {
     const COOLDOWN_MS = 300; // Wait 300ms after interaction ends before saving
     if (this._lastInteractionEndTime > 0 && timeSinceInteractionEnd < COOLDOWN_MS) {
       const remainingCooldown = COOLDOWN_MS - timeSinceInteractionEnd;
-      console.log(`[SaveCoordinator] executeSave deferred ${remainingCooldown}ms for post-interaction cooldown`);
+      // console.log(`[SaveCoordinator] executeSave deferred ${remainingCooldown}ms for post-interaction cooldown`);
       setTimeout(() => this.executeSave(), remainingCooldown);
       return;
     }
@@ -317,8 +319,8 @@ class SaveCoordinator {
 
     // Mark as saving immediately
     this.isSaving = true;
-    console.log('[SaveCoordinator] Executing save (non-blocking)');
-
+    // console.log('[SaveCoordinator] Executing save (non-blocking)');
+    
     // Run save operations in a non-blocking manner using requestIdleCallback or setTimeout
     // This ensures the save doesn't block the main thread
     const runSave = () => {
@@ -377,7 +379,7 @@ class SaveCoordinator {
     }
 
     try {
-      console.log('[SaveCoordinator] Force save requested');
+      // console.log('[SaveCoordinator] Force save requested');
       this.notifyStatus('info', 'Force saving...');
       
       if (this.saveTimer) clearTimeout(this.saveTimer);
