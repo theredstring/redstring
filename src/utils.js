@@ -20,7 +20,7 @@ const ensureMeasurementElements = () => {
   // Get current text settings from the store
   const textSettings = useGraphStore.getState().textSettings;
   const scaledFontSize = 20 * textSettings.fontSize;
-  const scaledLineHeight = 26 * textSettings.lineSpacing;
+  const scaledLineHeight = (textSettings.lineHeightBase || 28) * textSettings.lineSpacing;
   const scaledDescriptionLineHeight = 24 * textSettings.lineSpacing;
 
   if (!measurementContainer) {
@@ -84,7 +84,7 @@ const dimensionCache = new Map();
 const MAX_CACHE_SIZE = 1000; // Prevent unbounded growth
 
 // --- getNodeDimensions Utility Function ---
-export const getNodeDimensions = (node, isPreviewing = false, descriptionContent = null) => {
+export const getNodeDimensions = (node, isPreviewing = false, descriptionContent = null, lineHeightBase = 28) => {
   // --- ADDED: Handle undefined nodes gracefully ---
   if (!node) {
     console.warn('[getNodeDimensions] Received undefined node, returning default dimensions');
@@ -181,7 +181,7 @@ export const getNodeDimensions = (node, isPreviewing = false, descriptionContent
   if (isPreviewing) {
     currentWidth = baseWidth;
     // Calculate textAreaHeight dynamically based on actual text wrapping with correct width
-    const textBlockHeight = calculateTextAreaHeight(nodeName, textWidthTarget);
+    const textBlockHeight = calculateTextAreaHeight(nodeName, textWidthTarget, lineHeightBase);
     textAreaHeight = Math.max(PREVIEW_TEXT_AREA_HEIGHT, textBlockHeight + TEXT_V_PADDING_TOTAL);
 
     innerNetworkWidth = currentWidth - 2 * NODE_PADDING;
@@ -229,7 +229,7 @@ export const getNodeDimensions = (node, isPreviewing = false, descriptionContent
   } else if (hasImage) {
     currentWidth = baseWidth;
     // Calculate text block height based on expanded width
-    const textBlockHeight = calculateTextAreaHeight(nodeName, textWidthTarget);
+    const textBlockHeight = calculateTextAreaHeight(nodeName, textWidthTarget, lineHeightBase);
     // Text area height is text height + vertical padding, with a minimum.
     textAreaHeight = Math.max(NODE_HEIGHT, textBlockHeight + TEXT_V_PADDING_TOTAL);
 
@@ -336,10 +336,10 @@ export const getNodeDimensions = (node, isPreviewing = false, descriptionContent
 
 // Add other utility functions here if needed 
 
-export const calculateTextAreaHeight = (name, width) => {
+export const calculateTextAreaHeight = (name, width, lineHeightBase = 28) => {
   // Get current text settings from the store for scaled measurements
   const textSettings = useGraphStore.getState().textSettings;
-  const scaledLineHeight = 26 * textSettings.lineSpacing;
+  const scaledLineHeight = lineHeightBase * textSettings.lineSpacing;
   const scaledCharWidth = 12 * textSettings.fontSize; // Match Node.jsx calculation
 
   // The width parameter should already be the available text width

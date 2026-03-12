@@ -16,7 +16,8 @@ const ConnectionText = ({
   transform,
   isHovered,
   fontScale = 1,
-  renderContext = 'full'
+  renderContext = 'full',
+  lineHeightScale = 1
 }) => {
   if (!connection.connectionName) {
     return null;
@@ -30,40 +31,49 @@ const ConnectionText = ({
   const adjustedAngle = (angle > 90 || angle < -90) ? angle + 180 : angle;
   const fontSize = Math.max(8, 24 * transform.scale * fontScale);
   const strokeWidth = Math.max(2, (connection.strokeWidth || 6 * transform.scale) * fontScale);
+  const baseLineHeight = 26; // Tighter line height for connections
+  const scaledLineHeight = baseLineHeight * transform.scale * fontScale * lineHeightScale;
 
-  // Truncate connection names for decomposition view
-  let displayName = connection.connectionName;
-  if (renderContext === 'decomposition' && fontSize < 10) {
-    const connectionLength = Math.sqrt(dx * dx + dy * dy);
-    const maxChars = Math.max(3, Math.floor(connectionLength / (fontSize * 0.7)));
-    if (displayName.length > maxChars) {
-      displayName = displayName.substring(0, maxChars - 1) + '…';
+  // Wrapping logic: roughly 15-20 chars for connection labels
+  const displayName = connection.connectionName;
+  const words = displayName.split(' ');
+  const lines = [];
+  let currentLine = '';
+  const maxChars = 14; // Conservative wrap point for connection labels
+
+  words.forEach(word => {
+    if ((currentLine + word).length > maxChars && currentLine.length > 0) {
+      lines.push(currentLine.trim());
+      currentLine = word + ' ';
+    } else {
+      currentLine += word + ' ';
     }
-  }
+  });
+  if (currentLine) lines.push(currentLine.trim());
 
   return (
-    <g>
-      {/* Main text with stroke - uses drop-shadow for hover glow instead of a separate element */}
-      <text
-        x={midX}
-        y={midY}
-        fill={getTextColor(connection.color || '#800000')}
-        fontSize={fontSize}
-        fontWeight="bold"
-        textAnchor="middle"
-        dominantBaseline="middle"
-        transform={`rotate(${adjustedAngle}, ${midX}, ${midY})`}
-        stroke={connection.color || '#000000'}
-        strokeWidth={strokeWidth}
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        paintOrder="stroke fill"
-        fontFamily="'EmOne', sans-serif"
-        /* filter applied on parent <g> for unified glow */
-        style={{ pointerEvents: 'none' }}
-      >
-        {displayName}
-      </text>
+    <g transform={`rotate(${adjustedAngle}, ${midX}, ${midY})`}>
+      {lines.map((line, i) => (
+        <text
+          key={i}
+          x={midX}
+          y={midY + (i - (lines.length - 1) / 2) * scaledLineHeight}
+          fill={getTextColor(connection.color || '#800000')}
+          fontSize={fontSize}
+          fontWeight="bold"
+          textAnchor="middle"
+          dominantBaseline="middle"
+          stroke={connection.color || '#000000'}
+          strokeWidth={strokeWidth}
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          paintOrder="stroke fill"
+          fontFamily="'EmOne', sans-serif"
+          style={{ pointerEvents: 'none' }}
+        >
+          {line}
+        </text>
+      ))}
     </g>
   );
 };
@@ -288,8 +298,10 @@ const UniversalNodeRenderer = ({
           width = node.width;
           height = node.height;
         } else {
+          // Determine baseLineHeight for dimensions calculation
+          const testBaseLineHeight = renderContext === 'decomposition' ? (node.isGroup ? 28 : 24) : 24;
           // Use the exact same getNodeDimensions function as Node.jsx
-          const dims = getNodeDimensions(node, false, null);
+          const dims = getNodeDimensions(node, false, null, testBaseLineHeight);
           width = dims.currentWidth;
           height = dims.currentHeight;
         }
@@ -304,8 +316,10 @@ const UniversalNodeRenderer = ({
           width = node.width;
           height = node.height;
         } else {
+          // Determine baseLineHeight for dimensions calculation
+          const testBaseLineHeight = renderContext === 'decomposition' ? (node.isGroup ? 28 : 24) : 24;
           // Use the exact same getNodeDimensions function as Node.jsx
-          const dims = getNodeDimensions(node, false, null);
+          const dims = getNodeDimensions(node, false, null, testBaseLineHeight);
           width = dims.currentWidth;
           height = dims.currentHeight;
         }
@@ -950,8 +964,8 @@ const UniversalNodeRenderer = ({
           } else {
             // Full canvas view: use Node.jsx's proportions
             baseFontSize = node.isGroup ? 30 : 24;
-            baseLineHeight = node.isGroup ? 28 : 28; // Default line height (changed from 32 to 28)
-            baseVerticalPadding = node.isGroup ? 10 : 10; // Drastically reduced vertical padding for groups/nodes (was 10/12)
+            baseLineHeight = node.isGroup ? 24 : 24; // Tightened line height (isolated to previews/renderer)
+            baseVerticalPadding = node.isGroup ? 10 : 10;
             baseSingleLineSidePadding = node.isGroup ? 30 : 22; // Match Node.jsx side padding
             baseMultiLineSidePadding = node.isGroup ? 36 : 30; // Match Node.jsx multiline padding
             baseAverageCharWidth = node.isGroup ? 14 : 12; // Match Node.jsx char width
