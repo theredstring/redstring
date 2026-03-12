@@ -2231,6 +2231,7 @@ function NodeCanvas() {
 
   // Header search state
   const [headerSearchVisible, setHeaderSearchVisible] = useState(false);
+  const [headerAllThingsSearchVisible, setHeaderAllThingsSearchVisible] = useState(false);
   const [autoGraphModalVisible, setAutoGraphModalVisible] = useState(false);
   const [forceSimModalVisible, setForceSimModalVisible] = useState(false);
   const [autoLayoutRunning, setAutoLayoutRunning] = useState(false);
@@ -7831,6 +7832,7 @@ function NodeCanvas() {
         onSetActiveGraph={storeActions.setActiveGraph}
         onCreateNewThing={() => storeActions.createNewGraph({ name: 'New Thing' })}
         onOpenComponentSearch={() => setHeaderSearchVisible(true)}
+        onOpenAllThingsSearch={() => setHeaderAllThingsSearchVisible(true)}
         // Receive debug props
         debugMode={debugMode}
         setDebugMode={setDebugMode}
@@ -11657,6 +11659,40 @@ function NodeCanvas() {
                   return ids;
                 } catch { return null; }
               })()}
+            />
+          )}
+
+          {/* Header-triggered All Things search */}
+          {headerAllThingsSearchVisible && (
+            <UnifiedSelector
+              mode="node-selection"
+              isVisible={true}
+              onClose={() => setHeaderAllThingsSearchVisible(false)}
+              onNodeSelect={(node) => {
+                if (node.id) {
+                  // Navigate to the node's definition graph if it exists
+                  if (node.definitionGraphIds && node.definitionGraphIds.length > 0) {
+                    const graphIdToOpen = node.definitionGraphIds[0];
+                    if (typeof storeActions.openGraphTab === 'function') {
+                      storeActions.openGraphTab(graphIdToOpen, node.id);
+                    }
+                  } else if (typeof storeActions.createAndAssignGraphDefinition === 'function') {
+                    storeActions.createAndAssignGraphDefinition(node.id);
+                  }
+                  
+                  // Also open in right panel
+                  if (typeof storeActions.openRightPanelNodeTab === 'function') {
+                    storeActions.openRightPanelNodeTab(node.id, node.name);
+                  }
+                }
+                setHeaderAllThingsSearchVisible(false);
+              }}
+              title="Search All Things"
+              subtitle="Search through everything in your universe"
+              leftPanelExpanded={leftPanelExpanded}
+              rightPanelExpanded={rightPanelExpanded}
+              searchOnly={true}
+              gridTitle="All Things"
             />
           )}
 
