@@ -29,7 +29,7 @@ import { convertToThingGroup } from './convertToThingGroup.js';
 import { combineThingGroup } from './combineThingGroup.js';
 import { updateEdge } from './updateEdge.js';
 import { replaceEdges } from './replaceEdges.js';
-import { listNodeDefinitions } from './listNodeDefinitions.js';
+import { listDefinitionGraphs } from './listDefinitionGraphs.js';
 import { addDefinitionGraph } from './addDefinitionGraph.js';
 import { removeDefinitionGraph } from './removeDefinitionGraph.js';
 import { switchToGraph } from './switchToGraph.js';
@@ -45,6 +45,7 @@ import { getPrototype } from './getPrototype.js';
 import { getInstancesOfPrototype } from './getInstancesOfPrototype.js';
 import { getGraphInstances } from './getGraphInstances.js';
 import { inspectWorkspace } from './inspectWorkspace.js';
+import { themeGraph } from './themeGraph.js';
 
 const TOOLS = {
   createNode,
@@ -68,7 +69,7 @@ const TOOLS = {
   convertToThingGroup,
   combineThingGroup,
   replaceEdges,
-  listNodeDefinitions,
+  listDefinitionGraphs,
   addDefinitionGraph,
   removeDefinitionGraph,
   switchToGraph,
@@ -82,7 +83,8 @@ const TOOLS = {
   getPrototype,
   getInstancesOfPrototype,
   getGraphInstances,
-  inspectWorkspace
+  inspectWorkspace,
+  themeGraph
 };
 
 /**

@@ -49,6 +49,7 @@ For every user request, follow this sequence:
    - Solar system? All 8 planets + groups for inner/outer planets.
    - A super hero team? All main team members + groups by role/allegiance.
    - **Groups are essential** - if there are factions, houses, teams, categories, departments, or any natural way to organize Things, include groups.
+   - **Avoid 'Composed Of' Edges**: If you are thinking of doing a "Composed Of" connection, rethink how you are doing things. Insert a Thing-Group more often than not, or a Group if the collection doesn't warrant assigning a definitional node.
    - A Thing's descriptions should give the minimum complete context of what it is in the graph, same for Things defining connections.
    - **Connection Descriptions**: For \`definitionNode\` descriptions, describe the *nature* or *vibe* of the relationship in a human way. 
      - ❌ **AVOID**: "Defines the 'Member Of' relationship"

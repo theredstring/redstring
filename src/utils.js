@@ -422,9 +422,8 @@ export const generateThumbnail = (imageSource, maxDimension) => {
       // Draw the image onto the canvas
       ctx.drawImage(img, 0, 0, width, height);
 
-      // Get the data URL (default is PNG, can specify JPEG with quality)
-      // For thumbnails, JPEG might be smaller
-      const thumbnailDataUrl = canvas.toDataURL('image/jpeg', 0.8); // Adjust quality as needed
+      // Use PNG to preserve transparency (JPEG forces a black background for transparent areas)
+      const thumbnailDataUrl = canvas.toDataURL('image/png');
       resolve(thumbnailDataUrl);
     };
     img.onerror = (error) => {

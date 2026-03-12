@@ -42,7 +42,7 @@ const PredicateRail = ({ color = '#4A5568', leftActive, rightActive, onToggleLef
         <span style={{
           color: '#bdb5b5',
           fontWeight: 'bold',
-          fontSize: '14px',
+          fontSize: '24px',
           fontFamily: "'EmOne', sans-serif",
           textAlign: 'center',
           whiteSpace: 'nowrap',
@@ -77,7 +77,7 @@ const createTextMeasurer = () => {
       return content.length * fallbackUnit;
     }
 
-    context.font = font || '16px "EmOne", sans-serif';
+    context.font = font || '24px "EmOne", sans-serif';
     return context.measureText(content).width;
   };
 };
@@ -553,8 +553,8 @@ const UnifiedBottomControlPanel = ({
               const nodeSpacing = nodes.length * (mobileState.isMobilePortrait ? 80 : 90); // Reduced per-node spacing
 
               const connectionLabelFont = mobileState.isMobilePortrait
-                ? '14px "EmOne", sans-serif'
-                : '16px "EmOne", sans-serif';
+                ? '22px "EmOne", sans-serif'
+                : '28px "EmOne", sans-serif';
 
               const longestConnectionLabelWidth = connections.reduce((max, conn) => {
                 const width = measureTextWidth(conn.connectionName, connectionLabelFont);

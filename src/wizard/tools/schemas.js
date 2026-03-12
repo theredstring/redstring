@@ -14,7 +14,7 @@ export function getToolDefinitions() {
                     name: {
                         type: 'string', description: 'The node\'s display name'
                     },
-                    color: { type: 'string', description: 'Color name from palette (e.g. "tan") or hex code.' },
+                    color: { type: 'string', description: 'Color name from palette (e.g. "tan"). DO NOT use hex codes.' },
                     description: { type: 'string', description: 'What this node represents' },
                     targetGraphId: { type: 'string', description: 'Graph ID to create in. If omitted, uses active graph.' },
                     typeNodeId: { type: 'string', description: 'Prototype ID of type node. Use setNodeType for name-based assignment.' }
@@ -164,7 +164,7 @@ export function getToolDefinitions() {
                 type: 'object',
                 properties: {
                     name: { type: 'string', description: 'Graph name' },
-                    color: { type: 'string', description: 'Optional color for the node that defines this graph, from the chosen palette OR hex color.' }
+                    color: { type: 'string', description: 'Optional color for the node that defines this graph, from the chosen palette. DO NOT use hex codes.' }
                 },
                 required: ['name']
             }
@@ -183,7 +183,7 @@ export function getToolDefinitions() {
                             type: 'object',
                             properties: {
                                 name: { type: 'string' },
-                                color: { type: 'string', description: 'Color name from chosen palette, OR hex color if using a custom theme.' },
+                                color: { type: 'string', description: 'Color name from chosen palette. DO NOT use hex codes.' },
                                 description: { type: 'string' },
                                 type: { type: 'string', description: 'Optional: name of the category/type this node falls under (e.g., "Mammal" for a "Dog" node).' },
                                 typeColor: { type: 'string', description: 'Optional: color for the type node, supports palettes. Use muted colors.' },
@@ -269,7 +269,7 @@ export function getToolDefinitions() {
                 properties: {
                     palette: { type: 'string', description: 'Palette name (see system prompt for options).' },
                     name: { type: 'string', description: 'Name for the new graph workspace.' },
-                    color: { type: 'string', description: 'Optional color for the node that defines this graph, from the chosen palette OR hex color.' },
+                    color: { type: 'string', description: 'Optional color for the node that defines this graph, from the chosen palette. DO NOT use hex codes.' },
                     description: { type: 'string', description: 'Optional description of the graph' },
                     nodes: {
                         type: 'array',
@@ -278,7 +278,7 @@ export function getToolDefinitions() {
                             type: 'object',
                             properties: {
                                 name: { type: 'string', description: 'Node name - use Title Case (e.g., "Romeo Montague", not "romeo_montague")' },
-                                color: { type: 'string', description: 'Color name from chosen palette, OR hex color if using a custom theme.' },
+                                color: { type: 'string', description: 'Color name from chosen palette. DO NOT use hex codes.' },
                                 description: { type: 'string', description: 'Very brief summary of what this node represents' },
                                 type: { type: 'string', description: 'Highly recommended: name of the category/type this node falls under (e.g., "Character" or "Location").' },
                                 typeColor: { type: 'string', description: 'Optional: color for the type node, supports palettes. Use muted colors for types.' },
@@ -305,7 +305,7 @@ export function getToolDefinitions() {
                                     description: 'Defines the connection type. Use Title Case for name.',
                                     properties: {
                                         name: { type: 'string', description: 'Connection type name in Title Case (e.g., "Loves", "Parent Of", "Orbits")' },
-                                        color: { type: 'string', description: 'Color name from chosen palette, OR hex color.' },
+                                        color: { type: 'string', description: 'Color name from chosen palette.' },
                                         description: { type: 'string', description: 'What this connection means' }
                                     },
                                     required: ['name']
@@ -321,7 +321,7 @@ export function getToolDefinitions() {
                             type: 'object',
                             properties: {
                                 name: { type: 'string', description: 'Group name (e.g., "House Montague", "Engineering Team")' },
-                                color: { type: 'string', description: 'Color name from chosen palette, OR hex color.' },
+                                color: { type: 'string', description: 'Color name from chosen palette.' },
                                 memberNames: { type: 'array', items: { type: 'string' }, description: 'Names of nodes that belong to this group - must match names in the nodes array' },
                                 definedBy: {
                                     type: 'object',
@@ -353,7 +353,7 @@ export function getToolDefinitions() {
                         items: { type: 'string' },
                         description: 'Names of existing nodes to include in the group'
                     },
-                    color: { type: 'string', description: 'Hex color like "#8B0000"' },
+                    color: { type: 'string', description: 'Color name from palette (e.g. "tan").' },
                     targetGraphId: { type: 'string', description: 'Graph ID. If omitted, uses active graph.' }
                 },
                 required: ['name', 'memberNames']
@@ -376,7 +376,7 @@ export function getToolDefinitions() {
                 properties: {
                     groupName: { type: 'string', description: 'Current name of the group to update' },
                     newName: { type: 'string', description: 'New name for the group' },
-                    newColor: { type: 'string', description: 'New hex color' },
+                    newColor: { type: 'string', description: 'New color name from palette' },
                     addMembers: {
                         type: 'array',
                         items: { type: 'string' },
@@ -432,7 +432,7 @@ export function getToolDefinitions() {
             }
         },
         {
-            name: 'listNodeDefinitions',
+            name: 'listDefinitionGraphs',
             description: 'List a node\'s definition graphs with their node/edge counts.',
             parameters: {
                 type: 'object',
@@ -457,7 +457,7 @@ export function getToolDefinitions() {
                             type: 'object',
                             properties: {
                                 name: { type: 'string' },
-                                color: { type: 'string', description: 'Color name from chosen palette, OR hex color if using a custom theme.' },
+                                color: { type: 'string', description: 'Color name from chosen palette.' },
                                 description: { type: 'string' },
                                 type: { type: 'string', description: 'Optional: name of the category/type this node falls under (e.g., "Mammal" for a "Dog" node).' },
                                 typeColor: { type: 'string', description: 'Optional: color for the type node, supports palettes. Use muted colors.' },
@@ -485,7 +485,7 @@ export function getToolDefinitions() {
                                     description: 'Defines what this connection type means.',
                                     properties: {
                                         name: { type: 'string', description: 'Connection type name in Title Case (e.g., "Loves", "Parent Of", "Orbits")' },
-                                        color: { type: 'string', description: 'Color name from chosen palette, OR hex color.' },
+                                        color: { type: 'string', description: 'Color name from chosen palette.' },
                                         description: { type: 'string', description: 'What this connection means' }
                                     },
                                     required: ['name']
@@ -501,7 +501,7 @@ export function getToolDefinitions() {
                             type: 'object',
                             properties: {
                                 name: { type: 'string', description: 'Group name (e.g., "Engineering Team")' },
-                                color: { type: 'string', description: 'Color name from chosen palette, OR hex color.' },
+                                color: { type: 'string', description: 'Color name from chosen palette.' },
                                 memberNames: { type: 'array', items: { type: 'string' }, description: 'Names of nodes that belong to this group - must EXACTLY match names in the nodes array' }
                             },
                             required: ['name', 'memberNames']
@@ -547,7 +547,7 @@ export function getToolDefinitions() {
                         description: 'Names of existing nodes in the active graph to condense into the new concept'
                     },
                     nodeName: { type: 'string', description: 'Name for the new concept/Thing' },
-                    nodeColor: { type: 'string', description: 'Optional hex color for the new concept' },
+                    nodeColor: { type: 'string', description: 'Optional color name from palette for the new concept' },
                     collapse: { type: 'boolean', description: 'If true, replaces member nodes with single node. If false, keeps members visible as a Thing-Group. Default: false.' }
                 },
                 required: ['memberNames', 'nodeName']
@@ -591,7 +591,7 @@ export function getToolDefinitions() {
                     typeName: {
                         type: 'string', description: 'Name of the type/category node. If it doesn\'t exist, it will be auto - created.Omit if clearing.'
                     },
-                    typeColor: { type: 'string', description: 'Color for the type node if it needs to be created (palette name or hex). Use a muted/neutral tone for category nodes.' },
+                    typeColor: { type: 'string', description: 'Color for the type node if it needs to be created (palette name). Use a muted/neutral tone for category nodes.' },
                     typeDescription: { type: 'string', description: 'Description for the type node if it needs to be created.' },
                     palette: { type: 'string', description: 'Palette name for typeColor resolution.' },
                     clearType: { type: 'boolean', description: 'If true, removes the type from the node. Omit typeName when clearing.' }
@@ -669,6 +669,19 @@ export function getToolDefinitions() {
                 properties: {
                     graphId: { type: 'string', description: 'Optional: ID of a specific graph to inspect, defaults to active graph' },
                     includeAllGraphs: { type: 'boolean', description: 'If true, returns summaries for ALL graphs in the workspace' }
+                },
+                required: []
+            }
+        },
+        {
+            name: 'themeGraph',
+            description: 'Quickly re-color all nodes and connection definitions in a graph conceptually based on a palette or specific color.',
+            parameters: {
+                type: 'object',
+                properties: {
+                    palette: { type: 'string', description: 'Optional: Name of a known palette (e.g., "retro", "rainbow"). If omitted, it will pick one or use baseColor.' },
+                    baseColor: { type: 'string', description: 'Optional: A specific hex color to base the theme around if no palette is supplied.' },
+                    targetGraphId: { type: 'string', description: 'Optional: ID of the graph to theme. Defaults to the active graph.' }
                 },
                 required: []
             }

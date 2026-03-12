@@ -56,7 +56,7 @@ function findPrototypeByName(nodeName, nodePrototypes, graphState = null) {
  * @param {Object} args - { nodeName } 
  * @param {Object} graphState - Current state
  */
-export async function listNodeDefinitions(args, graphState) {
+export async function listDefinitionGraphs(args, graphState) {
   const { nodeName } = args;
 
   if (!nodeName) {
@@ -72,10 +72,19 @@ export async function listNodeDefinitions(args, graphState) {
     throw new Error(`Node "${nodeName}" not found. Cannot list definition graphs.`);
   }
 
-  // Get definition graph IDs
-  const definitionGraphIds = Array.isArray(prototype.definitionGraphIds)
+  // Get definition graph IDs (Union of prototype's list and graphs that declare this prototype as a defining node)
+  const definitionGraphIdSet = new Set(Array.isArray(prototype.definitionGraphIds)
     ? prototype.definitionGraphIds
-    : [];
+    : []);
+
+  // Guarantee we find graphs created dynamically that might not have updated the prototype yet
+  for (const graph of graphs) {
+    if (Array.isArray(graph.definingNodeIds) && graph.definingNodeIds.includes(prototype.id)) {
+      definitionGraphIdSet.add(graph.id);
+    }
+  }
+
+  const definitionGraphIds = Array.from(definitionGraphIdSet);
 
   // Build definition graph metadata
   const definitionGraphs = [];
@@ -128,7 +137,7 @@ export async function listNodeDefinitions(args, graphState) {
     }
   }
 
-  console.error(`[listNodeDefinitions] Found ${definitionGraphs.length} definition graph(s) for "${nodeName}"`);
+  console.error(`[listDefinitionGraphs] Found ${definitionGraphs.length} definition graph(s) for "${nodeName}"`);
 
   return {
     nodeName: prototype.name,

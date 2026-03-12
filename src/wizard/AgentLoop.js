@@ -37,7 +37,8 @@ function updateGraphState(graphState, _toolName, _args, result) {
       name: result.graphName,
       instances: [],
       edgeIds: [],
-      groups: []
+      groups: [],
+      definingNodeIds: []
     });
     console.error('[updateGraphState] createGraph: activeGraphId =', result.graphId);
   } else if (result.action === 'createNode') {
@@ -58,7 +59,8 @@ function updateGraphState(graphState, _toolName, _args, result) {
         id: protoId,
         name: result.name,
         color: result.color,
-        description: result.description
+        description: result.description,
+        definitionGraphIds: []
       });
       console.error('[updateGraphState] createNode:', result.name, '→ instances:', targetGraph.instances.length, 'protos:', graphState.nodePrototypes.length, '| graph:', targetGraphId);
     } else {
@@ -163,7 +165,8 @@ function updateGraphState(graphState, _toolName, _args, result) {
       name: result.graphName,
       instances: newInstances,
       edgeIds: [],
-      groups: []
+      groups: [],
+      definingNodeIds: Array.isArray(result.definingNodeIds) ? result.definingNodeIds : []
     });
 
     console.error('[updateGraphState] createPopulatedGraph: added', newInstances.length, 'nodes with prototypes to new graph', result.graphId);
@@ -320,7 +323,8 @@ function updateGraphState(graphState, _toolName, _args, result) {
       name: result.nodeName || 'Definition',
       instances: [],
       edgeIds: [],
-      groups: []
+      groups: [],
+      definingNodeIds: [result.prototypeId]
     });
 
     // Update prototype's definitionGraphIds array
@@ -339,7 +343,8 @@ function updateGraphState(graphState, _toolName, _args, result) {
       name: result.nodeName || 'Definition',
       instances: [],
       edgeIds: [],
-      groups: []
+      groups: [],
+      definingNodeIds: [result.prototypeId]
     });
 
     // 2. Update prototype's definitionGraphIds array
@@ -545,6 +550,13 @@ function updateGraphState(graphState, _toolName, _args, result) {
         }
       }
       console.error('[updateGraphState] editAbstractionChain:', result.operationType, proto.name);
+    }
+  } else if (result.action === 'themeGraph' && result.updates) {
+    for (const update of result.updates) {
+      const proto = (graphState.nodePrototypes || []).find(p => p.id === update.prototypeId);
+      if (proto) {
+        proto.color = update.color;
+      }
     }
   }
 }

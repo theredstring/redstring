@@ -151,30 +151,37 @@ export const getRandomColorFromPalette = (paletteName) => {
     return palette.colors[randomColorKey];
 };
 
-/**
- * Resolves a color string to a hex code.
- * If the string is a valid hex code, it returns it as-is.
- * If it's a color name, it attempts to look it up in the given palette.
- * If that fails, it falls back to a random color in the given palette.
- */
 export const resolvePaletteColor = (paletteName, colorString) => {
     if (!colorString) {
-        return getRandomColorFromPalette(paletteName) || '#5B6CFF'; // Default fallback
+        const pName = paletteName || getRandomPalette();
+        return getRandomColorFromPalette(pName) || '#5B6CFF'; // Default fallback
     }
 
-    // Check if it's already a hex color
-    if (colorString.startsWith('#') && (colorString.length === 4 || colorString.length === 7 || colorString.length === 9)) {
-        return colorString;
+    // Check if it's already a hex color, tolerating missing #
+    const isHex = /^#?([0-9A-Fa-f]{3}|[0-9A-Fa-f]{6}|[0-9A-Fa-f]{8})$/.test(colorString);
+    if (isHex) {
+        return colorString.startsWith('#') ? colorString : '#' + colorString;
     }
 
-    // Try to resolve as a palette color name
-    const resolvedHex = getColorFromPalette(paletteName, colorString);
-    if (resolvedHex) {
-        return resolvedHex;
+    if (paletteName) {
+        // Try to resolve as a palette color name
+        const resolvedHex = getColorFromPalette(paletteName, colorString);
+        if (resolvedHex) {
+            return resolvedHex;
+        }
+    } else {
+        // If no palette provided, try to find this color name in ANY palette
+        const matchingPaletteEntry = Object.entries(PALETTES).find(([_, p]) => 
+            p.colors[normalizeKey(colorString)]
+        );
+        if (matchingPaletteEntry) {
+            return matchingPaletteEntry[1].colors[normalizeKey(colorString)];
+        }
     }
 
-    // Fallback: didn't match anything, pick random from palette
-    return getRandomColorFromPalette(paletteName) || '#5B6CFF';
+    // Fallback: didn't match anything, pick random from palette or any random palette
+    const pName = paletteName || getRandomPalette();
+    return getRandomColorFromPalette(pName) || '#5B6CFF';
 };
 
 /**

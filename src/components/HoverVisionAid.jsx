@@ -1,6 +1,45 @@
 import React from 'react';
 import UniversalNodeRenderer from '../UniversalNodeRenderer';
+import { RENDERER_PRESETS } from '../UniversalNodeRenderer.presets';
+import { getNodeDimensions } from '../utils.js';
 
+/**
+ * Helper to measure text width consistently with the control panel
+ */
+const createTextMeasurer = () => {
+  let canvas = null;
+  let context = null;
+  return (text, font) => {
+    const content = text || '';
+    const fallbackUnit = font?.includes('14px') ? 7.2 : 8.4;
+
+    if (typeof document === 'undefined') {
+      return content.length * fallbackUnit;
+    }
+
+    if (!canvas) {
+      canvas = document.createElement('canvas');
+      context = canvas.getContext('2d');
+    }
+
+    if (!context) {
+      return content.length * fallbackUnit;
+    }
+
+    // Default font matches UnifiedBottomControlPanel's latest refinement (24px)
+    context.font = font || '24px "EmOne", sans-serif';
+    return context.measureText(content).width;
+  };
+};
+
+const measureTextWidth = createTextMeasurer();
+
+/**
+ * HoverVisionAid displays a high-fidelity preview of nodes or connections
+ * when the user hovers over elements on the canvas.
+ * 
+ * SCALING FIX: Uses standard getNodeDimensions(node, false) to avoid massive square mode.
+ */
 const HoverVisionAid = ({
   hoveredNode,
   hoveredConnection,
@@ -16,21 +55,10 @@ const HoverVisionAid = ({
     return null;
   }
 
-  const NODE_PREVIEW_HEIGHT = 82;
-  const CONNECTION_PREVIEW_HEIGHT = 120;
-
-  const connectionSource = hoveredConnection?.source;
-  const connectionTarget = hoveredConnection?.target;
-  const connectionNameLength = hoveredConnection?.name ? hoveredConnection.name.length : 0;
-  const connectionTextWidth = connectionNameLength * 12;
-  const connectionContainerWidth = Math.max(360, connectionTextWidth + 300);
-  const connectionSpacing = Math.max(200, connectionTextWidth + 150);
-
-  const baseNodeWidth = hoveredNode?.width ?? 176;
-  const nodeContainerWidth = Math.max(228, baseNodeWidth + 110);
-
-  const pieMenuHeight = 36;
-  const pieMenuPaddingX = 14;
+  // Dimension standards from UnifiedBottomControlPanel.jsx
+  const CONNECTION_PREVIEW_HEIGHT = 180;
+  const NODE_PREVIEW_HEIGHT = 120;
+  const connectionLabelFont = '28px "EmOne", sans-serif';
 
   let content = null;
 
@@ -44,107 +72,132 @@ const HoverVisionAid = ({
     alignItems: 'center',
     gap: '10px',
     pointerEvents: 'none',
-    zIndex: 4
+    zIndex: 10,
+    width: 'auto',
+    maxWidth: '94vw'
   };
 
   if (hasConnection) {
+    // 1. Prepare nodes with REAL dimensions (sync with Control Panel)
+    // Use isPreviewing=false to get standard node geometry
+    const sourceDims = getNodeDimensions(hoveredConnection.source, false);
+    const targetDims = getNodeDimensions(hoveredConnection.target, false);
+
+    const nodes = [
+      {
+        ...hoveredConnection.source,
+        x: 0,
+        y: 0,
+        width: Math.max(sourceDims.currentWidth, 220),
+        height: Math.max(sourceDims.currentHeight, 96)
+      },
+      {
+        ...hoveredConnection.target,
+        x: 0,
+        y: 0,
+        width: Math.max(targetDims.currentWidth, 220),
+        height: Math.max(targetDims.currentHeight, 96)
+      }
+    ];
+
+    const connections = [
+      {
+        id: hoveredConnection.id,
+        sourceId: hoveredConnection.source.id,
+        destinationId: hoveredConnection.target.id,
+        connectionName: hoveredConnection.name || 'Connection',
+        color: hoveredConnection.color,
+        definitionNodeIds: hoveredConnection.definitionNodeIds,
+        typeNodeId: hoveredConnection.typeNodeId,
+        directionality: hoveredConnection.directionality
+      }
+    ];
+
+    // 2. Port sizing formulas EXACTLY from UnifiedBottomControlPanel.jsx
+    const baseSpacing = 200;
+    const nodeSpacing = nodes.reduce((sum, n) => sum + (n.width * 0.4), 0) + (nodes.length * 90);
+    
+    const longestConnectionLabelWidth = connections.reduce((max, conn) => {
+      const width = measureTextWidth(conn.connectionName, connectionLabelFont);
+      return Math.max(max, width);
+    }, 0);
+
+    const connectionLabelSpace = Math.max(
+      320,
+      Math.ceil(longestConnectionLabelWidth + 220)
+    );
+
+    const calculatedWidth = Math.min(
+      1800,
+      baseSpacing + nodeSpacing + connectionLabelSpace
+    );
+
+    const dynamicMinHorizontalSpacing = Math.max(
+      120,
+      Math.min(
+        connectionLabelSpace - 80,
+        400
+      )
+    );
+
     containerStyle.marginTop = -8;
     content = (
-      <div
-        style={{
-          display: 'inline-flex',
-          padding: 0,
-          borderRadius: '44px',
-          background: 'transparent',
-          overflow: 'visible'
-        }}
-      >
+      <div style={{ display: 'inline-flex', padding: 0, borderRadius: '44px', background: 'transparent', overflow: 'visible' }}>
         <UniversalNodeRenderer
-          nodes={[
-            {
-              id: connectionSource.id,
-              name: connectionSource.name,
-              color: connectionSource.color,
-              prototypeId: connectionSource.prototypeId,
-              width: 190,
-              height: CONNECTION_PREVIEW_HEIGHT
-            },
-            {
-              id: connectionTarget.id,
-              name: connectionTarget.name,
-              color: connectionTarget.color,
-              prototypeId: connectionTarget.prototypeId,
-              width: 190,
-              height: CONNECTION_PREVIEW_HEIGHT
-            }
-          ]}
-          connections={[
-            {
-              id: hoveredConnection.id,
-              sourceId: hoveredConnection.source.id,
-              destinationId: hoveredConnection.target.id,
-              connectionName: hoveredConnection.name,
-              color: hoveredConnection.color,
-              definitionNodeIds: hoveredConnection.definitionNodeIds,
-              typeNodeId: hoveredConnection.typeNodeId,
-              directionality: hoveredConnection.directionality
-            }
-          ]}
-          containerWidth={connectionContainerWidth}
+          {...RENDERER_PRESETS.CONNECTION_PANEL}
+          renderContext="full"
+          nodes={nodes}
+          connections={connections}
+          containerWidth={calculatedWidth}
           containerHeight={CONNECTION_PREVIEW_HEIGHT}
-          padding={12}
-          scaleMode="fixed"
-          minNodeSize={200}
-          maxNodeSize={280}
+          minHorizontalSpacing={dynamicMinHorizontalSpacing}
           cornerRadiusMultiplier={44}
-          connectionFontScale={1.35}
-          nodeFontScale={1.0}
           interactive={false}
           showHoverEffects={false}
           showConnectionDots={true}
-          alignNodesHorizontally={true}
-          minHorizontalSpacing={connectionSpacing}
+          backgroundColor="transparent"
         />
       </div>
     );
   } else if (hasNode) {
+    // 1. Prepare node with REAL dimensions (non-preview)
+    const dims = getNodeDimensions(hoveredNode, false);
+    const nodeWidth = Math.max(dims.currentWidth, 220);
+    const nodeHeight = Math.max(dims.currentHeight, 96);
+    
+    // 2. Calculate container to fit (sync with Control Panel logic)
+    const nodeContainerWidth = Math.max(340, nodeWidth + 80);
+    const nodeContainerHeight = Math.max(120, nodeHeight + 40);
+    
     containerStyle.marginTop = -6;
     content = (
-      <div
-        style={{
-          display: 'inline-flex',
-          padding: 0,
-          borderRadius: '36px',
-          background: 'transparent',
-          overflow: 'visible'
-        }}
-      >
+      <div style={{ display: 'inline-flex', padding: 0, borderRadius: '36px', background: 'transparent', overflow: 'visible' }}>
         <UniversalNodeRenderer
+          renderContext="full"
           nodes={[
             {
-              id: hoveredNode.id,
-              name: hoveredNode.name,
-              color: hoveredNode.color,
-              prototypeId: hoveredNode.prototypeId,
-              width: baseNodeWidth,
-              height: NODE_PREVIEW_HEIGHT
+              ...hoveredNode,
+              x: 0,
+              y: 0,
+              width: nodeWidth,
+              height: nodeHeight
             }
           ]}
           connections={[]}
           containerWidth={nodeContainerWidth}
-          containerHeight={NODE_PREVIEW_HEIGHT}
-          padding={8}
-          scaleMode="fixed"
-          minNodeSize={160}
-          maxNodeSize={240}
-          cornerRadiusMultiplier={32}
-          nodeFontScale={1.0}
+          containerHeight={nodeContainerHeight}
+          padding={16}
+          scaleMode="fit"
+          cornerRadiusMultiplier={44}
           interactive={false}
           showHoverEffects={false}
+          backgroundColor="transparent"
         />
       </div>
     );
   } else if (hasItem) {
+    const pieMenuHeight = 36;
+    const pieMenuPaddingX = 14;
     containerStyle.marginTop = -2;
     content = (
       <div

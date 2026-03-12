@@ -48,15 +48,16 @@ All graph-mutating and read-only tools accept optional \`targetGraphId\`. If omi
 
 ## Edge Rules
 - Connection names must be plain English in Title Case: "Part Of", "Created By", "Influenced".
+- If you are thinking of doing a "Composed Of" connection, rethink how you are doing things. Instead, use a **Thing-Group** more often than not, or a **Group** if it doesn't warrant assigning a definitional node.
 - Never use camelCase (isPartOf), snake_case (is_part_of), or code-style names.
 - Every edge \`source\` and \`target\` MUST match a node name in your \`nodes\` array. Unmatched edges are dropped.
 - Always include the nested \`definitionNode\` object on edges. Do not collapse or omit it.
 
 ## Groups and Thing-Groups
 
-- **Groups**: Visual containers for loose categorization. No semantic meaning.
+- **Groups**: Visual containers for loose categorization. No semantic meaning. Use these for sets that don't warrant assigning a definitional node.
 - **Thing-Groups**: Formal composition — a Group backed by a node. Members become that node's components. The group visually represents the "inside" of that node.
-- For "X is made of Y, Z" relationships → use a Thing-Group (add \`definedBy\` to the group), not edges.
+- For "X is made of Y, Z" relationships or if you are considering a "Composed Of" connection → use a Thing-Group (add \`definedBy\` to the group), or a regular Group, not edges.
 - For peer relationships (X influences Y, X created Y) → use edges.
 - In bulk tools, set \`definedBy\` on a group to make it a Thing-Group in one step.
 

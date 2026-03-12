@@ -1403,6 +1403,17 @@ function applyToolResultToStore(toolName, result, toolCallId) {
         }));
       }
     }, 100);
+  } else if (result.action === 'themeGraph') {
+    const graphId = result.graphId || store.activeGraphId;
+    console.log('[Wizard] Applying themeGraph to store:', graphId);
+    if (!graphId) return;
+
+    for (const update of (result.updates || [])) {
+      store.updateNodePrototype(update.prototypeId, (draft) => {
+        draft.color = update.color;
+      });
+    }
+    console.log('[Wizard] Successfully themed graph:', graphId, 'with', (result.updates || []).length, 'updates');
   } else if (result.goalId || toolName === 'updateGroup' || toolName === 'deleteGroup') {
     // Other mutating tools that go through the goal queue
     // We trigger a re-fetch of the graph state to ensure the UI is in sync
@@ -2437,6 +2448,7 @@ const LeftAIView = ({ compact = false,
             name: g.name,
             instances: instancesArray,
             edgeIds: g.edgeIds || [],
+            definingNodeIds: Array.isArray(g.definingNodeIds) ? g.definingNodeIds : [],
             groups: g.groups instanceof Map
               ? Array.from(g.groups.values())
               : Array.isArray(g.groups)
@@ -2447,26 +2459,27 @@ const LeftAIView = ({ compact = false,
         // Build all nodePrototypes: instance prototypes + definition node prototypes from edges
         // The definition node prototype is what carries the human-readable connection type name.
         nodePrototypes: activeGraphData && nodePrototypesMap ? (() => {
-          const instances = activeGraphData.instances instanceof Map
-            ? Array.from(activeGraphData.instances.values())
-            : Array.isArray(activeGraphData.instances)
-              ? activeGraphData.instances
-              : Object.values(activeGraphData.instances || {});
-
           const protoIds = new Set();
 
-          // Collect all instance prototype IDs
-          instances.forEach(inst => {
-            if (inst.prototypeId) protoIds.add(inst.prototypeId);
-          });
+          // Collect prototypes from ALL graphs in the universe to ensure definition graphs can always find their parents
+          Array.from(graphsMap.values()).forEach(g => {
+            const instances = g.instances instanceof Map
+              ? Array.from(g.instances.values())
+              : Array.isArray(g.instances)
+                ? g.instances
+                : Object.values(g.instances || {});
 
-          // Also collect all definition node prototype IDs from edges so connection types resolve
-          const edgeIds = activeGraphData.edgeIds || [];
-          edgeIds.forEach(edgeId => {
-            const edge = edgesMap ? edgesMap.get(edgeId) : null;
-            if (edge && Array.isArray(edge.definitionNodeIds)) {
-              edge.definitionNodeIds.forEach(id => protoIds.add(id));
-            }
+            instances.forEach(inst => {
+              if (inst.prototypeId) protoIds.add(inst.prototypeId);
+            });
+
+            const edgeIds = g.edgeIds || [];
+            edgeIds.forEach(edgeId => {
+              const edge = edgesMap ? edgesMap.get(edgeId) : null;
+              if (edge && Array.isArray(edge.definitionNodeIds)) {
+                edge.definitionNodeIds.forEach(id => protoIds.add(id));
+              }
+            });
           });
 
           return Array.from(protoIds)
@@ -2477,7 +2490,8 @@ const LeftAIView = ({ compact = false,
                 id: proto.id,
                 name: proto.name || '',
                 color: proto.color || '',
-                description: proto.description || ''
+                description: proto.description || '',
+                definitionGraphIds: Array.isArray(proto.definitionGraphIds) ? proto.definitionGraphIds : []
               };
             })
             .filter(Boolean);
@@ -3244,7 +3258,15 @@ const LeftAIView = ({ compact = false,
                       id: g.id, name: g.name,
                       instances: g.instances instanceof Map ? Array.from(g.instances.values()) : Object.values(g.instances || {}),
                       edgeIds: g.edgeIds || [],
+                      definingNodeIds: Array.isArray(g.definingNodeIds) ? g.definingNodeIds : [],
                       groups: g.groups instanceof Map ? Array.from(g.groups.values()) : Object.values(g.groups || {})
+                    })) : [],
+                    nodePrototypes: nodePrototypesMap ? Array.from(nodePrototypesMap.values()).map(proto => ({
+                      id: proto.id,
+                      name: proto.name || '',
+                      color: proto.color || '',
+                      description: proto.description || '',
+                      definitionGraphIds: Array.isArray(proto.definitionGraphIds) ? proto.definitionGraphIds : []
                     })) : [],
                     edges: activeGraphId && edgesMap ? (() => {
                       const graph = graphsMap.get(activeGraphId);
@@ -3254,6 +3276,7 @@ const LeftAIView = ({ compact = false,
                         if (!edge) return null;
                         return {
                           id: edgeId, sourceId: edge.sourceId, targetId: edge.targetId,
+                          definitionNodeIds: Array.isArray(edge.definitionNodeIds) ? edge.definitionNodeIds : [],
                           type: edge.type || edge.connectionType || 'relates to'
                         };
                       }).filter(Boolean);

@@ -28,7 +28,7 @@ const ConnectionText = ({
   const midY = (sourcePoint.y + targetPoint.y) / 2;
   const angle = Math.atan2(dy, dx) * 180 / Math.PI;
   const adjustedAngle = (angle > 90 || angle < -90) ? angle + 180 : angle;
-  const fontSize = Math.max(8, 16 * transform.scale * fontScale);
+  const fontSize = Math.max(8, 24 * transform.scale * fontScale);
   const strokeWidth = Math.max(2, (connection.strokeWidth || 6 * transform.scale) * fontScale);
 
   // Truncate connection names for decomposition view
@@ -119,7 +119,7 @@ const UniversalNodeRenderer = ({
   renderContext = 'full', // 'full' | 'decomposition' | 'preview' - affects stroke/text rendering
 
   // Styling tweaks
-  cornerRadiusMultiplier = 28
+  cornerRadiusMultiplier = 44
 }) => {
   const [hoveredNodeId, setHoveredNodeId] = useState(null);
   const [hoveredConnectionId, setHoveredConnectionId] = useState(null);
@@ -949,9 +949,9 @@ const UniversalNodeRenderer = ({
             baseAverageCharWidth = node.isGroup ? 13 : 11; // Slightly narrower estimation for compact view
           } else {
             // Full canvas view: use Node.jsx's proportions
-            baseFontSize = node.isGroup ? 24 : 20;
-            baseLineHeight = node.isGroup ? 28 : 28; // Default line height (changed from 32 to 28)
-            baseVerticalPadding = node.isGroup ? 10 : 20; // Drastically reduced vertical padding for groups (was 18)
+            baseFontSize = node.isGroup ? 30 : 24;
+            baseLineHeight = node.isGroup ? 36 : 36; // Default line height (changed from 32 to 36)
+            baseVerticalPadding = node.isGroup ? 10 : 10; // Drastically reduced vertical padding for groups/nodes (was 10/12)
             baseSingleLineSidePadding = node.isGroup ? 30 : 22; // Match Node.jsx side padding
             baseMultiLineSidePadding = node.isGroup ? 36 : 30; // Match Node.jsx multiline padding
             baseAverageCharWidth = node.isGroup ? 14 : 12; // Match Node.jsx char width
@@ -1055,7 +1055,7 @@ const UniversalNodeRenderer = ({
                 height={node.height}
                 rx={node.isGroup ? 20 * transform.scale : cornerRadius}
                 ry={node.isGroup ? 20 * transform.scale : cornerRadius}
-                fill={node.isGroup ? '#bdb5b5' : (hasImage ? 'none' : (node.color || '#800000'))}
+                fill={node.isGroup ? '#bdb5b5' : (node.color || '#800000')}
                 stroke={node.isGroup ? (node.color || '#8B0000') : (hasImage ? (node.color || '#800000') : 'none')}
                 strokeWidth={
                   node.isGroup
