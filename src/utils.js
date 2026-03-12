@@ -20,7 +20,7 @@ const ensureMeasurementElements = () => {
   // Get current text settings from the store
   const textSettings = useGraphStore.getState().textSettings;
   const scaledFontSize = 20 * textSettings.fontSize;
-  const scaledLineHeight = 28 * textSettings.lineSpacing;
+  const scaledLineHeight = 26 * textSettings.lineSpacing;
   const scaledDescriptionLineHeight = 24 * textSettings.lineSpacing;
 
   if (!measurementContainer) {
@@ -339,7 +339,7 @@ export const getNodeDimensions = (node, isPreviewing = false, descriptionContent
 export const calculateTextAreaHeight = (name, width) => {
   // Get current text settings from the store for scaled measurements
   const textSettings = useGraphStore.getState().textSettings;
-  const scaledLineHeight = 28 * textSettings.lineSpacing;
+  const scaledLineHeight = 26 * textSettings.lineSpacing;
   const scaledCharWidth = 12 * textSettings.fontSize; // Match Node.jsx calculation
 
   // The width parameter should already be the available text width

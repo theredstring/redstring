@@ -950,7 +950,7 @@ const UniversalNodeRenderer = ({
           } else {
             // Full canvas view: use Node.jsx's proportions
             baseFontSize = node.isGroup ? 30 : 24;
-            baseLineHeight = node.isGroup ? 36 : 36; // Default line height (changed from 32 to 36)
+            baseLineHeight = node.isGroup ? 28 : 28; // Default line height (changed from 32 to 28)
             baseVerticalPadding = node.isGroup ? 10 : 10; // Drastically reduced vertical padding for groups/nodes (was 10/12)
             baseSingleLineSidePadding = node.isGroup ? 30 : 22; // Match Node.jsx side padding
             baseMultiLineSidePadding = node.isGroup ? 36 : 30; // Match Node.jsx multiline padding
