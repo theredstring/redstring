@@ -54,7 +54,7 @@ const UnifiedSelector = ({
   const bounds = useViewportBounds(leftPanelExpanded, rightPanelExpanded);
   const mobileState = useMobileDetection();
 
-  const showDialog = mode === 'node-creation' || mode === 'connection-creation' || mode === 'abstraction-node-creation' || mode === 'node-typing' || mode === 'node-group-creation';
+  const showDialog = (searchOnly || mode === 'node-creation' || mode === 'connection-creation' || mode === 'abstraction-node-creation' || mode === 'node-typing' || mode === 'node-group-creation');
   const showGrid = mode === 'node-typing' || mode === 'abstraction-node-creation' || mode === 'node-group-creation' || showCreateNewOption || onNodeSelect;
 
   const filteredPrototypes = React.useMemo(() => {

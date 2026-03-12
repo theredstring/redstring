@@ -835,6 +835,11 @@ const Panel = memo(forwardRef(
     // Add new state for type creation dialog
     const [typeNamePrompt, setTypeNamePrompt] = useState({ visible: false, name: '', color: null, targetNodeId: null, targetNodeName: '' });
 
+    // Add new state for search functionality in left panel
+    const [librarySearchVisible, setLibrarySearchVisible] = useState(false);
+    const [gridSearchVisible, setGridSearchVisible] = useState(false);
+    const [allThingsSearchVisible, setAllThingsSearchVisible] = useState(false);
+
     // Add merge modal state for handling events from canvas/tabs
     const [showMergeModal, setShowMergeModal] = useState(false);
 
@@ -1607,6 +1612,14 @@ const Panel = memo(forwardRef(
     };
 
 
+    const handleGridItemClick = useCallback((graphId) => {
+      // Switch view if needed and set active
+      if (leftViewActive !== 'grid') {
+        setLeftViewActive('grid');
+      }
+      setActiveGraph?.(graphId);
+    }, [leftViewActive, setActiveGraph]);
+
     // --- Generate Content based on Side ---
     let panelContent = null;
     if (side === 'left') {
@@ -1624,6 +1637,7 @@ const Panel = memo(forwardRef(
             createAndAssignGraphDefinition={createAndAssignGraphDefinition}
             openRightPanelNodeTab={openRightPanelNodeTab}
             storeActions={storeActions}
+            onOpenSearch={() => setAllThingsSearchVisible(true)}
           />
         );
       } else if (leftViewActive === 'library') {
@@ -1640,10 +1654,12 @@ const Panel = memo(forwardRef(
             createAndAssignGraphDefinition={createAndAssignGraphDefinition}
             toggleSavedNode={toggleSavedNode}
             openRightPanelNodeTab={openRightPanelNodeTab}
+            leftPanelExpanded={leftPanelExpanded}
+            rightPanelExpanded={rightPanelExpanded}
+            onOpenSearch={() => setLibrarySearchVisible(true)}
           />
         );
       } else if (leftViewActive === 'grid') {
-        const handleGridItemClick = (graphId) => { if (leftViewActive === 'grid') setActiveGraph(graphId); };
         panelContent = (
           <LeftGridView
             openGraphsForList={openGraphsForList}
@@ -1655,6 +1671,10 @@ const Panel = memo(forwardRef(
             closeGraph={closeGraph}
             toggleGraphExpanded={toggleGraphExpanded}
             createNewGraph={createNewGraph}
+            leftPanelExpanded={leftPanelExpanded}
+            rightPanelExpanded={rightPanelExpanded}
+            storeActions={storeActions}
+            onOpenSearch={() => setGridSearchVisible(true)}
           />
         );
       } else if (leftViewActive === 'federation') {
@@ -2130,6 +2150,95 @@ const Panel = memo(forwardRef(
             showCreateNewOption={true}
           />
         )}
+
+        {/* Global Search Selector for Saved Things */}
+        <UnifiedSelector
+          mode="node-selection"
+          isVisible={librarySearchVisible}
+          onClose={() => setLibrarySearchVisible(false)}
+          onNodeSelect={(node) => {
+            if (node.definitionGraphIds && node.definitionGraphIds.length > 0) {
+              const graphIdToOpen = node.definitionGraphIds[0];
+              openGraphTab?.(graphIdToOpen, node.id);
+            } else if (createAndAssignGraphDefinition) {
+              createAndAssignGraphDefinition(node.id);
+            }
+            openRightPanelNodeTab?.(node.id);
+            setLibrarySearchVisible(false);
+          }}
+          title="Search Saved Things"
+          subtitle="Search through your bookmarked things"
+          leftPanelExpanded={leftPanelExpanded}
+          rightPanelExpanded={rightPanelExpanded}
+          allowedPrototypeIds={Array.from(savedNodesByType.values()).flatMap(group => group.nodes.map(n => n.id))}
+          searchOnly={true}
+          gridTitle="Saved Things"
+        />
+
+        {/* Global Search Selector for All Things */}
+        <UnifiedSelector
+          mode="node-selection"
+          isVisible={allThingsSearchVisible}
+          onClose={() => setAllThingsSearchVisible(false)}
+          onNodeSelect={(node) => {
+            if (node.definitionGraphIds && node.definitionGraphIds.length > 0) {
+              const graphIdToOpen = node.definitionGraphIds[0];
+              openGraphTab?.(graphIdToOpen, node.id);
+            } else if (createAndAssignGraphDefinition) {
+              createAndAssignGraphDefinition(node.id);
+            }
+            openRightPanelNodeTab?.(node.id);
+            setAllThingsSearchVisible(false);
+          }}
+          title="Search All Things"
+          subtitle="Search through everything in your universe"
+          leftPanelExpanded={leftPanelExpanded}
+          rightPanelExpanded={rightPanelExpanded}
+          searchOnly={true}
+          gridTitle="All Things"
+        />
+
+        {/* Global Search Selector for Open Things */}
+        <UnifiedSelector
+          mode="node-selection"
+          isVisible={gridSearchVisible}
+          onClose={() => setGridSearchVisible(false)}
+          onNodeSelect={(node) => {
+            // Find if this node is already open as a graph in the list view
+            const openGraphMatch = openGraphsForList.find(g =>
+              g.definingNodeIds && g.definingNodeIds.includes(node.id)
+            );
+
+            if (openGraphMatch) {
+              // It's already open, activate and scroll to it
+              setActiveGraph?.(openGraphMatch.id);
+              handleGridItemClick(openGraphMatch.id);
+              setTimeout(() => {
+                const element = document.querySelector(`[data-graph-id="${openGraphMatch.id}"]`);
+                if (element) {
+                  element.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                }
+              }, 50);
+            } else {
+              // Not open, open it or create definition
+              if (node.definitionGraphIds && node.definitionGraphIds.length > 0) {
+                const graphIdToOpen = node.definitionGraphIds[0];
+                openGraphTab?.(graphIdToOpen, node.id);
+              } else if (createAndAssignGraphDefinition) {
+                createAndAssignGraphDefinition(node.id);
+              }
+            }
+            openRightPanelNodeTab?.(node.id);
+            setGridSearchVisible(false);
+          }}
+          title="Search Open Things"
+          subtitle="Search through open things or open a new one"
+          leftPanelExpanded={leftPanelExpanded}
+          rightPanelExpanded={rightPanelExpanded}
+          searchTerm=""
+          searchOnly={true}
+          gridTitle="Open Things"
+        />
 
         {/* Merge Modal */}
         {showMergeModal && (

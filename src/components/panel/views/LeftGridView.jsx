@@ -1,7 +1,9 @@
-import React from 'react';
-import { Merge, Plus } from 'lucide-react';
+import React, { useState } from 'react';
+import { Merge, Plus, Search } from 'lucide-react';
 import GraphListItem from '../../../GraphListItem.jsx';
 import { showContextMenu } from '../../GlobalContextMenu.jsx';
+import PanelIconButton from '../../shared/PanelIconButton.jsx';
+import useGraphStore from '../../../store/graphStore.jsx';
 
 // Internal Left Grid View (Open Things)
 const LeftGridView = ({
@@ -14,6 +16,10 @@ const LeftGridView = ({
   closeGraph,
   toggleGraphExpanded,
   createNewGraph,
+  leftPanelExpanded,
+  rightPanelExpanded,
+  storeActions,
+  onOpenSearch,
 }) => {
   // Context menu options for open things tab
   const getTabContextMenuOptions = () => [
@@ -42,26 +48,34 @@ const LeftGridView = ({
         <h2 style={{ margin: 0, color: '#260000', userSelect: 'none', fontSize: '1.1rem', fontWeight: 'bold', fontFamily: "'EmOne', sans-serif" }}>
           Open Things
         </h2>
-        <button
-          onClick={() => createNewGraph({ name: 'New Thing' })}
-          style={{
-            backgroundColor: 'transparent',
-            border: 'none',
-            color: '#260000',
-            cursor: 'pointer',
-            padding: '4px',
-            borderRadius: '4px',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            outline: 'none',
-          }}
-          onMouseEnter={(e) => e.currentTarget.style.backgroundColor = 'rgba(38, 0, 0, 0.1)'}
-          onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
-          title="Create New Thing with Graph Definition"
-        >
-          <Plus size={20} />
-        </button>
+        <div style={{ display: 'flex', gap: '4px' }}>
+          <PanelIconButton
+            icon={Search}
+            size={20}
+            onClick={onOpenSearch}
+            title="Search Open Things"
+          />
+          <button
+            onClick={() => createNewGraph({ name: 'New Thing' })}
+            style={{
+              backgroundColor: 'transparent',
+              border: 'none',
+              color: '#260000',
+              cursor: 'pointer',
+              padding: '4px',
+              borderRadius: '4px',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              outline: 'none',
+            }}
+            onMouseEnter={(e) => e.currentTarget.style.backgroundColor = 'rgba(38, 0, 0, 0.1)'}
+            onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
+            title="Create New Thing with Graph Definition"
+          >
+            <Plus size={20} />
+          </button>
+        </div>
       </div>
 
       {/* Bridge Status Display - Disabled */}

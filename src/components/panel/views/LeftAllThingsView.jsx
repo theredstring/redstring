@@ -1,11 +1,12 @@
 import React, { useState, useMemo } from 'react';
-import { Merge, ChevronRight } from 'lucide-react';
+import { Merge, ChevronRight, Search } from 'lucide-react';
 import { VirtuosoGrid } from 'react-virtuoso';
 import DuplicateManager from '../../DuplicateManager.jsx';
 import AllThingsNodeItem from '../items/AllThingsNodeItem.jsx';
 import StandardDivider from '../../StandardDivider.jsx';
 import { getTextColor } from '../../../utils/colorUtils';
 import { showContextMenu } from '../../GlobalContextMenu.jsx';
+import PanelIconButton from '../../shared/PanelIconButton.jsx';
 
 // Internal Left All Things View (All Nodes)
 const LeftAllThingsView = ({
@@ -19,6 +20,7 @@ const LeftAllThingsView = ({
   openGraphTab,
   createAndAssignGraphDefinition,
   openRightPanelNodeTab,
+  onOpenSearch,
   storeActions,
 }) => {
   const [showDuplicateManager, setShowDuplicateManager] = useState(false);
@@ -67,6 +69,12 @@ const LeftAllThingsView = ({
         <h2 style={{ margin: 0, color: '#260000', userSelect: 'none', fontSize: '1.1rem', fontWeight: 'bold', fontFamily: "'EmOne', sans-serif" }}>
           All Things
         </h2>
+        <PanelIconButton
+          icon={Search}
+          size={20}
+          onClick={onOpenSearch}
+          title="Search All Things"
+        />
       </div>
 
       {showDuplicateManager && (

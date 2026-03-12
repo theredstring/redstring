@@ -144,6 +144,7 @@ const GraphListItem = forwardRef(({
       onMouseEnter={() => setIsHovered(true)}
       onMouseLeave={() => setIsHovered(false)}
       title={graphData.name} // Tooltip with full name
+      data-graph-id={graphData.id}
     >
       {/* Graph Name - Add padding here */}
       <div

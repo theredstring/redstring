@@ -1,11 +1,12 @@
 import React, { useState, useMemo } from 'react';
-import { Merge, ChevronRight } from 'lucide-react';
+import { Merge, ChevronRight, Search } from 'lucide-react';
 import { VirtuosoGrid } from 'react-virtuoso';
 import DuplicateManager from '../../DuplicateManager.jsx';
 import SavedNodeItem from '../items/SavedNodeItem.jsx';
 import StandardDivider from '../../StandardDivider.jsx';
 import { getTextColor } from '../../../utils/colorUtils';
 import { showContextMenu } from '../../GlobalContextMenu.jsx';
+import PanelIconButton from '../../shared/PanelIconButton.jsx';
 
 // Internal Left Library View (Saved Things)
 const LeftLibraryView = ({
@@ -20,6 +21,9 @@ const LeftLibraryView = ({
   createAndAssignGraphDefinition,
   toggleSavedNode,
   openRightPanelNodeTab,
+  leftPanelExpanded,
+  rightPanelExpanded,
+  onOpenSearch,
 }) => {
   const [showDuplicateManager, setShowDuplicateManager] = useState(false);
 
@@ -67,6 +71,12 @@ const LeftLibraryView = ({
         <h2 style={{ margin: 0, color: '#260000', userSelect: 'none', fontSize: '1.1rem', fontWeight: 'bold', fontFamily: "'EmOne', sans-serif" }}>
           Saved Things
         </h2>
+        <PanelIconButton
+          icon={Search}
+          size={20}
+          onClick={onOpenSearch}
+          title="Search Saved Things"
+        />
       </div>
 
       {showDuplicateManager && (
