@@ -62,7 +62,7 @@ const HelpModal = ({ isVisible, onClose }) => {
             <li><strong>Shift:</strong> Zoom in</li>
             <li><strong>Space:</strong> Zoom out</li>
             <li><strong>Tab (tap):</strong> Hide/show panels</li>
-            <li><strong>Tab (hold) + A/D or ←/→:</strong> Scrub through open Webs</li>
+            <li><strong>Tab (hold) + Q/A/← or E/D/→:</strong> Scrub through open Webs</li>
             <li><strong>1:</strong> Toggle left panel</li>
             <li><strong>2:</strong> Toggle right panel</li>
             <li><strong>3:</strong> Toggle bottom bar</li>
@@ -89,7 +89,7 @@ const HelpModal = ({ isVisible, onClose }) => {
             <li><strong>Shift:</strong> Zoom in</li>
             <li><strong>Space:</strong> Zoom out</li>
             <li><strong>Tab (tap):</strong> Hide/show panels</li>
-            <li><strong>Tab (hold) + A/D or ←/→:</strong> Scrub through open Webs</li>
+            <li><strong>Tab (hold) + Q/A/← or E/D/→:</strong> Scrub through open Webs</li>
             <li><strong>1:</strong> Toggle left panel</li>
             <li><strong>2:</strong> Toggle right panel</li>
             <li><strong>3:</strong> Toggle bottom bar</li>

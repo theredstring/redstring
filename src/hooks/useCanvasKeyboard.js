@@ -274,7 +274,9 @@ export const useCanvasKeyboard = ({
             }
 
             // Directional key while Tab is held → scrub through open graph tabs
-            if (tabHeldDown.current && (e.key === 'ArrowLeft' || e.key === 'ArrowRight' || e.key === 'a' || e.key === 'd')) {
+            const scrubLeft = e.key === 'ArrowLeft' || e.key === 'a' || e.key === 'q';
+            const scrubRight = e.key === 'ArrowRight' || e.key === 'd' || e.key === 'e';
+            if (tabHeldDown.current && (scrubLeft || scrubRight)) {
                 console.error('[TAB-SCRUB] Scrub key:', e.key, 'tabHeldDown:', tabHeldDown.current);
                 tabScrubActive.current = true;
                 e.preventDefault();
@@ -282,7 +284,7 @@ export const useCanvasKeyboard = ({
                 const { openGraphIds, activeGraphId: currentActiveId, setActiveGraphTab } = useGraphStore.getState();
                 const currentIndex = openGraphIds.indexOf(currentActiveId);
 
-                if (e.key === 'ArrowLeft' || e.key === 'a') {
+                if (scrubLeft) {
                     if (currentIndex > 0) {
                         setActiveGraphTab(openGraphIds[currentIndex - 1]);
                     }
@@ -339,7 +341,7 @@ export const useCanvasKeyboard = ({
 
             // Skip keys already handled by Tab-scrub
             if (e.key === 'Tab') return;
-            if (tabHeldDown.current && (e.key === 'ArrowLeft' || e.key === 'ArrowRight' || e.key === 'a' || e.key === 'd')) return;
+            if (tabHeldDown.current && (e.key === 'ArrowLeft' || e.key === 'ArrowRight' || e.key === 'a' || e.key === 'd' || e.key === 'q' || e.key === 'e')) return;
 
             if (isInputActive || !activeGraphId) { return; }
 
