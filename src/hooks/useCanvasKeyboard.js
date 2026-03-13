@@ -260,23 +260,22 @@ export const useCanvasKeyboard = ({
     }, []); // STABLE Loop - no dependencies needed as we use paramsRef
 
     // ---------------------------------------------------------------------------
-    // 3. Shortcuts (Copy/Paste, Delete, etc.)
+    // 3. Tab hold-to-scrub (stable — no dependencies, uses refs + getState)
     // ---------------------------------------------------------------------------
     useEffect(() => {
-        const handleKeyDown = (e) => {
-            const isInputActive = isHeaderEditing || isRightPanelInputFocused || isLeftPanelInputFocused || nodeNamePrompt.visible;
-
-            // TAB key: track hold state, defer panel toggle to keyup
+        const handleTabKeyDown = (e) => {
             if (e.key === 'Tab') {
                 e.preventDefault();
-                if (!e.repeat && !tabHeldDown.current) {
+                if (!e.repeat) {
                     tabHeldDown.current = true;
+                    console.error('[TAB-SCRUB] Tab DOWN, tabHeldDown=true');
                 }
                 return;
             }
 
-            // Tab-scrub: pressing a directional key while Tab is held activates scrub mode
+            // Directional key while Tab is held → scrub through open graph tabs
             if (tabHeldDown.current && (e.key === 'ArrowLeft' || e.key === 'ArrowRight' || e.key === 'a' || e.key === 'd')) {
+                console.error('[TAB-SCRUB] Scrub key:', e.key, 'tabHeldDown:', tabHeldDown.current);
                 tabScrubActive.current = true;
                 e.preventDefault();
                 e.stopPropagation();
@@ -296,8 +295,51 @@ export const useCanvasKeyboard = ({
                 // Prevent panning by clearing from keysPressed
                 const normalizedKey = e.key.length === 1 ? e.key.toLowerCase() : e.key;
                 keysPressed.current[normalizedKey] = false;
-                return;
             }
+        };
+
+        const handleTabKeyUp = (e) => {
+            if (e.key === 'Tab') {
+                console.error('[TAB-SCRUB] Tab UP, wasScrubbing:', tabScrubActive.current);
+                const wasScrubbing = tabScrubActive.current;
+                tabHeldDown.current = false;
+                tabScrubActive.current = false;
+
+                // Only toggle panels on release if no scrubbing happened (quick tap)
+                if (!wasScrubbing) {
+                    const { leftPanelExpanded, rightPanelExpanded, setLeftPanelExpanded, setRightPanelExpanded } = useGraphStore.getState();
+                    const anyPanelOpen = leftPanelExpanded || rightPanelExpanded;
+
+                    if (anyPanelOpen) {
+                        panelStateBeforeHide.current = { left: leftPanelExpanded, right: rightPanelExpanded };
+                        setLeftPanelExpanded(false);
+                        setRightPanelExpanded(false);
+                    } else {
+                        setLeftPanelExpanded(panelStateBeforeHide.current.left);
+                        setRightPanelExpanded(panelStateBeforeHide.current.right);
+                    }
+                }
+            }
+        };
+
+        window.addEventListener('keydown', handleTabKeyDown);
+        window.addEventListener('keyup', handleTabKeyUp);
+        return () => {
+            window.removeEventListener('keydown', handleTabKeyDown);
+            window.removeEventListener('keyup', handleTabKeyUp);
+        };
+    }, []); // STABLE — no dependencies, uses refs and getState() only
+
+    // ---------------------------------------------------------------------------
+    // 4. Shortcuts (Copy/Paste, Delete, etc.)
+    // ---------------------------------------------------------------------------
+    useEffect(() => {
+        const handleKeyDown = (e) => {
+            const isInputActive = isHeaderEditing || isRightPanelInputFocused || isLeftPanelInputFocused || nodeNamePrompt.visible;
+
+            // Skip keys already handled by Tab-scrub
+            if (e.key === 'Tab') return;
+            if (tabHeldDown.current && (e.key === 'ArrowLeft' || e.key === 'ArrowRight' || e.key === 'a' || e.key === 'd')) return;
 
             if (isInputActive || !activeGraphId) { return; }
 
@@ -471,35 +513,8 @@ export const useCanvasKeyboard = ({
             }
         };
 
-        const handleKeyUp = (e) => {
-            if (e.key === 'Tab') {
-                const wasScrubbing = tabScrubActive.current;
-                tabHeldDown.current = false;
-                tabScrubActive.current = false;
-
-                // Only toggle panels on release if scrub mode was never activated (quick tap)
-                if (!wasScrubbing) {
-                    const { leftPanelExpanded, rightPanelExpanded, setLeftPanelExpanded, setRightPanelExpanded } = useGraphStore.getState();
-                    const anyPanelOpen = leftPanelExpanded || rightPanelExpanded;
-
-                    if (anyPanelOpen) {
-                        panelStateBeforeHide.current = { left: leftPanelExpanded, right: rightPanelExpanded };
-                        setLeftPanelExpanded(false);
-                        setRightPanelExpanded(false);
-                    } else {
-                        setLeftPanelExpanded(panelStateBeforeHide.current.left);
-                        setRightPanelExpanded(panelStateBeforeHide.current.right);
-                    }
-                }
-            }
-        };
-
         window.addEventListener('keydown', handleKeyDown);
-        window.addEventListener('keyup', handleKeyUp);
-        return () => {
-            window.removeEventListener('keydown', handleKeyDown);
-            window.removeEventListener('keyup', handleKeyUp);
-        };
+        return () => window.removeEventListener('keydown', handleKeyDown);
     }, [
         selectedInstanceIds,
         selectedEdgeId,
