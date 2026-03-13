@@ -968,6 +968,15 @@ const RedstringMenu = ({
                           {showClusterHulls ? '✓' : ''} Show Cluster Hulls (Connectivity)
                         </div>
 
+                        <div
+                          className="submenu-item"
+                          onMouseEnter={handleRegularSubmenuItemHover}
+                          onClick={() => debugConfig.setNodeHitboxesEnabled(!debugSettings.showNodeHitboxes)}
+                          style={{ cursor: 'pointer', opacity: debugSettings.showNodeHitboxes ? 1 : 0.8 }}
+                        >
+                          {debugSettings.showNodeHitboxes ? '✓' : ''} Show Node Hitboxes
+                        </div>
+
                         <div className="submenu-divider" style={{ margin: '8px 0', borderTop: '1px solid #444', opacity: 0.3 }} />
 
                         <div

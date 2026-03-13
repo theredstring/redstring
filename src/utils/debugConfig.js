@@ -9,7 +9,8 @@ const DEBUG_STORAGE_KEYS = {
   DEBUG_MODE: 'redstring_debug_mode',
   FORCE_GIT_ONLY: 'redstring_debug_force_git_only',
   LOG_LEVEL: 'redstring_debug_log_level',
-  ENABLE_WIZARD: 'redstring_debug_enable_wizard'
+  ENABLE_WIZARD: 'redstring_debug_enable_wizard',
+  SHOW_NODE_HITBOXES: 'redstring_debug_show_node_hitboxes'
 };
 
 const hasBrowserWindow = typeof window !== 'undefined';
@@ -38,7 +39,8 @@ class DebugConfig {
         debugMode: false,
         forceGitOnly: false,
         logLevel: 'info',
-        enableWizard: false
+        enableWizard: false,
+        showNodeHitboxes: false
       };
       this.isInitialized = true;
       return;
@@ -51,7 +53,8 @@ class DebugConfig {
         debugMode: this.getBooleanSetting(DEBUG_STORAGE_KEYS.DEBUG_MODE, false),
         forceGitOnly: this.getBooleanSetting(DEBUG_STORAGE_KEYS.FORCE_GIT_ONLY, false),
         logLevel: this.getStringSetting(DEBUG_STORAGE_KEYS.LOG_LEVEL, 'info'),
-        enableWizard: this.getBooleanSetting(DEBUG_STORAGE_KEYS.ENABLE_WIZARD, false)
+        enableWizard: this.getBooleanSetting(DEBUG_STORAGE_KEYS.ENABLE_WIZARD, false),
+        showNodeHitboxes: this.getBooleanSetting(DEBUG_STORAGE_KEYS.SHOW_NODE_HITBOXES, false)
       };
 
       // Check URL parameters for debug overrides
@@ -92,7 +95,8 @@ class DebugConfig {
         debugMode: false,
         forceGitOnly: false,
         logLevel: 'info',
-        enableWizard: false
+        enableWizard: false,
+        showNodeHitboxes: false
       };
       this.isInitialized = true;
     }
@@ -167,6 +171,11 @@ class DebugConfig {
     return this.config.enableWizard;
   }
 
+  // Check if node hitboxes should be shown
+  isNodeHitboxesEnabled() {
+    return this.config.showNodeHitboxes || false;
+  }
+
   // Enable/disable local storage (for debugging)
   setLocalStorageDisabled(disabled) {
     this.config.disableLocalStorage = disabled;
@@ -212,6 +221,14 @@ class DebugConfig {
     console.log(`[DebugConfig] Wizard ${enabled ? 'ENABLED' : 'DISABLED'}`);
   }
 
+  // Enable/disable node hitbox visualization
+  setNodeHitboxesEnabled(enabled) {
+    this.config.showNodeHitboxes = enabled;
+    this.setSetting(DEBUG_STORAGE_KEYS.SHOW_NODE_HITBOXES, enabled);
+    this.notifyListeners();
+    console.log(`[DebugConfig] Node hitboxes ${enabled ? 'ENABLED' : 'DISABLED'}`);
+  }
+
   // Clear all debug settings
   reset() {
     if (!this.storage) {
@@ -220,7 +237,8 @@ class DebugConfig {
         debugMode: false,
         forceGitOnly: false,
         logLevel: 'info',
-        enableWizard: false
+        enableWizard: false,
+        showNodeHitboxes: false
       };
       this.notifyListeners();
       return;
@@ -236,7 +254,8 @@ class DebugConfig {
         debugMode: false,
         forceGitOnly: false,
         logLevel: 'info',
-        enableWizard: false
+        enableWizard: false,
+        showNodeHitboxes: false
       };
 
       this.notifyListeners();

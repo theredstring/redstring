@@ -4,6 +4,8 @@
  * Extracted from NodeCanvas.jsx to improve maintainability
  */
 
+import { getNodeHitbox } from './nodeHitbox.js';
+
 // Inflate a rectangle by padding
 export const inflateRect = (rect, pad) => ({
     minX: rect.minX - pad,
@@ -77,7 +79,7 @@ export const estimateTextWidth = (text, fontSize = 24) => {
 
 // Build inflated obstacle rects from visible nodes to avoid placing labels over nodes
 // Refactored to accept state as arguments rather than closure
-export const getVisibleObstacleRects = (nodes, visibleNodeIds, baseDimsById, pad = 18) => {
+export const getVisibleObstacleRects = (nodes, visibleNodeIds, baseDimsById, pad = 18, selectedNodeIds = new Set()) => {
     const rects = [];
     // Handle case where nodes might be null/undefined
     if (!nodes) return rects;
@@ -89,13 +91,11 @@ export const getVisibleObstacleRects = (nodes, visibleNodeIds, baseDimsById, pad
         const dims = baseDimsById.get ? baseDimsById.get(node.id) : baseDimsById[node.id];
         if (!dims) continue;
 
-        const rect = {
-            minX: node.x,
-            minY: node.y,
-            maxX: node.x + dims.currentWidth,
-            maxY: node.y + dims.currentHeight,
-        };
-        rects.push(inflateRect(rect, pad));
+        // Use accurate hitbox calculation (includes selection stroke)
+        const isSelected = selectedNodeIds.has(node.id);
+        const hitbox = getNodeHitbox(node, dims, isSelected);
+
+        rects.push(inflateRect(hitbox, pad));
     }
     return rects;
 };
@@ -355,8 +355,8 @@ const getFallbackPlacement = (pathPoints, textWidth, textHeight, obstacles) => {
 };
 
 // Main label placement orchestrator
-export const chooseLabelPlacement = (pathPoints, connectionName, nodes, visibleNodeIds, baseDimsById, placedLabels, fontSize = 24, edgeId = null) => {
-    const obstacles = getVisibleObstacleRects(nodes, visibleNodeIds, baseDimsById, 18);
+export const chooseLabelPlacement = (pathPoints, connectionName, nodes, visibleNodeIds, baseDimsById, placedLabels, fontSize = 24, edgeId = null, selectedNodeIds = new Set()) => {
+    const obstacles = getVisibleObstacleRects(nodes, visibleNodeIds, baseDimsById, 18, selectedNodeIds);
     const textWidth = estimateTextWidth(connectionName, fontSize);
     const textHeight = fontSize * 1;
 

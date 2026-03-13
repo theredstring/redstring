@@ -45,6 +45,9 @@ export const useCanvasKeyboard = ({
     abstractionCarouselVisible,
     keyboardSettings,
 }) => {
+    // Remember panel state for toggle behavior
+    const panelStateBeforeHide = useRef({ left: true, right: true });
+
     // Use a Ref to keep track of the latest prop values without restarting the effect
     // This is critical for performance to avoid tearing down and rebuilding the RAF loop every frame
     const props = {
@@ -258,6 +261,27 @@ export const useCanvasKeyboard = ({
     useEffect(() => {
         const handleKeyDown = (e) => {
             const isInputActive = isHeaderEditing || isRightPanelInputFocused || isLeftPanelInputFocused || nodeNamePrompt.visible;
+
+            // TAB key: Toggle panels (works even when input is active)
+            if (e.key === 'Tab') {
+                e.preventDefault();
+                const { leftPanelExpanded, rightPanelExpanded, setLeftPanelExpanded, setRightPanelExpanded } = useGraphStore.getState();
+                const anyPanelOpen = leftPanelExpanded || rightPanelExpanded;
+
+                if (anyPanelOpen) {
+                    // Remember current state before hiding
+                    panelStateBeforeHide.current = { left: leftPanelExpanded, right: rightPanelExpanded };
+                    // Hide both panels
+                    setLeftPanelExpanded(false);
+                    setRightPanelExpanded(false);
+                } else {
+                    // Restore previous state
+                    setLeftPanelExpanded(panelStateBeforeHide.current.left);
+                    setRightPanelExpanded(panelStateBeforeHide.current.right);
+                }
+                return;
+            }
+
             if (isInputActive || !activeGraphId) { return; }
 
             // Block destructive keys when AbstractionCarousel is visible, except in editable fields

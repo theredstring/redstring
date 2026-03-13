@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { HEADER_HEIGHT } from './constants';
 import RedstringMenu from './RedstringMenu';
 import { Bookmark, Plus, ScanSearch, HelpCircle, Bug, Settings, Search } from 'lucide-react';
@@ -88,6 +88,153 @@ const Header = ({
     }
   });
 
+  const headerRef = useRef(null);
+  const tabsScrollContainerRef = useRef(null);
+  const activeTabRef = useRef(null);
+  const recenterTimeoutRef = useRef(null);
+  const isProgrammaticScroll = useRef(false);
+  const [activeTabMaxWidth, setActiveTabMaxWidth] = useState('220px');
+
+  // Calculate dynamic max width for active tab based on header width
+  useEffect(() => {
+    const updateActiveTabMaxWidth = () => {
+      if (!headerRef.current) return;
+
+      const headerWidth = headerRef.current.offsetWidth;
+
+      // Left side buttons: menu + help + settings + all-things-search = 4 × HEADER_HEIGHT
+      // Right side buttons: search + plus + bookmark = 3 × HEADER_HEIGHT
+      const fixedButtonsWidth = 7 * HEADER_HEIGHT;
+
+      // Generous padding for inactive tabs and breathing room (300px on each side)
+      const generousPadding = 600;
+
+      // Calculate available width for the active tab
+      const availableWidth = headerWidth - fixedButtonsWidth - generousPadding;
+
+      // Set a minimum of 150px and maximum based on available space
+      const calculatedMaxWidth = Math.max(150, Math.min(availableWidth, 800));
+
+      setActiveTabMaxWidth(`${calculatedMaxWidth}px`);
+    };
+
+    updateActiveTabMaxWidth();
+
+    // Use ResizeObserver to track header width changes
+    const resizeObserver = new ResizeObserver(updateActiveTabMaxWidth);
+    if (headerRef.current) {
+      resizeObserver.observe(headerRef.current);
+    }
+
+    return () => {
+      resizeObserver.disconnect();
+    };
+  }, []);
+
+  // Scroll-to-center function
+  const scrollToCenter = useCallback((immediate = false) => {
+    if (!tabsScrollContainerRef.current || !activeTabRef.current) return;
+
+    const container = tabsScrollContainerRef.current;
+    const activeTab = activeTabRef.current;
+
+    const tabRect = activeTab.getBoundingClientRect();
+
+    // Center the tab relative to the viewport center
+    const viewportCenter = window.innerWidth / 2;
+    const tabCenterViewport = tabRect.left + tabRect.width / 2;
+    const scrollOffset = tabCenterViewport - viewportCenter;
+
+    // Mark as programmatic scroll to prevent timeout reset
+    isProgrammaticScroll.current = true;
+
+    if (immediate) {
+      container.scrollBy({ left: scrollOffset, behavior: 'instant' });
+      setTimeout(() => { isProgrammaticScroll.current = false; }, 50);
+    } else {
+      // Custom smooth scroll with slower duration (1200ms, ease-out)
+      const duration = 1200;
+      const startScrollLeft = container.scrollLeft;
+      const startTime = performance.now();
+
+      const animateScroll = (currentTime) => {
+        const elapsed = currentTime - startTime;
+        const progress = Math.min(elapsed / duration, 1);
+        // Ease-out cubic: decelerates nicely
+        const eased = 1 - Math.pow(1 - progress, 3);
+
+        container.scrollLeft = startScrollLeft + scrollOffset * eased;
+
+        if (progress < 1) {
+          requestAnimationFrame(animateScroll);
+        } else {
+          isProgrammaticScroll.current = false;
+        }
+      };
+
+      requestAnimationFrame(animateScroll);
+    }
+  }, []);
+
+  // Scroll event handler with 3-second timeout to recenter
+  const handleTabsScroll = useCallback(() => {
+    // Ignore programmatic scrolls
+    if (isProgrammaticScroll.current) return;
+
+    // Clear existing timeout
+    if (recenterTimeoutRef.current) {
+      clearTimeout(recenterTimeoutRef.current);
+    }
+
+    // Set 3-second timeout to recenter
+    recenterTimeoutRef.current = setTimeout(() => {
+      scrollToCenter(false); // Smooth scroll back to center
+    }, 3000);
+  }, [scrollToCenter]);
+
+  // Wheel scrolling handler (needs non-passive for preventDefault)
+  const handleTabsWheel = useCallback((e) => {
+    if (!tabsScrollContainerRef.current) return;
+
+    const container = tabsScrollContainerRef.current;
+
+    // Only scroll if there's overflow
+    if (container.scrollWidth <= container.clientWidth) return;
+
+    e.preventDefault();
+    e.stopPropagation();
+
+    // Convert vertical/horizontal wheel to horizontal scroll
+    let scrollAmount = e.deltaY;
+    if (Math.abs(e.deltaX) > Math.abs(e.deltaY)) {
+      scrollAmount = e.deltaX;
+    }
+
+    container.scrollLeft += scrollAmount;
+  }, []);
+
+  // Ref callback to attach wheel listener when container mounts (avoids imagesLoaded timing bug)
+  const tabsContainerRefCallback = useCallback((node) => {
+    // Detach from old node
+    if (tabsScrollContainerRef.current) {
+      tabsScrollContainerRef.current.removeEventListener('wheel', handleTabsWheel);
+    }
+    tabsScrollContainerRef.current = node;
+    // Attach to new node
+    if (node) {
+      node.addEventListener('wheel', handleTabsWheel, { passive: false });
+    }
+  }, [handleTabsWheel]);
+
+  // Cleanup recenter timeout on unmount
+  useEffect(() => {
+    return () => {
+      if (recenterTimeoutRef.current) {
+        clearTimeout(recenterTimeoutRef.current);
+      }
+    };
+  }, []);
+
   const handleLogoContextMenu = (e) => {
     e.preventDefault();
     e.stopPropagation();
@@ -117,6 +264,21 @@ const Header = ({
 
   const [tempTitle, setTempTitle] = useState(activeGraph ? activeGraph.name : '');
   const inputRef = useRef(null);
+
+  // Center on active graph change
+  useEffect(() => {
+    if (activeGraph) {
+      // Clear pending recenter timeout
+      if (recenterTimeoutRef.current) {
+        clearTimeout(recenterTimeoutRef.current);
+      }
+
+      // Center immediately (no animation) on graph change
+      requestAnimationFrame(() => {
+        scrollToCenter(true); // immediate = true
+      });
+    }
+  }, [activeGraph?.id, scrollToCenter]);
 
   const logos = [logo1, logo2, logo3, logo4, logo5, logo6, logo7];
 
@@ -301,6 +463,7 @@ const Header = ({
   if (!imagesLoaded) {
     return (
       <header
+        ref={headerRef}
         style={{
           height: `${HEADER_HEIGHT}px`,
           backgroundColor: '#260000',
@@ -382,6 +545,7 @@ const Header = ({
 
   return (
     <header
+      ref={headerRef}
       style={{
         height: `${HEADER_HEIGHT}px`,
         backgroundColor: '#260000',
@@ -648,107 +812,88 @@ const Header = ({
         </div>
       </div>
 
-      {/* Title container - adjust padding */}
-      <div style={{
-        position: 'absolute',
-        left: '50%',
-        top: '50%',
-        transform: 'translate(-50%, -50%)',
-        display: 'grid',
-        gridTemplateColumns: '1fr auto 1fr', // Left area, center area, right area
-        alignItems: 'center',
-        width: 'calc(100% - 120px)',
-        maxWidth: '100%',
-        gap: '10px',
-      }}>
-        {/* Left-side (inactive) tabs - right-aligned in left column */}
-        <div style={{
+      {/* Scrollable tabs container */}
+      <div
+        ref={tabsContainerRefCallback}
+        onScroll={handleTabsScroll}
+        className="hide-scrollbar"
+        style={{
+          position: 'absolute',
+          left: `${HEADER_HEIGHT}px`,
+          right: 0,
+          top: '50%',
+          transform: 'translateY(-50%)',
           display: 'flex',
-          justifyContent: 'flex-end',
           alignItems: 'center',
           gap: '10px',
-          overflow: 'hidden'
-        }}>
-          {leftGraphs.map((graph, index) => (
-            <HeaderGraphTab
-              key={graph.id}
-              graph={graph}
-              onSelect={onSetActiveGraph}
-              isActive={false}
-            />
-          ))}
-        </div>
+          overflowX: 'auto',
+          overflowY: 'hidden',
+          padding: '0 20px',
+        }}
+      >
+        {headerGraphs.map((graph) => {
+          const isGraphActive = graph.isActive;
 
-        {/* Active Tab - Always centered in center column */}
-        <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center' }}>
-          {activeGraph && (
-            <div style={{ position: 'relative', display: 'inline-block' }}>
-              {/* Always render the HeaderGraphTab for the background */}
-              <HeaderGraphTab
-                graph={{
-                  ...activeGraph,
-                  name: isEditing ? tempTitle : activeGraph.name // Use temp title when editing for dynamic sizing
-                }}
-                onSelect={() => { }}
-                onDoubleClick={handleTitleDoubleClick}
-                isActive={true}
-                hideText={isEditing} // Hide text when editing to prevent duplicates
-              />
-              {/* Overlay transparent input when editing */}
-              {isEditing && (
-                <input
-                  ref={inputRef}
-                  type="text"
-                  className="editable-title-input"
-                  value={tempTitle}
-                  onChange={handleTitleChange}
-                  onBlur={handleTitleBlur}
-                  onKeyDown={handleTitleKeyDown}
-                  spellCheck="false"
-                  style={{
-                    position: 'absolute',
-                    top: 0,
-                    left: '5px', // Account for the 5px left margin of HeaderGraphTab
-                    width: 'calc(100% - 10px)', // Account for both left and right 5px margins
-                    height: '100%',
-                    backgroundColor: 'transparent',
-                    color: getTextColor(activeGraph.color),
-                    textAlign: 'center',
-                    boxSizing: 'border-box',
-                    padding: '7px 17px',
-                    borderRadius: '12px',
-                    border: 'none',
-                    fontWeight: 'bold',
-                    fontSize: '18px',
-                    margin: '0',
-                    outline: 'none',
-                    textShadow: 'none',
-                    cursor: 'text',
+          if (isGraphActive) {
+            return (
+              <div key={graph.id} ref={activeTabRef} style={{ position: 'relative', display: 'inline-block', flexShrink: 0 }}>
+                <HeaderGraphTab
+                  graph={{
+                    ...graph,
+                    name: isEditing ? tempTitle : graph.name
                   }}
-                  autoFocus
+                  onSelect={() => { }}
+                  onDoubleClick={handleTitleDoubleClick}
+                  isActive={true}
+                  hideText={isEditing}
+                  dynamicMaxWidth={activeTabMaxWidth}
                 />
-              )}
-            </div>
-          )}
-        </div>
+                {isEditing && (
+                  <input
+                    ref={inputRef}
+                    type="text"
+                    className="editable-title-input"
+                    value={tempTitle}
+                    onChange={handleTitleChange}
+                    onBlur={handleTitleBlur}
+                    onKeyDown={handleTitleKeyDown}
+                    spellCheck="false"
+                    style={{
+                      position: 'absolute',
+                      top: 0,
+                      left: '5px',
+                      width: 'calc(100% - 10px)',
+                      height: '100%',
+                      backgroundColor: 'transparent',
+                      color: getTextColor(graph.color),
+                      textAlign: 'center',
+                      boxSizing: 'border-box',
+                      padding: '7px 17px',
+                      borderRadius: '12px',
+                      border: 'none',
+                      fontWeight: 'bold',
+                      fontSize: '18px',
+                      margin: '0',
+                      outline: 'none',
+                      textShadow: 'none',
+                      cursor: 'text',
+                    }}
+                    autoFocus
+                  />
+                )}
+              </div>
+            );
+          }
 
-        {/* Right-side (inactive) tabs - left-aligned in right column */}
-        <div style={{
-          display: 'flex',
-          justifyContent: 'flex-start',
-          alignItems: 'center',
-          gap: '10px',
-          overflow: 'hidden'
-        }}>
-          {rightGraphs.map((graph, index) => (
+          return (
             <HeaderGraphTab
               key={graph.id}
               graph={graph}
               onSelect={onSetActiveGraph}
               isActive={false}
             />
-          ))}
-        </div>
+          );
+        })}
       </div>
 
 

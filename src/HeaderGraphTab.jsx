@@ -53,7 +53,7 @@ const colorToRgba = (color, alpha) => {
   return color;
 };
 
-const HeaderGraphTab = ({ graph, onSelect, onDoubleClick, isActive, hideText = false }) => {
+const HeaderGraphTab = ({ graph, onSelect, onDoubleClick, isActive, hideText = false, dynamicMaxWidth }) => {
   const nodePrototypes = useGraphStore(state => state.nodePrototypes);
 
   // Get the defining node's name for fallback matching
@@ -106,7 +106,7 @@ const HeaderGraphTab = ({ graph, onSelect, onDoubleClick, isActive, hideText = f
     boxShadow: isActive ? '0 0 8px rgba(0,0,0,0.0)' : 'none',
     border: 'none',
     userSelect: 'none',
-    maxWidth: '220px',
+    maxWidth: dynamicMaxWidth || '220px',
     overflow: 'hidden',
     textOverflow: 'ellipsis',
     flexShrink: 0,

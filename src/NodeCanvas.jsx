@@ -42,6 +42,9 @@ import { parseInputData, generateGraph } from './services/autoGraphGenerator';
 import { applyLayout, getClusterGeometries, FORCE_LAYOUT_DEFAULTS } from './services/graphLayoutService.js';
 import { NavigationMode, calculateNavigationParams } from './services/canvasNavigationService.js';
 import { debugLogSync } from './utils/debugLogger.js';
+import { getNodeHitbox, getVisualConnectionEndpoints } from './utils/canvas/nodeHitbox.js';
+import { stabilizeLabelPosition, clearLabelStabilization } from './utils/canvas/labelStabilization.js';
+import debugConfig from './utils/debugConfig.js';
 
 // Import Zustand store and selectors/actions
 import useGraphStore, {
@@ -298,6 +301,21 @@ function NodeCanvas() {
     return () => window.removeEventListener('panelWidthChanged', onPanelChanged);
   }, []);
 
+  // Subscribe to debug config changes for hitbox visualization
+  useEffect(() => {
+    const handleDebugConfigChange = (config) => {
+      setShowNodeHitboxes(config.showNodeHitboxes || false);
+    };
+
+    const unsubscribe = debugConfig.addListener(handleDebugConfigChange);
+
+    // Initialize with current config
+    setShowNodeHitboxes(debugConfig.isNodeHitboxesEnabled());
+
+    return unsubscribe;
+  }, []);
+
+
   const MIN_WIDTH = 180;
   const MAX_WIDTH = Math.max(240, Math.round(window.innerWidth / 2));
 
@@ -508,6 +526,11 @@ function NodeCanvas() {
   const selectedEdgeId = useGraphStore(state => state.selectedEdgeId);
   const selectedEdgeIds = useGraphStore(state => state.selectedEdgeIds);
   const typeListMode = useGraphStore(state => state.typeListMode);
+
+  // Clear label stabilization cache when switching graphs
+  useEffect(() => {
+    clearLabelStabilization();
+  }, [activeGraphId]);
   const graphsMap = useGraphStore(state => state.graphs);
   const nodePrototypesMap = useGraphStore(state => state.nodePrototypes);
   const edgePrototypesMap = useGraphStore(state => state.edgePrototypes);
@@ -933,7 +956,8 @@ function NodeCanvas() {
   const [visibleNodeIds, setVisibleNodeIds] = useState(() => new Set());
   const [visibleEdges, setVisibleEdges] = useState(() => []);
 
-
+  // Debug visualization state
+  const [showNodeHitboxes, setShowNodeHitboxes] = useState(false);
 
   // --- Local UI State (Keep these) ---
   const [selectedInstanceIds, setSelectedInstanceIds] = useState(new Set());
@@ -7623,6 +7647,7 @@ function NodeCanvas() {
         // Debounce for 500ms to batch rapid mutations
         // This prevents layout thrashing during quick wizard operations
         debounceTimer = setTimeout(() => {
+          clearLabelStabilization(); // Clear label cache before layout change
           applyAutoLayoutToActiveGraph();
           debounceTimer = null;
         }, 500);
@@ -8745,7 +8770,31 @@ function NodeCanvas() {
                   </g>
                 )}
 
-                {/* Debug boundaries - disabled */}
+                {/* Debug: Node Hitbox Visualization */}
+                {showNodeHitboxes && hydratedNodes.map(node => {
+                  const dims = baseDimsById.get(node.id);
+                  if (!dims) return null;
+
+                  const isSelected = selectedInstanceIds.has(node.id);
+                  const hitbox = getNodeHitbox(node, dims, isSelected);
+
+                  return (
+                    <rect
+                      key={`hitbox-${node.id}`}
+                      x={hitbox.minX}
+                      y={hitbox.minY}
+                      width={hitbox.maxX - hitbox.minX}
+                      height={hitbox.maxY - hitbox.minY}
+                      fill="cyan"
+                      fillOpacity={0.15}
+                      stroke="cyan"
+                      strokeWidth={2}
+                      strokeDasharray="4 4"
+                      pointerEvents="none"
+                      style={{ mixBlendMode: 'multiply' }}
+                    />
+                  );
+                })}
 
                 {isViewReady && (() => {
                   // Determine which node instances are members of node-groups
@@ -8797,10 +8846,63 @@ function NodeCanvas() {
                         const eNodeDims = baseDimsById.get(destNode.id) || getNodeDimensions(destNode, false, null);
                         const isSNodePreviewing = previewingNodeId === sourceNode.id;
                         const isENodePreviewing = previewingNodeId === destNode.id;
-                        const x1 = sourceNode.x + sNodeDims.currentWidth / 2;
-                        const y1 = sourceNode.y + (isSNodePreviewing ? NODE_HEIGHT / 2 : sNodeDims.currentHeight / 2);
-                        const x2 = destNode.x + eNodeDims.currentWidth / 2;
-                        const y2 = destNode.y + (isENodePreviewing ? NODE_HEIGHT / 2 : eNodeDims.currentHeight / 2);
+
+                        // Check if this is a directed edge (has arrows)
+                        const arrowsToward = edge.directionality?.arrowsToward instanceof Set
+                          ? edge.directionality.arrowsToward
+                          : new Set(Array.isArray(edge.directionality?.arrowsToward) ? edge.directionality.arrowsToward : []);
+
+                        // Check which ends have arrows
+                        const hasSourceArrow = arrowsToward.has(sourceNode.id);
+                        const hasDestArrow = arrowsToward.has(destNode.id);
+                        const isDirected = arrowsToward.size > 0;
+
+                        // Connection endpoint calculation
+                        let x1, y1, x2, y2;
+                        if (enableAutoRouting && (routingStyle === 'manhattan' || routingStyle === 'clean')) {
+                          // Port-based routing - use centers as base (ports will override later)
+                          x1 = sourceNode.x + sNodeDims.currentWidth / 2;
+                          y1 = sourceNode.y + (isSNodePreviewing ? NODE_HEIGHT / 2 : sNodeDims.currentHeight / 2);
+                          x2 = destNode.x + eNodeDims.currentWidth / 2;
+                          y2 = destNode.y + (isENodePreviewing ? NODE_HEIGHT / 2 : eNodeDims.currentHeight / 2);
+                        } else if (isDirected && (hasSourceArrow || hasDestArrow)) {
+                          // Directed connections: calculate each endpoint based on whether it has an arrow
+                          // Sides with arrows draw to edge, sides without arrows draw to center
+                          const centerX1 = sourceNode.x + sNodeDims.currentWidth / 2;
+                          const centerY1 = sourceNode.y + (isSNodePreviewing ? NODE_HEIGHT / 2 : sNodeDims.currentHeight / 2);
+                          const centerX2 = destNode.x + eNodeDims.currentWidth / 2;
+                          const centerY2 = destNode.y + (isENodePreviewing ? NODE_HEIGHT / 2 : eNodeDims.currentHeight / 2);
+
+                          if (hasSourceArrow || hasDestArrow) {
+                            // Use edge-based calculation, then selectively apply results
+                            const endpoints = getVisualConnectionEndpoints(
+                              sourceNode, destNode,
+                              sNodeDims, eNodeDims,
+                              selectedInstanceIds.has(sourceNode.id),
+                              selectedInstanceIds.has(destNode.id)
+                            );
+
+                            // Source: use edge if has arrow, otherwise center
+                            x1 = hasSourceArrow ? endpoints.x1 : centerX1;
+                            y1 = hasSourceArrow ? endpoints.y1 : centerY1;
+
+                            // Dest: use edge if has arrow, otherwise center
+                            x2 = hasDestArrow ? endpoints.x2 : centerX2;
+                            y2 = hasDestArrow ? endpoints.y2 : centerY2;
+                          } else {
+                            // Fallback to centers (shouldn't reach here due to outer if condition)
+                            x1 = centerX1;
+                            y1 = centerY1;
+                            x2 = centerX2;
+                            y2 = centerY2;
+                          }
+                        } else {
+                          // Non-directed connections: use centers for traditional appearance
+                          x1 = sourceNode.x + sNodeDims.currentWidth / 2;
+                          y1 = sourceNode.y + (isSNodePreviewing ? NODE_HEIGHT / 2 : sNodeDims.currentHeight / 2);
+                          x2 = destNode.x + eNodeDims.currentWidth / 2;
+                          y2 = destNode.y + (isENodePreviewing ? NODE_HEIGHT / 2 : eNodeDims.currentHeight / 2);
+                        }
 
                         const isHovered = hoveredEdgeInfo?.edgeId === edge.id;
                         const isSelected = selectedEdgeId === edge.id || selectedEdgeIds.has(edge.id);
@@ -8884,10 +8986,7 @@ function NodeCanvas() {
                         );
 
                         // Determine if each end of the edge should be shortened for arrows
-                        // Ensure arrowsToward is a Set (fix for loading from file)
-                        const arrowsToward = edge.directionality?.arrowsToward instanceof Set
-                          ? edge.directionality.arrowsToward
-                          : new Set(Array.isArray(edge.directionality?.arrowsToward) ? edge.directionality.arrowsToward : []);
+                        // (arrowsToward already calculated earlier for endpoint logic)
 
                         // Check if this is a curved edge (parallel edge with non-zero offset)
                         // The middle edge in an odd-numbered group has offset 0 and is straight
@@ -9082,6 +9181,20 @@ function NodeCanvas() {
                         const parallelPath = calculateParallelEdgePath(startX, startY, endX, endY, curveInfo);
                         const useCurve = parallelPath.type === 'curve';
 
+                        // For label placement, always use the visible segment (edge-to-edge)
+                        // This ensures labels are centered on the visible portion, not the drawn portion
+                        const visibleEndpoints = getVisualConnectionEndpoints(
+                          sourceNode, destNode,
+                          sNodeDims, eNodeDims,
+                          selectedInstanceIds.has(sourceNode.id),
+                          selectedInstanceIds.has(destNode.id)
+                        );
+                        const labelPlacementPath = calculateParallelEdgePath(
+                          visibleEndpoints.x1, visibleEndpoints.y1,
+                          visibleEndpoints.x2, visibleEndpoints.y2,
+                          curveInfo
+                        );
+
                         // For hover effect or arrows on curved edges, trim the curve to create "shorten" visual
                         // This keeps the curve shape consistent but renders a shorter portion
                         let trimmedPath = null;
@@ -9207,9 +9320,10 @@ function NodeCanvas() {
                                 }
                               } else {
                                 // Use utility-calculated apex for curves, midpoint for lines
-                                midX = parallelPath.apexX;
-                                midY = parallelPath.apexY;
-                                angle = parallelPath.labelAngle;
+                                // Use labelPlacementPath (visible segment) for accurate centering
+                                midX = labelPlacementPath.apexX;
+                                midY = labelPlacementPath.apexY;
+                                angle = labelPlacementPath.labelAngle;
                               }
 
                               // Determine connection name to display
@@ -9237,7 +9351,7 @@ function NodeCanvas() {
                                   angle = stabilized.angle || 0;
                                 } else {
                                   const pathPoints = generateManhattanRoutingPath(edge, sourceNode, destNode, sNodeDims, eNodeDims, manhattanBends);
-                                  const placement = chooseLabelPlacement(pathPoints, connectionName, nodes, visibleNodeIds, baseDimsById, placedLabelsRef.current, connectionFontSize, edge.id);
+                                  const placement = chooseLabelPlacement(pathPoints, connectionName, nodes, visibleNodeIds, baseDimsById, placedLabelsRef.current, connectionFontSize, edge.id, selectedInstanceIds);
                                   if (placement) {
                                     midX = placement.x;
                                     midY = placement.y;
@@ -9280,7 +9394,7 @@ function NodeCanvas() {
                                   angle = stabilized.angle || 0;
                                 } else {
                                   const pathPoints = generateCleanRoutingPath(edge, sourceNode, destNode, sNodeDims, eNodeDims, cleanLaneOffsets, cleanLaneSpacing);
-                                  const placement = chooseLabelPlacement(pathPoints, connectionName, nodes, visibleNodeIds, baseDimsById, placedLabelsRef.current, connectionFontSize, edge.id);
+                                  const placement = chooseLabelPlacement(pathPoints, connectionName, nodes, visibleNodeIds, baseDimsById, placedLabelsRef.current, connectionFontSize, edge.id, selectedInstanceIds);
                                   if (placement) {
                                     midX = placement.x;
                                     midY = placement.y;
@@ -10016,10 +10130,63 @@ function NodeCanvas() {
                         const eNodeDims = baseDimsById.get(destNode.id) || getNodeDimensions(destNode, false, null);
                         const isSNodePreviewing = previewingNodeId === sourceNode.id;
                         const isENodePreviewing = previewingNodeId === destNode.id;
-                        const x1 = sourceNode.x + sNodeDims.currentWidth / 2;
-                        const y1 = sourceNode.y + (isSNodePreviewing ? NODE_HEIGHT / 2 : sNodeDims.currentHeight / 2);
-                        const x2 = destNode.x + eNodeDims.currentWidth / 2;
-                        const y2 = destNode.y + (isENodePreviewing ? NODE_HEIGHT / 2 : eNodeDims.currentHeight / 2);
+
+                        // Check if this is a directed edge (has arrows)
+                        const arrowsToward = edge.directionality?.arrowsToward instanceof Set
+                          ? edge.directionality.arrowsToward
+                          : new Set(Array.isArray(edge.directionality?.arrowsToward) ? edge.directionality.arrowsToward : []);
+
+                        // Check which ends have arrows
+                        const hasSourceArrow = arrowsToward.has(sourceNode.id);
+                        const hasDestArrow = arrowsToward.has(destNode.id);
+                        const isDirected = arrowsToward.size > 0;
+
+                        // Connection endpoint calculation
+                        let x1, y1, x2, y2;
+                        if (enableAutoRouting && (routingStyle === 'manhattan' || routingStyle === 'clean')) {
+                          // Port-based routing - use centers as base (ports will override later)
+                          x1 = sourceNode.x + sNodeDims.currentWidth / 2;
+                          y1 = sourceNode.y + (isSNodePreviewing ? NODE_HEIGHT / 2 : sNodeDims.currentHeight / 2);
+                          x2 = destNode.x + eNodeDims.currentWidth / 2;
+                          y2 = destNode.y + (isENodePreviewing ? NODE_HEIGHT / 2 : eNodeDims.currentHeight / 2);
+                        } else if (isDirected && (hasSourceArrow || hasDestArrow)) {
+                          // Directed connections: calculate each endpoint based on whether it has an arrow
+                          // Sides with arrows draw to edge, sides without arrows draw to center
+                          const centerX1 = sourceNode.x + sNodeDims.currentWidth / 2;
+                          const centerY1 = sourceNode.y + (isSNodePreviewing ? NODE_HEIGHT / 2 : sNodeDims.currentHeight / 2);
+                          const centerX2 = destNode.x + eNodeDims.currentWidth / 2;
+                          const centerY2 = destNode.y + (isENodePreviewing ? NODE_HEIGHT / 2 : eNodeDims.currentHeight / 2);
+
+                          if (hasSourceArrow || hasDestArrow) {
+                            // Use edge-based calculation, then selectively apply results
+                            const endpoints = getVisualConnectionEndpoints(
+                              sourceNode, destNode,
+                              sNodeDims, eNodeDims,
+                              selectedInstanceIds.has(sourceNode.id),
+                              selectedInstanceIds.has(destNode.id)
+                            );
+
+                            // Source: use edge if has arrow, otherwise center
+                            x1 = hasSourceArrow ? endpoints.x1 : centerX1;
+                            y1 = hasSourceArrow ? endpoints.y1 : centerY1;
+
+                            // Dest: use edge if has arrow, otherwise center
+                            x2 = hasDestArrow ? endpoints.x2 : centerX2;
+                            y2 = hasDestArrow ? endpoints.y2 : centerY2;
+                          } else {
+                            // Fallback to centers (shouldn't reach here due to outer if condition)
+                            x1 = centerX1;
+                            y1 = centerY1;
+                            x2 = centerX2;
+                            y2 = centerY2;
+                          }
+                        } else {
+                          // Non-directed connections: use centers for traditional appearance
+                          x1 = sourceNode.x + sNodeDims.currentWidth / 2;
+                          y1 = sourceNode.y + (isSNodePreviewing ? NODE_HEIGHT / 2 : sNodeDims.currentHeight / 2);
+                          x2 = destNode.x + eNodeDims.currentWidth / 2;
+                          y2 = destNode.y + (isENodePreviewing ? NODE_HEIGHT / 2 : eNodeDims.currentHeight / 2);
+                        }
 
                         const isHovered = hoveredEdgeInfo?.edgeId === edge.id;
                         const isSelected = selectedEdgeId === edge.id || selectedEdgeIds.has(edge.id);
@@ -10103,10 +10270,7 @@ function NodeCanvas() {
                         );
 
                         // Determine if each end of the edge should be shortened for arrows
-                        // Ensure arrowsToward is a Set (fix for loading from file)
-                        const arrowsToward = edge.directionality?.arrowsToward instanceof Set
-                          ? edge.directionality.arrowsToward
-                          : new Set(Array.isArray(edge.directionality?.arrowsToward) ? edge.directionality.arrowsToward : []);
+                        // (arrowsToward already calculated earlier for endpoint logic)
 
                         // Check if this is a curved edge (parallel edge with non-zero offset)
                         // The middle edge in an odd-numbered group has offset 0 and is straight
@@ -10301,6 +10465,20 @@ function NodeCanvas() {
                         const parallelPath = calculateParallelEdgePath(startX, startY, endX, endY, curveInfo);
                         const useCurve = parallelPath.type === 'curve';
 
+                        // For label placement, always use the visible segment (edge-to-edge)
+                        // This ensures labels are centered on the visible portion, not the drawn portion
+                        const visibleEndpoints = getVisualConnectionEndpoints(
+                          sourceNode, destNode,
+                          sNodeDims, eNodeDims,
+                          selectedInstanceIds.has(sourceNode.id),
+                          selectedInstanceIds.has(destNode.id)
+                        );
+                        const labelPlacementPath = calculateParallelEdgePath(
+                          visibleEndpoints.x1, visibleEndpoints.y1,
+                          visibleEndpoints.x2, visibleEndpoints.y2,
+                          curveInfo
+                        );
+
                         // For hover effect or arrows on curved edges, trim the curve to create "shorten" visual
                         // This keeps the curve shape consistent but renders a shorter portion
                         let trimmedPath = null;
@@ -10426,9 +10604,10 @@ function NodeCanvas() {
                                 }
                               } else {
                                 // Use utility-calculated apex for curves, midpoint for lines
-                                midX = parallelPath.apexX;
-                                midY = parallelPath.apexY;
-                                angle = parallelPath.labelAngle;
+                                // Use labelPlacementPath (visible segment) for accurate centering
+                                midX = labelPlacementPath.apexX;
+                                midY = labelPlacementPath.apexY;
+                                angle = labelPlacementPath.labelAngle;
                               }
 
                               // Determine connection name to display
@@ -10456,7 +10635,7 @@ function NodeCanvas() {
                                   angle = stabilized.angle || 0;
                                 } else {
                                   const pathPoints = generateManhattanRoutingPath(edge, sourceNode, destNode, sNodeDims, eNodeDims, manhattanBends);
-                                  const placement = chooseLabelPlacement(pathPoints, connectionName, nodes, visibleNodeIds, baseDimsById, placedLabelsRef.current, connectionFontSize, edge.id);
+                                  const placement = chooseLabelPlacement(pathPoints, connectionName, nodes, visibleNodeIds, baseDimsById, placedLabelsRef.current, connectionFontSize, edge.id, selectedInstanceIds);
                                   if (placement) {
                                     midX = placement.x;
                                     midY = placement.y;
@@ -10499,7 +10678,7 @@ function NodeCanvas() {
                                   angle = stabilized.angle || 0;
                                 } else {
                                   const pathPoints = generateCleanRoutingPath(edge, sourceNode, destNode, sNodeDims, eNodeDims, cleanLaneOffsets, cleanLaneSpacing);
-                                  const placement = chooseLabelPlacement(pathPoints, connectionName, nodes, visibleNodeIds, baseDimsById, placedLabelsRef.current, connectionFontSize, edge.id);
+                                  const placement = chooseLabelPlacement(pathPoints, connectionName, nodes, visibleNodeIds, baseDimsById, placedLabelsRef.current, connectionFontSize, edge.id, selectedInstanceIds);
                                   if (placement) {
                                     midX = placement.x;
                                     midY = placement.y;
