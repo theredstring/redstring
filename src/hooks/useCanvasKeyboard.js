@@ -48,6 +48,10 @@ export const useCanvasKeyboard = ({
     // Remember panel state for toggle behavior
     const panelStateBeforeHide = useRef({ left: true, right: true });
 
+    // Tab hold-to-scrub state
+    const tabHeldDown = useRef(false);
+    const tabScrubActive = useRef(false);
+
     // Use a Ref to keep track of the latest prop values without restarting the effect
     // This is critical for performance to avoid tearing down and rebuilding the RAF loop every frame
     const props = {
@@ -262,23 +266,36 @@ export const useCanvasKeyboard = ({
         const handleKeyDown = (e) => {
             const isInputActive = isHeaderEditing || isRightPanelInputFocused || isLeftPanelInputFocused || nodeNamePrompt.visible;
 
-            // TAB key: Toggle panels (works even when input is active)
+            // TAB key: track hold state, defer panel toggle to keyup
             if (e.key === 'Tab') {
                 e.preventDefault();
-                const { leftPanelExpanded, rightPanelExpanded, setLeftPanelExpanded, setRightPanelExpanded } = useGraphStore.getState();
-                const anyPanelOpen = leftPanelExpanded || rightPanelExpanded;
-
-                if (anyPanelOpen) {
-                    // Remember current state before hiding
-                    panelStateBeforeHide.current = { left: leftPanelExpanded, right: rightPanelExpanded };
-                    // Hide both panels
-                    setLeftPanelExpanded(false);
-                    setRightPanelExpanded(false);
-                } else {
-                    // Restore previous state
-                    setLeftPanelExpanded(panelStateBeforeHide.current.left);
-                    setRightPanelExpanded(panelStateBeforeHide.current.right);
+                if (!e.repeat && !tabHeldDown.current) {
+                    tabHeldDown.current = true;
                 }
+                return;
+            }
+
+            // Tab-scrub: pressing a directional key while Tab is held activates scrub mode
+            if (tabHeldDown.current && (e.key === 'ArrowLeft' || e.key === 'ArrowRight' || e.key === 'a' || e.key === 'd')) {
+                tabScrubActive.current = true;
+                e.preventDefault();
+                e.stopPropagation();
+                const { openGraphIds, activeGraphId: currentActiveId, setActiveGraphTab } = useGraphStore.getState();
+                const currentIndex = openGraphIds.indexOf(currentActiveId);
+
+                if (e.key === 'ArrowLeft' || e.key === 'a') {
+                    if (currentIndex > 0) {
+                        setActiveGraphTab(openGraphIds[currentIndex - 1]);
+                    }
+                } else {
+                    if (currentIndex < openGraphIds.length - 1) {
+                        setActiveGraphTab(openGraphIds[currentIndex + 1]);
+                    }
+                }
+
+                // Prevent panning by clearing from keysPressed
+                const normalizedKey = e.key.length === 1 ? e.key.toLowerCase() : e.key;
+                keysPressed.current[normalizedKey] = false;
                 return;
             }
 
@@ -454,8 +471,35 @@ export const useCanvasKeyboard = ({
             }
         };
 
+        const handleKeyUp = (e) => {
+            if (e.key === 'Tab') {
+                const wasScrubbing = tabScrubActive.current;
+                tabHeldDown.current = false;
+                tabScrubActive.current = false;
+
+                // Only toggle panels on release if scrub mode was never activated (quick tap)
+                if (!wasScrubbing) {
+                    const { leftPanelExpanded, rightPanelExpanded, setLeftPanelExpanded, setRightPanelExpanded } = useGraphStore.getState();
+                    const anyPanelOpen = leftPanelExpanded || rightPanelExpanded;
+
+                    if (anyPanelOpen) {
+                        panelStateBeforeHide.current = { left: leftPanelExpanded, right: rightPanelExpanded };
+                        setLeftPanelExpanded(false);
+                        setRightPanelExpanded(false);
+                    } else {
+                        setLeftPanelExpanded(panelStateBeforeHide.current.left);
+                        setRightPanelExpanded(panelStateBeforeHide.current.right);
+                    }
+                }
+            }
+        };
+
         window.addEventListener('keydown', handleKeyDown);
-        return () => window.removeEventListener('keydown', handleKeyDown);
+        window.addEventListener('keyup', handleKeyUp);
+        return () => {
+            window.removeEventListener('keydown', handleKeyDown);
+            window.removeEventListener('keyup', handleKeyUp);
+        };
     }, [
         selectedInstanceIds,
         selectedEdgeId,

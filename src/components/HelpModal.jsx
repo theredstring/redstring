@@ -61,6 +61,8 @@ const HelpModal = ({ isVisible, onClose }) => {
             <li><strong>W/A/S/D:</strong> Pan the canvas (up/left/down/right)</li>
             <li><strong>Shift:</strong> Zoom in</li>
             <li><strong>Space:</strong> Zoom out</li>
+            <li><strong>Tab (tap):</strong> Toggle all panels</li>
+            <li><strong>Tab (hold) + A/D or ←/→:</strong> Scrub through open Webs</li>
             <li><strong>1:</strong> Toggle left panel</li>
             <li><strong>2:</strong> Toggle right panel</li>
             <li><strong>3:</strong> Toggle bottom bar</li>

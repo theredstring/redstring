@@ -25,7 +25,7 @@ import { getPrototypeIdFromItem } from './utils/abstraction.js';
 import { copySelection, pasteClipboard } from './utils/clipboard.js';
 import { analyzeNodeDistribution, getClusterBoundingBox } from './utils/clusterAnalysis.js';
 import { v4 as uuidv4 } from 'uuid'; // Import UUID generator
-import { Edit3, Trash2, Link, Package, PackageOpen, Expand, ArrowUpFromDot, Triangle, Layers, ArrowLeft, SendToBack, ArrowBigRightDash, Palette, MoreHorizontal, Bookmark, Plus, CornerUpLeft, CornerDownLeft, Merge, Undo2, Clock } from 'lucide-react'; // Icons for PieMenu
+import { Edit3, Trash2, Link, Package, PackageOpen, Expand, ArrowUpFromDot, Triangle, Layers, ArrowLeft, SendToBack, ArrowBigRightDash, Palette, MoreHorizontal, Bookmark, Plus, CornerUpLeft, CornerDownLeft, Merge, Undo2, Clock, LayoutGrid } from 'lucide-react'; // Icons for PieMenu
 import ColorPicker from './ColorPicker';
 import { useDrop } from 'react-dnd';
 import { fetchOrbitCandidatesForPrototype } from './services/orbitResolver.js';
@@ -7193,23 +7193,14 @@ function NodeCanvas() {
   const getCanvasContextMenuOptions = useCallback(() => {
     return [
       {
-        label: 'Merge Duplicates',
-        icon: <Merge size={14} />,
+        label: 'Auto Layout Web',
+        icon: <LayoutGrid size={14} />,
         action: () => {
-
-          // Open saved things tab and then merge modal
-          storeActions.setRightPanelExpanded(true);
-          storeActions.setActiveTab('saved');
-          // Add a small delay to ensure tab switch completes, then trigger merge modal
-          setTimeout(() => {
-            // The merge modal will be triggered from the saved things panel
-            // We'll need to add this functionality to the Panel component
-            window.dispatchEvent(new CustomEvent('openMergeModal'));
-          }, 100);
+          applyAutoLayoutToActiveGraph();
         }
       }
     ];
-  }, [storeActions]);
+  }, [applyAutoLayoutToActiveGraph]);
 
   // Context Menu options for nodes - core functionality without pie menu transition logic
   const getContextMenuOptions = useCallback((instanceId) => {
@@ -8129,9 +8120,9 @@ function NodeCanvas() {
           onTouchEnd={touch.handleTouchEndCanvas}
           onTouchCancel={touch.handleTouchEndCanvas}
           onContextMenu={(e) => {
-            // Prevent context menu on canvas (disable long-press right-click behavior)
             e.preventDefault();
             e.stopPropagation();
+            showContextMenu(e.clientX, e.clientY, getCanvasContextMenuOptions());
           }}
         >
           {isUniverseLoading ? (
