@@ -7,7 +7,7 @@ const ContextMenu = ({ x, y, options = [], onClose, onSelect }) => {
   return (
     <>
       {/* Invisible backdrop to catch clicks */}
-      <div 
+      <div
         style={{
           position: 'fixed',
           top: 0,
@@ -18,7 +18,7 @@ const ContextMenu = ({ x, y, options = [], onClose, onSelect }) => {
         }}
         onClick={onClose}
       />
-      
+
       {/* Context menu - positioned with top-left corner at cursor */}
       <div
         style={{
@@ -61,10 +61,10 @@ const ContextMenu = ({ x, y, options = [], onClose, onSelect }) => {
             {option.icon && <span>{option.icon}</span>}
             <span>{option.label}</span>
             {option.shortcut && (
-              <span style={{ 
-                marginLeft: 'auto', 
-                fontSize: '0.7rem', 
-                opacity: 0.7 
+              <span style={{
+                marginLeft: 'auto',
+                fontSize: '0.7rem',
+                opacity: 0.7
               }}>
                 {option.shortcut}
               </span>

@@ -58,10 +58,10 @@ const HelpModal = ({ isVisible, onClose }) => {
 
           <h3 style={{ color: '#8B0000' }}>Keyboard Controls</h3>
           <ul style={{ lineHeight: '1.8' }}>
-            <li><strong>W/A/S/D:</strong> Pan the canvas (up/left/down/right)</li>
+            <li><strong>WASD:</strong> Pan the canvas (up/left/down/right)</li>
             <li><strong>Shift:</strong> Zoom in</li>
             <li><strong>Space:</strong> Zoom out</li>
-            <li><strong>Tab (tap):</strong> Toggle all panels</li>
+            <li><strong>Tab (tap):</strong> Hide/show panels</li>
             <li><strong>Tab (hold) + A/D or ←/→:</strong> Scrub through open Webs</li>
             <li><strong>1:</strong> Toggle left panel</li>
             <li><strong>2:</strong> Toggle right panel</li>
@@ -83,6 +83,18 @@ const HelpModal = ({ isVisible, onClose }) => {
             <li><strong>Go back:</strong> Use the breadcrumb navigation at the top to return to parent Webs</li>
           </ul>
 
+          <h3 style={{ color: '#8B0000' }}>Keyboard Navigation</h3>
+          <ul style={{ lineHeight: '1.8' }}>
+            <li><strong>WASD:</strong> Pan the canvas (up/left/down/right)</li>
+            <li><strong>Shift:</strong> Zoom in</li>
+            <li><strong>Space:</strong> Zoom out</li>
+            <li><strong>Tab (tap):</strong> Hide/show panels</li>
+            <li><strong>Tab (hold) + A/D or ←/→:</strong> Scrub through open Webs</li>
+            <li><strong>1:</strong> Toggle left panel</li>
+            <li><strong>2:</strong> Toggle right panel</li>
+            <li><strong>3:</strong> Toggle bottom bar</li>
+          </ul>
+
           <h3 style={{ color: '#8B0000' }}>Interface Panels</h3>
           <ul style={{ lineHeight: '1.8' }}>
             <li><strong>Left Panel (Globe icon):</strong> Universe management and GitHub sync</li>
@@ -99,7 +111,7 @@ const HelpModal = ({ isVisible, onClose }) => {
         <div>
           <h3 style={{ color: '#8B0000', marginTop: 0 }}>What are Universes?</h3>
           <p>
-            <strong>Universes</strong> are complete workspaces that contain all your Things and Webs. 
+            <strong>Universes</strong> are complete workspaces that contain all your Things and Webs.
             Think of them as different projects or knowledge domains.
           </p>
 
@@ -152,7 +164,7 @@ const HelpModal = ({ isVisible, onClose }) => {
 
           <h3 style={{ color: '#8B0000' }}>Recursive Structure</h3>
           <p>
-            Things can contain Webs, and those Webs can contain Things that themselves contain Webs. 
+            Things can contain Webs, and those Webs can contain Things that themselves contain Webs.
             This allows you to organize knowledge at any level of detail.
           </p>
         </div>
@@ -195,7 +207,7 @@ const HelpModal = ({ isVisible, onClose }) => {
       content: (
         <div>
           <h3 style={{ color: '#8B0000', marginTop: 0 }}>Common Issues</h3>
-          
+
           <h4>Canvas not responding</h4>
           <ul style={{ lineHeight: '1.8' }}>
             <li>Refresh the page</li>
@@ -220,14 +232,14 @@ const HelpModal = ({ isVisible, onClose }) => {
           </ul>
 
           <h4>Mobile/Tablet Notice</h4>
-          <p style={{ 
-            backgroundColor: '#fff3cd', 
-            padding: '12px', 
+          <p style={{
+            backgroundColor: '#fff3cd',
+            padding: '12px',
             borderRadius: '6px',
             border: '1px solid #ffc107',
             color: '#856404'
           }}>
-            <strong>Note:</strong> Redstring is currently optimized for desktop browsers. 
+            <strong>Note:</strong> Redstring is currently optimized for desktop browsers.
             Mobile and tablet support is incomplete in this version.
           </p>
         </div>
@@ -322,7 +334,7 @@ const HelpModal = ({ isVisible, onClose }) => {
 
       {/* Sidebar Navigation */}
       {!isCompactLayout && (
-        <div 
+        <div
           className="help-modal-sidebar"
           style={{
             width: '160px',
@@ -332,8 +344,8 @@ const HelpModal = ({ isVisible, onClose }) => {
             flexShrink: 0
           }}
         >
-          <h3 style={{ 
-            margin: '0 0 16px 0', 
+          <h3 style={{
+            margin: '0 0 16px 0',
             fontSize: '1.1rem',
             color: '#260000'
           }}>
@@ -375,7 +387,7 @@ const HelpModal = ({ isVisible, onClose }) => {
       )}
 
       {/* Main Content Area */}
-      <div 
+      <div
         className="help-modal-content"
         style={{
           flex: 1,
@@ -419,7 +431,7 @@ const HelpModal = ({ isVisible, onClose }) => {
           {sections[activeSection].title}
         </h2>
 
-        <div style={{ 
+        <div style={{
           lineHeight: '1.6',
           color: '#333'
         }}>
