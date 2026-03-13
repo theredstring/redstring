@@ -6,7 +6,7 @@ import NodeType from './NodeType'; // Import NodeType
 import EdgeType from './EdgeType'; // Import EdgeType
 import useGraphStore from './store/graphStore.jsx';
 // Placeholder icons (replace with actual icons later)
-import { ChevronUp, Square, Share2 } from 'lucide-react'; // Replaced RoundedRectangle with Square
+import { ChevronUp, Tag, Share2, LayoutGrid } from 'lucide-react';
 
 const TypeList = ({ nodes, setSelectedNodes, selectedNodes = new Set() }) => {
   // Use shared state from store for TypeList mode
@@ -83,6 +83,28 @@ const TypeList = ({ nodes, setSelectedNodes, selectedNodes = new Set() }) => {
     return typeNodes;
   }, [activeGraphId, graphsMap, nodePrototypesMap]);
 
+  // Get all component nodes (instances) for the current active graph
+  const availableComponents = useMemo(() => {
+    if (!activeGraphId) return [];
+
+    const activeGraph = graphsMap.get(activeGraphId);
+    if (!activeGraph || !activeGraph.instances) return [];
+
+    return Array.from(activeGraph.instances.values())
+      .map(instance => {
+        const prototype = nodePrototypesMap.get(instance.prototypeId);
+        if (!prototype) return null;
+        return {
+          instanceId: instance.id,
+          prototypeId: instance.prototypeId,
+          name: prototype.name,
+          color: prototype.color,
+        };
+      })
+      .filter(Boolean)
+      .sort((a, b) => a.name.localeCompare(b.name));
+  }, [activeGraphId, graphsMap, nodePrototypesMap]);
+
   // Get the connection types available for the current active graph
   const availableConnectionTypes = useMemo(() => {
     const usedConnectionTypeIds = new Set();
@@ -152,6 +174,15 @@ const TypeList = ({ nodes, setSelectedNodes, selectedNodes = new Set() }) => {
     }
   };
 
+  const handleComponentClick = (component) => {
+    // Select the instance node on the canvas
+    setSelectedNodes(new Set([component.instanceId]));
+
+    // Open it in the right panel
+    const openRightPanelNodeTab = useGraphStore.getState().openRightPanelNodeTab;
+    openRightPanelNodeTab(component.prototypeId);
+  };
+
   const handleEdgeTypeClick = (edgeType) => {
     // Find all edges of this type in the current graph
     const edgesOfType = [];
@@ -194,18 +225,21 @@ const TypeList = ({ nodes, setSelectedNodes, selectedNodes = new Set() }) => {
   };
 
   const cycleMode = () => {
-    // New cycle order: connection -> node -> closed -> connection
-    const newMode = mode === 'connection' ? 'node' : 
-                   mode === 'node' ? 'closed' : 'connection';
+    // Cycle order: connection -> node -> component -> closed -> connection
+    const newMode = mode === 'connection' ? 'node' :
+                   mode === 'node' ? 'component' :
+                   mode === 'component' ? 'closed' : 'connection';
     setTypeListMode(newMode);
   };
 
   const getButtonIcon = () => {
     switch (mode) {
       case 'node':
-        return <Square size={HEADER_HEIGHT * 0.6} />; // Use Square icon
+        return <Tag size={HEADER_HEIGHT * 0.6} />;
       case 'connection': // Icon for connection mode
         return <Share2 size={HEADER_HEIGHT * 0.6} />;
+      case 'component':
+        return <LayoutGrid size={HEADER_HEIGHT * 0.6} />;
       case 'closed':
       default:
         return <ChevronUp size={HEADER_HEIGHT * 0.6} />; // Use ChevronUp for closed state
@@ -348,6 +382,47 @@ const TypeList = ({ nodes, setSelectedNodes, selectedNodes = new Set() }) => {
                   />
                 </div>
               ))}
+            </>
+          )}
+          {mode === 'component' && (
+            <>
+              {/* Header for Components */}
+              <div style={{
+                fontSize: '18px',
+                fontWeight: 'bold',
+                fontFamily: "'EmOne', sans-serif",
+                color: '#bdb5b5',
+                marginLeft: '10px',
+                marginRight: '20px',
+                paddingTop: '8px',
+                paddingBottom: '8px',
+                whiteSpace: 'nowrap',
+                flexShrink: 0
+              }}>
+                Components
+              </div>
+
+              {/* Show all node instances in the current graph */}
+              {availableComponents.map(component => (
+                <div key={component.instanceId} style={{ flexShrink: 0 }}>
+                  <NodeType
+                    name={component.name}
+                    color={component.color}
+                    onClick={() => handleComponentClick(component)}
+                  />
+                </div>
+              ))}
+              {availableComponents.length === 0 && (
+                <div style={{
+                  fontSize: '14px',
+                  fontFamily: "'EmOne', sans-serif",
+                  color: 'rgba(189, 181, 181, 0.5)',
+                  whiteSpace: 'nowrap',
+                  fontStyle: 'italic'
+                }}>
+                  No components in this Web
+                </div>
+              )}
             </>
           )}
           {mode === 'connection' && (

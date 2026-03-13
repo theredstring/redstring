@@ -828,7 +828,7 @@ const Header = ({
           gap: '10px',
           overflowX: 'auto',
           overflowY: 'hidden',
-          padding: '0 20px',
+          padding: '0 50vw',
         }}
       >
         {headerGraphs.map((graph) => {

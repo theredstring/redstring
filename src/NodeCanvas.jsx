@@ -6595,10 +6595,11 @@ function NodeCanvas() {
         } else if (e.key === '3') {
           e.preventDefault();
 
-          // Cycle TypeList mode: connection -> node -> closed -> connection
+          // Cycle TypeList mode: connection -> node -> component -> closed -> connection
           const currentMode = useGraphStore.getState().typeListMode;
           const newMode = currentMode === 'connection' ? 'node' :
-            currentMode === 'node' ? 'closed' : 'connection';
+            currentMode === 'node' ? 'component' :
+            currentMode === 'component' ? 'closed' : 'connection';
 
           storeActions.setTypeListMode(newMode);
 

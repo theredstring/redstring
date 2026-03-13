@@ -481,7 +481,7 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
     typeListMode: (() => {
       // Load saved state from localStorage, with 'connection' as default
       const savedMode = localStorage.getItem('redstring_typelist_mode');
-      if (savedMode && ['closed', 'node', 'connection'].includes(savedMode)) {
+      if (savedMode && ['closed', 'node', 'connection', 'component'].includes(savedMode)) {
         return savedMode;
       } else {
         return 'connection'; // Default order: connections -> nodes -> closed

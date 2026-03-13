@@ -268,7 +268,6 @@ export const useCanvasKeyboard = ({
                 e.preventDefault();
                 if (!e.repeat) {
                     tabHeldDown.current = true;
-                    console.error('[TAB-SCRUB] Tab DOWN, tabHeldDown=true');
                 }
                 return;
             }
@@ -277,7 +276,6 @@ export const useCanvasKeyboard = ({
             const scrubLeft = e.key === 'ArrowLeft' || e.key === 'a' || e.key === 'q';
             const scrubRight = e.key === 'ArrowRight' || e.key === 'd' || e.key === 'e';
             if (tabHeldDown.current && (scrubLeft || scrubRight)) {
-                console.error('[TAB-SCRUB] Scrub key:', e.key, 'tabHeldDown:', tabHeldDown.current);
                 tabScrubActive.current = true;
                 e.preventDefault();
                 e.stopPropagation();
@@ -302,7 +300,6 @@ export const useCanvasKeyboard = ({
 
         const handleTabKeyUp = (e) => {
             if (e.key === 'Tab') {
-                console.error('[TAB-SCRUB] Tab UP, wasScrubbing:', tabScrubActive.current);
                 const wasScrubbing = tabScrubActive.current;
                 tabHeldDown.current = false;
                 tabScrubActive.current = false;

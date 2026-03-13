@@ -1821,22 +1821,10 @@ const Panel = memo(forwardRef(
     // --- Effect to manually add non-passive wheel listener ---
     useEffect(() => {
       const tabBarNode = tabBarRef.current;
-      console.log('[Tab Wheel Effect] Running with:', {
-        hasNode: !!tabBarNode,
-        side,
-        isExpanded,
-        nodeTagName: tabBarNode?.tagName,
-        nodeClassList: tabBarNode?.classList.toString()
-      });
-
       if (tabBarNode && side === 'right' && isExpanded) {
-        console.log('[Tab Wheel Effect] Adding wheel listener to:', tabBarNode);
-        // Add listener with passive: false to allow preventDefault
         tabBarNode.addEventListener('wheel', handleTabBarWheel, { passive: false });
 
-        // Cleanup function
         return () => {
-          console.log('[Tab Wheel Effect] Removing wheel listener');
           tabBarNode.removeEventListener('wheel', handleTabBarWheel, { passive: false });
         };
       }
