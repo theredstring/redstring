@@ -340,8 +340,9 @@ class UniverseBackend {
       this.initializeDeviceConfig();
     }, 100);
 
-    // Attempt to restore file handles
-    this.scheduleRestoreFileHandles();
+    // Attempt to restore file handles immediately (reduced delay to prevent race conditions)
+    // File handles need to be restored before the UI tries to access them
+    this.scheduleRestoreFileHandles(10);
 
   }
 
