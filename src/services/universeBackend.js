@@ -2714,51 +2714,51 @@ class UniverseBackend {
    * Set file handle for a universe
    */
   async setFileHandle(slug, fileHandle, options = {}) {
-    try {
-      // Store handle in memory
-      this.fileHandles.set(slug, fileHandle);
+    this.fileHandles.set(slug, fileHandle);
 
-      let displayPath = options.displayPath || options.originalPath || null;
-      let fileName = options.fileName || null;
+    let displayPath = options.displayPath || options.originalPath || null;
+    let fileName = options.fileName || null;
 
-      // Handle Electron file paths (strings) vs browser FileHandles
-      if (isElectron() && typeof fileHandle === 'string') {
-        // Electron: fileHandle is a full path string
-        displayPath = displayPath || fileHandle;
-        fileName = fileName || fileHandle.split(/[/\\]/).pop();
-        umLog(`[UniverseBackend] Setting Electron file handle for ${slug}: ${displayPath}`);
-      } else if (fileHandle?.name) {
-        // Browser: fileHandle is a FileSystemFileHandle
-        fileName = fileName || fileHandle.name;
+    // Handle Electron file paths (strings) vs browser FileHandles
+    if (isElectron() && typeof fileHandle === 'string') {
+      // Electron: fileHandle is a full path string
+      displayPath = displayPath || fileHandle;
+      fileName = fileName || fileHandle.split(/[/\\]/).pop();
+      umLog(`[UniverseBackend] Setting Electron file handle for ${slug}: ${displayPath}`);
+    } else if (fileHandle?.name) {
+      // Browser: fileHandle is a FileSystemFileHandle
+      fileName = fileName || fileHandle.name;
 
-        if (!displayPath && fileHandle?.getFile) {
-          try {
-            const fileForPath = await fileHandle.getFile();
-            displayPath = fileForPath?.path || fileForPath?.webkitRelativePath || fileForPath?.name || fileHandle?.name || null;
-          } catch (error) {
-            umLog('[UniverseBackend] Unable to derive display path from file handle:', error);
-            displayPath = fileHandle?.name || null;
-          }
-        }
-      }
-
-      if (!displayPath) {
-        displayPath = fileName || null;
-      }
-
-      // Request persistent storage (browser only)
-      if (!isElectron() && typeof navigator !== 'undefined' && navigator.storage?.persist && !this.persistentStorageRequested) {
+      if (!displayPath && fileHandle?.getFile) {
         try {
-          const granted = await navigator.storage.persist();
-          umLog(`[UniverseBackend] Persistent storage ${granted ? 'enabled' : 'already granted'} for file handles`);
+          const fileForPath = await fileHandle.getFile();
+          displayPath = fileForPath?.path || fileForPath?.webkitRelativePath || fileForPath?.name || fileHandle?.name || null;
         } catch (error) {
-          umWarn('[UniverseBackend] Failed to request persistent storage:', error);
-        } finally {
-          this.persistentStorageRequested = true;
+          umLog('[UniverseBackend] Unable to derive display path from file handle:', error);
+          displayPath = fileHandle?.name || null;
         }
       }
+    }
 
-      // Store file handle metadata for persistence - must succeed for atomic operation
+    if (!displayPath) {
+      displayPath = fileName || null;
+    }
+
+    // Request persistent storage (browser only)
+    if (!isElectron() && typeof navigator !== 'undefined' && navigator.storage?.persist && !this.persistentStorageRequested) {
+      try {
+        const granted = await navigator.storage.persist();
+        umLog(`[UniverseBackend] Persistent storage ${granted ? 'enabled' : 'already granted'} for file handles`);
+      } catch (error) {
+        umWarn('[UniverseBackend] Failed to request persistent storage:', error);
+      } finally {
+        this.persistentStorageRequested = true;
+      }
+    }
+
+    // Store file handle metadata for persistence
+    let metadataStored = false;
+    try {
       await storeFileHandleMetadata(slug, fileHandle, {
         universeSlug: slug,
         lastAccessed: Date.now(),
@@ -2766,67 +2766,56 @@ class UniverseBackend {
         displayPath
       });
       umLog(`[UniverseBackend] Stored file handle metadata for ${slug}${isElectron() ? ' (Electron)' : ''}`);
-
-      // Update the universe configuration - only reached if metadata storage succeeded
-      const universe = this.getUniverse(slug);
-      if (universe) {
-        const hasActiveGitLink = !!(universe.gitRepo?.enabled && universe.gitRepo?.linkedRepo);
-        const shouldPromoteLocal = !hasActiveGitLink && universe.sourceOfTruth !== SOURCE_OF_TRUTH.LOCAL;
-        await this.updateUniverse(slug, {
-          localFile: {
-            ...universe.localFile,
-            enabled: true,
-            path: isElectron() ? displayPath : this.sanitizeFileName(fileName || universe.localFile.path || slug),
-            displayPath: displayPath || universe.localFile.displayPath || fileName || universe.localFile.path,
-            hadFileHandle: true,
-            lastFilePath: isElectron() ? displayPath : (fileName || universe.localFile.path),
-            fileHandleStatus: 'connected',
-            unavailableReason: null
-          },
-          ...(shouldPromoteLocal ? { sourceOfTruth: SOURCE_OF_TRUTH.LOCAL } : {})
-        });
-      }
-
-      // Persist file handle information to storage
-      this.saveToStorage();
-      await this.ensureSaveCoordinator();
-
-      if (!options.suppressNotification) {
-        const universe = this.getUniverse(slug);
-        const displayLabel = displayPath || fileName || universe?.localFile?.displayPath || universe?.localFile?.path || slug;
-        this.notifyStatus('success', `Linked local file: ${displayLabel}`);
-      }
-
-      // Signal update to UI components
-      if (typeof window !== 'undefined') {
-        try {
-          window.dispatchEvent(new CustomEvent('redstring:universe-updated', { detail: { slug, action: 'link-file' } }));
-        } catch (_) { }
-      }
-
-      return { success: true, fileName, displayPath };
-
+      metadataStored = true;
     } catch (error) {
-      // Clean up on failure
-      this.fileHandles.delete(slug);
-
-      // Update universe to reflect failure
-      const universe = this.getUniverse(slug);
-      if (universe) {
-        await this.updateUniverse(slug, {
-          localFile: {
-            ...universe.localFile,
-            hadFileHandle: false,
-            fileHandleStatus: 'disconnected',
-            unavailableReason: `Failed to persist file handle: ${error.message}`
-          }
-        });
-        this.saveToStorage();
-      }
-
-      umError(`[UniverseBackend] Failed to set file handle for ${slug}:`, error);
-      throw error; // Re-throw so caller knows it failed
+      // Log the error but don't fail the operation - file was created successfully
+      umError(`[UniverseBackend] Failed to store file handle metadata for ${slug}:`, {
+        error: error.message,
+        fileName,
+        displayPath,
+        isElectron: isElectron()
+      });
+      // Continue anyway - we'll retry on next access
     }
+
+    // Also update the universe configuration
+    const universe = this.getUniverse(slug);
+    if (universe) {
+      const hasActiveGitLink = !!(universe.gitRepo?.enabled && universe.gitRepo?.linkedRepo);
+      const shouldPromoteLocal = !hasActiveGitLink && universe.sourceOfTruth !== SOURCE_OF_TRUTH.LOCAL;
+      await this.updateUniverse(slug, {
+        localFile: {
+          ...universe.localFile,
+          enabled: true,
+          path: isElectron() ? displayPath : this.sanitizeFileName(fileName || universe.localFile.path || slug),
+          displayPath: displayPath || universe.localFile.displayPath || fileName || universe.localFile.path,
+          hadFileHandle: true,
+          lastFilePath: isElectron() ? displayPath : (fileName || universe.localFile.path),
+          fileHandleStatus: 'connected',
+          unavailableReason: null
+        },
+        ...(shouldPromoteLocal ? { sourceOfTruth: SOURCE_OF_TRUTH.LOCAL } : {})
+      });
+    }
+
+    // Persist file handle information to storage
+    this.saveToStorage();
+    await this.ensureSaveCoordinator();
+
+    if (!options.suppressNotification) {
+      const universe = this.getUniverse(slug);
+      const displayLabel = displayPath || fileName || universe?.localFile?.displayPath || universe?.localFile?.path || slug;
+      this.notifyStatus('success', `Linked local file: ${displayLabel}`);
+    }
+
+    // Signal update to UI components
+    if (typeof window !== 'undefined') {
+      try {
+        window.dispatchEvent(new CustomEvent('redstring:universe-updated', { detail: { slug, action: 'link-file' } }));
+      } catch (_) { }
+    }
+
+    return { success: true, fileName, displayPath, metadataStored };
   }
 
   /**

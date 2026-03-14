@@ -3057,24 +3057,21 @@ const UniverseManager = ({ variant = 'panel', onRequestClose }) => {
 
       // Store the file handle and link to universe
       const displayPath = isElectron() && typeof fileHandle === 'string' ? fileHandle : fileName;
-      try {
-        await universeBackend.setFileHandle(slug, fileHandle, {
-          displayPath,
-          fileName,
-          suppressNotification: true
-        });
+      const result = await universeBackend.setFileHandle(slug, fileHandle, {
+        displayPath,
+        fileName,
+        suppressNotification: true
+      });
 
-        setSyncStatus({ type: 'success', message: `Created and linked ${fileName}` });
-      } catch (linkError) {
-        // File was created but couldn't be linked - show helpful error
-        umWarn('[UniverseManager] File created but linking failed:', linkError);
+      if (!result.metadataStored) {
+        // Warn user that metadata storage may have failed, but file was created
         setError(
-          `File created successfully but couldn't establish persistent link. ` +
-          `Please reconnect the file to complete setup: ${fileName}`
+          `File created successfully but persistent linking may have failed. ` +
+          `If you see disconnection on refresh, please reconnect the file: ${fileName}`
         );
-        // Still refresh to show the disconnected state
       }
 
+      setSyncStatus({ type: 'success', message: `Created and linked ${fileName}` });
       await refreshState();
     } catch (err) {
       if (err.name !== 'AbortError') {
