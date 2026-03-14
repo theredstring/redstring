@@ -596,7 +596,7 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
       }
       return null;
     })(),
-    gitSyncEngine: null, // Will be set by GitNativeFederation component
+    gitSyncEngine: null, // Will be set by UniverseManager component
     gitSourceOfTruth: (() => {
       // Load saved source of truth from localStorage
       const saved = localStorage.getItem('redstring_git_source_of_truth');

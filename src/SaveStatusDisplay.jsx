@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { HEADER_HEIGHT } from './constants';
-import { gitFederationService } from './services/gitFederationService';
+import { universeManagerService } from './services/universeManagerService';
 import saveCoordinator from './services/SaveCoordinator';
 import { useViewportBounds } from './hooks/useViewportBounds';
 import useGraphStore from './store/graphStore.jsx';
@@ -47,7 +47,7 @@ const SaveStatusDisplay = () => {
       if (cancelled) return;
 
       try {
-        const state = await gitFederationService.getState();
+        const state = await universeManagerService.getState();
         if (cancelled) return;
 
         const activeUniverse = state.universes.find(u => u.slug === state.activeUniverseSlug);

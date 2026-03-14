@@ -26,7 +26,7 @@ import {
   EyeOff,
   Eye
 } from 'lucide-react';
-import { gitFederationService } from '../../services/gitFederationService.js';
+import { universeManagerService } from '../../services/universeManagerService.js';
 
 const RepositoryList = ({
   repositories = [],
@@ -126,7 +126,7 @@ const RepositoryList = ({
       // Discover universes if not already cached
       if (!discoveredUniverses[repoKey]) {
         try {
-          const universes = await gitFederationService.discoverUniverses({
+          const universes = await universeManagerService.discoverUniverses({
             user: repo.owner?.login || repo.owner,
             repo: repo.name,
             authMethod: 'oauth'

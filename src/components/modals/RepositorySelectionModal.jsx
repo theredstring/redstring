@@ -18,7 +18,7 @@ import {
 } from 'lucide-react';
 import Modal from '../shared/Modal.jsx';
 import { persistentAuth } from '../../services/persistentAuth.js';
-import { gitFederationService } from '../../services/gitFederationService.js';
+import { universeManagerService } from '../../services/universeManagerService.js';
 
 const RepositorySelectionModal = ({
   isOpen,
@@ -286,7 +286,7 @@ const RepositorySelectionModal = ({
         try {
           const repo = repositories.find(r => r.id === repoId);
           if (repo?.owner?.login && repo?.name) {
-            const universes = await gitFederationService.discoverUniverses({
+            const universes = await universeManagerService.discoverUniverses({
               user: repo.owner.login,
               repo: repo.name,
               authMethod: 'oauth'

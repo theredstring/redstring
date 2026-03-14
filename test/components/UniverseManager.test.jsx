@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import React from 'react';
-import GitNativeFederation from '../../src/GitNativeFederation.jsx';
+import UniverseManager from '../../src/UniverseManager.jsx';
 import { SemanticProviderFactory } from '../../src/services/gitNativeProvider.js';
 import { SemanticSyncEngine } from '../../src/services/semanticSyncEngine.js';
 import { SemanticFederation } from '../../src/services/semanticFederation.js';
@@ -56,7 +56,7 @@ vi.mock('lucide-react', () => ({
   Key: vi.fn(() => 'Key')
 }));
 
-describe('GitNativeFederation', () => {
+describe('UniverseManager', () => {
   let mockProvider;
   let mockSyncEngine;
   let mockFederation;
@@ -134,7 +134,7 @@ describe('GitNativeFederation', () => {
 
   describe('Initial State', () => {
     it('should render connection form when not connected', () => {
-      render(<GitNativeFederation />);
+      render(<UniverseManager />);
 
       expect(screen.getByText(/Git-Native Semantic Web/)).toBeTruthy();
       expect(screen.getByText('Connect to any Git provider for real-time, decentralized storage of your own semantic web.')).toBeTruthy();
@@ -145,7 +145,7 @@ describe('GitNativeFederation', () => {
     });
 
     it('should show GitHub OAuth configuration by default', () => {
-      render(<GitNativeFederation />);
+      render(<UniverseManager />);
 
       expect(screen.getByText('Authentication Method:')).toBeTruthy();
       expect(screen.getByText('OAuth')).toBeTruthy();
@@ -154,7 +154,7 @@ describe('GitNativeFederation', () => {
     });
 
     it('should show Gitea configuration when selected', () => {
-      render(<GitNativeFederation />);
+      render(<UniverseManager />);
 
       // Click on Gitea provider
       fireEvent.click(screen.getByText('Self-Hosted Gitea'));
@@ -168,7 +168,7 @@ describe('GitNativeFederation', () => {
 
   describe('Provider Configuration', () => {
     it('should handle GitHub configuration input when token mode is selected', () => {
-      render(<GitNativeFederation />);
+      render(<UniverseManager />);
 
       // Switch to token mode first
       const tokenButton = screen.getByRole('button', { name: /Token/ });
@@ -188,7 +188,7 @@ describe('GitNativeFederation', () => {
     });
 
     it('should handle Gitea configuration input', () => {
-      render(<GitNativeFederation />);
+      render(<UniverseManager />);
 
       // Switch to Gitea
       fireEvent.click(screen.getByText('Self-Hosted Gitea'));
@@ -210,7 +210,7 @@ describe('GitNativeFederation', () => {
     });
 
     it('should toggle advanced settings', () => {
-      render(<GitNativeFederation />);
+      render(<UniverseManager />);
 
       const advancedButton = screen.getByText('Show Advanced');
       fireEvent.click(advancedButton);
@@ -225,7 +225,7 @@ describe('GitNativeFederation', () => {
 
   describe('Connection Management', () => {
     it('should connect to provider successfully with token method', async () => {
-      render(<GitNativeFederation />);
+      render(<UniverseManager />);
 
       // Switch to token mode
       const tokenButton = screen.getByRole('button', { name: /Token/ });
@@ -257,7 +257,7 @@ describe('GitNativeFederation', () => {
     it('should handle connection failures', async () => {
       mockProvider.isAvailable.mockResolvedValue(false);
 
-      render(<GitNativeFederation />);
+      render(<UniverseManager />);
 
       // Switch to token mode
       const tokenButton = screen.getByRole('button', { name: /Token/ });
@@ -278,14 +278,14 @@ describe('GitNativeFederation', () => {
 
     it('should disconnect from provider', async () => {
       // Mock connected state
-      const { rerender } = render(<GitNativeFederation />);
+      const { rerender } = render(<UniverseManager />);
 
       // Simulate connected state
       SemanticSyncEngine.mockImplementation(() => mockSyncEngine);
       SemanticFederation.mockImplementation(() => mockFederation);
 
       // Re-render with connected state
-      rerender(<GitNativeFederation />);
+      rerender(<UniverseManager />);
 
       // Mock the connected state by setting up the component with provider
       const mockConnectedComponent = {
@@ -311,7 +311,7 @@ describe('GitNativeFederation', () => {
     });
 
     it('should show connection status when connected', () => {
-      render(<GitNativeFederation />);
+      render(<UniverseManager />);
 
       // This would require more complex state mocking
       // For now, we'll verify the basic structure
@@ -319,7 +319,7 @@ describe('GitNativeFederation', () => {
     });
 
     it('should show federation statistics', () => {
-      render(<GitNativeFederation />);
+      render(<UniverseManager />);
 
       // Federation stats would be displayed in connected state
       // This requires more complex state management testing
@@ -327,7 +327,7 @@ describe('GitNativeFederation', () => {
     });
 
     it('should allow adding subscriptions', async () => {
-      render(<GitNativeFederation />);
+      render(<UniverseManager />);
 
       // This would be tested in connected state
       // For now, we'll verify the basic structure
@@ -339,7 +339,7 @@ describe('GitNativeFederation', () => {
     it('should display connection errors', async () => {
       mockProvider.isAvailable.mockRejectedValue(new Error('Invalid credentials'));
 
-      render(<GitNativeFederation />);
+      render(<UniverseManager />);
 
       // Switch to token mode
       const tokenButton = screen.getByRole('button', { name: /Token/ });
@@ -361,7 +361,7 @@ describe('GitNativeFederation', () => {
     it('should display subscription errors', async () => {
       mockFederation.subscribeToSpace.mockRejectedValue(new Error('Invalid URL'));
 
-      render(<GitNativeFederation />);
+      render(<UniverseManager />);
 
       // This would be tested in connected state
       // For now, we'll verify the basic structure
@@ -371,7 +371,7 @@ describe('GitNativeFederation', () => {
 
   describe('Integration with Services', () => {
     it('should initialize sync engine when provider is set with token', async () => {
-      render(<GitNativeFederation />);
+      render(<UniverseManager />);
 
       // Switch to token mode
       const tokenButton = screen.getByRole('button', { name: /Token/ });
@@ -396,7 +396,7 @@ describe('GitNativeFederation', () => {
     });
 
     it('should initialize federation when sync engine is set', async () => {
-      render(<GitNativeFederation />);
+      render(<UniverseManager />);
 
       // Switch to token mode
       const tokenButton = screen.getByRole('button', { name: /Token/ });
@@ -415,7 +415,7 @@ describe('GitNativeFederation', () => {
     });
 
     it('should subscribe to status updates', async () => {
-      render(<GitNativeFederation />);
+      render(<UniverseManager />);
 
       // Switch to token mode
       const tokenButton = screen.getByRole('button', { name: /Token/ });
@@ -436,7 +436,7 @@ describe('GitNativeFederation', () => {
 
   describe('Accessibility', () => {
     it('should have proper labels for OAuth mode', () => {
-      render(<GitNativeFederation />);
+      render(<UniverseManager />);
 
       expect(screen.getByText('Authentication Method:')).toBeTruthy();
       expect(screen.getByText('GitHub OAuth:')).toBeTruthy();
@@ -445,14 +445,14 @@ describe('GitNativeFederation', () => {
     });
 
     it('should have proper button text', () => {
-      render(<GitNativeFederation />);
+      render(<UniverseManager />);
 
       expect(screen.getByRole('button', { name: /Connect with GitHub/ })).toBeTruthy();
       expect(screen.getByText(/Show Advanced/)).toBeTruthy();
     });
 
     it('should handle keyboard navigation in token mode', () => {
-      render(<GitNativeFederation />);
+      render(<UniverseManager />);
 
       // Switch to token mode
       const tokenButton = screen.getByRole('button', { name: /Token/ });
@@ -480,7 +480,7 @@ describe('GitNativeFederation', () => {
         value: 375,
       });
 
-      const { unmount } = render(<GitNativeFederation />);
+      const { unmount } = render(<UniverseManager />);
       expect(screen.getByText(/Git-Native Semantic Web/)).toBeTruthy();
       unmount();
 
@@ -491,7 +491,7 @@ describe('GitNativeFederation', () => {
         value: 1920,
       });
 
-      render(<GitNativeFederation />);
+      render(<UniverseManager />);
       expect(screen.getByText(/Git-Native Semantic Web/)).toBeTruthy();
     });
   });

@@ -24,7 +24,7 @@ import useGraphStore, {
 import { shallow } from 'zustand/shallow';
 import GraphListItem from './GraphListItem'; // <<< Import the new component
 // Direct import (lazy loading removed to avoid production chunk 404 errors)
-import GitNativeFederation from './GitNativeFederation.jsx';
+import UniverseManager from './UniverseManager.jsx';
 // Inline AI Collaboration Panel as internal component below
 import './ai/AICollaborationPanel.css';
 import APIKeySetup from './ai/components/APIKeySetup.jsx';
@@ -1682,7 +1682,7 @@ const Panel = memo(forwardRef(
         // Git-Native Federation view
         panelContent = (
           <div className="panel-content-inner" style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
-            <GitNativeFederation />
+            <UniverseManager />
           </div>
         );
       } else if (leftViewActive === 'semantic') {

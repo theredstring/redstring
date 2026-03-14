@@ -1,6 +1,6 @@
 /**
  * Federation Bootstrap - Ensures federation services are initialized 
- * regardless of whether the GitNativeFederation tab is selected
+ * regardless of whether the UniverseManager tab is selected
  * 
  * This component runs at app startup and:
  * 1. Initializes authentication services

@@ -162,7 +162,7 @@ const AuthSection = ({
         </div>
       </div>
 
-      {/* Connection Stats moved to parent panel (GitNativeFederation) as its own section */}
+      {/* Connection Stats moved to parent panel (UniverseManager) as its own section */}
     </div>
   );
 };

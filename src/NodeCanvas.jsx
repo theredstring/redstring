@@ -34,7 +34,7 @@ import Panel from './Panel';
 import * as fileStorage from './store/fileStorage.js';
 import * as folderPersistence from './services/folderPersistence.js';
 import workspaceService from './services/WorkspaceService.js';
-import gitFederationService from './services/gitFederationService.js';
+import universeManagerService from './services/universeManagerService.js';
 import { pickFolder, getFileInFolder, listFilesInFolder, writeFile } from './utils/fileAccessAdapter.js';
 import AutoGraphModal from './components/AutoGraphModal';
 import ForceSimulationModal from './components/ForceSimulationModal';
@@ -12288,15 +12288,15 @@ function NodeCanvas() {
 
               console.log('[NodeCanvas] Created universe file:', filename);
 
-              // 3. Create Universe in gitFederationService so it appears in UniversesList
-              const result = await gitFederationService.createUniverse(safeName, {
+              // 3. Create Universe in universeManagerService so it appears in UniversesList
+              const result = await universeManagerService.createUniverse(safeName, {
                 enableLocal: true,
                 enableGit: false,
                 sourceOfTruth: 'local'
               });
 
               const universeSlug = result?.createdUniverse?.slug;
-              console.log('[NodeCanvas] Universe created via gitFederationService:', result);
+              console.log('[NodeCanvas] Universe created via universeManagerService:', result);
               console.log('[NodeCanvas] Created universe slug:', universeSlug);
               console.log('[NodeCanvas] Created universe object:', result?.createdUniverse);
 
@@ -12344,7 +12344,7 @@ function NodeCanvas() {
                 }
               }, 100);
 
-              // 9. Notify GitNativeFederation to refresh its state
+              // 9. Notify UniverseManager to refresh its state
               if (typeof window !== 'undefined') {
                 window.dispatchEvent(new CustomEvent('redstring:universe-created', {
                   detail: { slug: universeSlug, name: safeName }

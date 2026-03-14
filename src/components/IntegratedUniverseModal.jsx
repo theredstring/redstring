@@ -1,10 +1,10 @@
 /**
- * Simple Universe Modal - Just GitNativeFederation in a modal
+ * Simple Universe Modal - Just UniverseManager in a modal
  */
 
 import React from 'react';
 import { X } from 'lucide-react';
-import GitNativeFederation from '../GitNativeFederation.jsx';
+import UniverseManager from '../UniverseManager.jsx';
 
 const IntegratedUniverseModal = ({ 
   isOpen = false, 
@@ -73,9 +73,9 @@ const IntegratedUniverseModal = ({
           </button>
         </div>
 
-        {/* Just GitNativeFederation in the modal */}
+        {/* Just UniverseManager in the modal */}
         <div style={{ flex: 1, overflow: 'auto' }}>
-          <GitNativeFederation />
+          <UniverseManager />
         </div>
       </div>
     </div>

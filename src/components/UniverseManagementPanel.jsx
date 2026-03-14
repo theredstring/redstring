@@ -2,7 +2,7 @@
  * Universe Management Panel - Standalone universe management component
  *
  * This is the SINGLE SOURCE OF TRUTH for universe management UI.
- * Can be used both embedded in GitNativeFederation AND as a standalone modal.
+ * Can be used both embedded in UniverseManager AND as a standalone modal.
  * Essential for startup and mobile scenarios where it may be the only data access method.
  */
 

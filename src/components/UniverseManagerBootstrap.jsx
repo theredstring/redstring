@@ -7,7 +7,7 @@ import React, { useEffect, useRef } from 'react';
  * with delayed loading to completely avoid circular dependencies.
  * The backend is loaded ONLY when needed, never during module parse time.
  */
-export default function GitFederationBootstrap({ enableEagerInit = false }) {
+export default function UniverseManagerBootstrap({ enableEagerInit = false }) {
   const initRef = useRef(false);
   const backendRef = useRef(null);
   const commandListenerRef = useRef(null);
@@ -19,7 +19,7 @@ export default function GitFederationBootstrap({ enableEagerInit = false }) {
 
     initRef.current = true;
 
-    console.log('[GitFederationBootstrap] Setting up event bridge...');
+    console.log('[UniverseManagerBootstrap] Setting up event bridge...');
 
     const ensureBackendReady = async () => {
       if (backendRef.current) {
@@ -28,16 +28,16 @@ export default function GitFederationBootstrap({ enableEagerInit = false }) {
 
       if (!backendInitPromiseRef.current) {
         backendInitPromiseRef.current = (async () => {
-          console.log('[GitFederationBootstrap] First command received, loading backend...');
+          console.log('[UniverseManagerBootstrap] First command received, loading backend...');
 
           try {
             await new Promise(resolve => setTimeout(resolve, 0));
-            console.log('[GitFederationBootstrap] Importing universeBackend...');
+            console.log('[UniverseManagerBootstrap] Importing universeBackend...');
 
             const module = await import('../services/universeBackend.js');
             const backend = module.default || module.universeBackend;
 
-            console.log('[GitFederationBootstrap] Backend imported, wiring bridge and starting initialization...');
+            console.log('[UniverseManagerBootstrap] Backend imported, wiring bridge and starting initialization...');
 
             // Wire status relay immediately
             if (!backendStatusUnsubscribeRef.current) {
@@ -54,13 +54,13 @@ export default function GitFederationBootstrap({ enableEagerInit = false }) {
             window.dispatchEvent(new CustomEvent('universe-backend-ready'));
             // Safety: Re-dispatch after a tick to catch listeners mounting in same cycle
             setTimeout(() => window.dispatchEvent(new CustomEvent('universe-backend-ready')), 100);
-            console.log('[GitFederationBootstrap] Backend ready for commands (initialization continuing in background)');
+            console.log('[UniverseManagerBootstrap] Backend ready for commands (initialization continuing in background)');
 
             // Start initialization in background with a warning if it takes too long
             const initializationTimeoutMs = 6000;
             const timerApi = typeof window !== 'undefined' ? window : globalThis;
             let timeoutId = timerApi.setTimeout(() => {
-              console.warn('[GitFederationBootstrap] Backend initialization still running after 6000ms, continuing to wait...');
+              console.warn('[UniverseManagerBootstrap] Backend initialization still running after 6000ms, continuing to wait...');
               try {
                 window.dispatchEvent(new CustomEvent('universe-backend-status', {
                   detail: {
@@ -73,10 +73,10 @@ export default function GitFederationBootstrap({ enableEagerInit = false }) {
 
             backend.initialize()
               .then(() => {
-                console.log('[GitFederationBootstrap] Backend initialization completed');
+                console.log('[UniverseManagerBootstrap] Backend initialization completed');
               })
               .catch((initError) => {
-                console.error('[GitFederationBootstrap] Backend initialization failed:', initError);
+                console.error('[UniverseManagerBootstrap] Backend initialization failed:', initError);
                 try {
                   window.dispatchEvent(new CustomEvent('universe-backend-status', {
                     detail: { type: 'error', message: initError.message }
@@ -90,7 +90,7 @@ export default function GitFederationBootstrap({ enableEagerInit = false }) {
             // Return backend immediately so commands can proceed
             return backend;
           } catch (error) {
-            console.error('[GitFederationBootstrap] Backend initialization failed:', error);
+            console.error('[UniverseManagerBootstrap] Backend initialization failed:', error);
             window.dispatchEvent(new CustomEvent('universe-backend-ready', {
               detail: { error: error.message }
             }));
@@ -100,7 +100,7 @@ export default function GitFederationBootstrap({ enableEagerInit = false }) {
           }
         })().catch((error) => {
           if (error instanceof ReferenceError && /Cannot access '\w+' before initialization/.test(error.message)) {
-            console.warn('[GitFederationBootstrap] Detected early initialization ReferenceError. This usually indicates a module circular dependency or concurrent import. Retrying...', error);
+            console.warn('[UniverseManagerBootstrap] Detected early initialization ReferenceError. This usually indicates a module circular dependency or concurrent import. Retrying...', error);
           }
           backendRef.current = null;
           throw error;
@@ -194,7 +194,7 @@ export default function GitFederationBootstrap({ enableEagerInit = false }) {
           detail: { result }
         }));
       } catch (error) {
-        console.error(`[GitFederationBootstrap] Command ${command} failed:`, error);
+        console.error(`[UniverseManagerBootstrap] Command ${command} failed:`, error);
         window.dispatchEvent(new CustomEvent(`universe-backend-response-${id}`, {
           detail: { error: error.message }
         }));
@@ -205,13 +205,13 @@ export default function GitFederationBootstrap({ enableEagerInit = false }) {
     commandListenerRef.current = handleBackendCommand;
     window.addEventListener('universe-backend-command', handleBackendCommand);
 
-    console.log('[GitFederationBootstrap] Event bridge ready (backend will load on first command)');
+    console.log('[UniverseManagerBootstrap] Event bridge ready (backend will load on first command)');
 
     // If eager init is enabled, start loading the backend immediately
     if (enableEagerInit) {
-      console.log('[GitFederationBootstrap] Eager initialization enabled, starting backend load...');
+      console.log('[UniverseManagerBootstrap] Eager initialization enabled, starting backend load...');
       ensureBackendReady().catch(error => {
-        console.error('[GitFederationBootstrap] Eager initialization failed:', error);
+        console.error('[UniverseManagerBootstrap] Eager initialization failed:', error);
       });
     }
 
@@ -229,7 +229,7 @@ export default function GitFederationBootstrap({ enableEagerInit = false }) {
         try {
           backendStatusUnsubscribeRef.current();
         } catch (error) {
-          console.warn('[GitFederationBootstrap] Failed to remove backend status listener:', error);
+          console.warn('[UniverseManagerBootstrap] Failed to remove backend status listener:', error);
         }
       }
       backendStatusUnsubscribeRef.current = null;

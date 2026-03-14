@@ -3,14 +3,14 @@ import NodeCanvas from './NodeCanvas';
 import SpawningNodeDragLayer from './SpawningNodeDragLayer';
 import BridgeClient from './ai/BridgeClient.jsx';
 import GlobalContextMenu from './components/GlobalContextMenu.jsx';
-import GitFederationBootstrap from './components/GitFederationBootstrap.jsx';
+import UniverseManagerBootstrap from './components/UniverseManagerBootstrap.jsx';
 import './App.css';
 
 function App() {
   return (
     <>
-      {/* GitFederationBootstrap handles backend initialization */}
-      <GitFederationBootstrap enableEagerInit={true} />
+      {/* UniverseManagerBootstrap handles backend initialization */}
+      <UniverseManagerBootstrap enableEagerInit={true} />
       <NodeCanvas />
       <SpawningNodeDragLayer />
       <BridgeClient />
