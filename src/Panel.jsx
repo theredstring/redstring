@@ -1884,7 +1884,24 @@ const Panel = memo(forwardRef(
           <div
             style={{
               height: 40,
-              backgroundColor: '#716C6C',
+              backgroundColor: (() => {
+                const darken = (color) => {
+                  const { h, s } = hexToHsl(color);
+                  return hslToHex(h, Math.min(s, 100), 12);
+                };
+                if (side === 'right' && activeRightPanelTab) {
+                  if (activeRightPanelTab.type === 'node' && activeRightPanelTab.nodeId) {
+                    const c = nodePrototypesMap.get(activeRightPanelTab.nodeId)?.color;
+                    return c ? darken(c) : '#716C6C';
+                  }
+                  // Home tab: use active graph's defining node color
+                  const ag = graphsMap.get(activeGraphId);
+                  const dnId = ag?.definingNodeIds?.[0];
+                  const c = dnId && nodePrototypesMap.get(dnId)?.color;
+                  return c ? darken(c) : '#716C6C';
+                }
+                return '#716C6C';
+              })(),
               display: 'flex',
               alignItems: 'stretch',
               position: 'relative',

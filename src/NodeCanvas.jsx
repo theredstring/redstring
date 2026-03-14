@@ -8067,6 +8067,8 @@ function NodeCanvas() {
 
 
               // Ensure universe connection is marked as established
+              // Use 'load' context so SaveCoordinator doesn't treat this as a new edit
+              useGraphStore.getState().setChangeContext({ type: 'load' });
               storeActions.setUniverseConnected(true);
             } else {
 

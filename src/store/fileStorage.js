@@ -1044,8 +1044,9 @@ export const notifyChanges = () => {
  */
 export const enableAutoSave = (getStoreStateFn) => {
   isAutoSaveEnabled = true;
-  // Trigger initial change notification so auto-save can start working
-  notifyChanges();
+  // Mark the loaded state as already-saved so the auto-save interval
+  // doesn't treat it as a new change that needs writing.
+  lastSaveTime = Date.now();
   setupAutoSave(getStoreStateFn);
 };
 
