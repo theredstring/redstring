@@ -676,6 +676,47 @@
   opacity: 1;
 }
 
+/* Context Usage Indicator */
+.ai-context-usage {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: auto;
+  padding: 2px 0;
+}
+
+.ai-context-usage-bar {
+  width: 48px;
+  height: 4px;
+  background: rgba(38, 0, 0, 0.10);
+  border-radius: 2px;
+  overflow: hidden;
+}
+
+.ai-context-usage-fill {
+  height: 100%;
+  background: rgba(38, 0, 0, 0.25);
+  border-radius: 2px;
+  transition: width 0.3s ease;
+}
+
+.ai-context-usage-fill.warning {
+  background: #c47a00;
+}
+
+.ai-context-usage-fill.critical {
+  background: #b42318;
+}
+
+.ai-context-usage-label {
+  font-family: 'EmOne', sans-serif;
+  font-size: 10px;
+  font-weight: 600;
+  color: rgba(38, 0, 0, 0.40);
+  min-width: 24px;
+  text-align: right;
+}
+
 /* Input Container */
 .ai-input-container {
   padding: 16px 20px;

@@ -432,6 +432,18 @@ ipcMain.handle('file:mkdir', async (event, folderPath) => {
   }
 });
 
+ipcMain.handle('file:showInFolder', async (event, filePath) => {
+  try {
+    if (!filePath) {
+      throw new Error('File path is required');
+    }
+    shell.showItemInFolder(filePath);
+    return true;
+  } catch (error) {
+    throw new Error(`Failed to show file in folder: ${error.message}`);
+  }
+});
+
 // Clipboard IPC Handler
 ipcMain.handle('clipboard:write', async (event, text) => {
   clipboard.writeText(text);

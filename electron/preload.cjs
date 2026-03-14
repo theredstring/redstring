@@ -15,6 +15,7 @@ contextBridge.exposeInMainWorld('electron', {
     folderExists: (folderPath) => ipcRenderer.invoke('file:folderExists', folderPath),
     getPathParent: (filePath) => ipcRenderer.invoke('file:getPathParent', filePath),
     mkdir: (folderPath) => ipcRenderer.invoke('file:mkdir', folderPath),
+    showItemInFolder: (filePath) => ipcRenderer.invoke('file:showInFolder', filePath),
   },
 
   // Persistent Storage (replaces localStorage/IndexedDB)

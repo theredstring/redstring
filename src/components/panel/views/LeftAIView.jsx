@@ -1481,6 +1481,53 @@ const LeftAIView = ({ compact = false,
     { type: 'activeGraph', id: null, label: 'Active Graph', enabled: true }
   ]);
 
+  // Context window usage estimation
+  const contextUsage = React.useMemo(() => {
+    // Known context windows by model pattern (tokens)
+    const getContextWindow = (model) => {
+      if (!model) return 128000;
+      const m = model.toLowerCase();
+      if (m.includes('gemini-2') || m.includes('gemini-pro-1.5') || m.includes('gemini-1.5')) return 1000000;
+      if (m.includes('claude-3') || m.includes('claude-4') || m.includes('sonnet') || m.includes('haiku') || m.includes('opus')) return 200000;
+      if (m.includes('gpt-4o') || m.includes('gpt-4-turbo')) return 128000;
+      if (m.includes('gpt-3.5')) return 16000;
+      if (m.includes('llama-3') || m.includes('llama3')) return 128000;
+      if (m.includes('mixtral')) return 32000;
+      if (m.includes('deepseek')) return 64000;
+      return 128000;
+    };
+
+    const estimateTokens = (text) => text ? Math.ceil(text.length / 4) : 0;
+
+    const model = apiKeyInfo?.model || '';
+    const contextWindow = getContextWindow(model);
+
+    // Estimate system prompt + graph context (~3000-5000 tokens typically)
+    const systemPromptTokens = 3500;
+
+    // Estimate conversation history tokens
+    let conversationTokens = 0;
+    for (const msg of messages) {
+      conversationTokens += estimateTokens(msg.content || '');
+      if (msg.contentBlocks) {
+        for (const block of msg.contentBlocks) {
+          if (block.type === 'tool_call') {
+            conversationTokens += estimateTokens(block.name || '') + estimateTokens(JSON.stringify(block.args || {}));
+            conversationTokens += estimateTokens(JSON.stringify(block.result || {}));
+          }
+        }
+      }
+    }
+
+    // Graph context estimate
+    const graphContextTokens = contextItems.some(i => i.type === 'activeGraph' && i.enabled) ? 3750 : 0;
+
+    const totalUsed = systemPromptTokens + conversationTokens + graphContextTokens;
+    const percent = Math.min(Math.round((totalUsed / contextWindow) * 100), 100);
+
+    return { totalUsed, contextWindow, percent, conversationTokens };
+  }, [messages, apiKeyInfo?.model, contextItems]);
+
   const [fileStatus, setFileStatus] = React.useState(null);
   React.useEffect(() => {
     let mounted = true;
@@ -3496,6 +3543,17 @@ const LeftAIView = ({ compact = false,
                 <span className="ai-context-chip-toggle">{item.enabled ? '×' : '+'}</span>
               </button>
             ))}
+            {messages.length > 0 && (
+              <div className="ai-context-usage" title={`~${contextUsage.totalUsed.toLocaleString()} / ${contextUsage.contextWindow.toLocaleString()} tokens used`}>
+                <div className="ai-context-usage-bar">
+                  <div
+                    className={`ai-context-usage-fill${contextUsage.percent >= 80 ? ' warning' : ''}${contextUsage.percent >= 95 ? ' critical' : ''}`}
+                    style={{ width: `${contextUsage.percent}%` }}
+                  />
+                </div>
+                <span className="ai-context-usage-label">{contextUsage.percent}%</span>
+              </div>
+            )}
           </div>
 
           <div className="ai-input-container" style={{ marginBottom: toggleClearance }}>

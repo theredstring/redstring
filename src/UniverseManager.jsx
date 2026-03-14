@@ -3140,6 +3140,38 @@ const UniverseManager = ({ variant = 'panel', onRequestClose }) => {
     }
   };
 
+  const handleShowLocalFileInFolder = async (slug) => {
+    try {
+      const universe = serviceState.universes.find(u => u.slug === slug);
+      if (!universe) {
+        setError('Universe not found');
+        return;
+      }
+
+      const localFile = universe.raw?.localFile;
+      if (!localFile) {
+        setError('No local file linked to this universe');
+        return;
+      }
+
+      const filePath = localFile.path || localFile.displayPath || localFile.lastFilePath;
+      if (!filePath) {
+        setError('Could not determine file path');
+        return;
+      }
+
+      // Use Electron IPC if available (Electron-only feature)
+      if (window.electron?.fileSystem?.showItemInFolder) {
+        await window.electron.fileSystem.showItemInFolder(filePath);
+      } else {
+        setError('Show in folder is only available in the Electron app');
+      }
+    } catch (err) {
+      umError('[UniverseManager] Show in folder failed:', err);
+      setError(`Failed to show file in folder: ${err.message}`);
+    }
+  };
+
   const handleForceSave = async (slug) => {
     try {
       setLoading(true);
@@ -4145,6 +4177,7 @@ const UniverseManager = ({ variant = 'panel', onRequestClose }) => {
         onDownloadLocalFile={handleDownloadLocalFile}
         onDownloadRepoFile={handleDownloadRepoFile}
         onRemoveLocalFile={handleRemoveLocalFile}
+        onShowLocalFileInFolder={handleShowLocalFileInFolder}
         onRemoveRepoSource={handleRemoveRepoSource}
         onEditRepoSource={handleEditRepoSource}
         onSetMainRepoSource={handleSetMainRepoSource}

@@ -62,7 +62,6 @@ const UniversesList = ({
   isLoading = false,
   syncStatusMap = {},
   liveMetrics,
-  onCreateUniverse,
   onSwitchUniverse,
   onDeleteUniverse,
   onLinkRepo,
@@ -80,6 +79,7 @@ const UniversesList = ({
   onLoadFromLocal,
   onLoadFromRepo,
   onGrantLocalPermission,
+  onShowLocalFileInFolder,
   isSlim = false
 }) => {
   // No collapsing - active universe is always expanded, others show compact view
@@ -200,13 +200,6 @@ const UniversesList = ({
     }
   };
 
-  const handleNewEmptyClick = () => {
-    setShowNewMenu(false);
-    if (onCreateUniverse) {
-      onCreateUniverse();
-    }
-  };
-
   const handleNewFromFileClick = () => {
     setShowNewMenu(false);
     if (onCreateUniverseFromFile) {
@@ -270,7 +263,7 @@ const UniversesList = ({
                     onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#f5f5f5'}
                     onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
                   >
-                    <FileText size={12} /> From Local File
+                    <FileText size={12} /> Load from Local File
                   </button>
                   <button
                     onClick={handleLoadFromRepoClick}
@@ -291,7 +284,7 @@ const UniversesList = ({
                     onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#f5f5f5'}
                     onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
                   >
-                    <Github size={12} /> From Repository
+                    <Github size={12} /> Load from Repository
                   </button>
                 </div>
               )}
@@ -317,27 +310,6 @@ const UniversesList = ({
                   minWidth: 180
                 }}>
                   <button
-                    onClick={handleNewEmptyClick}
-                    style={{
-                      width: '100%',
-                      padding: '6px 10px',
-                      border: 'none',
-                      background: 'none',
-                      textAlign: 'left',
-                      cursor: 'pointer',
-                      fontSize: '0.75rem',
-                      fontWeight: 600,
-                      color: '#260000',
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: 6
-                    }}
-                    onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#f5f5f5'}
-                    onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
-                  >
-                    <Plus size={12} /> Empty Universe
-                  </button>
-                  <button
                     onClick={handleNewFromFileClick}
                     style={{
                       width: '100%',
@@ -356,7 +328,7 @@ const UniversesList = ({
                     onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#f5f5f5'}
                     onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
                   >
-                    <FileText size={12} /> From File
+                    <FileText size={12} /> New Local File
                   </button>
                   <button
                     onClick={handleNewFromRepoClick}
@@ -377,7 +349,7 @@ const UniversesList = ({
                     onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#f5f5f5'}
                     onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
                   >
-                    <Github size={12} /> From Repository
+                    <Github size={12} /> New Repository
                   </button>
                 </div>
               )}
@@ -801,6 +773,17 @@ const UniversesList = ({
                                         gap: isSlim ? 2 : 4,
                                         flexShrink: 0
                                       }}>
+                                        {onShowLocalFileInFolder && (
+                                          <PanelIconButton
+                                            icon={FolderOpen}
+                                            size={isSlim ? 16 : 18}
+                                            onClick={(e) => {
+                                              e.stopPropagation();
+                                              onShowLocalFileInFolder(universe.slug);
+                                            }}
+                                            title="Show in folder"
+                                          />
+                                        )}
                                         {onDownloadLocalFile && (
                                           <PanelIconButton
                                             icon={Download}

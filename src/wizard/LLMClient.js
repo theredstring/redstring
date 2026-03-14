@@ -164,22 +164,27 @@ async function* streamOpenRouter(messages, tools, { endpoint, model, apiKey, tem
                 const index = toolCall.index ?? 0;
                 if (!currentToolCall || currentToolCall.index !== index) {
                   if (currentToolCall) {
-                    console.error('[LLMClient:OpenRouter] Yielding tool_call (transition):', currentToolCall.function?.name);
+                    const tcName = currentToolCall.function?.name;
+                    if (!tcName) {
+                      console.error('[LLMClient:OpenRouter] Skipping tool_call with empty name at transition');
+                    } else {
+                      console.error('[LLMClient:OpenRouter] Yielding tool_call (transition):', tcName);
 
-                    let parsedArgs = {};
-                    try {
-                      parsedArgs = JSON.parse(currentToolCall.function?.arguments || '{}');
-                    } catch (e) {
-                      console.warn('[LLMClient:OpenRouter] Failed to parse transition tool args:', e);
-                      parsedArgs = { error: 'The spell was cut short! (Response truncated)' };
+                      let parsedArgs = {};
+                      try {
+                        parsedArgs = JSON.parse(currentToolCall.function?.arguments || '{}');
+                      } catch (e) {
+                        console.warn('[LLMClient:OpenRouter] Failed to parse transition tool args:', e);
+                        parsedArgs = { error: 'The spell was cut short! (Response truncated)' };
+                      }
+
+                      yield {
+                        type: 'tool_call',
+                        name: tcName,
+                        args: parsedArgs,
+                        id: currentToolCall.id
+                      };
                     }
-
-                    yield {
-                      type: 'tool_call',
-                      name: currentToolCall.function?.name,
-                      args: parsedArgs,
-                      id: currentToolCall.id
-                    };
                   }
                   currentToolCall = { index, id: toolCall.id, function: { name: '', arguments: '' } };
                   yield {
@@ -213,26 +218,31 @@ async function* streamOpenRouter(messages, tools, { endpoint, model, apiKey, tem
 
             // Finish tool call if done
             if (choice.finish_reason === 'tool_calls' && currentToolCall) {
-              console.error('[LLMClient:OpenRouter] Yielding tool_call (finish):', currentToolCall.function?.name);
+              const tcName = currentToolCall.function?.name;
+              if (!tcName) {
+                console.error('[LLMClient:OpenRouter] Skipping tool_call with empty name at finish');
+              } else {
+                console.error('[LLMClient:OpenRouter] Yielding tool_call (finish):', tcName);
 
-              let parsedArgs = {};
-              try {
-                parsedArgs = JSON.parse(currentToolCall.function?.arguments || '{}');
-              } catch (e) {
-                console.warn('[LLMClient:OpenRouter] Failed to parse finished tool args:', e);
-                parsedArgs = { error: 'The spell was cut short! (Response truncated)' };
+                let parsedArgs = {};
+                try {
+                  parsedArgs = JSON.parse(currentToolCall.function?.arguments || '{}');
+                } catch (e) {
+                  console.warn('[LLMClient:OpenRouter] Failed to parse finished tool args:', e);
+                  parsedArgs = { error: 'The spell was cut short! (Response truncated)' };
+                }
+
+                yield {
+                  type: 'tool_call',
+                  name: tcName,
+                  args: parsedArgs,
+                  id: currentToolCall.id
+                };
               }
-
-              yield {
-                type: 'tool_call',
-                name: currentToolCall.function?.name,
-                args: parsedArgs,
-                id: currentToolCall.id
-              };
               currentToolCall = null;
             }
           } catch (e) {
-            // Skip malformed JSON
+            console.error('[LLMClient:OpenRouter] Malformed JSON chunk skipped:', e.message);
             continue;
           }
         }
@@ -241,26 +251,31 @@ async function* streamOpenRouter(messages, tools, { endpoint, model, apiKey, tem
 
     // Flush remaining tool call
     if (currentToolCall) {
-      console.error('[LLMClient:OpenRouter] Yielding tool_call (flush):', currentToolCall.function?.name);
+      const tcName = currentToolCall.function?.name;
       // #region agent log
-      debugLogSync('LLMClient.js:streamOpenRouter:TOOL_CALL_FLUSH', 'Flushing tool call', { name: currentToolCall.function?.name, hasArgs: !!currentToolCall.function?.arguments }, 'debug-session', 'H');
+      debugLogSync('LLMClient.js:streamOpenRouter:TOOL_CALL_FLUSH', 'Flushing tool call', { name: tcName, hasArgs: !!currentToolCall.function?.arguments }, 'debug-session', 'H');
       // #endregion
 
-      let parsedArgs = {};
-      try {
-        parsedArgs = JSON.parse(currentToolCall.function?.arguments || '{}');
-      } catch (e) {
-        console.warn('[LLMClient:OpenRouter] Failed to parse flushed tool args (likely truncated):', e);
-        // Return a special error result that the UI can handle gracefully
-        parsedArgs = { error: 'The spell was cut short! (Response truncated)' };
-      }
+      if (!tcName) {
+        console.error('[LLMClient:OpenRouter] Skipping tool_call with empty name at flush');
+      } else {
+        console.error('[LLMClient:OpenRouter] Yielding tool_call (flush):', tcName);
 
-      yield {
-        type: 'tool_call',
-        name: currentToolCall.function?.name,
-        args: parsedArgs,
-        id: currentToolCall.id
-      };
+        let parsedArgs = {};
+        try {
+          parsedArgs = JSON.parse(currentToolCall.function?.arguments || '{}');
+        } catch (e) {
+          console.warn('[LLMClient:OpenRouter] Failed to parse flushed tool args (likely truncated):', e);
+          parsedArgs = { error: 'The spell was cut short! (Response truncated)' };
+        }
+
+        yield {
+          type: 'tool_call',
+          name: tcName,
+          args: parsedArgs,
+          id: currentToolCall.id
+        };
+      }
     }
   } finally {
     reader.releaseLock();
@@ -403,27 +418,57 @@ async function* streamAnthropic(messages, tools, { endpoint, model, apiKey, temp
 
             // Tool use stop
             if (chunk.type === 'content_block_stop' && currentToolCall) {
-              let parsedArgs = {};
-              try {
-                parsedArgs = JSON.parse(toolArgsBuffer || '{}');
-              } catch (e) {
-                console.warn('[LLMClient:Anthropic] Partial/invalid JSON for tool args:', toolArgsBuffer);
-                parsedArgs = { error: 'Truncated tool arguments' };
+              const tcName = currentToolCall.name;
+              if (!tcName) {
+                console.error('[LLMClient:Anthropic] Skipping tool_call with empty name');
+              } else {
+                let parsedArgs = {};
+                try {
+                  parsedArgs = JSON.parse(toolArgsBuffer || '{}');
+                } catch (e) {
+                  console.warn('[LLMClient:Anthropic] Partial/invalid JSON for tool args:', toolArgsBuffer);
+                  parsedArgs = { error: 'Truncated tool arguments' };
+                }
+                yield {
+                  type: 'tool_call',
+                  name: tcName,
+                  args: parsedArgs,
+                  id: currentToolCall.id
+                };
               }
-              yield {
-                type: 'tool_call',
-                name: currentToolCall.name,
-                args: parsedArgs,
-                id: currentToolCall.id
-              };
               currentToolCall = null;
               toolArgsBuffer = '';
             }
           } catch (e) {
+            console.error('[LLMClient:Anthropic] Malformed JSON chunk skipped:', e.message);
             continue;
           }
         }
       }
+    }
+
+    // Flush pending tool call if stream ended without content_block_stop
+    if (currentToolCall) {
+      const tcName = currentToolCall.name;
+      if (!tcName) {
+        console.error('[LLMClient:Anthropic] Skipping pending tool_call with empty name at flush');
+      } else {
+        console.error('[LLMClient:Anthropic] Flushing pending tool_call at stream end:', tcName);
+        let parsedArgs = {};
+        try {
+          parsedArgs = JSON.parse(toolArgsBuffer || '{}');
+        } catch (e) {
+          console.warn('[LLMClient:Anthropic] Partial/invalid JSON for flushed tool args:', toolArgsBuffer);
+          parsedArgs = { error: 'Truncated tool arguments' };
+        }
+        yield {
+          type: 'tool_call',
+          name: tcName,
+          args: parsedArgs,
+          id: currentToolCall.id
+        };
+      }
+      currentToolCall = null;
     }
   } finally {
     reader.releaseLock();
@@ -502,20 +547,25 @@ async function* streamOpenAI(messages, tools, { endpoint, model, apiKey, tempera
                 const index = toolCall.index ?? 0;
                 if (!currentToolCall || currentToolCall.index !== index) {
                   if (currentToolCall) {
-                    let parsedArgs = {};
-                    try {
-                      parsedArgs = JSON.parse(currentToolCall.function?.arguments || '{}');
-                    } catch (e) {
-                      console.warn('[LLMClient:OpenAI] Failed to parse transition tool args:', e);
-                      parsedArgs = { error: 'The spell was cut short! (Response truncated)' };
-                    }
+                    const tcName = currentToolCall.function?.name;
+                    if (!tcName) {
+                      console.error('[LLMClient:OpenAI] Skipping tool_call with empty name at transition');
+                    } else {
+                      let parsedArgs = {};
+                      try {
+                        parsedArgs = JSON.parse(currentToolCall.function?.arguments || '{}');
+                      } catch (e) {
+                        console.warn('[LLMClient:OpenAI] Failed to parse transition tool args:', e);
+                        parsedArgs = { error: 'The spell was cut short! (Response truncated)' };
+                      }
 
-                    yield {
-                      type: 'tool_call',
-                      name: currentToolCall.function?.name,
-                      args: parsedArgs,
-                      id: currentToolCall.id
-                    };
+                      yield {
+                        type: 'tool_call',
+                        name: tcName,
+                        args: parsedArgs,
+                        id: currentToolCall.id
+                      };
+                    }
                   }
                   currentToolCall = { index, id: toolCall.id, function: { name: '', arguments: '' } };
                   yield {
@@ -548,23 +598,29 @@ async function* streamOpenAI(messages, tools, { endpoint, model, apiKey, tempera
 
             // Finish tool call if done
             if (choice.finish_reason === 'tool_calls' && currentToolCall) {
-              let parsedArgs = {};
-              try {
-                parsedArgs = JSON.parse(currentToolCall.function?.arguments || '{}');
-              } catch (e) {
-                console.warn('[LLMClient:OpenAI] Failed to parse finished tool args:', e);
-                parsedArgs = { error: 'The spell was cut short! (Response truncated)' };
-              }
+              const tcName = currentToolCall.function?.name;
+              if (!tcName) {
+                console.error('[LLMClient:OpenAI] Skipping tool_call with empty name at finish');
+              } else {
+                let parsedArgs = {};
+                try {
+                  parsedArgs = JSON.parse(currentToolCall.function?.arguments || '{}');
+                } catch (e) {
+                  console.warn('[LLMClient:OpenAI] Failed to parse finished tool args:', e);
+                  parsedArgs = { error: 'The spell was cut short! (Response truncated)' };
+                }
 
-              yield {
-                type: 'tool_call',
-                name: currentToolCall.function?.name,
-                args: parsedArgs,
-                id: currentToolCall.id
-              };
+                yield {
+                  type: 'tool_call',
+                  name: tcName,
+                  args: parsedArgs,
+                  id: currentToolCall.id
+                };
+              }
               currentToolCall = null;
             }
           } catch (e) {
+            console.error('[LLMClient:OpenAI] Malformed JSON chunk skipped:', e.message);
             continue;
           }
         }
@@ -573,20 +629,25 @@ async function* streamOpenAI(messages, tools, { endpoint, model, apiKey, tempera
 
     // Flush remaining tool call
     if (currentToolCall) {
-      let parsedArgs = {};
-      try {
-        parsedArgs = JSON.parse(currentToolCall.function?.arguments || '{}');
-      } catch (e) {
-        console.warn('[LLMClient:OpenAI] Failed to parse flushed tool args:', e);
-        parsedArgs = { error: 'The spell was cut short! (Response truncated)' };
-      }
+      const tcName = currentToolCall.function?.name;
+      if (!tcName) {
+        console.error('[LLMClient:OpenAI] Skipping tool_call with empty name at flush');
+      } else {
+        let parsedArgs = {};
+        try {
+          parsedArgs = JSON.parse(currentToolCall.function?.arguments || '{}');
+        } catch (e) {
+          console.warn('[LLMClient:OpenAI] Failed to parse flushed tool args:', e);
+          parsedArgs = { error: 'The spell was cut short! (Response truncated)' };
+        }
 
-      yield {
-        type: 'tool_call',
-        name: currentToolCall.function?.name,
-        args: parsedArgs,
-        id: currentToolCall.id
-      };
+        yield {
+          type: 'tool_call',
+          name: tcName,
+          args: parsedArgs,
+          id: currentToolCall.id
+        };
+      }
     }
   } finally {
     reader.releaseLock();
