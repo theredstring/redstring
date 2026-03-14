@@ -87,7 +87,7 @@ export function getOAuthBaseUrl() {
 
     // For development, prefer dedicated OAuth port even if served over https locally,
     // unless explicitly overridden via VITE_OAUTH_URL above.
-    const oauthPort = 3003;
+    const oauthPort = 3002;
     return `${protocol}//${hostname}:${oauthPort}`;
   }
 
@@ -97,7 +97,7 @@ export function getOAuthBaseUrl() {
     'SERVER_OAUTH_URL',
     'APP_BASE_URL'
   );
-  return (fallback || 'http://localhost:3003').replace(/\/+$/, '');
+  return (fallback || 'http://localhost:3002').replace(/\/+$/, '');
 }
 
 export function bridgeUrl(path = '') {

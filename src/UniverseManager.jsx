@@ -3313,17 +3313,20 @@ const UniverseManager = ({ variant = 'panel', onRequestClose }) => {
       const stateValue = Math.random().toString(36).slice(2);
       const scopes = 'repo';
 
-      // Use protocol handler for Electron, localhost for browser
-      const redirectUri = isElectron() ? 'redstring://auth' : universeManagerService.getOAuthRedirectUri();
+      // Both Electron and browser use the OAuth server's callback URL as redirect_uri.
+      // For Electron, we prefix the state with "electron:" so the OAuth server knows
+      // to redirect to redstring://auth (custom protocol) instead of the frontend.
+      const redirectUri = universeManagerService.getOAuthRedirectUri();
+      const oauthState = isElectron() ? `electron:${stateValue}` : stateValue;
 
       const authUrl = `https://github.com/login/oauth/authorize?client_id=${encodeURIComponent(
         clientId
       )}&redirect_uri=${encodeURIComponent(redirectUri)}&scope=${encodeURIComponent(
         scopes
-      )}&state=${encodeURIComponent(stateValue)}`;
+      )}&state=${encodeURIComponent(oauthState)}`;
 
       if (isElectron()) {
-        // Electron: Open in external browser and wait for callback
+        // Electron: Open in external browser, OAuth server redirects to redstring://auth
         umLog('[UniverseManager] Opening OAuth in external browser');
         const result = await startOAuthFlow(authUrl);
 
@@ -3335,15 +3338,15 @@ const UniverseManager = ({ variant = 'panel', onRequestClose }) => {
           throw new Error('OAuth state mismatch - possible CSRF attack');
         }
 
-        // Exchange code for token
+        // Exchange code for token via the OAuth server
         umLog('[UniverseManager] Received OAuth callback, exchanging code for token');
-        const tokenResp = await oauthFetch('/api/github/oauth/callback', {
+        const tokenResp = await oauthFetch('/api/github/oauth/token', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             code: result.code,
-            state: result.state,
-            redirect_uri: redirectUri  // Required by OAuth 2.0 spec
+            state: oauthState,
+            redirect_uri: redirectUri
           })
         });
 
@@ -3352,8 +3355,21 @@ const UniverseManager = ({ variant = 'panel', onRequestClose }) => {
           throw new Error(errorData.error || 'Failed to exchange OAuth code for token');
         }
 
-        await tokenResp.json();
+        const tokenData = await tokenResp.json();
         umLog('[UniverseManager] OAuth token exchange successful');
+
+        // Fetch user info and persist
+        const userResp = await fetch('https://api.github.com/user', {
+          headers: {
+            Authorization: `token ${tokenData.access_token}`,
+            Accept: 'application/vnd.github.v3+json'
+          }
+        });
+        if (!userResp.ok) {
+          throw new Error(`Failed to fetch GitHub user (${userResp.status})`);
+        }
+        const userData = await userResp.json();
+        await persistentAuth.storeTokens(tokenData, userData);
 
         // Reload service state to pick up new auth
         const auth = await universeManagerService.refreshAuth();

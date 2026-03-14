@@ -625,9 +625,10 @@
   align-items: center;
   gap: 4px;
   padding: 3px 10px;
-  border-radius: 12px;
+  border-radius: 8px;
   font-family: 'EmOne', sans-serif;
   font-size: 12px;
+  font-weight: 600;
   cursor: pointer;
   transition: all 0.2s ease;
   border: 1px solid transparent;
@@ -638,11 +639,13 @@
   background: rgba(38, 0, 0, 0.10);
   color: #260000;
   border-color: rgba(38, 0, 0, 0.25);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.15);
 }
 
 .ai-context-chip.active:hover {
   background: rgba(38, 0, 0, 0.16);
   border-color: rgba(38, 0, 0, 0.35);
+  box-shadow: 0 2px 5px rgba(0, 0, 0, 0.2);
 }
 
 .ai-context-chip.disabled {
@@ -659,7 +662,7 @@
 }
 
 .ai-context-chip-label {
-  font-weight: 500;
+  font-weight: inherit;
 }
 
 .ai-context-chip-toggle {

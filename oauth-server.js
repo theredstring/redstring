@@ -534,6 +534,35 @@ app.get('/api/github/oauth/client-id', (req, res) => {
   }
 });
 
+// OAuth callback handler — GitHub redirects here after user authorizes.
+// Detects Electron vs browser via state prefix and redirects accordingly.
+app.get('/oauth/callback', (req, res) => {
+  const { code, state, error } = req.query;
+
+  if (error) {
+    logger.error('[OAuth] GitHub callback error:', error);
+    return res.status(400).send(`GitHub OAuth error: ${error}`);
+  }
+
+  if (!code || !state) {
+    return res.status(400).send('Missing code or state from GitHub OAuth callback');
+  }
+
+  // Check for Electron prefix in state
+  if (typeof state === 'string' && state.startsWith('electron:')) {
+    const realState = state.slice('electron:'.length);
+    const redirectUrl = `redstring://auth?code=${encodeURIComponent(code)}&state=${encodeURIComponent(realState)}`;
+    logger.info('[OAuth] Redirecting to Electron protocol handler');
+    return res.redirect(redirectUrl);
+  }
+
+  // Browser flow: redirect back to the frontend app with code/state as query params
+  const frontendPort = process.env.PORT || 4001;
+  const frontendUrl = `http://localhost:${frontendPort}?code=${encodeURIComponent(code)}&state=${encodeURIComponent(state)}`;
+  logger.info('[OAuth] Redirecting to frontend app');
+  return res.redirect(frontendUrl);
+});
+
 // Refresh OAuth access token
 app.post('/api/github/oauth/refresh', async (req, res) => {
   try {

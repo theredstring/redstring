@@ -20,6 +20,27 @@ function getDefaultConfig() {
 }
 
 /**
+ * Recursively strip empty `required` arrays from JSON Schema objects.
+ * Gemini may misinterpret required:[] — omitting it is safer.
+ */
+function stripEmptyRequired(schema) {
+  if (!schema || typeof schema !== 'object') return;
+  if (Array.isArray(schema.required) && schema.required.length === 0) {
+    delete schema.required;
+  }
+  // Recurse into properties
+  if (schema.properties) {
+    for (const val of Object.values(schema.properties)) {
+      stripEmptyRequired(val);
+    }
+  }
+  // Recurse into items (for array schemas)
+  if (schema.items) {
+    stripEmptyRequired(schema.items);
+  }
+}
+
+/**
  * Normalize tool definitions for different providers
  */
 function normalizeTools(tools) {
@@ -632,11 +653,18 @@ async function* streamGemini(messages, tools, { model, apiKey, temperature, maxT
   let geminiTools = undefined;
   if (tools && tools.length > 0) {
     geminiTools = [{
-      functionDeclarations: tools.map(t => ({
-        name: t.function?.name || t.name,
-        description: t.function?.description || t.description || '',
-        parameters: t.function?.parameters || t.parameters || { type: 'object', properties: {} }
-      }))
+      functionDeclarations: tools.map(t => {
+        const params = JSON.parse(JSON.stringify(
+          t.function?.parameters || t.parameters || { type: 'object', properties: {} }
+        ));
+        // Strip empty required arrays — Gemini may misinterpret required:[] as "all required"
+        stripEmptyRequired(params);
+        return {
+          name: t.function?.name || t.name,
+          description: t.function?.description || t.description || '',
+          parameters: params
+        };
+      })
     }];
   }
 
@@ -647,6 +675,7 @@ async function* streamGemini(messages, tools, { model, apiKey, temperature, maxT
     contents,
     ...(systemParts.length > 0 ? { systemInstruction: { parts: systemParts } } : {}),
     ...(geminiTools ? { tools: geminiTools } : {}),
+    ...(geminiTools ? { toolConfig: { functionCallingConfig: { mode: 'AUTO' } } } : {}),
     generationConfig: {
       temperature: temperature ?? 0.7,
       maxOutputTokens: maxTokens ?? 8192
@@ -668,6 +697,7 @@ async function* streamGemini(messages, tools, { model, apiKey, temperature, maxT
   const reader = response.body.getReader();
   const decoder = new TextDecoder();
   let buffer = '';
+  let pendingFunctionCall = null;
 
   try {
     while (true) {
@@ -697,26 +727,69 @@ async function* streamGemini(messages, tools, { model, apiKey, temperature, maxT
             if (part.text) {
               yield { type: 'text', content: part.text };
             } else if (part.functionCall) {
-              // Gemini returns the full function call in one chunk (not streamed incrementally)
+              // Validate function call name
+              const fnName = part.functionCall.name;
+              if (!fnName || typeof fnName !== 'string' || fnName.trim() === '') {
+                console.error('[LLMClient:Gemini] Skipping functionCall with missing/empty name:', JSON.stringify(part.functionCall));
+                continue;
+              }
+
+              const fnArgs = part.functionCall.args;
+              if (!fnArgs || (typeof fnArgs === 'object' && Object.keys(fnArgs).length === 0)) {
+                console.error('[LLMClient:Gemini] Warning: functionCall "' + fnName + '" received with empty args');
+              }
+
+              // Flush any pending function call before starting a new one
+              if (pendingFunctionCall) {
+                yield {
+                  type: 'tool_call',
+                  name: pendingFunctionCall.name,
+                  args: pendingFunctionCall.args,
+                  id: pendingFunctionCall.id
+                };
+                pendingFunctionCall = null;
+              }
+
+              // Gemini typically returns the full function call in one chunk,
+              // but accumulate in case future models stream args across chunks
               const fnId = `gemini-fn-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
               yield {
                 type: 'tool_call_start',
                 id: fnId,
-                name: part.functionCall.name
+                name: fnName
               };
-              yield {
-                type: 'tool_call',
-                name: part.functionCall.name,
-                args: part.functionCall.args || {},
-                id: fnId
-              };
+
+              if (fnArgs !== undefined) {
+                // Args present — yield immediately (typical Gemini behavior)
+                yield {
+                  type: 'tool_call',
+                  name: fnName,
+                  args: fnArgs || {},
+                  id: fnId
+                };
+              } else {
+                // Args not yet available — hold for flush
+                pendingFunctionCall = { id: fnId, name: fnName, args: {} };
+              }
             }
           }
         } catch (e) {
-          // Skip malformed JSON chunks
+          console.error('[LLMClient:Gemini] Malformed JSON chunk skipped:', e.message, '| Data:', (data || '').substring(0, 300));
           continue;
         }
       }
+    }
+
+    // Flush any remaining pending function call
+    if (pendingFunctionCall) {
+      console.error('[LLMClient:Gemini] Flushing pending functionCall at stream end:', pendingFunctionCall.name);
+      yield {
+        type: 'tool_call',
+        name: pendingFunctionCall.name,
+        args: pendingFunctionCall.args,
+        id: pendingFunctionCall.id
+      };
+      pendingFunctionCall = null;
     }
   } finally {
     reader.releaseLock();

@@ -46,6 +46,7 @@ import { getInstancesOfPrototype } from './getInstancesOfPrototype.js';
 import { getGraphInstances } from './getGraphInstances.js';
 import { inspectWorkspace } from './inspectWorkspace.js';
 import { themeGraph } from './themeGraph.js';
+import { getToolDefinitions } from './schemas.js';
 
 const TOOLS = {
   createNode,
@@ -100,6 +101,17 @@ export async function executeTool(name, args, graphState, cid, ensureSchedulerSt
   const tool = TOOLS[name];
   if (!tool) {
     throw new Error(`Unknown tool: ${name}`);
+  }
+
+  // Validate required args against schema before execution
+  const schema = getToolDefinitions().find(t => t.name === name);
+  if (schema?.parameters?.required?.length > 0) {
+    const missing = schema.parameters.required.filter(key =>
+      args[key] === undefined || args[key] === null || args[key] === ''
+    );
+    if (missing.length > 0) {
+      throw new Error(`Tool "${name}" requires these arguments: ${missing.join(', ')}. You provided: ${JSON.stringify(args)}`);
+    }
   }
 
   return await tool(args, graphState, cid, ensureSchedulerStarted);

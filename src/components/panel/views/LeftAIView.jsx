@@ -7,7 +7,7 @@ import apiKeyManager from '../../../services/apiKeyManager.js';
 import MultipleChoiceOverlay from '../../../ai/components/MultipleChoiceOverlay.jsx';
 import { bridgeFetch, bridgeEventSource } from '../../../services/bridgeConfig.js';
 import StandardDivider from '../../StandardDivider.jsx';
-import { HEADER_HEIGHT } from '../../../constants.js';
+import { HEADER_HEIGHT, NODE_DEFAULT_COLOR } from '../../../constants.js';
 import ToolCallCard from '../../ToolCallCard.jsx';
 import ConfirmDialog from '../../shared/ConfirmDialog.jsx';
 import { DRUID_SYSTEM_PROMPT } from '../../../services/agent/DruidPrompt.js';
@@ -17,6 +17,7 @@ import { getNodeDimensions } from '../../../utils';
 import DruidInstance from '../../../services/DruidInstance.js';
 import { searchWikipedia, getWikipediaPage, getWikipediaImages } from '../SharedPanelContent.jsx';
 import { normalizeLabel, calculateTextSimilarity } from '../../../services/entityMatching.js';
+import { getTextColor } from '../../../utils/colorUtils.js';
 import fullBodySvg from '../../../assets/svg/wizard/full_body.svg';
 import headSvg from '../../../assets/svg/wizard/head.svg';
 
@@ -1499,20 +1500,25 @@ const LeftAIView = ({ compact = false,
 
   // Auto-sync context chips with active graph
   React.useEffect(() => {
-    const graphName = activeGraphId && graphsMap?.has(activeGraphId)
-      ? (graphsMap.get(activeGraphId).name || 'Unnamed')
+    const graph = activeGraphId && graphsMap?.has(activeGraphId)
+      ? graphsMap.get(activeGraphId)
       : null;
+    // Resolve the defining node's color (the node whose definition graph this is)
+    const definingNodeId = graph?.definingNodeIds?.[0];
+    const definingNode = definingNodeId ? nodePrototypesMap?.get(definingNodeId) : null;
+    const chipColor = definingNode?.color || graph?.color || NODE_DEFAULT_COLOR;
     setContextItems(prev => prev.map(item => {
       if (item.type === 'activeGraph') {
         return {
           ...item,
           id: activeGraphId || null,
-          label: graphName ? `Web: ${graphName}` : 'No Active Web'
+          label: graph ? `Web: ${graph.name || 'Unnamed'}` : 'No Active Web',
+          color: graph ? chipColor : null
         };
       }
       return item;
     }));
-  }, [activeGraphId, graphsMap]);
+  }, [activeGraphId, graphsMap, nodePrototypesMap]);
 
   // Load conversations from workspace on mount
   React.useEffect(() => {
@@ -3468,12 +3474,17 @@ const LeftAIView = ({ compact = false,
             return null;
           })()}
 
-          {/* Persistent context chips (Cursor-style @) */}
+          {/* Persistent context chips (node-style) */}
           <div className="ai-context-bar">
             {contextItems.map((item, idx) => (
               <button
                 key={item.type + idx}
                 className={`ai-context-chip ${item.enabled ? 'active' : 'disabled'}`}
+                style={item.color && item.enabled ? {
+                  backgroundColor: item.color,
+                  color: getTextColor(item.color),
+                  borderColor: item.color,
+                } : undefined}
                 onClick={() => {
                   setContextItems(prev => prev.map((ci, i) =>
                     i === idx ? { ...ci, enabled: !ci.enabled } : ci
@@ -3481,7 +3492,7 @@ const LeftAIView = ({ compact = false,
                 }}
                 title={item.enabled ? `Click to exclude ${item.label} from context` : `Click to include ${item.label} in context`}
               >
-                <span className="ai-context-chip-label">@ {item.label}</span>
+                <span className="ai-context-chip-label">{item.label}</span>
                 <span className="ai-context-chip-toggle">{item.enabled ? '×' : '+'}</span>
               </button>
             ))}
