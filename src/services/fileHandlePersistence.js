@@ -167,7 +167,16 @@ export const storeFileHandleMetadata = async (universeSlug, fileHandle = null, a
       transaction.oncomplete = () => db.close();
     });
   } catch (error) {
-    console.error('[FileHandlePersistence] Failed to store file handle metadata:', error);
+    console.error(
+      '[FileHandlePersistence] Failed to store file handle metadata:',
+      {
+        universeSlug,
+        fileName: fileName ?? additionalMetadata.fileName,
+        isElectron: isElectron(),
+        error: error.message,
+        stack: error.stack
+      }
+    );
     throw error;
   }
 };
