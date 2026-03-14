@@ -30,17 +30,22 @@ const TypeList = ({ nodes, setSelectedNodes, selectedNodes = new Set() }) => {
   const edgesMap = useGraphStore((state) => state.edges);
   const setNodeTypeAction = useGraphStore((state) => state.setNodeType);
 
-  // Derive footer colors from active graph's node color (matching Header.jsx pattern exactly)
+  // Derive footer colors from defining node's color (matching Header.jsx headerGraphs pattern)
   const headerBg = useMemo(() => {
     const fallbackBg = '#260000';
     if (!activeGraphId) return fallbackBg;
 
     const activeGraph = graphsMap.get(activeGraphId);
-    if (!activeGraph?.color) return fallbackBg;
+    if (!activeGraph) return fallbackBg;
 
-    const { h, s } = hexToHsl(activeGraph.color);
+    // Header.jsx derives color from the defining node prototype, not graph.color
+    const definingNodeId = activeGraph.definingNodeIds?.[0];
+    const definingNode = definingNodeId ? nodePrototypesMap.get(definingNodeId) : null;
+    const nodeColor = definingNode?.color || activeGraph.color || NODE_DEFAULT_COLOR;
+
+    const { h, s } = hexToHsl(nodeColor);
     return hslToHex(h, Math.min(s, 100), 7.5);
-  }, [activeGraphId, graphsMap]);
+  }, [activeGraphId, graphsMap, nodePrototypesMap]);
 
   const footerHeaderText = useMemo(() => {
     return getTextColor(headerBg);
@@ -307,7 +312,7 @@ const TypeList = ({ nodes, setSelectedNodes, selectedNodes = new Set() }) => {
   return (
     <>
       {/* Mode Toggle Button - Positioned Separately and Fixed */}
-      <button 
+      <button
         onClick={cycleMode}
         className="type-list-toggle-button"
         style={{
@@ -320,14 +325,15 @@ const TypeList = ({ nodes, setSelectedNodes, selectedNodes = new Set() }) => {
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'center',
-          background: '#260000',
-          border: '2px solid #260000', // Canvas color stroke
+          background: headerBg,
+          border: '2px solid #BDB5B5', // Canvas color stroke
           borderRadius: '8px',
           padding: 0,
           cursor: 'pointer',
-          color: '#bdb5b5',
+          color: footerHeaderText,
           zIndex: 20000, // Higher than panels (10000)
-          boxShadow: '0 0 0 3px #BDB5B5, 0 2px 5px rgba(0, 0, 0, 0.2)'
+          boxShadow: '0 0 0 3px #BDB5B5, 0 2px 5px rgba(0, 0, 0, 0.2)',
+          transition: 'background-color 0.2s ease, color 0.2s ease'
         }}
       >
         {/* Icon size is HEADER_HEIGHT * 0.6 = 30 (matches panel icon size) */}

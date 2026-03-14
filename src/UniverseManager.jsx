@@ -1130,9 +1130,27 @@ const UniverseManager = ({ variant = 'panel', onRequestClose }) => {
       setLoading(true);
       const fileName = file.name.replace('.redstring', '');
 
-      // Read the file content
+      // Read and parse file, then import via redstringFormat
       const text = await file.text();
-      const storeState = JSON.parse(text);
+      const parsedData = JSON.parse(text);
+
+      const formatModule = await import('./formats/redstringFormat.js');
+      const { importFromRedstring, validateFormatVersion } = formatModule;
+
+      const validation = validateFormatVersion(parsedData);
+      if (!validation.valid) {
+        if (validation.tooNew) {
+          throw new Error(`This file was created with a newer version of Redstring (${validation.version}). Please update your app to open this file.`);
+        } else if (validation.tooOld) {
+          throw new Error(`This file format is too old (${validation.version}) and cannot be opened.`);
+        } else {
+          throw new Error(validation.error);
+        }
+      }
+
+      const importResult = importFromRedstring(parsedData);
+      const storeState = importResult.storeState;
+      const metrics = computeStoreMetrics(storeState);
 
       setLoading(false);
 
@@ -1166,33 +1184,23 @@ const UniverseManager = ({ variant = 'panel', onRequestClose }) => {
               throw new Error('Unable to determine universe slug after creation');
             }
 
-            // Load the file data into it via uploadLocalFile (file first, then target slug)
-            const uploadResult = await universeBackendBridge.uploadLocalFile(file, createdSlug);
+            // Switch to the new universe before loading data
+            await universeBackend.switchActiveUniverse(createdSlug);
 
-            if (uploadResult?.needsFileHandle && isElectron() && file.path) {
-              // In Electron, reuse the path from the file the user already picked
-              // instead of showing a Save As dialog
-              try {
-                await universeBackend.setFileHandle(createdSlug, file.path, {
-                  displayPath: file.path,
-                  fileName: file.name,
-                  suppressNotification: true
-                });
-                await universeBackendBridge.saveActiveUniverse();
-                setSyncStatus({
-                  type: 'success',
-                  message: `Universe "${universeName}" loaded and linked to local file`
-                });
-              } catch (handleError) {
-                umWarn('[UniverseManager] Failed to link file handle after import:', handleError);
-                setSyncStatus({
-                  type: 'warning',
-                  message: 'Universe loaded. Use "Pick File" to enable auto-save.'
-                });
-              }
-            } else {
-              setSyncStatus({ type: 'success', message: `Universe "${universeName}" loaded from file` });
-            }
+            // Build a fileHandle for Electron (the file path) or use null for browser
+            const fileHandle = isElectron() && file.path ? file.path : null;
+            const displayPath = isElectron() && file.path ? file.path : file.name;
+
+            // Use the same proven path as "Link Existing File"
+            await applyIncomingLocalFile({
+              slug: createdSlug,
+              fileHandle,
+              fileName: file.name,
+              storeState,
+              metrics,
+              displayPath
+            });
+
             await refreshState();
           } catch (err) {
             umError('[UniverseManager] Load from local failed:', err);
