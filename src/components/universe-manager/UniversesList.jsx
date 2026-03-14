@@ -474,9 +474,9 @@ const UniversesList = ({
             universes.map((universe) => {
               const isActive = universe.slug === activeUniverseSlug;
               const resolvedSource = universe.sourceOfTruth || universe.raw?.sourceOfTruth || universe.storage?.primary?.type || null;
-              const nodeCount = universe.nodeCount || universe.raw?.nodeCount || 0;
-              const connectionCount = universe.connectionCount || universe.raw?.connectionCount || 0;
-              const graphCount = universe.graphCount || universe.raw?.graphCount || 0;
+              const nodeCount = universe.nodeCount || universe.raw?.nodeCount || universe.metadata?.nodeCount || universe.raw?.metadata?.nodeCount || 0;
+              const connectionCount = universe.connectionCount || universe.raw?.connectionCount || universe.metadata?.connectionCount || universe.raw?.metadata?.connectionCount || 0;
+              const graphCount = universe.graphCount || universe.raw?.graphCount || universe.metadata?.graphCount || universe.raw?.metadata?.graphCount || 0;
 
               return (
                 <div
@@ -518,13 +518,13 @@ const UniversesList = ({
                           gap: isSlim ? 6 : 8,
                           flexWrap: 'wrap'
                         }}>
-                          <span>{nodeCount} things</span>
+                          <span>{graphCount} webs</span>
                           <span>·</span>
-                          <span>{connectionCount} connections</span>
+                          <span>{nodeCount} things</span>
                           {!isSlim && (
                             <>
                               <span>·</span>
-                              <span>{graphCount} webs</span>
+                              <span>{connectionCount} connections</span>
                             </>
                           )}
                         </div>

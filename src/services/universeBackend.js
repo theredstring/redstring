@@ -2173,16 +2173,33 @@ class UniverseBackend {
     try {
       storeState = await this.loadUniverseData(universe);
 
-      // Update universe metadata with current node count after loading
-      if (storeState && storeState.nodePrototypes) {
-        const nodeCount = storeState.nodePrototypes instanceof Map
-          ? storeState.nodePrototypes.size
-          : Object.keys(storeState.nodePrototypes || {}).length;
+      // Update universe metadata with current metrics after loading
+      if (storeState) {
+        const nodeCount = storeState.nodePrototypes
+          ? (storeState.nodePrototypes instanceof Map ? storeState.nodePrototypes.size : Object.keys(storeState.nodePrototypes).length)
+          : 0;
+
+        const graphCount = storeState.graphs
+          ? (storeState.graphs instanceof Map ? storeState.graphs.size : Object.keys(storeState.graphs).length)
+          : 0;
+
+        let connectionCount = 0;
+        if (storeState.edges) {
+          connectionCount = storeState.edges instanceof Map ? storeState.edges.size : Object.keys(storeState.edges).length;
+        } else if (storeState.graphs) {
+          const graphs = storeState.graphs instanceof Map ? Array.from(storeState.graphs.values()) : Object.values(storeState.graphs || {});
+          connectionCount = graphs.reduce((total, g) => total + (Array.isArray(g?.edgeIds) ? g.edgeIds.length : 0), 0);
+        }
 
         this.updateUniverse(key, {
+          nodeCount,
+          connectionCount,
+          graphCount,
           metadata: {
             ...universe.metadata,
             nodeCount,
+            connectionCount,
+            graphCount,
             lastOpened: new Date().toISOString()
           }
         });
