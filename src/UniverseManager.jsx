@@ -1074,7 +1074,7 @@ const UniverseManager = ({ variant = 'panel', onRequestClose }) => {
 
             const defaultContent = JSON.stringify(exportToRedstring(emptyState), null, 2);
 
-            let fileHandle = await createFileInWorkspace(suggestedName, defaultContent);
+            let fileHandle = await createFileInWorkspace(suggestedName, defaultContent, { overwrite: false });
 
             // Fallback to picker if no workspace folder or creation failed
             if (!fileHandle) {
@@ -1083,7 +1083,7 @@ const UniverseManager = ({ variant = 'panel', onRequestClose }) => {
               await writeFile(fileHandle, defaultContent);
             }
 
-            // Get filename for display
+            // Get filename for display (use actual handle name since it may have been deduplicated)
             const fileName = isElectron() && typeof fileHandle === 'string'
               ? fileHandle.split(/[/\\]/).pop()
               : (fileHandle?.name || suggestedName);
@@ -3032,9 +3032,9 @@ const UniverseManager = ({ variant = 'panel', onRequestClose }) => {
       // Prompt user to save file using adapter (works in both browser and Electron)
       const suggestedName = `${universe.name || slug}.redstring`;
 
-      // Try creating in workspace folder first
+      // Try creating in workspace folder first (don't overwrite existing files)
       const { createFileInWorkspace } = await import('./services/workspaceFolderService.js');
-      let fileHandle = await createFileInWorkspace(suggestedName, jsonString);
+      let fileHandle = await createFileInWorkspace(suggestedName, jsonString, { overwrite: false });
 
       // Fallback to picker if no workspace folder or creation failed
       if (!fileHandle) {

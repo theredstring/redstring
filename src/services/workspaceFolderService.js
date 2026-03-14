@@ -98,9 +98,44 @@ export async function clearWorkspaceHandle() {
 }
 
 /**
+ * Given a filename like "foo.redstring", returns a deduplicated name
+ * by checking for existence in the directory and appending " (N)" if needed.
+ * e.g. "foo.redstring" -> "foo (1).redstring" -> "foo (2).redstring"
+ */
+async function findUniqueFileName(dirHandle, fileName) {
+    const dotIndex = fileName.lastIndexOf('.');
+    const baseName = dotIndex > 0 ? fileName.slice(0, dotIndex) : fileName;
+    const ext = dotIndex > 0 ? fileName.slice(dotIndex) : '';
+
+    // Try the original name first
+    let candidate = fileName;
+    let counter = 0;
+    const MAX_ATTEMPTS = 100;
+
+    while (counter < MAX_ATTEMPTS) {
+        try {
+            await dirHandle.getFileHandle(candidate, { create: false });
+            // File exists — try next candidate
+            counter++;
+            candidate = `${baseName} (${counter})${ext}`;
+        } catch (e) {
+            if (e.name === 'NotFoundError' || e.name === 'TypeMismatchError') {
+                // File doesn't exist — this name is available
+                return candidate;
+            }
+            // Unexpected error — bail out with current candidate
+            return candidate;
+        }
+    }
+
+    // Exhausted attempts, return the last candidate anyway
+    return candidate;
+}
+
+/**
  * Creates a file in the workspace folder if available
- * @param {string} fileName 
- * @param {string} content 
+ * @param {string} fileName
+ * @param {string} content
  * @param {object} options - Options for creation
  * @param {boolean} [options.overwrite=true] - Whether to overwrite existing files
  * @returns {Promise<FileSystemFileHandle|null>} The created file handle, or null if no workspace folder
@@ -117,28 +152,20 @@ export async function createFileInWorkspace(fileName, content, options = {}) {
             if (status !== 'granted') throw new Error('Permission denied to workspace folder');
         }
 
-        // Safety check: if not overwriting, check existence first
+        let targetFileName = fileName;
+
+        // If not overwriting, find a unique name instead of failing
         if (!overwrite) {
-            try {
-                // Try to get handle without creating - if successful, file exists
-                await dirHandle.getFileHandle(fileName, { create: false });
-                throw new Error(`File "${fileName}" already exists in workspace. Overwrite prevented.`);
-            } catch (e) {
-                // If NotFoundError, we are good to proceed. If other error (like the one we just threw), rethrow.
-                if (e.message.includes('already exists')) throw e;
-                if (e.name !== 'NotFoundError' && e.name !== 'TypeMismatchError') throw e;
-            }
+            targetFileName = await findUniqueFileName(dirHandle, fileName);
         }
 
-        const fileHandle = await dirHandle.getFileHandle(fileName, { create: true });
+        const fileHandle = await dirHandle.getFileHandle(targetFileName, { create: true });
         const writable = await fileHandle.createWritable();
         await writable.write(content);
         await writable.close();
         return fileHandle;
     } catch (error) {
         console.error('[WorkspaceFolderService] Failed to create file in workspace:', error);
-        // Propagate specific errors like overwrite protection
-        if (error.message.includes('already exists')) throw error;
         // Return null to allow fallback to system picker
         return null;
     }
