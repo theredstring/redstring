@@ -5,6 +5,7 @@ import { HEADER_HEIGHT } from './constants';
 import NodeType from './NodeType'; // Import NodeType
 import EdgeType from './EdgeType'; // Import EdgeType
 import useGraphStore from './store/graphStore.jsx';
+import { getTextColor, hexToHsl, hslToHex } from './utils/colorUtils.js';
 // Placeholder icons (replace with actual icons later)
 import { ChevronUp, Tag, Share2, LayoutGrid } from 'lucide-react';
 
@@ -28,6 +29,22 @@ const TypeList = ({ nodes, setSelectedNodes, selectedNodes = new Set() }) => {
   const edgePrototypesMap = useGraphStore((state) => state.edgePrototypes);
   const edgesMap = useGraphStore((state) => state.edges);
   const setNodeTypeAction = useGraphStore((state) => state.setNodeType);
+
+  // Derive footer colors from active graph's node color (matching Header.jsx pattern exactly)
+  const headerBg = useMemo(() => {
+    const fallbackBg = '#260000';
+    if (!activeGraphId) return fallbackBg;
+
+    const activeGraph = graphsMap.get(activeGraphId);
+    if (!activeGraph?.color) return fallbackBg;
+
+    const { h, s } = hexToHsl(activeGraph.color);
+    return hslToHex(h, Math.min(s, 100), 7.5);
+  }, [activeGraphId, graphsMap]);
+
+  const footerHeaderText = useMemo(() => {
+    return getTextColor(headerBg);
+  }, [headerBg]);
   
   // Ensure base "Thing" prototype exists (side effect, must be in useEffect)
   useEffect(() => {
@@ -318,20 +335,20 @@ const TypeList = ({ nodes, setSelectedNodes, selectedNodes = new Set() }) => {
       </button>
 
       {/* Sliding Footer Bar */}
-      <footer 
+      <footer
         className="type-list-bar"
-        style={{ 
-          height: `${HEADER_HEIGHT}px`, 
-          position: 'fixed', 
+        style={{
+          height: `${HEADER_HEIGHT}px`,
+          position: 'fixed',
           bottom: 0,
           left: 0, // Cover full width
           right: 0,
           display: 'flex',
           alignItems: 'center',
-          backgroundColor: '#260000',
+          backgroundColor: headerBg,
           zIndex: 19999, // Higher than panels but lower than toggle button
           overflow: 'visible', // Allow content to overflow horizontally for scrolling
-          transition: 'transform 0.3s ease-in-out',
+          transition: 'background-color 0.2s ease-in-out, transform 0.3s ease-in-out',
           transform: mode === 'closed' ? 'translateY(100%)' : 'translateY(0)',
           paddingLeft: `calc(${HEADER_HEIGHT}px + 20px)`, // Increase paddingLeft for more space between button and content
           boxShadow: '0 -4px 8px rgba(0, 0, 0, 0.2)'
@@ -361,7 +378,7 @@ const TypeList = ({ nodes, setSelectedNodes, selectedNodes = new Set() }) => {
                 fontSize: '18px',
                 fontWeight: 'bold',
                 fontFamily: "'EmOne', sans-serif",
-                color: '#bdb5b5',
+                color: footerHeaderText,
                 marginLeft: '10px', // Add left margin for balance
                 marginRight: '20px',
                 paddingTop: '8px',
@@ -391,7 +408,7 @@ const TypeList = ({ nodes, setSelectedNodes, selectedNodes = new Set() }) => {
                 fontSize: '18px',
                 fontWeight: 'bold',
                 fontFamily: "'EmOne', sans-serif",
-                color: '#bdb5b5',
+                color: footerHeaderText,
                 marginLeft: '10px',
                 marginRight: '20px',
                 paddingTop: '8px',
@@ -432,7 +449,7 @@ const TypeList = ({ nodes, setSelectedNodes, selectedNodes = new Set() }) => {
                 fontSize: '18px',
                 fontWeight: 'bold',
                 fontFamily: "'EmOne', sans-serif",
-                color: '#bdb5b5',
+                color: footerHeaderText,
                 marginLeft: '10px', // Add left margin for balance
                 marginRight: '20px',
                 paddingTop: '8px',

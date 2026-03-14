@@ -1169,31 +1169,26 @@ const GitNativeFederation = ({ variant = 'panel', onRequestClose }) => {
             // Load the file data into it via uploadLocalFile (file first, then target slug)
             const uploadResult = await universeBackendBridge.uploadLocalFile(file, createdSlug);
 
-            if (uploadResult?.needsFileHandle) {
+            if (uploadResult?.needsFileHandle && isElectron() && file.path) {
+              // In Electron, reuse the path from the file the user already picked
+              // instead of showing a Save As dialog
               try {
-                await universeBackendBridge.setupLocalFileHandle(createdSlug, {
-                  mode: 'saveAs',
-                  suggestedName: file.name
+                await universeBackend.setFileHandle(createdSlug, file.path, {
+                  displayPath: file.path,
+                  fileName: file.name,
+                  suppressNotification: true
                 });
                 await universeBackendBridge.saveActiveUniverse();
                 setSyncStatus({
                   type: 'success',
-                  message: `Universe "${universeName}" loaded and linked to a local file`
+                  message: `Universe "${universeName}" loaded and linked to local file`
                 });
               } catch (handleError) {
-                if (handleError?.name === 'AbortError') {
-                  setSyncStatus({
-                    type: 'warning',
-                    message: 'Universe loaded (saved to browser). Pick a file to enable local file sync.'
-                  });
-                } else {
-                  // Don't show as error if workspace folder fallback will work
-                  gfWarn('[GitNativeFederation] Failed to establish local file handle after import:', handleError);
-                  setSyncStatus({
-                    type: 'warning',
-                    message: 'Universe loaded. Use "Pick File" or set a Workspace Folder to enable auto-save.'
-                  });
-                }
+                gfWarn('[GitNativeFederation] Failed to link file handle after import:', handleError);
+                setSyncStatus({
+                  type: 'warning',
+                  message: 'Universe loaded. Use "Pick File" to enable auto-save.'
+                });
               }
             } else {
               setSyncStatus({ type: 'success', message: `Universe "${universeName}" loaded from file` });
