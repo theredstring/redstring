@@ -24,6 +24,7 @@ import {
 
 import universeManagerService, { STORAGE_TYPES } from './services/universeManagerService.js';
 import { isElectron, pickFile, pickSaveLocation, readFile, writeFile } from './utils/fileAccessAdapter.js';
+import { startOAuthFlow } from './utils/oauthAdapter.js';
 import { HEADER_HEIGHT } from './constants.js';
 import useGraphStore from './store/graphStore.jsx';
 import { getStorageKey } from './utils/storageUtils.js';
@@ -232,6 +233,12 @@ const UniverseManager = ({ variant = 'panel', onRequestClose }) => {
       return false; // Collapsed by default
     }
   });
+
+  // Live metrics for the active universe — individual primitive selectors to avoid reference issues
+  const nodeCount = useGraphStore((state) => state.nodePrototypes instanceof Map ? state.nodePrototypes.size : 0);
+  const graphCount = useGraphStore((state) => state.graphs instanceof Map ? state.graphs.size : 0);
+  const connectionCount = useGraphStore((state) => state.edges instanceof Map ? state.edges.size : 0);
+  const liveMetrics = { nodeCount, graphCount, connectionCount };
 
   // TypeList gap spacing - same logic as Panel.jsx
   const typeListMode = useGraphStore((state) => state.typeListMode);
@@ -3307,16 +3314,51 @@ const UniverseManager = ({ variant = 'panel', onRequestClose }) => {
       const redirectUri = universeManagerService.getOAuthRedirectUri();
       const scopes = 'repo';
 
-      sessionStorage.setItem('github_oauth_state', stateValue);
-      sessionStorage.setItem('github_oauth_pending', 'true');
-
       const authUrl = `https://github.com/login/oauth/authorize?client_id=${encodeURIComponent(
         clientId
       )}&redirect_uri=${encodeURIComponent(redirectUri)}&scope=${encodeURIComponent(
         scopes
       )}&state=${encodeURIComponent(stateValue)}`;
 
-      window.location.href = authUrl;
+      if (isElectron()) {
+        // Electron: Open in external browser and wait for callback
+        umLog('[UniverseManager] Opening OAuth in external browser');
+        const result = await startOAuthFlow(authUrl);
+
+        if (result.error) {
+          throw new Error(result.error);
+        }
+
+        if (result.state !== stateValue) {
+          throw new Error('OAuth state mismatch - possible CSRF attack');
+        }
+
+        // Exchange code for token
+        umLog('[UniverseManager] Received OAuth callback, exchanging code for token');
+        const tokenResp = await oauthFetch('/api/github/oauth/callback', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ code: result.code, state: result.state })
+        });
+
+        if (!tokenResp.ok) {
+          const errorData = await tokenResp.json().catch(() => ({}));
+          throw new Error(errorData.error || 'Failed to exchange OAuth code for token');
+        }
+
+        await tokenResp.json();
+        umLog('[UniverseManager] OAuth token exchange successful');
+
+        // Reload service state to pick up new auth
+        const auth = await universeManagerService.refreshAuth();
+        setServiceState((prev) => ({ ...prev, ...auth }));
+        setIsConnecting(false);
+      } else {
+        // Browser: Store state and redirect
+        sessionStorage.setItem('github_oauth_state', stateValue);
+        sessionStorage.setItem('github_oauth_pending', 'true');
+        window.location.href = authUrl;
+      }
     } catch (err) {
       umError('[UniverseManager] OAuth launch failed:', err);
       setError(`OAuth authentication failed: ${err.message}`);
@@ -3343,7 +3385,11 @@ const UniverseManager = ({ variant = 'panel', onRequestClose }) => {
             if (accountLogin) {
               // Redirect to specific installation settings
               const url = `https://github.com/settings/installations/${installationId}`;
-              window.location.href = url;
+              if (isElectron()) {
+                window.open(url, '_blank');
+              } else {
+                window.location.href = url;
+              }
               return;
             }
           }
@@ -3352,7 +3398,12 @@ const UniverseManager = ({ variant = 'panel', onRequestClose }) => {
         }
 
         // Fallback: redirect to general installations page
-        window.location.href = 'https://github.com/settings/installations';
+        const fallbackUrl = 'https://github.com/settings/installations';
+        if (isElectron()) {
+          window.open(fallbackUrl, '_blank');
+        } else {
+          window.location.href = fallbackUrl;
+        }
         return;
       }
 
@@ -3371,7 +3422,12 @@ const UniverseManager = ({ variant = 'panel', onRequestClose }) => {
       sessionStorage.setItem('github_app_pending', 'true');
       const stateValue = Date.now().toString();
       const url = `https://github.com/apps/${appName}/installations/new?state=${stateValue}`;
-      window.location.href = url;
+      if (isElectron()) {
+        umLog('[UniverseManager] Opening GitHub App installation in external browser');
+        window.open(url, '_blank');
+      } else {
+        window.location.href = url;
+      }
     } catch (err) {
       umError('[UniverseManager] GitHub App launch failed:', err);
       setError(`GitHub App authentication failed: ${err.message}`);
@@ -4048,6 +4104,7 @@ const UniverseManager = ({ variant = 'panel', onRequestClose }) => {
         isLoading={loading}
         universes={serviceState.universes}
         activeUniverseSlug={serviceState.activeUniverseSlug}
+        liveMetrics={liveMetrics}
         syncStatusMap={syncTelemetry}
         onCreateUniverse={handleCreateUniverse}
         onSwitchUniverse={handleSwitchUniverse}

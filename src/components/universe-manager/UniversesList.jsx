@@ -61,6 +61,7 @@ const UniversesList = ({
   activeUniverseSlug,
   isLoading = false,
   syncStatusMap = {},
+  liveMetrics,
   onCreateUniverse,
   onSwitchUniverse,
   onDeleteUniverse,
@@ -306,7 +307,7 @@ const UniversesList = ({
                 <div style={{
                   position: 'absolute',
                   top: '100%',
-                  left: 0,
+                  right: 0,
                   marginTop: 4,
                   backgroundColor: '#bdb5b5',
                   border: '1px solid #260000',
@@ -474,9 +475,14 @@ const UniversesList = ({
             universes.map((universe) => {
               const isActive = universe.slug === activeUniverseSlug;
               const resolvedSource = universe.sourceOfTruth || universe.raw?.sourceOfTruth || universe.storage?.primary?.type || null;
-              const nodeCount = universe.nodeCount || universe.raw?.nodeCount || universe.metadata?.nodeCount || universe.raw?.metadata?.nodeCount || 0;
-              const connectionCount = universe.connectionCount || universe.raw?.connectionCount || universe.metadata?.connectionCount || universe.raw?.metadata?.connectionCount || 0;
-              const graphCount = universe.graphCount || universe.raw?.graphCount || universe.metadata?.graphCount || universe.raw?.metadata?.graphCount || 0;
+              const storedNodeCount = universe.nodeCount || universe.raw?.nodeCount || universe.metadata?.nodeCount || universe.raw?.metadata?.nodeCount || 0;
+              const storedConnectionCount = universe.connectionCount || universe.raw?.connectionCount || universe.metadata?.connectionCount || universe.raw?.metadata?.connectionCount || 0;
+              const storedGraphCount = universe.graphCount || universe.raw?.graphCount || universe.metadata?.graphCount || universe.raw?.metadata?.graphCount || 0;
+
+              // For the active universe, use live Zustand-derived metrics
+              const nodeCount = (isActive && liveMetrics) ? liveMetrics.nodeCount : storedNodeCount;
+              const connectionCount = (isActive && liveMetrics) ? liveMetrics.connectionCount : storedConnectionCount;
+              const graphCount = (isActive && liveMetrics) ? liveMetrics.graphCount : storedGraphCount;
 
               return (
                 <div

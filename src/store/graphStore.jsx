@@ -498,6 +498,7 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
     universeLoadingError: null,
     hasUniverseFile: false,
     _isLoadingUniverse: false, // Internal lock to prevent concurrent loads
+    _universeSlug: null, // Identity stamp: which universe this state belongs to
 
     // Storage mode settings
     storageMode: 'hybrid', // 'local', 'git', 'hybrid'

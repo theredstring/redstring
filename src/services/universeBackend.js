@@ -632,6 +632,7 @@ class UniverseBackend {
 
     if (this.storeOperations?.loadUniverseFromFile) {
       const emptyState = this.createEmptyState();
+      emptyState._universeSlug = 'universe';
       try {
         this.storeOperations.loadUniverseFromFile(emptyState);
         umLog('[UniverseBackend] Initialized graph store with empty state for safe default universe');
@@ -1652,6 +1653,13 @@ class UniverseBackend {
       const localSaveAdapter = {
         saveToFile: async (state, showSuccess = true) => {
           const slug = this.activeUniverseSlug;
+
+          // GUARD: Reject stale saves from a different universe
+          if (state?._universeSlug && slug && state._universeSlug !== slug) {
+            umWarn(`[UniverseBackend] Rejected stale save: state belongs to "${state._universeSlug}" but active is "${slug}"`);
+            return false;
+          }
+
           const universe = slug ? this.getUniverse(slug) : null;
 
           if (universe?.localFile?.enabled) {
@@ -2217,6 +2225,7 @@ class UniverseBackend {
     if (result?.storeState) {
       if (this.storeOperations?.loadUniverseFromFile) {
         umLog('[UniverseBackend] Loading new universe data into graph store...');
+        result.storeState._universeSlug = key;
         try {
           const success = this.storeOperations.loadUniverseFromFile(result.storeState);
           if (success) {
@@ -2660,6 +2669,25 @@ class UniverseBackend {
       }
     } catch (error) {
       umWarn('[UniverseBackend] Browser storage cleanup failed:', error);
+    }
+  }
+
+  /**
+   * Delete a specific browser storage entry by key (cleanup on universe deletion)
+   */
+  async deleteBrowserStorageEntry(storageKey) {
+    try {
+      const db = await this.openBrowserDB();
+      const tx = db.transaction(['universes'], 'readwrite');
+      tx.objectStore('universes').delete(storageKey);
+      await new Promise((resolve, reject) => {
+        tx.oncomplete = () => resolve();
+        tx.onerror = () => reject(tx.error);
+      });
+      db.close();
+      umLog(`[UniverseBackend] Cleaned up browser storage entry: ${storageKey}`);
+    } catch (error) {
+      umWarn('[UniverseBackend] Failed to clean up browser storage entry:', error);
     }
   }
 
@@ -3755,6 +3783,7 @@ class UniverseBackend {
       // Ensure the graph store is properly initialized with empty state
       if (this.storeOperations?.loadUniverseFromFile) {
         const emptyState = this.createEmptyState();
+        emptyState._universeSlug = slug;
         this.storeOperations.loadUniverseFromFile(emptyState);
         umLog('[UniverseBackend] Graph store initialized with empty state for new active universe');
       }
@@ -3781,13 +3810,9 @@ class UniverseBackend {
   /**
    * Delete universe
    */
-  deleteUniverse(slug) {
+  async deleteUniverse(slug) {
     if (!this.isInitialized) {
-      this.initialize();
-    }
-
-    if (this.universes.size <= 1) {
-      throw new Error('Cannot delete the last universe');
+      await this.initialize();
     }
 
     const resolved = this.resolveUniverseEntry(slug);
@@ -3796,35 +3821,48 @@ class UniverseBackend {
     }
     const { key, universe } = resolved;
 
+    const isDeletingActive = (this.activeUniverseSlug === key);
+
     // Remove engine first
     this.removeGitSyncEngine(slug);
 
-    // Identify next universe BEFORE deleting
-    let nextSlug = null;
-    if (this.activeUniverseSlug === key) {
-      const allSlugs = Array.from(this.universes.keys());
-      const idx = allSlugs.indexOf(key);
-      // Pick next or previous, or first available
-      nextSlug = allSlugs.find(s => s !== key);
+    // CRITICAL: Cancel pending saves BEFORE deletion to prevent stale data
+    // from being written to the next universe's file during the async switch gap
+    if (isDeletingActive) {
+      try {
+        const { saveCoordinator } = await import('../backend/sync/index.js');
+        if (saveCoordinator) {
+          saveCoordinator.cancelPendingSaves();
+        }
+      } catch (e) {
+        umWarn('[UniverseBackend] Could not cancel pending saves:', e);
+      }
     }
 
     // Delete from universes
     this.universes.delete(key);
-    this.fileHandles.delete(key); // Remove file handle reference
+    this.fileHandles.delete(key);
 
     this.saveToStorage();
     this.notifyStatus('info', `Deleted universe: ${universe.name}`);
 
-    // If we deleted the active universe, switch to the next one
-    // CRITICAL: Must use switchActiveUniverse to LOAD the new universe's data
-    // Pass saveCurrent: false because the old active universe is already deleted
-    if (nextSlug) {
-      umLog(`[UniverseBackend] Active universe deleted, switching to: ${nextSlug}`);
-      // We must handle this async, but deleteUniverse is sync-ish in signature typically.
-      // However, switchActiveUniverse is async. We catch errors to prevent crashing.
-      this.switchActiveUniverse(nextSlug, { saveCurrent: false }).catch(err => {
-        umError('[UniverseBackend] Failed to switch universe after deletion:', err);
+    // Clean up browser storage for deleted universe
+    if (universe.browserStorage?.key) {
+      this.deleteBrowserStorageEntry(universe.browserStorage.key).catch(err => {
+        umWarn('[UniverseBackend] Browser storage cleanup failed:', err);
       });
+    }
+
+    // If we deleted the active universe, switch to another or create a fresh one
+    if (isDeletingActive) {
+      if (this.universes.size > 0) {
+        const nextSlug = Array.from(this.universes.keys())[0];
+        umLog(`[UniverseBackend] Active universe deleted, switching to: ${nextSlug}`);
+        await this.switchActiveUniverse(nextSlug, { saveCurrent: false });
+      } else {
+        umLog('[UniverseBackend] Last universe deleted, creating fresh blank universe');
+        await this.createUniverse('Untitled Universe');
+      }
     }
   }
 

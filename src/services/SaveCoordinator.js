@@ -523,6 +523,18 @@ class SaveCoordinator {
     }
   }
 
+  // Cancel all pending saves and clear stale state.
+  // Used during universe switching/deletion to prevent cross-contamination.
+  cancelPendingSaves() {
+    if (this.saveTimer) { clearTimeout(this.saveTimer); this.saveTimer = null; }
+    if (this.workerTimer) { clearTimeout(this.workerTimer); this.workerTimer = null; }
+    this.pendingHash = null;
+    this.pendingString = null;
+    this.pendingRedstringData = null;
+    this.lastState = null;
+    this.isDirty = false;
+  }
+
   // Check if there are unsaved changes (for immediate UI feedback)
   hasUnsavedChanges() {
     return this.isDirty || (this.pendingHash !== null);
