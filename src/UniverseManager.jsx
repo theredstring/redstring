@@ -3311,8 +3311,10 @@ const UniverseManager = ({ variant = 'panel', onRequestClose }) => {
       if (!clientId) throw new Error('GitHub OAuth client ID not configured');
 
       const stateValue = Math.random().toString(36).slice(2);
-      const redirectUri = universeManagerService.getOAuthRedirectUri();
       const scopes = 'repo';
+
+      // Use protocol handler for Electron, localhost for browser
+      const redirectUri = isElectron() ? 'redstring://auth' : universeManagerService.getOAuthRedirectUri();
 
       const authUrl = `https://github.com/login/oauth/authorize?client_id=${encodeURIComponent(
         clientId
@@ -3338,7 +3340,11 @@ const UniverseManager = ({ variant = 'panel', onRequestClose }) => {
         const tokenResp = await oauthFetch('/api/github/oauth/callback', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ code: result.code, state: result.state })
+          body: JSON.stringify({
+            code: result.code,
+            state: result.state,
+            redirect_uri: redirectUri  // Required by OAuth 2.0 spec
+          })
         });
 
         if (!tokenResp.ok) {
