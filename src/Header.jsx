@@ -1,10 +1,10 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { HEADER_HEIGHT } from './constants';
 import RedstringMenu from './RedstringMenu';
 import { Bookmark, Plus, ScanSearch, HelpCircle, Bug, Settings, Search } from 'lucide-react';
 import HeaderGraphTab from './HeaderGraphTab';
 import { showContextMenu } from './components/GlobalContextMenu';
-import { getTextColor } from './utils/colorUtils.js';
+import { getTextColor, hexToHsl, hslToHex } from './utils/colorUtils.js';
 
 // Import all logo states
 import logo1 from './assets/redstring_button/header_logo_1.svg';
@@ -257,6 +257,18 @@ const Header = ({
 
   const activeGraph = headerGraphs.find(g => g.isActive);
 
+  // Derive header colors from active graph's node color
+  const { headerBg, headerAccent } = useMemo(() => {
+    const fallbackBg = '#260000';
+    const fallbackAccent = '#7A0000';
+    if (!activeGraph?.color) return { headerBg: fallbackBg, headerAccent: fallbackAccent };
+    const { h, s } = hexToHsl(activeGraph.color);
+    return {
+      headerBg: hslToHex(h, Math.min(s, 100), 7.5),
+      headerAccent: hslToHex(h, Math.min(s, 100), 24),
+    };
+  }, [activeGraph?.color]);
+
   // Keep consistent order - split the original array around the active graph
   const activeIndex = headerGraphs.findIndex(g => g.isActive);
   const leftGraphs = activeIndex > 0 ? headerGraphs.slice(0, activeIndex) : [];
@@ -466,7 +478,7 @@ const Header = ({
         ref={headerRef}
         style={{
           height: `${HEADER_HEIGHT}px`,
-          backgroundColor: '#260000',
+          backgroundColor: headerBg,
           color: '#bdb5b5',
           fontFamily: "'EmOne', sans-serif",
           display: 'flex',
@@ -548,7 +560,7 @@ const Header = ({
       ref={headerRef}
       style={{
         height: `${HEADER_HEIGHT}px`,
-        backgroundColor: '#260000',
+        backgroundColor: headerBg,
         color: '#bdb5b5',
         fontFamily: "'EmOne', sans-serif",
         display: 'flex',

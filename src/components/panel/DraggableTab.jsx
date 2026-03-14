@@ -1,14 +1,15 @@
-import React, { useRef, useEffect } from 'react';
+import React, { useRef, useEffect, useMemo } from 'react';
 import { useDrag, useDrop } from 'react-dnd';
 import { getEmptyImage } from 'react-dnd-html5-backend';
 import { XCircle } from 'lucide-react';
 import { PANEL_CLOSE_ICON_SIZE } from '../../constants';
+import { getTextColor, hexToHsl, hslToHex } from '../../utils/colorUtils';
 
 const ItemTypes = {
   TAB: 'tab'
 };
 
-const DraggableTab = ({ tab, index, displayTitle, dragItemTitle, moveTabAction, activateTabAction, closeTabAction }) => {
+const DraggableTab = ({ tab, index, displayTitle, dragItemTitle, moveTabAction, activateTabAction, closeTabAction, nodeColor }) => {
   const ref = useRef(null);
 
   const [, drop] = useDrop({
@@ -59,7 +60,21 @@ const DraggableTab = ({ tab, index, displayTitle, dragItemTitle, moveTabAction, 
   const opacity = isDragging ? 0.4 : 1;
   const cursorStyle = isDragging ? 'grabbing' : 'pointer';
   const isActive = tab.isActive;
-  const bg = isActive ? '#bdb5b5' : '#979090';
+
+  // Derive tab colors from the node's color
+  const bg = useMemo(() => {
+    if (!nodeColor) return isActive ? '#bdb5b5' : '#979090';
+    const { h, s, l } = hexToHsl(nodeColor);
+    // Active: use node color directly; inactive: desaturate to 35% and lighten
+    return isActive
+      ? nodeColor
+      : hslToHex(h, Math.max(s * 0.35, 3), Math.min(l + 35, 85));
+  }, [nodeColor, isActive]);
+
+  const textColor = useMemo(() => {
+    if (!nodeColor) return '#260000';
+    return getTextColor(bg);
+  }, [nodeColor, bg]);
 
   drag(drop(ref));
 
@@ -74,7 +89,7 @@ const DraggableTab = ({ tab, index, displayTitle, dragItemTitle, moveTabAction, 
         borderTopRightRadius: '10px',
         borderBottomLeftRadius: 0,
         borderBottomRightRadius: 0,
-        color: '#260000',
+        color: textColor,
         fontWeight: 'bold',
         fontSize: '0.9rem',
         fontFamily: "'EmOne', sans-serif",
@@ -87,7 +102,7 @@ const DraggableTab = ({ tab, index, displayTitle, dragItemTitle, moveTabAction, 
         maxWidth: '150px',
         minWidth: '60px',
         flexShrink: 0,
-        transition: 'opacity 0.1s ease'
+        transition: 'background-color 0.2s ease, color 0.2s ease, opacity 0.1s ease'
       }}
       onClick={() => activateTabAction(index)}
     >
@@ -105,16 +120,17 @@ const DraggableTab = ({ tab, index, displayTitle, dragItemTitle, moveTabAction, 
         style={{
           marginLeft: 'auto',
           cursor: 'pointer',
-          color: '#5c5c5c',
-          zIndex: 2
+          color: textColor,
+          zIndex: 2,
+          minWidth: `${PANEL_CLOSE_ICON_SIZE}px !important`,
+          minHeight: `${PANEL_CLOSE_ICON_SIZE}px !important`,
+          flexShrink: 0
         }}
         onClick={(e) => {
           e.stopPropagation();
           console.log('[DraggableTab Close Click] Tab object:', tab);
           closeTabAction(tab.nodeId);
         }}
-        onMouseEnter={(e) => e.currentTarget.style.color = '#260000'}
-        onMouseLeave={(e) => e.currentTarget.style.color = '#5c5c5c'}
       />
     </div>
   );

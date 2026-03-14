@@ -191,6 +191,27 @@ class SaveCoordinator {
         return;
       }
 
+      // Skip save processing for load operations - loading a file should not trigger a save.
+      // We still update the state reference and clear any pending save so the loaded state
+      // becomes the new baseline (the next real edit will compute a fresh hash against it).
+      if (changeContext.type === 'load') {
+        this.nextStateToProcess = newState;
+        this.lastSaveHash = null;
+        this.pendingHash = null;
+        this.pendingString = null;
+        this.pendingRedstringData = null;
+        this.isDirty = false;
+        if (this.saveTimer) {
+          clearTimeout(this.saveTimer);
+          this.saveTimer = null;
+        }
+        if (this.workerTimer) {
+          clearTimeout(this.workerTimer);
+          this.workerTimer = null;
+        }
+        return;
+      }
+
       // Update global interaction state based on context
       // Track drag, pan, pinch, and animation states
       const isInteracting = changeContext.isDragging === true || 

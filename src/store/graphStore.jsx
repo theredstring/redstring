@@ -3730,6 +3730,9 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
           edges: storeState.edges?.size || 0
         });
 
+        // Mark this as a load operation so SaveCoordinator doesn't treat it as a new edit
+        api.setChangeContext({ type: 'load' });
+
         set({
           ...storeState,
           isUniverseLoaded: true,

@@ -41,6 +41,7 @@ import { knowledgeFederation } from './services/knowledgeFederation.js';
 import DuplicateManager from './components/DuplicateManager.jsx';
 import { showContextMenu } from './components/GlobalContextMenu.jsx';
 import { normalizeToCandidate, candidateToConcept } from './services/candidates.js';
+import { getTextColor, hexToHsl, hslToHex } from './utils/colorUtils.js';
 import DraggableTab from './components/panel/DraggableTab.jsx';
 import SavedNodeItem from './components/panel/items/SavedNodeItem.jsx';
 import AllThingsNodeItem from './components/panel/items/AllThingsNodeItem.jsx';
@@ -1965,7 +1966,22 @@ const Panel = memo(forwardRef(
                 {isExpanded && (() => {
                   const tabs = rightPanelTabs;
                   const isActive = tabs[0]?.isActive;
-                  const bg = isActive ? '#bdb5b5' : '#979090';
+                  // Derive color from the defining node of the active graph
+                  const activeGraph = graphsMap.get(activeGraphId);
+                  const definingNodeId = activeGraph?.definingNodeIds?.[0];
+                  const definingNodeColor = definingNodeId ? nodePrototypesMap.get(definingNodeId)?.color : null;
+                  let bg;
+                  if (definingNodeColor) {
+                    if (isActive) {
+                      bg = definingNodeColor;
+                    } else {
+                      const { h, s, l } = hexToHsl(definingNodeColor);
+                      bg = hslToHex(h, Math.max(s * 0.20, 3), Math.min(l + 35, 85));
+                    }
+                  } else {
+                    bg = isActive ? '#bdb5b5' : '#979090';
+                  }
+                  const iconColor = definingNodeColor ? getTextColor(bg) : '#260000';
                   return (
                     <div
                       title="Home"
@@ -1982,11 +1998,12 @@ const Panel = memo(forwardRef(
                         cursor: 'pointer',
                         backgroundColor: bg,
                         flexShrink: 0,
-                        zIndex: 2
+                        zIndex: 2,
+                        transition: 'background-color 0.2s ease'
                       }}
                       onClick={() => activateRightPanelTab(0)}
                     >
-                      <Info size={22} color="#260000" />
+                      <Info size={22} color={iconColor} />
                     </div>
                   );
                 })()}
@@ -2017,7 +2034,8 @@ const Panel = memo(forwardRef(
                     >
                       {/* Map ONLY node tabs (index > 0) - get tabs non-reactively */}
                       {rightPanelTabs.slice(1).map((tab, i) => { // Use different index variable like `i`
-                        const nodeCurrentName = nodePrototypesMap.get(tab.nodeId)?.name || tab.title; // Get current name for display and drag
+                        const nodeProto = nodePrototypesMap.get(tab.nodeId);
+                        const nodeCurrentName = nodeProto?.name || tab.title; // Get current name for display and drag
                         return (
                           <DraggableTab
                             key={tab.nodeId} // Use nodeId as key
@@ -2028,6 +2046,7 @@ const Panel = memo(forwardRef(
                             moveTabAction={moveRightPanelTab}
                             activateTabAction={activateRightPanelTab}
                             closeTabAction={closeRightPanelTab}
+                            nodeColor={nodeProto?.color}
                           />
                         );
                       })}
