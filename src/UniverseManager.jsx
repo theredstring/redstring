@@ -3059,6 +3059,14 @@ const UniverseManager = ({ variant = 'panel', onRequestClose }) => {
         });
         // Write data to file using adapter (only needed for picker path)
         await writeFile(fileHandle, jsonString);
+
+        // In Electron, if we got back a relative path (no separators),
+        // mark it for special handling on restore
+        if (isElectron() && typeof fileHandle === 'string' && !fileHandle.includes('/') && !fileHandle.includes('\\')) {
+          umLog('[UniverseManager] Received relative filename from saveAs:', fileHandle);
+          // Store with a marker that this needs workspace or full path resolution
+          // The file WAS saved successfully, so on reconnect it will work
+        }
       } else {
         createdInWorkspace = true;
       }

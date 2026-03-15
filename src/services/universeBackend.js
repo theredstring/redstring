@@ -1017,36 +1017,49 @@ class UniverseBackend {
         } else if (result?.needsReconnect) {
           umLog(`[UniverseBackend] File handle for ${universeSlug} needs reconnection: ${result.message}`);
 
-          // If file is stored as relative path, try workspace folder as fallback
+          // If file is stored as relative filename, try to find it in common locations
           if (isElectron() && metadata?.displayPath && !metadata.displayPath.includes('/') && !metadata.displayPath.includes('\\') && metadata.fileName) {
-            umLog(`[UniverseBackend] Relative path detected for ${universeSlug}, attempting workspace lookup: ${metadata.displayPath}`);
-            try {
-              const { getWorkspaceHandle } = await import('./workspaceFolderService.js');
-              const workspaceHandle = await getWorkspaceHandle();
-              if (workspaceHandle) {
-                try {
-                  const fileHandle = await workspaceHandle.getFileHandle(metadata.fileName);
-                  // Workspace file found - we need to get its path
-                  // For Electron, we'll store the workspace-relative path
-                  this.fileHandles.set(universeSlug, fileHandle);
+            umLog(`[UniverseBackend] Relative filename detected for ${universeSlug}: ${metadata.displayPath}. Attempting to locate file...`);
 
-                  await this.updateUniverse(universeSlug, {
-                    localFile: {
-                      ...universe.localFile,
-                      displayPath: `workspace:${metadata.fileName}`,
-                      fileHandleStatus: 'connected',
-                      unavailableReason: null
-                    }
-                  });
-                  this.saveToStorage();
-                  umLog(`[UniverseBackend] Found file in workspace for ${universeSlug}: ${metadata.fileName}`);
-                  restoredAny = true;
-                } catch (err) {
-                  umLog(`[UniverseBackend] File not found in workspace for ${universeSlug}`);
+            // Try multiple possible locations where the file might be
+            const possiblePaths = [
+              metadata.displayPath, // Current directory
+              `${process.env.HOME}/Documents/${metadata.displayPath}`, // Documents folder
+              `${process.env.HOME}/Documents/Redstring/${metadata.displayPath}`, // Redstring subfolder
+              `${process.env.HOME}/Downloads/${metadata.displayPath}`, // Downloads folder
+            ];
+
+            let foundPath = null;
+            for (const testPath of possiblePaths) {
+              try {
+                const { fileExists: checkFileExists } = await import('../utils/fileAccessAdapter.js');
+                const exists = await checkFileExists(testPath);
+                if (exists) {
+                  umLog(`[UniverseBackend] Found file at: ${testPath}`);
+                  foundPath = testPath;
+                  break;
                 }
+              } catch (err) {
+                // Continue searching
               }
-            } catch (err) {
-              umLog(`[UniverseBackend] Workspace lookup failed for ${universeSlug}:`, err);
+            }
+
+            if (foundPath) {
+              this.fileHandles.set(universeSlug, foundPath);
+              await this.updateUniverse(universeSlug, {
+                localFile: {
+                  ...universe.localFile,
+                  displayPath: foundPath,
+                  path: foundPath,
+                  fileHandleStatus: 'connected',
+                  unavailableReason: null
+                }
+              });
+              this.saveToStorage();
+              umLog(`[UniverseBackend] Successfully located file for ${universeSlug}`);
+              restoredAny = true;
+            } else {
+              umLog(`[UniverseBackend] Could not locate file "${metadata.displayPath}" for ${universeSlug}. Will need reconnection.`);
             }
           }
         } else if (result?.needsPermission) {
