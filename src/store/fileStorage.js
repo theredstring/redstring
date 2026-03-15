@@ -9,6 +9,9 @@ import { v4 as uuidv4 } from 'uuid';
 import { CONNECTION_DEFAULT_COLOR } from '../constants.js';
 import { isElectron, pickFile, pickSaveLocation, readFile, writeFile } from '../utils/fileAccessAdapter.js';
 
+// Re-export these for use by other modules (e.g., LeftAIView.jsx)
+export { isElectron, readFile, writeFile };
+
 // NO UNIVERSE MANAGER IMPORT - This module must be standalone to avoid circular dependencies
 // This is a legacy compatibility layer that doesn't need universeManager access
 
