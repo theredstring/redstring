@@ -376,7 +376,18 @@ ipcMain.handle('file:saveAs', async (event, options = {}) => {
     throw new Error('Save dialog cancelled');
   }
 
-  return result.filePath;
+  // Validate and ensure we have an absolute path
+  let filePath = result.filePath;
+
+  // If somehow we got a relative path, make it absolute
+  if (filePath && !path.isAbsolute(filePath)) {
+    console.warn('[Electron] saveAs returned relative path, resolving:', filePath);
+    filePath = path.resolve(defaultPath, '..', filePath);
+    console.log('[Electron] Resolved to absolute path:', filePath);
+  }
+
+  console.log('[Electron] saveAs returning path:', filePath);
+  return filePath;
 });
 
 ipcMain.handle('file:read', async (event, filePath) => {

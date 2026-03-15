@@ -79,7 +79,6 @@ const UniversesList = ({
   onLoadFromLocal,
   onLoadFromRepo,
   onGrantLocalPermission,
-  onShowLocalFileInFolder,
   isSlim = false
 }) => {
   // No collapsing - active universe is always expanded, others show compact view
@@ -773,17 +772,6 @@ const UniversesList = ({
                                         gap: isSlim ? 2 : 4,
                                         flexShrink: 0
                                       }}>
-                                        {onShowLocalFileInFolder && (
-                                          <PanelIconButton
-                                            icon={FolderOpen}
-                                            size={isSlim ? 16 : 18}
-                                            onClick={(e) => {
-                                              e.stopPropagation();
-                                              onShowLocalFileInFolder(universe.slug);
-                                            }}
-                                            title="Show in folder"
-                                          />
-                                        )}
                                         {onDownloadLocalFile && (
                                           <PanelIconButton
                                             icon={Download}

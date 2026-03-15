@@ -1017,43 +1017,20 @@ class UniverseBackend {
         } else if (result?.needsReconnect) {
           umLog(`[UniverseBackend] File handle for ${universeSlug} needs reconnection: ${result.message}`);
 
-          // If file is stored as relative filename, try to locate it
+          // If file is stored as relative filename, try to locate it (Electron only)
           if (isElectron() && metadata?.displayPath && !metadata.displayPath.includes('/') && !metadata.displayPath.includes('\\') && metadata.fileName) {
             umLog(`[UniverseBackend] Relative filename detected for ${universeSlug}: ${metadata.displayPath}. Attempting to locate file...`);
 
             const { fileExists: checkFileExists } = await import('../utils/fileAccessAdapter.js');
             let foundPath = null;
 
-            // Strategy 1: Try workspace folder first (if configured)
+            // Search common Electron locations
             try {
-              const { getWorkspaceHandle } = await import('./workspaceFolderService.js');
-              const wsHandle = await getWorkspaceHandle();
-              if (wsHandle) {
-                try {
-                  // Get workspace path and check if file exists there
-                  const wsFile = await wsHandle.getFile();
-                  const wsPath = wsFile.path || wsFile.webkitRelativePath;
-                  if (wsPath) {
-                    const fullPath = `${wsPath.replace(/\/$/, '')}/${metadata.displayPath}`;
-                    const exists = await checkFileExists(fullPath);
-                    if (exists) {
-                      foundPath = fullPath;
-                      umLog(`[UniverseBackend] Found file in workspace: ${foundPath}`);
-                    }
-                  }
-                } catch (err) {
-                  // Workspace lookup failed, continue to other locations
-                }
-              }
-            } catch (err) {
-              // Continue to other locations
-            }
-
-            // Strategy 2: If not in workspace, try other common locations
-            if (!foundPath) {
+              const paths = await window.electron.storage.getPaths();
               const possiblePaths = [
-                metadata.displayPath, // Current directory
-                `${process.env.HOME}/Downloads/${metadata.displayPath}`, // Downloads
+                `${paths.documents}/${metadata.displayPath}`, // Default Redstring documents folder
+                `${paths.userData}/${metadata.displayPath}`, // App data folder
+                metadata.displayPath, // Current working directory
               ];
 
               for (const testPath of possiblePaths) {
@@ -1068,6 +1045,8 @@ class UniverseBackend {
                   // Continue to next path
                 }
               }
+            } catch (err) {
+              umWarn('[UniverseBackend] Failed to get Electron paths:', err);
             }
 
             if (foundPath) {
