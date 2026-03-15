@@ -187,8 +187,8 @@ async function enrichNodeWithWikipedia(nodeName, _graphId, options = {}) {
     const nodeProto = store.nodePrototypes.get(targetNodeProtoId);
     const updates = buildEnrichmentUpdates(nodeProto, searchResult, confidence);
 
-    // Fetch image for single-node enrichment
-    const imgUrl = searchResult.page.thumbnail || searchResult.page.originalImage;
+    // Fetch image — prefer thumbnail to avoid loading huge originalImage
+    const imgUrl = searchResult.page.thumbnail;
     if (imgUrl && !nodeProto.imageSrc) {
       const imageData = await fetchImageAsDataUrl(imgUrl, nodeName);
       if (imageData) {
@@ -239,25 +239,27 @@ function buildEnrichmentUpdates(nodeProto, searchResult, confidence) {
 }
 
 /**
- * Fetch an image URL, resize to a small thumbnail via canvas, and return as data URL.
- * Resizing to ~200px wide JPEG keeps each image at ~15-30KB instead of 500KB+.
- * This prevents memory crashes when enriching 10+ nodes in a batch.
- * Returns { imageSrc, thumbnailSrc, imageAspectRatio } or null.
+ * Fetch a Wikipedia image URL and produce two data URLs:
+ *   - imageSrc: full fetched resolution as JPEG at 85% (for panel display)
+ *   - thumbnailSrc: resized to 250px wide JPEG at 70% (for canvas nodes)
+ *
+ * IMPORTANT: For batch enrichment, only pass Wikipedia `thumbnail` URLs, NOT
+ * `originalImage`. Original images can be 4000px+ which decodes to 48MB+ of
+ * native pixel memory per image — processing 10+ in a batch causes V8 OOM.
  */
 async function fetchImageAsDataUrl(imgUrl, nodeName) {
+  let rawUrl = null;
   try {
     const response = await fetch(imgUrl, { mode: 'cors' });
     if (!response.ok) return null;
 
     const blob = await response.blob();
-    // Skip truly massive images (>5MB raw) — even loading them into an Image can crash
-    if (blob.size > 5 * 1024 * 1024) {
-      console.log(`[Auto-Enrich] ⏭️ "${nodeName}" image too large to process (${(blob.size / 1024 / 1024).toFixed(1)}MB)`);
+    if (blob.size > 2 * 1024 * 1024) {
+      console.log(`[Auto-Enrich] ⏭️ "${nodeName}" image too large (${(blob.size / 1024 / 1024).toFixed(1)}MB)`);
       return null;
     }
 
-    // Load into Image element to get dimensions
-    const rawUrl = URL.createObjectURL(blob);
+    rawUrl = URL.createObjectURL(blob);
     const img = await new Promise((resolve, reject) => {
       const i = new Image();
       i.onload = () => resolve(i);
@@ -265,28 +267,40 @@ async function fetchImageAsDataUrl(imgUrl, nodeName) {
       i.src = rawUrl;
     });
 
-    const aspectRatio = img.naturalHeight / img.naturalWidth || 1;
+    const natW = img.naturalWidth;
+    const natH = img.naturalHeight;
+    const aspectRatio = natH / natW || 1;
 
-    // Resize to max 250px wide via canvas, output as JPEG at 70% quality
-    const MAX_WIDTH = 250;
-    const scale = Math.min(1, MAX_WIDTH / img.naturalWidth);
-    const w = Math.round(img.naturalWidth * scale);
-    const h = Math.round(img.naturalHeight * scale);
+    // Panel image: keep at fetched size (Wikipedia thumbnails are ~320px)
+    const panelCanvas = document.createElement('canvas');
+    panelCanvas.width = natW;
+    panelCanvas.height = natH;
+    panelCanvas.getContext('2d').drawImage(img, 0, 0);
+    const imageSrc = panelCanvas.toDataURL('image/jpeg', 0.85);
 
-    const canvas = document.createElement('canvas');
-    canvas.width = w;
-    canvas.height = h;
-    const ctx = canvas.getContext('2d');
-    ctx.drawImage(img, 0, 0, w, h);
+    // Canvas thumbnail: resize to 250px wide
+    const thumbScale = Math.min(1, 250 / natW);
+    const tw = Math.round(natW * thumbScale);
+    const th = Math.round(natH * thumbScale);
+    const thumbCanvas = document.createElement('canvas');
+    thumbCanvas.width = tw;
+    thumbCanvas.height = th;
+    thumbCanvas.getContext('2d').drawImage(img, 0, 0, tw, th);
+    const thumbnailSrc = thumbCanvas.toDataURL('image/jpeg', 0.7);
 
-    // Release the object URL immediately
+    // Aggressive cleanup — release native pixel memory immediately
     URL.revokeObjectURL(rawUrl);
+    rawUrl = null;
+    img.src = '';
+    panelCanvas.width = 0;
+    panelCanvas.height = 0;
+    thumbCanvas.width = 0;
+    thumbCanvas.height = 0;
 
-    const dataUrl = canvas.toDataURL('image/jpeg', 0.7);
-
-    console.log(`[Auto-Enrich] ✅ "${nodeName}" image resized (${w}x${h}, ${(dataUrl.length / 1024).toFixed(0)}KB)`);
-    return { imageSrc: dataUrl, thumbnailSrc: dataUrl, imageAspectRatio: aspectRatio };
+    console.log(`[Auto-Enrich] ✅ "${nodeName}" panel=${natW}x${natH} (${(imageSrc.length / 1024).toFixed(0)}KB), thumb=${tw}x${th} (${(thumbnailSrc.length / 1024).toFixed(0)}KB)`);
+    return { imageSrc, thumbnailSrc, imageAspectRatio: aspectRatio };
   } catch {
+    if (rawUrl) URL.revokeObjectURL(rawUrl);
     return null;
   }
 }
@@ -294,9 +308,9 @@ async function fetchImageAsDataUrl(imgUrl, nodeName) {
 /**
  * Enrich multiple nodes from Wikipedia with memory-safe batching.
  *
- * Phase 1: Fetch all Wikipedia metadata (lightweight, 1 API call each).
- * Phase 2: Fetch images sequentially with size caps.
- * Phase 3: Apply ALL updates to the store in one batch.
+ * Phase 1: Fetch Wikipedia metadata (lightweight, 1 API call each).
+ * Phase 2: Fetch images ONE AT A TIME using only thumbnail URLs (not originalImage).
+ * Phase 3: Apply ALL updates in a SINGLE setState call (one save cycle, not N).
  */
 async function enrichMultipleNodes(nodeNames, _graphId) {
   console.log(`[Auto-Enrich] 🚀 Starting enrichment for ${nodeNames.length} nodes`);
@@ -313,7 +327,6 @@ async function enrichMultipleNodes(nodeNames, _graphId) {
     } catch (err) {
       console.warn(`[Auto-Enrich] ❌ "${nodeName}" lookup failed:`, err.message);
     }
-    // Small delay between API calls for rate limiting
     await new Promise(resolve => setTimeout(resolve, 150));
   }
 
@@ -323,8 +336,8 @@ async function enrichMultipleNodes(nodeNames, _graphId) {
   // Wait for nodes to be fully created in store
   await new Promise(resolve => setTimeout(resolve, 1000));
 
-  // ── Phase 2: Fetch images sequentially ──
-  const pendingUpdates = []; // { protoId, updates }
+  // ── Phase 2: Fetch images sequentially (thumbnail only — never originalImage) ──
+  const pendingUpdates = [];
 
   for (const { nodeName, searchResult, confidence } of matches) {
     const store = useGraphStore.getState();
@@ -343,32 +356,35 @@ async function enrichMultipleNodes(nodeNames, _graphId) {
     const nodeProto = store.nodePrototypes.get(targetProtoId);
     const updates = buildEnrichmentUpdates(nodeProto, searchResult, confidence);
 
-    // Fetch image (thumbnail preferred, 1MB cap)
-    const imgUrl = searchResult.page.thumbnail || searchResult.page.originalImage;
+    // ONLY use thumbnail URL — originalImage can be 4000px+ and OOM the renderer
+    const imgUrl = searchResult.page.thumbnail;
     if (imgUrl && !nodeProto.imageSrc) {
       const imageData = await fetchImageAsDataUrl(imgUrl, nodeName);
       if (imageData) Object.assign(updates, imageData);
-      // Brief pause between image fetches
-      await new Promise(resolve => setTimeout(resolve, 200));
+      // Yield to GC between fetches
+      await new Promise(resolve => setTimeout(resolve, 300));
     }
 
     pendingUpdates.push({ protoId: targetProtoId, updates, nodeName });
   }
 
-  // ── Phase 3: Apply updates to store with breathing room ──
-  console.log(`[Auto-Enrich] 💾 Applying ${pendingUpdates.length} updates to store`);
-  for (let i = 0; i < pendingUpdates.length; i++) {
-    const { protoId, updates, nodeName } = pendingUpdates[i];
-    // Get fresh state each time since previous update mutated it
-    useGraphStore.getState().updateNodePrototype(protoId, (draft) => {
-      Object.assign(draft, updates);
-    });
-    console.log(`[Auto-Enrich] ✅ Applied ${i + 1}/${pendingUpdates.length}: "${nodeName}"`);
-    // Yield to main thread between updates — lets React render + GC run
-    if (i < pendingUpdates.length - 1) {
-      await new Promise(resolve => setTimeout(resolve, 100));
+  // ── Phase 3: Apply ALL updates in a single store mutation ──
+  // One setState = one save cycle. Previously N individual updateNodePrototype
+  // calls triggered N save cycles (each hashing the entire state with all image
+  // data URLs), causing V8 OOM in Electron.
+  console.log(`[Auto-Enrich] 💾 Applying ${pendingUpdates.length} updates in single batch`);
+
+  useGraphStore.setState((state) => {
+    const nextPrototypes = new Map(state.nodePrototypes);
+    for (const { protoId, updates, nodeName } of pendingUpdates) {
+      const existing = nextPrototypes.get(protoId);
+      if (existing) {
+        nextPrototypes.set(protoId, { ...existing, ...updates });
+        console.log(`[Auto-Enrich] ✅ Batched: "${nodeName}"`);
+      }
     }
-  }
+    return { nodePrototypes: nextPrototypes };
+  });
 
   console.log(`[Auto-Enrich] ✅ Enrichment complete: ${pendingUpdates.length}/${nodeNames.length} successful`);
   return pendingUpdates.map(u => ({ status: 'fulfilled', value: { success: true, nodeName: u.nodeName } }));

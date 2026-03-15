@@ -581,19 +581,18 @@ const WikipediaEnrichment = ({ nodeData, onUpdateNode }) => {
 
   const setWikipediaImageFromUrl = async (imageUrl) => {
     if (!imageUrl) return;
+    let rawUrl = null;
     try {
       const response = await fetch(imageUrl, { mode: 'cors' });
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
       const blob = await response.blob();
 
-      // Skip extremely large images (>10MB raw)
-      if (blob.size > 10 * 1024 * 1024) {
+      if (blob.size > 5 * 1024 * 1024) {
         console.warn(`[Wikipedia] Image too large (${(blob.size / 1024 / 1024).toFixed(1)}MB), skipping`);
         return;
       }
 
-      // Load into Image to get dimensions
-      const rawUrl = URL.createObjectURL(blob);
+      rawUrl = URL.createObjectURL(blob);
       const img = await new Promise((resolve, reject) => {
         const i = new Image();
         i.onload = () => resolve(i);
@@ -604,7 +603,7 @@ const WikipediaEnrichment = ({ nodeData, onUpdateNode }) => {
       const aspectRatio = (img.naturalHeight > 0 && img.naturalWidth > 0)
         ? img.naturalHeight / img.naturalWidth : 1;
 
-      // Resize to max 800px wide via canvas to keep data URL manageable
+      // Full image for panel (800px max)
       const MAX_WIDTH = 800;
       const scale = Math.min(1, MAX_WIDTH / img.naturalWidth);
       const w = Math.round(img.naturalWidth * scale);
@@ -613,14 +612,21 @@ const WikipediaEnrichment = ({ nodeData, onUpdateNode }) => {
       const canvas = document.createElement('canvas');
       canvas.width = w;
       canvas.height = h;
-      const ctx = canvas.getContext('2d');
-      ctx.drawImage(img, 0, 0, w, h);
-      URL.revokeObjectURL(rawUrl);
-
+      canvas.getContext('2d').drawImage(img, 0, 0, w, h);
       const dataUrl = canvas.toDataURL('image/jpeg', 0.85);
+
       const thumbSrc = await generateThumbnail(dataUrl, THUMBNAIL_MAX_DIMENSION);
+
+      // Cleanup native memory before triggering store update + save
+      URL.revokeObjectURL(rawUrl);
+      rawUrl = null;
+      img.src = '';
+      canvas.width = 0;
+      canvas.height = 0;
+
       await onUpdateNode({ imageSrc: dataUrl, thumbnailSrc: thumbSrc, imageAspectRatio: aspectRatio });
     } catch (error) {
+      if (rawUrl) URL.revokeObjectURL(rawUrl);
       console.warn('[Wikipedia] Failed to set image from URL:', error);
     }
   };

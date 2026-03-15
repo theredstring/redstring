@@ -667,6 +667,7 @@ export async function* runAgent(userMessage, graphState, config = {}, ensureSche
       // Stream LLM response for this iteration
       // Track what we've yielded to prevent duplicates
       let yieldedChars = 0;
+      const emittedToolStarts = new Set();  // Deduplicate tool_call_start events
 
       for await (const chunk of streamLLM(messages, tools, config, abortSignal)) {
         if (chunk.type === 'text') {
@@ -678,7 +679,14 @@ export async function* runAgent(userMessage, graphState, config = {}, ensureSche
             yield { type: 'response', content: newContent };
           }
         } else if (chunk.type === 'tool_call_start') {
-          console.error('[AgentLoop] Yielding tool_call_start:', chunk.name);
+          // Deduplicate tool_call_start events (LLMClient may emit duplicates during streaming)
+          const dedupKey = chunk.id;
+          if (emittedToolStarts.has(dedupKey)) {
+            console.error('[AgentLoop] ⚠️ Skipping duplicate tool_call_start:', chunk.name, chunk.id);
+            continue;
+          }
+          emittedToolStarts.add(dedupKey);
+          console.error('[AgentLoop] Yielding tool_call_start:', chunk.name, chunk.id);
           yield chunk;
         } else if (chunk.type === 'tool_call') {
           iterationToolCalls.push(chunk);

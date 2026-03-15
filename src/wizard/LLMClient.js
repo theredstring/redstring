@@ -188,21 +188,30 @@ async function* streamOpenRouter(messages, tools, { endpoint, model, apiKey, tem
                       };
                     }
                   }
-                  currentToolCall = { index, id: toolCall.id, function: { name: '', arguments: '' } };
-                  yield {
-                    type: 'tool_call_start',
+                  // New tool detected - initialize with hasYieldedStart flag
+                  currentToolCall = {
+                    index,
                     id: toolCall.id,
-                    name: toolCall.function?.name || ''
+                    function: { name: '', arguments: '' },
+                    hasYieldedStart: false  // Track if we've emitted tool_call_start
                   };
                 }
+
+                // Update name if present
                 if (toolCall.function?.name) {
                   currentToolCall.function.name = toolCall.function.name;
+                }
+
+                // Only yield tool_call_start ONCE when we first get a valid name
+                if (currentToolCall.function.name && !currentToolCall.hasYieldedStart) {
                   yield {
-                    type: 'tool_call_start', // Update the start event with the name once available
+                    type: 'tool_call_start',
                     id: currentToolCall.id,
                     name: currentToolCall.function.name
                   };
+                  currentToolCall.hasYieldedStart = true;
                 }
+
                 if (toolCall.function?.arguments) {
                   currentToolCall.function.arguments += toolCall.function.arguments;
                 }
@@ -569,21 +578,30 @@ async function* streamOpenAI(messages, tools, { endpoint, model, apiKey, tempera
                       };
                     }
                   }
-                  currentToolCall = { index, id: toolCall.id, function: { name: '', arguments: '' } };
-                  yield {
-                    type: 'tool_call_start',
+                  // New tool detected - initialize with hasYieldedStart flag
+                  currentToolCall = {
+                    index,
                     id: toolCall.id,
-                    name: toolCall.function?.name || ''
+                    function: { name: '', arguments: '' },
+                    hasYieldedStart: false  // Track if we've emitted tool_call_start
                   };
                 }
+
+                // Update name if present
                 if (toolCall.function?.name) {
                   currentToolCall.function.name = toolCall.function.name;
+                }
+
+                // Only yield tool_call_start ONCE when we first get a valid name
+                if (currentToolCall.function.name && !currentToolCall.hasYieldedStart) {
                   yield {
                     type: 'tool_call_start',
                     id: currentToolCall.id,
                     name: currentToolCall.function.name
                   };
+                  currentToolCall.hasYieldedStart = true;
                 }
+
                 if (toolCall.function?.arguments) {
                   currentToolCall.function.arguments += toolCall.function.arguments;
                 }
