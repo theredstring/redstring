@@ -1067,18 +1067,29 @@ class UniverseBackend {
 
             if (foundPath) {
               this.fileHandles.set(universeSlug, foundPath);
-              await this.updateUniverse(universeSlug, {
-                localFile: {
-                  ...universe.localFile,
-                  displayPath: foundPath,
-                  path: foundPath,
-                  fileHandleStatus: 'connected',
-                  unavailableReason: null
-                }
-              });
-              this.saveToStorage();
-              umLog(`[UniverseBackend] Successfully located and reconnected file for ${universeSlug}`);
-              restoredAny = true;
+              try {
+                umLog(`[FileHandles] Updating universe ${universeSlug} with found path...`);
+                const updateTimeout = Promise.race([
+                  this.updateUniverse(universeSlug, {
+                    localFile: {
+                      ...universe.localFile,
+                      displayPath: foundPath,
+                      path: foundPath,
+                      fileHandleStatus: 'connected',
+                      unavailableReason: null
+                    }
+                  }),
+                  new Promise((_, reject) =>
+                    setTimeout(() => reject(new Error('updateUniverse timeout after 2s')), 2000)
+                  )
+                ]);
+                await updateTimeout;
+                this.saveToStorage();
+                umLog(`[FileHandles] ✓ Successfully located and reconnected file for ${universeSlug}`);
+                restoredAny = true;
+              } catch (updateErr) {
+                umError(`[FileHandles] ✗ Failed to update universe ${universeSlug}:`, updateErr.message);
+              }
             } else {
               umLog(`[FileHandles] ✗ Could not locate file "${metadata.displayPath}" for ${universeSlug}. File may have been moved or deleted.`);
             }
@@ -1093,7 +1104,9 @@ class UniverseBackend {
         await this.ensureSaveCoordinator();
       }
     } catch (error) {
-      umError(`[FileHandles] ✗ CRITICAL: Failed to restore file handles: ${error.message}`, error);
+      umError(`[FileHandles] ✗ CRITICAL: Failed to restore file handles:`, error);
+      umError(`[FileHandles] Error message: ${error?.message || 'unknown'}`);
+      umError(`[FileHandles] Error stack:`, error?.stack);
     }
   }
 
