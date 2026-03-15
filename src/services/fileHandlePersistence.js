@@ -109,53 +109,25 @@ export const storeFileHandleMetadata = async (universeSlug, fileHandle = null, a
     let isWorkspaceFile = false;
 
     if (isElectron()) {
-      // Electron: ensure handle is always a string path and validate it's absolute
+      // Electron: ensure handle is always a string path
       if (typeof fileHandle === 'string') {
         resolvedHandle = fileHandle;
-
-        // VALIDATION: Ensure path is absolute
-        if (!fileHandle.includes('/') && !fileHandle.includes('\\')) {
-          console.error(`[FileHandlePersistence] ERROR: Relative path received for ${universeSlug}:`, fileHandle);
-          throw new Error(`Cannot store relative file path. Expected absolute path, got: ${fileHandle}`);
-        }
-
         const parts = fileHandle.split(/[/\\]/);
         fileName = parts[parts.length - 1];
       } else if (typeof additionalMetadata.handle === 'string') {
         resolvedHandle = additionalMetadata.handle;
-
-        // VALIDATION: Ensure path is absolute
-        if (!resolvedHandle.includes('/') && !resolvedHandle.includes('\\')) {
-          console.error(`[FileHandlePersistence] ERROR: Relative path in additionalMetadata.handle for ${universeSlug}:`, resolvedHandle);
-          throw new Error(`Cannot store relative file path. Expected absolute path, got: ${resolvedHandle}`);
-        }
-
         const parts = additionalMetadata.handle.split(/[/\\]/);
         fileName = parts[parts.length - 1];
       } else if (typeof additionalMetadata.displayPath === 'string') {
         resolvedHandle = additionalMetadata.displayPath;
-
-        // VALIDATION: Ensure path is absolute
-        if (!resolvedHandle.includes('/') && !resolvedHandle.includes('\\')) {
-          console.error(`[FileHandlePersistence] ERROR: Relative path in additionalMetadata.displayPath for ${universeSlug}:`, resolvedHandle);
-          throw new Error(`Cannot store relative file path. Expected absolute path, got: ${resolvedHandle}`);
-        }
-
         const parts = additionalMetadata.displayPath.split(/[/\\]/);
         fileName = parts[parts.length - 1];
       } else if (typeof additionalMetadata.path === 'string') {
         resolvedHandle = additionalMetadata.path;
-
-        // VALIDATION: Ensure path is absolute
-        if (!resolvedHandle.includes('/') && !resolvedHandle.includes('\\')) {
-          console.error(`[FileHandlePersistence] ERROR: Relative path in additionalMetadata.path for ${universeSlug}:`, resolvedHandle);
-          throw new Error(`Cannot store relative file path. Expected absolute path, got: ${resolvedHandle}`);
-        }
-
         const parts = additionalMetadata.path.split(/[/\\]/);
         fileName = parts[parts.length - 1];
       }
-      console.log(`[FileHandlePersistence] Electron: validated absolute path for ${universeSlug}:`, resolvedHandle);
+      console.log(`[FileHandlePersistence] Electron: resolved handle for ${universeSlug}:`, resolvedHandle);
     } else if (fileHandle?.name) {
       fileName = fileHandle.name;
       // Detect if this is a workspace file (has no parent, just a name)

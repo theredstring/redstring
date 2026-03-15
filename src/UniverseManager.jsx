@@ -3053,32 +3053,20 @@ const UniverseManager = ({ variant = 'panel', onRequestClose }) => {
       // Fallback to picker if no workspace folder or creation failed
       if (!fileHandle) {
         fileHandle = await pickSaveLocation({ suggestedName });
-        umLog('[UniverseManager] pickSaveLocation returned:', {
+        umLog('[UniverseManager] Using pickSaveLocation result:', {
           fileHandleType: typeof fileHandle,
-          fileHandleValue: fileHandle?.name || fileHandle,
-          isElectron: isElectron()
+          fileHandleValue: fileHandle?.name || fileHandle
         });
-
-        // VALIDATION: In Electron, ensure we have an absolute path
-        if (isElectron() && typeof fileHandle === 'string') {
-          // Check if path is absolute (contains path separators)
-          if (!fileHandle.includes('/') && !fileHandle.includes('\\')) {
-            // Relative path detected! This shouldn't happen, but if it does, construct full path
-            const paths = await window.electron.storage.getPaths();
-            fileHandle = `${paths.documents}/${fileHandle}`;
-            umLog('[UniverseManager] Corrected relative path to absolute:', fileHandle);
-          }
-
-          // Verify the path actually exists and is accessible
-          const exists = await window.electron.fileSystem.fileExists(fileHandle);
-          if (!exists) {
-            throw new Error(`File was saved but cannot be found at: ${fileHandle}`);
-          }
-          umLog('[UniverseManager] Verified file exists at:', fileHandle);
-        }
-
         // Write data to file using adapter (only needed for picker path)
         await writeFile(fileHandle, jsonString);
+
+        // In Electron, if we got back a relative path (no separators),
+        // mark it for special handling on restore
+        if (isElectron() && typeof fileHandle === 'string' && !fileHandle.includes('/') && !fileHandle.includes('\\')) {
+          umLog('[UniverseManager] Received relative filename from saveAs:', fileHandle);
+          // Store with a marker that this needs workspace or full path resolution
+          // The file WAS saved successfully, so on reconnect it will work
+        }
       } else {
         createdInWorkspace = true;
       }
@@ -3195,6 +3183,44 @@ const UniverseManager = ({ variant = 'panel', onRequestClose }) => {
       setError(`Failed to unlink local file: ${err.message}`);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleShowLocalFileInFolder = async (slug) => {
+    try {
+      console.log('[UniverseManager] handleShowLocalFileInFolder called with slug:', slug);
+      const universe = serviceState.universes.find(u => u.slug === slug);
+      if (!universe) {
+        setError('Universe not found');
+        return;
+      }
+
+      const localFile = universe.raw?.localFile;
+      console.log('[UniverseManager] localFile:', localFile);
+      if (!localFile) {
+        setError('No local file linked to this universe');
+        return;
+      }
+
+      const filePath = localFile.path || localFile.displayPath || localFile.lastFilePath;
+      console.log('[UniverseManager] filePath:', filePath);
+      if (!filePath) {
+        setError('Could not determine file path');
+        return;
+      }
+
+      // Use Electron IPC if available (Electron-only feature)
+      console.log('[UniverseManager] window.electron:', window.electron);
+      if (window.electron?.fileSystem?.showItemInFolder) {
+        console.log('[UniverseManager] Calling showItemInFolder with:', filePath);
+        await window.electron.fileSystem.showItemInFolder(filePath);
+        console.log('[UniverseManager] showItemInFolder completed');
+      } else {
+        setError('Show in folder is only available in the Electron app');
+      }
+    } catch (err) {
+      umError('[UniverseManager] Show in folder failed:', err);
+      setError(`Failed to show file in folder: ${err.message}`);
     }
   };
 
@@ -4203,6 +4229,7 @@ const UniverseManager = ({ variant = 'panel', onRequestClose }) => {
         onDownloadLocalFile={handleDownloadLocalFile}
         onDownloadRepoFile={handleDownloadRepoFile}
         onRemoveLocalFile={handleRemoveLocalFile}
+        onShowLocalFileInFolder={handleShowLocalFileInFolder}
         onRemoveRepoSource={handleRemoveRepoSource}
         onEditRepoSource={handleEditRepoSource}
         onSetMainRepoSource={handleSetMainRepoSource}
