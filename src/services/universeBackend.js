@@ -1027,32 +1027,10 @@ class UniverseBackend {
             const { fileExists: checkFileExists } = await import('../utils/fileAccessAdapter.js');
             let foundPath = null;
 
-            // Strategy 1: Try workspace folder first (if configured)
-            try {
-              const { getWorkspaceHandle } = await import('./workspaceFolderService.js');
-              const wsHandle = await getWorkspaceHandle();
-              if (wsHandle) {
-                try {
-                  // Get workspace path and check if file exists there
-                  const wsFile = await wsHandle.getFile();
-                  const wsPath = wsFile.path || wsFile.webkitRelativePath;
-                  if (wsPath) {
-                    const fullPath = `${wsPath.replace(/\/$/, '')}/${metadata.displayPath}`;
-                    const exists = await checkFileExists(fullPath);
-                    if (exists) {
-                      foundPath = fullPath;
-                      umLog(`[UniverseBackend] Found file in workspace: ${foundPath}`);
-                    }
-                  }
-                } catch (err) {
-                  // Workspace lookup failed, continue to other locations
-                }
-              }
-            } catch (err) {
-              // Continue to other locations
-            }
+            // Skip workspace folder service in Electron - it's browser-only (uses IndexedDB)
+            // Strategy 1 would be workspace folder, but it doesn't work in Electron
 
-            // Strategy 2: If not in workspace, try other common locations
+            // Strategy 2: Try common Electron and browser locations
             if (!foundPath) {
               const possiblePaths = [
                 metadata.displayPath, // Current directory
