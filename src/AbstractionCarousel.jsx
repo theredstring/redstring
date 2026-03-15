@@ -10,6 +10,7 @@ import {
   getTextColor 
 } from './utils/colorUtils.js';
 import useGraphStore from './store/graphStore.jsx';
+import useImageCache from './services/imageCache.js';
 import './AbstractionCarousel.css';
 
 const LEVEL_SPACING = -30; // Overlapping spacing to create a stacked effect
@@ -183,6 +184,7 @@ const AbstractionCarousel = ({
   
   // Store bindings
   const nodePrototypesMap = useGraphStore((state) => state.nodePrototypes);
+  const imageCacheMap = useImageCache(state => state.images);
   const thingNodeId = useGraphStore((state) => state.thingNodeId);
   const textSettings = useGraphStore((state) => state.textSettings);
 
@@ -300,8 +302,14 @@ const AbstractionCarousel = ({
             textColor = '#EFE8E5';
           }
           
+          // Merge cached thumbnail for auto-enriched nodes
+          const cached = imageCacheMap[nodeId];
+          const imgOverrides = (cached && !node.thumbnailSrc)
+            ? { thumbnailSrc: cached.thumbnailSrc, imageAspectRatio: cached.imageAspectRatio }
+            : {};
           chain.push({
             ...node,
+            ...imgOverrides,
             type: nodeType,
             level: level,
             color: nodeColor,

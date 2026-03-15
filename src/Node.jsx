@@ -459,20 +459,28 @@ const Node = ({
         clipPath={`url(#${clipPathId})`}
       > */}
       {hasThumbnail && (
-        <image
-          className="node-image"
-          // FIX: Use absolute positioning
+        <foreignObject
           x={nodeX + NODE_PADDING}
           y={contentAreaY}
-          // FIX: Use calculated image dimensions
           width={imageWidth}
           height={imageHeight}
-          href={nodeThumbnailSrc}
-          // FIX: Change preserveAspectRatio to 'slice' to make image cover the area
-          preserveAspectRatio="xMidYMid slice"
           clipPath={`url(#${clipPathId})`}
-          style={{ opacity: 1, transform: 'translateZ(0)' }}
-        />
+          style={{ overflow: 'hidden' }}
+        >
+          <img
+            xmlns="http://www.w3.org/1999/xhtml"
+            src={nodeThumbnailSrc}
+            alt=""
+            draggable={false}
+            style={{
+              width: '100%',
+              height: '100%',
+              objectFit: 'cover',
+              display: 'block',
+              pointerEvents: 'none',
+            }}
+          />
+        </foreignObject>
       )}
       {/* </g> */}
 

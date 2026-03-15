@@ -1900,8 +1900,11 @@ const SharedPanelContent = ({
             borderRadius: '6px'
           }}>
             <img
-              src={nodeData.imageSrc || nodeData.semanticMetadata?.wikipediaOriginalImage || nodeData.semanticMetadata?.wikipediaThumbnail}
+              src={nodeData.imageSrc || (nodeData.semanticMetadata?.wikipediaThumbnail
+                ? nodeData.semanticMetadata.wikipediaThumbnail.replace(/\/(\d+)px-/, '/1200px-')
+                : nodeData.semanticMetadata?.wikipediaOriginalImage)}
               alt={nodeData.name}
+              loading="lazy"
               style={{
                 display: 'block',
                 width: '100%',

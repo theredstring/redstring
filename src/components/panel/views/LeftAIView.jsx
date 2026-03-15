@@ -16,6 +16,7 @@ import { applyLayout, FORCE_LAYOUT_DEFAULTS } from '../../../services/graphLayou
 import { getNodeDimensions } from '../../../utils';
 import DruidInstance from '../../../services/DruidInstance.js';
 import { getTextColor } from '../../../utils/colorUtils.js';
+import { queueThumbnailFetch } from '../../../services/imageCache.js';
 import fullBodySvg from '../../../assets/svg/wizard/full_body.svg';
 import headSvg from '../../../assets/svg/wizard/head.svg';
 
@@ -25,6 +26,11 @@ import headSvg from '../../../assets/svg/wizard/head.svg';
  */
 function buildEnrichmentUpdates(nodeProto, searchResult, confidence) {
   const hasExistingDescription = nodeProto.description && nodeProto.description.trim().length > 10;
+
+  // Compute aspect ratio from API-provided thumbnail dimensions (survives save/load)
+  const tw = searchResult.page.thumbnailWidth;
+  const th = searchResult.page.thumbnailHeight;
+  const imageAspectRatio = (tw && th) ? (th / tw) : undefined;
 
   const updates = {
     ...(hasExistingDescription ? {} : { description: searchResult.page.description }),
@@ -36,7 +42,8 @@ function buildEnrichmentUpdates(nodeProto, searchResult, confidence) {
       wikipediaEnriched: true,
       wikipediaEnrichedAt: new Date().toISOString(),
       autoEnriched: true,
-      autoEnrichConfidence: confidence
+      autoEnrichConfidence: confidence,
+      ...(imageAspectRatio ? { imageAspectRatio } : {})
     }
   };
 
@@ -101,10 +108,13 @@ async function enrichNodeWithWikipedia(nodeName, _graphId, options = {}) {
       Object.assign(draft, updates);
     });
 
-    // Queue image fetch for background processing (thumbnail only)
-    const imgUrl = searchResult.page.thumbnail || searchResult.page.originalImage;
-    if (imgUrl && !nodeProto.thumbnailSrc) {
-      queueImageFetch(targetNodeProtoId, imgUrl, nodeName);
+    // Queue thumbnail fetch — creates blob URL for SVG <image> rendering
+    const thumbUrl = searchResult.page.thumbnail;
+    if (thumbUrl && !nodeProto.thumbnailSrc) {
+      const tw = searchResult.page.thumbnailWidth;
+      const th = searchResult.page.thumbnailHeight;
+      const ratio = (tw && th) ? (th / tw) : 1;
+      queueThumbnailFetch(targetNodeProtoId, thumbUrl, ratio, nodeName);
     }
 
     console.log(`[Auto-Enrich] Successfully enriched "${nodeName}"`);
@@ -116,108 +126,9 @@ async function enrichNodeWithWikipedia(nodeName, _graphId, options = {}) {
   }
 }
 
-/**
- * Fetch an image URL and create a 500px PNG thumbnail for canvas rendering.
- * Does NOT store a full-size imageSrc data URL — the panel loads full images
- * lazily from the Wikipedia URL (semanticMetadata.wikipediaOriginalImage/wikipediaThumbnail)
- * to avoid storing multi-MB base64 strings that cause OOM during save serialization.
- */
-async function fetchAndProcessImage(imgUrl, nodeName) {
-  let rawUrl = null;
-  try {
-    const response = await fetch(imgUrl, { mode: 'cors' });
-    if (!response.ok) return null;
-
-    const blob = await response.blob();
-    if (blob.size > 5 * 1024 * 1024) {
-      console.log(`[Image Pipeline] ⏭️ "${nodeName}" too large (${(blob.size / 1024 / 1024).toFixed(1)}MB)`);
-      return null;
-    }
-
-    // Load into Image for aspect ratio + thumbnail only
-    rawUrl = URL.createObjectURL(blob);
-    const img = await new Promise((resolve, reject) => {
-      const i = new Image();
-      i.onload = () => resolve(i);
-      i.onerror = reject;
-      i.src = rawUrl;
-    });
-
-    const natW = img.naturalWidth;
-    const natH = img.naturalHeight;
-    const aspectRatio = natH / natW || 1;
-
-    // 500px PNG thumbnail for canvas (preserves transparency)
-    const thumbScale = Math.min(1, 500 / Math.max(natW, natH));
-    const tw = Math.round(natW * thumbScale);
-    const th = Math.round(natH * thumbScale);
-    const thumbCanvas = document.createElement('canvas');
-    thumbCanvas.width = tw;
-    thumbCanvas.height = th;
-    thumbCanvas.getContext('2d').drawImage(img, 0, 0, tw, th);
-    const thumbnailSrc = thumbCanvas.toDataURL('image/png');
-
-    // Cleanup native memory
-    URL.revokeObjectURL(rawUrl);
-    rawUrl = null;
-    img.src = '';
-    thumbCanvas.width = 0;
-    thumbCanvas.height = 0;
-
-    console.log(`[Image Pipeline] ✅ "${nodeName}" ${natW}x${natH} (${(thumbnailSrc.length / 1024).toFixed(0)}KB thumb)`);
-    return { thumbnailSrc, imageAspectRatio: aspectRatio };
-  } catch {
-    if (rawUrl) URL.revokeObjectURL(rawUrl);
-    return null;
-  }
-}
-
-/**
- * Background image pipeline: processes queued image URLs one at a time,
- * updating individual nodes as each image completes. Runs after enrichment
- * metadata is already applied, so nodes show descriptions/links immediately
- * and images trickle in without blocking or risking OOM.
- */
-let _imageQueue = [];
-let _imageQueueRunning = false;
-
-async function processImageQueue() {
-  if (_imageQueueRunning) return; // already processing
-  _imageQueueRunning = true;
-
-  console.log(`[Image Pipeline] 🚀 Processing ${_imageQueue.length} images in background`);
-
-  while (_imageQueue.length > 0) {
-    const { protoId, imgUrl, nodeName } = _imageQueue.shift();
-
-    // Skip if node already has a thumbnail (e.g. user set one manually)
-    const currentProto = useGraphStore.getState().nodePrototypes.get(protoId);
-    if (currentProto?.thumbnailSrc) {
-      console.log(`[Image Pipeline] ⏭️ "${nodeName}" already has thumbnail, skipping`);
-      continue;
-    }
-
-    const imageData = await fetchAndProcessImage(imgUrl, nodeName);
-    if (imageData) {
-      // Update this single node — one save per image, spread out over time
-      useGraphStore.getState().updateNodePrototype(protoId, (draft) => {
-        Object.assign(draft, imageData);
-      });
-    }
-
-    // Brief yield between images — lets React render the new image + GC run
-    await new Promise(resolve => setTimeout(resolve, 200));
-  }
-
-  _imageQueueRunning = false;
-  console.log(`[Image Pipeline] ✅ Queue complete`);
-}
-
-function queueImageFetch(protoId, imgUrl, nodeName) {
-  _imageQueue.push({ protoId, imgUrl, nodeName });
-  // Start processing if not already running (idempotent)
-  processImageQueue();
-}
+// Image caching is handled by queueThumbnailFetch from imageCache.js
+// It fetches the Wikipedia thumbnail, creates a blob URL (same-origin for SVG <image>),
+// and stores it in the separate image cache store (never serialized/saved).
 
 /**
  * Enrich multiple nodes from Wikipedia via server endpoint.
@@ -278,16 +189,21 @@ async function enrichMultipleNodes(nodeNames, _graphId) {
     const nodeProto = store.nodePrototypes.get(targetProtoId);
     const updates = buildEnrichmentUpdates(nodeProto, searchResult, confidence);
 
-    // Store image URLs in metadata — actual fetch happens in background
+    // Store image URLs in metadata
     if (searchResult.page.originalImage || searchResult.page.thumbnail) {
       updates.semanticMetadata = {
         ...updates.semanticMetadata,
         wikipediaOriginalImage: searchResult.page.originalImage || null
       };
-      // Queue the thumbnail for background fetch
-      const imgUrl = searchResult.page.thumbnail || searchResult.page.originalImage;
-      if (imgUrl && !nodeProto.thumbnailSrc) {
-        imageJobs.push({ protoId: targetProtoId, imgUrl, nodeName });
+      // Queue direct URL caching (no data URL conversion needed)
+      if (searchResult.page.thumbnail && !nodeProto.thumbnailSrc) {
+        imageJobs.push({
+          protoId: targetProtoId,
+          thumbUrl: searchResult.page.thumbnail,
+          thumbWidth: searchResult.page.thumbnailWidth,
+          thumbHeight: searchResult.page.thumbnailHeight,
+          nodeName
+        });
       }
     }
 
@@ -308,13 +224,14 @@ async function enrichMultipleNodes(nodeNames, _graphId) {
     return { nodePrototypes: nextPrototypes };
   });
 
-  // ── Phase 3: Queue image fetches for background processing ──
-  console.log(`[Auto-Enrich] 🖼️ Queuing ${imageJobs.length} images for background fetch`);
+  // ── Phase 3: Queue thumbnail fetches (blob URLs for SVG rendering) ──
+  console.log(`[Auto-Enrich] 🖼️ Queuing ${imageJobs.length} thumbnail fetches`);
   for (const job of imageJobs) {
-    queueImageFetch(job.protoId, job.imgUrl, job.nodeName);
+    const ratio = (job.thumbWidth && job.thumbHeight) ? (job.thumbHeight / job.thumbWidth) : 1;
+    queueThumbnailFetch(job.protoId, job.thumbUrl, ratio, job.nodeName);
   }
 
-  console.log(`[Auto-Enrich] ✅ Enrichment metadata complete — images loading in background`);
+  console.log(`[Auto-Enrich] ✅ Enrichment complete — thumbnails loading in background`);
   return pendingUpdates.map(u => ({ status: 'fulfilled', value: { success: true, nodeName: u.nodeName } }));
 }
 

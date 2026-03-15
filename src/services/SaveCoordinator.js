@@ -148,9 +148,26 @@ class SaveCoordinator {
       showConnectionNames
     } = this.nextStateToProcess;
 
+    // Strip imageSrc/thumbnailSrc from auto-enriched nodePrototypes before postMessage —
+    // structured clone copies all data to the worker heap, and base64 data URLs
+    // (100KB-5MB each) cause OOM in both the main thread and worker.
+    // User-uploaded images (no autoEnriched flag) are preserved for save.
+    let cleanPrototypes = nodePrototypes;
+    if (nodePrototypes && typeof nodePrototypes.entries === 'function') {
+      cleanPrototypes = new Map();
+      for (const [id, proto] of nodePrototypes) {
+        if (proto.semanticMetadata?.autoEnriched) {
+          const { imageSrc, thumbnailSrc, ...rest } = proto;
+          cleanPrototypes.set(id, rest);
+        } else {
+          cleanPrototypes.set(id, proto);
+        }
+      }
+    }
+
     const cleanState = {
       graphs,
-      nodePrototypes,
+      nodePrototypes: cleanPrototypes,
       edges,
       openGraphIds,
       activeGraphId,
@@ -165,7 +182,7 @@ class SaveCoordinator {
     this.saveWorker.postMessage({
       type: 'process_save',
       state: cleanState,
-      userDomain: null 
+      userDomain: null
     });
     
     // Keep reference for fallback/Git sync
@@ -455,7 +472,15 @@ class SaveCoordinator {
           const instancesArray = instances ? Array.from(instances.entries()) : [];
           return [id, { ...rest, instances: instancesArray }];
         }) : [],
-        nodePrototypes: state.nodePrototypes ? Array.from(state.nodePrototypes.entries()) : [],
+        // Strip imageSrc/thumbnailSrc from hash — base64 data URLs are huge and
+        // cause V8 OOM when JSON.stringify'd. Images are either in the separate
+        // imageCache store (auto-enriched) or reconstructible from URLs in semanticMetadata.
+        nodePrototypes: state.nodePrototypes ? Array.from(state.nodePrototypes.entries()).map(
+          ([id, proto]) => {
+            const { imageSrc, thumbnailSrc, ...rest } = proto;
+            return [id, rest];
+          }
+        ) : [],
         edges: state.edges ? Array.from(state.edges.entries()) : []
       };
 

@@ -54,6 +54,7 @@ import useGraphStore, {
   getNodePrototypeById, // New selector for prototypes
 } from "./store/graphStore.jsx";
 import useHistoryStore from './store/historyStore.js';
+import useImageCache, { queueThumbnailFetch } from './services/imageCache.js';
 
 import {
   NODE_WIDTH,
@@ -533,6 +534,8 @@ function NodeCanvas() {
   }, [activeGraphId]);
   const graphsMap = useGraphStore(state => state.graphs);
   const nodePrototypesMap = useGraphStore(state => state.nodePrototypes);
+  // Image cache for auto-enriched thumbnails (separate store, never saved)
+  const imageCacheMap = useImageCache(state => state.images);
   const edgePrototypesMap = useGraphStore(state => state.edgePrototypes);
   const showConnectionNames = useGraphStore(state => state.showConnectionNames);
   const gridMode = useGraphStore(state => state.gridSettings?.mode || 'off');
@@ -588,12 +591,34 @@ function NodeCanvas() {
     return Array.from(activeGraphInstances.values()).map(instance => {
       const prototype = nodePrototypesMap.get(instance.prototypeId);
       if (!prototype) return null;
+      // Merge in cached thumbnail for auto-enriched nodes (not in main store)
+      const cached = imageCacheMap[instance.prototypeId];
+      const imageOverrides = (cached && !prototype.thumbnailSrc)
+        ? { thumbnailSrc: cached.thumbnailSrc, imageAspectRatio: cached.imageAspectRatio }
+        : {};
       return {
         ...prototype,
+        ...imageOverrides,
         ...instance,
       };
     }).filter(Boolean);
-  }, [activeGraphId, activeGraphInstances, nodePrototypesMap]);
+  }, [activeGraphId, activeGraphInstances, nodePrototypesMap, imageCacheMap]);
+
+  // Populate image cache for auto-enriched nodes loaded from file
+  // (imageCache is never saved, so we re-fetch from Wikipedia URLs in semanticMetadata)
+  // Only runs on mount + when activeGraphId changes (NOT on every nodePrototypesMap change,
+  // which would cause an infinite loop: setImage → imageCacheMap change → re-render → useEffect)
+  useEffect(() => {
+    if (!nodePrototypesMap) return;
+    const cache = useImageCache.getState();
+    for (const [protoId, proto] of nodePrototypesMap) {
+      if (!proto.thumbnailSrc && !cache.getImage(protoId) && proto.semanticMetadata?.wikipediaThumbnail) {
+        const ratio = proto.semanticMetadata.imageAspectRatio || 1;
+        queueThumbnailFetch(protoId, proto.semanticMetadata.wikipediaThumbnail, ratio, proto.name || '');
+      }
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeGraphId]);
 
   // <<< Derive active graph data directly >>>
   // OPTIMIZED: Use activeGraph directly instead of re-querying graphsMap
@@ -894,14 +919,20 @@ function NodeCanvas() {
     return Array.from(instances.values()).map(instance => {
       const prototype = nodePrototypesMap.get(instance.prototypeId);
       if (!prototype) return null;
+      // Merge in cached thumbnail for auto-enriched nodes (not in main store)
+      const cached = imageCacheMap[instance.prototypeId];
+      const imageOverrides = (cached && !prototype.thumbnailSrc)
+        ? { thumbnailSrc: cached.thumbnailSrc, imageAspectRatio: cached.imageAspectRatio }
+        : {};
       return {
         ...prototype,
+        ...imageOverrides,
         ...instance,
         // Always use prototype name
         name: prototype.name,
       };
     }).filter(Boolean);
-  }, [instances, nodePrototypesMap]);
+  }, [instances, nodePrototypesMap, imageCacheMap]);
 
   const edges = useMemo(() => {
     if (!graphEdgeIds || !edgesMap) return [];

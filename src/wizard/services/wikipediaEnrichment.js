@@ -128,6 +128,8 @@ async function fetchWikipediaSummary(query) {
         description: data.extract || data.description || '',
         url: data.content_urls?.desktop?.page || `https://en.wikipedia.org/wiki/${encodeURIComponent(data.title)}`,
         thumbnail: data.thumbnail?.source || null,
+        thumbnailWidth: data.thumbnail?.width || null,
+        thumbnailHeight: data.thumbnail?.height || null,
         originalImage: data.originalimage?.source || null
       }
     };

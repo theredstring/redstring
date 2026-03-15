@@ -46,7 +46,13 @@ self.onmessage = (e) => {
           const instancesArray = instances ? Array.from(instances.entries()) : [];
           return [id, { ...rest, instances: instancesArray }];
         }) : [],
-        nodePrototypes: state.nodePrototypes ? Array.from(state.nodePrototypes.entries()) : [],
+        // Strip imageSrc/thumbnailSrc from hash — base64 data URLs cause OOM
+        nodePrototypes: state.nodePrototypes ? Array.from(state.nodePrototypes.entries()).map(
+          ([id, proto]) => {
+            const { imageSrc, thumbnailSrc, ...rest } = proto;
+            return [id, rest];
+          }
+        ) : [],
         edges: state.edges ? Array.from(state.edges.entries()) : []
       };
       
