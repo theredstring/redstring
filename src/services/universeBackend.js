@@ -4560,6 +4560,12 @@ class UniverseBackend {
     // 2. Get file handle
     let handle = this.fileHandles.get(universeSlug);
 
+    if (handle) {
+      umLog(`[SaveLocalFile] ✓ Found existing file handle for ${universeSlug}: ${typeof handle === 'string' ? handle : handle?.name || 'FileHandle'}`);
+    } else {
+      umLog(`[SaveLocalFile] 🔍 No file handle in registry for ${universeSlug}, attempting to locate/create...`);
+    }
+
     // Fallback: try workspace folder if no individual handle
     if (!handle) {
       const universe = this.getUniverse(universeSlug);
@@ -4567,6 +4573,8 @@ class UniverseBackend {
         universe?.localFile?.path?.split(/[/\\]/).pop() ||
         universe?.localFile?.displayPath?.split(/[/\\]/).pop() ||
         `${universeSlug}.redstring`;
+
+      umLog(`[SaveLocalFile] Attempting workspace lookup for: ${fileName}`);
 
       try {
         const { getFileFromWorkspace, createFileInWorkspace } = await import('./workspaceFolderService.js');
@@ -4576,24 +4584,27 @@ class UniverseBackend {
 
         // If not found but we have workspace access, create it!
         if (!handle) {
-          umLog(`[UniverseBackend] Creating missing file in workspace: ${fileName}`);
+          umLog(`[SaveLocalFile] Creating file in workspace: ${fileName}`);
           // Use overwrite: false to prevent clobbering if our previous check failed falsely
           handle = await createFileInWorkspace(fileName, jsonString, { overwrite: false });
           // createFileInWorkspace already wrote the content
+          umLog(`[SaveLocalFile] ✓ Created file in workspace: ${fileName}`);
         } else {
           // We found existing file, so we need to write to it below
-          umLog(`[UniverseBackend] Using workspace file handle for save: ${fileName}`);
+          umLog(`[SaveLocalFile] ✓ Found existing workspace file: ${fileName}`);
         }
 
         if (handle) {
           this.fileHandles.set(universeSlug, handle);
+          umLog(`[SaveLocalFile] ✓ Registered file handle for ${universeSlug}`);
         }
       } catch (wsError) {
-        umWarn('[UniverseBackend] Workspace folder fallback failed:', wsError);
+        umWarn(`[SaveLocalFile] ⚠ Workspace folder fallback failed: ${wsError.message}`);
       }
     }
 
     if (!handle) {
+      umError(`[SaveLocalFile] ✗ No linked local file found or created for ${universeSlug}`);
       throw new Error('No linked local file. Pick a file first.');
     }
 
