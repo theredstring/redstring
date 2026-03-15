@@ -50,6 +50,11 @@ const ToolCallCard = ({ toolCallId, toolName, status, args, result, error, times
         if (error) return error;
         if (!result) return '';
 
+        // Log for debugging blank responses
+        if (status === 'completed' && !error) {
+            console.log('[ToolCallCard] getSummaryText for', toolName, '| result keys:', Object.keys(result || {}), '| args:', parsedArgs);
+        }
+
         if (toolName === 'searchNodes') {
             const count = result.results ? result.results.length : 0;
             const total = result.total ? ` (${result.total} total)` : '';
@@ -155,6 +160,11 @@ const ToolCallCard = ({ toolCallId, toolName, status, args, result, error, times
 
         let summary = parts.length > 0 ? `Added ${parts.join(', ')}` : '';
         if (result.graphName) summary += ` to "${result.graphName}"`;
+
+        // Fallback if no summary could be generated
+        if (!summary && result.action) {
+            summary = `Executed ${result.action}`;
+        }
 
         return summary;
     };

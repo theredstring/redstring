@@ -72,6 +72,8 @@ export async function* streamLLM(messages, tools = [], config = {}, signal = nul
   const temperature = config.temperature ?? defaults.temperature;
   const maxTokens = config.maxTokens ?? defaults.maxTokens;
 
+  console.error('🔵 streamLLM called with provider:', provider, 'model:', model, 'tools:', tools.length);
+
   const normalizedTools = normalizeTools(tools);
 
   if (provider === 'openrouter') {
@@ -660,6 +662,9 @@ async function* streamOpenAI(messages, tools, { endpoint, model, apiKey, tempera
  * Gemini has its own message/tool format — not OpenAI-compatible.
  */
 async function* streamGemini(messages, tools, { model, apiKey, temperature, maxTokens }, signal = null) {
+  console.log('🔴🔴🔴 GEMINI STREAM STARTED 🔴🔴🔴');
+  console.error('🔴🔴🔴 GEMINI STREAM STARTED 🔴🔴🔴');
+
   // Convert OpenAI-style messages to Gemini contents format
   const systemParts = [];
   const contents = [];
@@ -727,7 +732,15 @@ async function* streamGemini(messages, tools, { model, apiKey, temperature, maxT
         };
       })
     }];
+    console.error('[LLMClient:Gemini] Sending', geminiTools[0].functionDeclarations.length, 'tools to Gemini:', geminiTools[0].functionDeclarations.map(t => t.name).join(', '));
   }
+
+  // Determine function calling mode:
+  // - Use 'ANY' if no tool results yet (force initial tool use)
+  // - Use 'AUTO' after tools have been called (allow natural responses)
+  const hasToolResults = messages.some(m => m.role === 'tool');
+  const functionCallingMode = hasToolResults ? 'AUTO' : 'ANY';
+  console.error('[LLMClient:Gemini] Function calling mode:', functionCallingMode, '(hasToolResults:', hasToolResults, ')');
 
   const effectiveModel = model || 'gemini-2.5-flash';
   const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${effectiveModel}:streamGenerateContent?alt=sse&key=${apiKey}`;
@@ -736,7 +749,7 @@ async function* streamGemini(messages, tools, { model, apiKey, temperature, maxT
     contents,
     ...(systemParts.length > 0 ? { systemInstruction: { parts: systemParts } } : {}),
     ...(geminiTools ? { tools: geminiTools } : {}),
-    ...(geminiTools ? { toolConfig: { functionCallingConfig: { mode: 'AUTO' } } } : {}),
+    ...(geminiTools ? { toolConfig: { functionCallingConfig: { mode: functionCallingMode } } } : {}),
     generationConfig: {
       temperature: temperature ?? 0.7,
       maxOutputTokens: maxTokens ?? 8192
@@ -784,16 +797,22 @@ async function* streamGemini(messages, tools, { model, apiKey, temperature, maxT
           if (!candidate) continue;
 
           const parts = candidate.content?.parts || [];
+          if (parts.length > 0) {
+            const partTypes = parts.map(p => p.text ? 'text' : p.functionCall ? 'functionCall' : 'other').join(', ');
+            console.error('[LLMClient:Gemini] Chunk parts:', partTypes);
+          }
           for (const part of parts) {
             if (part.text) {
               yield { type: 'text', content: part.text };
             } else if (part.functionCall) {
+              console.error('[LLMClient:Gemini] Received functionCall:', part.functionCall.name, 'with args keys:', Object.keys(part.functionCall.args || {}));
               // Validate function call name
               const fnName = part.functionCall.name;
               if (!fnName || typeof fnName !== 'string' || fnName.trim() === '') {
-                console.error('[LLMClient:Gemini] Skipping functionCall with missing/empty name:', JSON.stringify(part.functionCall));
+                console.error('[LLMClient:Gemini] ❌ SKIPPED functionCall with missing/empty name:', JSON.stringify(part.functionCall));
                 continue;
               }
+              console.error('[LLMClient:Gemini] ✓ Validated functionCall:', fnName);
 
               const fnArgs = part.functionCall.args;
               if (!fnArgs || (typeof fnArgs === 'object' && Object.keys(fnArgs).length === 0)) {
@@ -822,6 +841,7 @@ async function* streamGemini(messages, tools, { model, apiKey, temperature, maxT
 
               if (fnArgs !== undefined) {
                 // Args present — yield immediately (typical Gemini behavior)
+                console.error('[LLMClient:Gemini] → Yielding tool_call:', fnName, 'with', Object.keys(fnArgs || {}).length, 'arg keys');
                 yield {
                   type: 'tool_call',
                   name: fnName,

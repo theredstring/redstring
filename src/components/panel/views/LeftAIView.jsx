@@ -3284,15 +3284,6 @@ const LeftAIView = ({ compact = false,
         </div>
       </div>
 
-      {/* Dedicated graph info section below the header so layout is consistent across widths */}
-      <div className="ai-graph-info-section" style={{ padding: '12px 0 12px 0' }}>
-        <div className="ai-graph-info-left" style={{ paddingLeft: '6px' }}>
-          <span className="ai-graph-name">{graphInfo.name}</span>
-          <span className="ai-graph-stats">{graphInfo.nodeCount} nodes • {graphInfo.edgeCount} edges</span>
-        </div>
-      </div>
-      {/* Dividing line below graph info section */}
-      <StandardDivider margin="0" />
 
       {showAPIKeySetup && (
         <div className="ai-api-setup-section">

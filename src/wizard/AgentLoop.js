@@ -761,6 +761,9 @@ export async function* runAgent(userMessage, graphState, config = {}, ensureSche
             content: JSON.stringify(sanitizeResultForLLM(result))
           });
         } catch (error) {
+          console.error(`[AgentLoop] Tool "${toolCall.name}" failed:`, error.message);
+          console.error('[AgentLoop] Failed tool args:', JSON.stringify(toolCall.args, null, 2));
+
           // Stream error event
           yield {
             type: 'tool_result',

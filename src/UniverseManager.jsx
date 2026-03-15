@@ -1238,7 +1238,6 @@ const UniverseManager = ({ variant = 'panel', onRequestClose }) => {
     const attemptSwitch = async () => {
       await universeManagerService.switchUniverse(slug);
       await refreshState();
-      setSyncStatus({ type: 'info', message: 'Universe switched' });
     };
 
     const promptForPermissionIfNeeded = async () => {
