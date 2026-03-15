@@ -132,6 +132,12 @@ export const storeFileHandleMetadata = async (universeSlug, fileHandle = null, a
       fileName = fileHandle.name;
       // Detect if this is a workspace file (has no parent, just a name)
       isWorkspaceFile = fileHandle.kind === 'file' && !additionalMetadata.displayPath?.includes('/');
+      console.log(`[FileHandlePersistence] Browser file detected for ${universeSlug}:`, {
+        fileName,
+        fileHandleKind: fileHandle.kind,
+        displayPath: additionalMetadata.displayPath,
+        detected_isWorkspaceFile: isWorkspaceFile
+      });
     }
 
     // Build record, ensuring handle doesn't get overwritten by additionalMetadata spread
@@ -466,8 +472,16 @@ export const attemptRestoreFileHandle = async (universeSlug, sessionHandle = nul
       };
     }
 
+    console.log(`[FileHandlePersistence] Metadata retrieved for ${universeSlug}:`, {
+      fileName: metadata.fileName,
+      isWorkspaceFile: metadata.isWorkspaceFile,
+      displayPath: metadata.displayPath,
+      isElectron: isElectron()
+    });
+
     // Browser: Check if this is a workspace file first
     if (!isElectron() && metadata.isWorkspaceFile && metadata.fileName) {
+      console.log(`[FileHandlePersistence] Attempting workspace restoration for ${universeSlug}: ${metadata.fileName}`);
       try {
         const { getFileFromWorkspace } = await import('./workspaceFolderService.js');
         const workspaceHandle = await getFileFromWorkspace(metadata.fileName);
@@ -481,9 +495,11 @@ export const attemptRestoreFileHandle = async (universeSlug, sessionHandle = nul
             needsPermission: false,
             permission: 'granted'
           };
+        } else {
+          console.log(`[FileHandlePersistence] Workspace file not found for ${universeSlug}: ${metadata.fileName}`);
         }
       } catch (error) {
-        console.warn(`[FileHandlePersistence] Failed to restore workspace file:`, error);
+        console.warn(`[FileHandlePersistence] Failed to restore workspace file for ${universeSlug}:`, error);
         // Fall through to try absolute path restoration
       }
     }
