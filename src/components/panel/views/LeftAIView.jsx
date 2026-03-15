@@ -187,8 +187,8 @@ async function enrichNodeWithWikipedia(nodeName, _graphId, options = {}) {
     const nodeProto = store.nodePrototypes.get(targetNodeProtoId);
     const updates = buildEnrichmentUpdates(nodeProto, searchResult, confidence);
 
-    // Fetch image — prefer thumbnail to avoid loading huge originalImage
-    const imgUrl = searchResult.page.thumbnail;
+    // Prefer originalImage for full-size panel display, fall back to thumbnail
+    const imgUrl = searchResult.page.originalImage || searchResult.page.thumbnail;
     if (imgUrl && !nodeProto.imageSrc) {
       const imageData = await fetchImageAsDataUrl(imgUrl, nodeName);
       if (imageData) {
