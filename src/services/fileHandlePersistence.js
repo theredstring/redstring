@@ -127,7 +127,11 @@ export const storeFileHandleMetadata = async (universeSlug, fileHandle = null, a
         const parts = additionalMetadata.path.split(/[/\\]/);
         fileName = parts[parts.length - 1];
       }
-      console.log(`[FileHandlePersistence] Electron: resolved handle for ${universeSlug}:`, resolvedHandle);
+      if (resolvedHandle.includes('/') || resolvedHandle.includes('\\')) {
+        console.log(`[FileHandlePersistence] ✓ Electron absolute path for ${universeSlug}:`, resolvedHandle);
+      } else {
+        console.log(`[FileHandlePersistence] ⚠ Electron RELATIVE path for ${universeSlug}:`, resolvedHandle);
+      }
     } else if (fileHandle?.name) {
       fileName = fileHandle.name;
       // Detect if this is a workspace file (has no parent, just a name)
@@ -158,7 +162,8 @@ export const storeFileHandleMetadata = async (universeSlug, fileHandle = null, a
     // Use Electron storage or IndexedDB
     if (isElectron()) {
       await electronSet(universeSlug, record);
-      console.log(`[FileHandlePersistence] Stored metadata for ${universeSlug}: ${record.fileName || 'unnamed'} (Electron)`);
+      const pathType = (record.displayPath?.includes('/') || record.displayPath?.includes('\\')) ? 'absolute' : 'relative';
+      console.log(`[FileHandlePersistence] ✓ Stored metadata for ${universeSlug} (${pathType} path): ${record.fileName || 'unnamed'}`);
       return record;
     }
     

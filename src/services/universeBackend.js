@@ -998,28 +998,31 @@ class UniverseBackend {
       const allMetadata = await getAllFileHandleMetadata();
 
       if (allMetadata.length === 0) {
-        umLog('[UniverseBackend] No file handle metadata found');
+        umLog('[RestoreFileHandles] No file handle metadata to restore');
         return;
       }
 
-      umLog(`[UniverseBackend] Found ${allMetadata.length} file handle metadata entries`);
+      umLog(`[RestoreFileHandles] ▶ Starting restoration of ${allMetadata.length} file handle entries...`);
       let restoredAny = false;
 
       for (const metadata of allMetadata) {
         const { universeSlug } = metadata;
         const universe = this.getUniverse(universeSlug);
-        if (!universe) continue;
+        if (!universe) {
+          umLog(`[RestoreFileHandles] ⊘ Skipping ${universeSlug}: Universe not found`);
+          continue;
+        }
 
         const result = await this.ensureLocalFileHandle(universe, { metadata });
         if (result?.success && result.handle) {
-          umLog(`[UniverseBackend] Successfully restored file handle for ${universeSlug}`);
+          umLog(`[RestoreFileHandles] ✓ Successfully restored file handle for ${universeSlug}: ${result.displayPath || 'unknown'}`);
           restoredAny = true;
         } else if (result?.needsReconnect) {
-          umLog(`[UniverseBackend] File handle for ${universeSlug} needs reconnection: ${result.message}`);
+          umLog(`[RestoreFileHandles] ⚠ File handle for ${universeSlug} needs reconnection: ${result.message}`);
 
           // If file is stored as relative filename, try to locate it
           if (isElectron() && metadata?.displayPath && !metadata.displayPath.includes('/') && !metadata.displayPath.includes('\\') && metadata.fileName) {
-            umLog(`[UniverseBackend] Relative filename detected for ${universeSlug}: ${metadata.displayPath}. Attempting to locate file...`);
+            umLog(`[RestoreFileHandles] 🔍 Relative filename detected for ${universeSlug}: "${metadata.displayPath}". Attempting to locate...`);
 
             const { fileExists: checkFileExists } = await import('../utils/fileAccessAdapter.js');
             let foundPath = null;
@@ -1053,15 +1056,29 @@ class UniverseBackend {
             if (!foundPath) {
               const possiblePaths = [
                 metadata.displayPath, // Current directory
-                `${process.env.HOME}/Downloads/${metadata.displayPath}`, // Downloads
               ];
+
+              // Only use Electron APIs if in Electron environment
+              if (isElectron() && window.electron?.storage?.getPaths) {
+                try {
+                  const paths = await window.electron.storage.getPaths();
+                  if (paths?.documents) {
+                    possiblePaths.push(`${paths.documents}/${metadata.displayPath}`);
+                  }
+                  if (paths?.downloads) {
+                    possiblePaths.push(`${paths.downloads}/${metadata.displayPath}`);
+                  }
+                } catch (pathErr) {
+                  umWarn(`[RestoreFileHandles] Failed to get Electron paths for ${universeSlug}:`, pathErr.message);
+                }
+              }
 
               for (const testPath of possiblePaths) {
                 try {
                   const exists = await checkFileExists(testPath);
                   if (exists) {
                     foundPath = testPath;
-                    umLog(`[UniverseBackend] Found file at: ${testPath}`);
+                    umLog(`[RestoreFileHandles] ✓ Found file at: ${testPath}`);
                     break;
                   }
                 } catch (err) {
@@ -1085,20 +1102,20 @@ class UniverseBackend {
               umLog(`[UniverseBackend] Successfully located and reconnected file for ${universeSlug}`);
               restoredAny = true;
             } else {
-              umLog(`[UniverseBackend] Could not locate file "${metadata.displayPath}" for ${universeSlug}. File may have been moved.`);
+              umLog(`[RestoreFileHandles] ✗ Could not locate file "${metadata.displayPath}" for ${universeSlug}. File may have been moved or deleted.`);
             }
           }
         } else if (result?.needsPermission) {
-          umLog(`[UniverseBackend] File handle for ${universeSlug} needs permission refresh: ${result.message || 'Permission required'}`);
+          umLog(`[RestoreFileHandles] ⚠ File handle for ${universeSlug} needs permission refresh: ${result.message || 'Permission required'}`);
         }
       }
 
-      umLog('[UniverseBackend] File handle restoration complete');
+      umLog(`[RestoreFileHandles] ✓ Restoration complete (${restoredAny ? 'restored some files' : 'no files to restore or all skipped'})`);
       if (restoredAny) {
         await this.ensureSaveCoordinator();
       }
     } catch (error) {
-      umError('[UniverseBackend] Failed to restore file handles:', error);
+      umError(`[RestoreFileHandles] ✗ CRITICAL: Failed to restore file handles: ${error.message}`, error);
     }
   }
 

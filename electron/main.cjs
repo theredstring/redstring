@@ -378,13 +378,14 @@ ipcMain.handle('file:saveAs', async (event, options = {}) => {
 
   // Validate and log the path being returned
   let filePath = result.filePath;
-  console.log('[Electron] saveAs returning path:', filePath, 'isAbsolute:', path.isAbsolute(filePath));
+  const isAbsolute = path.isAbsolute(filePath);
 
-  // If somehow we got a relative path, make it absolute
-  if (filePath && !path.isAbsolute(filePath)) {
-    console.warn('[Electron] saveAs returned relative path, resolving:', filePath);
+  if (isAbsolute) {
+    console.log('[FilePickerIPC] ✓ saveAs returned absolute path:', filePath);
+  } else {
+    console.warn('[FilePickerIPC] ⚠ saveAs returned RELATIVE path:', filePath);
     filePath = path.resolve(defaultPath, '..', filePath);
-    console.log('[Electron] Resolved to absolute path:', filePath);
+    console.log('[FilePickerIPC] ✓ Resolved to absolute path:', filePath);
   }
 
   return filePath;
