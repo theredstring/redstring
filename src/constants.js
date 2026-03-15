@@ -30,7 +30,7 @@ export const KEYBOARD_PAN_SPEED = 0.065;                // for keyboard panning
 export const KEYBOARD_ZOOM_SPEED = 0.15;               // for keyboard zooming
 
 // Image Processing
-export const THUMBNAIL_MAX_DIMENSION = 800; // Max width/height for thumbnails (increased again)
+export const THUMBNAIL_MAX_DIMENSION = 250; // Max width/height for canvas node thumbnails (nodes are ~176px wide)
 
 // UI Icon Sizes
 export const PANEL_CLOSE_ICON_SIZE = 16; // Standard size for X/close icons in panels

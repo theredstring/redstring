@@ -579,30 +579,45 @@ const WikipediaEnrichment = ({ nodeData, onUpdateNode }) => {
     console.log(`[Wikipedia Images] ✅ applyWikipediaData complete`);
   };
 
-  const urlToDataUrl = (url) => {
-    return fetch(url, { mode: 'cors' })
-      .then((res) => res.blob())
-      .then((blob) => new Promise((resolve, reject) => {
-        const reader = new FileReader();
-        reader.onloadend = () => resolve(reader.result);
-        reader.onerror = reject;
-        reader.readAsDataURL(blob);
-      }));
-  };
-
   const setWikipediaImageFromUrl = async (imageUrl) => {
     if (!imageUrl) return;
     try {
-      const dataUrl = await urlToDataUrl(imageUrl);
-      const img = new Image();
-      const aspectRatio = await new Promise((resolve, reject) => {
-        img.onload = () => {
-          const ratio = (img.naturalHeight > 0 && img.naturalWidth > 0) ? (img.naturalHeight / img.naturalWidth) : 1;
-          resolve(ratio || 1);
-        };
-        img.onerror = reject;
-        img.src = dataUrl;
+      const response = await fetch(imageUrl, { mode: 'cors' });
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      const blob = await response.blob();
+
+      // Skip extremely large images (>10MB raw)
+      if (blob.size > 10 * 1024 * 1024) {
+        console.warn(`[Wikipedia] Image too large (${(blob.size / 1024 / 1024).toFixed(1)}MB), skipping`);
+        return;
+      }
+
+      // Load into Image to get dimensions
+      const rawUrl = URL.createObjectURL(blob);
+      const img = await new Promise((resolve, reject) => {
+        const i = new Image();
+        i.onload = () => resolve(i);
+        i.onerror = reject;
+        i.src = rawUrl;
       });
+
+      const aspectRatio = (img.naturalHeight > 0 && img.naturalWidth > 0)
+        ? img.naturalHeight / img.naturalWidth : 1;
+
+      // Resize to max 800px wide via canvas to keep data URL manageable
+      const MAX_WIDTH = 800;
+      const scale = Math.min(1, MAX_WIDTH / img.naturalWidth);
+      const w = Math.round(img.naturalWidth * scale);
+      const h = Math.round(img.naturalHeight * scale);
+
+      const canvas = document.createElement('canvas');
+      canvas.width = w;
+      canvas.height = h;
+      const ctx = canvas.getContext('2d');
+      ctx.drawImage(img, 0, 0, w, h);
+      URL.revokeObjectURL(rawUrl);
+
+      const dataUrl = canvas.toDataURL('image/jpeg', 0.85);
       const thumbSrc = await generateThumbnail(dataUrl, THUMBNAIL_MAX_DIMENSION);
       await onUpdateNode({ imageSrc: dataUrl, thumbnailSrc: thumbSrc, imageAspectRatio: aspectRatio });
     } catch (error) {

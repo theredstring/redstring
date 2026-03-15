@@ -422,8 +422,21 @@ export const generateThumbnail = (imageSource, maxDimension) => {
       // Draw the image onto the canvas
       ctx.drawImage(img, 0, 0, width, height);
 
-      // Use PNG to preserve transparency (JPEG forces a black background for transparent areas)
-      const thumbnailDataUrl = canvas.toDataURL('image/png');
+      // Detect if the image has transparency — if so, keep PNG; otherwise use JPEG (much smaller)
+      const isPng = typeof imageSource === 'string' && imageSource.startsWith('data:image/png');
+      let hasTransparency = false;
+      if (isPng) {
+        // Sample a few pixels to check for alpha < 255
+        const pixelData = ctx.getImageData(0, 0, width, height).data;
+        const step = Math.max(1, Math.floor(pixelData.length / (4 * 200))); // Sample ~200 pixels
+        for (let i = 3; i < pixelData.length; i += 4 * step) {
+          if (pixelData[i] < 250) { hasTransparency = true; break; }
+        }
+      }
+
+      const thumbnailDataUrl = hasTransparency
+        ? canvas.toDataURL('image/png')
+        : canvas.toDataURL('image/jpeg', 0.8);
       resolve(thumbnailDataUrl);
     };
     img.onerror = (error) => {
