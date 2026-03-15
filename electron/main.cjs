@@ -437,9 +437,12 @@ ipcMain.handle('file:showInFolder', async (event, filePath) => {
     if (!filePath) {
       throw new Error('File path is required');
     }
-    shell.showItemInFolder(filePath);
+    console.log('[Electron] Showing file in folder:', filePath);
+    const result = shell.showItemInFolder(filePath);
+    console.log('[Electron] showItemInFolder result:', result);
     return true;
   } catch (error) {
+    console.error('[Electron] showItemInFolder error:', error);
     throw new Error(`Failed to show file in folder: ${error.message}`);
   }
 });

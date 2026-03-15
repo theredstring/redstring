@@ -3040,14 +3040,17 @@ const UniverseManager = ({ variant = 'panel', onRequestClose }) => {
       const suggestedName = `${universe.name || slug}.redstring`;
 
       // Try creating in workspace folder first (don't overwrite existing files)
-      const { createFileInWorkspace } = await import('./services/workspaceFolderService.js');
+      const { createFileInWorkspace, getWorkspaceHandle } = await import('./services/workspaceFolderService.js');
       let fileHandle = await createFileInWorkspace(suggestedName, jsonString, { overwrite: false });
+      let createdInWorkspace = false;
 
       // Fallback to picker if no workspace folder or creation failed
       if (!fileHandle) {
         fileHandle = await pickSaveLocation({ suggestedName });
         // Write data to file using adapter (only needed for picker path)
         await writeFile(fileHandle, jsonString);
+      } else {
+        createdInWorkspace = true;
       }
 
       // Get filename for display
@@ -3056,7 +3059,24 @@ const UniverseManager = ({ variant = 'panel', onRequestClose }) => {
         : (fileHandle?.name || suggestedName);
 
       // Store the file handle and link to universe
-      const displayPath = isElectron() && typeof fileHandle === 'string' ? fileHandle : fileName;
+      let displayPath = isElectron() && typeof fileHandle === 'string' ? fileHandle : fileName;
+
+      // If created in workspace, construct the full path
+      if (createdInWorkspace && fileHandle?.name && !isElectron()) {
+        try {
+          const workspaceHandle = await getWorkspaceHandle();
+          if (workspaceHandle) {
+            // Try to get the workspace path for display
+            const workspaceFile = await workspaceHandle.getFileHandle(fileHandle.name);
+            const file = await workspaceFile.getFile();
+            displayPath = file.webkitRelativePath || file.path || `workspace/${fileHandle.name}`;
+            umLog('[UniverseManager] Workspace file path:', displayPath);
+          }
+        } catch (err) {
+          umLog('[UniverseManager] Could not determine workspace path:', err);
+          // Fall back to just the filename
+        }
+      }
       const result = await universeBackend.setFileHandle(slug, fileHandle, {
         displayPath,
         fileName,
@@ -3142,6 +3162,7 @@ const UniverseManager = ({ variant = 'panel', onRequestClose }) => {
 
   const handleShowLocalFileInFolder = async (slug) => {
     try {
+      console.log('[UniverseManager] handleShowLocalFileInFolder called with slug:', slug);
       const universe = serviceState.universes.find(u => u.slug === slug);
       if (!universe) {
         setError('Universe not found');
@@ -3149,20 +3170,25 @@ const UniverseManager = ({ variant = 'panel', onRequestClose }) => {
       }
 
       const localFile = universe.raw?.localFile;
+      console.log('[UniverseManager] localFile:', localFile);
       if (!localFile) {
         setError('No local file linked to this universe');
         return;
       }
 
       const filePath = localFile.path || localFile.displayPath || localFile.lastFilePath;
+      console.log('[UniverseManager] filePath:', filePath);
       if (!filePath) {
         setError('Could not determine file path');
         return;
       }
 
       // Use Electron IPC if available (Electron-only feature)
+      console.log('[UniverseManager] window.electron:', window.electron);
       if (window.electron?.fileSystem?.showItemInFolder) {
+        console.log('[UniverseManager] Calling showItemInFolder with:', filePath);
         await window.electron.fileSystem.showItemInFolder(filePath);
+        console.log('[UniverseManager] showItemInFolder completed');
       } else {
         setError('Show in folder is only available in the Electron app');
       }

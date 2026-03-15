@@ -126,7 +126,14 @@ export const writeFile = async (fileHandleOrPath, content) => {
  */
 export const fileExists = async (fileHandleOrPath) => {
   if (isElectron() && typeof fileHandleOrPath === 'string') {
-    return await window.electron.fileSystem.fileExists(fileHandleOrPath);
+    try {
+      const result = await window.electron.fileSystem.fileExists(fileHandleOrPath);
+      console.log(`[fileAccessAdapter] fileExists check for "${fileHandleOrPath}":`, result);
+      return result;
+    } catch (error) {
+      console.error(`[fileAccessAdapter] fileExists error for "${fileHandleOrPath}":`, error);
+      return false;
+    }
   } else {
     // In browser or with Handle, if we have a FileHandle object, it "exists" in the sense that we have a reference.
     // For robust checking we might try to getFile(), but usually this suffices.

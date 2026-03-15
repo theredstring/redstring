@@ -106,7 +106,8 @@ export const storeFileHandleMetadata = async (universeSlug, fileHandle = null, a
     // In Electron, fileHandle is a string path; in browser it's a FileHandle object
     let fileName = null;
     let resolvedHandle = fileHandle;
-    
+    let isWorkspaceFile = false;
+
     if (isElectron()) {
       // Electron: ensure handle is always a string path
       if (typeof fileHandle === 'string') {
@@ -129,11 +130,13 @@ export const storeFileHandleMetadata = async (universeSlug, fileHandle = null, a
       console.log(`[FileHandlePersistence] Electron: resolved handle for ${universeSlug}:`, resolvedHandle);
     } else if (fileHandle?.name) {
       fileName = fileHandle.name;
+      // Detect if this is a workspace file (has no parent, just a name)
+      isWorkspaceFile = fileHandle.kind === 'file' && !additionalMetadata.displayPath?.includes('/');
     }
-    
+
     // Build record, ensuring handle doesn't get overwritten by additionalMetadata spread
     const { handle: _ignoredHandle, ...safeAdditionalMetadata } = additionalMetadata;
-    
+
     const record = {
       universeSlug,
       fileName: fileName ?? additionalMetadata.fileName ?? null,
@@ -142,6 +145,7 @@ export const storeFileHandleMetadata = async (universeSlug, fileHandle = null, a
       isElectron: isElectron(),
       lastAccessed: additionalMetadata.lastAccessed ?? Date.now(),
       displayPath: isElectron() && typeof resolvedHandle === 'string' ? resolvedHandle : (additionalMetadata.displayPath ?? null),
+      isWorkspaceFile: isWorkspaceFile, // Mark workspace files for restoration from workspace folder
       ...safeAdditionalMetadata
     };
     
@@ -461,10 +465,32 @@ export const attemptRestoreFileHandle = async (universeSlug, sessionHandle = nul
         message: 'File access metadata missing. Reconnect the local file to continue.'
       };
     }
-    
+
+    // Browser: Check if this is a workspace file first
+    if (!isElectron() && metadata.isWorkspaceFile && metadata.fileName) {
+      try {
+        const { getFileFromWorkspace } = await import('./workspaceFolderService.js');
+        const workspaceHandle = await getFileFromWorkspace(metadata.fileName);
+        if (workspaceHandle) {
+          console.log(`[FileHandlePersistence] Successfully restored workspace file for ${universeSlug}: ${metadata.fileName}`);
+          return {
+            success: true,
+            handle: workspaceHandle,
+            metadata: { ...metadata, source: 'workspace' },
+            needsReconnect: false,
+            needsPermission: false,
+            permission: 'granted'
+          };
+        }
+      } catch (error) {
+        console.warn(`[FileHandlePersistence] Failed to restore workspace file:`, error);
+        // Fall through to try absolute path restoration
+      }
+    }
+
     // Extract the handle - in Electron it should be a string path
     let handle = metadata.handle;
-    
+
     // Electron: ensure we have a valid string path
     if (isElectron()) {
       if (typeof handle !== 'string') {
@@ -481,10 +507,12 @@ export const attemptRestoreFileHandle = async (universeSlug, sessionHandle = nul
           message: 'File path not found in saved metadata. Please reconnect the file.'
         };
       }
+      console.log(`[FileHandlePersistence] Electron: verifying handle for ${universeSlug}:`, handle);
     }
-    
+
     if (handle) {
       const access = await verifyFileHandleAccess(handle);
+      console.log(`[FileHandlePersistence] Handle access verification for ${universeSlug}:`, access);
       if (access?.isValid) {
         await storeFileHandleMetadata(universeSlug, handle, {
           lastAccessed: Date.now()
