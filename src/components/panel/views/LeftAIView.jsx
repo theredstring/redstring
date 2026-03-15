@@ -187,18 +187,24 @@ async function enrichNodeWithWikipedia(nodeName, _graphId, options = {}) {
     const nodeProto = store.nodePrototypes.get(targetNodeProtoId);
     const updates = buildEnrichmentUpdates(nodeProto, searchResult, confidence);
 
-    // Prefer originalImage for full-size panel display, fall back to thumbnail
-    const imgUrl = searchResult.page.originalImage || searchResult.page.thumbnail;
-    if (imgUrl && !nodeProto.imageSrc) {
-      const imageData = await fetchImageAsDataUrl(imgUrl, nodeName);
-      if (imageData) {
-        Object.assign(updates, imageData);
-      }
+    // Store image URLs in metadata
+    if (searchResult.page.originalImage) {
+      updates.semanticMetadata = {
+        ...updates.semanticMetadata,
+        wikipediaOriginalImage: searchResult.page.originalImage
+      };
     }
 
+    // Apply metadata immediately
     store.updateNodePrototype(targetNodeProtoId, (draft) => {
       Object.assign(draft, updates);
     });
+
+    // Queue image fetch for background processing
+    const imgUrl = searchResult.page.thumbnail || searchResult.page.originalImage;
+    if (imgUrl && !nodeProto.imageSrc) {
+      queueImageFetch(targetNodeProtoId, imgUrl, nodeName);
+    }
 
     console.log(`[Auto-Enrich] Successfully enriched "${nodeName}"`);
     return { success: true, nodeName, confidence, wikipediaUrl: searchResult.page.url };
@@ -239,14 +245,33 @@ function buildEnrichmentUpdates(nodeProto, searchResult, confidence) {
 }
 
 /**
- * Fetch a Wikipedia image and produce:
- *   - imageSrc: full original resolution (blob → data URL, no canvas resize)
- *   - thumbnailSrc: 250px wide JPEG at 70% (canvas resize for node rendering)
- *
- * Uses FileReader for imageSrc to avoid decoding huge images into pixel memory.
- * Only loads into Image for aspect ratio + thumbnail canvas.
+ * Run async tasks with a concurrency limit.
+ * Returns results in input order (like Promise.allSettled but with max parallelism).
  */
-async function fetchImageAsDataUrl(imgUrl, nodeName) {
+async function runConcurrent(tasks, limit = 3) {
+  const results = new Array(tasks.length);
+  let nextIndex = 0;
+
+  async function worker() {
+    while (nextIndex < tasks.length) {
+      const i = nextIndex++;
+      try {
+        results[i] = { status: 'fulfilled', value: await tasks[i]() };
+      } catch (err) {
+        results[i] = { status: 'rejected', reason: err };
+      }
+    }
+  }
+
+  await Promise.all(Array.from({ length: Math.min(limit, tasks.length) }, () => worker()));
+  return results;
+}
+
+/**
+ * Fetch a single image URL, convert to data URL + thumbnail.
+ * Used by the background image pipeline, NOT during enrichment.
+ */
+async function fetchAndProcessImage(imgUrl, nodeName) {
   let rawUrl = null;
   try {
     const response = await fetch(imgUrl, { mode: 'cors' });
@@ -254,11 +279,11 @@ async function fetchImageAsDataUrl(imgUrl, nodeName) {
 
     const blob = await response.blob();
     if (blob.size > 5 * 1024 * 1024) {
-      console.log(`[Auto-Enrich] ⏭️ "${nodeName}" image too large (${(blob.size / 1024 / 1024).toFixed(1)}MB)`);
+      console.log(`[Image Pipeline] ⏭️ "${nodeName}" too large (${(blob.size / 1024 / 1024).toFixed(1)}MB)`);
       return null;
     }
 
-    // Full-size panel image — convert blob directly, no canvas resize
+    // Full image → data URL (no canvas resize)
     const imageSrc = await new Promise((resolve, reject) => {
       const reader = new FileReader();
       reader.onload = () => resolve(reader.result);
@@ -279,7 +304,7 @@ async function fetchImageAsDataUrl(imgUrl, nodeName) {
     const natH = img.naturalHeight;
     const aspectRatio = natH / natW || 1;
 
-    // Canvas thumbnail: resize to 250px wide for node rendering
+    // 250px thumbnail for canvas
     const thumbScale = Math.min(1, 250 / natW);
     const tw = Math.round(natW * thumbScale);
     const th = Math.round(natH * thumbScale);
@@ -296,7 +321,7 @@ async function fetchImageAsDataUrl(imgUrl, nodeName) {
     thumbCanvas.width = 0;
     thumbCanvas.height = 0;
 
-    console.log(`[Auto-Enrich] ✅ "${nodeName}" panel=${natW}x${natH} (${(imageSrc.length / 1024).toFixed(0)}KB), thumb=${tw}x${th} (${(thumbnailSrc.length / 1024).toFixed(0)}KB)`);
+    console.log(`[Image Pipeline] ✅ "${nodeName}" ${natW}x${natH} (${(imageSrc.length / 1024).toFixed(0)}KB panel, ${(thumbnailSrc.length / 1024).toFixed(0)}KB thumb)`);
     return { imageSrc, thumbnailSrc, imageAspectRatio: aspectRatio };
   } catch {
     if (rawUrl) URL.revokeObjectURL(rawUrl);
@@ -305,38 +330,93 @@ async function fetchImageAsDataUrl(imgUrl, nodeName) {
 }
 
 /**
- * Enrich multiple nodes from Wikipedia with memory-safe batching.
+ * Background image pipeline: processes queued image URLs one at a time,
+ * updating individual nodes as each image completes. Runs after enrichment
+ * metadata is already applied, so nodes show descriptions/links immediately
+ * and images trickle in without blocking or risking OOM.
+ */
+let _imageQueue = [];
+let _imageQueueRunning = false;
+
+async function processImageQueue() {
+  if (_imageQueueRunning) return; // already processing
+  _imageQueueRunning = true;
+
+  console.log(`[Image Pipeline] 🚀 Processing ${_imageQueue.length} images in background`);
+
+  while (_imageQueue.length > 0) {
+    const { protoId, imgUrl, nodeName } = _imageQueue.shift();
+
+    // Skip if node already has an image (e.g. user set one manually)
+    const currentProto = useGraphStore.getState().nodePrototypes.get(protoId);
+    if (currentProto?.imageSrc) {
+      console.log(`[Image Pipeline] ⏭️ "${nodeName}" already has image, skipping`);
+      continue;
+    }
+
+    const imageData = await fetchAndProcessImage(imgUrl, nodeName);
+    if (imageData) {
+      // Update this single node — one save per image, spread out over time
+      useGraphStore.getState().updateNodePrototype(protoId, (draft) => {
+        Object.assign(draft, imageData);
+      });
+    }
+
+    // Brief yield between images — lets React render the new image + GC run
+    await new Promise(resolve => setTimeout(resolve, 200));
+  }
+
+  _imageQueueRunning = false;
+  console.log(`[Image Pipeline] ✅ Queue complete`);
+}
+
+function queueImageFetch(protoId, imgUrl, nodeName) {
+  _imageQueue.push({ protoId, imgUrl, nodeName });
+  // Start processing if not already running (idempotent)
+  processImageQueue();
+}
+
+/**
+ * Enrich multiple nodes from Wikipedia.
  *
- * Phase 1: Fetch Wikipedia metadata (lightweight, 1 API call each).
- * Phase 2: Fetch images ONE AT A TIME using only thumbnail URLs (not originalImage).
- * Phase 3: Apply ALL updates in a SINGLE setState call (one save cycle, not N).
+ * Phase 1: Resolve Wikipedia matches in parallel (metadata only, no images).
+ * Phase 2: Apply metadata updates in a single batch setState.
+ * Phase 3: Queue image fetches for background processing (trickle in one by one).
+ *
+ * This is near-instant: only lightweight API calls + a single store write.
+ * Images appear progressively as they're fetched in the background.
  */
 async function enrichMultipleNodes(nodeNames, _graphId) {
   console.log(`[Auto-Enrich] 🚀 Starting enrichment for ${nodeNames.length} nodes`);
 
-  // ── Phase 1: Resolve Wikipedia matches (lightweight, no images) ──
-  const matches = [];
-  for (const nodeName of nodeNames) {
+  // ── Phase 1: Resolve Wikipedia matches (4 concurrent metadata lookups) ──
+  const metadataTasks = nodeNames.map(nodeName => async () => {
     try {
       const match = await resolveWikipediaMatch(nodeName, 0.40);
       if (match) {
-        matches.push({ nodeName, ...match });
         console.log(`[Auto-Enrich] ✅ "${nodeName}" → "${match.searchResult.page.title}" (${match.confidence.toFixed(2)})`);
+        return { nodeName, ...match };
       }
     } catch (err) {
       console.warn(`[Auto-Enrich] ❌ "${nodeName}" lookup failed:`, err.message);
     }
-    await new Promise(resolve => setTimeout(resolve, 150));
-  }
+    return null;
+  });
 
-  console.log(`[Auto-Enrich] 📊 Phase 1 complete: ${matches.length}/${nodeNames.length} matches found`);
+  const metadataResults = await runConcurrent(metadataTasks, 4);
+  const matches = metadataResults
+    .filter(r => r.status === 'fulfilled' && r.value)
+    .map(r => r.value);
+
+  console.log(`[Auto-Enrich] 📊 ${matches.length}/${nodeNames.length} Wikipedia matches found`);
   if (matches.length === 0) return [];
 
   // Wait for nodes to be fully created in store
   await new Promise(resolve => setTimeout(resolve, 1000));
 
-  // ── Phase 2: Fetch images sequentially (thumbnail only — never originalImage) ──
+  // ── Phase 2: Build metadata updates + single batch setState ──
   const pendingUpdates = [];
+  const imageJobs = []; // queued for background
 
   for (const { nodeName, searchResult, confidence } of matches) {
     const store = useGraphStore.getState();
@@ -355,37 +435,43 @@ async function enrichMultipleNodes(nodeNames, _graphId) {
     const nodeProto = store.nodePrototypes.get(targetProtoId);
     const updates = buildEnrichmentUpdates(nodeProto, searchResult, confidence);
 
-    // Prefer originalImage for full-size panel display, fall back to thumbnail
-    const imgUrl = searchResult.page.originalImage || searchResult.page.thumbnail;
-    if (imgUrl && !nodeProto.imageSrc) {
-      const imageData = await fetchImageAsDataUrl(imgUrl, nodeName);
-      if (imageData) Object.assign(updates, imageData);
-      // Yield to GC between fetches
-      await new Promise(resolve => setTimeout(resolve, 300));
+    // Store image URLs in metadata — actual fetch happens in background
+    if (searchResult.page.originalImage || searchResult.page.thumbnail) {
+      updates.semanticMetadata = {
+        ...updates.semanticMetadata,
+        wikipediaOriginalImage: searchResult.page.originalImage || null
+      };
+      // Queue the thumbnail for background fetch
+      const imgUrl = searchResult.page.thumbnail || searchResult.page.originalImage;
+      if (imgUrl && !nodeProto.imageSrc) {
+        imageJobs.push({ protoId: targetProtoId, imgUrl, nodeName });
+      }
     }
 
     pendingUpdates.push({ protoId: targetProtoId, updates, nodeName });
   }
 
-  // ── Phase 3: Apply ALL updates in a single store mutation ──
-  // One setState = one save cycle. Previously N individual updateNodePrototype
-  // calls triggered N save cycles (each hashing the entire state with all image
-  // data URLs), causing V8 OOM in Electron.
-  console.log(`[Auto-Enrich] 💾 Applying ${pendingUpdates.length} updates in single batch`);
-
+  // Apply all metadata in one shot (descriptions, links, Wikipedia URLs)
+  console.log(`[Auto-Enrich] 💾 Applying ${pendingUpdates.length} metadata updates`);
   useGraphStore.setState((state) => {
     const nextPrototypes = new Map(state.nodePrototypes);
     for (const { protoId, updates, nodeName } of pendingUpdates) {
       const existing = nextPrototypes.get(protoId);
       if (existing) {
         nextPrototypes.set(protoId, { ...existing, ...updates });
-        console.log(`[Auto-Enrich] ✅ Batched: "${nodeName}"`);
+        console.log(`[Auto-Enrich] ✅ "${nodeName}" metadata applied`);
       }
     }
     return { nodePrototypes: nextPrototypes };
   });
 
-  console.log(`[Auto-Enrich] ✅ Enrichment complete: ${pendingUpdates.length}/${nodeNames.length} successful`);
+  // ── Phase 3: Queue image fetches for background processing ──
+  console.log(`[Auto-Enrich] 🖼️ Queuing ${imageJobs.length} images for background fetch`);
+  for (const job of imageJobs) {
+    queueImageFetch(job.protoId, job.imgUrl, job.nodeName);
+  }
+
+  console.log(`[Auto-Enrich] ✅ Enrichment metadata complete — images loading in background`);
   return pendingUpdates.map(u => ({ status: 'fulfilled', value: { success: true, nodeName: u.nodeName } }));
 }
 
