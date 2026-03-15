@@ -1017,30 +1017,56 @@ class UniverseBackend {
         } else if (result?.needsReconnect) {
           umLog(`[UniverseBackend] File handle for ${universeSlug} needs reconnection: ${result.message}`);
 
-          // If file is stored as relative filename, try to find it in common locations
+          // If file is stored as relative filename, try to locate it
           if (isElectron() && metadata?.displayPath && !metadata.displayPath.includes('/') && !metadata.displayPath.includes('\\') && metadata.fileName) {
             umLog(`[UniverseBackend] Relative filename detected for ${universeSlug}: ${metadata.displayPath}. Attempting to locate file...`);
 
-            // Try multiple possible locations where the file might be
-            const possiblePaths = [
-              metadata.displayPath, // Current directory
-              `${process.env.HOME}/Documents/${metadata.displayPath}`, // Documents folder
-              `${process.env.HOME}/Documents/Redstring/${metadata.displayPath}`, // Redstring subfolder
-              `${process.env.HOME}/Downloads/${metadata.displayPath}`, // Downloads folder
-            ];
-
+            const { fileExists: checkFileExists } = await import('../utils/fileAccessAdapter.js');
             let foundPath = null;
-            for (const testPath of possiblePaths) {
-              try {
-                const { fileExists: checkFileExists } = await import('../utils/fileAccessAdapter.js');
-                const exists = await checkFileExists(testPath);
-                if (exists) {
-                  umLog(`[UniverseBackend] Found file at: ${testPath}`);
-                  foundPath = testPath;
-                  break;
+
+            // Strategy 1: Try workspace folder first (if configured)
+            try {
+              const { getWorkspaceHandle } = await import('./workspaceFolderService.js');
+              const wsHandle = await getWorkspaceHandle();
+              if (wsHandle) {
+                try {
+                  // Get workspace path and check if file exists there
+                  const wsFile = await wsHandle.getFile();
+                  const wsPath = wsFile.path || wsFile.webkitRelativePath;
+                  if (wsPath) {
+                    const fullPath = `${wsPath.replace(/\/$/, '')}/${metadata.displayPath}`;
+                    const exists = await checkFileExists(fullPath);
+                    if (exists) {
+                      foundPath = fullPath;
+                      umLog(`[UniverseBackend] Found file in workspace: ${foundPath}`);
+                    }
+                  }
+                } catch (err) {
+                  // Workspace lookup failed, continue to other locations
                 }
-              } catch (err) {
-                // Continue searching
+              }
+            } catch (err) {
+              // Continue to other locations
+            }
+
+            // Strategy 2: If not in workspace, try other common locations
+            if (!foundPath) {
+              const possiblePaths = [
+                metadata.displayPath, // Current directory
+                `${process.env.HOME}/Downloads/${metadata.displayPath}`, // Downloads
+              ];
+
+              for (const testPath of possiblePaths) {
+                try {
+                  const exists = await checkFileExists(testPath);
+                  if (exists) {
+                    foundPath = testPath;
+                    umLog(`[UniverseBackend] Found file at: ${testPath}`);
+                    break;
+                  }
+                } catch (err) {
+                  // Continue to next path
+                }
               }
             }
 
@@ -1056,10 +1082,10 @@ class UniverseBackend {
                 }
               });
               this.saveToStorage();
-              umLog(`[UniverseBackend] Successfully located file for ${universeSlug}`);
+              umLog(`[UniverseBackend] Successfully located and reconnected file for ${universeSlug}`);
               restoredAny = true;
             } else {
-              umLog(`[UniverseBackend] Could not locate file "${metadata.displayPath}" for ${universeSlug}. Will need reconnection.`);
+              umLog(`[UniverseBackend] Could not locate file "${metadata.displayPath}" for ${universeSlug}. File may have been moved.`);
             }
           }
         } else if (result?.needsPermission) {
