@@ -3044,9 +3044,19 @@ const UniverseManager = ({ variant = 'panel', onRequestClose }) => {
       let fileHandle = await createFileInWorkspace(suggestedName, jsonString, { overwrite: false });
       let createdInWorkspace = false;
 
+      umLog('[UniverseManager] File creation result:', {
+        fileHandleType: typeof fileHandle,
+        fileHandleValue: fileHandle?.name || fileHandle,
+        isElectron: isElectron()
+      });
+
       // Fallback to picker if no workspace folder or creation failed
       if (!fileHandle) {
         fileHandle = await pickSaveLocation({ suggestedName });
+        umLog('[UniverseManager] Using pickSaveLocation result:', {
+          fileHandleType: typeof fileHandle,
+          fileHandleValue: fileHandle?.name || fileHandle
+        });
         // Write data to file using adapter (only needed for picker path)
         await writeFile(fileHandle, jsonString);
       } else {
@@ -3060,6 +3070,14 @@ const UniverseManager = ({ variant = 'panel', onRequestClose }) => {
 
       // Store the file handle and link to universe
       let displayPath = isElectron() && typeof fileHandle === 'string' ? fileHandle : fileName;
+
+      umLog('[UniverseManager] About to call setFileHandle:', {
+        slug,
+        fileHandleType: typeof fileHandle,
+        fileHandleValue: fileHandle?.name || fileHandle,
+        fileName,
+        displayPath
+      });
 
       // If created in workspace, construct the full path
       if (createdInWorkspace && fileHandle?.name && !isElectron()) {

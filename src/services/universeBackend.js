@@ -1016,6 +1016,39 @@ class UniverseBackend {
           restoredAny = true;
         } else if (result?.needsReconnect) {
           umLog(`[UniverseBackend] File handle for ${universeSlug} needs reconnection: ${result.message}`);
+
+          // If file is stored as relative path, try workspace folder as fallback
+          if (isElectron() && metadata?.displayPath && !metadata.displayPath.includes('/') && !metadata.displayPath.includes('\\') && metadata.fileName) {
+            umLog(`[UniverseBackend] Relative path detected for ${universeSlug}, attempting workspace lookup: ${metadata.displayPath}`);
+            try {
+              const { getWorkspaceHandle } = await import('./workspaceFolderService.js');
+              const workspaceHandle = await getWorkspaceHandle();
+              if (workspaceHandle) {
+                try {
+                  const fileHandle = await workspaceHandle.getFileHandle(metadata.fileName);
+                  // Workspace file found - we need to get its path
+                  // For Electron, we'll store the workspace-relative path
+                  this.fileHandles.set(universeSlug, fileHandle);
+
+                  await this.updateUniverse(universeSlug, {
+                    localFile: {
+                      ...universe.localFile,
+                      displayPath: `workspace:${metadata.fileName}`,
+                      fileHandleStatus: 'connected',
+                      unavailableReason: null
+                    }
+                  });
+                  this.saveToStorage();
+                  umLog(`[UniverseBackend] Found file in workspace for ${universeSlug}: ${metadata.fileName}`);
+                  restoredAny = true;
+                } catch (err) {
+                  umLog(`[UniverseBackend] File not found in workspace for ${universeSlug}`);
+                }
+              }
+            } catch (err) {
+              umLog(`[UniverseBackend] Workspace lookup failed for ${universeSlug}:`, err);
+            }
+          }
         } else if (result?.needsPermission) {
           umLog(`[UniverseBackend] File handle for ${universeSlug} needs permission refresh: ${result.message || 'Permission required'}`);
         }
