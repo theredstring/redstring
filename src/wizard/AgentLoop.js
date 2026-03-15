@@ -558,6 +558,10 @@ function updateGraphState(graphState, _toolName, _args, result) {
         proto.color = update.color;
       }
     }
+  } else if (result.action === 'enrichFromWikipedia') {
+    // No-op for predictive state — enrichment is async and happens client-side.
+    // The node's description/image will be updated after Wikipedia fetch completes.
+    console.error('[updateGraphState] enrichFromWikipedia: queued for', result.nodeName, '(async client-side)');
   }
 }
 

@@ -53,6 +53,15 @@ export async function expandGraph(args, graphState, cid, ensureSchedulerStarted)
     throw new Error('No target graph specified and no active graph available.');
   }
 
+  // Validate graph exists
+  const graphExists = (graphState.graphs || []).some(g => g.id === graphId);
+  if (!graphExists) {
+    throw new Error(
+      `Cannot expand graph: target graph "${graphId}" does not exist. ` +
+      `Available graphs: ${(graphState.graphs || []).map(g => `"${g.name}" (${g.id})`).join(', ') || 'none'}`
+    );
+  }
+
   // Pick a palette if none provided
   const activePalette = palette || getRandomPalette();
 

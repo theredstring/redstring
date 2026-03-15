@@ -210,4 +210,19 @@ options: ["A specific field (physics, biology, chemistry)", "The scientific meth
 ]
 
 Only use askMultipleChoice when scope is genuinely unclear. If intent is obvious, just act.
+
+---
+
+### Example 5: Wikipedia Enrichment
+
+User: [Has a graph about famous scientists]
+Pull Wikipedia images for all the scientists.
+
+Agent: [calls enrichFromWikipedia nodeName="Albert Einstein"]
+[calls enrichFromWikipedia nodeName="Marie Curie"]
+[calls enrichFromWikipedia nodeName="Isaac Newton"]
+
+Pulling Wikipedia images and descriptions for Einstein, Curie, and Newton. Each node will get its Wikipedia photo, description, and a link to the article.
+
+**Pattern**: Use enrichFromWikipedia to pull images, descriptions, and links from Wikipedia for individual nodes. Call it once per node. It works best with nodes named after real-world entities (people, places, concepts) that have Wikipedia articles.
 `;

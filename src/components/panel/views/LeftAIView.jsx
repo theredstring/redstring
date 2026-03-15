@@ -15,7 +15,6 @@ import useGraphStore from '../../../store/graphStore.jsx';
 import { applyLayout, FORCE_LAYOUT_DEFAULTS } from '../../../services/graphLayoutService.js';
 import { getNodeDimensions } from '../../../utils';
 import DruidInstance from '../../../services/DruidInstance.js';
-import { searchWikipedia, getWikipediaPage, getWikipediaImages } from '../SharedPanelContent.jsx';
 import { normalizeLabel, calculateTextSimilarity } from '../../../services/entityMatching.js';
 import { getTextColor } from '../../../utils/colorUtils.js';
 import fullBodySvg from '../../../assets/svg/wizard/full_body.svg';
@@ -41,11 +40,23 @@ function calculateWikipediaConfidence(nodeName, wikipediaResult) {
   const norm1 = normalizeLabel(nodeName);
   const norm2 = normalizeLabel(wikipediaResult.page.title);
 
-  if (norm1 === norm2) {
+  // Also compare with all whitespace stripped to handle initials
+  // e.g. "J.R.R. Tolkien" → "jrr tolkien" vs "J. R. R. Tolkien" → "j r r tolkien"
+  // With spaces stripped: "jrrtolkien" === "jrrtolkien"
+  const compact1 = norm1.replace(/\s+/g, '');
+  const compact2 = norm2.replace(/\s+/g, '');
+
+  if (norm1 === norm2 || compact1 === compact2) {
     confidence += 0.50; // Exact match → Total 0.90 ✓
+  } else if (norm2.includes(norm1) || norm1.includes(norm2)) {
+    // Containment match: "storage" in "computer data storage", "bone" in "bones"
+    confidence += 0.45;
   } else {
-    // Fuzzy match using text similarity
-    const similarity = calculateTextSimilarity(norm1, norm2);
+    // Fuzzy match using text similarity (use best of normal and compact)
+    const similarity = Math.max(
+      calculateTextSimilarity(norm1, norm2),
+      calculateTextSimilarity(compact1, compact2)
+    );
     confidence += similarity * 0.50;
   }
 
@@ -53,77 +64,118 @@ function calculateWikipediaConfidence(nodeName, wikipediaResult) {
 }
 
 /**
- * Convert image URL to data URL
+ * Lightweight Wikipedia summary fetch — 1 API call, no getWikipediaPage/getWikipediaImages.
+ * Returns { type: 'direct'|'disambiguation'|'not_found', title, description, url, thumbnail, originalImage }
  */
-async function urlToDataUrl(url) {
-  console.log(`[Auto-Enrich] 🌐 Fetching image from URL: ${url}`);
+async function fetchWikipediaSummary(query) {
   try {
-    const response = await fetch(url, { mode: 'cors' });
-    if (!response.ok) {
-      throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+    const response = await fetch(
+      `https://en.wikipedia.org/api/rest_v1/page/summary/${encodeURIComponent(query)}`,
+      { headers: { 'Api-User-Agent': 'Redstring/1.0 (https://redstring.ai)' } }
+    );
+
+    if (!response.ok) return { type: 'not_found' };
+
+    const data = await response.json();
+
+    const isDisambiguation = data.type === 'disambiguation' ||
+      data.title?.includes('(disambiguation)') ||
+      data.description?.toLowerCase().includes('disambiguation');
+
+    if (isDisambiguation) {
+      // Fetch search alternatives with one lightweight call
+      try {
+        const searchResp = await fetch(
+          `https://en.wikipedia.org/w/api.php?action=query&list=search&srsearch=${encodeURIComponent(query)}&format=json&origin=*&srlimit=5`,
+          { headers: { 'Api-User-Agent': 'Redstring/1.0 (https://redstring.ai)' } }
+        );
+        if (searchResp.ok) {
+          const searchData = await searchResp.json();
+          const options = (searchData.query?.search || []).map(r => ({ title: r.title }));
+          return { type: 'disambiguation', options };
+        }
+      } catch { /* fall through */ }
+      return { type: 'disambiguation', options: [] };
     }
-    console.log(`[Auto-Enrich] ✅ Image fetched successfully (${response.status})`);
 
-    const blob = await response.blob();
-    console.log(`[Auto-Enrich] 📦 Blob created (${blob.size} bytes, type: ${blob.type})`);
-
-    return new Promise((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        console.log(`[Auto-Enrich] 📄 Data URL conversion complete`);
-        resolve(reader.result);
-      };
-      reader.onerror = (error) => {
-        console.error(`[Auto-Enrich] ❌ FileReader error:`, error);
-        reject(error);
-      };
-      reader.readAsDataURL(blob);
-    });
-  } catch (error) {
-    console.error(`[Auto-Enrich] ❌ urlToDataUrl failed for ${url}:`, error);
-    throw error;
+    return {
+      type: 'direct',
+      page: {
+        title: data.title,
+        description: data.extract || data.description || '',
+        url: data.content_urls?.desktop?.page || `https://en.wikipedia.org/wiki/${encodeURIComponent(data.title)}`,
+        thumbnail: data.thumbnail?.source || null,
+        originalImage: data.originalimage?.source || null
+      }
+    };
+  } catch {
+    return { type: 'not_found' };
   }
 }
 
 /**
- * Enrich a single node with Wikipedia data
- * Only applies data when confidence >= 0.90 (dead match)
+ * Resolve a Wikipedia summary for a node name, with disambiguation + plural fallbacks.
+ * Returns { searchResult, confidence } or null.
  */
-async function enrichNodeWithWikipedia(nodeName, graphId, options = {}) {
-  const { timeout = 10000, minConfidence = 0.90 } = options;
+async function resolveWikipediaMatch(nodeName, minConfidence) {
+  // Try 1: Direct lookup
+  let result = await fetchWikipediaSummary(nodeName);
+
+  // Try 2: Disambiguation fallback — try first search result
+  if (result.type === 'disambiguation' && result.options?.length > 0) {
+    console.log(`[Auto-Enrich] "${nodeName}" → disambiguation, trying "${result.options[0].title}"`);
+    result = await fetchWikipediaSummary(result.options[0].title);
+  }
+
+  // Try 3: Singular form — "Lungs" → "Lung", "Bones" → "Bone"
+  if (result.type !== 'direct') {
+    const trimmed = nodeName.trim();
+    let altName = null;
+    if (trimmed.endsWith('es') && trimmed.length > 3) altName = trimmed.slice(0, -2);
+    else if (trimmed.endsWith('s') && !trimmed.endsWith('ss') && trimmed.length > 2) altName = trimmed.slice(0, -1);
+
+    if (altName) {
+      console.log(`[Auto-Enrich] "${nodeName}" not found, trying singular: "${altName}"`);
+      result = await fetchWikipediaSummary(altName);
+      if (result.type === 'disambiguation' && result.options?.length > 0) {
+        result = await fetchWikipediaSummary(result.options[0].title);
+      }
+    }
+  }
+
+  if (result.type !== 'direct') return null;
+
+  const confidence = calculateWikipediaConfidence(nodeName, result);
+  if (confidence < minConfidence) {
+    console.log(`[Auto-Enrich] "${nodeName}" → low confidence (${confidence.toFixed(2)})`);
+    return null;
+  }
+
+  return { searchResult: result, confidence };
+}
+
+/**
+ * Enrich a single node with Wikipedia data.
+ * Used for explicit wizard tool calls (not batch).
+ */
+async function enrichNodeWithWikipedia(nodeName, _graphId, options = {}) {
+  const { minConfidence = 0.40 } = options;
 
   try {
     console.log(`[Auto-Enrich] Starting Wikipedia enrichment for "${nodeName}"`);
 
-    // 1. Search Wikipedia (reuse existing function from SharedPanelContent)
-    const searchResult = await searchWikipedia(nodeName);
+    const match = await resolveWikipediaMatch(nodeName, minConfidence);
+    if (!match) return null;
 
-    // 2. Calculate confidence - reject if not direct match
-    if (searchResult?.type !== 'direct') {
-      console.log(`[Auto-Enrich] Skipping "${nodeName}" - disambiguation or not found`);
-      return null;
-    }
+    const { searchResult, confidence } = match;
+    console.log(`[Auto-Enrich] ✅ Match for "${nodeName}": "${searchResult.page.title}" (${confidence.toFixed(2)})`);
 
-    const confidence = calculateWikipediaConfidence(nodeName, searchResult);
-
-    if (confidence < minConfidence) {
-      console.log(`[Auto-Enrich] Skipping "${nodeName}" - low confidence (${confidence.toFixed(2)})`);
-      return null;
-    }
-
-    console.log(`[Auto-Enrich] High confidence match for "${nodeName}" (${confidence.toFixed(2)})`);
-
-    // 3. Wait a bit for node to be fully created in store
-    await new Promise(resolve => setTimeout(resolve, 500));
-
-    // 4. Find the node in the store by name
+    // Find and update the node in the store
     const store = useGraphStore.getState();
     let targetNodeProtoId = null;
-
     for (const [protoId, proto] of store.nodePrototypes) {
       if (proto.name.toLowerCase().trim() === nodeName.toLowerCase().trim()) {
         targetNodeProtoId = protoId;
-        break;
       }
     }
 
@@ -133,139 +185,193 @@ async function enrichNodeWithWikipedia(nodeName, graphId, options = {}) {
     }
 
     const nodeProto = store.nodePrototypes.get(targetNodeProtoId);
+    const updates = buildEnrichmentUpdates(nodeProto, searchResult, confidence);
 
-    // 5. Preserve user content - skip if node already has MEANINGFUL description
-    // (AI agents often set empty description, so check for length > 10)
-    if (nodeProto.description && nodeProto.description.trim().length > 10) {
-      console.log(`[Auto-Enrich] Skipping "${nodeName}" - already has meaningful description`);
-      return null;
-    }
-
-    // 6. Apply Wikipedia data (same structure as manual pull)
-    const updates = {
-      description: searchResult.page.description,
-      semanticMetadata: {
-        ...nodeProto.semanticMetadata,
-        wikipediaUrl: searchResult.page.url,
-        wikipediaTitle: searchResult.page.title,
-        wikipediaThumbnail: searchResult.page.thumbnail,
-        wikipediaOriginalImage: searchResult.page.originalImage,
-        wikipediaAdditionalImages: searchResult.page.additionalImages || [],
-        wikipediaEnriched: true,
-        wikipediaEnrichedAt: new Date().toISOString(),
-        autoEnriched: true, // NEW FLAG - marks as AI-enriched
-        autoEnrichConfidence: confidence
-      }
-    };
-
-    // 7. Add Wikipedia link to externalLinks
-    const currentLinks = nodeProto.externalLinks || [];
-    if (!currentLinks.some(link => String(link).includes('wikipedia.org'))) {
-      updates.externalLinks = [searchResult.page.url, ...currentLinks];
-    }
-
-    // 8. Set image if available (convert URL to data URL like manual pull does)
-    const imgUrl = searchResult.page.originalImage || searchResult.page.thumbnail;
-    console.log(`[Auto-Enrich] 🖼️ Image availability for "${nodeName}":`, {
-      hasOriginalImage: !!searchResult.page.originalImage,
-      hasThumbnail: !!searchResult.page.thumbnail,
-      imgUrl,
-      nodeAlreadyHasImage: !!nodeProto.imageSrc
-    });
-
+    // Fetch image for single-node enrichment
+    const imgUrl = searchResult.page.thumbnail || searchResult.page.originalImage;
     if (imgUrl && !nodeProto.imageSrc) {
-      try {
-        console.log(`[Auto-Enrich] 🔄 Fetching image from Wikipedia: ${imgUrl}`);
-        const dataUrl = await urlToDataUrl(imgUrl);
-        console.log(`[Auto-Enrich] ✅ Image converted to data URL (${dataUrl.length} bytes)`);
-
-        // Calculate aspect ratio
-        const img = new Image();
-        const aspectRatio = await new Promise((resolve, reject) => {
-          img.onload = () => {
-            const ratio = (img.naturalHeight > 0 && img.naturalWidth > 0)
-              ? (img.naturalHeight / img.naturalWidth)
-              : 1;
-            resolve(ratio || 1);
-          };
-          img.onerror = () => resolve(1); // Default to 1 on error
-          img.src = dataUrl;
-        });
-
-        // Generate thumbnail (simplified - just use the data URL)
-        // The full thumbnail generation requires importing utils which might create circular deps
-        updates.imageSrc = dataUrl;
-        updates.thumbnailSrc = dataUrl; // Simplified - using same URL
-        updates.imageAspectRatio = aspectRatio;
-
-        console.log(`[Auto-Enrich] ✅ Image set successfully with aspect ratio ${aspectRatio}`);
-      } catch (imageError) {
-        console.error(`[Auto-Enrich] ❌ Failed to set image for "${nodeName}":`, imageError);
-        console.error(`[Auto-Enrich] ❌ Error details:`, {
-          message: imageError.message,
-          stack: imageError.stack,
-          imageUrl: imgUrl
-        });
-        // Continue with text-only enrichment
+      const imageData = await fetchImageAsDataUrl(imgUrl, nodeName);
+      if (imageData) {
+        Object.assign(updates, imageData);
       }
-    } else if (!imgUrl) {
-      console.warn(`[Auto-Enrich] ⚠️ No image URL available for "${nodeName}" (Wikipedia page may not have images)`);
-    } else if (nodeProto.imageSrc) {
-      console.log(`[Auto-Enrich] ⏭️ Skipping image for "${nodeName}" - node already has an image`);
     }
 
-    // 9. Update node prototype
     store.updateNodePrototype(targetNodeProtoId, (draft) => {
       Object.assign(draft, updates);
     });
 
-    console.log(`[Auto-Enrich] Successfully enriched "${nodeName}" from Wikipedia`);
-
-    return {
-      success: true,
-      nodeName,
-      confidence,
-      wikipediaUrl: searchResult.page.url
-    };
+    console.log(`[Auto-Enrich] Successfully enriched "${nodeName}"`);
+    return { success: true, nodeName, confidence, wikipediaUrl: searchResult.page.url };
 
   } catch (error) {
     console.warn(`[Auto-Enrich] Failed to enrich "${nodeName}":`, error);
-    return null; // Silent failure - never block node creation
+    return null;
   }
 }
 
 /**
- * Enrich multiple nodes in batch with rate limiting
- * Staggers requests by 200ms to avoid Wikipedia API rate limits
+ * Build the update object for a node from Wikipedia data.
+ * Shared between single and batch enrichment.
  */
-async function enrichMultipleNodes(nodeNames, graphId) {
-  console.log(`[Auto-Enrich] 🚀 Starting batch enrichment for ${nodeNames.length} nodes:`, nodeNames);
+function buildEnrichmentUpdates(nodeProto, searchResult, confidence) {
+  const hasExistingDescription = nodeProto.description && nodeProto.description.trim().length > 10;
 
-  // Stagger requests by 200ms to avoid rate limiting
-  const enrichmentPromises = nodeNames.map((nodeName, index) =>
-    new Promise(resolve => setTimeout(() => {
-      console.log(`[Auto-Enrich] 📝 Processing node ${index + 1}/${nodeNames.length}: "${nodeName}"`);
-      resolve(enrichNodeWithWikipedia(nodeName, graphId));
-    }, index * 200))
-  );
+  const updates = {
+    ...(hasExistingDescription ? {} : { description: searchResult.page.description }),
+    semanticMetadata: {
+      ...nodeProto.semanticMetadata,
+      wikipediaUrl: searchResult.page.url,
+      wikipediaTitle: searchResult.page.title,
+      wikipediaThumbnail: searchResult.page.thumbnail,
+      wikipediaEnriched: true,
+      wikipediaEnrichedAt: new Date().toISOString(),
+      autoEnriched: true,
+      autoEnrichConfidence: confidence
+    }
+  };
 
-  // Use allSettled to prevent one failure from blocking others
-  const results = await Promise.allSettled(enrichmentPromises);
-
-  const successful = results.filter(r =>
-    r.status === 'fulfilled' && r.value?.success
-  ).length;
-
-  const failed = results.filter(r =>
-    r.status === 'rejected' || (r.status === 'fulfilled' && !r.value?.success)
-  );
-
-  console.log(`[Auto-Enrich] ✅ Enrichment complete: ${successful}/${nodeNames.length} successful`);
-  if (failed.length > 0) {
-    console.warn(`[Auto-Enrich] ⚠️ ${failed.length} nodes failed to enrich:`, failed);
+  const currentLinks = nodeProto.externalLinks || [];
+  if (!currentLinks.some(link => String(link).includes('wikipedia.org'))) {
+    updates.externalLinks = [searchResult.page.url, ...currentLinks];
   }
 
-  return results;
+  return updates;
+}
+
+/**
+ * Fetch an image URL, resize to a small thumbnail via canvas, and return as data URL.
+ * Resizing to ~200px wide JPEG keeps each image at ~15-30KB instead of 500KB+.
+ * This prevents memory crashes when enriching 10+ nodes in a batch.
+ * Returns { imageSrc, thumbnailSrc, imageAspectRatio } or null.
+ */
+async function fetchImageAsDataUrl(imgUrl, nodeName) {
+  try {
+    const response = await fetch(imgUrl, { mode: 'cors' });
+    if (!response.ok) return null;
+
+    const blob = await response.blob();
+    // Skip truly massive images (>5MB raw) — even loading them into an Image can crash
+    if (blob.size > 5 * 1024 * 1024) {
+      console.log(`[Auto-Enrich] ⏭️ "${nodeName}" image too large to process (${(blob.size / 1024 / 1024).toFixed(1)}MB)`);
+      return null;
+    }
+
+    // Load into Image element to get dimensions
+    const rawUrl = URL.createObjectURL(blob);
+    const img = await new Promise((resolve, reject) => {
+      const i = new Image();
+      i.onload = () => resolve(i);
+      i.onerror = reject;
+      i.src = rawUrl;
+    });
+
+    const aspectRatio = img.naturalHeight / img.naturalWidth || 1;
+
+    // Resize to max 250px wide via canvas, output as JPEG at 70% quality
+    const MAX_WIDTH = 250;
+    const scale = Math.min(1, MAX_WIDTH / img.naturalWidth);
+    const w = Math.round(img.naturalWidth * scale);
+    const h = Math.round(img.naturalHeight * scale);
+
+    const canvas = document.createElement('canvas');
+    canvas.width = w;
+    canvas.height = h;
+    const ctx = canvas.getContext('2d');
+    ctx.drawImage(img, 0, 0, w, h);
+
+    // Release the object URL immediately
+    URL.revokeObjectURL(rawUrl);
+
+    const dataUrl = canvas.toDataURL('image/jpeg', 0.7);
+
+    console.log(`[Auto-Enrich] ✅ "${nodeName}" image resized (${w}x${h}, ${(dataUrl.length / 1024).toFixed(0)}KB)`);
+    return { imageSrc: dataUrl, thumbnailSrc: dataUrl, imageAspectRatio: aspectRatio };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Enrich multiple nodes from Wikipedia with memory-safe batching.
+ *
+ * Phase 1: Fetch all Wikipedia metadata (lightweight, 1 API call each).
+ * Phase 2: Fetch images sequentially with size caps.
+ * Phase 3: Apply ALL updates to the store in one batch.
+ */
+async function enrichMultipleNodes(nodeNames, _graphId) {
+  console.log(`[Auto-Enrich] 🚀 Starting enrichment for ${nodeNames.length} nodes`);
+
+  // ── Phase 1: Resolve Wikipedia matches (lightweight, no images) ──
+  const matches = [];
+  for (const nodeName of nodeNames) {
+    try {
+      const match = await resolveWikipediaMatch(nodeName, 0.40);
+      if (match) {
+        matches.push({ nodeName, ...match });
+        console.log(`[Auto-Enrich] ✅ "${nodeName}" → "${match.searchResult.page.title}" (${match.confidence.toFixed(2)})`);
+      }
+    } catch (err) {
+      console.warn(`[Auto-Enrich] ❌ "${nodeName}" lookup failed:`, err.message);
+    }
+    // Small delay between API calls for rate limiting
+    await new Promise(resolve => setTimeout(resolve, 150));
+  }
+
+  console.log(`[Auto-Enrich] 📊 Phase 1 complete: ${matches.length}/${nodeNames.length} matches found`);
+  if (matches.length === 0) return [];
+
+  // Wait for nodes to be fully created in store
+  await new Promise(resolve => setTimeout(resolve, 1000));
+
+  // ── Phase 2: Fetch images sequentially ──
+  const pendingUpdates = []; // { protoId, updates }
+
+  for (const { nodeName, searchResult, confidence } of matches) {
+    const store = useGraphStore.getState();
+    let targetProtoId = null;
+    for (const [protoId, proto] of store.nodePrototypes) {
+      if (proto.name.toLowerCase().trim() === nodeName.toLowerCase().trim()) {
+        targetProtoId = protoId;
+      }
+    }
+
+    if (!targetProtoId) {
+      console.warn(`[Auto-Enrich] "${nodeName}" not found in store, skipping`);
+      continue;
+    }
+
+    const nodeProto = store.nodePrototypes.get(targetProtoId);
+    const updates = buildEnrichmentUpdates(nodeProto, searchResult, confidence);
+
+    // Fetch image (thumbnail preferred, 1MB cap)
+    const imgUrl = searchResult.page.thumbnail || searchResult.page.originalImage;
+    if (imgUrl && !nodeProto.imageSrc) {
+      const imageData = await fetchImageAsDataUrl(imgUrl, nodeName);
+      if (imageData) Object.assign(updates, imageData);
+      // Brief pause between image fetches
+      await new Promise(resolve => setTimeout(resolve, 200));
+    }
+
+    pendingUpdates.push({ protoId: targetProtoId, updates, nodeName });
+  }
+
+  // ── Phase 3: Apply updates to store with breathing room ──
+  console.log(`[Auto-Enrich] 💾 Applying ${pendingUpdates.length} updates to store`);
+  for (let i = 0; i < pendingUpdates.length; i++) {
+    const { protoId, updates, nodeName } = pendingUpdates[i];
+    // Get fresh state each time since previous update mutated it
+    useGraphStore.getState().updateNodePrototype(protoId, (draft) => {
+      Object.assign(draft, updates);
+    });
+    console.log(`[Auto-Enrich] ✅ Applied ${i + 1}/${pendingUpdates.length}: "${nodeName}"`);
+    // Yield to main thread between updates — lets React render + GC run
+    if (i < pendingUpdates.length - 1) {
+      await new Promise(resolve => setTimeout(resolve, 100));
+    }
+  }
+
+  console.log(`[Auto-Enrich] ✅ Enrichment complete: ${pendingUpdates.length}/${nodeNames.length} successful`);
+  return pendingUpdates.map(u => ({ status: 'fulfilled', value: { success: true, nodeName: u.nodeName } }));
 }
 
 /**
@@ -1287,6 +1393,15 @@ function applyToolResultToStore(toolName, result, toolCallId) {
       return;
     }
 
+    // Validate that the target graph actually exists
+    const targetGraph = store.graphs.get(activeGraphId);
+    if (!targetGraph) {
+      console.error('[Wizard] expandGraph: Graph not found:', activeGraphId);
+      console.error('[Wizard] Available graphs:', Array.from(store.graphs.entries()).map(([id, g]) => `${g.name} (${id})`).join(', ') || 'none');
+      // Don't proceed with expansion
+      return;
+    }
+
     // Helper to resolve or create type prototypes
     const typeMap = new Map(); // lowercase type name -> protoId
 
@@ -1349,7 +1464,17 @@ function applyToolResultToStore(toolName, result, toolCallId) {
     // Apply bulk updates to the ACTIVE graph (not creating a new one)
     store.applyBulkGraphUpdates(activeGraphId, bulkData);
 
-    console.log('[Wizard] Successfully expanded graph:', activeGraphId);
+    // Verify the operation actually succeeded
+    const updatedGraph = store.graphs.get(activeGraphId);
+    const actualNodeCount = updatedGraph?.instances?.size || 0;
+
+    if (updatedGraph && actualNodeCount > 0) {
+      console.log('[Wizard] Successfully expanded graph:', activeGraphId,
+        '| Nodes added:', result.spec.nodes?.length || 0,
+        '| Total nodes now:', actualNodeCount);
+    } else {
+      console.error('[Wizard] expandGraph appeared to succeed but graph state unchanged:', activeGraphId);
+    }
 
     // Auto-layout: offscreen layout immediately, then event for DOM-based override
     try { applyOffscreenLayout(activeGraphId); } catch (e) { console.warn('[Wizard] Offscreen layout failed:', e); }
@@ -1459,6 +1584,22 @@ function applyToolResultToStore(toolName, result, toolCallId) {
       });
     }
     console.log('[Wizard] Successfully themed graph:', graphId, 'with', (result.updates || []).length, 'updates');
+  } else if (result.action === 'enrichFromWikipedia') {
+    // Async client-side enrichment — kick off Wikipedia fetch in browser context
+    const nodeName = result.nodeName;
+    const graphId = result.graphId || store.activeGraphId;
+    console.log('[Wizard] Applying enrichFromWikipedia for:', nodeName);
+
+    // Run async enrichment (don't block — fire and forget)
+    enrichNodeWithWikipedia(nodeName, graphId, { minConfidence: 0.0 }).then(enrichResult => {
+      if (enrichResult?.success) {
+        console.log(`[Wizard] ✅ Wikipedia enrichment succeeded for "${nodeName}"`);
+      } else {
+        console.warn(`[Wizard] ⚠️ Wikipedia enrichment returned no result for "${nodeName}"`);
+      }
+    }).catch(err => {
+      console.error(`[Wizard] ❌ Wikipedia enrichment failed for "${nodeName}":`, err);
+    });
   } else if (result.goalId || toolName === 'updateGroup' || toolName === 'deleteGroup') {
     // Other mutating tools that go through the goal queue
     // We trigger a re-fetch of the graph state to ensure the UI is in sync
@@ -2711,13 +2852,16 @@ const LeftAIView = ({ compact = false,
                   const blocks = Array.isArray(msg.contentBlocks) ? [...msg.contentBlocks] : [];
 
                   if (event.type === 'tool_call_start') {
+                    console.log('[Wizard] tool_call_start received:', event.name, event.id);
                     const existingIndex = blocks.findIndex(b => b.type === 'tool_call' && b.id === event.id);
                     if (existingIndex >= 0) {
                       if (event.name) blocks[existingIndex] = { ...blocks[existingIndex], name: event.name };
                     } else {
                       blocks.push({ type: 'tool_call', id: event.id, name: event.name || 'Resolving spell...', args: {}, status: 'running', expanded: false });
+                      console.log('[Wizard] Created tool_call block:', event.name, 'status: running');
                     }
                   } else if (event.type === 'tool_call') {
+                    console.log('[Wizard] tool_call received:', event.name, event.id, 'args:', Object.keys(event.args || {}));
                     const existingIndex = blocks.findIndex(b => b.type === 'tool_call' && b.id === event.id);
                     if (existingIndex >= 0) {
                       blocks[existingIndex] = { ...blocks[existingIndex], name: event.name, args: event.args, status: 'running' };
@@ -2725,9 +2869,12 @@ const LeftAIView = ({ compact = false,
                       blocks.push({ type: 'tool_call', id: event.id, name: event.name, args: event.args, status: 'running', expanded: false });
                     }
                   } else if (event.type === 'tool_result') {
+                    console.log('[Wizard] tool_result received:', event.id, 'error:', !!event.result?.error);
                     const toolIndex = blocks.findIndex(b => b.type === 'tool_call' && b.id === event.id);
                     if (toolIndex >= 0) {
-                      blocks[toolIndex] = { ...blocks[toolIndex], status: event.result?.error ? 'failed' : 'completed', result: event.result, error: event.result?.error };
+                      const newStatus = event.result?.error ? 'failed' : 'completed';
+                      blocks[toolIndex] = { ...blocks[toolIndex], status: newStatus, result: event.result, error: event.result?.error };
+                      console.log('[Wizard] Updated tool_call to status:', newStatus);
                     }
                   } else if (event.type === 'response') {
                     const lastBlock = blocks.length > 0 ? blocks[blocks.length - 1] : null;
@@ -3512,7 +3659,8 @@ const LeftAIView = ({ compact = false,
               const hasStreamingContent = streamingMsg && (streamingMsg.contentBlocks?.length > 0);
 
               // Only show thinking dots if no streaming content yet
-              if (!hasStreamingContent) {
+              // AND we're in chat/druid mode (wizard mode always shows tool calls immediately)
+              if (!hasStreamingContent && viewMode !== 'wizard') {
                 return (
                   <div className="ai-thinking-row">
                     <div className="ai-message-avatar"><img src={headSvg} alt="Wizard" style={{ width: 40, height: 40 }} /></div>

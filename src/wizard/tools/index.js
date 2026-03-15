@@ -4,7 +4,7 @@
  *
  * ╔══════════════════════════════════════════════════════════════════╗
  * ║  ADDING A NEW TOOL? Read .agent/workflows/add-wizard-tool.md   ║
- * ║  There are 5 places you must update. This file is only step 2. ║
+ * ║  There are 5 files you must update. This file is step 3.       ║
  * ╚══════════════════════════════════════════════════════════════════╝
  */
 
@@ -46,6 +46,7 @@ import { getInstancesOfPrototype } from './getInstancesOfPrototype.js';
 import { getGraphInstances } from './getGraphInstances.js';
 import { inspectWorkspace } from './inspectWorkspace.js';
 import { themeGraph } from './themeGraph.js';
+import { enrichFromWikipedia } from './enrichFromWikipedia.js';
 import { getToolDefinitions } from './schemas.js';
 
 const TOOLS = {
@@ -85,7 +86,8 @@ const TOOLS = {
   getInstancesOfPrototype,
   getGraphInstances,
   inspectWorkspace,
-  themeGraph
+  themeGraph,
+  enrichFromWikipedia
 };
 
 /**

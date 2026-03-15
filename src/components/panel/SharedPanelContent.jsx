@@ -1847,7 +1847,7 @@ const SharedPanelContent = ({
                 color: '#8B0000',
                 fontFamily: "'EmOne', sans-serif"
               }}>
-                <span>🤖 Auto-enriched from Wikipedia</span>
+                <span>Auto-enriched from Wikipedia</span>
                 <span style={{ color: '#666', fontSize: '9px' }}>
                   ({Math.round(nodeData.semanticMetadata.autoEnrichConfidence * 100)}% match)
                 </span>

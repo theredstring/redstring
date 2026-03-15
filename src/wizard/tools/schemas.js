@@ -674,6 +674,18 @@ export function getToolDefinitions() {
             }
         },
         {
+            name: 'enrichFromWikipedia',
+            description: 'Pull Wikipedia data for a node: fetches the Wikipedia image, description, and link. Use this to enrich nodes with real-world knowledge and imagery.',
+            parameters: {
+                type: 'object',
+                properties: {
+                    nodeName: { type: 'string', description: 'Name of the node to enrich from Wikipedia (fuzzy matched)' },
+                    targetGraphId: { type: 'string', description: 'Graph ID. If omitted, uses active graph.' }
+                },
+                required: ['nodeName']
+            }
+        },
+        {
             name: 'themeGraph',
             description: 'Quickly re-color all nodes and connection definitions in a graph conceptually based on a palette or specific color.',
             parameters: {

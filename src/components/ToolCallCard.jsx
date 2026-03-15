@@ -7,6 +7,11 @@ const ToolCallCard = ({ toolCallId, toolName, status, args, result, error, times
     const [isExpanded, setIsExpanded] = useState(false);
     const [isUndoConfirmOpen, setIsUndoConfirmOpen] = useState(false);
 
+    // Debug: Log toolName to see what's being passed
+    if (status === 'running' && !toolName) {
+        console.warn('[ToolCallCard] Tool call rendered with empty toolName:', { toolCallId, status, args });
+    }
+
     // Ensure args is an object
     let parsedArgs = {};
     if (typeof args === 'string') {
@@ -49,11 +54,6 @@ const ToolCallCard = ({ toolCallId, toolName, status, args, result, error, times
     const getSummaryText = () => {
         if (error) return error;
         if (!result) return '';
-
-        // Log for debugging blank responses
-        if (status === 'completed' && !error) {
-            console.log('[ToolCallCard] getSummaryText for', toolName, '| result keys:', Object.keys(result || {}), '| args:', parsedArgs);
-        }
 
         if (toolName === 'searchNodes') {
             const count = result.results ? result.results.length : 0;
