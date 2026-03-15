@@ -15,6 +15,7 @@ import { runAgent } from './src/wizard/AgentLoop.js';
 import { getToolDefinitions, executeTool } from './src/wizard/tools/index.js';
 import { callLLM } from './src/wizard/LLMClient.js';
 import { debugLogSync } from './src/utils/debugLogger.js';
+import { enrichBatch, enrichSingle } from './src/wizard/services/wikipediaEnrichment.js';
 
 const app = express();
 
@@ -522,6 +523,34 @@ app.post('/api/bridge/chat/append', (req, res) => {
     res.json({ ok: true });
   } catch (err) {
     console.error('[Wizard] Chat append error:', err);
+    res.status(500).json({ error: String(err?.message || err) });
+  }
+});
+
+// ─────────────────────────────────────────────────────────────
+// Wikipedia Enrichment (server-side — keeps heavy API calls
+// out of the Electron renderer process)
+// ─────────────────────────────────────────────────────────────
+
+app.post('/api/enrich', async (req, res) => {
+  try {
+    const { nodeNames, nodeName, minConfidence = 0.40 } = req.body || {};
+
+    if (nodeName) {
+      // Single node enrichment
+      const result = await enrichSingle(nodeName, { minConfidence });
+      return res.json({ ok: true, matches: result ? [result] : [] });
+    }
+
+    if (Array.isArray(nodeNames) && nodeNames.length > 0) {
+      // Batch enrichment
+      const matches = await enrichBatch(nodeNames, { minConfidence });
+      return res.json({ ok: true, matches });
+    }
+
+    return res.status(400).json({ error: 'nodeNames[] or nodeName required' });
+  } catch (err) {
+    console.error('[Wizard] Enrich error:', err);
     res.status(500).json({ error: String(err?.message || err) });
   }
 });

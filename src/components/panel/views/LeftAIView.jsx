@@ -15,208 +15,12 @@ import useGraphStore from '../../../store/graphStore.jsx';
 import { applyLayout, FORCE_LAYOUT_DEFAULTS } from '../../../services/graphLayoutService.js';
 import { getNodeDimensions } from '../../../utils';
 import DruidInstance from '../../../services/DruidInstance.js';
-import { normalizeLabel, calculateTextSimilarity } from '../../../services/entityMatching.js';
 import { getTextColor } from '../../../utils/colorUtils.js';
 import fullBodySvg from '../../../assets/svg/wizard/full_body.svg';
 import headSvg from '../../../assets/svg/wizard/head.svg';
 
 /**
- * Calculate Wikipedia confidence score for auto-enrichment
- * Returns 0.0 to 1.0, with 0.90+ indicating "dead match" quality
- */
-function calculateWikipediaConfidence(nodeName, wikipediaResult) {
-  let confidence = 0;
-
-  // FACTOR 1: Result type (40 points)
-  // Only accept direct Wikipedia page hits, reject disambiguation
-  if (wikipediaResult.type === 'direct') {
-    confidence += 0.40;
-  } else {
-    return 0.0; // Automatic rejection for disambiguation or not found
-  }
-
-  // FACTOR 2: Label matching (50 points)
-  // Exact match required for 0.90 total
-  const norm1 = normalizeLabel(nodeName);
-  const norm2 = normalizeLabel(wikipediaResult.page.title);
-
-  // Also compare with all whitespace stripped to handle initials
-  // e.g. "J.R.R. Tolkien" → "jrr tolkien" vs "J. R. R. Tolkien" → "j r r tolkien"
-  // With spaces stripped: "jrrtolkien" === "jrrtolkien"
-  const compact1 = norm1.replace(/\s+/g, '');
-  const compact2 = norm2.replace(/\s+/g, '');
-
-  if (norm1 === norm2 || compact1 === compact2) {
-    confidence += 0.50; // Exact match → Total 0.90 ✓
-  } else if (norm2.includes(norm1) || norm1.includes(norm2)) {
-    // Containment match: "storage" in "computer data storage", "bone" in "bones"
-    confidence += 0.45;
-  } else {
-    // Fuzzy match using text similarity (use best of normal and compact)
-    const similarity = Math.max(
-      calculateTextSimilarity(norm1, norm2),
-      calculateTextSimilarity(compact1, compact2)
-    );
-    confidence += similarity * 0.50;
-  }
-
-  return confidence;
-}
-
-/**
- * Lightweight Wikipedia summary fetch — 1 API call, no getWikipediaPage/getWikipediaImages.
- * Returns { type: 'direct'|'disambiguation'|'not_found', title, description, url, thumbnail, originalImage }
- */
-async function fetchWikipediaSummary(query) {
-  try {
-    const response = await fetch(
-      `https://en.wikipedia.org/api/rest_v1/page/summary/${encodeURIComponent(query)}`,
-      { headers: { 'Api-User-Agent': 'Redstring/1.0 (https://redstring.ai)' } }
-    );
-
-    if (!response.ok) return { type: 'not_found' };
-
-    const data = await response.json();
-
-    const isDisambiguation = data.type === 'disambiguation' ||
-      data.title?.includes('(disambiguation)') ||
-      data.description?.toLowerCase().includes('disambiguation');
-
-    if (isDisambiguation) {
-      // Fetch search alternatives with one lightweight call
-      try {
-        const searchResp = await fetch(
-          `https://en.wikipedia.org/w/api.php?action=query&list=search&srsearch=${encodeURIComponent(query)}&format=json&origin=*&srlimit=5`,
-          { headers: { 'Api-User-Agent': 'Redstring/1.0 (https://redstring.ai)' } }
-        );
-        if (searchResp.ok) {
-          const searchData = await searchResp.json();
-          const options = (searchData.query?.search || []).map(r => ({ title: r.title }));
-          return { type: 'disambiguation', options };
-        }
-      } catch { /* fall through */ }
-      return { type: 'disambiguation', options: [] };
-    }
-
-    return {
-      type: 'direct',
-      page: {
-        title: data.title,
-        description: data.extract || data.description || '',
-        url: data.content_urls?.desktop?.page || `https://en.wikipedia.org/wiki/${encodeURIComponent(data.title)}`,
-        thumbnail: data.thumbnail?.source || null,
-        originalImage: data.originalimage?.source || null
-      }
-    };
-  } catch {
-    return { type: 'not_found' };
-  }
-}
-
-/**
- * Resolve a Wikipedia summary for a node name, with disambiguation + plural fallbacks.
- * Returns { searchResult, confidence } or null.
- */
-async function resolveWikipediaMatch(nodeName, minConfidence) {
-  // Try 1: Direct lookup
-  let result = await fetchWikipediaSummary(nodeName);
-
-  // Try 2: Disambiguation fallback — try first search result
-  if (result.type === 'disambiguation' && result.options?.length > 0) {
-    console.log(`[Auto-Enrich] "${nodeName}" → disambiguation, trying "${result.options[0].title}"`);
-    result = await fetchWikipediaSummary(result.options[0].title);
-  }
-
-  // Try 3: Singular form — "Lungs" → "Lung", "Bones" → "Bone"
-  if (result.type !== 'direct') {
-    const trimmed = nodeName.trim();
-    let altName = null;
-    if (trimmed.endsWith('es') && trimmed.length > 3) altName = trimmed.slice(0, -2);
-    else if (trimmed.endsWith('s') && !trimmed.endsWith('ss') && trimmed.length > 2) altName = trimmed.slice(0, -1);
-
-    if (altName) {
-      console.log(`[Auto-Enrich] "${nodeName}" not found, trying singular: "${altName}"`);
-      result = await fetchWikipediaSummary(altName);
-      if (result.type === 'disambiguation' && result.options?.length > 0) {
-        result = await fetchWikipediaSummary(result.options[0].title);
-      }
-    }
-  }
-
-  if (result.type !== 'direct') return null;
-
-  const confidence = calculateWikipediaConfidence(nodeName, result);
-  if (confidence < minConfidence) {
-    console.log(`[Auto-Enrich] "${nodeName}" → low confidence (${confidence.toFixed(2)})`);
-    return null;
-  }
-
-  return { searchResult: result, confidence };
-}
-
-/**
- * Enrich a single node with Wikipedia data.
- * Used for explicit wizard tool calls (not batch).
- */
-async function enrichNodeWithWikipedia(nodeName, _graphId, options = {}) {
-  const { minConfidence = 0.40 } = options;
-
-  try {
-    console.log(`[Auto-Enrich] Starting Wikipedia enrichment for "${nodeName}"`);
-
-    const match = await resolveWikipediaMatch(nodeName, minConfidence);
-    if (!match) return null;
-
-    const { searchResult, confidence } = match;
-    console.log(`[Auto-Enrich] ✅ Match for "${nodeName}": "${searchResult.page.title}" (${confidence.toFixed(2)})`);
-
-    // Find and update the node in the store
-    const store = useGraphStore.getState();
-    let targetNodeProtoId = null;
-    for (const [protoId, proto] of store.nodePrototypes) {
-      if (proto.name.toLowerCase().trim() === nodeName.toLowerCase().trim()) {
-        targetNodeProtoId = protoId;
-      }
-    }
-
-    if (!targetNodeProtoId) {
-      console.warn(`[Auto-Enrich] Node "${nodeName}" not found in store`);
-      return null;
-    }
-
-    const nodeProto = store.nodePrototypes.get(targetNodeProtoId);
-    const updates = buildEnrichmentUpdates(nodeProto, searchResult, confidence);
-
-    // Store image URLs in metadata
-    if (searchResult.page.originalImage) {
-      updates.semanticMetadata = {
-        ...updates.semanticMetadata,
-        wikipediaOriginalImage: searchResult.page.originalImage
-      };
-    }
-
-    // Apply metadata immediately
-    store.updateNodePrototype(targetNodeProtoId, (draft) => {
-      Object.assign(draft, updates);
-    });
-
-    // Queue image fetch for background processing
-    const imgUrl = searchResult.page.thumbnail || searchResult.page.originalImage;
-    if (imgUrl && !nodeProto.imageSrc) {
-      queueImageFetch(targetNodeProtoId, imgUrl, nodeName);
-    }
-
-    console.log(`[Auto-Enrich] Successfully enriched "${nodeName}"`);
-    return { success: true, nodeName, confidence, wikipediaUrl: searchResult.page.url };
-
-  } catch (error) {
-    console.warn(`[Auto-Enrich] Failed to enrich "${nodeName}":`, error);
-    return null;
-  }
-}
-
-/**
- * Build the update object for a node from Wikipedia data.
+ * Build the update object for a node from a server enrichment match.
  * Shared between single and batch enrichment.
  */
 function buildEnrichmentUpdates(nodeProto, searchResult, confidence) {
@@ -245,31 +49,78 @@ function buildEnrichmentUpdates(nodeProto, searchResult, confidence) {
 }
 
 /**
- * Run async tasks with a concurrency limit.
- * Returns results in input order (like Promise.allSettled but with max parallelism).
+ * Enrich a single node with Wikipedia data via server endpoint.
+ * Used for explicit wizard tool calls (not batch).
  */
-async function runConcurrent(tasks, limit = 3) {
-  const results = new Array(tasks.length);
-  let nextIndex = 0;
+async function enrichNodeWithWikipedia(nodeName, _graphId, options = {}) {
+  const { minConfidence = 0.40 } = options;
 
-  async function worker() {
-    while (nextIndex < tasks.length) {
-      const i = nextIndex++;
-      try {
-        results[i] = { status: 'fulfilled', value: await tasks[i]() };
-      } catch (err) {
-        results[i] = { status: 'rejected', reason: err };
+  try {
+    console.log(`[Auto-Enrich] Starting Wikipedia enrichment for "${nodeName}" (via server)`);
+
+    const resp = await bridgeFetch('/api/enrich', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ nodeName, minConfidence })
+    });
+    if (!resp.ok) return null;
+
+    const data = await resp.json();
+    if (!data.ok || !data.matches || data.matches.length === 0) return null;
+
+    const { searchResult, confidence } = data.matches[0];
+    console.log(`[Auto-Enrich] ✅ Match for "${nodeName}": "${searchResult.page.title}" (${confidence.toFixed(2)})`);
+
+    // Find and update the node in the store
+    const store = useGraphStore.getState();
+    let targetNodeProtoId = null;
+    for (const [protoId, proto] of store.nodePrototypes) {
+      if (proto.name.toLowerCase().trim() === nodeName.toLowerCase().trim()) {
+        targetNodeProtoId = protoId;
       }
     }
-  }
 
-  await Promise.all(Array.from({ length: Math.min(limit, tasks.length) }, () => worker()));
-  return results;
+    if (!targetNodeProtoId) {
+      console.warn(`[Auto-Enrich] Node "${nodeName}" not found in store`);
+      return null;
+    }
+
+    const nodeProto = store.nodePrototypes.get(targetNodeProtoId);
+    const updates = buildEnrichmentUpdates(nodeProto, searchResult, confidence);
+
+    // Store original image URL in metadata for lazy loading
+    if (searchResult.page.originalImage) {
+      updates.semanticMetadata = {
+        ...updates.semanticMetadata,
+        wikipediaOriginalImage: searchResult.page.originalImage
+      };
+    }
+
+    // Apply metadata immediately
+    store.updateNodePrototype(targetNodeProtoId, (draft) => {
+      Object.assign(draft, updates);
+    });
+
+    // Queue image fetch for background processing (thumbnail only)
+    const imgUrl = searchResult.page.thumbnail || searchResult.page.originalImage;
+    if (imgUrl && !nodeProto.thumbnailSrc) {
+      queueImageFetch(targetNodeProtoId, imgUrl, nodeName);
+    }
+
+    console.log(`[Auto-Enrich] Successfully enriched "${nodeName}"`);
+    return { success: true, nodeName, confidence, wikipediaUrl: searchResult.page.url };
+
+  } catch (error) {
+    console.warn(`[Auto-Enrich] Failed to enrich "${nodeName}":`, error);
+    return null;
+  }
 }
 
 /**
- * Fetch a single image URL, convert to data URL + thumbnail.
- * Used by the background image pipeline, NOT during enrichment.
+ * Fetch an image URL and create a 500px PNG thumbnail for canvas rendering.
+ * Does NOT store a full-size imageSrc data URL — the panel loads full images
+ * lazily from the Wikipedia URL (semanticMetadata.wikipediaOriginalImage/wikipediaThumbnail)
+ * to avoid storing multi-MB base64 strings that cause OOM during save serialization.
  */
 async function fetchAndProcessImage(imgUrl, nodeName) {
   let rawUrl = null;
@@ -283,15 +134,7 @@ async function fetchAndProcessImage(imgUrl, nodeName) {
       return null;
     }
 
-    // Full image → data URL (no canvas resize)
-    const imageSrc = await new Promise((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onload = () => resolve(reader.result);
-      reader.onerror = reject;
-      reader.readAsDataURL(blob);
-    });
-
-    // Load into Image for aspect ratio + thumbnail
+    // Load into Image for aspect ratio + thumbnail only
     rawUrl = URL.createObjectURL(blob);
     const img = await new Promise((resolve, reject) => {
       const i = new Image();
@@ -304,15 +147,15 @@ async function fetchAndProcessImage(imgUrl, nodeName) {
     const natH = img.naturalHeight;
     const aspectRatio = natH / natW || 1;
 
-    // 250px thumbnail for canvas
-    const thumbScale = Math.min(1, 250 / natW);
+    // 500px PNG thumbnail for canvas (preserves transparency)
+    const thumbScale = Math.min(1, 500 / Math.max(natW, natH));
     const tw = Math.round(natW * thumbScale);
     const th = Math.round(natH * thumbScale);
     const thumbCanvas = document.createElement('canvas');
     thumbCanvas.width = tw;
     thumbCanvas.height = th;
     thumbCanvas.getContext('2d').drawImage(img, 0, 0, tw, th);
-    const thumbnailSrc = thumbCanvas.toDataURL('image/jpeg', 0.7);
+    const thumbnailSrc = thumbCanvas.toDataURL('image/png');
 
     // Cleanup native memory
     URL.revokeObjectURL(rawUrl);
@@ -321,8 +164,8 @@ async function fetchAndProcessImage(imgUrl, nodeName) {
     thumbCanvas.width = 0;
     thumbCanvas.height = 0;
 
-    console.log(`[Image Pipeline] ✅ "${nodeName}" ${natW}x${natH} (${(imageSrc.length / 1024).toFixed(0)}KB panel, ${(thumbnailSrc.length / 1024).toFixed(0)}KB thumb)`);
-    return { imageSrc, thumbnailSrc, imageAspectRatio: aspectRatio };
+    console.log(`[Image Pipeline] ✅ "${nodeName}" ${natW}x${natH} (${(thumbnailSrc.length / 1024).toFixed(0)}KB thumb)`);
+    return { thumbnailSrc, imageAspectRatio: aspectRatio };
   } catch {
     if (rawUrl) URL.revokeObjectURL(rawUrl);
     return null;
@@ -347,10 +190,10 @@ async function processImageQueue() {
   while (_imageQueue.length > 0) {
     const { protoId, imgUrl, nodeName } = _imageQueue.shift();
 
-    // Skip if node already has an image (e.g. user set one manually)
+    // Skip if node already has a thumbnail (e.g. user set one manually)
     const currentProto = useGraphStore.getState().nodePrototypes.get(protoId);
-    if (currentProto?.imageSrc) {
-      console.log(`[Image Pipeline] ⏭️ "${nodeName}" already has image, skipping`);
+    if (currentProto?.thumbnailSrc) {
+      console.log(`[Image Pipeline] ⏭️ "${nodeName}" already has thumbnail, skipping`);
       continue;
     }
 
@@ -377,38 +220,38 @@ function queueImageFetch(protoId, imgUrl, nodeName) {
 }
 
 /**
- * Enrich multiple nodes from Wikipedia.
+ * Enrich multiple nodes from Wikipedia via server endpoint.
  *
- * Phase 1: Resolve Wikipedia matches in parallel (metadata only, no images).
+ * Phase 1: Single POST to /api/enrich — server handles all Wikipedia API calls.
  * Phase 2: Apply metadata updates in a single batch setState.
  * Phase 3: Queue image fetches for background processing (trickle in one by one).
  *
- * This is near-instant: only lightweight API calls + a single store write.
+ * This is near-instant: one HTTP call + a single store write.
  * Images appear progressively as they're fetched in the background.
  */
 async function enrichMultipleNodes(nodeNames, _graphId) {
-  console.log(`[Auto-Enrich] 🚀 Starting enrichment for ${nodeNames.length} nodes`);
+  console.log(`[Auto-Enrich] 🚀 Starting enrichment for ${nodeNames.length} nodes (via server)`);
 
-  // ── Phase 1: Resolve Wikipedia matches (4 concurrent metadata lookups) ──
-  const metadataTasks = nodeNames.map(nodeName => async () => {
-    try {
-      const match = await resolveWikipediaMatch(nodeName, 0.40);
-      if (match) {
-        console.log(`[Auto-Enrich] ✅ "${nodeName}" → "${match.searchResult.page.title}" (${match.confidence.toFixed(2)})`);
-        return { nodeName, ...match };
-      }
-    } catch (err) {
-      console.warn(`[Auto-Enrich] ❌ "${nodeName}" lookup failed:`, err.message);
+  // ── Phase 1: Server-side batch Wikipedia lookup ──
+  let matches = [];
+  try {
+    const resp = await bridgeFetch('/api/enrich', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ nodeNames, minConfidence: 0.40 })
+    });
+    if (!resp.ok) {
+      console.warn(`[Auto-Enrich] Server returned ${resp.status}`);
+      return [];
     }
-    return null;
-  });
+    const data = await resp.json();
+    matches = data.matches || [];
+  } catch (err) {
+    console.warn(`[Auto-Enrich] Server enrichment failed:`, err.message);
+    return [];
+  }
 
-  const metadataResults = await runConcurrent(metadataTasks, 4);
-  const matches = metadataResults
-    .filter(r => r.status === 'fulfilled' && r.value)
-    .map(r => r.value);
-
-  console.log(`[Auto-Enrich] 📊 ${matches.length}/${nodeNames.length} Wikipedia matches found`);
+  console.log(`[Auto-Enrich] 📊 ${matches.length}/${nodeNames.length} Wikipedia matches from server`);
   if (matches.length === 0) return [];
 
   // Wait for nodes to be fully created in store
@@ -443,7 +286,7 @@ async function enrichMultipleNodes(nodeNames, _graphId) {
       };
       // Queue the thumbnail for background fetch
       const imgUrl = searchResult.page.thumbnail || searchResult.page.originalImage;
-      if (imgUrl && !nodeProto.imageSrc) {
+      if (imgUrl && !nodeProto.thumbnailSrc) {
         imageJobs.push({ protoId: targetProtoId, imgUrl, nodeName });
       }
     }

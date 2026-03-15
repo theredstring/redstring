@@ -1874,10 +1874,10 @@ const SharedPanelContent = ({
       </CollapsibleSection>
 
       {/* Dividing line above Image section */}
-      {nodeData.imageSrc && <StandardDivider margin="20px 0" />}
+      {(nodeData.imageSrc || nodeData.semanticMetadata?.wikipediaOriginalImage || nodeData.semanticMetadata?.wikipediaThumbnail) && <StandardDivider margin="20px 0" />}
 
-      {/* Image Section */}
-      {nodeData.imageSrc && (
+      {/* Image Section — uses imageSrc for user-uploaded images, falls back to Wikipedia URL for auto-enriched nodes */}
+      {(nodeData.imageSrc || nodeData.semanticMetadata?.wikipediaOriginalImage || nodeData.semanticMetadata?.wikipediaThumbnail) && (
         <CollapsibleSection
           title={(
             <span style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
@@ -1900,7 +1900,7 @@ const SharedPanelContent = ({
             borderRadius: '6px'
           }}>
             <img
-              src={nodeData.imageSrc}
+              src={nodeData.imageSrc || nodeData.semanticMetadata?.wikipediaOriginalImage || nodeData.semanticMetadata?.wikipediaThumbnail}
               alt={nodeData.name}
               style={{
                 display: 'block',
