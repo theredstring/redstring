@@ -3188,41 +3188,33 @@ const UniverseManager = ({ variant = 'panel', onRequestClose }) => {
     }
   };
 
-  const handleShowLocalFileInFolder = async (slug) => {
+  const handleSwapLocalFile = async (slug) => {
     try {
-      console.log('[UniverseManager] handleShowLocalFileInFolder called with slug:', slug);
-      const universe = serviceState.universes.find(u => u.slug === slug);
-      if (!universe) {
-        setError('Universe not found');
-        return;
-      }
-
-      const localFile = universe.raw?.localFile;
-      console.log('[UniverseManager] localFile:', localFile);
-      if (!localFile) {
-        setError('No local file linked to this universe');
-        return;
-      }
-
-      const filePath = localFile.path || localFile.displayPath || localFile.lastFilePath;
-      console.log('[UniverseManager] filePath:', filePath);
-      if (!filePath) {
-        setError('Could not determine file path');
-        return;
-      }
-
-      // Use Electron IPC if available (Electron-only feature)
-      console.log('[UniverseManager] window.electron:', window.electron);
-      if (window.electron?.fileSystem?.showItemInFolder) {
-        console.log('[UniverseManager] Calling showItemInFolder with:', filePath);
-        await window.electron.fileSystem.showItemInFolder(filePath);
-        console.log('[UniverseManager] showItemInFolder completed');
-      } else {
-        setError('Show in folder is only available in the Electron app');
-      }
+      const input = document.createElement('input');
+      input.type = 'file';
+      input.accept = '.redstring';
+      input.onchange = async (e) => {
+        const file = e.target.files?.[0];
+        if (file) {
+          try {
+            setLoading(true);
+            // First, unlink the old file (this saves it)
+            await universeManagerService.removeLocalFile(slug);
+            // Then load the new file
+            await handleLoadFromLocal(file);
+            setSyncStatus({ type: 'success', message: 'Local file swapped successfully' });
+          } catch (err) {
+            umError('[UniverseManager] Swap failed:', err);
+            setError(`Failed to swap file: ${err.message}`);
+          } finally {
+            setLoading(false);
+          }
+        }
+      };
+      input.click();
     } catch (err) {
-      umError('[UniverseManager] Show in folder failed:', err);
-      setError(`Failed to show file in folder: ${err.message}`);
+      umError('[UniverseManager] Swap file failed:', err);
+      setError(`Failed to swap file: ${err.message}`);
     }
   };
 
@@ -4231,7 +4223,7 @@ const UniverseManager = ({ variant = 'panel', onRequestClose }) => {
         onDownloadLocalFile={handleDownloadLocalFile}
         onDownloadRepoFile={handleDownloadRepoFile}
         onRemoveLocalFile={handleRemoveLocalFile}
-        onShowLocalFileInFolder={handleShowLocalFileInFolder}
+        onSwapLocalFile={handleSwapLocalFile}
         onRemoveRepoSource={handleRemoveRepoSource}
         onEditRepoSource={handleEditRepoSource}
         onSetMainRepoSource={handleSetMainRepoSource}

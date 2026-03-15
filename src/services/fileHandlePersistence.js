@@ -25,7 +25,7 @@ const electronGetAll = async () => {
   try {
     return await window.electron.storage.getAll(ELECTRON_STORE_NAME);
   } catch (error) {
-    console.error('[FileHandlePersistence] Electron storage read failed:', error);
+    console.error('[FileHandles] Electron storage read failed:', error);
     return {};
   }
 };
@@ -35,7 +35,7 @@ const electronGet = async (universeSlug) => {
   try {
     return await window.electron.storage.getItem(ELECTRON_STORE_NAME, universeSlug);
   } catch (error) {
-    console.error('[FileHandlePersistence] Electron storage get failed:', error);
+    console.error('[FileHandles] Electron storage get failed:', error);
     return null;
   }
 };
@@ -45,7 +45,7 @@ const electronSet = async (universeSlug, record) => {
   try {
     return await window.electron.storage.setItem(ELECTRON_STORE_NAME, universeSlug, record);
   } catch (error) {
-    console.error('[FileHandlePersistence] Electron storage set failed:', error);
+    console.error('[FileHandles] Electron storage set failed:', error);
     return false;
   }
 };
@@ -55,7 +55,7 @@ const electronRemove = async (universeSlug) => {
   try {
     return await window.electron.storage.removeItem(ELECTRON_STORE_NAME, universeSlug);
   } catch (error) {
-    console.error('[FileHandlePersistence] Electron storage remove failed:', error);
+    console.error('[FileHandles] Electron storage remove failed:', error);
     return false;
   }
 };
@@ -65,7 +65,7 @@ const electronClear = async () => {
   try {
     return await window.electron.storage.clear(ELECTRON_STORE_NAME);
   } catch (error) {
-    console.error('[FileHandlePersistence] Electron storage clear failed:', error);
+    console.error('[FileHandles] Electron storage clear failed:', error);
     return false;
   }
 };
@@ -128,15 +128,15 @@ export const storeFileHandleMetadata = async (universeSlug, fileHandle = null, a
         fileName = parts[parts.length - 1];
       }
       if (resolvedHandle.includes('/') || resolvedHandle.includes('\\')) {
-        console.log(`[FileHandlePersistence] ✓ Electron absolute path for ${universeSlug}:`, resolvedHandle);
+        console.log(`[FileHandles] ✓ Electron absolute path for ${universeSlug}:`, resolvedHandle);
       } else {
-        console.log(`[FileHandlePersistence] ⚠ Electron RELATIVE path for ${universeSlug}:`, resolvedHandle);
+        console.log(`[FileHandles] ⚠ Electron RELATIVE path for ${universeSlug}:`, resolvedHandle);
       }
     } else if (fileHandle?.name) {
       fileName = fileHandle.name;
       // Detect if this is a workspace file (has no parent, just a name)
       isWorkspaceFile = fileHandle.kind === 'file' && !additionalMetadata.displayPath?.includes('/');
-      console.log(`[FileHandlePersistence] Browser file detected for ${universeSlug}:`, {
+      console.log(`[FileHandles] Browser file detected for ${universeSlug}:`, {
         fileName,
         fileHandleKind: fileHandle.kind,
         displayPath: additionalMetadata.displayPath,
@@ -163,7 +163,7 @@ export const storeFileHandleMetadata = async (universeSlug, fileHandle = null, a
     if (isElectron()) {
       await electronSet(universeSlug, record);
       const pathType = (record.displayPath?.includes('/') || record.displayPath?.includes('\\')) ? 'absolute' : 'relative';
-      console.log(`[FileHandlePersistence] ✓ Stored metadata for ${universeSlug} (${pathType} path): ${record.fileName || 'unnamed'}`);
+      console.log(`[FileHandles] ✓ Stored metadata for ${universeSlug} (${pathType} path): ${record.fileName || 'unnamed'}`);
       return record;
     }
     
@@ -174,7 +174,7 @@ export const storeFileHandleMetadata = async (universeSlug, fileHandle = null, a
       const request = store.put(record);
       
       request.onsuccess = () => {
-        console.log(`[FileHandlePersistence] Stored metadata for ${universeSlug}: ${record.fileName || 'unnamed'}`);
+        console.log(`[FileHandles] Stored metadata for ${universeSlug}: ${record.fileName || 'unnamed'}`);
         resolve(record);
       };
       request.onerror = () => reject(request.error);
@@ -183,7 +183,7 @@ export const storeFileHandleMetadata = async (universeSlug, fileHandle = null, a
     });
   } catch (error) {
     console.error(
-      '[FileHandlePersistence] Failed to store file handle metadata:',
+      '[FileHandles] Failed to store file handle metadata:',
       {
         universeSlug,
         fileName: fileName ?? additionalMetadata.fileName,
@@ -219,7 +219,7 @@ export const getFileHandleMetadata = async (universeSlug) => {
       transaction.oncomplete = () => db.close();
     });
   } catch (error) {
-    console.error('[FileHandlePersistence] Failed to retrieve file handle metadata:', error);
+    console.error('[FileHandles] Failed to retrieve file handle metadata:', error);
     return null;
   }
 };
@@ -248,7 +248,7 @@ export const getAllFileHandleMetadata = async () => {
       transaction.oncomplete = () => db.close();
     });
   } catch (error) {
-    console.error('[FileHandlePersistence] Failed to retrieve all file handle metadata:', error);
+    console.error('[FileHandles] Failed to retrieve all file handle metadata:', error);
     return [];
   }
 };
@@ -261,7 +261,7 @@ export const removeFileHandleMetadata = async (universeSlug) => {
     // Use Electron storage or IndexedDB
     if (isElectron()) {
       await electronRemove(universeSlug);
-      console.log(`[FileHandlePersistence] Removed metadata for ${universeSlug} (Electron)`);
+      console.log(`[FileHandles] Removed metadata for ${universeSlug} (Electron)`);
       return;
     }
     
@@ -273,7 +273,7 @@ export const removeFileHandleMetadata = async (universeSlug) => {
       const request = store.delete(universeSlug);
       
       request.onsuccess = () => {
-        console.log(`[FileHandlePersistence] Removed metadata for ${universeSlug}`);
+        console.log(`[FileHandles] Removed metadata for ${universeSlug}`);
         resolve();
       };
       request.onerror = () => reject(request.error);
@@ -281,7 +281,7 @@ export const removeFileHandleMetadata = async (universeSlug) => {
       transaction.oncomplete = () => db.close();
     });
   } catch (error) {
-    console.error('[FileHandlePersistence] Failed to remove file handle metadata:', error);
+    console.error('[FileHandles] Failed to remove file handle metadata:', error);
     throw error;
   }
 };
@@ -307,7 +307,7 @@ export const checkFileHandlePermission = async (fileHandle) => {
     const permission = await fileHandle.queryPermission({ mode: 'readwrite' });
     return permission;
   } catch (error) {
-    console.warn('[FileHandlePersistence] Failed to query permission:', error);
+    console.warn('[FileHandles] Failed to query permission:', error);
     return 'denied';
   }
 };
@@ -332,7 +332,7 @@ export const requestFileHandlePermission = async (fileHandle) => {
     const permission = await fileHandle.requestPermission({ mode: 'readwrite' });
     return permission;
   } catch (error) {
-    console.warn('[FileHandlePersistence] Failed to request permission:', error);
+    console.warn('[FileHandles] Failed to request permission:', error);
     return 'denied';
   }
 };
@@ -376,7 +376,7 @@ export const verifyFileHandleAccess = async (fileHandle) => {
   try {
     permission = await checkFileHandlePermission(fileHandle);
   } catch (error) {
-    console.warn('[FileHandlePersistence] Permission query failed:', error);
+    console.warn('[FileHandles] Permission query failed:', error);
     return {
       isValid: false,
       permission: 'denied',
@@ -427,7 +427,7 @@ export const verifyFileHandleAccess = async (fileHandle) => {
         error
       };
     }
-    console.warn('[FileHandlePersistence] File handle verification failed:', error);
+    console.warn('[FileHandles] File handle verification failed:', error);
     return {
       isValid: false,
       permission: permission || 'granted',
@@ -477,7 +477,7 @@ export const attemptRestoreFileHandle = async (universeSlug, sessionHandle = nul
       };
     }
 
-    console.log(`[FileHandlePersistence] Metadata retrieved for ${universeSlug}:`, {
+    console.log(`[FileHandles] Metadata retrieved for ${universeSlug}:`, {
       fileName: metadata.fileName,
       isWorkspaceFile: metadata.isWorkspaceFile,
       displayPath: metadata.displayPath,
@@ -486,12 +486,12 @@ export const attemptRestoreFileHandle = async (universeSlug, sessionHandle = nul
 
     // Browser: Check if this is a workspace file first
     if (!isElectron() && metadata.isWorkspaceFile && metadata.fileName) {
-      console.log(`[FileHandlePersistence] Attempting workspace restoration for ${universeSlug}: ${metadata.fileName}`);
+      console.log(`[FileHandles] Attempting workspace restoration for ${universeSlug}: ${metadata.fileName}`);
       try {
         const { getFileFromWorkspace } = await import('./workspaceFolderService.js');
         const workspaceHandle = await getFileFromWorkspace(metadata.fileName);
         if (workspaceHandle) {
-          console.log(`[FileHandlePersistence] Successfully restored workspace file for ${universeSlug}: ${metadata.fileName}`);
+          console.log(`[FileHandles] Successfully restored workspace file for ${universeSlug}: ${metadata.fileName}`);
           return {
             success: true,
             handle: workspaceHandle,
@@ -501,10 +501,10 @@ export const attemptRestoreFileHandle = async (universeSlug, sessionHandle = nul
             permission: 'granted'
           };
         } else {
-          console.log(`[FileHandlePersistence] Workspace file not found for ${universeSlug}: ${metadata.fileName}`);
+          console.log(`[FileHandles] Workspace file not found for ${universeSlug}: ${metadata.fileName}`);
         }
       } catch (error) {
-        console.warn(`[FileHandlePersistence] Failed to restore workspace file for ${universeSlug}:`, error);
+        console.warn(`[FileHandles] Failed to restore workspace file for ${universeSlug}:`, error);
         // Fall through to try absolute path restoration
       }
     }
@@ -517,10 +517,10 @@ export const attemptRestoreFileHandle = async (universeSlug, sessionHandle = nul
       if (typeof handle !== 'string') {
         // Try to recover path from displayPath or other fields
         handle = metadata.displayPath || metadata.path || metadata.lastFilePath;
-        console.log(`[FileHandlePersistence] Electron: recovered handle from metadata:`, handle);
+        console.log(`[FileHandles] Electron: recovered handle from metadata:`, handle);
       }
       if (typeof handle !== 'string') {
-        console.warn(`[FileHandlePersistence] Electron: no valid path found in metadata for ${universeSlug}`, metadata);
+        console.warn(`[FileHandles] Electron: no valid path found in metadata for ${universeSlug}`, metadata);
         return {
           success: false,
           metadata,
@@ -528,12 +528,12 @@ export const attemptRestoreFileHandle = async (universeSlug, sessionHandle = nul
           message: 'File path not found in saved metadata. Please reconnect the file.'
         };
       }
-      console.log(`[FileHandlePersistence] Electron: verifying handle for ${universeSlug}:`, handle);
+      console.log(`[FileHandles] Electron: verifying handle for ${universeSlug}:`, handle);
     }
 
     if (handle) {
       const access = await verifyFileHandleAccess(handle);
-      console.log(`[FileHandlePersistence] Handle access verification for ${universeSlug}:`, access);
+      console.log(`[FileHandles] Handle access verification for ${universeSlug}:`, access);
       if (access?.isValid) {
         await storeFileHandleMetadata(universeSlug, handle, {
           lastAccessed: Date.now()
@@ -581,7 +581,7 @@ export const attemptRestoreFileHandle = async (universeSlug, sessionHandle = nul
     };
     
   } catch (error) {
-    console.error('[FileHandlePersistence] Failed to restore file handle:', error);
+    console.error('[FileHandles] Failed to restore file handle:', error);
     return {
       success: false,
       needsReconnect: false,
@@ -607,7 +607,7 @@ export const touchFileHandle = async (universeSlug, fileHandle = null) => {
       );
     }
   } catch (error) {
-    console.warn('[FileHandlePersistence] Failed to touch file handle:', error);
+    console.warn('[FileHandles] Failed to touch file handle:', error);
   }
 };
 
@@ -619,7 +619,7 @@ export const clearAllFileHandleMetadata = async () => {
     // Use Electron storage or IndexedDB
     if (isElectron()) {
       await electronClear();
-      console.log('[FileHandlePersistence] Cleared all file handle metadata (Electron)');
+      console.log('[FileHandles] Cleared all file handle metadata (Electron)');
       return;
     }
     
@@ -631,7 +631,7 @@ export const clearAllFileHandleMetadata = async () => {
       const request = store.clear();
       
       request.onsuccess = () => {
-        console.log('[FileHandlePersistence] Cleared all file handle metadata');
+        console.log('[FileHandles] Cleared all file handle metadata');
         resolve();
       };
       request.onerror = () => reject(request.error);
@@ -639,7 +639,7 @@ export const clearAllFileHandleMetadata = async () => {
       transaction.oncomplete = () => db.close();
     });
   } catch (error) {
-    console.error('[FileHandlePersistence] Failed to clear file handle metadata:', error);
+    console.error('[FileHandles] Failed to clear file handle metadata:', error);
     throw error;
   }
 };
@@ -649,7 +649,7 @@ export const clearAllFileHandleMetadata = async () => {
  */
 export const debugFileHandles = async () => {
   const all = await getAllFileHandleMetadata();
-  console.log('[FileHandlePersistence] All stored file handles:');
+  console.log('[FileHandles] All stored file handles:');
   all.forEach(item => {
     console.log(`  ${item.universeSlug}:`, {
       handle: item.handle,

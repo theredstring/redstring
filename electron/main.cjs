@@ -381,11 +381,11 @@ ipcMain.handle('file:saveAs', async (event, options = {}) => {
   const isAbsolute = path.isAbsolute(filePath);
 
   if (isAbsolute) {
-    console.log('[FilePickerIPC] ✓ saveAs returned absolute path:', filePath);
+    console.log('[FileHandles] ✓ saveAs returned absolute path:', filePath);
   } else {
-    console.warn('[FilePickerIPC] ⚠ saveAs returned RELATIVE path:', filePath);
+    console.warn('[FileHandles] ⚠ saveAs returned RELATIVE path:', filePath);
     filePath = path.resolve(defaultPath, '..', filePath);
-    console.log('[FilePickerIPC] ✓ Resolved to absolute path:', filePath);
+    console.log('[FileHandles] ✓ Resolved to absolute path:', filePath);
   }
 
   return filePath;

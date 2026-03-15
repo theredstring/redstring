@@ -998,31 +998,31 @@ class UniverseBackend {
       const allMetadata = await getAllFileHandleMetadata();
 
       if (allMetadata.length === 0) {
-        umLog('[RestoreFileHandles] No file handle metadata to restore');
+        umLog('[FileHandles] No file handle metadata to restore');
         return;
       }
 
-      umLog(`[RestoreFileHandles] ▶ Starting restoration of ${allMetadata.length} file handle entries...`);
+      umLog(`[FileHandles] ▶ Starting restoration of ${allMetadata.length} file handle entries...`);
       let restoredAny = false;
 
       for (const metadata of allMetadata) {
         const { universeSlug } = metadata;
         const universe = this.getUniverse(universeSlug);
         if (!universe) {
-          umLog(`[RestoreFileHandles] ⊘ Skipping ${universeSlug}: Universe not found`);
+          umLog(`[FileHandles] ⊘ Skipping ${universeSlug}: Universe not found`);
           continue;
         }
 
         const result = await this.ensureLocalFileHandle(universe, { metadata });
         if (result?.success && result.handle) {
-          umLog(`[RestoreFileHandles] ✓ Successfully restored file handle for ${universeSlug}: ${result.displayPath || 'unknown'}`);
+          umLog(`[FileHandles] ✓ Successfully restored file handle for ${universeSlug}: ${result.displayPath || 'unknown'}`);
           restoredAny = true;
         } else if (result?.needsReconnect) {
-          umLog(`[RestoreFileHandles] ⚠ File handle for ${universeSlug} needs reconnection: ${result.message}`);
+          umLog(`[FileHandles] ⚠ File handle for ${universeSlug} needs reconnection: ${result.message}`);
 
           // If file is stored as relative filename, try to locate it
           if (isElectron() && metadata?.displayPath && !metadata.displayPath.includes('/') && !metadata.displayPath.includes('\\') && metadata.fileName) {
-            umLog(`[RestoreFileHandles] 🔍 Relative filename detected for ${universeSlug}: "${metadata.displayPath}". Attempting to locate...`);
+            umLog(`[FileHandles] 🔍 Relative filename detected for ${universeSlug}: "${metadata.displayPath}". Attempting to locate...`);
 
             const { fileExists: checkFileExists } = await import('../utils/fileAccessAdapter.js');
             let foundPath = null;
@@ -1069,7 +1069,7 @@ class UniverseBackend {
                     possiblePaths.push(`${paths.downloads}/${metadata.displayPath}`);
                   }
                 } catch (pathErr) {
-                  umWarn(`[RestoreFileHandles] Failed to get Electron paths for ${universeSlug}:`, pathErr.message);
+                  umWarn(`[FileHandles] Failed to get Electron paths for ${universeSlug}:`, pathErr.message);
                 }
               }
 
@@ -1078,7 +1078,7 @@ class UniverseBackend {
                   const exists = await checkFileExists(testPath);
                   if (exists) {
                     foundPath = testPath;
-                    umLog(`[RestoreFileHandles] ✓ Found file at: ${testPath}`);
+                    umLog(`[FileHandles] ✓ Found file at: ${testPath}`);
                     break;
                   }
                 } catch (err) {
@@ -1102,20 +1102,20 @@ class UniverseBackend {
               umLog(`[UniverseBackend] Successfully located and reconnected file for ${universeSlug}`);
               restoredAny = true;
             } else {
-              umLog(`[RestoreFileHandles] ✗ Could not locate file "${metadata.displayPath}" for ${universeSlug}. File may have been moved or deleted.`);
+              umLog(`[FileHandles] ✗ Could not locate file "${metadata.displayPath}" for ${universeSlug}. File may have been moved or deleted.`);
             }
           }
         } else if (result?.needsPermission) {
-          umLog(`[RestoreFileHandles] ⚠ File handle for ${universeSlug} needs permission refresh: ${result.message || 'Permission required'}`);
+          umLog(`[FileHandles] ⚠ File handle for ${universeSlug} needs permission refresh: ${result.message || 'Permission required'}`);
         }
       }
 
-      umLog(`[RestoreFileHandles] ✓ Restoration complete (${restoredAny ? 'restored some files' : 'no files to restore or all skipped'})`);
+      umLog(`[FileHandles] ✓ Restoration complete (${restoredAny ? 'restored some files' : 'no files to restore or all skipped'})`);
       if (restoredAny) {
         await this.ensureSaveCoordinator();
       }
     } catch (error) {
-      umError(`[RestoreFileHandles] ✗ CRITICAL: Failed to restore file handles: ${error.message}`, error);
+      umError(`[FileHandles] ✗ CRITICAL: Failed to restore file handles: ${error.message}`, error);
     }
   }
 
@@ -4561,9 +4561,9 @@ class UniverseBackend {
     let handle = this.fileHandles.get(universeSlug);
 
     if (handle) {
-      umLog(`[SaveLocalFile] ✓ Found existing file handle for ${universeSlug}: ${typeof handle === 'string' ? handle : handle?.name || 'FileHandle'}`);
+      umLog(`[FileHandles] ✓ Found existing file handle for ${universeSlug}: ${typeof handle === 'string' ? handle : handle?.name || 'FileHandle'}`);
     } else {
-      umLog(`[SaveLocalFile] 🔍 No file handle in registry for ${universeSlug}, attempting to locate/create...`);
+      umLog(`[FileHandles] 🔍 No file handle in registry for ${universeSlug}, attempting to locate/create...`);
     }
 
     // Fallback: try workspace folder if no individual handle
@@ -4574,7 +4574,7 @@ class UniverseBackend {
         universe?.localFile?.displayPath?.split(/[/\\]/).pop() ||
         `${universeSlug}.redstring`;
 
-      umLog(`[SaveLocalFile] Attempting workspace lookup for: ${fileName}`);
+      umLog(`[FileHandles] Attempting workspace lookup for: ${fileName}`);
 
       try {
         const { getFileFromWorkspace, createFileInWorkspace } = await import('./workspaceFolderService.js');
@@ -4584,27 +4584,27 @@ class UniverseBackend {
 
         // If not found but we have workspace access, create it!
         if (!handle) {
-          umLog(`[SaveLocalFile] Creating file in workspace: ${fileName}`);
+          umLog(`[FileHandles] Creating file in workspace: ${fileName}`);
           // Use overwrite: false to prevent clobbering if our previous check failed falsely
           handle = await createFileInWorkspace(fileName, jsonString, { overwrite: false });
           // createFileInWorkspace already wrote the content
-          umLog(`[SaveLocalFile] ✓ Created file in workspace: ${fileName}`);
+          umLog(`[FileHandles] ✓ Created file in workspace: ${fileName}`);
         } else {
           // We found existing file, so we need to write to it below
-          umLog(`[SaveLocalFile] ✓ Found existing workspace file: ${fileName}`);
+          umLog(`[FileHandles] ✓ Found existing workspace file: ${fileName}`);
         }
 
         if (handle) {
           this.fileHandles.set(universeSlug, handle);
-          umLog(`[SaveLocalFile] ✓ Registered file handle for ${universeSlug}`);
+          umLog(`[FileHandles] ✓ Registered file handle for ${universeSlug}`);
         }
       } catch (wsError) {
-        umWarn(`[SaveLocalFile] ⚠ Workspace folder fallback failed: ${wsError.message}`);
+        umWarn(`[FileHandles] ⚠ Workspace folder fallback failed: ${wsError.message}`);
       }
     }
 
     if (!handle) {
-      umError(`[SaveLocalFile] ✗ No linked local file found or created for ${universeSlug}`);
+      umError(`[FileHandles] ✗ No linked local file found or created for ${universeSlug}`);
       throw new Error('No linked local file. Pick a file first.');
     }
 
