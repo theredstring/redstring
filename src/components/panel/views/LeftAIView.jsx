@@ -239,13 +239,12 @@ function buildEnrichmentUpdates(nodeProto, searchResult, confidence) {
 }
 
 /**
- * Fetch a Wikipedia image URL and produce two data URLs:
- *   - imageSrc: full fetched resolution as JPEG at 85% (for panel display)
- *   - thumbnailSrc: resized to 250px wide JPEG at 70% (for canvas nodes)
+ * Fetch a Wikipedia image and produce:
+ *   - imageSrc: full original resolution (blob → data URL, no canvas resize)
+ *   - thumbnailSrc: 250px wide JPEG at 70% (canvas resize for node rendering)
  *
- * IMPORTANT: For batch enrichment, only pass Wikipedia `thumbnail` URLs, NOT
- * `originalImage`. Original images can be 4000px+ which decodes to 48MB+ of
- * native pixel memory per image — processing 10+ in a batch causes V8 OOM.
+ * Uses FileReader for imageSrc to avoid decoding huge images into pixel memory.
+ * Only loads into Image for aspect ratio + thumbnail canvas.
  */
 async function fetchImageAsDataUrl(imgUrl, nodeName) {
   let rawUrl = null;
@@ -254,11 +253,20 @@ async function fetchImageAsDataUrl(imgUrl, nodeName) {
     if (!response.ok) return null;
 
     const blob = await response.blob();
-    if (blob.size > 2 * 1024 * 1024) {
+    if (blob.size > 5 * 1024 * 1024) {
       console.log(`[Auto-Enrich] ⏭️ "${nodeName}" image too large (${(blob.size / 1024 / 1024).toFixed(1)}MB)`);
       return null;
     }
 
+    // Full-size panel image — convert blob directly, no canvas resize
+    const imageSrc = await new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(reader.result);
+      reader.onerror = reject;
+      reader.readAsDataURL(blob);
+    });
+
+    // Load into Image for aspect ratio + thumbnail
     rawUrl = URL.createObjectURL(blob);
     const img = await new Promise((resolve, reject) => {
       const i = new Image();
@@ -271,14 +279,7 @@ async function fetchImageAsDataUrl(imgUrl, nodeName) {
     const natH = img.naturalHeight;
     const aspectRatio = natH / natW || 1;
 
-    // Panel image: keep at fetched size (Wikipedia thumbnails are ~320px)
-    const panelCanvas = document.createElement('canvas');
-    panelCanvas.width = natW;
-    panelCanvas.height = natH;
-    panelCanvas.getContext('2d').drawImage(img, 0, 0);
-    const imageSrc = panelCanvas.toDataURL('image/jpeg', 0.85);
-
-    // Canvas thumbnail: resize to 250px wide
+    // Canvas thumbnail: resize to 250px wide for node rendering
     const thumbScale = Math.min(1, 250 / natW);
     const tw = Math.round(natW * thumbScale);
     const th = Math.round(natH * thumbScale);
@@ -288,12 +289,10 @@ async function fetchImageAsDataUrl(imgUrl, nodeName) {
     thumbCanvas.getContext('2d').drawImage(img, 0, 0, tw, th);
     const thumbnailSrc = thumbCanvas.toDataURL('image/jpeg', 0.7);
 
-    // Aggressive cleanup — release native pixel memory immediately
+    // Cleanup native memory
     URL.revokeObjectURL(rawUrl);
     rawUrl = null;
     img.src = '';
-    panelCanvas.width = 0;
-    panelCanvas.height = 0;
     thumbCanvas.width = 0;
     thumbCanvas.height = 0;
 
@@ -356,8 +355,8 @@ async function enrichMultipleNodes(nodeNames, _graphId) {
     const nodeProto = store.nodePrototypes.get(targetProtoId);
     const updates = buildEnrichmentUpdates(nodeProto, searchResult, confidence);
 
-    // ONLY use thumbnail URL — originalImage can be 4000px+ and OOM the renderer
-    const imgUrl = searchResult.page.thumbnail;
+    // Prefer originalImage for full-size panel display, fall back to thumbnail
+    const imgUrl = searchResult.page.originalImage || searchResult.page.thumbnail;
     if (imgUrl && !nodeProto.imageSrc) {
       const imageData = await fetchImageAsDataUrl(imgUrl, nodeName);
       if (imageData) Object.assign(updates, imageData);

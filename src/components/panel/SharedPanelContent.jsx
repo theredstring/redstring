@@ -587,11 +587,20 @@ const WikipediaEnrichment = ({ nodeData, onUpdateNode }) => {
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
       const blob = await response.blob();
 
-      if (blob.size > 5 * 1024 * 1024) {
+      if (blob.size > 10 * 1024 * 1024) {
         console.warn(`[Wikipedia] Image too large (${(blob.size / 1024 / 1024).toFixed(1)}MB), skipping`);
         return;
       }
 
+      // Full-size image for panel — no resize, just convert blob to data URL
+      const dataUrl = await new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(reader.result);
+        reader.onerror = reject;
+        reader.readAsDataURL(blob);
+      });
+
+      // Load into Image only for aspect ratio + thumbnail generation
       rawUrl = URL.createObjectURL(blob);
       const img = await new Promise((resolve, reject) => {
         const i = new Image();
@@ -603,26 +612,12 @@ const WikipediaEnrichment = ({ nodeData, onUpdateNode }) => {
       const aspectRatio = (img.naturalHeight > 0 && img.naturalWidth > 0)
         ? img.naturalHeight / img.naturalWidth : 1;
 
-      // Full image for panel (800px max)
-      const MAX_WIDTH = 800;
-      const scale = Math.min(1, MAX_WIDTH / img.naturalWidth);
-      const w = Math.round(img.naturalWidth * scale);
-      const h = Math.round(img.naturalHeight * scale);
-
-      const canvas = document.createElement('canvas');
-      canvas.width = w;
-      canvas.height = h;
-      canvas.getContext('2d').drawImage(img, 0, 0, w, h);
-      const dataUrl = canvas.toDataURL('image/jpeg', 0.85);
-
       const thumbSrc = await generateThumbnail(dataUrl, THUMBNAIL_MAX_DIMENSION);
 
       // Cleanup native memory before triggering store update + save
       URL.revokeObjectURL(rawUrl);
       rawUrl = null;
       img.src = '';
-      canvas.width = 0;
-      canvas.height = 0;
 
       await onUpdateNode({ imageSrc: dataUrl, thumbnailSrc: thumbSrc, imageAspectRatio: aspectRatio });
     } catch (error) {
