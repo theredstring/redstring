@@ -1067,29 +1067,21 @@ class UniverseBackend {
 
             if (foundPath) {
               this.fileHandles.set(universeSlug, foundPath);
+              // Update metadata to store absolute path (skip store update during initialization to avoid deadlock)
               try {
-                umLog(`[FileHandles] Updating universe ${universeSlug} with found path...`);
-                const updateTimeout = Promise.race([
-                  this.updateUniverse(universeSlug, {
-                    localFile: {
-                      ...universe.localFile,
-                      displayPath: foundPath,
-                      path: foundPath,
-                      fileHandleStatus: 'connected',
-                      unavailableReason: null
-                    }
-                  }),
-                  new Promise((_, reject) =>
-                    setTimeout(() => reject(new Error('updateUniverse timeout after 2s')), 2000)
-                  )
-                ]);
-                await updateTimeout;
-                this.saveToStorage();
-                umLog(`[FileHandles] ✓ Successfully located and reconnected file for ${universeSlug}`);
-                restoredAny = true;
-              } catch (updateErr) {
-                umError(`[FileHandles] ✗ Failed to update universe ${universeSlug}:`, updateErr.message);
+                const { storeFileHandleMetadata } = await import('./fileHandlePersistence.js');
+                await storeFileHandleMetadata(universeSlug, foundPath, {
+                  universeSlug,
+                  lastAccessed: Date.now(),
+                  fileName: foundPath.split(/[/\\]/).pop(),
+                  displayPath: foundPath
+                });
+              } catch (metaErr) {
+                umWarn(`[FileHandles] Failed to update metadata for ${universeSlug}:`, metaErr.message);
               }
+              this.saveToStorage();
+              umLog(`[FileHandles] ✓ Successfully located and reconnected file for ${universeSlug}`);
+              restoredAny = true;
             } else {
               umLog(`[FileHandles] ✗ Could not locate file "${metadata.displayPath}" for ${universeSlug}. File may have been moved or deleted.`);
             }
