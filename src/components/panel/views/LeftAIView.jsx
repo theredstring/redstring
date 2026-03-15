@@ -56,14 +56,33 @@ function calculateWikipediaConfidence(nodeName, wikipediaResult) {
  * Convert image URL to data URL
  */
 async function urlToDataUrl(url) {
-  const response = await fetch(url, { mode: 'cors' });
-  const blob = await response.blob();
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onloadend = () => resolve(reader.result);
-    reader.onerror = reject;
-    reader.readAsDataURL(blob);
-  });
+  console.log(`[Auto-Enrich] 🌐 Fetching image from URL: ${url}`);
+  try {
+    const response = await fetch(url, { mode: 'cors' });
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+    }
+    console.log(`[Auto-Enrich] ✅ Image fetched successfully (${response.status})`);
+
+    const blob = await response.blob();
+    console.log(`[Auto-Enrich] 📦 Blob created (${blob.size} bytes, type: ${blob.type})`);
+
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        console.log(`[Auto-Enrich] 📄 Data URL conversion complete`);
+        resolve(reader.result);
+      };
+      reader.onerror = (error) => {
+        console.error(`[Auto-Enrich] ❌ FileReader error:`, error);
+        reject(error);
+      };
+      reader.readAsDataURL(blob);
+    });
+  } catch (error) {
+    console.error(`[Auto-Enrich] ❌ urlToDataUrl failed for ${url}:`, error);
+    throw error;
+  }
 }
 
 /**
@@ -147,10 +166,18 @@ async function enrichNodeWithWikipedia(nodeName, graphId, options = {}) {
 
     // 8. Set image if available (convert URL to data URL like manual pull does)
     const imgUrl = searchResult.page.originalImage || searchResult.page.thumbnail;
+    console.log(`[Auto-Enrich] 🖼️ Image availability for "${nodeName}":`, {
+      hasOriginalImage: !!searchResult.page.originalImage,
+      hasThumbnail: !!searchResult.page.thumbnail,
+      imgUrl,
+      nodeAlreadyHasImage: !!nodeProto.imageSrc
+    });
+
     if (imgUrl && !nodeProto.imageSrc) {
       try {
-        console.log(`[Auto-Enrich] Setting image from Wikipedia: ${imgUrl}`);
+        console.log(`[Auto-Enrich] 🔄 Fetching image from Wikipedia: ${imgUrl}`);
         const dataUrl = await urlToDataUrl(imgUrl);
+        console.log(`[Auto-Enrich] ✅ Image converted to data URL (${dataUrl.length} bytes)`);
 
         // Calculate aspect ratio
         const img = new Image();
@@ -171,11 +198,20 @@ async function enrichNodeWithWikipedia(nodeName, graphId, options = {}) {
         updates.thumbnailSrc = dataUrl; // Simplified - using same URL
         updates.imageAspectRatio = aspectRatio;
 
-        console.log(`[Auto-Enrich] Image set successfully with aspect ratio ${aspectRatio}`);
+        console.log(`[Auto-Enrich] ✅ Image set successfully with aspect ratio ${aspectRatio}`);
       } catch (imageError) {
-        console.warn(`[Auto-Enrich] Failed to set image for "${nodeName}":`, imageError);
+        console.error(`[Auto-Enrich] ❌ Failed to set image for "${nodeName}":`, imageError);
+        console.error(`[Auto-Enrich] ❌ Error details:`, {
+          message: imageError.message,
+          stack: imageError.stack,
+          imageUrl: imgUrl
+        });
         // Continue with text-only enrichment
       }
+    } else if (!imgUrl) {
+      console.warn(`[Auto-Enrich] ⚠️ No image URL available for "${nodeName}" (Wikipedia page may not have images)`);
+    } else if (nodeProto.imageSrc) {
+      console.log(`[Auto-Enrich] ⏭️ Skipping image for "${nodeName}" - node already has an image`);
     }
 
     // 9. Update node prototype
@@ -203,13 +239,14 @@ async function enrichNodeWithWikipedia(nodeName, graphId, options = {}) {
  * Staggers requests by 200ms to avoid Wikipedia API rate limits
  */
 async function enrichMultipleNodes(nodeNames, graphId) {
-  console.log(`[Auto-Enrich] Batch enrichment for ${nodeNames.length} nodes`);
+  console.log(`[Auto-Enrich] 🚀 Starting batch enrichment for ${nodeNames.length} nodes:`, nodeNames);
 
   // Stagger requests by 200ms to avoid rate limiting
   const enrichmentPromises = nodeNames.map((nodeName, index) =>
-    new Promise(resolve => setTimeout(() =>
-      resolve(enrichNodeWithWikipedia(nodeName, graphId))
-      , index * 200))
+    new Promise(resolve => setTimeout(() => {
+      console.log(`[Auto-Enrich] 📝 Processing node ${index + 1}/${nodeNames.length}: "${nodeName}"`);
+      resolve(enrichNodeWithWikipedia(nodeName, graphId));
+    }, index * 200))
   );
 
   // Use allSettled to prevent one failure from blocking others
@@ -219,7 +256,14 @@ async function enrichMultipleNodes(nodeNames, graphId) {
     r.status === 'fulfilled' && r.value?.success
   ).length;
 
-  console.log(`[Auto-Enrich] Enriched ${successful}/${nodeNames.length} nodes`);
+  const failed = results.filter(r =>
+    r.status === 'rejected' || (r.status === 'fulfilled' && !r.value?.success)
+  );
+
+  console.log(`[Auto-Enrich] ✅ Enrichment complete: ${successful}/${nodeNames.length} successful`);
+  if (failed.length > 0) {
+    console.warn(`[Auto-Enrich] ⚠️ ${failed.length} nodes failed to enrich:`, failed);
+  }
 
   return results;
 }

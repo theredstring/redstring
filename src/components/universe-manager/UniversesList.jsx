@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Plus, Trash2, ChevronDown, Github, Upload, Download, X, Edit, Star, Save, Activity, Link, FileText, ArrowRightLeft, FolderOpen, Folder } from 'lucide-react';
+import { Plus, ChevronDown, Github, Upload, Download, X, Edit, Star, Save, Activity, Link, FileText, ArrowRightLeft, FolderOpen, Folder } from 'lucide-react';
 import SectionCard from './shared/SectionCard.jsx';
 import PanelIconButton from '../shared/PanelIconButton.jsx';
 
@@ -461,7 +461,7 @@ const UniversesList = ({
                   key={universe.slug}
                   style={{
                     border: isActive ? '2px solid #7A0000' : '1px solid #260000',
-                    borderRadius: 8,
+                    borderRadius: 2,
                     backgroundColor: '#bdb5b5',
                     padding: 12,
                     display: 'flex',
@@ -524,7 +524,7 @@ const UniversesList = ({
                       )}
                       {universes.length > 1 && (
                         <PanelIconButton
-                          icon={Trash2}
+                          icon={X}
                           size={isSlim ? 18 : 20}
                           onClick={() => onDeleteUniverse(universe.slug, universe.name)}
                           title="Delete universe"
@@ -775,7 +775,7 @@ const UniversesList = ({
                                       }}>
                                         {onSwapLocalFile && (
                                           <PanelIconButton
-                                            icon={Upload}
+                                            icon={ArrowRightLeft}
                                             size={isSlim ? 16 : 18}
                                             onClick={(e) => {
                                               e.stopPropagation();
