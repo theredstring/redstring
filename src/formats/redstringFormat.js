@@ -679,8 +679,8 @@ export const exportToRedstring = (storeState, userDomain = null) => {
       // Redstring visual properties
       "redstring:visualProperties": {
         "redstring:cognitiveColor": prototype.color,
-        "redstring:imageSrc": prototype.imageSrc,
-        "redstring:thumbnailSrc": prototype.thumbnailSrc,
+        "redstring:imageSrc": prototype.semanticMetadata?.autoEnriched ? null : prototype.imageSrc,
+        "redstring:thumbnailSrc": prototype.semanticMetadata?.autoEnriched ? null : prototype.thumbnailSrc,
         "redstring:imageAspectRatio": prototype.imageAspectRatio
       },
       
@@ -713,7 +713,11 @@ export const exportToRedstring = (storeState, userDomain = null) => {
       "redstring:abstractionChains": prototype.abstractionChains || {},
       
       // Agent configuration (if node is an agent)
-      "redstring:agentConfig": prototype.agentConfig || null
+      "redstring:agentConfig": prototype.agentConfig || null,
+
+      // Semantic enrichment metadata (Wikipedia URLs, confidence, auto-enrich flag, etc.)
+      // Critical for image re-fetching on reload and OOM prevention
+      "redstring:semanticMetadata": prototype.semanticMetadata || null
     };
   });
 
@@ -1251,16 +1255,31 @@ export const importFromRedstring = (redstringData, storeActions) => {
             convertedPrototype.color = coalesce(prototype.color, visual['redstring:cognitiveColor']);
           }
 
-          if (hasOwn(prototype, 'imageSrc') || hasOwn(visual, 'redstring:imageSrc')) {
-            convertedPrototype.imageSrc = coalesce(prototype.imageSrc, visual['redstring:imageSrc']);
-          }
+          // Detect auto-enriched nodes to skip importing their embedded image data
+          // (auto-enriched images are re-fetched from Wikipedia URLs in semanticMetadata)
+          // Check multiple signals: semanticMetadata flag OR wikipedia URL in external links (old files)
+          const smRaw = prototype['redstring:semanticMetadata'] ?? prototype.semanticMetadata;
+          const linksRaw = ensureArray(prototype['owl:sameAs'] ?? prototype.externalLinks);
+          const isAutoEnriched = smRaw?.autoEnriched
+            || linksRaw.some(l => String(l).includes('wikipedia.org'));
 
-          if (hasOwn(prototype, 'thumbnailSrc') || hasOwn(visual, 'redstring:thumbnailSrc')) {
-            convertedPrototype.thumbnailSrc = coalesce(prototype.thumbnailSrc, visual['redstring:thumbnailSrc']);
+          if (!isAutoEnriched) {
+            if (hasOwn(prototype, 'imageSrc') || hasOwn(visual, 'redstring:imageSrc')) {
+              convertedPrototype.imageSrc = coalesce(prototype.imageSrc, visual['redstring:imageSrc']);
+            }
+
+            if (hasOwn(prototype, 'thumbnailSrc') || hasOwn(visual, 'redstring:thumbnailSrc')) {
+              convertedPrototype.thumbnailSrc = coalesce(prototype.thumbnailSrc, visual['redstring:thumbnailSrc']);
+            }
           }
 
           if (hasOwn(prototype, 'imageAspectRatio') || hasOwn(visual, 'redstring:imageAspectRatio')) {
             convertedPrototype.imageAspectRatio = coalesce(prototype.imageAspectRatio, visual['redstring:imageAspectRatio']);
+          }
+
+          // Semantic enrichment metadata (Wikipedia URLs, confidence, auto-enrich flag)
+          if (hasOwn(prototype, 'redstring:semanticMetadata') || hasOwn(prototype, 'semanticMetadata')) {
+            convertedPrototype.semanticMetadata = prototype['redstring:semanticMetadata'] ?? prototype.semanticMetadata ?? null;
           }
 
           if (hasOwn(prototype, 'owl:sameAs') || hasOwn(prototype, 'externalLinks')) {
