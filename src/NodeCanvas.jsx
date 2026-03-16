@@ -11310,9 +11310,18 @@ function NodeCanvas() {
                 {(() => {
                   const draggingNodeId = draggingNodeInfo?.primaryId || draggingNodeInfo?.instanceId;
 
-                  // Determine which node should be treated as "active" for stacking, 
-                  // giving priority to previewing, then the node whose PieMenu is currently active/animating.
+                  // Determine which node should be treated as "active" for stacking,
+                  // Priority order: previewing > pie menu > single selection (for orbit overlay)
                   let nodeIdToKeepActiveForStacking = previewingNodeId || currentPieMenuData?.node?.id || selectedNodeIdForPieMenu;
+
+                  // If no higher-priority node is active, use the selected node for orbit overlay
+                  if (!nodeIdToKeepActiveForStacking &&
+                      selectedInstanceIds.size === 1 &&
+                      !selectionStart &&
+                      !abstractionCarouselVisible) {
+                    nodeIdToKeepActiveForStacking = [...selectedInstanceIds][0];
+                  }
+
                   if (nodeIdToKeepActiveForStacking === draggingNodeId) {
                     nodeIdToKeepActiveForStacking = null; // Dragging node is handled separately
                   }

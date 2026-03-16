@@ -10,7 +10,7 @@ import { normalizeToCandidate, candidateToConcept } from '../../../services/cand
 import { ingestOrbitIndexEntries } from '../../../services/orbitLocalIndex.js';
 import useGraphStore from '../../../store/graphStore.jsx';
 import { markPrototypesProtected } from '../../../services/prototypeProtection.js';
-import { generateConceptColor } from '../../../utils/colorUtils';
+import { generateConceptColor, getTextColor } from '../../../utils/colorUtils';
 
 // Left Semantic Discovery View - Concept Discovery Engine
 
@@ -1388,8 +1388,8 @@ const LeftSemanticDiscoveryView = ({ storeActions, nodePrototypesMap, openRightP
                           borderRadius: '12px',
                           background: contexts.panel.nodeData?.color || '#8B0000'
                         }}>
-                          <Search size={14} style={{ color: '#EFE8E5' }} />
-                          <span style={{ color: '#EFE8E5', fontFamily: "'EmOne', sans-serif", fontSize: 12, fontWeight: 'bold', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: 220 }}>
+                          <Search size={14} style={{ color: getTextColor(contexts.panel.nodeData?.color || '#8B0000') }} />
+                          <span style={{ color: getTextColor(contexts.panel.nodeData?.color || '#8B0000'), fontFamily: "'EmOne', sans-serif", fontSize: 12, fontWeight: 'bold', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: 220 }}>
                             {contexts.panel.nodeName}
                           </span>
                         </div>
@@ -1426,8 +1426,8 @@ const LeftSemanticDiscoveryView = ({ storeActions, nodePrototypesMap, openRightP
                           borderRadius: '12px',
                           background: contexts.graph.nodeData?.color || '#4B0082'
                         }}>
-                          <Search size={14} style={{ color: '#EFE8E5' }} />
-                          <span style={{ color: '#EFE8E5', fontFamily: "'EmOne', sans-serif", fontSize: 12, fontWeight: 'bold', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: 220 }}>
+                          <Search size={14} style={{ color: getTextColor(contexts.graph.nodeData?.color || '#4B0082') }} />
+                          <span style={{ color: getTextColor(contexts.graph.nodeData?.color || '#4B0082'), fontFamily: "'EmOne', sans-serif", fontSize: 12, fontWeight: 'bold', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: 220 }}>
                             {contexts.graph.nodeName}
                           </span>
                         </div>
@@ -1464,8 +1464,8 @@ const LeftSemanticDiscoveryView = ({ storeActions, nodePrototypesMap, openRightP
                           borderRadius: '12px',
                           background: (nodePrototypesMap.get(selectedNode.prototypeId)?.color) || '#228B22'
                         }}>
-                          <Search size={14} style={{ color: '#EFE8E5' }} />
-                          <span style={{ color: '#EFE8E5', fontFamily: "'EmOne', sans-serif", fontSize: 12, fontWeight: 'bold', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: 220 }}>
+                          <Search size={14} style={{ color: getTextColor((nodePrototypesMap.get(selectedNode.prototypeId)?.color) || '#228B22') }} />
+                          <span style={{ color: getTextColor((nodePrototypesMap.get(selectedNode.prototypeId)?.color) || '#228B22'), fontFamily: "'EmOne', sans-serif", fontSize: 12, fontWeight: 'bold', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: 220 }}>
                             {nodePrototypesMap.get(selectedNode.prototypeId)?.name || 'Selected'}
                           </span>
                         </div>

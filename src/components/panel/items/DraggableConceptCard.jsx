@@ -68,7 +68,7 @@ const DraggableConceptCard = ({ concept, index = 0, onMaterialize, onUnsave, onS
       ref={drag}
       style={{
         padding: '10px 70px 10px 10px', // More right padding for better icon spacing
-        background: concept.color,
+        background: concept.color, // Background is node color
         borderRadius: '12px', // More rounded like actual nodes
         border: '1px solid rgba(189,181,181,0.3)',
         cursor: 'grab',
@@ -102,7 +102,7 @@ const DraggableConceptCard = ({ concept, index = 0, onMaterialize, onUnsave, onS
           justifyContent: 'center',
           cursor: 'pointer',
           opacity: 0.8,
-          transition: 'opacity 0.2s ease'
+          transition: 'all 0.2s ease'
         }}
         onClick={(e) => {
           e.stopPropagation();
@@ -112,14 +112,20 @@ const DraggableConceptCard = ({ concept, index = 0, onMaterialize, onUnsave, onS
           }
         }}
         title={`Search for more about "${concept.name}"`}
-        onMouseEnter={(e) => e.currentTarget.style.opacity = 1}
-        onMouseLeave={(e) => e.currentTarget.style.opacity = 0.8}
+        onMouseEnter={(e) => {
+          e.currentTarget.style.opacity = 1;
+          e.currentTarget.style.transform = 'translateY(-50%) scale(1.1)';
+        }}
+        onMouseLeave={(e) => {
+          e.currentTarget.style.opacity = 0.8;
+          e.currentTarget.style.transform = 'translateY(-50%) scale(1)';
+        }}
       >
         <Search
           size={32}
           style={{
-            color: getTextColor(concept.color), // Panel background color
-            pointerEvents: 'none' // Allow clicks/hover to pass through to container
+            color: getTextColor(concept.color), // Contrasting color
+            pointerEvents: 'none'
           }}
         />
       </div>
@@ -138,29 +144,35 @@ const DraggableConceptCard = ({ concept, index = 0, onMaterialize, onUnsave, onS
           justifyContent: 'center',
           cursor: 'pointer',
           opacity: 0.8,
-          transition: 'opacity 0.2s ease'
+          transition: 'all 0.2s ease'
         }}
         onClick={(e) => {
           e.stopPropagation();
           handleSaveToggle();
         }}
         title={isBookmarked ? `Remove "${concept.name}" from your graph` : `Save "${concept.name}" to your graph`}
-        onMouseEnter={(e) => e.currentTarget.style.opacity = 1}
-        onMouseLeave={(e) => e.currentTarget.style.opacity = 0.8}
+        onMouseEnter={(e) => {
+          e.currentTarget.style.opacity = 1;
+          e.currentTarget.style.transform = 'translateY(-50%) scale(1.1)';
+        }}
+        onMouseLeave={(e) => {
+          e.currentTarget.style.opacity = 0.8;
+          e.currentTarget.style.transform = 'translateY(-50%) scale(1)';
+        }}
       >
         <Bookmark
           size={32}
           style={{
-            color: getTextColor(concept.color), // Panel background color stroke
+            color: getTextColor(concept.color), // Contrasting color
             fill: isBookmarked ? getTextColor(concept.color) : 'transparent', // Filled when saved, transparent when unsaved
-            pointerEvents: 'none' // Allow clicks/hover to pass through to container
+            pointerEvents: 'none'
           }}
         />
       </div>
 
       {/* Node Name */}
       <div style={{
-        color: getTextColor(concept.color),
+        color: getTextColor(concept.color), // Node name in contrasting color
         fontFamily: "'EmOne', sans-serif",
         fontSize: '16px', // Larger title
         fontWeight: 'bold',
@@ -180,7 +192,7 @@ const DraggableConceptCard = ({ concept, index = 0, onMaterialize, onUnsave, onS
       {(concept.semanticMetadata?.connectionInfo?.predicate || concept.defaultPredicate) && (
         <div style={{
           fontSize: '10px',
-          color: getTextColor(concept.color),
+          color: getTextColor(concept.color), // In contrasting color
           opacity: 0.8,
           fontFamily: "'EmOne', sans-serif",
           marginBottom: '6px',
@@ -196,11 +208,11 @@ const DraggableConceptCard = ({ concept, index = 0, onMaterialize, onUnsave, onS
               <span style={{ maxWidth: '80px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                 {concept.semanticMetadata.connectionInfo.originalEntity}
               </span>
-              <ArrowRight size={10} />
+              <ArrowRight size={10} color={getTextColor(concept.color)} />
               <span>
                 {concept.semanticMetadata.connectionInfo.predicate || concept.defaultPredicate}
               </span>
-              <ArrowRight size={10} />
+              <ArrowRight size={10} color={getTextColor(concept.color)} />
             </>
           ) : (
             // Fallback for when we don't know the exact subject (e.g. general search results)
@@ -211,7 +223,7 @@ const DraggableConceptCard = ({ concept, index = 0, onMaterialize, onUnsave, onS
 
       {/* Truncated Description */}
       <div style={{
-        color: getTextColor(concept.color),
+        color: getTextColor(concept.color), // Description in contrasting color
         fontFamily: "'EmOne', sans-serif",
         fontSize: '11px',
         lineHeight: '1.4',
@@ -230,7 +242,7 @@ const DraggableConceptCard = ({ concept, index = 0, onMaterialize, onUnsave, onS
       {/* Bottom Info Bar */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <div style={{
-          color: getTextColor(concept.color),
+          color: getTextColor(concept.color), // Info bar in contrasting color
           fontFamily: "'EmOne', sans-serif",
           fontSize: '10px', // Larger for better readability
           opacity: 0.8,

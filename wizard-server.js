@@ -170,6 +170,13 @@ app.post('/api/wizard', async (req, res) => {
     try {
       for await (const event of runAgent(message, graphState || {}, llmConfig, ensureSchedulerStarted, abortController.signal)) {
         res.write(`data: ${JSON.stringify(event)}\n\n`);
+
+        // Force event loop break after tool_call_start to ensure separate TCP packets
+        // This guarantees the client receives tool_call_start before tool_call
+        // Applies to ALL providers: OpenRouter, Anthropic, OpenAI, Gemini
+        if (event.type === 'tool_call_start') {
+          await new Promise(resolve => setImmediate(resolve));
+        }
       }
       res.write(`data: ${JSON.stringify({ type: 'done' })}\n\n`);
     } catch (error) {

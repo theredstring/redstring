@@ -48,7 +48,7 @@ const GhostSemanticNode = ({ concept, index, onMaterialize, onSelect }) => {
       onClick={onSelect}
       style={{
         padding: '6px',
-        background: concept.color,
+        background: concept.color, // Background is node color
         borderRadius: '8px',
         border: '1px dashed rgba(189,181,181,0.4)',
         cursor: 'grab',
@@ -76,7 +76,7 @@ const GhostSemanticNode = ({ concept, index, onMaterialize, onSelect }) => {
         right: '3px',
         fontSize: '8px',
         opacity: 0.6,
-        color: getTextColor(concept.color)
+        color: getTextColor(concept.color) // In contrasting color
       }}>
         ✨
       </div>
@@ -87,16 +87,16 @@ const GhostSemanticNode = ({ concept, index, onMaterialize, onSelect }) => {
           position: 'absolute',
           top: '2px',
           right: '20px', // Position to the left of ghost indicator
-          width: '16px',
-          height: '16px',
-          background: '#EFE8E5', // Canvas color
-          borderRadius: '3px',
+          width: '18px',
+          height: '18px',
+          backgroundColor: '#EFE8E5', // Canvas color
+          borderRadius: '4px',
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'center',
           cursor: 'pointer',
           opacity: 0.8,
-          transition: 'opacity 0.2s ease',
+          transition: 'all 0.2s ease',
           boxShadow: '0 1px 2px rgba(0,0,0,0.2)'
         }}
         onClick={(e) => {
@@ -107,20 +107,26 @@ const GhostSemanticNode = ({ concept, index, onMaterialize, onSelect }) => {
           }
         }}
         title={`Search for more about "${concept.name}"`}
-        onMouseEnter={(e) => e.currentTarget.style.opacity = 1}
-        onMouseLeave={(e) => e.currentTarget.style.opacity = 0.8}
+        onMouseEnter={(e) => {
+          e.currentTarget.style.opacity = 1;
+          e.currentTarget.style.transform = 'scale(1.1)';
+        }}
+        onMouseLeave={(e) => {
+          e.currentTarget.style.opacity = 0.8;
+          e.currentTarget.style.transform = 'scale(1)';
+        }}
       >
         <Search
-          size={10}
+          size={12}
           style={{
-            color: getTextColor(concept.color) // Icon in result's background color
+            color: getTextColor(concept.color) // Icon in contrasting color
           }}
         />
       </div>
 
       {/* Compact node content */}
       <div style={{
-        color: getTextColor(concept.color),
+        color: getTextColor(concept.color), // Name in contrasting color
         fontFamily: "'EmOne', sans-serif",
         fontSize: '9px',
         fontWeight: 'bold',
@@ -138,7 +144,7 @@ const GhostSemanticNode = ({ concept, index, onMaterialize, onSelect }) => {
       {concept.semanticMetadata?.confidence && (
         <div style={{
           fontSize: '6px',
-          color: getTextColor(concept.color),
+          color: getTextColor(concept.color), // Confidence in contrasting color
           opacity: 0.6,
           fontFamily: "'EmOne', sans-serif"
         }}>
@@ -152,7 +158,7 @@ const GhostSemanticNode = ({ concept, index, onMaterialize, onSelect }) => {
         bottom: '2px',
         left: '3px',
         fontSize: '6px',
-        color: getTextColor(concept.color),
+        color: getTextColor(concept.color), // Connection count in contrasting color
         opacity: 0.5,
         fontFamily: "'EmOne', sans-serif"
       }}>

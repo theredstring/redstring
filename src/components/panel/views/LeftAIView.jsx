@@ -2685,7 +2685,9 @@ const LeftAIView = ({ compact = false,
 
                 // Generate unique event ID for deduplication
                 const eventId = `${event.type}-${event.id || eventCounter++}-${event.content?.length || 0}`;
-                if (processedEvents.has(eventId)) continue;
+                if (processedEvents.has(eventId)) {
+                  continue;
+                }
                 processedEvents.add(eventId);
 
                 // Apply tool results to store OUTSIDE the state updater

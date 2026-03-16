@@ -859,6 +859,7 @@ async function* streamGemini(messages, tools, { model, apiKey, temperature, maxT
 
               if (fnArgs !== undefined) {
                 // Args present — yield immediately (typical Gemini behavior)
+                // Event loop break happens in wizard-server.js after tool_call_start
                 console.error('[LLMClient:Gemini] → Yielding tool_call:', fnName, 'with', Object.keys(fnArgs || {}).length, 'arg keys');
                 yield {
                   type: 'tool_call',
