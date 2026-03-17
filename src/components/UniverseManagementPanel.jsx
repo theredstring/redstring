@@ -853,7 +853,8 @@ const UniverseManagementPanel = ({
                           style={{
                             padding: isSlim ? '4px 8px' : '6px 10px',
                             backgroundColor: activeUniverse?.sourceOfTruth === 'local' ? '#260000' : 'transparent',
-                            color: activeUniverse?.sourceOfTruth === 'local' ? '#bdb5b5' : '#260000',
+                            color: activeUniverse?.sourceOfTruth === 'local' ? theme.canvas.bg : '#260000',
+
                             border: '1px solid #260000',
                             borderRadius: '4px',
                             fontSize: '0.7rem',
@@ -881,7 +882,8 @@ const UniverseManagementPanel = ({
                         style={{
                           padding: isSlim ? '4px 8px' : '6px 10px',
                           backgroundColor: activeUniverse?.sourceOfTruth === 'git' ? '#260000' : 'transparent',
-                          color: activeUniverse?.sourceOfTruth === 'git' ? '#bdb5b5' : '#260000',
+                          color: activeUniverse?.sourceOfTruth === 'git' ? theme.canvas.bg : '#260000',
+
                           border: '1px solid #260000',
                           borderRadius: '4px',
                           fontSize: '0.7rem',

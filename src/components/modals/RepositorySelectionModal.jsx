@@ -778,17 +778,18 @@ const RepositorySelectionModal = ({
                     </a>
                   )}
 
-                  {isAlreadyManaged(repo) && onSelectRepository &&                       <button
-                         onClick={(e) => {
-                           e.stopPropagation();
-                           onSelectRepository(repo);
-                         }}
-                         style={{
-                           background: theme.canvas.text,
-                           border: 'none',
-                           color: theme.canvas.bg,
-                           cursor: 'pointer',
-                           padding: '4px 8px',
+                  {isAlreadyManaged(repo) && onSelectRepository && (
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onSelectRepository(repo);
+                      }}
+                      style={{
+                        background: theme.canvas.text,
+                        border: 'none',
+                        color: theme.canvas.bg,
+                        cursor: 'pointer',
+                        padding: '4px 8px',
                         borderRadius: '4px',
                         fontSize: '0.7rem',
                         fontWeight: 600,
@@ -815,7 +816,8 @@ const RepositorySelectionModal = ({
                       style={{
                         background: '#260000',
                         border: 'none',
-                        color: '#bdb5b5',
+                        color: theme.canvas.bg,
+
                         cursor: 'pointer',
                         padding: '4px 8px',
                         borderRadius: '4px',
@@ -912,7 +914,8 @@ const RepositorySelectionModal = ({
                               border: '1px solid #260000',
                               borderRadius: 12,
                               padding: '10px 12px',
-                              backgroundColor: '#bdb5b5',
+                              backgroundColor: theme.canvas.bg,
+
                               display: 'flex',
                               flexDirection: 'column',
                               gap: 6,

@@ -1623,7 +1623,8 @@ const LeftSemanticDiscoveryView = ({ storeActions, nodePrototypesMap, openRightP
                 <div style={{
                   width: '32px',
                   height: '32px',
-                  border: '3px solid #bdb5b5',
+                  border: `3px solid ${theme.canvas.bg}`,
+
                   borderTop: '3px solid #7A0000',
                   borderRadius: '50%',
                   animation: 'spin 1s linear infinite',

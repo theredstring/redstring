@@ -11,7 +11,9 @@ import {
 } from './utils/colorUtils.js';
 import useGraphStore from './store/graphStore.jsx';
 import useImageCache from './services/imageCache.js';
+import { useTheme } from './hooks/useTheme.js';
 import './AbstractionCarousel.css';
+
 
 const LEVEL_SPACING = -30; // Overlapping spacing to create a stacked effect
 const PHYSICS_DAMPING = 0.75; // Much lower damping for less friction/stickiness
@@ -180,7 +182,9 @@ const AbstractionCarousel = ({
   relativeMoveRequest, // 'up' | 'down' | null - request to move focus one level
   onRelativeMoveHandled // callback to clear request once applied
 }) => {
+  const theme = useTheme();
   const carouselRef = useRef(null);
+
   
   // Store bindings
   const nodePrototypesMap = useGraphStore((state) => state.nodePrototypes);
@@ -1256,7 +1260,8 @@ const AbstractionCarousel = ({
                       dominantBaseline="central"
                       fontSize={12}
                       fontFamily="'EmOne', sans-serif"
-                      fill="#bdb5b5"
+                      fill={theme.canvas.bg}
+
                       fontWeight="bold"
                       style={{
                         userSelect: 'none',
@@ -1299,7 +1304,7 @@ const AbstractionCarousel = ({
               fontSize={30}
               fontFamily="'EmOne', sans-serif"
               fill="#260000"
-              stroke="#BDB5B5"
+              stroke={theme.canvas?.textMuted || "#BDB5B5"}
               strokeWidth={2}
               style={{ paintOrder: 'stroke fill' }}
             >
@@ -1319,7 +1324,8 @@ const AbstractionCarousel = ({
               fontSize={30}
               fontFamily="'EmOne', sans-serif"
               fill="#260000"
-              stroke="#BDB5B5"
+              stroke={theme.canvas.text}
+
               strokeWidth={2}
               style={{ paintOrder: 'stroke fill' }}
             >

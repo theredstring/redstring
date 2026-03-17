@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import { HEADER_HEIGHT } from './constants';
 import RedstringMenu from './RedstringMenu';
 import { Bookmark, Plus, ScanSearch, HelpCircle, Bug, Settings, Search } from 'lucide-react';
+import { useTheme } from './hooks/useTheme.js';
 import HeaderGraphTab from './HeaderGraphTab';
 import { showContextMenu } from './components/GlobalContextMenu';
 import { getTextColor, hexToHsl, hslToHex } from './utils/colorUtils.js';
@@ -75,9 +76,9 @@ const Header = ({
   onGenerateTestGraph,
   onOpenForceSim,
   onAutoLayoutGraph,
-  onCondenseNodes
-
+  onCondenseNodes,
 }) => {
+  const theme = useTheme();
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [currentLogoIndex, setCurrentLogoIndex] = useState(0);
   const [isAnimating, setIsAnimating] = useState(false);
@@ -118,7 +119,7 @@ const Header = ({
       // Set a minimum of 150px and maximum based on available space
       const calculatedMaxWidth = Math.max(150, Math.min(availableWidth, 800));
 
-      setActiveTabMaxWidth(`${calculatedMaxWidth}px`);
+      setActiveTabMaxWidth(calculatedMaxWidth + 'px');
     };
 
     updateActiveTabMaxWidth();
@@ -482,7 +483,8 @@ const Header = ({
         style={{
           height: `${HEADER_HEIGHT}px`,
           backgroundColor: headerBg,
-          color: '#bdb5b5',
+          color: theme.canvas.bg,
+
           fontFamily: "'EmOne', sans-serif",
           display: 'flex',
           alignItems: 'center',
@@ -566,7 +568,8 @@ const Header = ({
       style={{
         height: `${HEADER_HEIGHT}px`,
         backgroundColor: headerBg,
-        color: '#bdb5b5',
+        color: theme.canvas.bg,
+
         fontFamily: "'EmOne', sans-serif",
         display: 'flex',
         alignItems: 'center',

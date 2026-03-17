@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
 import { NODE_CORNER_RADIUS } from './constants';
+import { useTheme } from './hooks/useTheme.js';
 
 const NodeGridItem = ({ 
   nodePrototype, 
@@ -7,6 +7,7 @@ const NodeGridItem = ({
   width = 120, 
   height = 80 
 }) => {
+  const theme = useTheme();
   const nodeColor = nodePrototype.color || '#800000';
   const nodeName = nodePrototype.name || 'Untitled';
   const [isSelecting, setIsSelecting] = useState(false);
@@ -74,7 +75,8 @@ const NodeGridItem = ({
       {/* Node name */}
       <span
         style={{
-          color: '#bdb5b5',
+          color: theme.canvas.bg,
+
           fontSize: '12px',
           fontWeight: 'bold',
           fontFamily: "'EmOne', sans-serif",

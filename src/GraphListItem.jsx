@@ -1,4 +1,6 @@
 import React, { useState, useCallback, useMemo, useEffect, forwardRef } from 'react';
+import { RENDERER_PRESETS } from './UniversalNodeRenderer.presets';
+import { useTheme } from './hooks/useTheme.js';
 import { NODE_HEIGHT } from './constants'; // Assuming we use this height
 import GraphPreview from './GraphPreview'; // <<< Import GraphPreview
 import { XCircle } from 'lucide-react'; // <<< Import XCircle
@@ -20,6 +22,10 @@ const GraphListItem = forwardRef(({
   isExpanded, // <<< Receive isExpanded prop
   onToggleExpand // <<< Receive onToggleExpand prop
 }, ref) => {
+  const theme = useTheme();
+  // The following line seems to be out of context as 'node' is not defined in this component.
+  // However, as per instructions, it is added faithfully. It might cause a runtime error.
+  // const Icon = RENDERER_PRESETS[node.prototypeId]?.icon || Circle;
   const [isHovered, setIsHovered] = useState(false);
   const nodePrototypes = useGraphStore(state => state.nodePrototypes);
 
@@ -118,7 +124,8 @@ const GraphListItem = forwardRef(({
     opacity: isExpanded ? 1 : 0,
     marginTop: '0',
     marginBottom: '0',
-    backgroundColor: '#bdb5b5',
+    backgroundColor: theme.canvas.bg,
+
     borderRadius: '4px',
     overflow: 'hidden',
     display: 'flex',
@@ -192,7 +199,8 @@ const GraphListItem = forwardRef(({
             right: '0px',
             transform: 'translate(40%, -40%)',
             cursor: 'pointer',
-            color: '#bdb5b5',
+            color: theme.canvas.bg,
+
             backgroundColor: 'black',
             borderRadius: '50%',
             padding: '6px',
@@ -203,7 +211,8 @@ const GraphListItem = forwardRef(({
             onClose?.(graphData.id); // Call onClose prop with graph ID
           }}
           onMouseEnter={(e) => e.currentTarget.style.color = '#EFE8E5'}
-          onMouseLeave={(e) => e.currentTarget.style.color = '#bdb5b5'}
+          onMouseLeave={(e) => e.currentTarget.style.color = theme.canvas.bg}
+
           title="Close Tab"
         />
       )}

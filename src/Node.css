@@ -58,7 +58,7 @@
 .node-name-input {
   font-size: 20px;
   font-weight: bold;
-  color: #bdb5b5;
+  color: var(--canvas-text);
   background-color: transparent;
   border: none;
   border-radius: 0;

@@ -170,7 +170,8 @@ const Federation = () => {
               borderRadius: '4px',
               fontSize: '0.9rem',
               fontFamily: "'EmOne', sans-serif",
-              backgroundColor: '#bdb5b5',
+              backgroundColor: theme.canvas.bg,
+
               color: '#260000'
             }}
           />

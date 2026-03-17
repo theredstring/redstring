@@ -8,8 +8,10 @@ import useGraphStore from './store/graphStore.jsx';
 import { getTextColor, hexToHsl, hslToHex } from './utils/colorUtils.js';
 // Placeholder icons (replace with actual icons later)
 import { ChevronUp, Tag, Share2, LayoutGrid } from 'lucide-react';
+import { useTheme } from './hooks/useTheme.js';
 
 const TypeList = ({ nodes, setSelectedNodes, selectedNodes = new Set() }) => {
+  const theme = useTheme();
   // Use shared state from store for TypeList mode
   const mode = useGraphStore((state) => state.typeListMode);
   const setTypeListMode = useGraphStore((state) => state.setTypeListMode); 
@@ -326,13 +328,13 @@ const TypeList = ({ nodes, setSelectedNodes, selectedNodes = new Set() }) => {
           alignItems: 'center',
           justifyContent: 'center',
           background: headerBg,
-          border: '2px solid #BDB5B5', // Canvas color stroke
+          border: '2px solid ' + (theme.canvas?.border || '#BDB5B5'), // Canvas color stroke
           borderRadius: '8px',
           padding: 0,
           cursor: 'pointer',
           color: footerHeaderText,
           zIndex: 20000, // Higher than panels (10000)
-          boxShadow: '0 0 0 3px #BDB5B5, 0 2px 5px rgba(0, 0, 0, 0.2)',
+          boxShadow: '0 0 0 3px ' + (theme.canvas?.border || '#BDB5B5') + ', 0 2px 5px rgba(0, 0, 0, 0.2)',
           transition: 'background-color 0.2s ease, color 0.2s ease'
         }}
       >
@@ -439,7 +441,7 @@ const TypeList = ({ nodes, setSelectedNodes, selectedNodes = new Set() }) => {
                 <div style={{
                   fontSize: '14px',
                   fontFamily: "'EmOne', sans-serif",
-                  color: 'rgba(189, 181, 181, 0.5)',
+                  color: theme.canvas?.textMuted || 'rgba(189, 181, 181, 0.5)',
                   whiteSpace: 'nowrap',
                   fontStyle: 'italic'
                 }}>

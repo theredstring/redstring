@@ -49,7 +49,7 @@
   display: flex;
   flex-direction: column;
   gap: 12px;
-  background: #BDB5B5;
+  background: var(--canvas-bg);
   border-radius: 28px;
   padding: 18px 12px 10px;
   box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
@@ -58,7 +58,7 @@
   width: fit-content;
   max-width: 70vw;
   margin: 0 auto;
-  color: #bdb5b5;
+  color: var(--canvas-bg);
   font-family: 'EmOne', sans-serif;
 }
 
@@ -287,7 +287,7 @@
 }
 
 .predicate-label {
-  color: #bdb5b5;
+  color: var(--canvas-text);
   font-weight: bold;
   font-size: 14px;
   line-height: 1;

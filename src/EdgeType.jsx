@@ -1,12 +1,16 @@
 import React from 'react';
+import { useTheme } from './hooks/useTheme.js';
+import { ArrowRight, Trash2 } from 'lucide-react';
 
 const EdgeType = ({ name, color = '#800000', onClick }) => {
+  const theme = useTheme();
   return (
     <div 
       className="edge-type-item"
       style={{ 
-        backgroundColor: '#bdb5b5', // Canvas color background
-        color: '#260000', // Dark text for contrast
+        backgroundColor: theme.canvas.bg, // Canvas color background
+
+        color: theme.text.primary, // Dark text for contrast
         borderRadius: '4px',
         minWidth: '60px', // Changed to minWidth for better scaling
         height: '32px',

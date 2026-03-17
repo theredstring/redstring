@@ -1,12 +1,28 @@
-```javascript
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { ArrowRight, Plus, CircleDot, RefreshCw, List, Network, Sparkles, Search, X } from 'lucide-react';
 import useGraphStore from '../store/graphStore.jsx';
-import { discoverConnections } => {
+import { discoverConnections } from '../services/semanticDiscovery.js';
+import { fastEnrichFromSemanticWeb } from '../services/semanticWebQuery.js';
+import Dropdown from './Dropdown.jsx';
+import { getTextColor } from '../utils/colorUtils.js';
+import { useTheme } from '../hooks/useTheme.js';
+import './ConnectionBrowser.css';
+
+/**
+ * Connection Browser Component
+ * Shows connections with dropdown: In Graph | Universe | Semantic Web
+ */
+const ConnectionBrowser = ({ nodeData, onMaterializeConnection, isUltraSlim = false }) => {
   const theme = useTheme();
-  const [searchTerm, setSearchTerm] = useState('');
-  const [minConfidence, setMinConfidence] = useState(0); // NEW: Confidence filter (0-100)
-  const connectionListRef = useRef(null);
+  const [connectionScope, setConnectionScope] = useState('graph'); // 'graph' | 'universe' | 'semantic'
+  const [semanticConnections, setSemanticConnections] = useState([]);
+  const [nativeConnections, setNativeConnections] = useState([]);
+  const [isLoadingSemanticWeb, setIsLoadingSemanticWeb] = useState(false);
+  const [isDebouncing, setIsDebouncing] = useState(false); // Track debounce state
+  const [error, setError] = useState(null);
+  const [containerWidth, setContainerWidth] = useState(400); // Default width
+  const [searchFilter, setSearchFilter] = useState(''); // Search filter
+
 
   const { activeGraphId, nodePrototypes, graphs, edges } = useGraphStore();
 

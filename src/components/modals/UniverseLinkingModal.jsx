@@ -10,7 +10,7 @@ import { useTheme } from '../../hooks/useTheme.js';
  * Allows user to select an existing universe or create a new one
  * when linking a Git repository to a universe.
  *
- * Color scheme: Maroon/red (#260000, #7A0000) with gray tones (#bdb5b5, #979090, #cfc6c6)
+ * Color scheme: Uses Unified Theming System (defaults to maroon/red based on active graph)
  */
 const UniverseLinkingModal = ({
   isOpen,

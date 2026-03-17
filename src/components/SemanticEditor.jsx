@@ -919,6 +919,7 @@ const ProvenanceBadge = ({ provenance, field }) => {
 };
 
 const SemanticEditor = ({ nodeData, onUpdate, isUltraSlim = false }) => {
+  const theme = useTheme();
   const [enrichmentState, setEnrichmentState] = useState({
     isEnriching: false,
     progress: {},
@@ -1873,7 +1874,8 @@ const SemanticEditor = ({ nodeData, onUpdate, isUltraSlim = false }) => {
             <div key={idx} style={{
               marginBottom: '8px',
               padding: '6px',
-              backgroundColor: '#bdb5b5',
+              backgroundColor: theme.canvas.bg,
+
               borderRadius: '4px',
               fontSize: '11px'
             }}>
@@ -1954,7 +1956,8 @@ const SemanticEditor = ({ nodeData, onUpdate, isUltraSlim = false }) => {
           zIndex: 10000
         }}>
           <div style={{
-            backgroundColor: '#bdb5b5',
+            backgroundColor: theme.canvas.bg,
+
             padding: '20px',
             borderRadius: '8px',
             maxWidth: '600px',

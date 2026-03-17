@@ -1,5 +1,6 @@
 import React, { useMemo, useEffect, useState, useRef, useCallback } from 'react';
 import NodeGridItem from './NodeGridItem';
+import { useTheme } from './hooks/useTheme.js';
 import useGraphStore from './store/graphStore.jsx';
 import './NodeSelectionGrid.css';
 
@@ -14,6 +15,7 @@ const NodeSelectionGrid = ({
   showCreateNewOption = false,
   searchTerm = ''
 }) => {
+  const theme = useTheme();
   // Get all node prototypes from the store
   const nodePrototypesMap = useGraphStore(state => state.nodePrototypes);
   
@@ -150,7 +152,8 @@ const NodeSelectionGrid = ({
                 transition: 'all 0.2s ease',
                 marginBottom: '8px',
                 fontWeight: 'bold',
-                color: '#bdb5b5',
+                color: theme.canvas.bg,
+
                 fontSize: '16px',
                 fontFamily: "'EmOne', sans-serif"
               }}

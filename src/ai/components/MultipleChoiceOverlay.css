@@ -1,5 +1,5 @@
 .mc-overlay-container {
-    background: #bdb5b5;
+    background: var(--canvas-bg);
     border: 1px solid #260000;
     border-radius: 0;
     padding: 16px;

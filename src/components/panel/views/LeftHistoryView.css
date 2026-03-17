@@ -3,7 +3,7 @@
     display: flex;
     flex-direction: column;
     height: 100%;
-    background-color: #bdb5b5;
+    background-color: var(--canvas-bg);
     color: #260000;
     overflow: hidden;
     font-family: 'EmOne', sans-serif;

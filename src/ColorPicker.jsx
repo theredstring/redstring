@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { Palette } from 'lucide-react';
+import { Palette, Trash2 } from 'lucide-react';
+import { useTheme } from './hooks/useTheme.js';
 import { cssColorToHex } from './utils/colorUtils';
 
 const ColorPicker = ({
@@ -9,8 +10,11 @@ const ColorPicker = ({
   currentColor = '#8B0000',
   position = { x: 0, y: 0 },
   direction = 'down-left', // 'down-left' or 'down-right'
-  parentContainerRef = null // Optional parent container to consider as "inside"
+  parentContainerRef = null, // Optional parent container to consider as "inside"
+  onDelete
 }) => {
+  const theme = useTheme();
+  // Preset colors
   const [selectedHue, setSelectedHue] = useState(0);
   const [selectedSaturation, setSelectedSaturation] = useState(100);
   const [selectedBrightness, setSelectedBrightness] = useState(55);
@@ -233,7 +237,8 @@ const ColorPicker = ({
       onMouseUp={(e) => e.stopPropagation()}
       style={{
         ...getPositionStyle(),
-        backgroundColor: '#bdb5b5',
+        backgroundColor: theme.canvas.bg,
+
         border: '2px solid #260000',
         borderRadius: '8px',
         padding: '16px',

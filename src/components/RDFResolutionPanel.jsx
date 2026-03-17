@@ -1501,7 +1501,8 @@ const RDFResolutionPanel = ({ nodeData, onUpdate, isVisible = false, onClose }) 
                 onClick={handleClearCache}
                 style={{
                   backgroundColor: '#DC143C',
-                  color: '#bdb5b5',
+                  color: theme.canvas.bg,
+
                   border: 'none',
                   padding: '8px 12px',
                   borderRadius: '4px',
@@ -1521,7 +1522,8 @@ const RDFResolutionPanel = ({ nodeData, onUpdate, isVisible = false, onClose }) 
                 onClick={handleRefreshStats}
                 style={{
                   backgroundColor: '#4682B4',
-                  color: '#bdb5b5',
+                  color: theme.canvas.bg,
+
                   border: 'none',
                   padding: '8px 12px',
                   borderRadius: '4px',

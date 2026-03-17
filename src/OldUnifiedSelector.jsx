@@ -1,9 +1,10 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
-import { X, Palette, ArrowBigRightDash } from 'lucide-react';
+import { X, Palette, ArrowBigRightDash, Combine } from 'lucide-react';
 import { NODE_DEFAULT_COLOR, HEADER_HEIGHT, MODAL_CLOSE_ICON_SIZE } from './constants';
 import NodeGridItem from './NodeGridItem';
 import ColorPicker from './ColorPicker';
-import useGraphStore from "./store/graphStore.jsx";
+import { useTheme } from './hooks/useTheme.js';
+import useGraphStore from './store/graphStore.jsx';
 
 const OldUnifiedSelector = ({ 
   mode, // 'node-creation', 'connection-creation', 'node-typing', or 'abstraction-node-creation'
@@ -19,8 +20,10 @@ const OldUnifiedSelector = ({
   searchTerm = '',
   onNodeSelect = null,
   selectedNodes = new Set(),
-  abstractionDirection = 'above' // 'above' or 'below' for abstraction mode
+  abstractionDirection = 'above', // 'above' or 'below' for abstraction
+  onSelect
 }) => {
+  const theme = useTheme();
   const [name, setName] = useState(initialName);
   const lastInitialNameRef = useRef(initialName);
   
@@ -183,7 +186,8 @@ const OldUnifiedSelector = ({
         {showDialog && (
           <div
             style={{
-              backgroundColor: '#bdb5b5',
+              backgroundColor: theme.canvas.bg,
+
               padding: '20px',
               borderRadius: '10px',
               boxShadow: '0 2px 10px rgba(0,0,0,0.2)',
@@ -249,7 +253,8 @@ const OldUnifiedSelector = ({
                 style={{ 
                   padding: '10px', 
                   backgroundColor: color, 
-                  color: '#bdb5b5', 
+                  color: theme.canvas.bg,
+ 
                   border: 'none', 
                   borderRadius: '5px', 
                   cursor: 'pointer',
@@ -261,7 +266,8 @@ const OldUnifiedSelector = ({
                 }}
                 title={mode === 'connection-creation' ? 'Create connection type' : mode === 'abstraction-node-creation' ? `Create ${abstractionDirection} abstraction` : 'Create node type'}
               >
-                <ArrowBigRightDash size={16} color="#bdb5b5" />
+                <ArrowBigRightDash size={16} color={theme.canvas.bg} />
+
               </button>
             </div>
           </div>

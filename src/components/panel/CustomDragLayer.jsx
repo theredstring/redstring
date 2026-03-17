@@ -1,5 +1,5 @@
-```javascript
 import React from 'react';
+
 import { useDragLayer } from 'react-dnd';
 import { useTheme } from '../../hooks/useTheme.js';
 import UniversalNodeRenderer from '../../UniversalNodeRenderer';

@@ -56,6 +56,7 @@ const AuthSection = ({
 }) => {
   const theme = useTheme();
   // If not logged in and not loading
+
   return (
     <div
       data-auth-section="true"
@@ -99,7 +100,8 @@ const AuthSection = ({
           style={{
             border: '1px solid #260000',
             borderRadius: 8,
-            backgroundColor: '#bdb5b5',
+            backgroundColor: theme.canvas.bg,
+
             padding: 12,
             display: 'flex',
             flexDirection: 'column',
@@ -140,7 +142,8 @@ const AuthSection = ({
           style={{
             border: '1px solid #260000',
             borderRadius: 8,
-            backgroundColor: '#bdb5b5',
+            backgroundColor: theme.canvas.bg,
+
             padding: 12,
             display: 'flex',
             flexDirection: 'column',

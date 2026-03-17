@@ -5,6 +5,7 @@ import { ArrowLeftFromLine, ArrowRightFromLine } from 'lucide-react';
 import { HEADER_HEIGHT } from './constants'; // Assuming constants file is accessible
 
 const ToggleButton = ({ isExpanded, onClick, side = 'right' }) => {
+  const theme = useTheme();
   const buttonTop = HEADER_HEIGHT; // Position directly below header (remove +10 gap)
   const buttonPosition = 0; // Position flush with the edge
 
@@ -42,7 +43,7 @@ const ToggleButton = ({ isExpanded, onClick, side = 'right' }) => {
     >
       <Icon 
         size={20} 
-        color="#bdb5b5" 
+        color={theme.canvas.bg} 
         style={{ 
           transform: rotation,
           transition: 'transform 0.2s ease' 

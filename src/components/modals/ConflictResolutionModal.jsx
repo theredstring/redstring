@@ -1,5 +1,5 @@
-```javascript
 import React, { useState } from 'react';
+
 import { AlertCircle, HardDrive, Github, Calendar, FileText, ArrowRight } from 'lucide-react';
 import { useTheme } from '../../hooks/useTheme.js';
 import Modal from '../shared/Modal.jsx';
@@ -54,7 +54,7 @@ const ConflictResolutionModal = ({
     gap: 6,
     border: `2px solid ${color}`,
     backgroundColor: isPrimary ? color : 'transparent',
-    color: isPrimary ? '#bdb5b5' : color
+    color: isPrimary ? theme.canvas.bg : color
   });
 
   const headerTitle = requiresPrimarySelection ? 'Select Primary Storage' : 'Data Conflict Detected';

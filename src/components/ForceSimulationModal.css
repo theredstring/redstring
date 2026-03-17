@@ -6,7 +6,7 @@
   border-radius: 8px;
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.8);
   font-family: 'EmOne', sans-serif;
-  color: #bdb5b5;
+  color: var(--canvas-text-muted);
   width: 500px;
   max-height: 90vh;
   display: flex;
@@ -74,7 +74,7 @@
 
 .force-sim-stat-label {
   font-size: 11px;
-  color: #bdb5b5;
+  color: var(--canvas-text-muted);
   opacity: 0.7;
   text-transform: uppercase;
   letter-spacing: 0.5px;
@@ -94,7 +94,7 @@
   border: 1px solid rgba(78, 205, 196, 0.3);
   border-radius: 4px;
   font-size: 13px;
-  color: #bdb5b5;
+  color: var(--canvas-text-muted);
   margin-bottom: 16px;
   text-align: center;
 }
@@ -175,7 +175,7 @@
 
 .force-sim-param label {
   font-size: 13px;
-  color: #bdb5b5;
+  color: var(--canvas-text-muted);
   user-select: none; /* Labels don't need to be selectable */
 }
 
@@ -261,7 +261,7 @@
   background: #2a0000;
   border: 1px solid #7A0000;
   border-radius: 999px;
-  color: #bdb5b5;
+  color: var(--canvas-text-muted);
   font-size: 12px;
   font-family: 'EmOne', sans-serif;
   padding: 6px 12px;
@@ -276,7 +276,7 @@
 
 .force-sim-chip small {
   font-size: 11px;
-  color: #bdb5b5;
+  color: var(--canvas-text-muted);
   opacity: 0.8;
 }
 

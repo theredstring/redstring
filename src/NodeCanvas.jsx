@@ -6480,7 +6480,8 @@ function NodeCanvas() {
               style={{
                 padding: '10px',
                 backgroundColor: connectionNamePrompt.color || NODE_DEFAULT_COLOR,
-                color: '#bdb5b5',
+                color: theme.canvas.bg,
+
                 border: 'none',
                 borderRadius: '5px',
                 cursor: 'pointer',
@@ -6492,7 +6493,8 @@ function NodeCanvas() {
               }}
               title="Create connection type"
             >
-              <ArrowBigRightDash size={16} color="#bdb5b5" />
+              <ArrowBigRightDash size={16} color={theme.canvas.bg} />
+
             </button>
           </div>
         </div>
@@ -6563,7 +6565,8 @@ function NodeCanvas() {
               style={{
                 padding: '10px',
                 backgroundColor: nodeNamePrompt.color || 'maroon',
-                color: '#bdb5b5',
+                color: theme.canvas.bg,
+
                 border: 'none',
                 borderRadius: '5px',
                 cursor: 'pointer',
@@ -6575,7 +6578,8 @@ function NodeCanvas() {
               }}
               title="Create node"
             >
-              <ArrowBigRightDash size={16} color="#bdb5b5" />
+              <ArrowBigRightDash size={16} color={theme.canvas.bg} />
+
             </button>
           </div>
         </div>
@@ -8479,7 +8483,8 @@ function NodeCanvas() {
                                   height={(rectY + rectH) - innerCanvasY - GROUP_SPACING.innerCanvasBorder}
                                   rx={12}
                                   ry={12}
-                                  fill="#bdb5b5"
+                                  fill={theme.canvas.bg}
+
                                   stroke="none"
                                   style={{ cursor: 'default', pointerEvents: 'auto' }}
                                   onClick={(e) => {
@@ -8600,7 +8605,8 @@ function NodeCanvas() {
                               onMouseLeave={() => { clearTimeout(groupLongPressTimeout.current); }}
                             >
                               <rect x={labelX} y={labelY} width={labelWidth} height={labelHeight} rx={20} ry={20}
-                                fill={isNodeGroup ? "none" : "#bdb5b5"}
+                                fill={isNodeGroup ? "none" : theme.canvas.bg}
+
                                 stroke={isNodeGroup ? "none" : strokeColor}
                                 strokeWidth={isNodeGroup ? 0 : 6}
                                 vectorEffect="non-scaling-stroke"

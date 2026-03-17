@@ -9,7 +9,10 @@ import useMobileDetection from './hooks/useMobileDetection';
 import './UnifiedBottomControlPanel.css';
 
 // Small helper to render a triangle cap (rounded-ish via strokeJoin/lineJoin aesthetics)
-const TriangleCap = ({ direction = 'left', color = '#bdb5b5', variant = 'ghost', onClick }) => {
+const TriangleCap = ({ direction = 'left', color = null, variant = 'ghost', onClick }) => {
+  const theme = useTheme();
+  const actualColor = color === null ? theme.node.fill : color;
+
   // Ensure arrows face OUTWARD from the center rail on the X axis
   // Left cap should point LEFT; Right cap should point RIGHT
   const pointsLeftFacing = '2,11 20,2 20,20';

@@ -243,7 +243,8 @@ const UniversesList = ({
                   top: '100%',
                   left: 0,
                   marginTop: 4,
-                  backgroundColor: '#bdb5b5',
+                  backgroundColor: theme.canvas.bg,
+
                   border: '1px solid #260000',
                   borderRadius: 6,
                   boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
@@ -309,7 +310,8 @@ const UniversesList = ({
                   top: '100%',
                   right: 0,
                   marginTop: 4,
-                  backgroundColor: '#bdb5b5',
+                  backgroundColor: theme.canvas.bg,
+
                   border: '1px solid #260000',
                   borderRadius: 6,
                   boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
@@ -688,12 +690,14 @@ const UniversesList = ({
                                         gap: 4,
                                         border: '1px solid #7A0000',
                                         backgroundColor: isSourceOfTruth ? '#7A0000' : 'transparent',
-                                        color: isSourceOfTruth ? theme.canvas.bg : '#7A0000', // Changed #bdb5b5 to theme.canvas.bg
+                                        color: isSourceOfTruth ? theme.canvas.bg : '#7A0000',
+
                                         opacity: canToggle ? 1 : 0.85
                                       }}
                                       title={!canToggle ? 'Only storage option (must remain source of truth)' : isSourceOfTruth ? 'Currently source of truth' : 'Click to make source of truth'}
                                     >
-                                      <Star size={10} fill={isSourceOfTruth ? theme.canvas.bg : 'none'} /> {/* Changed #bdb5b5 to theme.canvas.bg */}
+                                      <Star size={10} fill={isSourceOfTruth ? theme.canvas.bg : 'none'} />
+
                                       {isSourceOfTruth ? 'Source of Truth' : 'Not Source of Truth'}
                                     </button>
                                   );
@@ -985,12 +989,14 @@ const UniversesList = ({
                                               gap: 4,
                                               border: '1px solid #7A0000',
                                               backgroundColor: isSourceOfTruth ? '#7A0000' : 'transparent',
-                                              color: isSourceOfTruth ? theme.canvas.bg : '#7A0000', // Changed #bdb5b5 to theme.canvas.bg
+                                              color: isSourceOfTruth ? theme.canvas.bg : '#7A0000',
+
                                               opacity: canToggle ? 1 : 0.85
                                             }}
                                             title={!canToggle ? 'Only storage option (must remain source of truth)' : isSourceOfTruth ? 'Currently source of truth' : 'Click to make source of truth'}
                                           >
-                                            <Star size={10} fill={isSourceOfTruth ? theme.canvas.bg : 'none'} /> {/* Changed #bdb5b5 to theme.canvas.bg */}
+                                            <Star size={10} fill={isSourceOfTruth ? theme.canvas.bg : 'none'} />
+
                                             {isSourceOfTruth ? 'Source of Truth' : 'Not Source of Truth'}
                                           </button>
                                         );

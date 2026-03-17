@@ -116,7 +116,8 @@ const ModalDemo = () => {
       <div style={{ marginBottom: '12px' }}>
         <h5 style={{ margin: '0 0 8px 0', fontSize: '0.9rem' }}>Features:</h5>
         <ul style={{ margin: 0, paddingLeft: '20px', fontSize: '0.8rem' }}>
-          <li>Canvas-colored background (#bdb5b5)</li>
+          <li>Theme-aware background (theme.canvas.bg)</li>
+
           <li>Maroon borders (#260000)</li>
           <li>Drop shadow for depth</li>
           <li>Responsive margins</li>
