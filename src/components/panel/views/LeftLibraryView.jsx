@@ -7,6 +7,7 @@ import StandardDivider from '../../StandardDivider.jsx';
 import { getTextColor } from '../../../utils/colorUtils';
 import { showContextMenu } from '../../GlobalContextMenu.jsx';
 import PanelIconButton from '../../shared/PanelIconButton.jsx';
+import { useTheme } from '../../../hooks/useTheme.js';
 
 // Internal Left Library View (Saved Things)
 const LeftLibraryView = ({
@@ -25,6 +26,7 @@ const LeftLibraryView = ({
   rightPanelExpanded,
   onOpenSearch,
 }) => {
+  const theme = useTheme();
   const [showDuplicateManager, setShowDuplicateManager] = useState(false);
 
   // Context menu options for saved things tab
@@ -115,7 +117,7 @@ const LeftLibraryView = ({
                     backgroundColor: typeInfo.color,
                     padding: '8px 12px',
                     cursor: 'pointer',
-                    color: getTextColor(typeInfo.color),
+                    color: getTextColor(typeInfo.color, theme.darkMode),
                     fontWeight: 'bold',
                     userSelect: 'none',
                     display: 'flex',

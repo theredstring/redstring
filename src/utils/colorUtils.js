@@ -127,9 +127,10 @@ const LIGHT_TEXT_LIGHTNESS = 92;
 /**
  * Returns an appropriate text color (dark or light) based on the background color's brightness.
  * @param {string} backgroundColor - Hex color string
+ * @param {boolean} isDarkMode - Whether the application is in dark mode
  * @returns {string} - Hex color string for text
  */
-export const getTextColor = (backgroundColor) => {
+export const getTextColor = (backgroundColor, isDarkMode = false) => {
   if (!backgroundColor) return '#bdb5b5';
 
   const { h, s, l } = hexToHsl(backgroundColor);
@@ -137,7 +138,14 @@ export const getTextColor = (backgroundColor) => {
   // Yellows are naturally very bright to human eyes even at lower lightness values
   // We consider hues between 45 (yellow-orange) and 70 (yellow-green) to be "yellow"
   const isYellow = h > 45 && h < 70;
-  const threshold = isYellow ? LIGHTNESS_THRESHOLD - 15 : LIGHTNESS_THRESHOLD;
+  
+  // In dark mode, we significantly increase the threshold to prefer light text 
+  // for a more consistent light-on-dark aesthetic across the app.
+  // Only the brightest colors (like very pale yellow or white) will get dark text.
+  let threshold = isYellow ? LIGHTNESS_THRESHOLD - 15 : LIGHTNESS_THRESHOLD;
+  if (isDarkMode) {
+    threshold = 80; // Only switch to dark text if lightness is > 80%
+  }
 
   // If background is bright, use dark text with same hue
   if (l > threshold) {

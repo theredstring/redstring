@@ -43,7 +43,7 @@ const ToggleButton = ({ isExpanded, onClick, side = 'right' }) => {
     >
       <Icon 
         size={20} 
-        color={theme.canvas.bg} 
+        color="#EFE8E5" 
         style={{ 
           transform: rotation,
           transition: 'transform 0.2s ease' 

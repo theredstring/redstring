@@ -1,14 +1,16 @@
 import React from 'react';
 import './NodeType.css';
+import { useTheme } from './hooks/useTheme.js';
 import { getTextColor } from './utils/colorUtils.js';
 
 const NodeType = ({ name, color = '#800000', onClick }) => {
+  const theme = useTheme();
   return (
     <div
       className="node-type-item"
       style={{
         backgroundColor: color,
-        color: getTextColor(color), // Dynamic color based on node color
+        color: getTextColor(color, theme.darkMode), // Dynamic color based on node color
         borderRadius: '4px',
         minWidth: '60px', // Changed to minWidth for better scaling
         height: '32px',

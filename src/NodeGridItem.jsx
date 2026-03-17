@@ -1,5 +1,7 @@
 import { NODE_CORNER_RADIUS } from './constants';
 import { useTheme } from './hooks/useTheme.js';
+import { getTextColor } from './utils/colorUtils';
+import React, { useState } from 'react';
 
 const NodeGridItem = ({ 
   nodePrototype, 
@@ -75,7 +77,7 @@ const NodeGridItem = ({
       {/* Node name */}
       <span
         style={{
-          color: theme.canvas.bg,
+          color: getTextColor(nodeColor, theme.darkMode),
 
           fontSize: '12px',
           fontWeight: 'bold',

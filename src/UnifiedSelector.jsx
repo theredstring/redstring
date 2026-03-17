@@ -286,7 +286,7 @@ const UnifiedSelector = ({
                   style={{
                     padding: inputPadding,
                     backgroundColor: color,
-                    color: getTextColor(color),
+                    color: getTextColor(color, theme.darkMode),
                     border: 'none',
                     borderRadius: '8px',
                     cursor: 'pointer',
@@ -299,7 +299,7 @@ const UnifiedSelector = ({
                   }}
                   title={mode === 'connection-creation' ? 'Create connection type' : mode === 'abstraction-node-creation' ? `Create ${abstractionDirection} abstraction` : mode === 'node-group-creation' ? 'Create new Thing defined by this Group' : 'Create node type'}
                 >
-                  <Plus size={iconSize} color={getTextColor(color)} strokeWidth={2.5} />
+                  <Plus size={iconSize} color={getTextColor(color, theme.darkMode)} strokeWidth={2.5} />
                 </button>
               )}
             </div>
@@ -428,7 +428,7 @@ const UnifiedSelector = ({
                         )}
                         <span
                           style={{
-                            color: getTextColor(prototype.color || '#8B0000'),
+                            color: getTextColor(prototype.color || '#8B0000', theme.darkMode),
                             fontWeight: 'bold',
                             fontFamily: "'EmOne', sans-serif",
                             textAlign: 'center',

@@ -1,16 +1,17 @@
-import React, { useMemo } from 'react';
-import { useTheme } from '../hooks/useTheme.js';
-import useGraphStore from '../store/graphStore.jsx';
+import React, { useMemo, useEffect, useRef, useState } from 'react';
 
 import { useDrag } from 'react-dnd';
 import { getEmptyImage } from 'react-dnd-html5-backend';
 import { getNodeDimensions } from '../utils.js';
 import { NODE_CORNER_RADIUS, NODE_PADDING, NODE_DEFAULT_COLOR } from '../constants';
 import { candidateToConcept } from '../services/candidates.js';
+import { useTheme } from '../hooks/useTheme.js';
+import useGraphStore from '../store/graphStore.jsx';
+import { getTextColor } from '../utils/colorUtils';
 
 const SPAWNABLE_NODE = 'spawnable_node';
 
-const DRAG_MARGIN = 40; // Spacing between rings
+const DRAG_MARGIN = 10; // Spacing from node edge to orbit ring
 const ORBIT_ANGULAR_SPEED_RAD_PER_SEC = 0.015; // Very slow clockwise rotation
 const RADIAL_PERTURBATION_PX_BASE = 6; // subtle radial wiggle
 const ANGLE_JITTER_RAD_BASE = 0.008; // subtle angle wobble
@@ -99,16 +100,18 @@ const DraggableOrbitItem = ({ candidate, x, y, rightPanelExpanded, onNodeClick }
             cursor: 'grab',
             userSelect: 'none',
             pointerEvents: 'auto',
-            backgroundColor: theme.canvas.bg,
-            border: `1px solid ${candidate.color || '#260000'}`,
+            backgroundColor: fill,
+            border: `1px solid rgba(0,0,0,0.1)`,
             fontFamily: "'EmOne', sans-serif",
-            color: theme.canvas.bg,
+            color: getTextColor(fill, theme.darkMode),
             fontWeight: 'bold',
-            fontSize: '20px',
-            lineHeight: '32px',
+            fontSize: '14px',
+            lineHeight: '1.2',
             textAlign: 'center',
             wordBreak: 'break-word',
-            overflowWrap: 'break-word'
+            overflowWrap: 'break-word',
+            borderRadius: `${NODE_CORNER_RADIUS}px`,
+            boxShadow: '0 2px 4px rgba(0,0,0,0.2)'
           }}
           title={`${label}`}
         >

@@ -1,3 +1,4 @@
+import React, { useState, useEffect, useRef } from 'react';
 import { Plus, ChevronDown, Github, Upload, Download, X, Edit, Star, Save, Activity, Link, FileText, ArrowRightLeft, FolderOpen, Folder } from 'lucide-react';
 import { useTheme } from '../../hooks/useTheme.js';
 
@@ -230,7 +231,6 @@ const UniversesList = ({
           <div style={{ display: 'flex', gap: 6 }}>
             <div ref={loadMenuRef} style={{ position: 'relative' }}>
               <button
-                onClick={() => setShowLoadMenu(!showLoadMenu)}
                 onClick={() => setShowLoadMenu(!showLoadMenu)}
                 style={buttonStyle(theme, 'outline')}
               >

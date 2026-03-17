@@ -50,8 +50,8 @@ const TypeList = ({ nodes, setSelectedNodes, selectedNodes = new Set() }) => {
   }, [activeGraphId, graphsMap, nodePrototypesMap]);
 
   const footerHeaderText = useMemo(() => {
-    return getTextColor(headerBg);
-  }, [headerBg]);
+    return getTextColor(headerBg, theme.darkMode);
+  }, [headerBg, theme.darkMode]);
   
   // Ensure base "Thing" prototype exists (side effect, must be in useEffect)
   useEffect(() => {
@@ -332,7 +332,7 @@ const TypeList = ({ nodes, setSelectedNodes, selectedNodes = new Set() }) => {
           borderRadius: '8px',
           padding: 0,
           cursor: 'pointer',
-          color: footerHeaderText,
+          color: '#EFE8E5',
           zIndex: 20000, // Higher than panels (10000)
           boxShadow: '0 0 0 3px ' + (theme.canvas?.border || '#BDB5B5') + ', 0 2px 5px rgba(0, 0, 0, 0.2)',
           transition: 'background-color 0.2s ease, color 0.2s ease'

@@ -75,8 +75,8 @@ const DraggableTab = ({ tab, index, displayTitle, dragItemTitle, moveTabAction, 
 
   const textColor = useMemo(() => {
     if (!nodeColor) return '#260000';
-    return getTextColor(bg);
-  }, [nodeColor, bg]);
+    return getTextColor(bg, theme.darkMode);
+  }, [nodeColor, bg, theme.darkMode]);
 
   drag(drop(ref));
 
