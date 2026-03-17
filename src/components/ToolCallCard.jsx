@@ -15,36 +15,27 @@ const ToolCallCard = ({ toolCallId, toolName, status, args, result, error, times
 
     // Effect to handle minimum display time for 'running' state
     useEffect(() => {
-        console.log('[ToolCallCard] Status changed:', { toolCallId, status, displayStatus, toolName, elapsed: Date.now() - startTime });
-
         if (status === 'running') {
             setDisplayStatus('running');
         } else if (status === 'completed' || status === 'failed') {
             const elapsed = Date.now() - startTime;
-            console.log('[ToolCallCard] Tool completed, elapsed:', elapsed, 'ms, minDisplay:', MIN_RUNNING_DISPLAY_TIME);
             if (elapsed < MIN_RUNNING_DISPLAY_TIME) {
                 // Tool completed too fast - keep showing 'running' until minimum time elapsed
                 const delay = MIN_RUNNING_DISPLAY_TIME - elapsed;
-                console.log('[ToolCallCard] Delaying status update by', delay, 'ms');
                 setTimeout(() => {
-                    console.log('[ToolCallCard] Now updating to status:', status);
                     setDisplayStatus(status);
                 }, delay);
             } else {
                 // Enough time has passed, update immediately
-                console.log('[ToolCallCard] Updating to status immediately:', status);
                 setDisplayStatus(status);
             }
         }
-    }, [status, startTime, toolCallId, toolName, displayStatus, MIN_RUNNING_DISPLAY_TIME]);
+    }, [status, startTime, MIN_RUNNING_DISPLAY_TIME]);
 
     // Debug: Log toolName to see what's being passed
     if (status === 'running' && !toolName) {
         console.warn('[ToolCallCard] Tool call rendered with empty toolName:', { toolCallId, status, args });
     }
-
-    // Debug: Log initial render
-    console.log('[ToolCallCard] Render:', { toolCallId, toolName, status, displayStatus, timestamp, mountTime });
 
     // Ensure args is an object
     let parsedArgs = {};

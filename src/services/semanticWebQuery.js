@@ -946,7 +946,7 @@ export async function enrichFromSemanticWeb(entityName, options = {}) {
  */
 export async function findRelatedConcepts(entityName, options = {}) {
   console.log(`[SemanticWebQuery] 🚀 findRelatedConcepts called for "${entityName}"`);
-  const { timeout = 15000, limit = 15, includeCategories = true } = options;
+  const { timeout = 5000, limit = 15, includeCategories = false } = options; // Reduced timeout, disabled categories by default
 
   try {
     const results = [];
@@ -982,8 +982,8 @@ export async function findRelatedConcepts(entityName, options = {}) {
       }
     };
 
-    // 1. Wikidata relationship queries - find entities RELATED TO this entity
-    console.log(`[SemanticWebQuery] 🔍 Executing NEW relationship query for "${entityName}"`);
+    // 1. Wikidata relationship queries - find entities RELATED TO this entity (PRIORITY)
+    console.log(`[SemanticWebQuery] 🔍 Querying Wikidata first (5s timeout)...`);
     try {
       const wikidataRelQuery = `
         SELECT DISTINCT ?related ?relatedLabel ?property ?propertyLabel WHERE {
@@ -994,10 +994,9 @@ export async function findRelatedConcepts(entityName, options = {}) {
           FILTER(?property != rdfs:label)
           FILTER(?property != schema:description)
           SERVICE wikibase:label { bd:serviceParam wikibase:language "en" }
-        } LIMIT 20
+        } LIMIT 30
       `;
 
-      console.log('[SemanticWebQuery] 🌐 Querying Wikidata for relationships...');
       const wikidataRels = await executeSparql('https://query.wikidata.org/sparql', wikidataRelQuery, timeout);
       console.log(`[SemanticWebQuery] ✅ Wikidata returned ${wikidataRels.length} relationships`);
       results.push(...wikidataRels.map(item => ({
@@ -1007,64 +1006,47 @@ export async function findRelatedConcepts(entityName, options = {}) {
         source: 'wikidata',
         type: 'relationship'
       })));
+
+      // If Wikidata gave us enough results, skip DBpedia and other slow queries
+      if (results.length >= 15) {
+        console.log(`[SemanticWebQuery] ⚡ Got ${results.length} Wikidata results, skipping other sources for speed`);
+        return results.slice(0, limit);
+      }
     } catch (error) {
       console.warn('[SemanticWebQuery] ❌ Wikidata relationship query failed:', error.message);
     }
 
-    // 2. DBpedia relationship queries
-    try {
-      const dbpediaRelQuery = `
-        SELECT DISTINCT ?related ?relatedLabel ?property WHERE {
-          ?item rdfs:label "${entityName}"@en .
-          ?item ?property ?related .
-          ?related rdfs:label ?relatedLabel .
-          FILTER(LANG(?relatedLabel) = "en")
-          FILTER(?property != rdfs:label)
-          FILTER(?property != rdfs:comment)
-        } LIMIT 20
-      `;
+    // 2. Only query DBpedia if Wikidata didn't give us enough
+    if (results.length < 15) {
+      console.log(`[SemanticWebQuery] Only ${results.length} from Wikidata, querying DBpedia...`);
+      try {
+        const dbpediaRelQuery = `
+          SELECT DISTINCT ?related ?relatedLabel ?property WHERE {
+            ?item rdfs:label "${entityName}"@en .
+            ?item ?property ?related .
+            ?related rdfs:label ?relatedLabel .
+            FILTER(LANG(?relatedLabel) = "en")
+            FILTER(?property != rdfs:label)
+            FILTER(?property != rdfs:comment)
+          } LIMIT 20
+        `;
 
-      const dbpediaRels = await executeSparql('https://dbpedia.org/sparql', dbpediaRelQuery, timeout);
-      results.push(...dbpediaRels.map(item => ({
-        itemLabel: { value: item.relatedLabel?.value },
-        item: { value: item.related?.value },
-        predicate: item.property?.value?.split('/').pop() || 'related',
-        source: 'dbpedia',
-        type: 'relationship'
-      })));
-    } catch (error) {
-      console.warn('[SemanticWebQuery] DBpedia relationship query failed:', error.message);
+        const dbpediaRels = await executeSparql('https://dbpedia.org/sparql', dbpediaRelQuery, timeout);
+        console.log(`[SemanticWebQuery] ✅ DBpedia returned ${dbpediaRels.length} relationships`);
+        results.push(...dbpediaRels.map(item => ({
+          itemLabel: { value: item.relatedLabel?.value },
+          item: { value: item.related?.value },
+          predicate: item.property?.value?.split('/').pop() || 'related',
+          source: 'dbpedia',
+          type: 'relationship'
+        })));
+      } catch (error) {
+        console.warn('[SemanticWebQuery] ❌ DBpedia relationship query failed:', error.message);
+      }
     }
-    
-    // 2. Category-based search for broader concepts
-    if (includeCategories) {
-      const categoryResults = await findCategoryConcepts(entityName, { timeout, limit: 10 });
-      results.push(...categoryResults.map(item => ({
-        ...item,
-        source: 'category',
-        type: 'related'
-      })));
-    }
-    
-    // 3. DBpedia property-based search for semantic relationships
-    try {
-      const propertyResults = await findRelatedThroughDBpediaProperties(entityName, { 
-        timeout, 
-        limit: 15
-      });
-      
-      results.push(...propertyResults.map(item => ({
-        ...item,
-        source: 'dbpedia_properties',
-        type: 'property_related',
-        connectionInfo: {
-          type: item.connectionType,
-          value: item.connectionValue
-        }
-      })));
-    } catch (error) {
-      console.warn('[SemanticWebQuery] Property-based search failed:', error);
-    }
+
+    // Skip category and property search for speed - Wikidata + DBpedia should be sufficient
+    // (Categories and properties were slow and often low quality)
     
     // 4. Consolidate SameAs relationships and remove duplicates
     const consolidatedResults = consolidateSameAsResults(results);

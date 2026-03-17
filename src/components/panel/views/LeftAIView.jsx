@@ -2457,6 +2457,9 @@ const LeftAIView = ({ compact = false,
   const graphCount = graphsMap && typeof graphsMap.size === 'number' ? graphsMap.size : 0;
 
   const handleAutonomousAgent = async (question, persona = 'wizard') => {
+    const callId = `agent-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+    console.log('[SSE Debug] handleAutonomousAgent CALLED:', callId, 'persona:', persona);
+
     // Message ID for streaming updates - message will be created on first SSE event
     // Defined outside try/catch so it's available in error handler
     const streamingMessageId = `${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
@@ -2660,6 +2663,9 @@ const LeftAIView = ({ compact = false,
       }
 
       // Process SSE stream
+      const callId = `sse-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+      console.log('[SSE Debug] Starting SSE reader loop:', callId);
+
       const reader = response.body.getReader();
       const decoder = new TextDecoder();
       let buffer = '';
@@ -2685,7 +2691,9 @@ const LeftAIView = ({ compact = false,
 
                 // Generate unique event ID for deduplication
                 const eventId = `${event.type}-${event.id || eventCounter++}-${event.content?.length || 0}`;
+                console.log('[SSE Debug]', callId, 'Parsed:', event.type, event.id || event.name, 'eventId:', eventId, 'alreadyProcessed:', processedEvents.has(eventId));
                 if (processedEvents.has(eventId)) {
+                  console.log('[SSE Debug]', callId, '⚠️ SKIPPING DUPLICATE:', event.type, eventId);
                   continue;
                 }
                 processedEvents.add(eventId);

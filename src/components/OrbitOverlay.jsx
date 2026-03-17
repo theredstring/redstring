@@ -134,16 +134,37 @@ export default function OrbitOverlay({
   innerCandidates,
   outerCandidates
 }) {
+  // Debug: Log when candidates change
+  useEffect(() => {
+    console.log('🎨 OrbitOverlay received candidates:', {
+      innerCount: innerCandidates?.length || 0,
+      outerCount: outerCandidates?.length || 0,
+      centerX,
+      centerY
+    });
+  }, [innerCandidates, outerCandidates, centerX, centerY]);
+
   // Always call hooks first, before any early returns
   const measuredInner = useMemo(() => measureCandidates(innerCandidates || []), [innerCandidates]);
   const measuredOuter = useMemo(() => measureCandidates(outerCandidates || []), [outerCandidates]);
 
   const centerRadius = useMemo(() => {
-    return Math.max(focusWidth, focusHeight) / 2;
+    const radius = Math.max(focusWidth, focusHeight) / 2;
+    console.log('📏 centerRadius:', radius, { focusWidth, focusHeight });
+    return radius;
   }, [focusWidth, focusHeight]);
 
-  const innerRadius = useMemo(() => computeRingRadius(measuredInner, centerRadius, DRAG_MARGIN, Math.max(1, measuredInner.length)), [measuredInner, centerRadius]);
-  const outerRadius = useMemo(() => computeRingRadius(measuredOuter, innerRadius + DRAG_MARGIN, DRAG_MARGIN, Math.max(1, measuredOuter.length)), [measuredOuter, innerRadius]);
+  const innerRadius = useMemo(() => {
+    const radius = computeRingRadius(measuredInner, centerRadius, DRAG_MARGIN, Math.max(1, measuredInner.length));
+    console.log('📏 innerRadius:', radius, { measuredInnerCount: measuredInner.length, centerRadius });
+    return radius;
+  }, [measuredInner, centerRadius]);
+
+  const outerRadius = useMemo(() => {
+    const radius = computeRingRadius(measuredOuter, innerRadius + DRAG_MARGIN, DRAG_MARGIN, Math.max(1, measuredOuter.length));
+    console.log('📏 outerRadius:', radius, { measuredOuterCount: measuredOuter.length, innerRadius });
+    return radius;
+  }, [measuredOuter, innerRadius]);
 
   // Animation time state (seconds). Throttled to ~20 FPS for efficiency.
   const [animTimeSec, setAnimTimeSec] = useState(0);
@@ -226,8 +247,20 @@ export default function OrbitOverlay({
     return null;
   }
 
+  // Debug: Log positions
+  console.log('🎯 Orbit positions:', {
+    innerCount: innerPositions.length,
+    outerCount: outerPositions.length,
+    sampleInner: innerPositions[0],
+    sampleOuter: outerPositions[0]
+  });
+
   return (
     <g>
+      {/* Fixed position test marker */}
+      <rect x={0} y={0} width={200} height={100} fill="orange" stroke="black" strokeWidth={5} />
+      <text x={100} y={50} fontSize={24} fill="black" textAnchor="middle" dominantBaseline="middle">FIXED POS</text>
+
       {innerPositions.map(({ candidate, dims, x, y }) => (
         <DraggableOrbitItem
           key={`inner-${candidate.id}`}

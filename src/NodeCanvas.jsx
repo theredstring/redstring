@@ -608,11 +608,19 @@ function NodeCanvas() {
   // (imageCache is never saved, so we re-fetch from Wikipedia URLs in semanticMetadata)
   // Only runs on mount + when activeGraphId changes (NOT on every nodePrototypesMap change,
   // which would cause an infinite loop: setImage → imageCacheMap change → re-render → useEffect)
+  // OPTIMIZED: Only fetch images for prototypes actually used in the active graph
   useEffect(() => {
-    if (!nodePrototypesMap) return;
+    if (!nodePrototypesMap || !activeGraphInstances) return;
     const cache = useImageCache.getState();
-    for (const [protoId, proto] of nodePrototypesMap) {
-      if (!proto.thumbnailSrc && !cache.getImage(protoId) && proto.semanticMetadata?.wikipediaThumbnail) {
+    // Build set of prototype IDs in the active graph
+    const activeProtoIds = new Set();
+    for (const instance of activeGraphInstances.values()) {
+      activeProtoIds.add(instance.prototypeId);
+    }
+    // Only queue fetches for prototypes used in this graph
+    for (const protoId of activeProtoIds) {
+      const proto = nodePrototypesMap.get(protoId);
+      if (proto && !proto.thumbnailSrc && !cache.getImage(protoId) && proto.semanticMetadata?.wikipediaThumbnail) {
         const ratio = proto.semanticMetadata.imageAspectRatio || 1;
         queueThumbnailFetch(protoId, proto.semanticMetadata.wikipediaThumbnail, ratio, proto.name || '');
       }
@@ -4303,18 +4311,9 @@ function NodeCanvas() {
       potentialClickNodeRef.current = nodeData;
 
       clickTimeoutIdRef.current = setTimeout(() => {
-        console.log('[Orbit Debug] Click timeout fired:', {
-          potentialNodeId: potentialClickNodeRef.current?.id,
-          instanceId,
-          mouseMoved: mouseMoved.current,
-          isMouseDown: isMouseDown.current,
-          willSelect: potentialClickNodeRef.current?.id === instanceId && !mouseMoved.current && !isMouseDown.current
-        });
-
         if (potentialClickNodeRef.current?.id === instanceId && !mouseMoved.current && !isMouseDown.current) {
           // --- Execute Selection Logic ---
           const wasSelected = selectedInstanceIds.has(instanceId);
-          console.log('[Orbit Debug] Selecting node:', { instanceId, wasSelected });
           setSelectedInstanceIds(prev => {
             const newSelected = new Set(prev);
             if (wasSelected) {
@@ -4324,7 +4323,6 @@ function NodeCanvas() {
             } else {
               newSelected.add(instanceId);
             }
-            console.log('[Orbit Debug] New selection:', { size: newSelected.size, ids: Array.from(newSelected) });
             return newSelected;
           });
         }
@@ -6884,17 +6882,10 @@ function NodeCanvas() {
 
   // Fetch orbit candidates when exactly one node is selected
   useEffect(() => {
-    console.log('[Orbit Debug] useEffect triggered:', {
-      selectedSize: selectedInstanceIds.size,
-      selectedIds: Array.from(selectedInstanceIds),
-      activeGraphId
-    });
-
     let cancelled = false;
     (async () => {
       try {
         if (selectedInstanceIds.size !== 1) {
-          console.log('[Orbit Debug] Not exactly 1 node selected, clearing orbit data');
           setOrbitData({ inner: [], outer: [], all: [] });
           return;
         }
@@ -6904,52 +6895,23 @@ function NodeCanvas() {
         const inst = graph?.instances?.get(instanceId);
         const proto = inst ? useGraphStore.getState().nodePrototypes.get(inst.prototypeId) : null;
 
-        console.log('[Orbit Debug] Lookup results:', {
-          instanceId,
-          hasGraph: !!graph,
-          hasInstance: !!inst,
-          prototypeId: inst?.prototypeId,
-          hasPrototype: !!proto,
-          prototypeName: proto?.name
-        });
-
         if (!proto) {
-          console.log('[Orbit Debug] No prototype found, cannot start orbit search');
           setOrbitData({ inner: [], outer: [], all: [] });
           return;
         }
 
-        console.log('[Orbit Debug] Proto check passed, about to start orbit search');
-        console.log(`[Orbit Debug] 🌍 Starting orbit search for "${proto.name}"`);
-        const startTime = performance.now();
-
         const candidates = await fetchOrbitCandidatesForPrototype(proto);
 
-        console.log('[Orbit Debug] fetchOrbitCandidatesForPrototype returned:', {
-          hasInner: !!candidates.inner,
-          innerCount: candidates.inner?.length || 0,
-          hasOuter: !!candidates.outer,
-          outerCount: candidates.outer?.length || 0,
-          hasAll: !!candidates.all,
-          allCount: candidates.all?.length || 0
-        });
-
-        const endTime = performance.now();
-        const duration = Math.round(endTime - startTime);
-
-        console.log(`✨ Orbit search completed for "${proto.name}" in ${duration}ms:`, {
-          innerRing: candidates.inner?.length || 0,
-          outerRing: candidates.outer?.length || 0,
-          total: candidates.all?.length || 0
-        });
-
-        if (candidates.inner?.length > 0 || candidates.outer?.length > 0) {
-          console.log('🎯 Sample orbit candidates:', candidates.all?.slice(0, 5).map(c => `${c.name} (${c.source})`));
+        if (!cancelled) {
+          console.log('✨ Setting orbit data:', {
+            inner: candidates.inner?.length || 0,
+            outer: candidates.outer?.length || 0,
+            total: candidates.all?.length || 0
+          });
+          setOrbitData(candidates);
         }
-
-        if (!cancelled) setOrbitData(candidates);
       } catch (error) {
-        console.error('[Orbit Debug] ❌ Orbit search failed:', error);
+        console.error('Orbit search failed:', error);
         if (!cancelled) setOrbitData({ inner: [], outer: [], all: [] });
       }
     })();
@@ -11601,8 +11563,6 @@ function NodeCanvas() {
 
                           const centerX = activeNodeToRender.x + dimensions.currentWidth / 2;
                           const centerY = activeNodeToRender.y + dimensions.currentHeight / 2;
-
-
 
                           return (
                             <>

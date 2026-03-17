@@ -58,39 +58,42 @@ function resizeWikipediaThumbUrl(thumbUrl, targetWidth) {
 // Processes one at a time with a brief yield between images.
 
 let _queue = [];
-let _running = false;
+let _activeCount = 0;
+const MAX_CONCURRENT = 6; // Parallel fetches
 
-async function _processQueue() {
-  if (_running) return;
-  _running = true;
+async function _processSingleImage(protoId, thumbUrl, imageAspectRatio, nodeName) {
+  // Skip if already cached
+  if (useImageCache.getState().getImage(protoId)) return;
 
-  while (_queue.length > 0) {
-    const { protoId, thumbUrl, imageAspectRatio, nodeName } = _queue.shift();
-
-    // Skip if already cached
-    if (useImageCache.getState().getImage(protoId)) continue;
-
-    try {
-      const url = resizeWikipediaThumbUrl(thumbUrl, 500);
-      const resp = await fetch(url);
-      if (!resp.ok) {
-        console.warn(`[ImageCache] "${nodeName}": HTTP ${resp.status} from ${url}`);
-        continue;
-      }
-
-      const blob = await resp.blob();
-      const blobUrl = URL.createObjectURL(blob);
-      useImageCache.getState().setImage(protoId, { thumbnailSrc: blobUrl, imageAspectRatio });
-      console.log(`[ImageCache] Cached "${nodeName}" (blob ${(blob.size / 1024).toFixed(0)}KB)`);
-    } catch (err) {
-      console.warn(`[ImageCache] Failed "${nodeName}":`, err?.message || err);
+  try {
+    const url = resizeWikipediaThumbUrl(thumbUrl, 500);
+    const resp = await fetch(url);
+    if (!resp.ok) {
+      console.warn(`[ImageCache] "${nodeName}": HTTP ${resp.status} from ${url}`);
+      return;
     }
 
-    // Brief yield between images — lets React render + GC run
-    await new Promise(r => setTimeout(r, 100));
+    const blob = await resp.blob();
+    const blobUrl = URL.createObjectURL(blob);
+    useImageCache.getState().setImage(protoId, { thumbnailSrc: blobUrl, imageAspectRatio });
+    console.log(`[ImageCache] Cached "${nodeName}" (blob ${(blob.size / 1024).toFixed(0)}KB)`);
+  } catch (err) {
+    console.warn(`[ImageCache] Failed "${nodeName}":`, err?.message || err);
   }
+}
 
-  _running = false;
+async function _processQueue() {
+  while (_queue.length > 0 && _activeCount < MAX_CONCURRENT) {
+    const job = _queue.shift();
+    if (!job) break;
+
+    _activeCount++;
+    _processSingleImage(job.protoId, job.thumbUrl, job.imageAspectRatio, job.nodeName)
+      .finally(() => {
+        _activeCount--;
+        _processQueue(); // Process next job when one completes
+      });
+  }
 }
 
 /**
