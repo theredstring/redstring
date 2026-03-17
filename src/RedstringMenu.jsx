@@ -508,6 +508,14 @@ const RedstringMenu = ({
                         <div
                           className="submenu-item"
                           onMouseEnter={handleRegularSubmenuItemHover}
+                          onClick={() => useGraphStore.getState().toggleDarkMode?.()}
+                          style={{ cursor: 'pointer' }}
+                        >
+                          {useGraphStore.getState().darkMode ? 'Dark Mode: On' : 'Dark Mode: Off'}
+                        </div>
+                        <div
+                          className="submenu-item"
+                          onMouseEnter={handleRegularSubmenuItemHover}
                           onClick={() => onToggleFullscreen?.()}
                           style={{ cursor: 'pointer' }}
                         >

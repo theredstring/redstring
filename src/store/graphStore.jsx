@@ -520,6 +520,14 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
         return true;
       }
     })(),
+    darkMode: (() => {
+      try {
+        const saved = localStorage.getItem('redstring_dark_mode');
+        return saved === 'true';
+      } catch (_) {
+        return false;
+      }
+    })(),
     // Grid visualization settings
     gridSettings: (() => {
       try {
@@ -2983,6 +2991,12 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
       draft.showConnectionNames = !draft.showConnectionNames;
       try {
         localStorage.setItem('redstring_show_connection_names', draft.showConnectionNames);
+      } catch (_) { }
+    })),
+    toggleDarkMode: () => set(produce((draft) => {
+      draft.darkMode = !draft.darkMode;
+      try {
+        localStorage.setItem('redstring_dark_mode', draft.darkMode);
       } catch (_) { }
     })),
 

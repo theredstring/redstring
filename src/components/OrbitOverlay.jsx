@@ -102,6 +102,11 @@ const DraggableOrbitItem = ({ candidate, x, y, width, height }) => {
 };
 
 const computeRingRadius = (items, centerRadius, spacing, count) => {
+  // If no items, just return the center radius + spacing
+  if (items.length === 0 || count === 0) {
+    return centerRadius + spacing;
+  }
+
   const maxWidth = items.reduce((m, it) => Math.max(m, it.dims.currentWidth), 0);
   const chordNeeded = maxWidth + spacing;
   const dTheta = (Math.PI * 2) / Math.max(1, count);

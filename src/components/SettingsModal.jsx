@@ -37,6 +37,7 @@ const SettingsModal = ({ isVisible, onClose }) => {
   const routingStyle = useGraphStore(s => s.routingStyle);
   const cleanLaneSpacing = useGraphStore(s => s.cleanLaneSpacing);
   const showConnectionNames = useGraphStore(s => s.showConnectionNames);
+  const darkMode = useGraphStore(s => s.darkMode);
 
   const isCompactLayout = viewportSize.width <= 768;
   const modalWidth = isCompactLayout
@@ -75,6 +76,16 @@ const SettingsModal = ({ isVisible, onClose }) => {
       title: 'Display',
       content: (
         <div>
+          <div className="settings-row">
+            <div className="settings-row-label">
+              Dark Mode
+              <div className="settings-row-description">Use dark background color</div>
+            </div>
+            <Toggle
+              checked={!!darkMode}
+              onChange={() => useGraphStore.getState().toggleDarkMode?.()}
+            />
+          </div>
           <div className="settings-row">
             <div className="settings-row-label">
               Show Connection Names
