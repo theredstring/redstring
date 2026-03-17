@@ -24,9 +24,12 @@ import {
   FileText,
   RefreshCw,
   EyeOff,
+  Eye Off,
   Eye
 } from 'lucide-react';
+import { useTheme } from '../../hooks/useTheme.js';
 import { universeManagerService } from '../../services/universeManagerService.js';
+
 
 const RepositoryList = ({
   repositories = [],
@@ -40,7 +43,9 @@ const RepositoryList = ({
   isOwner = false,
   title = "Repositories"
 }) => {
+  const theme = useTheme();
   const [sortBy, setSortBy] = useState('updated'); // 'name', 'updated', 'created', 'private'
+
   const [sortOrder, setSortOrder] = useState('desc'); // 'asc', 'desc'
   const [searchQuery, setSearchQuery] = useState('');
   const [filteredRepos, setFilteredRepos] = useState([]);
@@ -159,7 +164,7 @@ const RepositoryList = ({
       <div style={{ 
         padding: '16px',
         borderBottom: '1px solid #979090',
-        backgroundColor: '#bdb5b5'
+        backgroundColor: theme.canvas.bg
       }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '12px' }}>
           <h3 style={{ margin: 0, fontSize: '1.1rem', display: 'flex', alignItems: 'center', gap: '8px' }}>
@@ -174,8 +179,8 @@ const RepositoryList = ({
               onClick={onCreateRepository}
               style={{
                 padding: '6px 12px',
-                backgroundColor: '#260000',
-                color: '#bdb5b5',
+                backgroundColor: theme.canvas.text,
+                color: theme.canvas.bg,
                 border: 'none',
                 borderRadius: '4px',
                 cursor: 'pointer',
@@ -215,7 +220,7 @@ const RepositoryList = ({
               borderRadius: '4px',
               fontSize: '0.9rem',
               backgroundColor: '#979090',
-              color: '#260000',
+              color: theme.canvas.text,
               boxSizing: 'border-box'
             }}
           />
@@ -226,7 +231,7 @@ const RepositoryList = ({
       <div style={{ 
         padding: '8px 16px',
         backgroundColor: '#979090',
-        borderBottom: '1px solid #260000',
+        borderBottom: `1px solid ${theme.canvas.text}`,
         display: 'flex',
         gap: '12px',
         fontSize: '0.8rem'
@@ -236,7 +241,7 @@ const RepositoryList = ({
           style={{
             background: 'none',
             border: 'none',
-            color: sortBy === 'name' ? '#260000' : '#666',
+            color: sortBy === 'name' ? theme.canvas.text : '#666',
             cursor: 'pointer',
             display: 'flex',
             alignItems: 'center',
@@ -251,7 +256,7 @@ const RepositoryList = ({
           style={{
             background: 'none',
             border: 'none',
-            color: sortBy === 'updated' ? '#260000' : '#666',
+            color: sortBy === 'updated' ? theme.canvas.text : '#666',
             cursor: 'pointer',
             display: 'flex',
             alignItems: 'center',
@@ -266,7 +271,7 @@ const RepositoryList = ({
           style={{
             background: 'none',
             border: 'none',
-            color: sortBy === 'private' ? '#260000' : '#666',
+            color: sortBy === 'private' ? theme.canvas.text : '#666',
             cursor: 'pointer',
             display: 'flex',
             alignItems: 'center',
@@ -314,7 +319,7 @@ const RepositoryList = ({
             <div
               key={repo.id || repo.full_name}
               style={{
-                borderBottom: '1px solid #bdb5b5',
+                borderBottom: `1px solid ${theme.canvas.bg}`,
                 backgroundColor: repo.disabled ? '#b0b0b0' : '#979090',
                 opacity: repo.disabled ? 0.6 : 1
               }}
@@ -338,7 +343,7 @@ const RepositoryList = ({
                 }}
                 onMouseEnter={(e) => {
                   if (onSelectRepository) {
-                    e.target.style.backgroundColor = '#bdb5b5';
+                    e.target.style.backgroundColor = theme.canvas.bg;
                   }
                 }}
                 onMouseLeave={(e) => {
@@ -360,8 +365,8 @@ const RepositoryList = ({
                   {isExpanded && universes.length > 0 && (
                     <span style={{
                       fontSize: '0.7rem',
-                      color: '#fff',
-                      backgroundColor: '#260000',
+                      color: theme.canvas.bg,
+                      backgroundColor: theme.canvas.text,
                       padding: '2px 6px',
                       borderRadius: '3px'
                     }}>
@@ -515,7 +520,7 @@ const RepositoryList = ({
               {/* Expandable universe section */}
               {isExpanded && (
                 <div style={{
-                  backgroundColor: '#bdb5b5',
+                  backgroundColor: theme.canvas.bg,
                   borderTop: '1px solid #979090',
                   padding: '12px 16px'
                 }}>

@@ -1,4 +1,5 @@
 import React, { useRef, useEffect, useMemo } from 'react';
+import { useTheme } from './hooks/useTheme.js';
 import { NODE_CORNER_RADIUS } from './constants';
 import { getNodeDimensions } from './utils.js';
 
@@ -10,6 +11,7 @@ import { getNodeDimensions } from './utils.js';
  * 3. Explode (4-5s): Expands to full node with "Hello, World" text
  */
 const VideoNodeAnimation = ({ x, y, onComplete }) => {
+  const theme = useTheme();
   const mockNode = useMemo(() => ({
     name: 'Hello, World',
     color: 'maroon',
@@ -189,7 +191,7 @@ const VideoNodeAnimation = ({ x, y, onComplete }) => {
               style={{
                 fontSize: '20px',
                 fontWeight: 'bold',
-                color: '#bdb5b5',
+                color: theme.canvas.bg,
                 fontFamily: "'EmOne', sans-serif",
                 lineHeight: '32px',
                 whiteSpace: 'normal',

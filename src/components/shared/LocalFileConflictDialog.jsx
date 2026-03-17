@@ -1,5 +1,7 @@
 import React from 'react';
 import { AlertTriangle, HardDrive, FileCode } from 'lucide-react';
+import { useTheme } from '../../hooks/useTheme.js';
+import Modal from './Modal.jsx';
 
 const formatCount = (value) => {
   if (typeof value === 'number' && !Number.isNaN(value)) {
@@ -29,6 +31,7 @@ const formatTimestamp = (timestamp) => {
 };
 
 const OptionCard = ({ option, actionLabel, onSelect, tone = 'neutral' }) => {
+  const theme = useTheme();
   const accentColor = tone === 'accent' ? '#7A0000' : '#260000';
   const baseBorder = tone === 'accent' ? '#7A0000' : '#260000';
   const metadataRows = [];
@@ -54,7 +57,7 @@ const OptionCard = ({ option, actionLabel, onSelect, tone = 'neutral' }) => {
         flex: '1 1 280px',
         border: `2px solid ${baseBorder}`,
         borderRadius: 12,
-        backgroundColor: '#bdb5b5',
+        backgroundColor: theme.canvas.bg,
         padding: '14px',
         display: 'flex',
         flexDirection: 'column',
@@ -100,7 +103,7 @@ const OptionCard = ({ option, actionLabel, onSelect, tone = 'neutral' }) => {
           borderRadius: 8,
           border: `2px solid ${accentColor}`,
           backgroundColor: tone === 'accent' ? accentColor : 'transparent',
-          color: tone === 'accent' ? '#bdb5b5' : '#260000',
+          color: tone === 'accent' ? theme.canvas.bg : '#260000',
           fontWeight: 700,
           fontSize: '0.85rem',
           cursor: 'pointer',
@@ -126,9 +129,10 @@ const LocalFileConflictDialog = ({
   existingOption,
   incomingOption,
   onChooseExisting,
-  onChooseIncoming,
+  onOverwrite,
   onCancel
 }) => {
+  const theme = useTheme();
   if (!isOpen) return null;
 
   return (
@@ -148,7 +152,7 @@ const LocalFileConflictDialog = ({
       <div
         style={{
           width: 'min(95vw, 760px)',
-          backgroundColor: '#bdb5b5',
+          backgroundColor: theme.canvas.bg,
           border: '3px solid #260000',
           borderRadius: 14,
           display: 'flex',
@@ -209,7 +213,7 @@ const LocalFileConflictDialog = ({
             <OptionCard
               option={incomingOption}
               actionLabel="Use Linked File"
-              onSelect={onChooseIncoming}
+              onSelect={onOverwrite}
               tone="accent"
             />
           </div>

@@ -28,6 +28,7 @@ import { startOAuthFlow } from './utils/oauthAdapter.js';
 import { HEADER_HEIGHT } from './constants.js';
 import useGraphStore from './store/graphStore.jsx';
 import { getStorageKey } from './utils/storageUtils.js';
+import { useTheme } from './hooks/useTheme.js';
 
 const { log: __umNativeLog, warn: __umNativeWarn, error: __umNativeError } = console;
 const umLog = (...args) => __umNativeLog.call(console, '[UniverseManager]', ...args);
@@ -212,6 +213,7 @@ function buttonStyle(variant = 'outline') {
 }
 
 const UniverseManager = ({ variant = 'panel', onRequestClose }) => {
+  const theme = useTheme();
   const [serviceState, setServiceState] = useState(blankState);
   const [loading, setLoading] = useState(true);
   const [initializing, setInitializing] = useState(false); // Start false - don't block UI on load
@@ -3608,7 +3610,7 @@ const UniverseManager = ({ variant = 'panel', onRequestClose }) => {
           border: `1px solid ${isPrimary ? '#7A0000' : '#260000'}`,
           borderRadius: 8,
           padding: 12,
-          backgroundColor: isPrimary ? 'rgba(122,0,0,0.08)' : '#bdb5b5',
+          backgroundColor: isPrimary ? 'rgba(122,0,0,0.08)' : theme.canvas.bg,
           display: 'flex',
           flexDirection: 'column',
           gap: 6
@@ -3670,7 +3672,7 @@ const UniverseManager = ({ variant = 'panel', onRequestClose }) => {
             padding: 12,
             border: '1px dashed #979090',
             borderRadius: 6,
-            backgroundColor: '#bdb5b5',
+            backgroundColor: theme.canvas.bg,
             color: '#555',
             fontSize: '0.8rem'
           }}
@@ -3686,7 +3688,7 @@ const UniverseManager = ({ variant = 'panel', onRequestClose }) => {
           border: '1px solid #260000',
           borderRadius: 8,
           padding: 12,
-          backgroundColor: '#bdb5b5',
+          backgroundColor: theme.canvas.bg,
           display: 'flex',
           flexDirection: 'column',
           gap: 8
@@ -3741,7 +3743,7 @@ const UniverseManager = ({ variant = 'panel', onRequestClose }) => {
             padding: 12,
             border: '1px dashed #979090',
             borderRadius: 6,
-            backgroundColor: '#bdb5b5',
+            backgroundColor: theme.canvas.bg,
             color: '#555',
             fontSize: '0.8rem'
           }}
@@ -3762,7 +3764,7 @@ const UniverseManager = ({ variant = 'panel', onRequestClose }) => {
             border: '1px solid #260000',
             borderRadius: 8,
             padding: 12,
-            backgroundColor: '#bdb5b5',
+            backgroundColor: theme.canvas.bg,
             display: 'flex',
             flexDirection: 'column',
             gap: 8
@@ -3873,7 +3875,7 @@ const UniverseManager = ({ variant = 'panel', onRequestClose }) => {
             padding: 14,
             border: '1px dashed #979090',
             borderRadius: 6,
-            backgroundColor: '#bdb5b5',
+            backgroundColor: theme.canvas.bg,
             color: '#555',
             fontSize: '0.8rem'
           }}
@@ -3947,7 +3949,7 @@ const UniverseManager = ({ variant = 'panel', onRequestClose }) => {
                 padding: 12,
                 border: '1px dashed #979090',
                 borderRadius: 6,
-                backgroundColor: '#bdb5b5',
+                backgroundColor: theme.canvas.bg,
                 color: '#555',
                 fontSize: '0.78rem'
               }}
@@ -4036,7 +4038,7 @@ const UniverseManager = ({ variant = 'panel', onRequestClose }) => {
               style={{
                 border: isActive ? '2px solid #7A0000' : '1px solid #260000',
                 borderRadius: 8,
-                backgroundColor: '#bdb5b5',
+                backgroundColor: theme.canvas.bg,
                 padding: 12,
                 display: 'flex',
                 flexDirection: isSlim ? 'column' : 'row',
@@ -4145,7 +4147,7 @@ const UniverseManager = ({ variant = 'panel', onRequestClose }) => {
           style={{
             borderRadius: 8,
             border: '1px solid #260000',
-            backgroundColor: '#bdb5b5',
+            backgroundColor: theme.canvas.bg,
             padding: 14,
             display: 'flex',
             alignItems: 'center',
@@ -4484,7 +4486,7 @@ const UniverseManager = ({ variant = 'panel', onRequestClose }) => {
                 padding: 20,
                 justifyContent: 'flex-start',
                 border: '2px solid #260000',
-                backgroundColor: '#bdb5b5',
+                backgroundColor: theme.canvas.bg,
                 borderRadius: 14,
                 transition: 'all 0.2s ease'
               }}
@@ -4493,7 +4495,7 @@ const UniverseManager = ({ variant = 'panel', onRequestClose }) => {
                 e.currentTarget.style.borderColor = '#260000';
               }}
               onMouseLeave={(e) => {
-                e.currentTarget.style.backgroundColor = '#bdb5b5';
+                e.currentTarget.style.backgroundColor = theme.canvas.bg;
                 e.currentTarget.style.borderColor = '#260000';
               }}
             >
@@ -4516,7 +4518,7 @@ const UniverseManager = ({ variant = 'panel', onRequestClose }) => {
                 padding: 20,
                 justifyContent: 'flex-start',
                 border: '2px solid #260000',
-                backgroundColor: '#bdb5b5',
+                backgroundColor: theme.canvas.bg,
                 borderRadius: 14,
                 transition: 'all 0.2s ease'
               }}
@@ -4525,7 +4527,7 @@ const UniverseManager = ({ variant = 'panel', onRequestClose }) => {
                 e.currentTarget.style.borderColor = '#260000';
               }}
               onMouseLeave={(e) => {
-                e.currentTarget.style.backgroundColor = '#bdb5b5';
+                e.currentTarget.style.backgroundColor = theme.canvas.bg;
                 e.currentTarget.style.borderColor = '#260000';
               }}
             >
@@ -4584,7 +4586,7 @@ const UniverseManager = ({ variant = 'panel', onRequestClose }) => {
                   key={idx}
                   style={{
                     border: '2px solid #260000',
-                    backgroundColor: '#bdb5b5',
+                    backgroundColor: theme.canvas.bg,
                     borderRadius: 14,
                     padding: 12,
                     display: 'flex',
@@ -4685,7 +4687,7 @@ const UniverseManager = ({ variant = 'panel', onRequestClose }) => {
                         key={idx}
                         style={{
                           border: '2px solid #260000',
-                          backgroundColor: '#bdb5b5',
+                          backgroundColor: theme.canvas.bg,
                           borderRadius: 14,
                           padding: 12,
                           display: 'flex',

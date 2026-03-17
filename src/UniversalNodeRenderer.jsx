@@ -2,6 +2,7 @@ import React, { useMemo, useState, useCallback, useRef } from 'react';
 import useGraphStore from './store/graphStore.jsx';
 import { getNodeDimensions } from './utils.js';
 import { getTextColor, hexToHsl, hslToHex } from './utils/colorUtils.js';
+import { useTheme } from './hooks/useTheme.js';
 
 /**
  * Connection Text Component
@@ -136,6 +137,7 @@ const UniversalNodeRenderer = ({
   const [stableHoveredConnectionId, setStableHoveredConnectionId] = useState(null);
   const hoverTimeoutRef = useRef(null);
 
+  const theme = useTheme();
   const graphsMap = useGraphStore((state) => state.graphs);
   const activeGraphId = useGraphStore((state) => state.activeGraphId);
   const nodePrototypesMap = useGraphStore((state) => state.nodePrototypes);
@@ -1069,7 +1071,7 @@ const UniversalNodeRenderer = ({
                 height={node.height}
                 rx={node.isGroup ? 20 * transform.scale : cornerRadius}
                 ry={node.isGroup ? 20 * transform.scale : cornerRadius}
-                fill={node.isGroup ? '#bdb5b5' : (node.color || '#800000')}
+                fill={node.isGroup ? theme.canvas.bg : (node.color || '#800000')}
                 stroke={node.isGroup ? (node.color || '#8B0000') : (hasImage ? (node.color || '#800000') : 'none')}
                 strokeWidth={
                   node.isGroup

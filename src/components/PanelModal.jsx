@@ -1,6 +1,7 @@
 import React, { useEffect, useRef } from 'react';
 import { useViewportBounds } from '../hooks/useViewportBounds';
 import useGraphStore from '../store/graphStore.jsx';
+import { useTheme } from '../hooks/useTheme.js';
 
 /**
  * Panel Modal Component
@@ -20,6 +21,7 @@ const PanelModal = ({
   className = ''
 }) => {
   const modalRef = useRef(null);
+  const theme = useTheme();
   const { leftPanelExpanded, rightPanelExpanded, typeListMode } = useGraphStore();
 
   // Get viewport bounds for positioning
@@ -138,7 +140,7 @@ const PanelModal = ({
           top: `${top}px`,
           width: `${width}px`,
           height: height === 'auto' ? 'auto' : `${height}px`,
-          backgroundColor: '#bdb5b5', // Canvas color
+          backgroundColor: theme.canvas.bg,
           border: '2px solid #260000', // Maroon border
           borderRadius: '12px',
           boxShadow: '0 8px 32px rgba(0, 0, 0, 0.3)',
@@ -154,7 +156,7 @@ const PanelModal = ({
           <div
             style={{
               backgroundColor: '#260000',
-              color: '#bdb5b5',
+              color: theme.canvas.text,
               padding: '12px 16px',
               borderBottom: '2px solid #8B0000',
               display: 'flex',
@@ -175,7 +177,7 @@ const PanelModal = ({
               style={{
                 background: 'none',
                 border: 'none',
-                color: '#bdb5b5',
+                color: theme.canvas.text,
                 cursor: 'pointer',
                 padding: '4px',
                 borderRadius: '4px',

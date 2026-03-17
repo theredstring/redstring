@@ -1,7 +1,8 @@
 import React, { useEffect, useState, useMemo, useRef, useCallback } from 'react';
-import { Trash2, Plus, ArrowUpFromDot, ArrowRight, ChevronLeft, ChevronRight, PackageOpen, Layers, Edit3, Bookmark, Palette, MoreHorizontal, Group, Ungroup, SquarePlus, Combine } from 'lucide-react';
+import { Trash2, Plus, ArrowUpFromDot, ArrowRight, ChevronLeft, ChevronRight, PackageOpen, Layers, Edit3, Bookmark, Palette, MoreHorizontal, Group, Ungroup, SquarePlus, Combine, Maximize2, Minimize2 } from 'lucide-react';
 import UniversalNodeRenderer from './UniversalNodeRenderer';
 import { RENDERER_PRESETS } from './UniversalNodeRenderer.presets';
+import { useTheme } from './hooks/useTheme.js';
 import useGraphStore from "./store/graphStore.jsx";
 import { getNodeDimensions } from './utils.js';
 import useMobileDetection from './hooks/useMobileDetection';
@@ -35,12 +36,17 @@ const NodePill = ({ name, color = '#800000', onClick }) => {
 };
 
 const PredicateRail = ({ color = '#4A5568', leftActive, rightActive, onToggleLeft, onToggleRight, onClickCenter, centerWidth = 140, label }) => {
+  const theme = useTheme();
   return (
     <div className="predicate-rail" onClick={onClickCenter}>
       <TriangleCap direction="left" color={color} variant={leftActive ? 'solid' : 'ghost'} onClick={(e) => { e.stopPropagation(); onToggleLeft?.(); }} />
-      <div className="predicate-rect" style={{ backgroundColor: color }}>
+      <div className="predicate-rect" style={{
+        borderRadius: '8px',
+        backgroundColor: theme.canvas.bg,
+        border: '1px solid rgba(38, 0, 0, 0.2)',
+      }}>
         <span style={{
-          color: '#bdb5b5',
+          color: theme.canvas.bg,
           fontWeight: 'bold',
           fontSize: '24px',
           fontFamily: "'EmOne', sans-serif",

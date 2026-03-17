@@ -1,5 +1,5 @@
 .api-key-setup {
-  background: #bdb5b5;
+  background: var(--canvas-bg);
   border-radius: 0;
   box-shadow: none;
   padding: 0;
@@ -47,7 +47,7 @@
 
 .close-button:hover {
   background: #260000;
-  color: #bdb5b5;
+  color: var(--canvas-text);
 }
 
 /* Existing Key Info */
@@ -102,7 +102,7 @@
 
 .test-button {
   background: #260000;
-  color: #bdb5b5;
+  color: var(--canvas-text);
   border: none;
 }
 
@@ -180,7 +180,7 @@
   border: 1px solid #260000;
   border-radius: 0;
   font-size: 14px;
-  background: #bdb5b5;
+  background: var(--canvas-bg);
   color: #260000;
   font-family: 'EmOne', sans-serif;
   transition: border-color 0.2s;
@@ -236,7 +236,7 @@
   border-radius: 0;
   font-size: 14px;
   font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
-  background: #bdb5b5;
+  background: var(--canvas-bg);
   color: #260000;
   transition: border-color 0.2s;
 }
@@ -255,7 +255,7 @@
   border-radius: 0;
   font-size: 14px;
   font-family: 'EmOne', sans-serif;
-  background: #bdb5b5;
+  background: var(--canvas-bg);
   color: #260000;
   transition: border-color 0.2s;
 }
@@ -316,7 +316,7 @@
 
 .submit-button {
   background: #260000;
-  color: #bdb5b5;
+  color: var(--canvas-text);
   border: 1px solid #260000;
   padding: 12px 24px;
   border-radius: 0;
@@ -330,7 +330,7 @@
 .submit-button:hover:not(:disabled) {
   background: #F00000;
   border-color: #F00000;
-  color: #bdb5b5;
+  color: var(--canvas-text);
 }
 
 .submit-button:disabled {
@@ -416,7 +416,7 @@
 .edit-key-button {
   align-self: flex-start;
   background: #260000;
-  color: #bdb5b5;
+  color: var(--canvas-text);
   border: none;
   padding: 8px 16px;
   cursor: pointer;
@@ -453,7 +453,7 @@
 }
 
 .preset-button {
-  background: #bdb5b5;
+  background: var(--canvas-bg);
   border: 2px solid #260000;
   border-radius: 0;
   padding: 12px;
@@ -474,7 +474,7 @@
 
 .preset-button.selected {
   background: #260000;
-  color: #bdb5b5;
+  color: var(--canvas-text);
   border-color: #260000;
 }
 
@@ -553,7 +553,7 @@
 
 .test-connection-button {
   background: #260000;
-  color: #bdb5b5;
+  color: var(--canvas-text);
   border: none;
   padding: 10px 20px;
   border-radius: 0;
@@ -604,7 +604,7 @@
   border-radius: 0;
   font-size: 14px;
   font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
-  background: #bdb5b5;
+  background: var(--canvas-bg);
   color: #260000;
   transition: border-color 0.2s;
 }

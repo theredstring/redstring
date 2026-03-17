@@ -1,4 +1,7 @@
-import React, { useMemo, useEffect, useRef, useState } from 'react';
+import React, { useMemo } from 'react';
+import { useTheme } from '../hooks/useTheme.js';
+import useGraphStore from '../store/graphStore.jsx';
+
 import { useDrag } from 'react-dnd';
 import { getEmptyImage } from 'react-dnd-html5-backend';
 import { getNodeDimensions } from '../utils.js';
@@ -7,8 +10,8 @@ import { candidateToConcept } from '../services/candidates.js';
 
 const SPAWNABLE_NODE = 'spawnable_node';
 
-const DRAG_MARGIN = 18;
-const ORBIT_ANGULAR_SPEED_RAD_PER_SEC = 0.08; // slow clockwise
+const DRAG_MARGIN = 40; // Spacing between rings
+const ORBIT_ANGULAR_SPEED_RAD_PER_SEC = 0.015; // Very slow clockwise rotation
 const RADIAL_PERTURBATION_PX_BASE = 6; // subtle radial wiggle
 const ANGLE_JITTER_RAD_BASE = 0.008; // subtle angle wobble
 const MIN_FREQ_HZ = 0.2;
@@ -28,7 +31,9 @@ const hashToUnitFloat = (str, salt = '') => {
   return (h & 0x7fffffff) / 0x80000000;
 };
 
-const DraggableOrbitItem = ({ candidate, x, y, width, height }) => {
+const DraggableOrbitItem = ({ candidate, x, y, rightPanelExpanded, onNodeClick }) => {
+  const theme = useTheme();
+  const rotation = useGraphStore(state => state.orbitRotation);
   const concept = useMemo(() => candidateToConcept(candidate), [candidate]);
 
   const [{ isDragging }, drag, preview] = useDrag(() => ({
@@ -52,6 +57,16 @@ const DraggableOrbitItem = ({ candidate, x, y, width, height }) => {
   const label = candidate.name || 'Untitled';
   const fill = candidate.color || NODE_DEFAULT_COLOR;
 
+  // Re-calculate width and height based on candidate for rendering
+  const tempNode = {
+    id: `orbit-${candidate.id}`,
+    x: 0, y: 0, scale: 1, prototypeId: null,
+    name: candidate.name,
+    color: candidate.color || NODE_DEFAULT_COLOR,
+    definitionGraphIds: []
+  };
+  const { currentWidth, currentHeight } = getNodeDimensions(tempNode, false, null);
+
   return (
     <g style={{ opacity: isDragging ? 0.5 : 1 }}>
       <rect
@@ -59,23 +74,23 @@ const DraggableOrbitItem = ({ candidate, x, y, width, height }) => {
         y={y + 6}
         rx={NODE_CORNER_RADIUS - 6}
         ry={NODE_CORNER_RADIUS - 6}
-        width={width - 12}
-        height={height - 12}
+        width={currentWidth - 12}
+        height={currentHeight - 12}
         fill={fill}
         stroke={'none'}
       />
       <foreignObject
         x={x}
         y={y}
-        width={width}
-        height={height}
+        width={currentWidth}
+        height={currentHeight}
         style={{ overflow: 'visible' }}
         ref={drag}
       >
         <div
           style={{
-            width: `${width}px`,
-            height: `${height}px`,
+            width: `${currentWidth}px`,
+            height: `${currentHeight}px`,
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
@@ -83,8 +98,11 @@ const DraggableOrbitItem = ({ candidate, x, y, width, height }) => {
             boxSizing: 'border-box',
             cursor: 'grab',
             userSelect: 'none',
+            pointerEvents: 'auto',
+            backgroundColor: theme.canvas.bg,
+            border: `1px solid ${candidate.color || '#260000'}`,
             fontFamily: "'EmOne', sans-serif",
-            color: '#bdb5b5',
+            color: theme.canvas.bg,
             fontWeight: 'bold',
             fontSize: '20px',
             lineHeight: '32px',
@@ -139,36 +157,20 @@ export default function OrbitOverlay({
   innerCandidates,
   outerCandidates
 }) {
-  // Debug: Log when candidates change
-  useEffect(() => {
-    console.log('🎨 OrbitOverlay received candidates:', {
-      innerCount: innerCandidates?.length || 0,
-      outerCount: outerCandidates?.length || 0,
-      centerX,
-      centerY
-    });
-  }, [innerCandidates, outerCandidates, centerX, centerY]);
-
   // Always call hooks first, before any early returns
   const measuredInner = useMemo(() => measureCandidates(innerCandidates || []), [innerCandidates]);
   const measuredOuter = useMemo(() => measureCandidates(outerCandidates || []), [outerCandidates]);
 
   const centerRadius = useMemo(() => {
-    const radius = Math.max(focusWidth, focusHeight) / 2;
-    console.log('📏 centerRadius:', radius, { focusWidth, focusHeight });
-    return radius;
+    return Math.max(focusWidth, focusHeight) / 2;
   }, [focusWidth, focusHeight]);
 
   const innerRadius = useMemo(() => {
-    const radius = computeRingRadius(measuredInner, centerRadius, DRAG_MARGIN, Math.max(1, measuredInner.length));
-    console.log('📏 innerRadius:', radius, { measuredInnerCount: measuredInner.length, centerRadius });
-    return radius;
+    return computeRingRadius(measuredInner, centerRadius, DRAG_MARGIN, Math.max(1, measuredInner.length));
   }, [measuredInner, centerRadius]);
 
   const outerRadius = useMemo(() => {
-    const radius = computeRingRadius(measuredOuter, innerRadius + DRAG_MARGIN, DRAG_MARGIN, Math.max(1, measuredOuter.length));
-    console.log('📏 outerRadius:', radius, { measuredOuterCount: measuredOuter.length, innerRadius });
-    return radius;
+    return computeRingRadius(measuredOuter, innerRadius + DRAG_MARGIN, DRAG_MARGIN, Math.max(1, measuredOuter.length));
   }, [measuredOuter, innerRadius]);
 
   // Animation time state (seconds). Throttled to ~20 FPS for efficiency.
@@ -252,20 +254,8 @@ export default function OrbitOverlay({
     return null;
   }
 
-  // Debug: Log positions
-  console.log('🎯 Orbit positions:', {
-    innerCount: innerPositions.length,
-    outerCount: outerPositions.length,
-    sampleInner: innerPositions[0],
-    sampleOuter: outerPositions[0]
-  });
-
   return (
     <g>
-      {/* Fixed position test marker */}
-      <rect x={0} y={0} width={200} height={100} fill="orange" stroke="black" strokeWidth={5} />
-      <text x={100} y={50} fontSize={24} fill="black" textAnchor="middle" dominantBaseline="middle">FIXED POS</text>
-
       {innerPositions.map(({ candidate, dims, x, y }) => (
         <DraggableOrbitItem
           key={`inner-${candidate.id}`}

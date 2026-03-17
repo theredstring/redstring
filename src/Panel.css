@@ -40,13 +40,13 @@
   
 /* Override caret-color for the input specifically within the header */
 header .editable-title-input {
-  caret-color: #bdb5b5; /* Light caret for dark header background */
+  caret-color: var(--canvas-text); /* Light caret for dark header background */
 }
 
 /* Override selection color for the input specifically within the header */
 header .editable-title-input::selection {
   background-color: rgba(189, 181, 181, 0.2); /* Subtle light selection background */
-  color: #bdb5b5;                         /* Maintain light text color during selection */
+  color: var(--canvas-text);                         /* Maintain light text color during selection */
 }
 
 .editable-title-input::selection {
@@ -100,14 +100,14 @@ header .editable-title-input::selection {
   align-items: center;
   justify-content: center;
   height: 100%;
-  background-color: #bdb5b5;
+  background-color: var(--canvas-bg);
   font-family: 'EmOne', sans-serif;
 }
 
 .loading-spinner {
   width: 40px;
   height: 40px;
-  border: 4px solid #bdb5b5;
+  border: 4px solid var(--canvas-bg);
   border-top: 4px solid #8B0000;
   border-radius: 50%;
   animation: spin 1s linear infinite;
@@ -119,7 +119,7 @@ header .editable-title-input::selection {
   height: 100%; /* Full height of parent container */
   display: flex;
   flex-direction: column;
-  background-color: #bdb5b5; /* Match active tab color */
+  background-color: var(--canvas-bg); /* Match active tab color */
   box-shadow: 0 0 5px rgba(0,0,0,0.1);
   z-index: 100;
   margin: 0; /* Removed margin */

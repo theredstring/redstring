@@ -1,4 +1,6 @@
 import React from 'react';
+import { useTheme } from './hooks/useTheme.js';
+
 import { ArrowLeftFromLine, ArrowRightFromLine } from 'lucide-react';
 import { HEADER_HEIGHT } from './constants'; // Assuming constants file is accessible
 

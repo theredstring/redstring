@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { useTheme } from '../hooks/useTheme.js';
 import CanvasModal from './CanvasModal';
 import PanelModal from './PanelModal';
 import AlphaOnboardingModal from './AlphaOnboardingModal';
@@ -10,6 +11,7 @@ import { getStorageKey } from '../utils/storageUtils.js';
  * This demonstrates the different positioning options and usage patterns
  */
 const ModalDemo = () => {
+  const theme = useTheme();
   const [canvasModalVisible, setCanvasModalVisible] = useState(false);
   const [panelModalVisible, setPanelModalVisible] = useState(false);
   const [alphaModalVisible, setAlphaModalVisible] = useState(false);
@@ -72,7 +74,7 @@ const ModalDemo = () => {
             border: 'none',
             borderRadius: '6px',
             backgroundColor: '#8B0000',
-            color: '#bdb5b5',
+            color: theme.canvas.bg,
             cursor: 'pointer',
             fontFamily: "'EmOne', sans-serif"
           }}
@@ -148,7 +150,7 @@ const ModalDemo = () => {
             border: 'none',
             borderRadius: '6px',
             backgroundColor: '#8B0000',
-            color: '#bdb5b5',
+            color: theme.canvas.bg,
             cursor: 'pointer',
             fontFamily: "'EmOne', sans-serif"
           }}
@@ -170,7 +172,7 @@ const ModalDemo = () => {
             padding: '12px 20px',
             border: '2px solid #8B0000',
             borderRadius: '8px',
-            backgroundColor: '#bdb5b5',
+            backgroundColor: theme.canvas.bg,
             color: '#260000',
             cursor: 'pointer',
             fontFamily: "'EmOne', sans-serif",
@@ -187,7 +189,7 @@ const ModalDemo = () => {
             padding: '12px 20px',
             border: '2px solid #8B0000',
             borderRadius: '8px',
-            backgroundColor: '#bdb5b5',
+            backgroundColor: theme.canvas.bg,
             color: '#260000',
             cursor: 'pointer',
             fontFamily: "'EmOne', sans-serif",
@@ -204,7 +206,7 @@ const ModalDemo = () => {
             padding: '12px 20px',
             border: '2px solid #8B0000',
             borderRadius: '8px',
-            backgroundColor: '#bdb5b5',
+            backgroundColor: theme.canvas.bg,
             color: '#260000',
             cursor: 'pointer',
             fontFamily: "'EmOne', sans-serif",
@@ -246,8 +248,9 @@ const ModalDemo = () => {
 
       <div style={{
         marginTop: '20px',
-        padding: '16px',
-        backgroundColor: 'rgba(139, 0, 0, 0.05)',
+        padding: '20px',
+        backgroundColor: theme.canvas.bg,
+        height: '100vh',
         borderRadius: '8px',
         border: '1px solid rgba(139, 0, 0, 0.2)'
       }}>

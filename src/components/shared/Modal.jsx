@@ -1,4 +1,5 @@
-import React from 'react';
+import React, { useEffect, useRef } from 'react';
+import { useTheme } from '../../hooks/useTheme.js';
 import { X } from 'lucide-react';
 
 const Modal = ({
@@ -7,8 +8,12 @@ const Modal = ({
   title,
   children,
   size = 'medium',
-  showCloseButton = true
+  showCloseButton = true,
+  style = {}
 }) => {
+  const theme = useTheme();
+  const modalRef = useRef(null);
+
   if (!isOpen) return null;
 
   const sizeStyles = {
@@ -35,8 +40,9 @@ const Modal = ({
       <div
         style={{
           ...sizeStyles[size],
-          backgroundColor: '#bdb5b5',
-          border: '2px solid #260000',
+          ...style,
+          backgroundColor: theme.canvas.bg,
+          border: '1px solid #260000',
           borderRadius: 12,
           display: 'flex',
           flexDirection: 'column',

@@ -6,7 +6,9 @@ import useGraphStore from "./store/graphStore.jsx";
 import ColorPicker from './ColorPicker';
 import useViewportBounds from './hooks/useViewportBounds';
 import useMobileDetection from './hooks/useMobileDetection';
+import { useTheme } from './hooks/useTheme.js';
 import './UnifiedSelector.css';
+
 
 const UnifiedSelector = ({
   mode,
@@ -28,7 +30,9 @@ const UnifiedSelector = ({
   searchOnly = false,
   allowedPrototypeIds = null
 }) => {
+  const theme = useTheme();
   const [name, setName] = useState(initialName);
+
   const lastInitialNameRef = useRef(initialName);
 
   useEffect(() => {
@@ -200,7 +204,7 @@ const UnifiedSelector = ({
             style={{
               alignSelf: 'center',
               width: `${dialogWidth}px`,
-              backgroundColor: '#bdb5b5',
+              backgroundColor: theme.canvas.bg,
               padding: isSmallScreen ? '16px' : '14px 16px',
               borderRadius: '12px',
               boxShadow: '0 2px 10px rgba(0,0,0,0.2)',
@@ -226,7 +230,7 @@ const UnifiedSelector = ({
             >
               <X size={closeIconSize} color="#999" onClick={() => { setName(''); setColorPickerVisible(false); onClose?.(); }} />
             </div>
-            <div style={{ textAlign: 'left', marginBottom: isSmallScreen ? '15px' : '10px', color: 'black' }}>
+            <div style={{ textAlign: 'left', marginBottom: isSmallScreen ? '15px' : '10px', color: theme.canvas.text }}>
               <strong style={{ fontSize: dialogTitleSize, fontFamily: "'EmOne', sans-serif" }}>{title}</strong>
             </div>
             {subtitle && (
@@ -239,7 +243,7 @@ const UnifiedSelector = ({
               {!searchOnly && (
                 <Palette
                   size={iconSize}
-                  color="#260000"
+                  color={theme.canvas.text}
                   style={{
                     cursor: 'pointer',
                     flexShrink: 0,
@@ -269,8 +273,8 @@ const UnifiedSelector = ({
                   marginRight: searchOnly ? 0 : (isSmallScreen ? '6px' : '10px'),
                   fontSize: isMobilePortrait ? '15px' : '14px',
                   touchAction: 'manipulation',
-                  backgroundColor: '#260000',
-                  color: '#bdb5b5',
+                  backgroundColor: theme.canvas.text,
+                  color: theme.canvas.bg,
                   fontFamily: "'EmOne', sans-serif"
                 }}
                 autoFocus={false}
@@ -282,7 +286,7 @@ const UnifiedSelector = ({
                   style={{
                     padding: inputPadding,
                     backgroundColor: color,
-                    color: '#bdb5b5',
+                    color: getTextColor(color),
                     border: 'none',
                     borderRadius: '8px',
                     cursor: 'pointer',
@@ -295,7 +299,7 @@ const UnifiedSelector = ({
                   }}
                   title={mode === 'connection-creation' ? 'Create connection type' : mode === 'abstraction-node-creation' ? `Create ${abstractionDirection} abstraction` : mode === 'node-group-creation' ? 'Create new Thing defined by this Group' : 'Create node type'}
                 >
-                  <Plus size={iconSize} color="#bdb5b5" strokeWidth={2.5} />
+                  <Plus size={iconSize} color={getTextColor(color)} strokeWidth={2.5} />
                 </button>
               )}
             </div>
@@ -313,7 +317,7 @@ const UnifiedSelector = ({
                 width: isSmallScreen ? '100%' : `${gridOuterWidth}px`,
                 maxWidth: `${gridOuterWidth}px`,
                 height: '100%',
-                backgroundColor: '#bdb5b5',
+                backgroundColor: theme.canvas.bg,
                 borderRadius: isSmallScreen ? '16px' : '14px',
                 boxShadow: '0 2px 10px rgba(0,0,0,0.2)',
                 display: 'flex',
@@ -328,7 +332,7 @@ const UnifiedSelector = ({
                   padding: isSmallScreen ? '12px 14px' : '10px 16px',
                   borderTopLeftRadius: '16px',
                   borderTopRightRadius: '16px',
-                  color: '#260000',
+                  color: theme.canvas.text,
                   fontFamily: "'EmOne', sans-serif",
                   fontWeight: 'bold',
                   fontSize: isSmallScreen ? '15px' : '14px',
@@ -358,7 +362,7 @@ const UnifiedSelector = ({
                     minHeight: 0,
                     // Custom scrollbar styling
                     scrollbarWidth: 'thin',
-                    scrollbarColor: '#bdb5b5 transparent',
+                    scrollbarColor: `${theme.canvas.bg} transparent`,
                     touchAction: 'pan-y'
                   }}
                   className="unified-selector-scroll"

@@ -41,3 +41,7 @@ export const NODE_DEFAULT_COLOR = '#8B0000';
 
 // Define default connection color - red for new connections in UnifiedSelector
 export const CONNECTION_DEFAULT_COLOR = '#8B0000';
+
+// Dark mode background colors
+export const DARK_MODE_BG_COLOR = '#3F3A3A';
+export const LIGHT_MODE_BG_COLOR = '#bdb5b5';

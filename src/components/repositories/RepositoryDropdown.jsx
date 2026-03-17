@@ -4,8 +4,12 @@
  */
 
 import React, { useState, useRef, useEffect } from 'react';
-import { ChevronDown, Github } from 'lucide-react';
-import RepositoryManager from './RepositoryManager.jsx';
+import { ChevronDown, Settings,
+  Trash2
+} from 'lucide-react';
+import { useTheme } from '../../hooks/useTheme.js';
+import { universeManagerService } from '../../services/universeManagerService.js';
+
 
 const RepositoryDropdown = ({ 
   selectedRepository,
@@ -13,8 +17,10 @@ const RepositoryDropdown = ({
   placeholder = "Select Repository",
   disabled = false,
   repositories = null,
-  onRequireAuth = null
+  onRemoveRepository,
+  currentUser
 }) => {
+  const theme = useTheme();
   const [isOpen, setIsOpen] = useState(false);
   const dropdownRef = useRef(null);
 
@@ -55,32 +61,27 @@ const RepositoryDropdown = ({
         disabled={disabled}
         style={{
           width: '100%',
-          padding: '8px 12px',
-          backgroundColor: disabled ? '#f0f0f0' : '#bdb5b5',
+          padding: '6px 10px',
+          backgroundColor: theme.canvas.bg,
+          color: theme.canvas.text,
           border: '1px solid #979090',
           borderRadius: '4px',
-          cursor: disabled ? 'not-allowed' : 'pointer',
-          fontSize: '0.9rem',
-          fontFamily: "'EmOne', sans-serif",
-          color: disabled ? '#999' : '#260000',
+          cursor: 'pointer',
+          fontSize: '0.8rem',
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'space-between',
-          textAlign: 'left',
-          transition: 'all 0.2s ease'
+          gap: '8px',
+          minWidth: '180px'
         }}
         onMouseEnter={(e) => {
           if (!disabled) {
             e.currentTarget.style.backgroundColor = '#979090';
-            e.currentTarget.style.borderColor = '#260000';
-            e.currentTarget.style.color = '#260000';
           }
         }}
         onMouseLeave={(e) => {
           if (!disabled) {
-            e.currentTarget.style.backgroundColor = '#bdb5b5';
-            e.currentTarget.style.borderColor = '#979090';
-            e.currentTarget.style.color = '#260000';
+            e.currentTarget.style.backgroundColor = theme.canvas.bg;
           }
         }}
       >
@@ -90,7 +91,6 @@ const RepositoryDropdown = ({
           gap: '8px',
           overflow: 'hidden'
         }}>
-          <Github size={16} />
           <span style={{ 
             overflow: 'hidden',
             textOverflow: 'ellipsis',
@@ -114,16 +114,16 @@ const RepositoryDropdown = ({
         <div
           style={{
             position: 'absolute',
-            top: '100%',
+            top: 'calc(100% + 4px)',
             left: 0,
             right: 0,
-            backgroundColor: '#bdb5b5',
-            border: '1px solid #260000',
-            borderRadius: '4px',
-            boxShadow: '0 4px 12px rgba(0,0,0,0.2)',
+            backgroundColor: theme.canvas.bg,
+            border: `1px solid ${theme.canvas.text}`,
+            borderRadius: '6px',
+            boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
             zIndex: 1000,
-            marginTop: '2px',
-            overflow: 'hidden'
+            overflow: 'hidden',
+            minWidth: '200px'
           }}
         >
           {Array.isArray(repositories) && repositories.length > 0 ? (
@@ -131,26 +131,19 @@ const RepositoryDropdown = ({
               fontFamily: "'EmOne', sans-serif",
               minWidth: '300px'
             }}>
-              <div style={{ maxHeight: '200px', overflowY: 'auto', backgroundColor: '#bdb5b5' }}>
+              <div style={{ maxHeight: '200px', overflowY: 'auto', backgroundColor: theme.canvas.bg }}>
                 {repositories.map((repo) => (
                   <div
                     key={repo.id || repo.full_name || repo.name}
-                    onClick={() => handleSelect(repo)}
                     style={{
                       padding: '8px 12px',
                       borderBottom: '1px solid #979090',
                       cursor: 'pointer',
-                      color: '#260000',
                       transition: 'background-color 0.2s',
+                      backgroundColor: theme.canvas.bg
                     }}
-                    onMouseEnter={(e) => {
-                      e.currentTarget.style.backgroundColor = '#979090';
-                      e.currentTarget.style.color = '#260000';
-                    }}
-                    onMouseLeave={(e) => {
-                      e.currentTarget.style.backgroundColor = 'transparent';
-                      e.currentTarget.style.color = '#260000';
-                    }}
+                    onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#979090'}
+                    onMouseLeave={(e) => e.currentTarget.style.backgroundColor = theme.canvas.bg}
                   >
                     <div style={{ fontWeight: 500, fontSize: '0.85rem', marginBottom: '2px' }}>
                       {repo.full_name || repo.name}

@@ -3,6 +3,7 @@ import { useDrag, useDrop } from 'react-dnd';
 import { getEmptyImage } from 'react-dnd-html5-backend';
 import { XCircle } from 'lucide-react';
 import { PANEL_CLOSE_ICON_SIZE } from '../../constants';
+import { useTheme } from '../../hooks/useTheme.js';
 import { getTextColor, hexToHsl, hslToHex } from '../../utils/colorUtils';
 
 const ItemTypes = {
@@ -11,6 +12,7 @@ const ItemTypes = {
 
 const DraggableTab = ({ tab, index, displayTitle, dragItemTitle, moveTabAction, activateTabAction, closeTabAction, nodeColor }) => {
   const ref = useRef(null);
+  const theme = useTheme();
 
   const [, drop] = useDrop({
     accept: ItemTypes.TAB,
@@ -63,13 +65,13 @@ const DraggableTab = ({ tab, index, displayTitle, dragItemTitle, moveTabAction, 
 
   // Derive tab colors from the node's color
   const bg = useMemo(() => {
-    if (!nodeColor) return isActive ? '#bdb5b5' : '#979090';
+    if (!nodeColor) return isActive ? theme.canvas.bg : '#979090';
     const { h, s, l } = hexToHsl(nodeColor);
     // Active: use node color directly; inactive: desaturate to 35% and lighten
     return isActive
       ? nodeColor
       : hslToHex(h, Math.max(s * 0.35, 3), Math.min(l + 35, 85));
-  }, [nodeColor, isActive]);
+  }, [nodeColor, isActive, theme.canvas.bg]);
 
   const textColor = useMemo(() => {
     if (!nodeColor) return '#260000';

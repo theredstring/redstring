@@ -1,5 +1,6 @@
 import React from 'react';
 import { AlertCircle, Info, HelpCircle } from 'lucide-react';
+import { useTheme } from '../../hooks/useTheme.js';
 
 /**
  * A confirm dialog positioned absolutely in the canvas at specific coordinates
@@ -21,6 +22,7 @@ const CanvasConfirmDialog = ({
   panOffset = { x: 0, y: 0 },
   zoomLevel = 1
 }) => {
+  const theme = useTheme();
   if (!isOpen || !containerRect) return null;
 
   const icons = {
@@ -55,7 +57,7 @@ const CanvasConfirmDialog = ({
       ? (variant === 'danger' ? '#7A0000' : '#260000')
       : 'transparent',
     color: isPrimary 
-      ? '#bdb5b5'
+      ? theme.canvas.text
       : '#260000'
   });
 
@@ -99,7 +101,7 @@ const CanvasConfirmDialog = ({
           left: `${left}px`,
           top: `${top}px`,
           width: `${dialogWidth}px`,
-          backgroundColor: '#bdb5b5',
+          backgroundColor: theme.canvas.bg,
           border: '3px solid #260000',
           borderRadius: '12px',
           display: 'flex',

@@ -111,6 +111,7 @@ const STARTER_PACK = [
 
 // Left Semantic Discovery View - Concept Discovery Engine
 const LeftSemanticDiscoveryView = ({ storeActions, nodePrototypesMap, openRightPanelNodeTab, rightPanelTabs, activeDefinitionNodeId, selectedInstanceIds = new Set(), hydratedNodes = [], onLoadWikidataCatalog }) => {
+  const theme = useTheme();
   const [isSearching, setIsSearching] = useState(false);
   const [isFetchingDetails, setIsFetchingDetails] = useState(false);
   const [discoveredConcepts, setDiscoveredConcepts] = useState([]);

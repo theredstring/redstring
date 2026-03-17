@@ -38,6 +38,9 @@ const Header = ({
   // Connection names props
   showConnectionNames,
   onToggleShowConnectionNames,
+  // Dark mode props
+  darkMode,
+  onToggleDarkMode,
   // Connections menu props
   enableAutoRouting,
   routingStyle,
@@ -521,6 +524,8 @@ const Header = ({
           onToggleFullscreen={onToggleFullscreen}
           showConnectionNames={showConnectionNames}
           onToggleShowConnectionNames={onToggleShowConnectionNames}
+          darkMode={darkMode}
+          onToggleDarkMode={onToggleDarkMode}
           enableAutoRouting={enableAutoRouting}
           routingStyle={routingStyle}
           manhattanBends={manhattanBends}
@@ -611,6 +616,8 @@ const Header = ({
           onToggleFullscreen={onToggleFullscreen}
           showConnectionNames={showConnectionNames}
           onToggleShowConnectionNames={onToggleShowConnectionNames}
+          darkMode={darkMode}
+          onToggleDarkMode={onToggleDarkMode}
           enableAutoRouting={enableAutoRouting}
           routingStyle={routingStyle}
           manhattanBends={manhattanBends}

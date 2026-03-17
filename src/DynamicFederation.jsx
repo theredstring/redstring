@@ -29,9 +29,13 @@ import podDiscovery from './services/podDiscovery.js';
 import uriGenerator from './services/uriGenerator.js';
 import { importFromRedstring } from './formats/redstringFormat.js';
 import useGraphStore from "./store/graphStore.jsx";
+import { useTheme } from './hooks/useTheme.js';
+
 
 const DynamicFederation = () => {
+  const theme = useTheme();
   const [sessionInfo, setSessionInfo] = useState(solidAuth.getSessionInfo());
+
   const [podConfig, setPodConfig] = useState({
     issuer: '',
     domain: '',
@@ -294,8 +298,9 @@ const DynamicFederation = () => {
                 borderRadius: '4px',
                 fontSize: '0.9rem',
                 fontFamily: "'EmOne', sans-serif",
-                backgroundColor: '#bdb5b5',
-                color: '#260000'
+                backgroundColor: theme.canvas.bg,
+                color: theme.canvas.text
+
               }}
             />
           </div>
@@ -315,8 +320,9 @@ const DynamicFederation = () => {
                 borderRadius: '4px',
                 fontSize: '0.9rem',
                 fontFamily: "'EmOne', sans-serif",
-                backgroundColor: '#bdb5b5',
-                color: '#260000'
+                backgroundColor: theme.canvas.bg,
+                color: theme.canvas.text
+
               }}
             >
               <option value="dns">DNS Record</option>
@@ -348,7 +354,8 @@ const DynamicFederation = () => {
                   gap: '6px',
                   padding: '6px 12px',
                   backgroundColor: verifying ? '#ccc' : '#260000',
-                  color: '#bdb5b5',
+                  color: theme.canvas.bg,
+
                   border: 'none',
                   borderRadius: '4px',
                   cursor: verifying ? 'not-allowed' : 'pointer',
@@ -442,8 +449,9 @@ const DynamicFederation = () => {
                     borderRadius: '4px',
                     fontSize: '0.8rem',
                     fontFamily: "'EmOne', sans-serif",
-                    backgroundColor: '#bdb5b5',
-                    color: '#260000'
+                    backgroundColor: theme.canvas.bg,
+                    color: theme.canvas.text
+
                   }}
                 />
               </div>
@@ -480,8 +488,9 @@ const DynamicFederation = () => {
                   key={index}
                   style={{
                     padding: '10px',
-                    backgroundColor: '#bdb5b5',
+                    backgroundColor: theme.canvas.bg,
                     border: '1px solid #979090',
+
                     borderRadius: '6px',
                     fontSize: '0.8rem'
                   }}
@@ -504,7 +513,8 @@ const DynamicFederation = () => {
                         style={{
                           padding: '4px 8px',
                           backgroundColor: '#260000',
-                          color: '#bdb5b5',
+                          color: theme.canvas.bg,
+
                           border: 'none',
                           borderRadius: '3px',
                           cursor: 'pointer',
@@ -531,7 +541,8 @@ const DynamicFederation = () => {
             gap: '8px',
             padding: '10px 15px',
             backgroundColor: (podConfig.custom && !podConfig.verified) ? '#ccc' : '#260000',
-            color: '#bdb5b5',
+            color: theme.canvas.bg,
+
             border: 'none',
             borderRadius: '4px',
             cursor: (podConfig.custom && !podConfig.verified) ? 'not-allowed' : 'pointer',
@@ -589,8 +600,9 @@ const DynamicFederation = () => {
             alignItems: 'center',
             gap: '6px',
             padding: '6px 12px',
-            backgroundColor: '#bdb5b5',
+            backgroundColor: theme.canvas.bg,
             color: '#260000',
+
             border: '1px solid #979090',
             borderRadius: '4px',
             cursor: 'pointer',
@@ -621,8 +633,9 @@ const DynamicFederation = () => {
               borderRadius: '4px',
               fontSize: '0.8rem',
               fontFamily: "'EmOne', sans-serif",
-              backgroundColor: '#bdb5b5',
+              backgroundColor: theme.canvas.bg,
               color: '#260000'
+
             }}
           />
           <button
@@ -634,7 +647,8 @@ const DynamicFederation = () => {
               gap: '4px',
               padding: '6px 10px',
               backgroundColor: savingSpace ? '#ccc' : '#260000',
-              color: '#bdb5b5',
+              color: theme.canvas.bg,
+
               border: 'none',
               borderRadius: '4px',
               cursor: savingSpace ? 'not-allowed' : 'pointer',

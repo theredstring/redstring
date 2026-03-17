@@ -17,7 +17,9 @@ import {
   FileText
 } from 'lucide-react';
 import Modal from '../shared/Modal.jsx';
+import { useTheme } from '../../hooks/useTheme.js';
 import { persistentAuth } from '../../services/persistentAuth.js';
+
 import { universeManagerService } from '../../services/universeManagerService.js';
 
 const RepositorySelectionModal = ({
@@ -30,7 +32,9 @@ const RepositorySelectionModal = ({
   onImportDiscovered,
   onSyncDiscovered
 }) => {
+  const theme = useTheme();
   const [repositories, setRepositories] = useState([]);
+
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [searchQuery, setSearchQuery] = useState('');
@@ -400,10 +404,10 @@ const RepositorySelectionModal = ({
       <div style={{ display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0 }}>
       {/* Compact search */}
       <div style={{
-        padding: '12px',
-        borderBottom: '1px solid #979090',
-        backgroundColor: '#bdb5b5',
-        flexShrink: 0
+         padding: '12px',
+         borderBottom: '1px solid #979090',
+         backgroundColor: theme.canvas.bg,
+         flexShrink: 0
       }}>
         <div style={{ position: 'relative', marginBottom: '10px' }}>
           <Search
@@ -450,12 +454,12 @@ const RepositorySelectionModal = ({
             ].map(({ key, label }) => (
               <button
                 key={key}
-                onClick={() => handleSort(key)}
-                style={{
-                  background: sortBy === key ? '#260000' : 'none',
-                  color: sortBy === key ? '#bdb5b5' : '#666',
-                  border: '1px solid #260000',
-                  padding: '2px 6px',
+                 onClick={() => handleSort(key)}
+                 style={{
+                   background: sortBy === key ? theme.canvas.text : 'none',
+                   color: sortBy === key ? theme.canvas.bg : '#666',
+                   border: `1px solid ${theme.canvas.text}`,
+                   padding: '2px 6px',
                   borderRadius: '3px',
                   cursor: 'pointer',
                   fontSize: '0.7rem',
@@ -493,10 +497,10 @@ const RepositorySelectionModal = ({
                 setCreateRepoError(null);
               }}
               style={{
-                background: '#7A0000',
-                border: '1px solid #7A0000',
-                color: '#bdb5b5',
-                padding: '4px 8px',
+                 background: '#7A0000',
+                 border: '1px solid #7A0000',
+                 color: theme.canvas.bg,
+                 padding: '4px 8px',
                 borderRadius: '4px',
                 cursor: 'pointer',
                 fontSize: '0.7rem',
@@ -535,10 +539,10 @@ const RepositorySelectionModal = ({
                 style={{
                   padding: '6px 8px',
                   border: '1px solid #979090',
-                  borderRadius: '4px',
-                  fontSize: '0.75rem',
-                  backgroundColor: '#bdb5b5',
-                  color: '#260000'
+                   borderRadius: '4px',
+                   fontSize: '0.75rem',
+                   backgroundColor: theme.canvas.bg,
+                   color: '#260000'
                 }}
               />
             </div>
@@ -571,14 +575,14 @@ const RepositorySelectionModal = ({
             )}
 
             <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px' }}>
-              <button
-                onClick={handleCreateRepository}
-                disabled={creatingRepo || !newRepoName.trim()}
-                style={{
-                  background: '#7A0000',
-                  color: '#bdb5b5',
-                  border: '1px solid #7A0000',
-                  padding: '6px 12px',
+               <button
+                 onClick={handleCreateRepository}
+                 disabled={creatingRepo || !newRepoName.trim()}
+                 style={{
+                   background: '#7A0000',
+                   color: theme.canvas.bg,
+                   border: '1px solid #7A0000',
+                   padding: '6px 12px',
                   borderRadius: '4px',
                   fontSize: '0.75rem',
                   fontWeight: 600,
@@ -665,10 +669,10 @@ const RepositorySelectionModal = ({
             return (
             <div
               key={repo.id}
-              style={{
-                borderBottom: '1px solid #979090',
-                backgroundColor: '#bdb5b5'
-              }}
+               style={{
+                 borderBottom: '1px solid #979090',
+                 backgroundColor: theme.canvas.bg
+               }}
             >
               {/* Main repository row */}
               <div
@@ -774,18 +778,17 @@ const RepositorySelectionModal = ({
                     </a>
                   )}
 
-                  {isAlreadyManaged(repo) && onSelectRepository && (
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        onSelectRepository(repo);
-                      }}
-                      style={{
-                        background: '#260000',
-                        border: 'none',
-                        color: '#bdb5b5',
-                        cursor: 'pointer',
-                        padding: '4px 8px',
+                  {isAlreadyManaged(repo) && onSelectRepository &&                       <button
+                         onClick={(e) => {
+                           e.stopPropagation();
+                           onSelectRepository(repo);
+                         }}
+                         style={{
+                           background: theme.canvas.text,
+                           border: 'none',
+                           color: theme.canvas.bg,
+                           cursor: 'pointer',
+                           padding: '4px 8px',
                         borderRadius: '4px',
                         fontSize: '0.7rem',
                         fontWeight: 600,

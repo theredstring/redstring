@@ -1,13 +1,14 @@
-import React, { useState, useEffect, useRef } from 'react';
 import { Plus, ChevronDown, Github, Upload, Download, X, Edit, Star, Save, Activity, Link, FileText, ArrowRightLeft, FolderOpen, Folder } from 'lucide-react';
+import { useTheme } from '../../hooks/useTheme.js';
+
 import SectionCard from './shared/SectionCard.jsx';
 import PanelIconButton from '../shared/PanelIconButton.jsx';
 
-function buttonStyle(variant = 'outline') {
+function buttonStyle(theme, variant = 'outline') {
   const base = {
-    border: '1px solid #260000',
+    border: `1px solid ${theme.canvas.text}`,
     backgroundColor: 'transparent',
-    color: '#260000',
+    color: theme.canvas.text,
     padding: '6px 12px',
     borderRadius: 6,
     cursor: 'pointer',
@@ -23,7 +24,7 @@ function buttonStyle(variant = 'outline') {
 
   switch (variant) {
     case 'solid':
-      return { ...base, backgroundColor: '#260000', color: '#fefefe' };
+      return { ...base, backgroundColor: theme.canvas.text, color: theme.canvas.bg };
     case 'danger':
       return { ...base, borderColor: '#c62828', color: '#c62828' };
     case 'disabled':
@@ -32,6 +33,7 @@ function buttonStyle(variant = 'outline') {
       return base;
   }
 }
+
 
 function formatWhen(timestamp) {
   if (!timestamp) return 'Never';
@@ -82,7 +84,9 @@ const UniversesList = ({
   onSwapLocalFile,
   isSlim = false
 }) => {
+  const theme = useTheme();
   // No collapsing - active universe is always expanded, others show compact view
+
   const [showLoadMenu, setShowLoadMenu] = useState(false);
   const [showNewMenu, setShowNewMenu] = useState(false);
   const [showLocalFileMenu, setShowLocalFileMenu] = useState(null); // Track which universe's menu is open
@@ -227,9 +231,11 @@ const UniversesList = ({
             <div ref={loadMenuRef} style={{ position: 'relative' }}>
               <button
                 onClick={() => setShowLoadMenu(!showLoadMenu)}
-                style={buttonStyle('outline')}
+                onClick={() => setShowLoadMenu(!showLoadMenu)}
+                style={buttonStyle(theme, 'outline')}
               >
                 <Download size={14} /> Load <ChevronDown size={12} />
+
               </button>
               {showLoadMenu && (
                 <div style={{
@@ -292,9 +298,10 @@ const UniversesList = ({
             <div ref={newMenuRef} style={{ position: 'relative' }}>
               <button
                 onClick={() => setShowNewMenu(!showNewMenu)}
-                style={{ ...buttonStyle('solid'), color: '#bdb5b5' }}
+                style={{ ...buttonStyle(theme, 'solid') }}
               >
                 <Plus size={14} /> New <ChevronDown size={12} />
+
               </button>
               {showNewMenu && (
                 <div style={{
@@ -460,10 +467,11 @@ const UniversesList = ({
                 <div
                   key={universe.slug}
                   style={{
-                    border: isActive ? '2px solid #7A0000' : '1px solid #260000',
+                    border: isActive ? '2px solid #7A0000' : `1px solid ${theme.canvas.text}`, // Changed #260000 to theme.canvas.text
                     borderRadius: 2,
-                    backgroundColor: '#bdb5b5',
+                    backgroundColor: theme.canvas.bg,
                     padding: 12,
+
                     display: 'flex',
                     flexDirection: 'column',
                     gap: 10
@@ -548,9 +556,10 @@ const UniversesList = ({
                             <div
                               style={{
                                 padding: 8,
-                                backgroundColor: '#cfc6c6',
+                                backgroundColor: theme.canvas.bg,
                                 borderRadius: 6,
                                 border: `2px solid ${resolvedSource === 'git' ? '#7A0000' : '#979090'}`,
+
                                 display: 'flex',
                                 flexDirection: 'column',
                                 gap: 6,
@@ -679,12 +688,12 @@ const UniversesList = ({
                                         gap: 4,
                                         border: '1px solid #7A0000',
                                         backgroundColor: isSourceOfTruth ? '#7A0000' : 'transparent',
-                                        color: isSourceOfTruth ? '#bdb5b5' : '#7A0000',
+                                        color: isSourceOfTruth ? theme.canvas.bg : '#7A0000', // Changed #bdb5b5 to theme.canvas.bg
                                         opacity: canToggle ? 1 : 0.85
                                       }}
                                       title={!canToggle ? 'Only storage option (must remain source of truth)' : isSourceOfTruth ? 'Currently source of truth' : 'Click to make source of truth'}
                                     >
-                                      <Star size={10} fill={isSourceOfTruth ? '#bdb5b5' : 'none'} />
+                                      <Star size={10} fill={isSourceOfTruth ? theme.canvas.bg : 'none'} /> {/* Changed #bdb5b5 to theme.canvas.bg */}
                                       {isSourceOfTruth ? 'Source of Truth' : 'Not Source of Truth'}
                                     </button>
                                   );
@@ -696,7 +705,7 @@ const UniversesList = ({
                                       onSaveRepoSource(universe.slug);
                                     }}
                                     style={{
-                                      ...buttonStyle('outline'),
+                                      ...buttonStyle(theme, 'outline'), // Added theme variable
                                       fontSize: '0.65rem',
                                       padding: '2px 6px',
                                       color: '#7A0000',
@@ -723,7 +732,7 @@ const UniversesList = ({
                               <button
                                 onClick={() => onLinkRepo && onLinkRepo(universe.slug)}
                                 style={{
-                                  ...buttonStyle('outline'),
+                                  ...buttonStyle(theme, 'outline'), // Added theme variable
                                   fontSize: '0.7rem',
                                   color: '#666',
                                   borderColor: '#979090'
@@ -740,7 +749,7 @@ const UniversesList = ({
                             <div
                               style={{
                                 padding: 8,
-                                backgroundColor: '#cfc6c6',
+                                backgroundColor: theme.canvas.bg,
                                 borderRadius: 6,
                                 border: `2px solid ${resolvedSource === 'local' ? '#7A0000' : '#979090'}`,
                                 display: 'flex',
@@ -860,7 +869,7 @@ const UniversesList = ({
                                               }
                                             }}
                                             style={{
-                                              ...buttonStyle('solid'),
+                                              ...buttonStyle(theme, 'solid'), // Added theme variable
                                               fontSize: '0.65rem',
                                               padding: '4px 8px',
                                               backgroundColor: '#f57c00',
@@ -899,7 +908,7 @@ const UniversesList = ({
                                               onLinkLocalFile(universe.slug);
                                             }}
                                             style={{
-                                              ...buttonStyle('outline'),
+                                              ...buttonStyle(theme, 'outline'), // Added theme variable
                                               fontSize: '0.62rem',
                                               padding: '2px 6px',
                                               borderColor: '#7A0000',
@@ -938,7 +947,7 @@ const UniversesList = ({
                                               onGrantLocalPermission(universe.slug);
                                             }}
                                             style={{
-                                              ...buttonStyle('outline'),
+                                              ...buttonStyle(theme, 'outline'), // Added theme variable
                                               fontSize: '0.62rem',
                                               padding: '2px 6px',
                                               borderColor: '#b85e00',
@@ -976,12 +985,12 @@ const UniversesList = ({
                                               gap: 4,
                                               border: '1px solid #7A0000',
                                               backgroundColor: isSourceOfTruth ? '#7A0000' : 'transparent',
-                                              color: isSourceOfTruth ? '#bdb5b5' : '#7A0000',
+                                              color: isSourceOfTruth ? theme.canvas.bg : '#7A0000', // Changed #bdb5b5 to theme.canvas.bg
                                               opacity: canToggle ? 1 : 0.85
                                             }}
                                             title={!canToggle ? 'Only storage option (must remain source of truth)' : isSourceOfTruth ? 'Currently source of truth' : 'Click to make source of truth'}
                                           >
-                                            <Star size={10} fill={isSourceOfTruth ? '#bdb5b5' : 'none'} />
+                                            <Star size={10} fill={isSourceOfTruth ? theme.canvas.bg : 'none'} /> {/* Changed #bdb5b5 to theme.canvas.bg */}
                                             {isSourceOfTruth ? 'Source of Truth' : 'Not Source of Truth'}
                                           </button>
                                         );
@@ -1025,7 +1034,9 @@ const UniversesList = ({
                                   top: '100%',
                                   left: 0,
                                   marginTop: 4,
-                                  backgroundColor: '#bdb5b5',
+                                  backgroundColor: theme.canvas.bg,
+                                  borderRadius: 6,
+
                                   border: '1px solid #260000',
                                   borderRadius: 6,
                                   boxShadow: '0 4px 12px rgba(0,0,0,0.15)',

@@ -1,6 +1,7 @@
 import React, { useEffect, useRef } from 'react';
 import { useViewportBounds } from '../hooks/useViewportBounds';
 import useGraphStore from '../store/graphStore.jsx';
+import { useTheme } from '../hooks/useTheme.js';
 
 /**
  * Canvas Modal Component
@@ -21,6 +22,7 @@ const CanvasModal = ({
   fullScreenOverlay = false // Cover entire viewport including panels
 }) => {
   const modalRef = useRef(null);
+  const theme = useTheme();
   const { leftPanelExpanded, rightPanelExpanded, typeListMode } = useGraphStore();
 
   // Get viewport bounds for positioning
@@ -148,7 +150,7 @@ const CanvasModal = ({
           height: appliedHeight === null ? 'auto' : `${appliedHeight}px`,
           maxWidth: `${maxWidth}px`,
           maxHeight: `${maxHeight}px`,
-          backgroundColor: '#bdb5b5', // Canvas color
+          backgroundColor: theme.canvas.bg,
           borderRadius: '12px',
           boxShadow: '0 8px 32px rgba(0, 0, 0, 0.3)',
           zIndex: fullScreenOverlay ? 20001 : 9999, // Higher z-index for full screen
@@ -163,7 +165,7 @@ const CanvasModal = ({
           <div
             style={{
               backgroundColor: '#260000',
-              color: '#bdb5b5',
+              color: theme.canvas.text,
               padding: '12px 16px',
               borderBottom: '2px solid #8B0000',
               display: 'flex',
@@ -184,7 +186,7 @@ const CanvasModal = ({
               style={{
                 background: 'none',
                 border: 'none',
-                color: '#bdb5b5',
+                color: theme.canvas.text,
                 cursor: 'pointer',
                 padding: '4px',
                 borderRadius: '4px',

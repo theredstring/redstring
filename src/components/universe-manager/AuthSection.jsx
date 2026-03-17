@@ -1,5 +1,7 @@
 import React from 'react';
-import { Settings, Shield, Github } from 'lucide-react';
+import { Settings, Shield, Github, LogOut, CheckCircle, AlertCircle, Loader2 } from 'lucide-react';
+import { useTheme } from '../../hooks/useTheme.js';
+import SectionCard from './shared/SectionCard.jsx';
 
 const STATUS_COLORS = {
   success: '#2e7d32',
@@ -47,9 +49,13 @@ const AuthSection = ({
   onGitHubAuth,
   onGitHubApp,
   activeUniverse,
+  onLogout,
+  requiresLogin = false,
   syncStatus,
   isSlim = false
 }) => {
+  const theme = useTheme();
+  // If not logged in and not loading
   return (
     <div
       data-auth-section="true"

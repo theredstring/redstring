@@ -18,8 +18,9 @@ import {
   XCircle,
   CheckCircle
 } from 'lucide-react';
-
+import { useTheme } from '../hooks/useTheme.js';
 import universeBackendBridge from '../services/universeBackendBridge.js';
+
 import RepositoryDropdown from './repositories/RepositoryDropdown.jsx';
 import { persistentAuth } from '../services/persistentAuth.js';
 import { formatUniverseNameFromRepo, buildUniqueUniverseName } from '../utils/universeNaming.js';
@@ -49,8 +50,10 @@ const UniverseManagementPanel = ({
   className = '',
   style = {}
 }) => {
+  const theme = useTheme();
   // State
   const [universes, setUniverses] = useState([]);
+
   const [activeUniverseSlug, setActiveUniverseSlug] = useState(null);
   const [syncStatus, setSyncStatus] = useState(null);
   const [isLoading, setIsLoading] = useState(false);
@@ -606,7 +609,7 @@ const UniverseManagementPanel = ({
         alignItems: 'center',
         gap: '12px',
         padding: '12px',
-        backgroundColor: '#bdb5b5',
+        backgroundColor: theme.canvas.bg,
         border: '2px dashed #979090',
         borderRadius: '6px',
         cursor: 'pointer',
@@ -620,7 +623,7 @@ const UniverseManagementPanel = ({
         e.currentTarget.style.borderStyle = 'solid';
       }}
       onMouseLeave={(e) => {
-        e.currentTarget.style.backgroundColor = '#bdb5b5';
+        e.currentTarget.style.backgroundColor = theme.canvas.bg;
         e.currentTarget.style.borderColor = '#979090';
         e.currentTarget.style.borderStyle = 'dashed';
       }}
@@ -635,8 +638,8 @@ const UniverseManagementPanel = ({
       <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
         {universeCards.map(({ universe, displayName }) => (
           <div key={universe.slug} style={{
-            background: '#bdb5b5',
-            border: universe.slug === activeUniverseSlug ? '2px solid #7A0000' : '1px solid #260000',
+            background: theme.canvas.bg,
+            border: universe.slug === activeUniverseSlug ? '2px solid #7A0000' : `1px solid ${theme.canvas.text}`,
             borderRadius: '6px',
             padding: '10px'
           }}>
@@ -776,8 +779,8 @@ const UniverseManagementPanel = ({
                             }}
                             style={{
                               padding: '4px 8px',
-                              backgroundColor: '#260000',
-                              color: '#bdb5b5',
+                              backgroundColor: theme.canvas.text,
+                              color: theme.canvas.bg,
                               border: 'none',
                               borderRadius: '4px',
                               fontSize: '0.7rem',

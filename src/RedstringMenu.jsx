@@ -21,6 +21,8 @@ const RedstringMenu = ({
   onToggleFullscreen,
   showConnectionNames,
   onToggleShowConnectionNames,
+  darkMode,
+  onToggleDarkMode,
   // Connections visualization controls
   enableAutoRouting,
   routingStyle,
@@ -508,10 +510,10 @@ const RedstringMenu = ({
                         <div
                           className="submenu-item"
                           onMouseEnter={handleRegularSubmenuItemHover}
-                          onClick={() => useGraphStore.getState().toggleDarkMode?.()}
+                          onClick={() => onToggleDarkMode?.()}
                           style={{ cursor: 'pointer' }}
                         >
-                          {useGraphStore.getState().darkMode ? 'Dark Mode: On' : 'Dark Mode: Off'}
+                          {darkMode ? 'Dark Mode: On' : 'Dark Mode: Off'}
                         </div>
                         <div
                           className="submenu-item"

@@ -5,6 +5,7 @@ import { rdfResolver } from '../services/rdfResolver.js';
 import { enrichFromSemanticWeb, fastEnrichFromSemanticWeb } from '../services/semanticWebQuery.js';
 import { knowledgeFederation } from '../services/knowledgeFederation.js';
 import { getTextColor } from '../utils/colorUtils.js';
+import { useTheme } from '../hooks/useTheme.js';
 import useGraphStore from '../store/graphStore.jsx';
 
 // DOI validation regex
@@ -30,7 +31,7 @@ const extractDOI = (input) => {
   if (doiUrlMatch) return doiUrlMatch[1];
 
   // PubMed URL with DOI
-  const pubmedMatch = input.match(/pubmed\.ncbi\.nlm\.nih\.gov\/(\d+)/);
+  const pubmedMatch = input.match(/pubmed\.ncbi\.nlm.nih.gov\/(\d+)/);
   if (pubmedMatch) return `pubmed:${pubmedMatch[1]}`;
 
   return null;

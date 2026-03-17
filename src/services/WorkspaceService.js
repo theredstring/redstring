@@ -143,11 +143,33 @@ class WorkspaceService {
 
     /**
      * Set an existing file as the active universe.
-     * @param {string} filename 
+     * @param {string} filename
      */
     async setActiveUniverse(filename) {
         this.config.activeUniverse = filename;
         this.config.lastOpened = Date.now();
+        await this.saveConfig();
+    }
+
+    /**
+     * Get UI settings from config (or return defaults)
+     * @returns {{ darkMode: boolean }}
+     */
+    getUISettings() {
+        return {
+            darkMode: this.config.uiSettings?.darkMode ?? false,
+        };
+    }
+
+    /**
+     * Update UI settings in config
+     * @param {{ darkMode?: boolean }} settings
+     */
+    async setUISettings(settings) {
+        if (!this.config.uiSettings) {
+            this.config.uiSettings = {};
+        }
+        Object.assign(this.config.uiSettings, settings);
         await this.saveConfig();
     }
 

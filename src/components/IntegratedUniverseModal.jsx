@@ -5,11 +5,13 @@
 import React from 'react';
 import { X } from 'lucide-react';
 import UniverseManager from '../UniverseManager.jsx';
+import { useTheme } from '../hooks/useTheme.js';
 
 const IntegratedUniverseModal = ({ 
   isOpen = false, 
   onClose = () => {}
 }) => {
+  const theme = useTheme();
   if (!isOpen) return null;
 
   return (
@@ -29,7 +31,7 @@ const IntegratedUniverseModal = ({
         style={{
           width: 'min(95vw, 800px)',
           height: 'min(95vh, 700px)',
-          backgroundColor: '#bdb5b5',
+          backgroundColor: theme.canvas.bg,
           border: '2px solid #260000',
           borderRadius: '12px',
           display: 'flex',

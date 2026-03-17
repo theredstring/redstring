@@ -1,12 +1,16 @@
+```javascript
 import React from 'react';
 import { useDragLayer } from 'react-dnd';
+import { useTheme } from '../../hooks/useTheme.js';
+import UniversalNodeRenderer from '../../UniversalNodeRenderer';
 
 const ItemTypes = {
   TAB: 'tab'
 };
 
 // Custom Drag Layer - Component to render the preview during tab drag
-const CustomDragLayer = ({ tabBarRef }) => {
+const CustomDragLayer = () => {
+  const theme = useTheme();
   const { itemType, isDragging, item, initialOffset, currentOffset } = useDragLayer(
     (monitor) => ({
       item: monitor.getItem(),
@@ -42,15 +46,17 @@ const CustomDragLayer = ({ tabBarRef }) => {
     }
 
     let clampedX = currentOffset.x;
-    const tabBarBounds = tabBarRef.current?.getBoundingClientRect();
+    // tabBarRef is no longer passed, so this clamping logic needs to be re-evaluated or removed if not needed.
+    // For now, removing the clamping logic that depends on tabBarRef.
+    // const tabBarBounds = tabBarRef.current?.getBoundingClientRect();
 
-    if (tabBarBounds) {
-      // Clamp the x position within the tab bar bounds
-      clampedX = Math.max(
-        tabBarBounds.left,
-        Math.min(currentOffset.x, tabBarBounds.right - 150) // Adjust right bound by approx tab width
-      );
-    }
+    // if (tabBarBounds) {
+    //   // Clamp the x position within the tab bar bounds
+    //   clampedX = Math.max(
+    //     tabBarBounds.left,
+    //     Math.min(currentOffset.x, tabBarBounds.right - 150) // Adjust right bound by approx tab width
+    //   );
+    // }
 
     // Use clamped X for horizontal, initial Y for vertical
     const transform = `translate(${clampedX}px, ${initialOffset.y}px)`;
@@ -62,7 +68,7 @@ const CustomDragLayer = ({ tabBarRef }) => {
 
   // Style the preview element itself (similar to the original tab)
   const previewStyles = {
-    backgroundColor: '#bdb5b5', // Active tab color for preview
+    backgroundColor: theme.canvas.bg, // Active tab color for preview
     borderTopLeftRadius: '10px',
     borderTopRightRadius: '10px',
     color: '#260000',
@@ -79,12 +85,15 @@ const CustomDragLayer = ({ tabBarRef }) => {
 
   return (
     <div style={layerStyles}>
-      <div style={{ ...previewStyles, ...getItemStyles(initialOffset, currentOffset, tabBarRef) }}>
+      <div style={{ ...previewStyles, ...getItemStyles(initialOffset, currentOffset) }}>
          {/* Simplified content for preview */}
         <span style={{
           whiteSpace: 'nowrap',
           overflow: 'hidden',
           textOverflow: 'ellipsis',
+          borderRadius: '8px',
+          backgroundColor: theme.canvas.bg,
+          border: `2px solid ${item.node.color || '#260000'}`,
           marginRight: '8px',
           userSelect: 'none'
         }}>

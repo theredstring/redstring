@@ -5,8 +5,10 @@
  */
 
 import React, { useState, useEffect } from 'react';
-import { Users, Plus, Settings, RefreshCw, ChevronDown, Github } from 'lucide-react';
+import { Users, Plus, Settings, RefreshCw, MoreVertical } from 'lucide-react';
 import RepositoryList from './RepositoryList.jsx';
+import { useTheme } from '../../hooks/useTheme.js';
+import { universeManagerService } from '../../services/universeManagerService.js';
 import { oauthFetch } from '../../services/bridgeConfig.js';
 import { persistentAuth } from '../../services/persistentAuth.js';
 
@@ -16,8 +18,10 @@ const RepositoryManager = ({
   showCreateOption = true,
   dropdownMode = false, // New prop for dropdown mode
   onAddToList, // NEW: Function to add repo to managed list
-  managedRepositories = [] // NEW: Array of already-managed repos
+  managedRepositories = [], // NEW: Array of already-managed repos
+  onSelectionChange
 }) => {
+  const theme = useTheme();
   const [repositories, setRepositories] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
@@ -215,7 +219,7 @@ const RepositoryManager = ({
           fontSize: '0.8rem',
           fontFamily: "'EmOne', sans-serif"
         }}>
-          <Github size={16} color="#666" style={{ marginBottom: '8px' }} />
+          <MoreVertical size={16} color="#666" style={{ marginBottom: '8px' }} />
           <div>Please sign in with GitHub first</div>
         </div>
       );
@@ -248,7 +252,7 @@ const RepositoryManager = ({
         <div style={{ 
           padding: '12px',
           borderBottom: '1px solid #260000',
-          backgroundColor: '#979090'
+          backgroundColor: theme.canvas.bg
         }}>
           <div style={{ 
             display: 'flex', 
@@ -288,7 +292,7 @@ const RepositoryManager = ({
               alignItems: 'center',
               gap: '4px'
             }}>
-              <Github size={12} />
+              <MoreVertical size={12} />
               @{authStatus.userData.login}
             </div>
           )}
@@ -298,7 +302,7 @@ const RepositoryManager = ({
         <div style={{ 
           maxHeight: '200px',
           overflowY: 'auto',
-          backgroundColor: '#bdb5b5'
+          backgroundColor: theme.canvas.bg
         }}>
           {error && (
             <div style={{ 
@@ -372,7 +376,7 @@ const RepositoryManager = ({
                     fontWeight: '500',
                     fontSize: '0.85rem'
                   }}
-                  onMouseEnter={(e) => e.target.style.backgroundColor = '#bdb5b5'}
+                  onMouseEnter={(e) => e.target.style.backgroundColor = theme.canvas.bg}
                   onMouseLeave={(e) => e.target.style.backgroundColor = '#979090'}
                 >
                   <Plus size={14} />
@@ -394,7 +398,7 @@ const RepositoryManager = ({
                   style={{
                     padding: '6px 12px',
                     backgroundColor: '#260000',
-                    color: '#bdb5b5',
+                    color: theme.canvas.bg,
                     border: 'none',
                     borderRadius: '3px',
                     cursor: 'pointer',
@@ -427,7 +431,7 @@ const RepositoryManager = ({
       {/* Header with refresh button */}
       <div style={{ 
         padding: '8px 16px',
-        backgroundColor: '#bdb5b5',
+        backgroundColor: theme.canvas.bg,
         borderBottom: '1px solid #979090',
         display: 'flex',
         alignItems: 'center',

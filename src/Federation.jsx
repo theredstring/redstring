@@ -9,9 +9,13 @@ import solidAuth from './services/solidAuth.js';
 import solidData from './services/solidData.js';
 import { importFromRedstring } from './formats/redstringFormat.js';
 import useGraphStore from "./store/graphStore.jsx";
+import { useTheme } from './hooks/useTheme.js';
+
 
 const Federation = () => {
+  const theme = useTheme();
   const [sessionInfo, setSessionInfo] = useState(solidAuth.getSessionInfo());
+
   const [loginIssuer, setLoginIssuer] = useState('https://login.inrupt.com');
   const [cognitiveSpaces, setCognitiveSpaces] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -179,8 +183,8 @@ const Federation = () => {
             alignItems: 'center',
             gap: '8px',
             padding: '10px 15px',
-            backgroundColor: '#260000',
-            color: '#bdb5b5',
+            backgroundColor: theme.canvas.text,
+            color: theme.canvas.bg,
             border: 'none',
             borderRadius: '4px',
             cursor: 'pointer',
@@ -233,8 +237,8 @@ const Federation = () => {
             alignItems: 'center',
             gap: '6px',
             padding: '6px 12px',
-            backgroundColor: '#bdb5b5',
-            color: '#260000',
+            backgroundColor: theme.canvas.bg,
+            color: theme.canvas.text,
             border: '1px solid #979090',
             borderRadius: '4px',
             cursor: 'pointer',
@@ -265,8 +269,8 @@ const Federation = () => {
               borderRadius: '4px',
               fontSize: '0.8rem',
               fontFamily: "'EmOne', sans-serif",
-              backgroundColor: '#bdb5b5',
-              color: '#260000'
+              backgroundColor: theme.canvas.bg,
+              color: theme.canvas.text
             }}
           />
           <button
@@ -277,8 +281,8 @@ const Federation = () => {
               alignItems: 'center',
               gap: '4px',
               padding: '6px 10px',
-              backgroundColor: savingSpace ? '#ccc' : '#260000',
-              color: '#bdb5b5',
+              backgroundColor: savingSpace ? '#ccc' : theme.canvas.text,
+              color: theme.canvas.bg,
               border: 'none',
               borderRadius: '4px',
               cursor: savingSpace ? 'not-allowed' : 'pointer',
@@ -340,7 +344,7 @@ const Federation = () => {
                 style={{
                   padding: '12px',
                   backgroundColor: '#979090',
-                  border: '1px solid #260000',
+                  border: `1px solid ${theme.canvas.text}`,
                   borderRadius: '6px',
                   cursor: 'pointer'
                 }}
@@ -350,7 +354,7 @@ const Federation = () => {
                     onClick={() => handleLoadSpace(space.spaceUrl)}
                     style={{ flex: 1, cursor: 'pointer' }}
                   >
-                    <div style={{ color: '#260000', fontWeight: 'bold', fontSize: '0.9rem', marginBottom: '4px' }}>
+                    <div style={{ color: theme.canvas.text, fontWeight: 'bold', fontSize: '0.9rem', marginBottom: '4px' }}>
                       {space.title}
                     </div>
                     {space.description && (

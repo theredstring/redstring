@@ -1,5 +1,6 @@
 import React from 'react';
 import { Github } from 'lucide-react';
+import { useTheme } from '../../hooks/useTheme.js';
 import SectionCard from './shared/SectionCard.jsx';
 
 function buttonStyle(variant = 'outline') {
@@ -41,6 +42,7 @@ const SourcesSection = ({
   onDetach,
   onLinkDiscovered
 }) => {
+  const theme = useTheme();
   const githubSources = sources.filter((src) => src.type === 'github');
 
   if (githubSources.length === 0) {
@@ -51,7 +53,7 @@ const SourcesSection = ({
             padding: 12,
             border: '1px dashed #979090',
             borderRadius: 6,
-            backgroundColor: '#bdb5b5',
+            backgroundColor: theme.canvas.bg,
             color: '#555',
             fontSize: '0.8rem'
           }}
@@ -63,8 +65,8 @@ const SourcesSection = ({
   }
 
   return (
-    <SectionCard 
-      title="External Sources" 
+    <SectionCard
+      title="External Sources"
       subtitle={`${githubSources.length} external ${githubSources.length === 1 ? 'repository' : 'repositories'} linked`}
     >
       <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
@@ -79,7 +81,7 @@ const SourcesSection = ({
                 border: '1px solid #260000',
                 borderRadius: 8,
                 padding: 12,
-                backgroundColor: '#bdb5b5',
+                backgroundColor: theme.canvas.bg,
                 display: 'flex',
                 flexDirection: 'column',
                 gap: 8
@@ -96,14 +98,14 @@ const SourcesSection = ({
                   </div>
                 </div>
                 <div style={{ display: 'flex', gap: 6 }}>
-                  <button 
+                  <button
                     onClick={() => onDiscover(source)}
                     style={buttonStyle(discovery.loading ? 'disabled' : 'outline')}
                     disabled={discovery.loading}
                   >
                     {discovery.loading ? 'Scanning…' : 'Discover universes'}
                   </button>
-                  <button 
+                  <button
                     onClick={() => onDetach(source)}
                     style={buttonStyle('danger')}
                   >

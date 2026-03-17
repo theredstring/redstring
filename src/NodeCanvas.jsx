@@ -80,7 +80,9 @@ import {
   SMOOTH_MOUSE_WHEEL_ZOOM_SENSITIVITY,
   NODE_DEFAULT_COLOR,
   CONNECTION_DEFAULT_COLOR,
-  MODAL_CLOSE_ICON_SIZE
+  MODAL_CLOSE_ICON_SIZE,
+  DARK_MODE_BG_COLOR,
+  LIGHT_MODE_BG_COLOR
 } from './constants';
 
 import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts';
@@ -89,6 +91,7 @@ import { useNodeActions } from './hooks/useNodeActions';
 import { useControlPanelActions } from './hooks/useControlPanelActions';
 import { useGraphLayout } from './hooks/useGraphLayout';
 import { useCanvasKeyboard } from './hooks/useCanvasKeyboard';
+import { useTheme } from './hooks/useTheme.js';
 import { interpolateColor } from './utils/canvas/colorUtils.js';
 import { getPortPosition, calculateStaggeredPosition } from './utils/canvas/portPositioning.js';
 import { computeCleanPolylineFromPorts, generateManhattanRoutingPath, generateCleanRoutingPath } from './utils/canvas/edgeRouting.js';
@@ -139,6 +142,9 @@ const DRAG_ZOOM_ANIMATION_DURATION = 250;     // ms (slightly increased for smoo
 function NodeCanvas() {
   // CULLING DISABLE FLAG - Set to true to enable culling, false to disable
   const ENABLE_CULLING = false;
+
+  // Get theme colors
+  const theme = useTheme();
 
   const svgRef = useRef(null);
   const wrapperRef = useRef(null);
@@ -538,6 +544,7 @@ function NodeCanvas() {
   const imageCacheMap = useImageCache(state => state.images);
   const edgePrototypesMap = useGraphStore(state => state.edgePrototypes);
   const showConnectionNames = useGraphStore(state => state.showConnectionNames);
+  const darkMode = useGraphStore(state => state.darkMode);
   const gridMode = useGraphStore(state => state.gridSettings?.mode || 'off');
   const gridSize = useGraphStore(state => state.gridSettings?.size || 200);
   const dragZoomSettings = useGraphStore(state => state.dragZoomSettings || { enabled: true, zoomAmount: 0.35 });
@@ -1032,6 +1039,8 @@ function NodeCanvas() {
           // 4a. If valid config exists, set state directly (loading happens via store action if needed)
           console.log('[NodeCanvas] Workspace ready. Active universe:', result.activeUniverse);
           storeActions.setStorageMode('folder');
+          // Load UI settings from workspace config
+          await storeActions.loadUISettingsFromWorkspace?.(workspaceService);
           // We can set universe loaded here if we want to skip loading screen immediately,
           // but usually we want to trigger a load. 
           // For now, let's assume the service/store handles the actual file read if implemented,
@@ -6419,7 +6428,7 @@ function NodeCanvas() {
             top: HEADER_HEIGHT + 25,
             left: '50%',
             transform: 'translateX(-50%)',
-            backgroundColor: '#bdb5b5',
+            backgroundColor: theme.canvas.bg,
             padding: '20px',
             borderRadius: '10px',
             boxShadow: '0 2px 10px rgba(0,0,0,0.2)',
@@ -6511,7 +6520,7 @@ function NodeCanvas() {
             top: HEADER_HEIGHT + 25,
             left: '50%',
             transform: 'translateX(-50%)',
-            backgroundColor: '#bdb5b5',
+            backgroundColor: theme.canvas.bg,
             padding: '20px',
             borderRadius: '10px',
             boxShadow: '0 2px 10px rgba(0,0,0,0.2)',
@@ -6903,11 +6912,6 @@ function NodeCanvas() {
         const candidates = await fetchOrbitCandidatesForPrototype(proto);
 
         if (!cancelled) {
-          console.log('✨ Setting orbit data:', {
-            inner: candidates.inner?.length || 0,
-            outer: candidates.outer?.length || 0,
-            total: candidates.all?.length || 0
-          });
           setOrbitData(candidates);
         }
       } catch (error) {
@@ -7891,6 +7895,8 @@ function NodeCanvas() {
         onBookmarkToggle={handleToggleBookmark}
         showConnectionNames={showConnectionNames}
         onToggleShowConnectionNames={storeActions.toggleShowConnectionNames}
+        darkMode={darkMode}
+        onToggleDarkMode={storeActions.toggleDarkMode}
         enableAutoRouting={enableAutoRouting}
         routingStyle={routingStyle}
         manhattanBends={manhattanBends}
@@ -8138,7 +8144,7 @@ function NodeCanvas() {
             flexGrow: 1,
             position: 'relative',
             overflow: 'hidden',
-            backgroundColor: '#bdb5b5',
+            backgroundColor: theme.canvas.bg,
             touchAction: 'none',
           }}
           // Event handlers uncommented
@@ -8163,7 +8169,7 @@ function NodeCanvas() {
             <div
               style={{
                 height: '100%',
-                backgroundColor: '#bdb5b5',
+                backgroundColor: theme.canvas.bg,
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
@@ -8185,7 +8191,7 @@ function NodeCanvas() {
               height: '100%',
               display: 'flex',
               flexDirection: 'column',
-              backgroundColor: '#bdb5b5'
+              backgroundColor: theme.canvas.bg
             }}>
               {/* Main content area - mostly empty, just branding */}
               <div style={{
@@ -8226,7 +8232,7 @@ function NodeCanvas() {
                     style={{
                       marginTop: '24px',
                       background: 'transparent',
-                      border: '1px solid rgba(38, 0, 0, 0.2)',
+                      border: `1px solid ${theme.canvas.bg}`,
                       color: 'rgba(38, 0, 0, 0.5)',
                       padding: '8px 16px',
                       borderRadius: '4px',
@@ -8319,7 +8325,7 @@ function NodeCanvas() {
                 style={{
                   transform: `translate(${panOffset.x - canvasSize.offsetX * zoomLevel}px, ${panOffset.y - canvasSize.offsetY * zoomLevel}px) scale(${zoomLevel})`,
                   transformOrigin: '0 0',
-                  backgroundColor: '#bdb5b5',
+                  backgroundColor: theme.canvas.bg,
                   opacity: 1,
                   pointerEvents: 'auto',
                   overflow: 'visible',

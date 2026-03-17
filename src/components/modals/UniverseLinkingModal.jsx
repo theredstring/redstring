@@ -1,6 +1,8 @@
 import React, { useState } from 'react';
 import { Plus, Check } from 'lucide-react';
 import Modal from '../shared/Modal.jsx';
+import { useTheme } from '../../hooks/useTheme.js';
+
 
 /**
  * UniverseLinkingModal
@@ -19,7 +21,9 @@ const UniverseLinkingModal = ({
   suggestedName = '',
   repositoryName = ''
 }) => {
+  const theme = useTheme();
   const [mode, setMode] = useState('select'); // 'select' or 'create'
+
   const [selectedSlug, setSelectedSlug] = useState(null);
   const [newUniverseName, setNewUniverseName] = useState(suggestedName);
 
@@ -65,7 +69,7 @@ const UniverseLinkingModal = ({
           gap: '8px',
           padding: '12px',
           borderBottom: '1px solid #979090',
-          backgroundColor: '#bdb5b5',
+          backgroundColor: theme.canvas.bg,
           flexShrink: 0
         }}>
           <button
@@ -73,10 +77,10 @@ const UniverseLinkingModal = ({
             style={{
               flex: 1,
               padding: '8px 12px',
-              border: '1px solid #260000',
+              border: `1px solid ${theme.canvas.text}`,
               borderRadius: '4px',
-              backgroundColor: mode === 'select' ? '#260000' : 'transparent',
-              color: mode === 'select' ? '#bdb5b5' : '#260000',
+              backgroundColor: mode === 'select' ? theme.canvas.text : 'transparent',
+              color: mode === 'select' ? theme.canvas.bg : theme.canvas.text,
               cursor: 'pointer',
               fontSize: '0.8rem',
               fontWeight: 600,
@@ -91,10 +95,10 @@ const UniverseLinkingModal = ({
             style={{
               flex: 1,
               padding: '8px 12px',
-              border: '1px solid #260000',
+              border: `1px solid ${theme.canvas.text}`,
               borderRadius: '4px',
-              backgroundColor: mode === 'create' ? '#260000' : 'transparent',
-              color: mode === 'create' ? '#bdb5b5' : '#260000',
+              backgroundColor: mode === 'create' ? theme.canvas.text : 'transparent',
+              color: mode === 'create' ? theme.canvas.bg : theme.canvas.text,
               cursor: 'pointer',
               fontSize: '0.8rem',
               fontWeight: 600,
@@ -131,9 +135,9 @@ const UniverseLinkingModal = ({
                     onClick={() => setSelectedSlug(universe.slug)}
                     style={{
                       padding: '12px',
-                      border: `2px solid ${selectedSlug === universe.slug ? '#260000' : '#979090'}`,
+                      border: `2px solid ${selectedSlug === universe.slug ? theme.canvas.text : '#979090'}`,
                       borderRadius: '6px',
-                      backgroundColor: selectedSlug === universe.slug ? '#cfc6c6' : '#bdb5b5',
+                      backgroundColor: selectedSlug === universe.slug ? '#cfc6c6' : theme.canvas.bg,
                       cursor: 'pointer',
                       textAlign: 'left',
                       display: 'flex',
@@ -149,7 +153,7 @@ const UniverseLinkingModal = ({
                     }}
                     onMouseLeave={(e) => {
                       if (selectedSlug !== universe.slug) {
-                        e.currentTarget.style.backgroundColor = '#bdb5b5';
+                        e.currentTarget.style.backgroundColor = theme.canvas.bg;
                       }
                     }}
                   >
@@ -203,8 +207,8 @@ const UniverseLinkingModal = ({
                     border: '1px solid #979090',
                     borderRadius: '4px',
                     fontSize: '0.85rem',
-                    backgroundColor: '#bdb5b5',
-                    color: '#260000',
+                    backgroundColor: theme.canvas.bg,
+                    color: theme.canvas.text,
                     fontFamily: "'EmOne', sans-serif",
                     boxSizing: 'border-box'
                   }}
@@ -231,7 +235,7 @@ const UniverseLinkingModal = ({
           gap: '8px',
           padding: '12px',
           borderTop: '1px solid #979090',
-          backgroundColor: '#bdb5b5',
+          backgroundColor: theme.canvas.bg,
           justifyContent: 'flex-end',
           flexShrink: 0
         }}>

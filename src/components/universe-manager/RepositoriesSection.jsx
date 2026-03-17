@@ -1,3 +1,4 @@
+```javascript
 import React from 'react';
 import {
   Github,
@@ -8,6 +9,7 @@ import {
   GitBranch,
   AlertCircle
 } from 'lucide-react';
+import { useTheme } from '../../hooks/useTheme.js';
 import SectionCard from './shared/SectionCard.jsx';
 import PanelIconButton from '../shared/PanelIconButton.jsx';
 
@@ -51,6 +53,7 @@ const RepositoriesSection = ({
   onImportUniverse,
   onSyncUniverse
 }) => {
+  const theme = useTheme();
   if (repositories.length === 0) {
     return (
       <SectionCard 
@@ -64,10 +67,11 @@ const RepositoriesSection = ({
       >
         <div
           style={{
-            padding: 12,
-            border: '1px dashed #979090',
-            borderRadius: 6,
-            backgroundColor: '#bdb5b5',
+            padding: 16,
+           border: '1px dashed #979090',
+           borderRadius: 8,
+           backgroundColor: theme.canvas.bg,
+           textAlign: 'center',
             color: '#555',
             fontSize: '0.8rem'
           }}
@@ -103,7 +107,7 @@ const RepositoriesSection = ({
                 border: `1px solid ${repo.disabled ? '#ccc' : '#260000'}`,
                 borderRadius: 8,
                 padding: 12,
-                backgroundColor: repo.disabled ? '#e8e8e8' : '#bdb5b5',
+                backgroundColor: repo.disabled ? theme.canvas.disabledBg : theme.canvas.bg,
                 opacity: repo.disabled ? 0.6 : 1,
                 display: 'flex',
                 flexDirection: 'column',
@@ -283,11 +287,23 @@ const RepositoriesSection = ({
                                 onClick={() => onSyncUniverse(item, repoInfo)}
                                 style={{
                                   ...buttonStyle('solid'),
-                                  backgroundColor: '#7A0000',
-                                  borderColor: '#7A0000',
-                                  fontSize: '0.7rem',
-                                  padding: '4px 8px'
-                                }}
+                                  backgroundColor: theme.canvas.bg,
+                 color: theme.canvas.text,
+                 border: '1px solid #260000',
+                 borderRadius: 8,
+                 padding: 12,
+                 display: 'flex',
+                 alignItems: 'center',
+                 justifyContent: 'space-between',
+                 cursor: 'pointer',
+                 transition: 'all 0.15s'
+               }}
+               onMouseEnter={(e) => {
+                 e.currentTarget.style.backgroundColor = '#979090';
+               }}
+               onMouseLeave={(e) => {
+                 e.currentTarget.style.backgroundColor = theme.canvas.bg;
+               }}
                               >
                                 Sync to Universe
                               </button>

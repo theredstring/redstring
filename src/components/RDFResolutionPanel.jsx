@@ -13,9 +13,13 @@ import { rdfValidation, validateNode } from '../services/rdfValidation.js';
 import { localSemanticQuery, semanticSearch, findRelatedEntities } from '../services/localSemanticQuery.js';
 import { automaticEnrichment, enrichNode } from '../services/automaticEnrichment.js';
 import { RotateCcw, ExternalLink, AlertTriangle, CheckCircle, Info, Loader2, RefreshCw, X, ChevronDown, Globe, Database, Search, Plus, Brain, Network, Users, Building, Zap, Sparkles } from 'lucide-react';
+import { useTheme } from '../hooks/useTheme.js';
+
 
 const RDFResolutionPanel = ({ nodeData, onUpdate, isVisible = false, onClose }) => {
+  const theme = useTheme();
   const [resolutionState, setResolutionState] = useState('idle'); // idle, loading, resolved, error
+
   const [resolvedData, setResolvedData] = useState({});
   const [expandedSections, setExpandedSections] = useState(new Set());
   const [suggestions, setSuggestions] = useState([]);
@@ -355,8 +359,9 @@ const RDFResolutionPanel = ({ nodeData, onUpdate, isVisible = false, onClose }) 
       width: '90vw',
       maxWidth: '800px',
       maxHeight: '90vh',
-      backgroundColor: '#bdb5b5',
+      backgroundColor: theme.canvas.bg,
       border: '2px solid #260000',
+
       borderRadius: '12px',
       boxShadow: '0 8px 32px rgba(0, 0, 0, 0.3)',
       zIndex: 10000,
@@ -366,7 +371,8 @@ const RDFResolutionPanel = ({ nodeData, onUpdate, isVisible = false, onClose }) 
       {/* Header */}
       <div style={{
         backgroundColor: '#260000',
-        color: '#bdb5b5',
+        color: theme.canvas.bg,
+
         padding: '16px 20px',
         display: 'flex',
         justifyContent: 'space-between',
@@ -381,8 +387,9 @@ const RDFResolutionPanel = ({ nodeData, onUpdate, isVisible = false, onClose }) 
           style={{
             background: 'none',
             border: 'none',
-            color: '#bdb5b5',
+            color: theme.canvas.bg,
             cursor: 'pointer',
+
             padding: '4px',
             borderRadius: '4px',
             display: 'flex',
@@ -516,7 +523,8 @@ const RDFResolutionPanel = ({ nodeData, onUpdate, isVisible = false, onClose }) 
             disabled={!nodeData?.externalLinks || nodeData.externalLinks.length === 0 || resolutionState === 'loading'}
             style={{
               backgroundColor: '#8B0000',
-              color: '#bdb5b5',
+              color: theme.canvas.bg,
+
               border: 'none',
               padding: '10px 16px',
               borderRadius: '6px',
@@ -538,7 +546,8 @@ const RDFResolutionPanel = ({ nodeData, onUpdate, isVisible = false, onClose }) 
             onClick={handleGetSuggestions}
             style={{
               backgroundColor: '#2E8B57',
-              color: '#bdb5b5',
+              color: theme.canvas.bg,
+
               border: 'none',
               padding: '10px 16px',
               borderRadius: '6px',
@@ -560,7 +569,8 @@ const RDFResolutionPanel = ({ nodeData, onUpdate, isVisible = false, onClose }) 
             onClick={handleValidateNode}
             style={{
               backgroundColor: '#FF8C00',
-              color: '#bdb5b5',
+              color: theme.canvas.bg,
+
               border: 'none',
               padding: '10px 16px',
               borderRadius: '6px',
@@ -1298,12 +1308,12 @@ const RDFResolutionPanel = ({ nodeData, onUpdate, isVisible = false, onClose }) 
                         onChange={(e) => handleUriCorrection(originalUri, e.target.value)}
                       />
                     </div>
-                    
+
                     <button
                       onClick={() => handleManualResolve(originalUri)}
                       style={{
                         backgroundColor: '#8B0000',
-                        color: '#bdb5b5',
+                        color: theme.canvas.bg,
                         border: 'none',
                         padding: '8px 12px',
                         borderRadius: '4px',
@@ -1317,7 +1327,7 @@ const RDFResolutionPanel = ({ nodeData, onUpdate, isVisible = false, onClose }) 
                       Try Again
                     </button>
                   </div>
-                  
+
                   {result.correctedUri && (
                     <div style={{ marginTop: '8px', padding: '8px', backgroundColor: 'rgba(46, 139, 87, 0.1)', borderRadius: '4px', fontSize: '0.85rem' }}>
                       <strong>Corrected:</strong> {result.correctedUri}
@@ -1361,7 +1371,7 @@ const RDFResolutionPanel = ({ nodeData, onUpdate, isVisible = false, onClose }) 
                     onClick={() => handleAddSuggestedLink(suggestion)}
                     style={{
                       backgroundColor: '#2E8B57',
-                      color: '#bdb5b5',
+                      color: theme.canvas.bg,
                       border: 'none',
                       padding: '6px 10px',
                       borderRadius: '4px',

@@ -1,5 +1,8 @@
-import React from 'react';
-import { AlertCircle, HardDrive, Github, Calendar, FileText } from 'lucide-react';
+```javascript
+import React, { useState } from 'react';
+import { AlertCircle, HardDrive, Github, Calendar, FileText, ArrowRight } from 'lucide-react';
+import { useTheme } from '../../hooks/useTheme.js';
+import Modal from '../shared/Modal.jsx';
 
 /**
  * ConflictResolutionModal
@@ -10,13 +13,15 @@ import { AlertCircle, HardDrive, Github, Calendar, FileText } from 'lucide-react
 const ConflictResolutionModal = ({
   isOpen,
   onClose,
-  onSelectLocal,
-  onSelectGit,
+  onResolve,
   localData,
   gitData,
   universeName,
   requiresPrimarySelection = false
 }) => {
+  const theme = useTheme();
+  const [selectedResolution, setSelectedResolution] = useState('local'); // 'local', 'remote', 'manual'
+
   if (!isOpen) return null;
 
   const formatTimestamp = (timestamp) => {
@@ -85,7 +90,7 @@ const ConflictResolutionModal = ({
       <div
         style={{
           width: 'min(90vw, 520px)',
-          backgroundColor: '#bdb5b5',
+          backgroundColor: theme.canvas.bg,
           border: '3px solid #260000',
           borderRadius: 12,
           display: 'flex',
@@ -262,12 +267,11 @@ const ConflictResolutionModal = ({
         <div
           style={{
             display: 'flex',
-            gap: 12,
-            padding: '16px 24px',
-            borderTop: '2px solid #260000',
-            backgroundColor: '#979090',
-            justifyContent: 'space-between',
-            flexWrap: 'wrap',
+            gap: '8px',
+            padding: '12px',
+            borderTop: '1px solid #979090',
+            backgroundColor: theme.canvas.bg,
+            justifyContent: 'flex-end',
             flexShrink: 0
           }}
         >
@@ -288,26 +292,49 @@ const ConflictResolutionModal = ({
           >
             Cancel
           </button>
-          <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
-            <button
-              onClick={onSelectLocal}
+          <div style={{ display: 'flex', gap: 12 }}>
+            <div
               style={{
-                ...buttonStyle(true, '#260000'),
-                padding: '8px 14px',
-                fontSize: '0.78rem'
+                padding: '16px',
+                border: `2px solid ${selectedResolution === 'local' ? theme.canvas.text : '#979090'}`,
+                borderRadius: '8px',
+                backgroundColor: selectedResolution === 'local' ? '#cfc6c6' : theme.canvas.bg,
+                cursor: 'pointer',
+                textAlign: 'left',
+                transition: 'all 0.2s'
               }}
+              onClick={() => setSelectedResolution('local')}
               onMouseEnter={(e) => {
-                e.currentTarget.style.backgroundColor = '#1a0000';
+                if (selectedResolution !== 'local') {
+                  e.currentTarget.style.backgroundColor = '#cfc6c6';
+                }
               }}
               onMouseLeave={(e) => {
-                e.currentTarget.style.backgroundColor = '#260000';
+                if (selectedResolution !== 'local') {
+                  e.currentTarget.style.backgroundColor = theme.canvas.bg;
+                }
               }}
             >
-              <HardDrive size={16} />
-              {localButtonLabel}
-            </button>
+              <button
+                onClick={() => onResolve('local')}
+                style={{
+                  ...buttonStyle(true, '#260000'),
+                  padding: '8px 14px',
+                  fontSize: '0.78rem'
+                }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.backgroundColor = '#1a0000';
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.backgroundColor = '#260000';
+                }}
+              >
+                <HardDrive size={16} />
+                {localButtonLabel}
+              </button>
+            </div>
             <button
-              onClick={onSelectGit}
+              onClick={() => onResolve('git')}
               style={{
                 ...buttonStyle(true, '#7A0000'),
                 padding: '8px 14px',

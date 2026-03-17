@@ -2993,12 +2993,42 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
         localStorage.setItem('redstring_show_connection_names', draft.showConnectionNames);
       } catch (_) { }
     })),
-    toggleDarkMode: () => set(produce((draft) => {
-      draft.darkMode = !draft.darkMode;
+    toggleDarkMode: () => {
+      set(produce((draft) => {
+        draft.darkMode = !draft.darkMode;
+        try {
+          localStorage.setItem('redstring_dark_mode', draft.darkMode);
+        } catch (_) { }
+      }));
+
+      // Also save to workspace config if available
+      if (typeof window !== 'undefined' && window.__workspaceService) {
+        window.__workspaceService.setUISettings({ darkMode: useGraphStore.getState().darkMode }).catch(err => {
+          console.warn('[toggleDarkMode] Failed to save to workspace config:', err);
+        });
+      }
+    },
+
+    // Load UI settings from workspace config
+    loadUISettingsFromWorkspace: async (workspaceService) => {
       try {
-        localStorage.setItem('redstring_dark_mode', draft.darkMode);
-      } catch (_) { }
-    })),
+        const uiSettings = workspaceService.getUISettings();
+        if (uiSettings.darkMode !== undefined) {
+          set(produce((draft) => {
+            draft.darkMode = uiSettings.darkMode;
+            try {
+              localStorage.setItem('redstring_dark_mode', draft.darkMode);
+            } catch (_) { }
+          }));
+        }
+        // Store reference for future saves
+        if (typeof window !== 'undefined') {
+          window.__workspaceService = workspaceService;
+        }
+      } catch (err) {
+        console.warn('[loadUISettingsFromWorkspace] Failed:', err);
+      }
+    },
 
     // Grid settings actions
     setGridMode: (mode) => set(produce((draft) => {

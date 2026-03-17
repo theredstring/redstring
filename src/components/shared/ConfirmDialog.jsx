@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { AlertCircle, Info, HelpCircle } from 'lucide-react';
+import { useTheme } from '../../hooks/useTheme.js';
 
 const ConfirmDialog = ({
   isOpen,
@@ -15,6 +16,7 @@ const ConfirmDialog = ({
   showIcon = true,
   inputField = null // { placeholder: string, defaultValue: string, label: string }
 }) => {
+  const theme = useTheme();
   const [inputValue, setInputValue] = useState('');
 
   useEffect(() => {
@@ -55,7 +57,7 @@ const ConfirmDialog = ({
       ? '#7A0000'
       : 'transparent',
     color: isPrimary 
-      ? '#bdb5b5'
+      ? theme.canvas.text
       : '#7A0000'
   });
 
@@ -77,7 +79,7 @@ const ConfirmDialog = ({
         style={{
           width: 'min(95vw, 480px)',
           maxHeight: '85vh',
-          backgroundColor: '#bdb5b5',
+          backgroundColor: theme.canvas.bg,
           border: '3px solid #260000',
           borderRadius: 12,
           display: 'flex',

@@ -219,8 +219,42 @@ export const generateProgressiveColor = (baseColor, level) => {
   return hslToHex(h, reducedSaturation, newLightness);
 };
 
+/**
+ * Get the current theme colors (for use outside React components)
+ * @returns {Object} Current theme object
+ */
+export function getCurrentTheme() {
+  // Import dynamically to avoid circular dependencies
+  const { getTheme } = require('./themeColors.js');
+  const useGraphStore = require('../store/graphStore.jsx').default;
 
+  try {
+    const darkMode = useGraphStore.getState().darkMode;
+    return getTheme(darkMode);
+  } catch (error) {
+    // Fallback to light theme if store not available
+    const { LIGHT_THEME } = require('./themeColors.js');
+    return LIGHT_THEME;
+  }
+}
 
+/**
+ * Get appropriate text color for a given background, considering current theme.
+ * Falls back to contrast-based calculation for custom backgrounds.
+ * @param {string} backgroundColor - Hex color string
+ * @returns {string} - Hex color string for text
+ */
+export function getThemeAwareTextColor(backgroundColor) {
+  const theme = getCurrentTheme();
+
+  // If it's one of our theme background colors, use the corresponding text color
+  if (backgroundColor === theme.canvas.bg) {
+    return theme.canvas.text;
+  }
+
+  // Otherwise use existing contrast-based logic
+  return getTextColor(backgroundColor);
+}
 
 
 
