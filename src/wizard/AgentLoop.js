@@ -746,6 +746,8 @@ export async function* runAgent(userMessage, graphState, config = {}, ensureSche
       for (const toolCall of iterationToolCalls) {
         if (abortSignal?.aborted) break;
         try {
+          console.error('[AgentLoop] Executing tool:', toolCall.name);
+
           // Execute tool
           const result = await executeTool(
             toolCall.name,

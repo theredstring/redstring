@@ -945,33 +945,95 @@ export async function enrichFromSemanticWeb(entityName, options = {}) {
  * @returns {Promise<Array>} Related concepts
  */
 export async function findRelatedConcepts(entityName, options = {}) {
+  console.log(`[SemanticWebQuery] 🚀 findRelatedConcepts called for "${entityName}"`);
   const { timeout = 15000, limit = 15, includeCategories = true } = options;
-  
+
   try {
-    // 1. Direct entity search
-    const directResults = await Promise.allSettled([
-      queryWikidata(entityName, { ...options, searchType: 'fuzzy' }),
-      queryDBpedia(entityName, { ...options, searchType: 'fuzzy' })
-    ]);
-    
     const results = [];
-    
-    // Process Wikidata results
-    if (directResults[0].status === 'fulfilled') {
-      results.push(...directResults[0].value.map(item => ({
-        ...item,
+
+    // Helper function to execute SPARQL queries
+    const executeSparql = async (endpoint, query, timeoutMs) => {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+
+      try {
+        const response = await fetch(endpoint, {
+          method: 'POST',
+          headers: {
+            'Accept': 'application/sparql-results+json',
+            'Content-Type': 'application/x-www-form-urlencoded',
+            'User-Agent': 'Redstring-SemanticWeb/1.0'
+          },
+          body: `query=${encodeURIComponent(query)}`,
+          signal: controller.signal
+        });
+
+        clearTimeout(timeoutId);
+
+        if (!response.ok) {
+          throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+        }
+
+        const data = await response.json();
+        return data.results?.bindings || [];
+      } catch (error) {
+        clearTimeout(timeoutId);
+        throw error;
+      }
+    };
+
+    // 1. Wikidata relationship queries - find entities RELATED TO this entity
+    console.log(`[SemanticWebQuery] 🔍 Executing NEW relationship query for "${entityName}"`);
+    try {
+      const wikidataRelQuery = `
+        SELECT DISTINCT ?related ?relatedLabel ?property ?propertyLabel WHERE {
+          ?item rdfs:label "${entityName}"@en .
+          ?item ?property ?related .
+          ?related rdfs:label ?relatedLabel .
+          FILTER(LANG(?relatedLabel) = "en")
+          FILTER(?property != rdfs:label)
+          FILTER(?property != schema:description)
+          SERVICE wikibase:label { bd:serviceParam wikibase:language "en" }
+        } LIMIT 20
+      `;
+
+      console.log('[SemanticWebQuery] 🌐 Querying Wikidata for relationships...');
+      const wikidataRels = await executeSparql('https://query.wikidata.org/sparql', wikidataRelQuery, timeout);
+      console.log(`[SemanticWebQuery] ✅ Wikidata returned ${wikidataRels.length} relationships`);
+      results.push(...wikidataRels.map(item => ({
+        itemLabel: { value: item.relatedLabel?.value },
+        item: { value: item.related?.value },
+        predicate: item.propertyLabel?.value || 'related',
         source: 'wikidata',
-        type: 'direct'
+        type: 'relationship'
       })));
+    } catch (error) {
+      console.warn('[SemanticWebQuery] ❌ Wikidata relationship query failed:', error.message);
     }
-    
-    // Process DBpedia results
-    if (directResults[1].status === 'fulfilled') {
-      results.push(...directResults[1].value.map(item => ({
-        ...item,
+
+    // 2. DBpedia relationship queries
+    try {
+      const dbpediaRelQuery = `
+        SELECT DISTINCT ?related ?relatedLabel ?property WHERE {
+          ?item rdfs:label "${entityName}"@en .
+          ?item ?property ?related .
+          ?related rdfs:label ?relatedLabel .
+          FILTER(LANG(?relatedLabel) = "en")
+          FILTER(?property != rdfs:label)
+          FILTER(?property != rdfs:comment)
+        } LIMIT 20
+      `;
+
+      const dbpediaRels = await executeSparql('https://dbpedia.org/sparql', dbpediaRelQuery, timeout);
+      results.push(...dbpediaRels.map(item => ({
+        itemLabel: { value: item.relatedLabel?.value },
+        item: { value: item.related?.value },
+        predicate: item.property?.value?.split('/').pop() || 'related',
         source: 'dbpedia',
-        type: 'direct'
+        type: 'relationship'
       })));
+    } catch (error) {
+      console.warn('[SemanticWebQuery] DBpedia relationship query failed:', error.message);
     }
     
     // 2. Category-based search for broader concepts
@@ -1008,13 +1070,15 @@ export async function findRelatedConcepts(entityName, options = {}) {
     const consolidatedResults = consolidateSameAsResults(results);
     
     // 5. Remove remaining duplicates and limit results
-    const uniqueResults = consolidatedResults.filter((item, index, self) => 
-      index === self.findIndex(t => 
+    const uniqueResults = consolidatedResults.filter((item, index, self) =>
+      index === self.findIndex(t =>
         (t.itemLabel?.value || t.label?.value) === (item.itemLabel?.value || item.label?.value)
       )
     );
-    
-    return uniqueResults.slice(0, limit);
+
+    const finalResults = uniqueResults.slice(0, limit);
+    console.log(`[SemanticWebQuery] 📊 Returning ${finalResults.length} unique related concepts for "${entityName}"`);
+    return finalResults;
     
   } catch (error) {
     console.warn('[SemanticWebQuery] Related concepts search failed:', error);

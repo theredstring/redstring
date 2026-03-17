@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Undo2, Loader2, CheckCircle2, XCircle, Circle, ChevronDown, X } from 'lucide-react';
 import ConfirmDialog from './shared/ConfirmDialog.jsx';
 import './ToolCallCard.css';
@@ -6,11 +6,45 @@ import './ToolCallCard.css';
 const ToolCallCard = ({ toolCallId, toolName, status, args, result, error, timestamp, executionTime, isUndone, onUndo }) => {
     const [isExpanded, setIsExpanded] = useState(false);
     const [isUndoConfirmOpen, setIsUndoConfirmOpen] = useState(false);
+    const [displayStatus, setDisplayStatus] = useState(status);
+    const [mountTime] = useState(Date.now());
+    const MIN_RUNNING_DISPLAY_TIME = 300; // ms
+
+    // Use timestamp from block if available, otherwise use mount time
+    const startTime = timestamp || mountTime;
+
+    // Effect to handle minimum display time for 'running' state
+    useEffect(() => {
+        console.log('[ToolCallCard] Status changed:', { toolCallId, status, displayStatus, toolName, elapsed: Date.now() - startTime });
+
+        if (status === 'running') {
+            setDisplayStatus('running');
+        } else if (status === 'completed' || status === 'failed') {
+            const elapsed = Date.now() - startTime;
+            console.log('[ToolCallCard] Tool completed, elapsed:', elapsed, 'ms, minDisplay:', MIN_RUNNING_DISPLAY_TIME);
+            if (elapsed < MIN_RUNNING_DISPLAY_TIME) {
+                // Tool completed too fast - keep showing 'running' until minimum time elapsed
+                const delay = MIN_RUNNING_DISPLAY_TIME - elapsed;
+                console.log('[ToolCallCard] Delaying status update by', delay, 'ms');
+                setTimeout(() => {
+                    console.log('[ToolCallCard] Now updating to status:', status);
+                    setDisplayStatus(status);
+                }, delay);
+            } else {
+                // Enough time has passed, update immediately
+                console.log('[ToolCallCard] Updating to status immediately:', status);
+                setDisplayStatus(status);
+            }
+        }
+    }, [status, startTime, toolCallId, toolName, displayStatus, MIN_RUNNING_DISPLAY_TIME]);
 
     // Debug: Log toolName to see what's being passed
     if (status === 'running' && !toolName) {
         console.warn('[ToolCallCard] Tool call rendered with empty toolName:', { toolCallId, status, args });
     }
+
+    // Debug: Log initial render
+    console.log('[ToolCallCard] Render:', { toolCallId, toolName, status, displayStatus, timestamp, mountTime });
 
     // Ensure args is an object
     let parsedArgs = {};
@@ -25,7 +59,7 @@ const ToolCallCard = ({ toolCallId, toolName, status, args, result, error, times
     }
 
     const getStatusIcon = () => {
-        switch (status) {
+        switch (displayStatus) {
             case 'running': return <Loader2 size={18} className="tool-icon-spin" />;
             case 'completed': return <CheckCircle2 size={18} />;
             case 'failed': return <XCircle size={18} />;
@@ -34,7 +68,7 @@ const ToolCallCard = ({ toolCallId, toolName, status, args, result, error, times
     };
 
     const getStatusClass = () => {
-        switch (status) {
+        switch (displayStatus) {
             case 'running': return 'status-running';
             case 'completed': return 'status-completed';
             case 'failed': return 'status-failed';
@@ -43,7 +77,7 @@ const ToolCallCard = ({ toolCallId, toolName, status, args, result, error, times
     };
 
     const getStatusText = () => {
-        switch (status) {
+        switch (displayStatus) {
             case 'running': return 'Running...';
             case 'completed': return '';
             case 'failed': return 'Failed';

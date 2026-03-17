@@ -2715,29 +2715,38 @@ const LeftAIView = ({ compact = false,
                   const blocks = Array.isArray(msg.contentBlocks) ? [...msg.contentBlocks] : [];
 
                   if (event.type === 'tool_call_start') {
-                    console.log('[Wizard] tool_call_start received:', event.name, event.id);
+                    const now = Date.now();
+                    console.log('[Wizard] tool_call_start received:', event.name, event.id, 'at', now);
                     const existingIndex = blocks.findIndex(b => b.type === 'tool_call' && b.id === event.id);
                     if (existingIndex >= 0) {
                       if (event.name) blocks[existingIndex] = { ...blocks[existingIndex], name: event.name };
                     } else {
-                      blocks.push({ type: 'tool_call', id: event.id, name: event.name || 'Resolving spell...', args: {}, status: 'running', expanded: false });
-                      console.log('[Wizard] Created tool_call block:', event.name, 'status: running');
+                      blocks.push({ type: 'tool_call', id: event.id, name: event.name || 'Resolving spell...', args: {}, status: 'running', expanded: false, timestamp: now });
+                      console.log('[Wizard] Created tool_call block:', event.name, 'status: running, timestamp:', now);
                     }
                   } else if (event.type === 'tool_call') {
-                    console.log('[Wizard] tool_call received:', event.name, event.id, 'args:', Object.keys(event.args || {}));
+                    const now = Date.now();
+                    console.log('[Wizard] tool_call received:', event.name, event.id, 'args:', Object.keys(event.args || {}), 'at', now);
                     const existingIndex = blocks.findIndex(b => b.type === 'tool_call' && b.id === event.id);
                     if (existingIndex >= 0) {
                       blocks[existingIndex] = { ...blocks[existingIndex], name: event.name, args: event.args, status: 'running' };
+                      const elapsed = now - (blocks[existingIndex].timestamp || now);
+                      console.log('[Wizard] Updated existing tool_call block, elapsed since start:', elapsed, 'ms');
                     } else {
-                      blocks.push({ type: 'tool_call', id: event.id, name: event.name, args: event.args, status: 'running', expanded: false });
+                      blocks.push({ type: 'tool_call', id: event.id, name: event.name, args: event.args, status: 'running', expanded: false, timestamp: now });
+                      console.log('[Wizard] Created new tool_call block (no tool_call_start received)');
                     }
                   } else if (event.type === 'tool_result') {
-                    console.log('[Wizard] tool_result received:', event.id, 'error:', !!event.result?.error);
+                    const now = Date.now();
+                    console.log('[Wizard] tool_result received:', event.id, 'error:', !!event.result?.error, 'at', now);
                     const toolIndex = blocks.findIndex(b => b.type === 'tool_call' && b.id === event.id);
                     if (toolIndex >= 0) {
                       const newStatus = event.result?.error ? 'failed' : 'completed';
+                      const elapsed = now - (blocks[toolIndex].timestamp || now);
                       blocks[toolIndex] = { ...blocks[toolIndex], status: newStatus, result: event.result, error: event.result?.error };
-                      console.log('[Wizard] Updated tool_call to status:', newStatus);
+                      console.log('[Wizard] Updated tool_call to status:', newStatus, 'total elapsed:', elapsed, 'ms');
+                    } else {
+                      console.warn('[Wizard] tool_result received but no matching tool_call block found!', event.id);
                     }
                   } else if (event.type === 'response') {
                     const lastBlock = blocks.length > 0 ? blocks[blocks.length - 1] : null;
