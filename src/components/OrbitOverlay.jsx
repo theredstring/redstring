@@ -421,6 +421,120 @@ const measureCandidates = (candidates) => {
   });
 };
 
+// Loading animation: dots orbiting the node's rounded rectangle
+const LOADING_DOT_COUNT = 8;
+const LOADING_DOT_RADIUS = 6;
+const LOADING_PAD = 40; // padding beyond node bounds
+const LOADING_ORBIT_PERIOD_SEC = 3; // one full loop in seconds
+
+function pointOnRoundedRect(t, cx, cy, w, h, cr) {
+  // Parameterize the rounded rect perimeter clockwise from top-center
+  // t ∈ [0, 1) maps to position on the perimeter
+  const topStraight = w - 2 * cr;
+  const rightStraight = h - 2 * cr;
+  const bottomStraight = w - 2 * cr;
+  const leftStraight = h - 2 * cr;
+  const arcLen = (Math.PI / 2) * cr; // quarter circle
+  const perimeter = topStraight + rightStraight + bottomStraight + leftStraight + 4 * arcLen;
+  let d = ((t % 1) + 1) % 1 * perimeter; // distance along perimeter
+
+  const left = cx - w / 2;
+  const right = cx + w / 2;
+  const top = cy - h / 2;
+  const bottom = cy + h / 2;
+
+  // Segment 1: top edge (left-to-right, after top-left corner)
+  if (d < topStraight) {
+    return { x: left + cr + d, y: top };
+  }
+  d -= topStraight;
+
+  // Segment 2: top-right arc
+  if (d < arcLen) {
+    const a = -Math.PI / 2 + (d / arcLen) * (Math.PI / 2);
+    return { x: right - cr + cr * Math.cos(a), y: top + cr + cr * Math.sin(a) };
+  }
+  d -= arcLen;
+
+  // Segment 3: right edge (top-to-bottom)
+  if (d < rightStraight) {
+    return { x: right, y: top + cr + d };
+  }
+  d -= rightStraight;
+
+  // Segment 4: bottom-right arc
+  if (d < arcLen) {
+    const a = 0 + (d / arcLen) * (Math.PI / 2);
+    return { x: right - cr + cr * Math.cos(a), y: bottom - cr + cr * Math.sin(a) };
+  }
+  d -= arcLen;
+
+  // Segment 5: bottom edge (right-to-left)
+  if (d < bottomStraight) {
+    return { x: right - cr - d, y: bottom };
+  }
+  d -= bottomStraight;
+
+  // Segment 6: bottom-left arc
+  if (d < arcLen) {
+    const a = Math.PI / 2 + (d / arcLen) * (Math.PI / 2);
+    return { x: left + cr + cr * Math.cos(a), y: bottom - cr + cr * Math.sin(a) };
+  }
+  d -= arcLen;
+
+  // Segment 7: left edge (bottom-to-top)
+  if (d < leftStraight) {
+    return { x: left, y: bottom - cr - d };
+  }
+  d -= leftStraight;
+
+  // Segment 8: top-left arc
+  {
+    const a = Math.PI + (d / arcLen) * (Math.PI / 2);
+    return { x: left + cr + cr * Math.cos(a), y: top + cr + cr * Math.sin(a) };
+  }
+}
+
+const OrbitLoadingDots = ({ centerX, centerY, focusWidth, focusHeight }) => {
+  const [timeSec, setTimeSec] = useState(0);
+  const rafRef = useRef(null);
+  const startRef = useRef(null);
+
+  useEffect(() => {
+    const loop = (ts) => {
+      if (!startRef.current) startRef.current = ts;
+      setTimeSec((ts - startRef.current) / 1000);
+      rafRef.current = requestAnimationFrame(loop);
+    };
+    rafRef.current = requestAnimationFrame(loop);
+    return () => { if (rafRef.current) cancelAnimationFrame(rafRef.current); };
+  }, []);
+
+  const w = focusWidth + 2 * LOADING_PAD;
+  const h = focusHeight + 2 * LOADING_PAD;
+  const cr = NODE_CORNER_RADIUS;
+
+  const dots = [];
+  for (let i = 0; i < LOADING_DOT_COUNT; i++) {
+    const t = (i / LOADING_DOT_COUNT + timeSec / LOADING_ORBIT_PERIOD_SEC) % 1;
+    const pos = pointOnRoundedRect(t, centerX, centerY, w, h, cr);
+    // Comet-tail: leading dot brightest, trailing fades
+    const opacity = 0.3 + 0.5 * ((LOADING_DOT_COUNT - i) / LOADING_DOT_COUNT);
+    dots.push(
+      <circle
+        key={i}
+        cx={pos.x}
+        cy={pos.y}
+        r={LOADING_DOT_RADIUS}
+        fill="white"
+        opacity={opacity}
+      />
+    );
+  }
+
+  return <g className="orbit-loading-dots">{dots}</g>;
+};
+
 export default function OrbitOverlay({
   centerX,
   centerY,
@@ -430,7 +544,8 @@ export default function OrbitOverlay({
   ring2Candidates,
   ring3Candidates,
   ring4Candidates,
-  onOrbitItemClick
+  onOrbitItemClick,
+  isLoading = false
 }) {
   // Hover tracking for individual orbit items
   const [hoveredCandidateId, setHoveredCandidateId] = useState(null);
@@ -609,11 +724,14 @@ export default function OrbitOverlay({
   }, []);
 
   // Early return check after all hooks are called
-  if ((!ring1Candidates || ring1Candidates.length === 0) &&
+  const allEmpty = (!ring1Candidates || ring1Candidates.length === 0) &&
     (!ring2Candidates || ring2Candidates.length === 0) &&
     (!ring3Candidates || ring3Candidates.length === 0) &&
-    (!ring4Candidates || ring4Candidates.length === 0)) {
-    return null;
+    (!ring4Candidates || ring4Candidates.length === 0);
+
+  if (allEmpty && !isLoading) return null;
+  if (allEmpty && isLoading) {
+    return <OrbitLoadingDots centerX={centerX} centerY={centerY} focusWidth={focusWidth} focusHeight={focusHeight} />;
   }
 
   return (

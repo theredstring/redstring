@@ -158,6 +158,7 @@ function NodeCanvas() {
   const pinchRef = useRef({ active: false, startDist: 0, startZoom: 1, centerClient: { x: 0, y: 0 }, centerWorld: null, lastCenterClient: { x: 0, y: 0 }, lastDist: 0 });
   const pinchSmoothingRef = useRef({ lastFrameTime: 0, velocity: { x: 0, y: 0 } });
   const [orbitData, setOrbitData] = useState({ ring1: [], ring2: [], ring3: [], ring4: [], all: [] });
+  const [orbitLoading, setOrbitLoading] = useState(false);
   const [semanticOrbitActive, setSemanticOrbitActive] = useState(false);
   const semanticOrbitActiveRef = useRef(false);
   const wasDraggingRef = useRef(false); // Track if a drag just occurred to prevent click events
@@ -6931,6 +6932,7 @@ function NodeCanvas() {
       try {
         if (!semanticOrbitActive || selectedInstanceIds.size !== 1) {
           setOrbitData({ ring1: [], ring2: [], ring3: [], ring4: [], all: [] });
+          setOrbitLoading(false);
           return;
         }
 
@@ -6941,8 +6943,11 @@ function NodeCanvas() {
 
         if (!proto) {
           setOrbitData({ ring1: [], ring2: [], ring3: [], ring4: [], all: [] });
+          setOrbitLoading(false);
           return;
         }
+
+        setOrbitLoading(true);
 
         // streamedCount tracks how many items onProgress has already shown
         let streamedCount = 0;
@@ -6951,6 +6956,7 @@ function NodeCanvas() {
             if (!cancelled) {
               streamedCount = (data.all || []).length;
               setOrbitData(data);
+              setOrbitLoading(false);
             }
           },
         });
@@ -6974,10 +6980,14 @@ function NodeCanvas() {
 
         if (!cancelled) {
           setOrbitData(candidates);
+          setOrbitLoading(false);
         }
       } catch (error) {
         console.error('Orbit search failed:', error);
-        if (!cancelled) setOrbitData({ ring1: [], ring2: [], ring3: [], ring4: [], all: [] });
+        if (!cancelled) {
+          setOrbitData({ ring1: [], ring2: [], ring3: [], ring4: [], all: [] });
+          setOrbitLoading(false);
+        }
       }
     })();
     return () => { cancelled = true; };
@@ -6995,6 +7005,7 @@ function NodeCanvas() {
   const exitOrbitMode = useCallback(() => {
     setSemanticOrbitActive(false);
     setOrbitData({ ring1: [], ring2: [], ring3: [], ring4: [], all: [] });
+    setOrbitLoading(false);
     // Re-show control panel if nodes still selected
     if (selectedInstanceIds.size > 0) {
       setNodeControlPanelVisible(true);
@@ -11839,6 +11850,7 @@ function NodeCanvas() {
                                 ring3Candidates={orbitData.ring3 || []}
                                 ring4Candidates={orbitData.ring4 || []}
                                 onOrbitItemClick={handleOrbitItemClick}
+                                isLoading={orbitLoading}
                               />
                               <Node
                                 key={activeNodeToRender.id}
