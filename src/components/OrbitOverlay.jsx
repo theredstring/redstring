@@ -193,7 +193,7 @@ const OrbitConnection = ({
   );
 };
 
-const DraggableOrbitItem = ({ candidate, x, y, rightPanelExpanded, onNodeClick, isHovered, onHover, onHoverEnd }) => {
+const DraggableOrbitItem = ({ candidate, x, y, rightPanelExpanded, onNodeClick, isHovered, onHover, onHoverEnd, onClick }) => {
   const theme = useTheme();
   const rotation = useGraphStore(state => state.orbitRotation);
   const concept = useMemo(() => candidateToConcept(candidate), [candidate]);
@@ -266,7 +266,8 @@ const DraggableOrbitItem = ({ candidate, x, y, rightPanelExpanded, onNodeClick, 
     <g
       ref={drag}
       transform={ease < 1 ? `translate(${cx}, ${cy}) scale(${ease}) translate(${-cx}, ${-cy})` : undefined}
-      style={{ opacity: baseOpacity * ease, transition: ease >= 1 ? 'opacity 0.2s ease' : undefined }}
+      style={{ opacity: baseOpacity * ease, transition: ease >= 1 ? 'opacity 0.2s ease' : undefined, cursor: 'pointer' }}
+      onClick={(e) => { e.stopPropagation(); onClick?.(candidate, x, y, { currentWidth, currentHeight }); }}
       onMouseEnter={() => onHover?.(candidate.id)}
       onMouseLeave={() => onHoverEnd?.()}
     >
@@ -335,7 +336,7 @@ const DraggableOrbitItem = ({ candidate, x, y, rightPanelExpanded, onNodeClick, 
               boxSizing: 'border-box',
               userSelect: 'none',
               minWidth: 0,
-              cursor: 'grab',
+              cursor: 'pointer',
             }}
           >
             <span
@@ -428,7 +429,8 @@ export default function OrbitOverlay({
   ring1Candidates,
   ring2Candidates,
   ring3Candidates,
-  ring4Candidates
+  ring4Candidates,
+  onOrbitItemClick
 }) {
   // Hover tracking for individual orbit items
   const [hoveredCandidateId, setHoveredCandidateId] = useState(null);
@@ -685,6 +687,7 @@ export default function OrbitOverlay({
             isHovered={hoveredCandidateId === candidate.id}
             onHover={setHoveredCandidateId}
             onHoverEnd={() => setHoveredCandidateId(null)}
+            onClick={onOrbitItemClick}
           />
         ))}
         {ring2Positions.map(({ candidate, dims, x, y }) => (
@@ -698,6 +701,7 @@ export default function OrbitOverlay({
             isHovered={hoveredCandidateId === candidate.id}
             onHover={setHoveredCandidateId}
             onHoverEnd={() => setHoveredCandidateId(null)}
+            onClick={onOrbitItemClick}
           />
         ))}
         {ring3Positions.map(({ candidate, dims, x, y }) => (
@@ -711,6 +715,7 @@ export default function OrbitOverlay({
             isHovered={hoveredCandidateId === candidate.id}
             onHover={setHoveredCandidateId}
             onHoverEnd={() => setHoveredCandidateId(null)}
+            onClick={onOrbitItemClick}
           />
         ))}
         {ring4Positions.map(({ candidate, dims, x, y }) => (
@@ -724,6 +729,7 @@ export default function OrbitOverlay({
             isHovered={hoveredCandidateId === candidate.id}
             onHover={setHoveredCandidateId}
             onHoverEnd={() => setHoveredCandidateId(null)}
+            onClick={onOrbitItemClick}
           />
         ))}
       </g>
