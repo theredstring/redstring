@@ -18,6 +18,27 @@ const orbitCache = new Map(); // prototypeId -> { timestamp, candidates }
 
 const CACHE_TTL_MS = 6 * 60 * 60 * 1000; // 6 hours for UI orbit suggestions
 
+// Deduplicate, sort, and partition candidates into 4 rings
+function dedupeAndPartition(candidates) {
+  const seen = new Set();
+  const unique = candidates.filter((c) => {
+    if (seen.has(c.id)) return false;
+    seen.add(c.id);
+    return true;
+  });
+  unique.sort((a, b) => (b.score || 0) - (a.score || 0));
+
+  const tierA = unique.filter((c) => c.tier === 'A');
+  const tierB = unique.filter((c) => c.tier === 'B');
+  const ring1 = tierA.slice(0, 10);
+  const ring2 = tierA.slice(10).concat(tierB).slice(0, 10);
+  const tierBCRemaining = unique.filter(c => !ring1.includes(c) && !ring2.includes(c));
+  const ring3 = tierBCRemaining.slice(0, 10);
+  const ring4 = tierBCRemaining.slice(10, 20);
+
+  return { ring1, ring2, ring3, ring4, all: unique };
+}
+
 // Map provider/source to nominal trust
 const SOURCE_TRUST = {
   wikidata: 0.95,
@@ -33,6 +54,7 @@ function getSourceTrust(source) {
 }
 
 export async function fetchOrbitCandidatesForPrototype(prototype, options = {}) {
+  const { onProgress } = options;
   if (!prototype || !prototype.name) return { inner: [], outer: [], all: [] };
   const key = prototype.id;
   const now = Date.now();
@@ -170,59 +192,55 @@ export async function fetchOrbitCandidatesForPrototype(prototype, options = {}) 
       providers.push(Promise.resolve(linkCandidates));
     }
 
-    let aggregated = [];
-    console.log(`⏳ Waiting for ${providers.length} providers to complete...`);
-    const batches = await Promise.allSettled(providers);
+    // Stream results incrementally — trickle each provider's results in small batches
+    const aggregated = [];
+    const TRICKLE_BATCH = 2;
+    const TRICKLE_DELAY_MS = 120;
+    console.log(`⏳ Streaming ${providers.length} providers as they resolve...`);
 
-    batches.forEach((b, idx) => {
-      if (b.status === 'fulfilled' && Array.isArray(b.value)) {
-        console.log(`✅ Provider ${idx + 1} returned ${b.value.length} candidates`);
-        aggregated.push(...b.value);
-      } else {
-        console.warn(`❌ Provider ${idx + 1} failed:`, b.reason?.message || 'unknown error');
+    const emitProgress = () => {
+      if (!onProgress) return;
+      const snapshot = dedupeAndPartition([...aggregated]);
+      // Only emit if we have at least some tier A/B results (skip externalUrl-only flashes)
+      if (snapshot.ring1.length > 0 || snapshot.ring2.length > 0) {
+        console.log(`📡 Streaming update: R1=${snapshot.ring1.length}, R2=${snapshot.ring2.length}, R3=${snapshot.ring3.length}, R4=${snapshot.ring4.length}`);
+        onProgress(snapshot);
       }
-    });
+    };
 
-    console.log(`📈 Total raw candidates before dedup: ${aggregated.length}`);
+    const tracked = providers.map((p, idx) =>
+      p.then(async (results) => {
+        if (!Array.isArray(results) || results.length === 0) {
+          console.log(`✅ Provider ${idx + 1} returned 0 candidates`);
+          return results;
+        }
+        console.log(`✅ Provider ${idx + 1} returned ${results.length} candidates`);
 
-    // Dedupe by id to prevent React key collisions and redundant visual nodes
-    const seen = new Set();
-    aggregated = aggregated.filter((c) => {
-      // Use id as the primary uniqueness constraint for React keys
-      // If two candidates have same source+uri but different names, they collide.
-      // We keep the first one encountered.
-      const key = c.id;
-      if (seen.has(key)) return false;
-      seen.add(key);
-      return true;
-    });
+        if (onProgress) {
+          // Trickle results in small batches with delays for streaming effect
+          for (let i = 0; i < results.length; i += TRICKLE_BATCH) {
+            const batch = results.slice(i, i + TRICKLE_BATCH);
+            aggregated.push(...batch);
+            emitProgress();
+            if (i + TRICKLE_BATCH < results.length) {
+              await new Promise(r => setTimeout(r, TRICKLE_DELAY_MS));
+            }
+          }
+        } else {
+          aggregated.push(...results);
+        }
+        return results;
+      }).catch((error) => {
+        console.warn(`❌ Provider ${idx + 1} failed:`, error?.message || 'unknown error');
+        return [];
+      })
+    );
 
-    console.log(`🔄 After deduplication: ${aggregated.length} candidates`);
+    await Promise.allSettled(tracked);
 
-    // Sort by score desc
-    aggregated.sort((a, b) => (b.score || 0) - (a.score || 0));
+    const result = dedupeAndPartition(aggregated);
+    console.log(`🎯 Final orbit rings: R1=${result.ring1.length}, R2=${result.ring2.length}, R3=${result.ring3.length}, R4=${result.ring4.length}`);
 
-    // Partition candidates into 4 rings with semantic grouping
-    const tierA = aggregated.filter((c) => c.tier === 'A');
-    const tierB = aggregated.filter((c) => c.tier === 'B');
-    const tierC = aggregated.filter((c) => c.tier === 'C');
-
-    // Ring 1: Tier A top concepts (closest to node)
-    const ring1 = tierA.slice(0, 10);
-
-    // Ring 2: Tier A overflow + Tier B top
-    const ring2 = tierA.slice(10).concat(tierB).slice(0, 10);
-
-    // Ring 3: Tier B/C mid-importance
-    const tierBCRemaining = aggregated.filter(c => !ring1.includes(c) && !ring2.includes(c));
-    const ring3 = tierBCRemaining.slice(0, 10);
-
-    // Ring 4: Lower-priority items (outermost)
-    const ring4 = tierBCRemaining.slice(10, 20);
-
-    console.log(`🎯 Final orbit rings: R1=${ring1.length}, R2=${ring2.length}, R3=${ring3.length}, R4=${ring4.length}`);
-
-    const result = { ring1, ring2, ring3, ring4, all: aggregated };
     orbitCache.set(key, { timestamp: now, candidates: result });
     return result;
   } catch (error) {

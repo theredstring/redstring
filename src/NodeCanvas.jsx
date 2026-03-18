@@ -6935,7 +6935,11 @@ function NodeCanvas() {
           return;
         }
 
-        const candidates = await fetchOrbitCandidatesForPrototype(proto);
+        const candidates = await fetchOrbitCandidatesForPrototype(proto, {
+          onProgress: (data) => {
+            if (!cancelled) setOrbitData(data);
+          },
+        });
 
         if (!cancelled) {
           setOrbitData(candidates);
