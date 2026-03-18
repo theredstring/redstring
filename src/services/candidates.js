@@ -117,10 +117,22 @@ export function scoreCandidate({ sourceTrust = 0.8, predicate, valueSalience = 0
   return factors.reduce((acc, v) => acc * v, 1.0);
 }
 
+// Title-case a name if it's all lowercase; preserve all-caps words and mixed-case names
+function tidyName(raw) {
+  if (!raw || raw === 'Untitled') return raw;
+  // If every character is already lowercase (or non-letter), title-case each word
+  // But if the name has any uppercase letters, assume it's intentionally cased — leave it
+  if (raw !== raw.toLowerCase()) return raw;
+  return raw
+    .split(' ')
+    .map(w => w.length === 0 ? '' : w.charAt(0).toUpperCase() + w.slice(1))
+    .join(' ');
+}
+
 // Normalize any provider result into a canonical Candidate object
 // Candidate: { id, name, uri, source, predicate, tier, score, color, claims, externalLinks, equivalentClasses, retrievedAt }
 export function normalizeToCandidate(result, context = {}) {
-  const name = result.name || result.label || result.title || 'Untitled';
+  const name = tidyName(result.name || result.label || result.title || 'Untitled');
   const uri = result.uri || result.id || null;
   const predicate = result.predicate || result.relation || null;
   const { tier, weight } = getPredicateInfo(predicate);
