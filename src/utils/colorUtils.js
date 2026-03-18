@@ -158,9 +158,11 @@ export const getTextColor = (backgroundColor, isDarkMode = false) => {
   // In dark mode, we significantly increase the threshold to prefer light text
   // for a more consistent light-on-dark aesthetic across the app.
   // Only the brightest colors (like very pale yellow or white) will get dark text.
+  // IMPORTANT: Hue adjustments still apply in dark mode - yellows appear brighter
+  // and need dark text at lower lightness values to maintain contrast.
   let threshold = LIGHTNESS_THRESHOLD - hueAdjustment;
   if (isDarkMode) {
-    threshold = 80; // Only switch to dark text if lightness is > 80%
+    threshold = 80 - hueAdjustment; // Apply hue adjustments to dark mode threshold too
   }
 
   // If background is bright, use dark text with same hue
@@ -202,7 +204,7 @@ export const getInvertedTextColor = (backgroundColor, isDarkMode = false) => {
 
   let threshold = LIGHTNESS_THRESHOLD - hueAdjustment;
   if (isDarkMode) {
-    threshold = 80;
+    threshold = 80 - hueAdjustment; // Apply hue adjustments to dark mode threshold too
   }
 
   // Inverted: bright backgrounds get light text, dark backgrounds get dark text
