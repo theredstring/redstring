@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import CanvasModal from './CanvasModal';
 import MaroonSlider from './MaroonSlider.jsx';
 import useGraphStore from '../store/graphStore.jsx';
+import { Monitor, Grid3x3, Cable, Keyboard, Type } from 'lucide-react';
 import './SettingsModal.css';
 
 /**
@@ -70,6 +71,15 @@ const SettingsModal = ({ isVisible, onClose }) => {
       ))}
     </div>
   );
+
+  // Icon map for sidebar navigation
+  const sectionIcons = {
+    display: <Monitor size={16} style={{ minWidth: '16px', flexShrink: 0 }} />,
+    grid: <Grid3x3 size={16} style={{ minWidth: '16px', flexShrink: 0 }} />,
+    connections: <Cable size={16} style={{ minWidth: '16px', flexShrink: 0 }} />,
+    keyboard: <Keyboard size={16} style={{ minWidth: '16px', flexShrink: 0 }} />,
+    text: <Type size={16} style={{ minWidth: '16px', flexShrink: 0 }} />
+  };
 
   const sections = {
     display: {
@@ -333,6 +343,7 @@ const SettingsModal = ({ isVisible, onClose }) => {
                 }
               }}
             >
+              {sectionIcons[key]}
               {sections[key].title}
             </div>
           ))}

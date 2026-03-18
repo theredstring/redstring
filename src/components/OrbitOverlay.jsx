@@ -33,6 +33,8 @@ const hashToUnitFloat = (str, salt = '') => {
   return (h & 0x7fffffff) / 0x80000000;
 };
 
+const ENTRANCE_DURATION_MS = 350;
+
 // Component to render a connection from center to an orbit item
 const OrbitConnection = ({
   sourceX,
@@ -44,6 +46,23 @@ const OrbitConnection = ({
   isHovered = false
 }) => {
   const theme = useTheme();
+
+  // Entrance animation
+  const mountTimeRef = useRef(Date.now());
+  const [entranceProgress, setEntranceProgress] = useState(0);
+  useEffect(() => {
+    mountTimeRef.current = Date.now();
+    let raf;
+    const tick = () => {
+      const elapsed = Date.now() - mountTimeRef.current;
+      const t = Math.min(1, elapsed / ENTRANCE_DURATION_MS);
+      setEntranceProgress(t);
+      if (t < 1) raf = requestAnimationFrame(tick);
+    };
+    raf = requestAnimationFrame(tick);
+    return () => { if (raf) cancelAnimationFrame(raf); };
+  }, []);
+  const connEase = 1 - Math.pow(1 - entranceProgress, 3);
 
   // Don't render generic or missing predicates
   if (!predicate || predicate === 'relatedTo' || predicate === null) {
@@ -115,7 +134,7 @@ const OrbitConnection = ({
   const textStrokeWidth = Math.max(2, fontSize * 0.25); // ~6px
 
   return (
-    <g className="orbit-connection" opacity={isHovered ? 1 : 0.85} style={{ transition: 'opacity 0.2s ease' }}>
+    <g className="orbit-connection" opacity={(isHovered ? 1 : 0.85) * connEase} style={{ transition: connEase >= 1 ? 'opacity 0.2s ease' : undefined }}>
       {/* Connection line - solid like NodeCanvas edges */}
       <line
         x1={sourceX}
@@ -178,6 +197,24 @@ const DraggableOrbitItem = ({ candidate, x, y, rightPanelExpanded, onNodeClick, 
   const rotation = useGraphStore(state => state.orbitRotation);
   const concept = useMemo(() => candidateToConcept(candidate), [candidate]);
 
+  // Entrance animation: scale from 0 + fade in
+  const mountTimeRef = useRef(Date.now());
+  const [entranceProgress, setEntranceProgress] = useState(0);
+  useEffect(() => {
+    mountTimeRef.current = Date.now();
+    let raf;
+    const tick = () => {
+      const elapsed = Date.now() - mountTimeRef.current;
+      const t = Math.min(1, elapsed / ENTRANCE_DURATION_MS);
+      setEntranceProgress(t);
+      if (t < 1) raf = requestAnimationFrame(tick);
+    };
+    raf = requestAnimationFrame(tick);
+    return () => { if (raf) cancelAnimationFrame(raf); };
+  }, []);
+  // Ease-out cubic
+  const ease = 1 - Math.pow(1 - entranceProgress, 3);
+
   const [{ isDragging }, drag, preview] = useDrag(() => ({
     type: SPAWNABLE_NODE,
     item: {
@@ -219,10 +256,16 @@ const DraggableOrbitItem = ({ candidate, x, y, rightPanelExpanded, onNodeClick, 
   // Text contrast
   const textColor = getTextColor(fill, theme.darkMode);
 
+  // Center of the item for scale-from-center transform
+  const cx = x + currentWidth / 2;
+  const cy = y + currentHeight / 2;
+  const baseOpacity = isDragging ? 0.3 : (isHovered ? 1.0 : 0.85);
+
   return (
     <g
       ref={drag}
-      style={{ opacity: isDragging ? 0.3 : (isHovered ? 1.0 : 0.85), transition: 'opacity 0.2s ease' }}
+      transform={ease < 1 ? `translate(${cx}, ${cy}) scale(${ease}) translate(${-cx}, ${-cy})` : undefined}
+      style={{ opacity: baseOpacity * ease, transition: ease >= 1 ? 'opacity 0.2s ease' : undefined }}
       onMouseEnter={() => onHover?.(candidate.id)}
       onMouseLeave={() => onHoverEnd?.()}
     >

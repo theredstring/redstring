@@ -5924,7 +5924,8 @@ function NodeCanvas() {
   };
   const handleCanvasClick = (e) => {
     // Exit semantic orbit mode on any canvas click (safety net for overlay click)
-    if (semanticOrbitActive) {
+    // But NOT if the user just panned (drag-then-release fires click too)
+    if (semanticOrbitActive && !recentlyPanned && !mouseMoved.current) {
       exitOrbitMode();
       return;
     }
@@ -11641,10 +11642,14 @@ function NodeCanvas() {
                               backdropFilter: 'blur(3px)',
                               WebkitBackdropFilter: 'blur(3px)',
                               cursor: 'pointer',
+                              pointerEvents: 'auto',
                             }}
                             onClick={(e) => {
-                              e.stopPropagation();
-                              exitOrbitMode();
+                              // Only exit orbit on a genuine click, not after panning
+                              if (!recentlyPanned && !mouseMoved.current) {
+                                e.stopPropagation();
+                                exitOrbitMode();
+                              }
                             }}
                           />
                         </foreignObject>

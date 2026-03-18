@@ -432,6 +432,7 @@ const RedstringMenu = ({
                           }}
                           style={{ cursor: 'pointer' }}
                         >
+                          <GitMerge size={16} style={{ marginRight: '8px', minWidth: '16px', flexShrink: 0 }} />
                           Merge Duplicates
                         </div>
                         <div className="submenu-divider" style={{ margin: '8px 0', borderTop: '1px solid #444', opacity: 0.3 }} />
@@ -441,6 +442,7 @@ const RedstringMenu = ({
                           onMouseLeave={handleNestedSubmenuItemLeave}
                           style={{ cursor: 'pointer' }}
                         >
+                          <Move size={16} style={{ marginRight: '8px', minWidth: '16px', flexShrink: 0 }} />
                           Zoom on Drag
                           <ChevronRight size={14} style={{ marginLeft: 'auto', opacity: 0.7 }} />
 
@@ -513,6 +515,7 @@ const RedstringMenu = ({
                           onClick={() => onToggleDarkMode?.()}
                           style={{ cursor: 'pointer' }}
                         >
+                          <Moon size={14} style={{ marginRight: '8px', minWidth: '14px', flexShrink: 0 }} />
                           {darkMode ? 'Dark Mode: On' : 'Dark Mode: Off'}
                         </div>
                         <div
@@ -521,6 +524,7 @@ const RedstringMenu = ({
                           onClick={() => onToggleFullscreen?.()}
                           style={{ cursor: 'pointer' }}
                         >
+                          <Maximize size={14} style={{ marginRight: '8px', minWidth: '14px', flexShrink: 0 }} />
                           {isFullscreen ? 'Fullscreen: On' : 'Fullscreen: Off'}
                         </div>
                         <div
@@ -529,6 +533,7 @@ const RedstringMenu = ({
                           onClick={() => onToggleTrackpadZoom?.()}
                           style={{ cursor: 'pointer' }}
                         >
+                          <ZoomIn size={14} style={{ marginRight: '8px', minWidth: '14px', flexShrink: 0 }} />
                           {trackpadZoomEnabled ? 'Disable Trackpad Zoom (Browser)' : 'Enable Trackpad Zoom (Browser)'}
                         </div>
                         <div
@@ -537,6 +542,7 @@ const RedstringMenu = ({
                           onClick={() => onToggleShowConnectionNames?.()}
                           style={{ cursor: 'pointer' }}
                         >
+                          <Tag size={14} style={{ marginRight: '8px', minWidth: '14px', flexShrink: 0 }} />
                           {showConnectionNames ? 'Hide Connection Names' : 'Show Connection Names'}
                         </div>
                         <div
@@ -545,6 +551,7 @@ const RedstringMenu = ({
                           onMouseLeave={handleNestedSubmenuItemLeave}
                           style={{ cursor: 'pointer' }}
                         >
+                          <Grid3x3 size={14} style={{ marginRight: '8px', minWidth: '14px', flexShrink: 0 }} />
                           Grid
                           <ChevronRight size={14} style={{ marginLeft: 'auto', opacity: 0.7 }} />
 
@@ -610,7 +617,7 @@ const RedstringMenu = ({
                           }}
                           style={{ cursor: 'pointer' }}
                         >
-                          <Activity size={14} style={{ marginRight: '8px' }} />
+                          <Activity size={14} style={{ marginRight: '8px', minWidth: '14px', flexShrink: 0 }} />
                           Force Simulation Tuner
                         </div>
 
@@ -623,7 +630,7 @@ const RedstringMenu = ({
                           }}
                           style={{ cursor: 'pointer' }}
                         >
-                          <LayoutGrid size={14} style={{ marginRight: '8px' }} />
+                          <LayoutGrid size={14} style={{ marginRight: '8px', minWidth: '14px', flexShrink: 0 }} />
                           Auto Layout Graph
                         </div>
 
@@ -636,7 +643,7 @@ const RedstringMenu = ({
                           }}
                           style={{ cursor: 'pointer' }}
                         >
-                          <RefreshCw size={14} style={{ marginRight: '8px' }} />
+                          <RefreshCw size={14} style={{ marginRight: '8px', minWidth: '14px', flexShrink: 0 }} />
                           Condense Nodes
                         </div>
 
@@ -647,6 +654,7 @@ const RedstringMenu = ({
                           onMouseLeave={handleNestedSubmenuItemLeave}
                           style={{ position: 'relative' }}
                         >
+                          <Keyboard size={14} style={{ marginRight: '8px', minWidth: '14px', flexShrink: 0 }} />
                           <span>Keyboard</span>
                           <ChevronRight size={14} className="nested-chevron" />
                           {isNestedSubmenuOpen('keyboard') && (
@@ -709,6 +717,7 @@ const RedstringMenu = ({
                           onMouseLeave={handleNestedSubmenuItemLeave}
                           style={{ position: 'relative' }}
                         >
+                          <Type size={14} style={{ marginRight: '8px', minWidth: '14px', flexShrink: 0 }} />
                           <span>Text Size</span>
                           <ChevronRight size={14} className="nested-chevron" />
                           {isNestedSubmenuOpen('textSize') && (
@@ -792,6 +801,7 @@ const RedstringMenu = ({
                           onClick={() => onSetRoutingStyle?.('straight')}
                           style={{ opacity: routingStyle === 'straight' ? 1 : 0.8, cursor: 'pointer' }}
                         >
+                          <Minus size={14} style={{ marginRight: '8px', minWidth: '14px', flexShrink: 0 }} />
                           Routing: Straight {routingStyle === 'straight' ? '✓' : ''}
                         </div>
                         <div
@@ -799,6 +809,7 @@ const RedstringMenu = ({
                           onClick={() => onSetRoutingStyle?.('manhattan')}
                           style={{ opacity: routingStyle === 'manhattan' ? 1 : 0.8, cursor: 'pointer' }}
                         >
+                          <CornerDownRight size={14} style={{ marginRight: '8px', minWidth: '14px', flexShrink: 0 }} />
                           Routing: Manhattan {routingStyle === 'manhattan' ? '✓' : ''}
                         </div>
                         <div
@@ -806,6 +817,7 @@ const RedstringMenu = ({
                           onClick={() => onSetRoutingStyle?.('clean')}
                           style={{ opacity: routingStyle === 'clean' ? 1 : 0.8, cursor: 'pointer' }}
                         >
+                          <Spline size={14} style={{ marginRight: '8px', minWidth: '14px', flexShrink: 0 }} />
                           Routing: Clean {routingStyle === 'clean' ? '✓' : ''}
                         </div>
                         {routingStyle === 'clean' && (
@@ -874,7 +886,7 @@ const RedstringMenu = ({
                           }}
                           style={{ cursor: 'pointer' }}
                         >
-                          <LayoutGrid size={14} style={{ marginRight: '8px' }} />
+                          <LayoutGrid size={14} style={{ marginRight: '8px', minWidth: '14px', flexShrink: 0 }} />
                           Generate Test Graph
                         </div>
 
@@ -883,7 +895,7 @@ const RedstringMenu = ({
                           onClick={() => debugConfig.setWizardEnabled(!debugSettings.enableWizard)}
                           style={{ cursor: 'pointer', opacity: debugSettings.enableWizard ? 1 : 0.8 }}
                         >
-                          <Bot size={14} style={{ marginRight: '8px' }} />
+                          <Bot size={14} style={{ marginRight: '8px', minWidth: '14px', flexShrink: 0 }} />
                           {debugSettings.enableWizard ? 'Disable The Wizard' : 'Enable The Wizard'}
                         </div>
 
@@ -922,7 +934,7 @@ const RedstringMenu = ({
                           onClick={() => setDebugMode(!debugMode)}
                           style={{ cursor: 'pointer' }}
                         >
-                          <Bug size={14} style={{ marginRight: '8px' }} />
+                          <Bug size={14} style={{ marginRight: '8px', minWidth: '14px', flexShrink: 0 }} />
                           {debugMode ? 'Hide Debug Overlay' : 'Show Debug Overlay'}
                         </div>
 
@@ -952,7 +964,7 @@ const RedstringMenu = ({
                           }}
                           style={{ cursor: 'pointer' }}
                         >
-                          <RefreshCw size={14} style={{ marginRight: '8px' }} />
+                          <RefreshCw size={14} style={{ marginRight: '8px', minWidth: '14px', flexShrink: 0 }} />
                           Reset Onboarding Flow
                         </div>
 
@@ -965,7 +977,7 @@ const RedstringMenu = ({
                           }}
                           style={{ cursor: 'pointer' }}
                         >
-                          <RefreshCw size={14} style={{ marginRight: '8px' }} />
+                          <RefreshCw size={14} style={{ marginRight: '8px', minWidth: '14px', flexShrink: 0 }} />
                           Repair Broken Graph Links
                         </div>
 
