@@ -14,8 +14,8 @@ const SPAWNABLE_NODE = 'spawnable_node';
 
 const SOURCE_TO_RING_MARGIN = 200; // Gap from source node edge to first orbit ring
 const INTER_RING_MARGIN = 100;      // Gap between successive orbit rings
-const ORBIT_ANGULAR_SPEED_RAD_PER_SEC = 0.015; // Very slow clockwise rotation
-const RADIAL_PERTURBATION_PX_BASE = 6; // subtle radial wiggle
+const ORBIT_ANGULAR_SPEED_RAD_PER_SEC = 0.025; // Steady clockwise rotation
+const RADIAL_PERTURBATION_PX_BASE = 3; // very subtle radial wiggle
 const ANGLE_JITTER_RAD_BASE = 0.008; // subtle angle wobble
 const MIN_FREQ_HZ = 0.2;
 const MAX_FREQ_HZ = 1.2;
@@ -639,31 +639,22 @@ export default function OrbitOverlay({
     return { ring1: ring1Angles, ring2: ring2Angles, ring3: ring3Angles, ring4: ring4Angles };
   }, [measuredRing1, measuredRing2, measuredRing3, measuredRing4, ring1Radius, ring2Radius, ring3Radius, ring4Radius]);
 
-  // Animation time state (seconds). Throttled to ~20 FPS for efficiency.
+  // Animation time state (seconds). Runs at native refresh rate for smooth motion.
   const [animTimeSec, setAnimTimeSec] = useState(0);
   const rafRef = useRef(null);
-  const lastTsRef = useRef(0);
-  const accumRef = useRef(0);
+  const startTsRef = useRef(0);
 
   useEffect(() => {
     const loop = (ts) => {
-      if (!lastTsRef.current) lastTsRef.current = ts;
-      const dtSec = (ts - lastTsRef.current) / 1000;
-      lastTsRef.current = ts;
-      accumRef.current += dtSec;
-      // Update every ~50ms
-      if (accumRef.current >= 0.05) {
-        setAnimTimeSec((t) => t + accumRef.current);
-        accumRef.current = 0;
-      }
+      if (!startTsRef.current) startTsRef.current = ts;
+      setAnimTimeSec((ts - startTsRef.current) / 1000);
       rafRef.current = requestAnimationFrame(loop);
     };
     rafRef.current = requestAnimationFrame(loop);
     return () => {
       if (rafRef.current) cancelAnimationFrame(rafRef.current);
       rafRef.current = null;
-      lastTsRef.current = 0;
-      accumRef.current = 0;
+      startTsRef.current = 0;
     };
   }, []);
 
