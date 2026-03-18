@@ -159,6 +159,7 @@ export function normalizeToCandidate(result, context = {}) {
 // Convert Candidate to the concept object our panel/canvas drop already understands
 export function candidateToConcept(candidate) {
   return {
+    id: candidate.uri || `concept-${candidate.name}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
     name: candidate.name,
     color: candidate.color,
     description: '',

@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import MaroonSlider from './components/MaroonSlider.jsx';
-import { ChevronRight, FileText, FolderOpen, Save, Clock, Globe, Bug, BookOpen, Home, LayoutGrid, Activity, RefreshCw, Undo2, Redo2, Bot, Settings } from 'lucide-react';
+import { ChevronRight, FileText, FolderOpen, Save, Clock, Globe, Bug, BookOpen, Home, LayoutGrid, Activity, RefreshCw, Undo2, Redo2, Bot, Settings, GitMerge, Move, Moon, Maximize, ZoomIn, Tag, Grid3x3, Keyboard, Type, Minus, CornerDownRight, Spline } from 'lucide-react';
 import './RedstringMenu.css';
 import DebugOverlay from './DebugOverlay';
 import * as fileStorage from './store/fileStorage.js';

@@ -17,9 +17,11 @@ const getGraphStore = async () => {
 const orbitCache = new Map(); // prototypeId -> { timestamp, candidates }
 
 const CACHE_TTL_MS = 6 * 60 * 60 * 1000; // 6 hours for UI orbit suggestions
+const TRICKLE_BATCH = 2;
+const TRICKLE_DELAY_MS = 120;
 
 // Deduplicate, sort, and partition candidates into 4 rings
-function dedupeAndPartition(candidates) {
+export function dedupeAndPartitionOrbit(candidates) {
   const seen = new Set();
   const unique = candidates.filter((c) => {
     if (seen.has(c.id)) return false;
@@ -194,13 +196,11 @@ export async function fetchOrbitCandidatesForPrototype(prototype, options = {}) 
 
     // Stream results incrementally — trickle each provider's results in small batches
     const aggregated = [];
-    const TRICKLE_BATCH = 2;
-    const TRICKLE_DELAY_MS = 120;
     console.log(`⏳ Streaming ${providers.length} providers as they resolve...`);
 
     const emitProgress = () => {
       if (!onProgress) return;
-      const snapshot = dedupeAndPartition([...aggregated]);
+      const snapshot = dedupeAndPartitionOrbit([...aggregated]);
       // Only emit if we have at least some tier A/B results (skip externalUrl-only flashes)
       if (snapshot.ring1.length > 0 || snapshot.ring2.length > 0) {
         console.log(`📡 Streaming update: R1=${snapshot.ring1.length}, R2=${snapshot.ring2.length}, R3=${snapshot.ring3.length}, R4=${snapshot.ring4.length}`);
@@ -238,7 +238,7 @@ export async function fetchOrbitCandidatesForPrototype(prototype, options = {}) 
 
     await Promise.allSettled(tracked);
 
-    const result = dedupeAndPartition(aggregated);
+    const result = dedupeAndPartitionOrbit(aggregated);
     console.log(`🎯 Final orbit rings: R1=${result.ring1.length}, R2=${result.ring2.length}, R3=${result.ring3.length}, R4=${result.ring4.length}`);
 
     orbitCache.set(key, { timestamp: now, candidates: result });

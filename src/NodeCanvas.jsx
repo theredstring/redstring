@@ -28,7 +28,7 @@ import { v4 as uuidv4 } from 'uuid'; // Import UUID generator
 import { Edit3, Trash2, Link, Package, PackageOpen, Expand, ArrowUpFromDot, Triangle, Layers, ArrowLeft, SendToBack, ArrowBigRightDash, Palette, Orbit, Bookmark, Plus, CornerUpLeft, CornerDownLeft, Merge, Undo2, Clock, LayoutGrid } from 'lucide-react'; // Icons for PieMenu
 import ColorPicker from './ColorPicker';
 import { useDrop } from 'react-dnd';
-import { fetchOrbitCandidatesForPrototype } from './services/orbitResolver.js';
+import { fetchOrbitCandidatesForPrototype, dedupeAndPartitionOrbit } from './services/orbitResolver.js';
 import { showContextMenu } from './components/GlobalContextMenu';
 import Panel from './Panel';
 import * as fileStorage from './store/fileStorage.js';
@@ -6935,11 +6935,33 @@ function NodeCanvas() {
           return;
         }
 
+        // streamedCount tracks how many items onProgress has already shown
+        let streamedCount = 0;
         const candidates = await fetchOrbitCandidatesForPrototype(proto, {
           onProgress: (data) => {
-            if (!cancelled) setOrbitData(data);
+            if (!cancelled) {
+              streamedCount = (data.all || []).length;
+              setOrbitData(data);
+            }
           },
         });
+
+        if (cancelled) return;
+
+        // Trickle any remaining items not yet shown by onProgress (covers cached results
+        // where onProgress never fires, or fills in the final batch)
+        const all = candidates.all || [];
+        if (streamedCount < all.length) {
+          for (let i = Math.max(streamedCount, 2); i <= all.length; i += 2) {
+            if (cancelled) return;
+            const partial = all.slice(0, i);
+            const snapshot = dedupeAndPartitionOrbit(partial);
+            setOrbitData(snapshot);
+            if (i < all.length) {
+              await new Promise(r => setTimeout(r, 120));
+            }
+          }
+        }
 
         if (!cancelled) {
           setOrbitData(candidates);
@@ -11602,21 +11624,30 @@ function NodeCanvas() {
 
 
 
-                      {/* Dark overlay for semantic orbit mode */}
+                      {/* Dark overlay with backdrop blur for semantic orbit mode */}
                       {semanticOrbitActive && (
-                        <rect
+                        <foreignObject
                           x={canvasSize.offsetX}
                           y={canvasSize.offsetY}
                           width={canvasSize.width}
                           height={canvasSize.height}
-                          fill="black"
-                          opacity={0.5}
-                          style={{ pointerEvents: 'auto', cursor: 'pointer' }}
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            exitOrbitMode();
-                          }}
-                        />
+                        >
+                          <div
+                            xmlns="http://www.w3.org/1999/xhtml"
+                            style={{
+                              width: '100%',
+                              height: '100%',
+                              background: 'rgba(0, 0, 0, 0.7)',
+                              backdropFilter: 'blur(3px)',
+                              WebkitBackdropFilter: 'blur(3px)',
+                              cursor: 'pointer',
+                            }}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              exitOrbitMode();
+                            }}
+                          />
+                        </foreignObject>
                       )}
 
                       {/* Render the "Active" Node (if it exists and not being dragged) */}

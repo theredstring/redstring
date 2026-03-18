@@ -12,7 +12,7 @@ import { formatPredicate } from '../utils/predicateFormatter.js';
 
 const SPAWNABLE_NODE = 'spawnable_node';
 
-const DRAG_MARGIN = 55; // Spacing from node edge to orbit ring and between rings
+const DRAG_MARGIN = 90; // Spacing from node edge to orbit ring and between rings
 const ORBIT_ANGULAR_SPEED_RAD_PER_SEC = 0.015; // Very slow clockwise rotation
 const RADIAL_PERTURBATION_PX_BASE = 6; // subtle radial wiggle
 const ANGLE_JITTER_RAD_BASE = 0.008; // subtle angle wobble
@@ -115,8 +115,8 @@ const OrbitConnection = ({
   const textStrokeWidth = Math.max(2, fontSize * 0.25); // ~6px
 
   return (
-    <g className="orbit-connection" opacity={isHovered ? 1 : 0.6}>
-      {/* Connection line - thicker like NodeCanvas, ends at arrow */}
+    <g className="orbit-connection" opacity={isHovered ? 1 : 0.85} style={{ transition: 'opacity 0.2s ease' }}>
+      {/* Connection line - solid like NodeCanvas edges */}
       <line
         x1={sourceX}
         y1={sourceY}
@@ -125,10 +125,8 @@ const OrbitConnection = ({
         stroke={color}
         strokeWidth={16}
         strokeLinecap="round"
-        opacity={0.4}
         style={{
-          pointerEvents: 'none',
-          transition: 'opacity 0.2s ease'
+          pointerEvents: 'none'
         }}
       />
 
@@ -224,7 +222,7 @@ const DraggableOrbitItem = ({ candidate, x, y, rightPanelExpanded, onNodeClick, 
   return (
     <g
       ref={drag}
-      style={{ opacity: isDragging ? 0.3 : (isHovered ? 1.0 : 0.6), transition: 'opacity 0.2s ease' }}
+      style={{ opacity: isDragging ? 0.3 : (isHovered ? 1.0 : 0.85), transition: 'opacity 0.2s ease' }}
       onMouseEnter={() => onHover?.(candidate.id)}
       onMouseLeave={() => onHoverEnd?.()}
     >
