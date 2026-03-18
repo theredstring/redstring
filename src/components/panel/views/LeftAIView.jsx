@@ -2066,10 +2066,10 @@ const LeftAIView = ({ compact = false,
     // Escape any HTML first to avoid injection when we swap in tags below
     let html = escapeHtml(text);
 
-    // Code blocks
-    html = html.replace(/```([\s\S]*?)```/g, '<pre style="background:rgba(0,0,0,0.1);padding:8px;border-radius:4px;overflow-x:auto;"><code>$1</code></pre>');
-    // Inline code
-    html = html.replace(/`([^`]+)`/g, '<code style="background:rgba(0,0,0,0.1);padding:2px 4px;border-radius:3px;">$1</code>');
+    // Code blocks - use theme-aware background
+    html = html.replace(/```([\s\S]*?)```/g, `<pre style="background:${theme.canvas.inactive};padding:8px;border-radius:4px;overflow-x:auto;"><code>$1</code></pre>`);
+    // Inline code - use theme-aware background
+    html = html.replace(/`([^`]+)`/g, `<code style="background:${theme.canvas.inactive};padding:2px 4px;border-radius:3px;">$1</code>`);
 
     // Headers
     html = html.replace(/^#### (.*$)/gim, '<h4 style="margin:10px 0 6px;font-size:1.05em;font-weight:600;">$1</h4>');
@@ -2079,7 +2079,7 @@ const LeftAIView = ({ compact = false,
 
     // Horizontal Rule — use a styled <div> instead of void <hr> element.
     // <hr> can cause layout collapse between consecutive dividers in flex/pre-wrap contexts.
-    html = html.replace(/^---$/gim, '<div style="border-top:1px solid rgba(38,0,0,0.2);margin:10px 0;height:0;line-height:0;font-size:0;"></div>');
+    html = html.replace(/^---$/gim, `<div style="border-top:1px solid ${theme.canvas.border};margin:10px 0;height:0;line-height:0;font-size:0;"></div>`);
 
     // ***bold+italic***
     html = html.replace(/\*\*\*(.+?)\*\*\*/g, '<strong><em>$1</em></strong>');
@@ -3116,7 +3116,7 @@ const LeftAIView = ({ compact = false,
                       const lkey = key.toLowerCase();
                       if (lkey.includes('id')) acc[key] = '12345';
                       else if (lkey.includes('name')) acc[key] = 'Test Name';
-                      else if (lkey.includes('color')) acc[key] = '#ff0000';
+                      else if (lkey.includes('color')) acc[key] = theme.accent.primary;
                       else if (lkey.includes('desc')) acc[key] = 'Test description';
                       else acc[key] = 'test_value';
                     }
@@ -3215,10 +3215,10 @@ const LeftAIView = ({ compact = false,
       {showAdvanced && (
         <div className="ai-advanced-panel" style={{
           padding: '12px',
-          backgroundColor: '#1a1a1a',
+          backgroundColor: theme.canvas.inactive,
           borderBottom: `1px solid ${theme.canvas.border}`,
           fontSize: '12px',
-          color: '#ccc',
+          color: theme.canvas.textSecondary,
           animation: 'slideDown 0.2s ease-out'
         }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
@@ -3252,7 +3252,7 @@ const LeftAIView = ({ compact = false,
             </span>
           </div>
 
-          <div style={{ marginTop: '10px', paddingTop: '8px', borderTop: '1px solid #2a2a2a', display: 'flex', gap: '8px' }}>
+          <div style={{ marginTop: '10px', paddingTop: '8px', borderTop: `1px solid ${theme.canvas.border}`, display: 'flex', gap: '8px' }}>
             <button
               className="ai-flat-button"
               style={{ fontSize: '11px', padding: '4px 8px' }}
@@ -3323,9 +3323,9 @@ const LeftAIView = ({ compact = false,
       {selectedTestTool && (
         <div className="ai-tool-tester-modal" style={{
           position: 'absolute', top: '50px', right: '12px',
-          width: '320px', backgroundColor: '#1e1e1e',
-          border: '1px solid #333', borderRadius: '8px', padding: '12px', zIndex: 1000,
-          boxShadow: '0 8px 24px rgba(0,0,0,0.4)',
+          width: '320px', backgroundColor: theme.canvas.inactive,
+          border: `1px solid ${theme.canvas.border}`, borderRadius: '8px', padding: '12px', zIndex: 1000,
+          boxShadow: `0 8px 24px ${theme.darkMode ? 'rgba(0,0,0,0.4)' : 'rgba(38,0,0,0.15)'}`,
           display: 'flex', flexDirection: 'column'
         }}>
           <h3 style={{ margin: '0 0 8px 0', color: theme.canvas.textPrimary, fontSize: '13px', borderBottom: `1px solid ${theme.canvas.border}`, paddingBottom: '6px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -3340,9 +3340,9 @@ const LeftAIView = ({ compact = false,
             value={testToolArgs}
             onChange={(e) => setTestToolArgs(e.target.value)}
             style={{
-              width: '100%', height: '120px', backgroundColor: '#0f0f0f',
-              color: '#d4d4d4', fontFamily: 'monospace', fontSize: '11px', padding: '8px',
-              border: '1px solid #333', borderRadius: '4px', marginBottom: '12px',
+              width: '100%', height: '120px', backgroundColor: theme.canvas.bg,
+              color: theme.canvas.textPrimary, fontFamily: 'monospace', fontSize: '11px', padding: '8px',
+              border: `1px solid ${theme.canvas.border}`, borderRadius: '4px', marginBottom: '12px',
               resize: 'vertical', outline: 'none'
             }}
           />
@@ -3448,7 +3448,7 @@ const LeftAIView = ({ compact = false,
             {isHydrated && isConnected && messages.length === 0 && (
               <div style={{ textAlign: 'center', display: 'flex', flexDirection: 'column', alignItems: 'center', padding: '40px 0' }}>
                 <img src={fullBodySvg} alt="Wizard" style={{ width: '150px', marginBottom: '16px' }} />
-                <div style={{ color: '#555', fontFamily: "'EmOne', sans-serif", fontSize: '14px' }}>What will we build today?</div>
+                <div style={{ color: theme.canvas.textSecondary, fontFamily: "'EmOne', sans-serif", fontSize: '14px' }}>What will we build today?</div>
               </div>
             )}
             {messages.map((message, idx) => {

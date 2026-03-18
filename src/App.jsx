@@ -29,6 +29,23 @@ function App() {
     root.style.setProperty('--canvas-hover', theme.canvas.hover);
     root.style.setProperty('--canvas-active', theme.canvas.active);
     root.style.setProperty('--canvas-inactive', theme.canvas.inactive);
+
+    // Message bubble colors - different for light vs dark mode
+    if (darkMode) {
+      root.style.setProperty('--bubble-wizard-bg', '#260000');
+      root.style.setProperty('--bubble-wizard-text', '#DEDADA');
+      root.style.setProperty('--bubble-wizard-border', 'rgba(38, 0, 0, 0.8)');
+      root.style.setProperty('--bubble-user-bg', '#201617');
+      root.style.setProperty('--bubble-user-text', '#DEDADA');
+      root.style.setProperty('--bubble-user-border', 'rgba(32, 22, 23, 0.8)');
+    } else {
+      root.style.setProperty('--bubble-wizard-bg', '#CCAAA8');
+      root.style.setProperty('--bubble-wizard-text', '#260000');
+      root.style.setProperty('--bubble-wizard-border', 'rgba(204, 170, 168, 0.8)');
+      root.style.setProperty('--bubble-user-bg', '#BDB5B5');
+      root.style.setProperty('--bubble-user-text', '#260000');
+      root.style.setProperty('--bubble-user-border', 'rgba(189, 181, 181, 0.8)');
+    }
   }, [darkMode]);
 
   return (

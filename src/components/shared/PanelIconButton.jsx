@@ -80,8 +80,9 @@ const PanelIconButton = ({
   };
 
   // PieMenu-style hover effect: light gray fill with accent stroke (3px)
+  // Always use light hover background in both light and dark modes
   const hoverStyles = isHovered && !disabled ? {
-    backgroundColor: theme.canvas.hover,
+    backgroundColor: '#DEDADA',
     boxShadow: `0 0 0 3px ${theme.accent.primary}`,
   } : {};
 

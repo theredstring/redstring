@@ -266,8 +266,15 @@ const computeRingRadius = (items, centerRadius, spacing, count) => {
   }
 
   const maxWidth = items.reduce((m, it) => Math.max(m, it.dims.currentWidth), 0);
+
+  // For a single item, no chord geometry needed - just use simple spacing
+  // (chord formula breaks down: sin(π) ≈ 0 causes division by ~0)
+  if (count === 1) {
+    return centerRadius + spacing + maxWidth / 2;
+  }
+
   const chordNeeded = maxWidth + spacing;
-  const dTheta = (Math.PI * 2) / Math.max(1, count);
+  const dTheta = (Math.PI * 2) / count;
   const minR = chordNeeded / (2 * Math.sin(dTheta / 2));
   return Math.max(centerRadius + spacing + maxWidth / 2, minR);
 };
