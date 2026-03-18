@@ -8,6 +8,7 @@ import React from 'react';
 import { calculateParallelEdgePath } from '../utils/canvas/parallelEdgeUtils.js';
 import { generateManhattanRoutingPath, generateCleanRoutingPath } from '../utils/canvas/edgeRouting.js';
 import { getTextColor } from '../utils/colorUtils.js';
+import { useTheme } from '../hooks/useTheme.js';
 
 /**
  * Build a rounded SVG path from ordered polyline points
@@ -98,6 +99,7 @@ function EdgeRenderer({
   NODE_DEFAULT_COLOR,
   connectionFontSize = 24
 }) {
+  const theme = useTheme();
   // Calculate parallel edge path if needed
   const parallelPath = calculateParallelEdgePath(startX, startY, endX, endY, curveInfo);
   const useCurve = parallelPath.type === 'curve';
@@ -197,7 +199,7 @@ function EdgeRenderer({
           <text
             x={useCurve ? parallelPath.apexX : midX}
             y={useCurve ? parallelPath.apexY : midY}
-            fill={getTextColor(edgeColor || '#800000')}
+            fill={getTextColor(edgeColor || '#800000', theme.darkMode)}
             fontSize={connectionFontSize}
             fontWeight="bold"
             textAnchor="middle"

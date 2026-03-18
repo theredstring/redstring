@@ -202,19 +202,34 @@ export async function fetchOrbitCandidatesForPrototype(prototype, options = {}) 
     // Sort by score desc
     aggregated.sort((a, b) => (b.score || 0) - (a.score || 0));
 
-    // Partition into inner (Tier A top 8) and outer (others up to 32)
+    // Partition candidates into 4 rings with semantic grouping
     const tierA = aggregated.filter((c) => c.tier === 'A');
-    const inner = tierA.slice(0, 8);
-    const outer = aggregated.filter((c) => !inner.includes(c)).slice(0, 64);
+    const tierB = aggregated.filter((c) => c.tier === 'B');
+    const tierC = aggregated.filter((c) => c.tier === 'C');
 
-    console.log(`🎯 Final orbit rings: ${inner.length} inner (Tier A), ${outer.length} outer`);
+    console.log(`📊 Tier distribution: A=${tierA.length}, B=${tierB.length}, C=${tierC.length}`);
 
-    const result = { inner, outer, all: aggregated };
+    // Ring 1: Tier A top concepts (closest to node)
+    const ring1 = tierA.slice(0, 10);
+
+    // Ring 2: Tier A overflow + Tier B top
+    const ring2 = tierA.slice(10).concat(tierB).slice(0, 10);
+
+    // Ring 3: Tier B/C mid-importance
+    const tierBCRemaining = aggregated.filter(c => !ring1.includes(c) && !ring2.includes(c));
+    const ring3 = tierBCRemaining.slice(0, 10);
+
+    // Ring 4: Lower-priority items (outermost)
+    const ring4 = tierBCRemaining.slice(10, 20);
+
+    console.log(`🎯 Final orbit rings: R1=${ring1.length}, R2=${ring2.length}, R3=${ring3.length}, R4=${ring4.length}`);
+
+    const result = { ring1, ring2, ring3, ring4, all: aggregated };
     orbitCache.set(key, { timestamp: now, candidates: result });
     return result;
   } catch (error) {
     console.error(`❌ Orbit resolver error for "${prototype.name}":`, error);
-    return { inner: [], outer: [], all: [] };
+    return { ring1: [], ring2: [], ring3: [], ring4: [], all: [] };
   }
 }
 

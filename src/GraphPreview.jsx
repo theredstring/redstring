@@ -3,8 +3,10 @@ import { getNodeDimensions } from './utils.js';
 import { NODE_HEIGHT, NODE_WIDTH, NODE_CORNER_RADIUS, NODE_DEFAULT_COLOR } from './constants';
 import useGraphStore from "./store/graphStore.jsx";
 import { getTextColor } from './utils/colorUtils.js';
+import { useTheme } from './hooks/useTheme.js';
 
 const GraphPreview = ({ nodes = [], edges = [], width, height }) => {
+  const theme = useTheme();
   // Access store for prototype data to determine edge colors
   const nodePrototypesMap = useGraphStore(state => state.nodePrototypes);
   const edgePrototypesMap = useGraphStore(state => state.edgePrototypes);
@@ -367,7 +369,7 @@ const GraphPreview = ({ nodes = [], edges = [], width, height }) => {
                     textAnchor="middle"
                     dominantBaseline="central"
                     fontSize={fontSize}
-                    fill={getTextColor(nodeColor)}
+                    fill={getTextColor(nodeColor, theme.darkMode)}
                     fontWeight="bold"
                     fontFamily="'EmOne', sans-serif"
                     style={{
@@ -410,7 +412,7 @@ const GraphPreview = ({ nodes = [], edges = [], width, height }) => {
                     textAnchor="middle"
                     dominantBaseline="central"
                     fontSize={fontSize}
-                    fill={getTextColor(nodeColor)}
+                    fill={getTextColor(nodeColor, theme.darkMode)}
                     fontWeight="bold"
                     fontFamily="'EmOne', sans-serif"
                     style={{

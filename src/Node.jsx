@@ -8,6 +8,8 @@ import { getTextColor } from './utils/colorUtils.js';
 import { ChevronLeft, ChevronRight, Trash2, Expand, ArrowUpFromDot, PackageOpen } from 'lucide-react'; // Import navigation icons, trash, expand, and package-open
 import useGraphStore, { getHydratedNodesForGraph, getEdgesForGraph } from "./store/graphStore.jsx"; // Import store selectors
 
+import { useTheme } from './hooks/useTheme.js';
+
 const PREVIEW_SCALE_FACTOR = 0.3; // How much to shrink the network layout
 
 // Accept dimensions and other props
@@ -56,6 +58,7 @@ const Node = ({
   currentDefinitionIndex = 0,
   onNavigateDefinition
 }) => {
+  const theme = useTheme();
   // Destructure properties from the hydrated node object
   // Instance-specific properties
   const instanceId = node.id;
@@ -166,7 +169,7 @@ const Node = ({
   const displayTitle = (isPreviewing && currentGraphName) ? currentGraphName : nodeName;
 
   // Calculate dynamic text color based on node background
-  const nodeTextColor = useMemo(() => getTextColor(node.color || '#800000'), [node.color]);
+  const nodeTextColor = useMemo(() => getTextColor(node.color || '#800000', theme.darkMode), [node.color, theme.darkMode]);
 
   // For previewing, we want text to wrap exactly as it did when unexpanded
   const unexpandedDims = React.useMemo(() => {

@@ -9,8 +9,8 @@
 export const LIGHT_THEME = {
   canvas: {
     bg: '#bdb5b5',      // Main canvas/panel background
-    text: '#260000',     // Primary text color on canvas bg
-    textMuted: '#666',   // Secondary/muted text
+    textPrimary: '#260000',   // Primary text color on canvas bg
+    textSecondary: '#716C6C', // Secondary/muted text
     border: '#979090',   // Borders and dividers
     hover: '#cfc6c6',    // Hover states
     active: '#bdb5b5',   // Active tab/button states
@@ -27,8 +27,8 @@ export const LIGHT_THEME = {
 export const DARK_THEME = {
   canvas: {
     bg: '#3F3A3A',      // Main canvas/panel background
-    text: '#bdb5b5',     // Primary text color (light on dark)
-    textMuted: '#999',   // Secondary/muted text
+    textPrimary: '#DEDADA',   // Primary text color (light on dark)
+    textSecondary: '#BDB5B5', // Secondary light text
     border: '#5a5555',   // Borders and dividers
     hover: '#4a4545',    // Hover states
     active: '#3F3A3A',   // Active tab/button states

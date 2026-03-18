@@ -155,7 +155,7 @@ function NodeCanvas() {
   const placedLabelsRef = useRef(new Map());
   const pinchRef = useRef({ active: false, startDist: 0, startZoom: 1, centerClient: { x: 0, y: 0 }, centerWorld: null, lastCenterClient: { x: 0, y: 0 }, lastDist: 0 });
   const pinchSmoothingRef = useRef({ lastFrameTime: 0, velocity: { x: 0, y: 0 } });
-  const [orbitData, setOrbitData] = useState({ inner: [], outer: [], all: [] });
+  const [orbitData, setOrbitData] = useState({ ring1: [], ring2: [], ring3: [], ring4: [], all: [] });
   const wasDraggingRef = useRef(false); // Track if a drag just occurred to prevent click events
   const dragHistoryRecordedRef = useRef(false); // Guard against double recording of drag events
 
@@ -6899,7 +6899,7 @@ function NodeCanvas() {
     (async () => {
       try {
         if (selectedInstanceIds.size !== 1) {
-          setOrbitData({ inner: [], outer: [], all: [] });
+          setOrbitData({ ring1: [], ring2: [], ring3: [], ring4: [], all: [] });
           return;
         }
 
@@ -6909,7 +6909,7 @@ function NodeCanvas() {
         const proto = inst ? useGraphStore.getState().nodePrototypes.get(inst.prototypeId) : null;
 
         if (!proto) {
-          setOrbitData({ inner: [], outer: [], all: [] });
+          setOrbitData({ ring1: [], ring2: [], ring3: [], ring4: [], all: [] });
           return;
         }
 
@@ -6920,7 +6920,7 @@ function NodeCanvas() {
         }
       } catch (error) {
         console.error('Orbit search failed:', error);
-        if (!cancelled) setOrbitData({ inner: [], outer: [], all: [] });
+        if (!cancelled) setOrbitData({ ring1: [], ring2: [], ring3: [], ring4: [], all: [] });
       }
     })();
     return () => { cancelled = true; };
@@ -8676,16 +8676,7 @@ function NodeCanvas() {
                                         fontSize: `${fontSize}px`,
                                         fontFamily: 'EmOne, sans-serif',
                                         fontWeight: 'bold',
-                                        color: (() => {
-                                          const colorToUse = isNodeGroup ? nodeGroupColor : strokeColor;
-                                          // Thing groups use dynamic text color, regular groups use dark text
-                                          if (isNodeGroup) {
-                                            return getTextColor(colorToUse);
-                                          } else {
-                                            const { h, s } = hexToHsl(colorToUse);
-                                            return hslToHex(h, s, 16); // Always dark for regular groups
-                                          }
-                                        })(),
+                                        color: isNodeGroup ? getTextColor(nodeGroupColor, theme.darkMode) : getTextColor(theme.canvas.bg, theme.darkMode),
                                         backgroundColor: 'transparent',
                                         border: 'none',
                                         outline: 'none',
@@ -8701,10 +8692,9 @@ function NodeCanvas() {
                                     const colorToUse = isNodeGroup ? nodeGroupColor : strokeColor;
                                     // Thing groups use dynamic text color, regular groups use dark text
                                     if (isNodeGroup) {
-                                      return getTextColor(colorToUse);
+                                      return getTextColor(colorToUse, theme.darkMode);
                                     } else {
-                                      const { h, s } = hexToHsl(colorToUse);
-                                      return hslToHex(h, s, 16); // Always dark for regular groups
+                                      return getTextColor(theme.canvas.bg, theme.darkMode);
                                     }
                                   })()}
                                   fontWeight="bold"
@@ -9467,7 +9457,7 @@ function NodeCanvas() {
                                   <text
                                     x={midX}
                                     y={midY}
-                                    fill={getTextColor(edgeColor)}
+                                    fill={getTextColor(edgeColor, theme.darkMode)}
                                     fontSize={connectionFontSize}
                                     fontWeight="bold"
                                     textAnchor="middle"
@@ -10751,7 +10741,7 @@ function NodeCanvas() {
                                   <text
                                     x={midX}
                                     y={midY}
-                                    fill={getTextColor(edgeColor)}
+                                    fill={getTextColor(edgeColor, theme.darkMode)}
                                     fontSize={connectionFontSize}
                                     fontWeight="bold"
                                     textAnchor="middle"
@@ -11583,8 +11573,10 @@ function NodeCanvas() {
                                 centerY={centerY}
                                 focusWidth={dimensions.currentWidth}
                                 focusHeight={dimensions.currentHeight}
-                                innerCandidates={orbitData.inner}
-                                outerCandidates={orbitData.outer}
+                                ring1Candidates={orbitData.ring1 || []}
+                                ring2Candidates={orbitData.ring2 || []}
+                                ring3Candidates={orbitData.ring3 || []}
+                                ring4Candidates={orbitData.ring4 || []}
                               />
                               <Node
                                 key={activeNodeToRender.id}

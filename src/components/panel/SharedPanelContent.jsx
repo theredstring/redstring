@@ -5,6 +5,7 @@ import { Palette, ArrowUpFromDot, ImagePlus, BookOpen, ExternalLink, Trash2, Boo
 import { NODE_CORNER_RADIUS, NODE_DEFAULT_COLOR, THUMBNAIL_MAX_DIMENSION } from '../../constants.js';
 import { generateThumbnail } from '../../utils.js';
 import { getTextColor } from '../../utils/colorUtils';
+import { useTheme } from '../../hooks/useTheme.js';
 import CollapsibleSection from '../CollapsibleSection.jsx';
 import SemanticEditor from '../SemanticEditor.jsx';
 import ConnectionBrowser from '../ConnectionBrowser.jsx';
@@ -747,7 +748,7 @@ const WikipediaEnrichment = ({ nodeData, onUpdateNode }) => {
               border: '1px solid #ccc',
               borderRadius: '3px',
               background: 'transparent',
-              color: '#666',
+              color: theme.canvas.textSecondary,
               fontSize: '9px',
               cursor: 'pointer',
               fontFamily: "'EmOne', sans-serif"
@@ -855,7 +856,7 @@ const WikipediaEnrichment = ({ nodeData, onUpdateNode }) => {
               border: '1px solid #666',
               borderRadius: '3px',
               background: 'transparent',
-              color: '#666',
+              color: theme.canvas.textSecondary,
               fontSize: '8px',
               cursor: 'pointer',
               fontFamily: "'EmOne', sans-serif"
@@ -987,7 +988,7 @@ const WikipediaEnrichment = ({ nodeData, onUpdateNode }) => {
               border: '1px solid #ccc',
               borderRadius: '3px',
               background: 'transparent',
-              color: '#666',
+              color: theme.canvas.textSecondary,
               fontSize: '9px',
               cursor: 'pointer',
               fontFamily: "'EmOne', sans-serif"
@@ -1008,6 +1009,7 @@ const ItemTypes = {
 
 // Draggable node component
 const DraggableNodeComponent = ({ node, onOpenNode }) => {
+  const theme = useTheme();
   const [{ isDragging }, drag, preview] = useDrag(() => ({
     type: ItemTypes.SPAWNABLE_NODE,
     item: {
@@ -1032,7 +1034,7 @@ const DraggableNodeComponent = ({ node, onOpenNode }) => {
       style={{
         position: 'relative',
         backgroundColor: node.color || NODE_DEFAULT_COLOR,
-        color: getTextColor(node.color || NODE_DEFAULT_COLOR),
+        color: getTextColor(node.color || NODE_DEFAULT_COLOR, theme.darkMode),
         borderRadius: '12px',
         padding: '6px 6px',
         fontSize: '0.8rem',
@@ -1068,6 +1070,7 @@ const DraggableTitleComponent = ({
   onTitleKeyPress,
   onTitleSave
 }) => {
+  const theme = useTheme();
   const [{ isDragging }, drag, preview] = useDrag(() => ({
     type: ItemTypes.SPAWNABLE_NODE,
     item: {
@@ -1092,7 +1095,7 @@ const DraggableTitleComponent = ({
       <div style={{
         position: 'relative',
         backgroundColor: nodeData.color || NODE_DEFAULT_COLOR,
-        color: getTextColor(nodeData.color || NODE_DEFAULT_COLOR),
+        color: getTextColor(nodeData.color || NODE_DEFAULT_COLOR, theme.darkMode),
         borderRadius: '12px',
         paddingTop: '10px',
         paddingBottom: '8px',
@@ -1121,7 +1124,7 @@ const DraggableTitleComponent = ({
           style={{
             backgroundColor: 'transparent',
             border: 'none',
-            color: getTextColor(nodeData.color || NODE_DEFAULT_COLOR),
+            color: getTextColor(nodeData.color || NODE_DEFAULT_COLOR, theme.darkMode),
             fontSize: '1.1rem',
             fontWeight: 'bold',
             fontFamily: "'EmOne', sans-serif",
@@ -1144,7 +1147,7 @@ const DraggableTitleComponent = ({
       style={{
         position: 'relative',
         backgroundColor: nodeData.color || NODE_DEFAULT_COLOR,
-        color: getTextColor(nodeData.color || NODE_DEFAULT_COLOR),
+        color: getTextColor(nodeData.color || NODE_DEFAULT_COLOR, theme.darkMode),
         borderRadius: '12px',
         paddingTop: '10px',
         paddingBottom: '8px',
@@ -1203,6 +1206,7 @@ const SharedPanelContent = ({
   // Type determination
   isHomeTab = false
 }) => {
+  const theme = useTheme();
   const [isEditingBio, setIsEditingBio] = useState(false);
   const [tempBio, setTempBio] = useState('');
   const [isEditingTitle, setIsEditingTitle] = useState(false);
@@ -1359,7 +1363,7 @@ const SharedPanelContent = ({
       {showExpandButton && (
         <PanelIconButton
           icon={ArrowUpFromDot}
-          color={expandButtonDisabled ? "#716C6C" : "#260000"}
+          color={expandButtonDisabled ? theme.canvas.textSecondary : theme.canvas.textPrimary}
           onClick={expandButtonDisabled ? undefined : onExpandNode}
           title={expandButtonDisabled ? "Cannot expand - this node defines the current graph" : "Expand definition"}
           disabled={expandButtonDisabled}
@@ -1401,7 +1405,7 @@ const SharedPanelContent = ({
       <PanelIconButton
         icon={Bookmark}
         filled={isSaved}
-        fillColor="#260000"
+        fillColor={theme.canvas.textPrimary}
         hoverFillColor="maroon"
         onClick={() => toggleSavedNode && nodeData?.id && toggleSavedNode(nodeData.id)}
         title={isSaved ? 'Remove from Saved Things' : 'Save to Saved Things'}
@@ -1469,7 +1473,7 @@ const SharedPanelContent = ({
                 }}>
                   <span style={{
                     fontSize: '0.9rem',
-                    color: '#260000',
+                    color: theme.canvas.textPrimary,
                     fontFamily: "'EmOne', sans-serif"
                   }}>
                     Is {getArticleFor(typeName)}
@@ -1483,7 +1487,7 @@ const SharedPanelContent = ({
                     onClick={() => onTypeSelect && onTypeSelect(nodeData.id)}
                     style={{
                       backgroundColor: typeColor,
-                      color: getTextColor(typeColor),
+                      color: getTextColor(typeColor, theme.darkMode),
                       border: 'none',
                       borderRadius: '8px',
                       padding: '5px 8px 3px 8px',
@@ -1514,7 +1518,7 @@ const SharedPanelContent = ({
               }}>
                 <span style={{
                   fontSize: '0.9rem',
-                  color: '#260000',
+                  color: theme.canvas.textPrimary,
                   fontFamily: "'EmOne', sans-serif"
                 }}>
                   Is {getArticleFor(typeName)}
@@ -1523,7 +1527,7 @@ const SharedPanelContent = ({
                   onClick={() => onTypeSelect && onTypeSelect(nodeData.id)}
                   style={{
                     backgroundColor: typeColor,
-                    color: getTextColor(typeColor),
+                    color: getTextColor(typeColor, theme.darkMode),
                     border: 'none',
                     borderRadius: '8px',
                     padding: '5px 8px 3px 8px',
@@ -1562,7 +1566,7 @@ const SharedPanelContent = ({
               style={{
                 width: '100%',
                 padding: '8px 12px 12px 12px',
-                border: '3px solid #260000',
+                border: `3px solid ${theme.canvas.textPrimary}`,
                 borderRadius: '12px',
                 fontSize: '1.0rem',
                 fontFamily: "'EmOne', sans-serif",
@@ -1592,7 +1596,7 @@ const SharedPanelContent = ({
               fontSize: '1.0rem',
               fontFamily: "'EmOne', sans-serif",
               lineHeight: '1.4',
-              color: nodeData.description ? '#260000' : '#999',
+              color: nodeData.description ? theme.canvas.textPrimary : theme.canvas.textSecondary,
               cursor: 'pointer',
               borderRadius: '4px',
               minHeight: '20px',
@@ -1641,7 +1645,7 @@ const SharedPanelContent = ({
               }}>
                 {nodeData.semanticMetadata.originMetadata.source.toUpperCase()}
               </div>
-              <div style={{ fontSize: '9px', color: '#666' }}>
+              <div style={{ fontSize: '9px', color: theme.canvas.textSecondary }}>
                 Confidence: {Math.round(nodeData.semanticMetadata.originMetadata.confidence * 100)}%
               </div>
             </div>
@@ -1659,12 +1663,12 @@ const SharedPanelContent = ({
               </div>
             )}
 
-            <div style={{ fontSize: '9px', color: '#666', marginBottom: '4px' }}>
+            <div style={{ fontSize: '9px', color: theme.canvas.textSecondary, marginBottom: '4px' }}>
               Discovered: {new Date(nodeData.semanticMetadata.originMetadata.discoveredAt).toLocaleDateString()}
             </div>
 
             {nodeData.semanticMetadata.originMetadata.searchQuery && (
-              <div style={{ fontSize: '9px', color: '#666', marginBottom: '4px' }}>
+              <div style={{ fontSize: '9px', color: theme.canvas.textSecondary, marginBottom: '4px' }}>
                 Search: "{nodeData.semanticMetadata.originMetadata.searchQuery}"
               </div>
             )}
@@ -1701,7 +1705,7 @@ const SharedPanelContent = ({
           <div style={{
             fontSize: '11px',
             fontFamily: "'EmOne', sans-serif",
-            color: '#666',
+            color: theme.canvas.textSecondary,
             marginBottom: '12px'
           }}>
             <div style={{ marginBottom: '8px' }}>

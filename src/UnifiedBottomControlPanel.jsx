@@ -49,7 +49,7 @@ const PredicateRail = ({ color = '#4A5568', leftActive, rightActive, onToggleLef
         border: '1px solid rgba(38, 0, 0, 0.2)',
       }}>
         <span style={{
-          color: theme.canvas.bg,
+          color: getTextColor(theme.canvas.bg, theme.darkMode),
           fontWeight: 'bold',
           fontSize: '24px',
           fontFamily: "'EmOne', sans-serif",
@@ -710,7 +710,10 @@ const UnifiedBottomControlPanel = ({
                       const rect = e.currentTarget.getBoundingClientRect();
                       const buttonCenter = {
                         x: rect.left + rect.width / 2,
-                        y: rect.top
+                        y: rect.top,
+                        color: node.isGroup
+                          ? getTextColor(theme.canvas.bg, theme.darkMode)
+                          : getTextColor(node.color || '#800000', theme.darkMode),
                       };
                       onPalette(buttonCenter);
                     } else if (onOpenInPanel) {

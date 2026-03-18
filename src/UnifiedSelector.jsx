@@ -235,7 +235,7 @@ const UnifiedSelector = ({
             </div>
             {subtitle && (
               <div
-                style={{ textAlign: 'left', marginBottom: isSmallScreen ? '15px' : '10px', color: '#666', fontSize: subtitleFontSize, fontFamily: "'EmOne', sans-serif" }}
+                style={{ textAlign: 'left', marginBottom: isSmallScreen ? '15px' : '10px', color: theme.canvas.textSecondary, fontSize: subtitleFontSize, fontFamily: "'EmOne', sans-serif" }}
                 dangerouslySetInnerHTML={{ __html: subtitle }}
               />
             )}
@@ -269,7 +269,7 @@ const UnifiedSelector = ({
                   minWidth: 0, // Enable shrinking
                   padding: inputPadding,
                   borderRadius: '6px',
-                  border: '1px solid #260000',
+                  border: `1px solid ${theme.canvas.textPrimary}`,
                   marginRight: searchOnly ? 0 : (isSmallScreen ? '6px' : '10px'),
                   fontSize: isMobilePortrait ? '15px' : '14px',
                   touchAction: 'manipulation',

@@ -20,6 +20,7 @@ const ConnectionText = ({
   renderContext = 'full',
   lineHeightScale = 1
 }) => {
+  const theme = useTheme();
   if (!connection.connectionName) {
     return null;
   }
@@ -59,7 +60,7 @@ const ConnectionText = ({
           key={i}
           x={midX}
           y={midY + (i - (lines.length - 1) / 2) * scaledLineHeight}
-          fill={getTextColor(connection.color || '#800000')}
+          fill={getTextColor(connection.color || '#800000', theme.darkMode)}
           fontSize={fontSize}
           fontWeight="bold"
           textAnchor="middle"
@@ -132,12 +133,12 @@ const UniversalNodeRenderer = ({
   // Styling tweaks
   cornerRadiusMultiplier = 44
 }) => {
+  const theme = useTheme();
   const [hoveredNodeId, setHoveredNodeId] = useState(null);
   const [hoveredConnectionId, setHoveredConnectionId] = useState(null);
   const [stableHoveredConnectionId, setStableHoveredConnectionId] = useState(null);
   const hoverTimeoutRef = useRef(null);
 
-  const theme = useTheme();
   const graphsMap = useGraphStore((state) => state.graphs);
   const activeGraphId = useGraphStore((state) => state.activeGraphId);
   const nodePrototypesMap = useGraphStore((state) => state.nodePrototypes);
@@ -1120,11 +1121,8 @@ const UniversalNodeRenderer = ({
                         fontSize: node.isGroup ? `${Math.min(24, Math.max(14, 18 * transform.scale))}px` : `${computedFontSize}px`,
                         fontWeight: 'bold',
                         color: node.isGroup
-                          ? (() => {
-                            const { h, s } = hexToHsl(node.color || '#8B0000');
-                            return hslToHex(h, s, 16); // Force dark version (Slate 800-ish)
-                          })()
-                          : getTextColor(node.color || '#800000'),
+                          ? getTextColor(theme.canvas.bg, theme.darkMode)
+                          : getTextColor(node.color || '#800000', theme.darkMode),
                         lineHeight: `${computedLineHeight}px`,
                         // Tighter letter spacing for decomposition view to fit more text
                         letterSpacing: renderContext === 'decomposition' ? '-0.3px' : '-0.2px',
