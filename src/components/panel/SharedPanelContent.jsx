@@ -1334,9 +1334,12 @@ const SharedPanelContent = ({
   };
 
   const handleImageDelete = (event) => {
+    console.log('[ImageDelete] Trash icon clicked!', event);
     if (event && typeof event.stopPropagation === 'function') {
       event.stopPropagation();
+      event.preventDefault();
     }
+    console.log('[ImageDelete] Calling onNodeUpdate to remove image');
     onNodeUpdate({ imageSrc: null, thumbnailSrc: null, imageAspectRatio: null });
   };
 
@@ -1890,12 +1893,23 @@ const SharedPanelContent = ({
             </span>
           )}
           rightAdornment={(
-            <Trash2
-              size={14}
-              style={{ cursor: 'pointer', marginRight: '8px', color: 'inherit' }}
+            <button
+              onClick={handleImageDelete}
+              onMouseDown={(e) => e.stopPropagation()}
               title="Delete image"
-              onClick={(e) => { e.stopPropagation(); handleImageDelete(e); }}
-            />
+              style={{
+                background: 'none',
+                border: 'none',
+                padding: '4px 8px',
+                cursor: 'pointer',
+                color: 'inherit',
+                display: 'flex',
+                alignItems: 'center',
+                marginRight: '0'
+              }}
+            >
+              <Trash2 size={14} />
+            </button>
           )}
           defaultExpanded={true}
         >

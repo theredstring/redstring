@@ -51,7 +51,20 @@ const CollapsibleSection = ({
           )}
         </div>
         <div style={{ display: 'flex', alignItems: 'center', color: theme.canvas.textPrimary }}>
-          {rightAdornment}
+          {rightAdornment && (
+            <div
+              onClick={(e) => e.stopPropagation()}
+              onMouseDown={(e) => e.stopPropagation()}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                padding: '4px',
+                marginRight: '4px'
+              }}
+            >
+              {rightAdornment}
+            </div>
+          )}
           <span style={{
             display: 'flex',
             alignItems: 'center',

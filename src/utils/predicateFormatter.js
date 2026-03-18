@@ -10,10 +10,12 @@
  *
  * Examples:
  *   "birthPlace" → "Birth Place"
+ *   "wikiPageWikiLink" → "Wiki Page Wiki Link"
  *   "works_at" → "Works At"
  *   "http://dbpedia.org/ontology/occupation" → "Occupation"
  *   "Occupation" → "Occupation" (already formatted from Wikidata)
  *   "relatedTo" → "Related To"
+ *   "URLParser" → "URL Parser" (preserves all-caps words)
  *   null/undefined → "Related To"
  *
  * @param {string|null|undefined} predicate - The raw predicate string
@@ -35,14 +37,20 @@ export function formatPredicate(predicate) {
     return str;
   }
 
+  // Split camelCase/PascalCase into separate words (e.g., "wikiPageWikiLink" → "wiki Page Wiki Link")
+  str = str.replace(/([a-z])([A-Z])/g, '$1 $2');
+  str = str.replace(/([A-Z]+)([A-Z][a-z])/g, '$1 $2');
+
   // Replace underscores and hyphens with spaces
   str = str.replace(/[_-]+/g, ' ');
 
-  // Title case: capitalize first letter of each word
+  // Title case: capitalize first letter of each word, but preserve all-caps words (e.g., "URL", "ID")
   str = str
     .split(' ')
     .map(word => {
       if (word.length === 0) return '';
+      // If the word is all uppercase, leave it as-is
+      if (word === word.toUpperCase() && word.length > 1) return word;
       return word.charAt(0).toUpperCase() + word.slice(1).toLowerCase();
     })
     .join(' ');
