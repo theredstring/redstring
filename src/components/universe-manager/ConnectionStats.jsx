@@ -9,6 +9,7 @@ import {
   Github,
   Cloud
 } from 'lucide-react';
+import { useTheme } from '../../hooks/useTheme.js';
 
 const STATUS_COLORS = {
   success: '#2e7d32',
@@ -126,6 +127,8 @@ const ConnectionStats = ({ universe, syncStatus, isSlim = false }) => {
     });
   }
 
+  const theme = useTheme();
+
   return (
     <div style={{ display: 'grid', gap: 5, gridTemplateColumns: isSlim ? '1fr' : 'repeat(auto-fit, minmax(140px, 1fr))' }}>
       {cards.map((card, idx) => (
@@ -133,7 +136,7 @@ const ConnectionStats = ({ universe, syncStatus, isSlim = false }) => {
           key={`${card.title}-${idx}`}
           style={{
             border: `1px solid ${card.tone}`,
-            backgroundColor: 'rgba(255,255,255,0.3)',
+            backgroundColor: 'rgba(255,255,255,0.15)',
             borderRadius: 6,
             padding: 6,
             display: 'flex',
@@ -142,13 +145,13 @@ const ConnectionStats = ({ universe, syncStatus, isSlim = false }) => {
             minHeight: 56
           }}
         >
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <div style={{ fontSize: '0.68rem', color: '#260000', fontWeight: 700 }}>{card.title}</div>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', color: theme.canvas.textPrimary }}>
+            <div style={{ fontSize: '0.68rem', fontWeight: 700 }}>{card.title}</div>
             {card.icon || null}
           </div>
           <div style={{ fontSize: '0.85rem', fontWeight: 700, color: card.tone }}>{card.value}</div>
           {card.description && (
-            <div style={{ fontSize: '0.63rem', color: '#444', lineHeight: 1.2 }}>{card.description}</div>
+            <div style={{ fontSize: '0.63rem', color: theme.canvas.textSecondary, lineHeight: 1.2 }}>{card.description}</div>
           )}
         </div>
       ))}

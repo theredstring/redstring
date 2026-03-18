@@ -146,16 +146,16 @@ const Federation = () => {
 
   if (!sessionInfo.isLoggedIn) {
     return (
-      <div style={{ padding: '15px', fontFamily: "'EmOne', sans-serif", height: '100%', color: '#260000' }}>
+      <div style={{ padding: '15px', fontFamily: "'EmOne', sans-serif", height: '100%', color: theme.canvas.textPrimary, backgroundColor: theme.canvas.bg }}>
         <div style={{ marginBottom: '20px' }}>
-          <h3 style={{ color: '#260000', marginBottom: '10px', fontSize: '1.1rem' }}>Connect to Solid Pod</h3>
-          <p style={{ color: '#666', fontSize: '0.9rem', marginBottom: '15px' }}>
+          <h3 style={{ color: theme.canvas.textPrimary, marginBottom: '10px', fontSize: '1.1rem' }}>Connect to Solid Pod</h3>
+          <p style={{ color: theme.canvas.textSecondary, fontSize: '0.9rem', marginBottom: '15px' }}>
             Connect to your Solid Pod to save and share your cognitive spaces across the decentralized web.
           </p>
         </div>
 
         <div style={{ marginBottom: '15px' }}>
-          <label style={{ display: 'block', color: '#260000', marginBottom: '5px', fontSize: '0.9rem' }}>
+          <label style={{ display: 'block', color: theme.canvas.textPrimary, marginBottom: '5px', fontSize: '0.9rem' }}>
             Solid Identity Provider:
           </label>
           <input
@@ -166,13 +166,12 @@ const Federation = () => {
             style={{
               width: '100%',
               padding: '8px',
-              border: '1px solid #979090',
+              border: `1px solid ${theme.canvas.border}`,
               borderRadius: '4px',
               fontSize: '0.9rem',
               fontFamily: "'EmOne', sans-serif",
               backgroundColor: theme.canvas.bg,
-
-              color: '#260000'
+              color: theme.canvas.textPrimary
             }}
           />
         </div>
@@ -184,7 +183,7 @@ const Federation = () => {
             alignItems: 'center',
             gap: '8px',
             padding: '10px 15px',
-            backgroundColor: theme.canvas.text,
+            backgroundColor: theme.canvas.textPrimary,
             color: theme.canvas.bg,
             border: 'none',
             borderRadius: '4px',
@@ -203,8 +202,8 @@ const Federation = () => {
           <div style={{ 
             marginTop: '15px', 
             padding: '10px', 
-            backgroundColor: '#ffebee', 
-            border: '1px solid #f44336',
+            backgroundColor: 'rgba(211, 47, 47, 0.1)', 
+            border: '1px solid rgba(211, 47, 47, 0.3)',
             borderRadius: '4px',
             color: '#d32f2f',
             fontSize: '0.8rem'
@@ -217,16 +216,16 @@ const Federation = () => {
   }
 
   return (
-    <div style={{ padding: '15px', fontFamily: "'EmOne', sans-serif", height: '100%', color: '#260000' }}>
+    <div style={{ padding: '15px', fontFamily: "'EmOne', sans-serif", height: '100%', color: theme.canvas.textPrimary, backgroundColor: theme.canvas.bg }}>
       {/* User Info */}
-      <div style={{ marginBottom: '20px', padding: '15px', backgroundColor: '#979090', borderRadius: '8px' }}>
+      <div style={{ marginBottom: '20px', padding: '15px', backgroundColor: theme.canvas.inactive, borderRadius: '8px' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '10px' }}>
-          <User size={20} color="#260000" />
+          <User size={20} color={theme.canvas.textPrimary} />
           <div>
-            <div style={{ color: '#260000', fontWeight: 'bold', fontSize: '0.9rem' }}>
+            <div style={{ color: theme.canvas.textPrimary, fontWeight: 'bold', fontSize: '0.9rem' }}>
               Connected to Solid Pod
             </div>
-            <div style={{ color: '#666', fontSize: '0.8rem', wordBreak: 'break-all' }}>
+            <div style={{ color: theme.canvas.textSecondary, fontSize: '0.8rem', wordBreak: 'break-all' }}>
               {sessionInfo.webId}
             </div>
           </div>
@@ -239,8 +238,8 @@ const Federation = () => {
             gap: '6px',
             padding: '6px 12px',
             backgroundColor: theme.canvas.bg,
-            color: theme.canvas.text,
-            border: '1px solid #979090',
+            color: theme.canvas.textPrimary,
+            border: `1px solid ${theme.canvas.border}`,
             borderRadius: '4px',
             cursor: 'pointer',
             fontSize: '0.8rem',
@@ -253,8 +252,8 @@ const Federation = () => {
       </div>
 
       {/* Save Current Space */}
-      <div style={{ marginBottom: '20px', padding: '15px', backgroundColor: '#979090', borderRadius: '8px' }}>
-        <h4 style={{ color: '#260000', marginBottom: '10px', fontSize: '0.9rem' }}>
+      <div style={{ marginBottom: '20px', padding: '15px', backgroundColor: theme.canvas.inactive, borderRadius: '8px' }}>
+        <h4 style={{ color: theme.canvas.textPrimary, marginBottom: '10px', fontSize: '0.9rem' }}>
           Save Current Space
         </h4>
         <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
@@ -265,13 +264,13 @@ const Federation = () => {
             placeholder="Space name..."
             style={{
               flex: 1,
-              padding: '6px 8px',
-              border: '1px solid #979090',
-              borderRadius: '4px',
-              fontSize: '0.8rem',
+            padding: '6px 8px',
+            border: `1px solid ${theme.canvas.border}`,
+            borderRadius: '4px',
+            fontSize: '0.8rem',
               fontFamily: "'EmOne', sans-serif",
               backgroundColor: theme.canvas.bg,
-              color: theme.canvas.text
+              color: theme.canvas.textPrimary
             }}
           />
           <button
@@ -282,7 +281,7 @@ const Federation = () => {
               alignItems: 'center',
               gap: '4px',
               padding: '6px 10px',
-              backgroundColor: savingSpace ? '#ccc' : theme.canvas.text,
+              backgroundColor: savingSpace ? '#ccc' : theme.canvas.textPrimary,
               color: theme.canvas.bg,
               border: 'none',
               borderRadius: '4px',
@@ -300,7 +299,7 @@ const Federation = () => {
       {/* Cognitive Spaces List */}
       <div>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '15px' }}>
-          <h4 style={{ color: '#260000', margin: 0, fontSize: '0.9rem' }}>
+          <h4 style={{ color: theme.canvas.textPrimary, margin: 0, fontSize: '0.9rem' }}>
             Your Cognitive Spaces
           </h4>
           <button
@@ -312,8 +311,8 @@ const Federation = () => {
               gap: '4px',
               padding: '4px 8px',
               backgroundColor: 'transparent',
-              color: '#260000',
-              border: '1px solid #979090',
+              color: theme.canvas.textPrimary,
+              border: `1px solid ${theme.canvas.border}`,
               borderRadius: '4px',
               cursor: loading ? 'not-allowed' : 'pointer',
               fontSize: '0.8rem',
@@ -326,13 +325,13 @@ const Federation = () => {
         </div>
 
         {loading && (
-          <div style={{ textAlign: 'center', color: '#666', fontSize: '0.8rem', padding: '20px' }}>
+          <div style={{ textAlign: 'center', color: theme.canvas.textSecondary, fontSize: '0.8rem', padding: '20px' }}>
             Loading spaces...
           </div>
         )}
 
         {!loading && cognitiveSpaces.length === 0 && (
-          <div style={{ textAlign: 'center', color: '#666', fontSize: '0.8rem', padding: '20px' }}>
+          <div style={{ textAlign: 'center', color: theme.canvas.textSecondary, fontSize: '0.8rem', padding: '20px' }}>
             No cognitive spaces found in your Pod.
           </div>
         )}
@@ -344,8 +343,8 @@ const Federation = () => {
                 key={index}
                 style={{
                   padding: '12px',
-                  backgroundColor: '#979090',
-                  border: `1px solid ${theme.canvas.text}`,
+                  backgroundColor: theme.canvas.inactive,
+                  border: `1px solid ${theme.canvas.border}`,
                   borderRadius: '6px',
                   cursor: 'pointer'
                 }}
@@ -355,16 +354,16 @@ const Federation = () => {
                     onClick={() => handleLoadSpace(space.spaceUrl)}
                     style={{ flex: 1, cursor: 'pointer' }}
                   >
-                    <div style={{ color: theme.canvas.text, fontWeight: 'bold', fontSize: '0.9rem', marginBottom: '4px' }}>
+                    <div style={{ color: theme.canvas.textPrimary, fontWeight: 'bold', fontSize: '0.9rem', marginBottom: '4px' }}>
                       {space.title}
                     </div>
                     {space.description && (
-                      <div style={{ color: '#666', fontSize: '0.8rem', marginBottom: '4px' }}>
+                      <div style={{ color: theme.canvas.textSecondary, fontSize: '0.8rem', marginBottom: '4px' }}>
                         {space.description}
                       </div>
                     )}
                     {space.modified && (
-                      <div style={{ color: '#999', fontSize: '0.7rem' }}>
+                      <div style={{ color: theme.canvas.textSecondary, fontSize: '0.7rem', opacity: 0.7 }}>
                         Modified: {space.modified.toLocaleDateString()}
                       </div>
                     )}
@@ -378,8 +377,8 @@ const Federation = () => {
                       style={{
                         padding: '4px',
                         backgroundColor: 'transparent',
-                        color: '#260000',
-                        border: '1px solid #979090',
+                        color: theme.canvas.textPrimary,
+                        border: `1px solid ${theme.canvas.border}`,
                         borderRadius: '3px',
                         cursor: 'pointer',
                         fontSize: '0.7rem'
@@ -397,7 +396,7 @@ const Federation = () => {
                         padding: '4px',
                         backgroundColor: 'transparent',
                         color: '#d32f2f',
-                        border: '1px solid #d32f2f',
+                        border: '1px solid rgba(211, 47, 47, 0.4)',
                         borderRadius: '3px',
                         cursor: 'pointer',
                         fontSize: '0.7rem'
@@ -418,8 +417,8 @@ const Federation = () => {
         <div style={{ 
           marginTop: '15px', 
           padding: '10px', 
-          backgroundColor: '#ffebee', 
-          border: '1px solid #f44336',
+          backgroundColor: 'rgba(211, 47, 47, 0.1)', 
+          border: '1px solid rgba(211, 47, 47, 0.3)',
           borderRadius: '4px',
           color: '#d32f2f',
           fontSize: '0.8rem'

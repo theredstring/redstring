@@ -10,11 +10,11 @@ const STATUS_COLORS = {
   info: '#1565c0'
 };
 
-function buttonStyle(variant = 'outline') {
+function buttonStyle(theme, variant = 'outline') {
   const base = {
-    border: '1px solid #260000',
+    border: `1px solid ${theme.canvas.border}`,
     backgroundColor: 'transparent',
-    color: '#260000',
+    color: theme.canvas.textPrimary,
     padding: '6px 12px',
     borderRadius: 6,
     cursor: 'pointer',
@@ -28,7 +28,7 @@ function buttonStyle(variant = 'outline') {
 
   switch (variant) {
     case 'solid':
-      return { ...base, backgroundColor: '#260000', color: '#fefefe' };
+      return { ...base, backgroundColor: theme.canvas.textPrimary, color: theme.canvas.bg };
     case 'danger':
       return { ...base, borderColor: '#c62828', color: '#c62828' };
     case 'disabled':
@@ -61,12 +61,13 @@ const AuthSection = ({
     <div
       data-auth-section="true"
       style={{
-        backgroundColor: '#979090',
+        backgroundColor: theme.canvas.inactive,
         borderRadius: 8,
         padding: 16,
         display: 'flex',
         flexDirection: 'column',
-        gap: 12
+        gap: 12,
+        color: theme.canvas.textPrimary
       }}
     >
       <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -79,7 +80,7 @@ const AuthSection = ({
           border: `1px solid ${statusBadge.tone}`,
           borderRadius: 6,
           padding: '10px 12px',
-          backgroundColor: 'rgba(255,255,255,0.35)',
+          backgroundColor: 'rgba(255,255,255,0.15)',
           display: 'flex',
           flexDirection: 'column',
           gap: 6
@@ -89,7 +90,7 @@ const AuthSection = ({
           <Shield size={14} fill={statusBadge.tone} />
           <span style={{ fontWeight: 600 }}>{statusBadge.label}</span>
         </div>
-        <div style={{ fontSize: '0.75rem', color: '#260000', display: 'flex', flexDirection: 'column', gap: 4 }}>
+        <div style={{ fontSize: '0.75rem', color: theme.canvas.textPrimary, display: 'flex', flexDirection: 'column', gap: 4 }}>
           <div>{hasApp ? 'GitHub App ready for auto-sync' : 'Install GitHub App for auto-sync'}</div>
           <div>{hasOAuth ? 'OAuth available for browsing' : 'Connect OAuth to browse repositories'}</div>
         </div>
@@ -98,7 +99,7 @@ const AuthSection = ({
       <div style={{ display: 'grid', gap: 10, gridTemplateColumns: isSlim ? '1fr' : '1fr 1fr' }}>
         <div
           style={{
-            border: '1px solid #260000',
+            border: `1px solid ${theme.canvas.border}`,
             borderRadius: 8,
             backgroundColor: theme.canvas.bg,
 
@@ -113,21 +114,21 @@ const AuthSection = ({
             {hasOAuth ? (
               <span style={{ fontSize: '0.7rem', color: STATUS_COLORS.success, fontWeight: 700 }}>Connected</span>
             ) : (
-              <span style={{ fontSize: '0.7rem', color: '#555' }}>Not connected</span>
+               <span style={{ fontSize: '0.7rem', color: theme.canvas.textSecondary }}>Not connected</span>
             )}
           </div>
-          <div style={{ fontSize: '0.75rem', color: '#555' }}>Browse and manage repositories</div>
+          <div style={{ fontSize: '0.75rem', color: theme.canvas.textSecondary }}>Browse and manage repositories</div>
           <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
             <button
               onClick={onGitHubAuth}
-              style={buttonStyle(isConnecting ? 'disabled' : 'solid')}
+              style={buttonStyle(theme, isConnecting ? 'disabled' : 'solid')}
               disabled={isConnecting}
               onMouseEnter={(e) => { if (!isConnecting) e.currentTarget.style.transform = 'scale(1.04)'; }}
               onMouseLeave={(e) => { e.currentTarget.style.transform = 'scale(1)'; }}
             >
               <Github size={14} /> {hasOAuth ? 'Reconnect' : 'Connect'}
             </button>
-            <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: '0.72rem', color: '#260000' }}>
+            <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: '0.72rem', color: theme.canvas.textPrimary }}>
               <input 
                 type="checkbox" 
                 checked={allowOAuthBackup} 
@@ -140,7 +141,7 @@ const AuthSection = ({
 
         <div
           style={{
-            border: '1px solid #260000',
+            border: `1px solid ${theme.canvas.border}`,
             borderRadius: 8,
             backgroundColor: theme.canvas.bg,
 
@@ -155,13 +156,13 @@ const AuthSection = ({
             {hasApp ? (
               <span style={{ fontSize: '0.7rem', color: STATUS_COLORS.success, fontWeight: 700 }}>Installed</span>
             ) : (
-              <span style={{ fontSize: '0.7rem', color: '#555' }}>Not installed</span>
+               <span style={{ fontSize: '0.7rem', color: theme.canvas.textSecondary }}>Not installed</span>
             )}
           </div>
-          <div style={{ fontSize: '0.75rem', color: '#555' }}>Enables secure auto-sync with Git</div>
+          <div style={{ fontSize: '0.75rem', color: theme.canvas.textSecondary }}>Enables secure auto-sync with Git</div>
           <button
             onClick={onGitHubApp}
-            style={buttonStyle(isConnecting ? 'disabled' : 'solid')}
+            style={buttonStyle(theme, isConnecting ? 'disabled' : 'solid')}
             disabled={isConnecting}
             onMouseEnter={(e) => { if (!isConnecting) e.currentTarget.style.transform = 'scale(1.04)'; }}
             onMouseLeave={(e) => { e.currentTarget.style.transform = 'scale(1)'; }}

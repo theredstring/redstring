@@ -10,7 +10,7 @@ const EdgeType = ({ name, color = '#800000', onClick }) => {
       style={{ 
         backgroundColor: theme.canvas.bg, // Canvas color background
 
-        color: theme.text.primary, // Dark text for contrast
+        color: theme.canvas.textPrimary, // Dark text for contrast
         borderRadius: '4px',
         minWidth: '60px', // Changed to minWidth for better scaling
         height: '32px',

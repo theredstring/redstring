@@ -20,7 +20,10 @@ import { getTheme } from '../utils/themeColors.js';
 export function useTheme() {
   const darkMode = useGraphStore(state => state.darkMode);
 
-  return useMemo(() => getTheme(darkMode), [darkMode]);
+  return useMemo(() => ({
+    ...getTheme(darkMode),
+    darkMode
+  }), [darkMode]);
 }
 
 /**

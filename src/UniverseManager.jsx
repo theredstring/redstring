@@ -156,7 +156,7 @@ function BrowserFallbackNote() {
         display: 'flex',
         alignItems: 'center',
         gap: 10,
-        color: '#260000',
+        color: theme.canvas.textPrimary,
         fontSize: '0.8rem'
       }}
     >
@@ -169,11 +169,11 @@ function BrowserFallbackNote() {
   );
 }
 
-function buttonStyle(variant = 'outline') {
+function buttonStyle(theme,  variant = 'outline') {
   const base = {
-    border: '1px solid #260000',
+    border: `1px solid ${theme.canvas.border}`,
     backgroundColor: 'transparent',
-    color: '#260000',
+    color: theme.canvas.textPrimary,
     padding: '6px 10px',
     borderRadius: 6,
     fontSize: '0.75rem',
@@ -189,8 +189,8 @@ function buttonStyle(variant = 'outline') {
     case 'solid':
       return {
         ...base,
-        backgroundColor: '#1a0000',
-        color: '#8a8080'
+        backgroundColor: theme.canvas.textPrimary,
+        color: theme.canvas.bg
       };
     case 'danger':
       return {
@@ -202,9 +202,7 @@ function buttonStyle(variant = 'outline') {
     case 'disabled':
       return {
         ...base,
-        border: '1px solid #999',
-        color: '#666',
-        backgroundColor: '#ccc',
+        opacity: 0.5,
         cursor: 'not-allowed'
       };
     default:
@@ -3572,7 +3570,7 @@ const UniverseManager = ({ variant = 'panel', onRequestClose }) => {
         <button
           key="open"
           onClick={() => window.open(`https://github.com/${slot.repo.user}/${slot.repo.repo}`, '_blank', 'noopener')}
-          style={buttonStyle('outline')}
+          style={buttonStyle(theme, 'outline')}
         >
           View Repo
         </button>
@@ -3584,7 +3582,7 @@ const UniverseManager = ({ variant = 'panel', onRequestClose }) => {
         <button
           key="primary"
           onClick={() => handleSetPrimarySlot(universe.slug, slot)}
-          style={buttonStyle('solid')}
+          style={buttonStyle(theme, 'solid')}
         >
           Make Primary
         </button>
@@ -3596,7 +3594,7 @@ const UniverseManager = ({ variant = 'panel', onRequestClose }) => {
         <button
           key="detach"
           onClick={() => handleDetachRepo(universe, { user: slot.repo.user, repo: slot.repo.repo })}
-          style={buttonStyle('danger')}
+          style={buttonStyle(theme, 'danger')}
         >
           Detach
         </button>
@@ -3607,7 +3605,7 @@ const UniverseManager = ({ variant = 'panel', onRequestClose }) => {
       <div
         key={slot.id}
         style={{
-          border: `1px solid ${isPrimary ? '#7A0000' : '#260000'}`,
+          border: `1px solid ${isPrimary ? '#7A0000' : theme.canvas.textPrimary}`,
           borderRadius: 8,
           padding: 12,
           backgroundColor: isPrimary ? 'rgba(122,0,0,0.08)' : theme.canvas.bg,
@@ -3627,7 +3625,7 @@ const UniverseManager = ({ variant = 'panel', onRequestClose }) => {
             {storageIcon}
             <div style={{ minWidth: 0, flex: 1 }}>
               <div style={{ fontWeight: 600 }}>{STORAGE_LABELS[slot.type] || 'Storage slot'}</div>
-              <div style={{ fontSize: '0.75rem', color: '#444', wordBreak: 'break-word' }}>{displayLabel}</div>
+              <div style={{ fontSize: '0.75rem', color: theme.canvas.textSecondary, wordBreak: 'break-word' }}>{displayLabel}</div>
             </div>
           </div>
           {isPrimary && (
@@ -3651,7 +3649,7 @@ const UniverseManager = ({ variant = 'panel', onRequestClose }) => {
           <div>Last saved: {lastSavedText}</div>
           <div style={{ color: statusColor }}>Status: {status}</div>
           {statusHint && (
-            <div style={{ fontSize: '0.66rem', color: '#444' }}>
+            <div style={{ fontSize: '0.66rem', color: theme.canvas.textSecondary }}>
               {statusHint}
             </div>
           )}
@@ -3713,13 +3711,13 @@ const UniverseManager = ({ variant = 'panel', onRequestClose }) => {
           <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
             <button
               onClick={() => handleLinkLocalFile(universe.slug)}
-              style={buttonStyle('outline')}
+              style={buttonStyle(theme, 'outline')}
             >
               Relink File
             </button>
             <button
               onClick={() => handleDownloadLocalFile(universe.slug)}
-              style={buttonStyle('outline')}
+              style={buttonStyle(theme, 'outline')}
             >
               Download
             </button>
@@ -3789,14 +3787,14 @@ const UniverseManager = ({ variant = 'panel', onRequestClose }) => {
             <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
               <button
                 onClick={() => handleDiscover(source)}
-                style={buttonStyle(discovery.loading ? 'disabled' : 'outline')}
+                style={buttonStyle(theme, discovery.loading ? 'disabled' : 'outline')}
                 disabled={discovery.loading}
               >
                 {discovery.loading ? 'Scanning…' : 'Discover universes'}
               </button>
               <button
                 onClick={() => handleDetachRepo(universe, source)}
-                style={buttonStyle('danger')}
+                style={buttonStyle(theme, 'danger')}
               >
                 Remove
               </button>
@@ -3838,7 +3836,7 @@ const UniverseManager = ({ variant = 'panel', onRequestClose }) => {
                     <button
                       onClick={() => handleImportDiscovered(item, { user: source.user, repo: source.repo })}
                       style={{
-                        ...buttonStyle('outline'),
+                        ...buttonStyle(theme, 'outline'),
                         borderColor: '#1565c0',
                         color: '#1565c0',
                         backgroundColor: 'rgba(21,101,192,0.12)'
@@ -3849,7 +3847,7 @@ const UniverseManager = ({ variant = 'panel', onRequestClose }) => {
                     <button
                       onClick={() => handleLinkDiscovered(item, { user: source.user, repo: source.repo })}
                       style={{
-                        ...buttonStyle('solid'),
+                        ...buttonStyle(theme, 'solid'),
                         backgroundColor: '#7A0000',
                         color: '#ffffff',
                         borderColor: '#7A0000'
@@ -3911,18 +3909,18 @@ const UniverseManager = ({ variant = 'panel', onRequestClose }) => {
         }}>
           <div>
             <div style={{ fontSize: '1rem', fontWeight: 700 }}>{activeUniverse.name}</div>
-            <div style={{ fontSize: '0.75rem', color: '#444' }}>
+            <div style={{ fontSize: '0.75rem', color: theme.canvas.textSecondary }}>
               Nodes: {activeUniverse.nodeCount ?? '—'} · Last opened {formatWhen(activeUniverse.lastOpenedAt)}
             </div>
           </div>
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-            <button onClick={() => handleAttachRepo(activeUniverse.slug)} style={buttonStyle('solid')}>
+            <button onClick={() => handleAttachRepo(activeUniverse.slug)} style={buttonStyle(theme, 'solid')}>
               Link repository
             </button>
-            <button onClick={() => handleForceSave(activeUniverse.slug)} style={buttonStyle('outline')}>
+            <button onClick={() => handleForceSave(activeUniverse.slug)} style={buttonStyle(theme, 'outline')}>
               <Save size={14} /> Save
             </button>
-            <button onClick={handleReloadActive} style={buttonStyle('outline')}>
+            <button onClick={handleReloadActive} style={buttonStyle(theme, 'outline')}>
               <RefreshCw size={14} /> Reload
             </button>
           </div>
@@ -3932,14 +3930,14 @@ const UniverseManager = ({ variant = 'panel', onRequestClose }) => {
           <div style={{
             fontSize: '0.82rem',
             fontWeight: 600,
-            color: '#260000',
+            color: theme.canvas.textPrimary,
             display: 'flex',
             flexWrap: 'wrap',
             gap: 8,
             alignItems: 'center'
           }}>
             <span>Storage slots</span>
-            <span style={{ fontSize: '0.7rem', color: '#444', fontWeight: 500 }}>
+            <span style={{ fontSize: '0.7rem', color: theme.canvas.textSecondary, fontWeight: 500 }}>
               Primary: {activeUniverse.storage?.primary?.label || 'None'}
             </span>
           </div>
@@ -3968,7 +3966,7 @@ const UniverseManager = ({ variant = 'panel', onRequestClose }) => {
           <div style={{
             fontSize: '0.82rem',
             fontWeight: 600,
-            color: '#260000',
+            color: theme.canvas.textPrimary,
             display: 'flex',
             flexWrap: 'wrap',
             gap: 8,
@@ -3983,14 +3981,14 @@ const UniverseManager = ({ variant = 'panel', onRequestClose }) => {
           <div style={{
             fontSize: '0.82rem',
             fontWeight: 600,
-            color: '#260000',
+            color: theme.canvas.textPrimary,
             display: 'flex',
             flexWrap: 'wrap',
             gap: 8,
             alignItems: 'center'
           }}>
             <span>Repository sources</span>
-            <span style={{ fontSize: '0.7rem', color: '#444', fontWeight: 500 }}>
+            <span style={{ fontSize: '0.7rem', color: theme.canvas.textSecondary, fontWeight: 500 }}>
               Linked: {(activeUniverse.raw?.sources || []).filter((src) => src.type === 'github').length}
             </span>
           </div>
@@ -4005,7 +4003,7 @@ const UniverseManager = ({ variant = 'panel', onRequestClose }) => {
   const renderUniversesList = () => (
     <div
       style={{
-        backgroundColor: '#979090',
+        backgroundColor: theme.canvas.inactive,
         borderRadius: 8,
         padding: 16,
         display: 'flex',
@@ -4021,10 +4019,10 @@ const UniverseManager = ({ variant = 'panel', onRequestClose }) => {
         gap: isSlim ? 10 : 0
       }}>
         <div>
-          <div style={{ fontWeight: 700, fontSize: '1rem' }}>Universes</div>
-          <div style={{ fontSize: '0.75rem', color: '#444' }}>Manage your knowledge spaces</div>
+          <div style={{ fontWeight: 700, fontSize: '1rem', color: theme.canvas.textPrimary }}>Universes</div>
+          <div style={{ fontSize: '0.75rem', color: theme.canvas.textSecondary }}>Manage your knowledge spaces</div>
         </div>
-        <button onClick={handleCreateUniverse} style={buttonStyle('solid')}>
+        <button onClick={handleCreateUniverse} style={buttonStyle(theme, 'solid')}>
           <Plus size={14} /> New
         </button>
       </div>
@@ -4055,14 +4053,14 @@ const UniverseManager = ({ variant = 'panel', onRequestClose }) => {
               </div>
               <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', width: isSlim ? '100%' : 'auto', flexShrink: 0 }}>
                 {!isActive && (
-                  <button onClick={() => handleSwitchUniverse(universe.slug)} style={buttonStyle('outline')}>
+                  <button onClick={() => handleSwitchUniverse(universe.slug)} style={buttonStyle(theme, 'outline')}>
                     Switch
                   </button>
                 )}
                 {serviceState.universes.length > 1 && (
                   <button
                     onClick={() => handleDeleteUniverse(universe.slug, universe.name)}
-                    style={buttonStyle('danger')}
+                    style={buttonStyle(theme, 'danger')}
                   >
                     <Trash2 size={12} /> Delete
                   </button>
@@ -4125,7 +4123,7 @@ const UniverseManager = ({ variant = 'panel', onRequestClose }) => {
       ref={containerRef}
       style={{
         fontFamily: "'EmOne', sans-serif",
-        color: '#260000',
+        color: theme.canvas.textPrimary,
         display: 'flex',
         flexDirection: 'column',
         gap: 16,
@@ -4136,7 +4134,7 @@ const UniverseManager = ({ variant = 'panel', onRequestClose }) => {
     >
       {variant === 'modal' && typeof onRequestClose === 'function' && (
         <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
-          <button onClick={onRequestClose} style={buttonStyle('outline')}>
+          <button onClick={onRequestClose} style={buttonStyle(theme, 'outline')}>
             Close
           </button>
         </div>
@@ -4146,7 +4144,7 @@ const UniverseManager = ({ variant = 'panel', onRequestClose }) => {
         <div
           style={{
             borderRadius: 8,
-            border: '1px solid #260000',
+            border: `1px solid ${theme.canvas.border}`,
             backgroundColor: theme.canvas.bg,
             padding: 14,
             display: 'flex',
@@ -4154,10 +4152,10 @@ const UniverseManager = ({ variant = 'panel', onRequestClose }) => {
             gap: 12
           }}
         >
-          <Info size={18} />
+          <Info size={18} color={theme.canvas.textPrimary} />
           <div>
-            <div style={{ fontWeight: 700 }}>{deviceMessage.title}</div>
-            <div style={{ fontSize: '0.78rem', color: '#333' }}>{deviceMessage.message}</div>
+            <div style={{ fontWeight: 700, color: theme.canvas.textPrimary }}>{deviceMessage.title}</div>
+            <div style={{ fontSize: '0.78rem', color: theme.canvas.textSecondary }}>{deviceMessage.message}</div>
           </div>
         </div>
       )}
@@ -4266,7 +4264,7 @@ const UniverseManager = ({ variant = 'panel', onRequestClose }) => {
       {activeUniverse && (
         <div
           style={{
-            backgroundColor: '#979090',
+            backgroundColor: theme.canvas.inactive,
             borderRadius: 8,
             padding: 16,
             display: 'flex',
@@ -4274,7 +4272,7 @@ const UniverseManager = ({ variant = 'panel', onRequestClose }) => {
             gap: 12
           }}
         >
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, color: theme.canvas.textPrimary }}>
             <GitBranch size={18} />
             <div style={{ fontWeight: 700 }}>Status & Sync</div>
           </div>
@@ -4337,9 +4335,9 @@ const UniverseManager = ({ variant = 'panel', onRequestClose }) => {
             return (
               <div
                 style={{
-                  border: '1px solid #979090',
+                  border: `1px solid ${theme.canvas.border}`,
                   borderRadius: 8,
-                  backgroundColor: 'rgba(255,255,255,0.35)',
+                  backgroundColor: 'rgba(255,255,255,0.15)',
                   padding: '12px 16px',
                   display: 'flex',
                   alignItems: 'center',
@@ -4361,11 +4359,11 @@ const UniverseManager = ({ variant = 'panel', onRequestClose }) => {
                     <CheckCircle size={16} style={{ color: '#2e7d32', flexShrink: 0 }} />
                   )}
                   <div style={{ flex: 1 }}>
-                    <div style={{ fontSize: '0.9rem', fontWeight: 600, color: displayTone || '#260000' }}>
+                    <div style={{ fontSize: '0.9rem', fontWeight: 600, color: displayTone || theme.canvas.textPrimary }}>
                       {displayLabel}
                     </div>
                     {(displayDesc || elapsedText) && (
-                      <div style={{ fontSize: '0.75rem', color: '#666', marginTop: 2 }}>
+                      <div style={{ fontSize: '0.75rem', color: theme.canvas.textSecondary, marginTop: 2 }}>
                         {displayDesc}
                         {elapsedText && (
                           <span style={{ marginLeft: displayDesc ? 8 : 0 }}>Last save {elapsedText} ago</span>
@@ -4377,7 +4375,7 @@ const UniverseManager = ({ variant = 'panel', onRequestClose }) => {
                 {displayState === 'unsaved' && (
                   <button
                     onClick={() => handleForceSave(activeUniverse.slug)}
-                    style={{ ...buttonStyle('solid'), flexShrink: 0 }}
+                    style={{ ...buttonStyle(theme, 'solid'), flexShrink: 0 }}
                   >
                     <Save size={14} /> Save now
                   </button>
@@ -4400,7 +4398,7 @@ const UniverseManager = ({ variant = 'panel', onRequestClose }) => {
             style={{
               fontSize: '0.82rem',
               fontWeight: 600,
-              color: '#260000',
+              color: theme.canvas.textPrimary,
               display: 'flex',
               alignItems: 'center',
               gap: 6,
@@ -4481,7 +4479,7 @@ const UniverseManager = ({ variant = 'panel', onRequestClose }) => {
             <button
               onClick={handleCreateUniverseFromScratch}
               style={{
-                ...buttonStyle('outline'),
+                ...buttonStyle(theme, 'outline'),
                 width: '100%',
                 padding: 20,
                 justifyContent: 'flex-start',
@@ -4491,17 +4489,17 @@ const UniverseManager = ({ variant = 'panel', onRequestClose }) => {
                 transition: 'all 0.2s ease'
               }}
               onMouseEnter={(e) => {
-                e.currentTarget.style.backgroundColor = '#d7d0d0';
-                e.currentTarget.style.borderColor = '#260000';
+                e.currentTarget.style.backgroundColor = theme.canvas.hover;
+                e.currentTarget.style.borderColor = theme.canvas.textPrimary;
               }}
               onMouseLeave={(e) => {
                 e.currentTarget.style.backgroundColor = theme.canvas.bg;
-                e.currentTarget.style.borderColor = '#260000';
+                e.currentTarget.style.borderColor = theme.canvas.textPrimary;
               }}
             >
               <Save size={22} style={{ flexShrink: 0 }} />
               <div style={{ textAlign: 'left', flex: 1 }}>
-                <div style={{ fontWeight: 700, marginBottom: 4, color: '#260000', fontSize: '1rem' }}>
+                <div style={{ fontWeight: 700, marginBottom: 4, color: theme.canvas.textPrimary, fontSize: '1rem' }}>
                   Start from Scratch
                 </div>
                 <div style={{ fontSize: '0.8rem', color: '#666' }}>
@@ -4513,7 +4511,7 @@ const UniverseManager = ({ variant = 'panel', onRequestClose }) => {
             <button
               onClick={handleCreateUniverseFromRepo}
               style={{
-                ...buttonStyle('outline'),
+                ...buttonStyle(theme, 'outline'),
                 width: '100%',
                 padding: 20,
                 justifyContent: 'flex-start',
@@ -4523,17 +4521,17 @@ const UniverseManager = ({ variant = 'panel', onRequestClose }) => {
                 transition: 'all 0.2s ease'
               }}
               onMouseEnter={(e) => {
-                e.currentTarget.style.backgroundColor = '#d7d0d0';
-                e.currentTarget.style.borderColor = '#260000';
+                e.currentTarget.style.backgroundColor = theme.canvas.hover;
+                e.currentTarget.style.borderColor = theme.canvas.textPrimary;
               }}
               onMouseLeave={(e) => {
                 e.currentTarget.style.backgroundColor = theme.canvas.bg;
-                e.currentTarget.style.borderColor = '#260000';
+                e.currentTarget.style.borderColor = theme.canvas.textPrimary;
               }}
             >
               <Github size={22} style={{ flexShrink: 0 }} />
               <div style={{ textAlign: 'left', flex: 1 }}>
-                <div style={{ fontWeight: 700, marginBottom: 4, color: '#260000', fontSize: '1rem' }}>
+                <div style={{ fontWeight: 700, marginBottom: 4, color: theme.canvas.textPrimary, fontSize: '1rem' }}>
                   Import from Repository
                 </div>
                 <div style={{ fontSize: '0.8rem', color: '#666' }}>
@@ -4575,7 +4573,7 @@ const UniverseManager = ({ variant = 'panel', onRequestClose }) => {
                   borderRadius: 8,
                   backgroundColor: 'rgba(38,0,0,0.04)',
                   fontSize: '0.8rem',
-                  color: '#444'
+                  color: theme.canvas.textSecondary
                 }}>
                   No universe files were discovered in {universeFileRepoLabel}.
                 </div>
@@ -4598,7 +4596,7 @@ const UniverseManager = ({ variant = 'panel', onRequestClose }) => {
                   <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10, minWidth: 0 }}>
                     <GitBranch size={18} style={{ flexShrink: 0 }} />
                     <div style={{ textAlign: 'left', flex: 1, minWidth: 0, wordBreak: 'break-word', overflowWrap: 'anywhere' }}>
-                      <div style={{ fontWeight: 700, marginBottom: 6, color: '#260000', fontSize: '0.9rem' }}>
+                      <div style={{ fontWeight: 700, marginBottom: 6, color: theme.canvas.textPrimary, fontSize: '0.9rem' }}>
                         {file.name || file.slug || 'Universe File'}
                       </div>
                       <div style={{ fontSize: '0.7rem', color: '#666', marginBottom: 4, textDecoration: 'none' }}>
@@ -4651,7 +4649,7 @@ const UniverseManager = ({ variant = 'panel', onRequestClose }) => {
               <button
                 onClick={() => handleUniverseFileSelection('CREATE_NEW')}
                 style={{
-                  ...buttonStyle('solid'),
+                  ...buttonStyle(theme, 'solid'),
                   width: '100%',
                   padding: 16,
                   justifyContent: 'flex-start',
@@ -4674,7 +4672,7 @@ const UniverseManager = ({ variant = 'panel', onRequestClose }) => {
                   <div style={{
                     fontSize: '0.85rem',
                     fontWeight: 600,
-                    color: '#260000',
+                    color: theme.canvas.textPrimary,
                     marginTop: 8,
                     paddingBottom: 8
                   }}>
@@ -4699,7 +4697,7 @@ const UniverseManager = ({ variant = 'panel', onRequestClose }) => {
                         <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10, minWidth: 0 }}>
                           <GitBranch size={18} style={{ flexShrink: 0 }} />
                           <div style={{ textAlign: 'left', flex: 1, minWidth: 0, wordBreak: 'break-word', overflowWrap: 'anywhere' }}>
-                            <div style={{ fontWeight: 700, marginBottom: 6, color: '#260000', fontSize: '0.9rem' }}>
+                            <div style={{ fontWeight: 700, marginBottom: 6, color: theme.canvas.textPrimary, fontSize: '0.9rem' }}>
                               {file.name || file.slug || 'Unnamed Universe'}
                             </div>
                             <div style={{ fontSize: '0.7rem', color: '#666', marginBottom: 4, textDecoration: 'none' }}>
@@ -4767,7 +4765,7 @@ const UniverseManager = ({ variant = 'panel', onRequestClose }) => {
                 setShowRepositoryManager(true);
                 setRepositoryIntent(null);
               }}
-              style={buttonStyle('outline')}
+              style={buttonStyle(theme, 'outline')}
             >
               ← Back to Repositories
             </button>

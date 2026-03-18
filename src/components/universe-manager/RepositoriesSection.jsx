@@ -13,11 +13,11 @@ import { useTheme } from '../../hooks/useTheme.js';
 import SectionCard from './shared/SectionCard.jsx';
 import PanelIconButton from '../shared/PanelIconButton.jsx';
 
-function buttonStyle(variant = 'outline') {
+function buttonStyle(theme, variant = 'outline') {
   const base = {
-    border: '1px solid #260000',
+    border: `1px solid ${theme.canvas.border}`,
     backgroundColor: 'transparent',
-    color: '#260000',
+    color: theme.canvas.textPrimary,
     padding: '6px 12px',
     borderRadius: 6,
     cursor: 'pointer',
@@ -31,7 +31,7 @@ function buttonStyle(variant = 'outline') {
 
   switch (variant) {
     case 'solid':
-      return { ...base, backgroundColor: '#260000', color: '#fefefe' };
+      return { ...base, backgroundColor: theme.canvas.textPrimary, color: theme.canvas.bg };
     case 'disabled':
       return { ...base, opacity: 0.5, cursor: 'not-allowed' };
     default:
@@ -60,7 +60,7 @@ const RepositoriesSection = ({
         title="Repositories" 
         subtitle="Your curated list of repositories"
         actions={
-          <button onClick={onBrowseRepositories} style={buttonStyle('solid')}>
+          <button onClick={onBrowseRepositories} style={buttonStyle(theme, 'solid')}>
             <Github size={14} /> Add Repositories
           </button>
         }
@@ -68,11 +68,11 @@ const RepositoriesSection = ({
         <div
           style={{
             padding: 16,
-           border: '1px dashed #979090',
-           borderRadius: 8,
-           backgroundColor: theme.canvas.bg,
-           textAlign: 'center',
-            color: '#555',
+            border: `1px dashed ${theme.canvas.border}`,
+            borderRadius: 8,
+            backgroundColor: theme.canvas.bg,
+            textAlign: 'center',
+            color: theme.canvas.textSecondary,
             fontSize: '0.8rem'
           }}
         >
@@ -87,7 +87,7 @@ const RepositoriesSection = ({
       title="Repositories" 
       subtitle={`${repositories.length} ${repositories.length === 1 ? 'repository' : 'repositories'} in your list`}
       actions={
-        <button onClick={onBrowseRepositories} style={buttonStyle('solid')}>
+        <button onClick={onBrowseRepositories} style={buttonStyle(theme, 'solid')}>
           <Github size={14} /> Add More
         </button>
       }
@@ -104,14 +104,15 @@ const RepositoriesSection = ({
             <div
               key={repo.id || repoFullName}
               style={{
-                border: `1px solid ${repo.disabled ? '#ccc' : '#260000'}`,
+                border: `1px solid ${repo.disabled ? theme.canvas.border : theme.canvas.border}`,
                 borderRadius: 8,
                 padding: 12,
                 backgroundColor: repo.disabled ? theme.canvas.disabledBg : theme.canvas.bg,
                 opacity: repo.disabled ? 0.6 : 1,
                 display: 'flex',
                 flexDirection: 'column',
-                gap: 8
+                gap: 8,
+                color: theme.canvas.textPrimary
               }}
             >
               {/* Repository header */}
@@ -126,7 +127,7 @@ const RepositoriesSection = ({
                       )}
                     </div>
                     {repo.description && (
-                      <div style={{ fontSize: '0.72rem', color: '#555' }}>{repo.description}</div>
+                      <div style={{ fontSize: '0.72rem', color: theme.canvas.textSecondary }}>{repo.description}</div>
                     )}
                   </div>
                 </div>
@@ -138,7 +139,7 @@ const RepositoriesSection = ({
                       target="_blank"
                       rel="noopener noreferrer"
                       style={{
-                        ...buttonStyle('outline'),
+                        ...buttonStyle(theme, 'outline'),
                         textDecoration: 'none'
                       }}
                     >
@@ -156,8 +157,8 @@ const RepositoriesSection = ({
                     size={20}
                     filled={repo.isMain}
                     fillColor="#cc6600"
-                    color={repo.isMain ? "#cc6600" : "#260000"}
-                    hoverColor={repo.isMain ? "#cc6600" : "#8B0000"}
+                    color={repo.isMain ? theme.canvas.brand : theme.canvas.textPrimary}
+                    hoverColor={repo.isMain ? theme.canvas.brand : theme.canvas.textPrimary}
                     onClick={() => onSetMainRepository(repo)}
                     title={repo.isMain ? 'Already main repository' : 'Set as main repository'}
                     disabled={repo.isMain}
@@ -178,7 +179,7 @@ const RepositoriesSection = ({
               <div
                 style={{
                   marginTop: 10,
-                  borderTop: '1px solid #979090',
+                borderTop: `1px solid ${theme.canvas.border}`,
                   paddingTop: 10,
                   display: 'flex',
                   flexDirection: 'column',
@@ -194,7 +195,7 @@ const RepositoriesSection = ({
                         display: 'flex',
                         alignItems: 'center',
                         gap: 4,
-                        color: '#7A0000',
+                        color: theme.canvas.brand,
                         fontSize: '0.7rem'
                       }}>
                         <AlertCircle size={12} />
@@ -238,25 +239,25 @@ const RepositoriesSection = ({
                       };
 
                       return (
-                        <div
-                          key={`${displayName}-${itemPath || idx}`}
-                          style={{
-                            border: '1px solid #979090',
-                            borderRadius: 6,
-                            backgroundColor: '#cfc6c6',
-                            padding: 10,
-                            display: 'flex',
-                            flexDirection: 'column',
-                            gap: 6
-                          }}
-                        >
+                          <div
+                            key={`${displayName}-${itemPath || idx}`}
+                            style={{
+                              border: `1px solid ${theme.canvas.border}`,
+                              borderRadius: 6,
+                              backgroundColor: theme.canvas.inactive,
+                              padding: 10,
+                              display: 'flex',
+                              flexDirection: 'column',
+                              gap: 6
+                            }}
+                          >
                           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 8 }}>
                             <div style={{ flex: 1 }}>
-                              <div style={{ fontWeight: 600, fontSize: '0.78rem', color: '#260000' }}>{displayName}</div>
+                              <div style={{ fontWeight: 600, fontSize: '0.78rem', color: theme.canvas.textPrimary }}>{displayName}</div>
                               {itemPath && (
                                 <div style={{ fontSize: '0.68rem', color: '#555' }}>{itemPath}</div>
                               )}
-                              <div style={{ fontSize: '0.65rem', color: '#7A0000', display: 'flex', gap: 10, marginTop: 4 }}>
+                              <div style={{ fontSize: '0.65rem', color: theme.canvas.brand, display: 'flex', gap: 10, marginTop: 4 }}>
                                 {item.nodeCount !== undefined && (
                                   <span>{item.nodeCount} nodes</span>
                                 )}
@@ -274,7 +275,7 @@ const RepositoriesSection = ({
                                 style={{
                                   ...buttonStyle('outline'),
                                   borderColor: '#1565c0',
-                                  color: '#1565c0',
+                                  color: theme.canvas.textSecondary,
                                   fontSize: '0.7rem',
                                   padding: '4px 8px'
                                 }}
@@ -282,32 +283,22 @@ const RepositoriesSection = ({
                                 Import Copy
                               </button>
                             )}
-                            {onSyncUniverse && (
-                              <button
-                                onClick={() => onSyncUniverse(item, repoInfo)}
-                                style={{
-                                  ...buttonStyle('solid'),
-                                  backgroundColor: theme.canvas.bg,
-                 color: theme.canvas.text,
-                 border: '1px solid #260000',
-                 borderRadius: 8,
-                 padding: 12,
-                 display: 'flex',
-                 alignItems: 'center',
-                 justifyContent: 'space-between',
-                 cursor: 'pointer',
-                 transition: 'all 0.15s'
-               }}
-               onMouseEnter={(e) => {
-                 e.currentTarget.style.backgroundColor = '#979090';
-               }}
-               onMouseLeave={(e) => {
-                 e.currentTarget.style.backgroundColor = theme.canvas.bg;
-               }}
-                              >
-                                Sync to Universe
-                              </button>
-                            )}
+                                <button
+                                  onClick={() => onAttach(item, repo)}
+                                  style={{
+                                    ...buttonStyle(theme, 'outline'),
+                                    fontSize: '0.7rem',
+                                    padding: '4px 8px'
+                                  }}
+                                  onMouseEnter={(e) => {
+                                    e.currentTarget.style.backgroundColor = theme.canvas.inactive;
+                                  }}
+                                  onMouseLeave={(e) => {
+                                    e.currentTarget.style.backgroundColor = theme.canvas.bg;
+                                  }}
+                                >
+                                  Attach to Universe
+                                </button>
                           </div>
                         </div>
                       );

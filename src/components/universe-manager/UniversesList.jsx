@@ -7,9 +7,9 @@ import PanelIconButton from '../shared/PanelIconButton.jsx';
 
 function buttonStyle(theme, variant = 'outline') {
   const base = {
-    border: `1px solid ${theme.canvas.text}`,
+    border: `1px solid ${theme.canvas.border}`,
     backgroundColor: 'transparent',
-    color: theme.canvas.text,
+    color: theme.canvas.textPrimary,
     padding: '6px 12px',
     borderRadius: 6,
     cursor: 'pointer',
@@ -25,9 +25,9 @@ function buttonStyle(theme, variant = 'outline') {
 
   switch (variant) {
     case 'solid':
-      return { ...base, backgroundColor: theme.canvas.text, color: theme.canvas.bg };
+      return { ...base, backgroundColor: theme.canvas.textPrimary, color: theme.canvas.bg };
     case 'danger':
-      return { ...base, borderColor: '#c62828', color: '#c62828' };
+      return { ...base, borderColor: '#7A0000', color: '#7A0000', backgroundColor: 'rgba(122,0,0,0.05)' };
     case 'disabled':
       return { ...base, opacity: 0.5, cursor: 'not-allowed' };
     default:
@@ -244,8 +244,7 @@ const UniversesList = ({
                   left: 0,
                   marginTop: 4,
                   backgroundColor: theme.canvas.bg,
-
-                  border: '1px solid #260000',
+                  border: `1px solid ${theme.canvas.border}`,
                   borderRadius: 6,
                   boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
                   zIndex: 1000,
@@ -262,7 +261,7 @@ const UniversesList = ({
                       cursor: 'pointer',
                       fontSize: '0.75rem',
                       fontWeight: 600,
-                      color: '#260000',
+                      color: theme.canvas.textPrimary,
                       display: 'flex',
                       alignItems: 'center',
                       gap: 6
@@ -283,12 +282,15 @@ const UniversesList = ({
                       cursor: 'pointer',
                       fontSize: '0.75rem',
                       fontWeight: 600,
-                      color: '#260000',
+                      color: theme.canvas.textPrimary,
+                      display: 'flex',
+                      alignItems: 'center',
+                      color: theme.canvas.textPrimary,
                       display: 'flex',
                       alignItems: 'center',
                       gap: 6
                     }}
-                    onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#f5f5f5'}
+                    onMouseEnter={(e) => e.currentTarget.style.backgroundColor = theme.canvas.hover}
                     onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
                   >
                     <Github size={12} /> Load from Repository
@@ -312,7 +314,7 @@ const UniversesList = ({
                   marginTop: 4,
                   backgroundColor: theme.canvas.bg,
 
-                  border: '1px solid #260000',
+                  border: `1px solid ${theme.canvas.border}`,
                   borderRadius: 6,
                   boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
                   zIndex: 1000,
@@ -329,12 +331,12 @@ const UniversesList = ({
                       cursor: 'pointer',
                       fontSize: '0.75rem',
                       fontWeight: 600,
-                      color: '#260000',
+                      color: theme.canvas.textPrimary,
                       display: 'flex',
                       alignItems: 'center',
                       gap: 6
                     }}
-                    onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#f5f5f5'}
+                    onMouseEnter={(e) => e.currentTarget.style.backgroundColor = theme.canvas.hover}
                     onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
                   >
                     <FileText size={12} /> New Local File
@@ -350,12 +352,12 @@ const UniversesList = ({
                       cursor: 'pointer',
                       fontSize: '0.75rem',
                       fontWeight: 600,
-                      color: '#260000',
+                      color: theme.canvas.textPrimary,
                       display: 'flex',
                       alignItems: 'center',
                       gap: 6
                     }}
-                    onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#f5f5f5'}
+                    onMouseEnter={(e) => e.currentTarget.style.backgroundColor = theme.canvas.hover}
                     onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
                   >
                     <Github size={12} /> New Repository
@@ -370,9 +372,10 @@ const UniversesList = ({
           {/* Workspace Folder Section */}
           <div style={{
             padding: '10px 12px',
-            backgroundColor: '#cfc6c6',
+            backgroundColor: theme.canvas.inactive,
+            opacity: 0.9,
             borderRadius: 6,
-            border: workspaceFolder ? '2px solid #7A0000' : '2px dashed #979090',
+            border: workspaceFolder ? `2px solid ${theme.canvas.brand}` : `2px dashed ${theme.canvas.border}`,
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'space-between',
@@ -380,17 +383,17 @@ const UniversesList = ({
           }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, flex: 1, minWidth: 0 }}>
               {workspaceFolder ? (
-                <FolderOpen size={18} color="#7A0000" />
+                <FolderOpen size={18} color={theme.canvas.brand} />
               ) : (
-                <Folder size={18} color="#666" />
+                <Folder size={18} color={theme.canvas.textSecondary} />
               )}
               <div style={{ display: 'flex', flexDirection: 'column', minWidth: 0 }}>
-                <span style={{ fontSize: '0.72rem', fontWeight: 600, color: '#260000' }}>
+                <span style={{ fontSize: '0.72rem', fontWeight: 600, color: theme.canvas.textPrimary }}>
                   Workspace Folder
                 </span>
                 <span style={{
                   fontSize: '0.65rem',
-                  color: workspaceFolder ? '#444' : '#888',
+                  color: workspaceFolder ? theme.canvas.textPrimary : theme.canvas.textSecondary,
                   overflow: 'hidden',
                   textOverflow: 'ellipsis',
                   whiteSpace: 'nowrap'
@@ -423,15 +426,15 @@ const UniversesList = ({
               justifyContent: 'center',
               alignItems: 'center',
               padding: '40px 0',
-              color: '#666',
+              color: theme.canvas.textSecondary,
               gap: 12,
-              background: 'rgba(0,0,0,0.02)',
+              background: theme.canvas.inactive,
               borderRadius: 8
             }}>
               <div style={{
                 width: 16,
                 height: 16,
-                border: '2px solid #8B0000',
+                border: `2px solid ${theme.canvas.brand}`,
                 borderTopColor: 'transparent',
                 borderRadius: '50%',
                 animation: 'spin 1s linear infinite'
@@ -443,11 +446,11 @@ const UniversesList = ({
             <div style={{
               padding: '30px 20px',
               textAlign: 'center',
-              color: '#8B0000',
+              color: theme.canvas.brand,
               fontSize: '0.9rem',
-              background: 'rgba(139, 0, 0, 0.05)',
+              background: theme.canvas.inactive,
               borderRadius: 8,
-              border: '1px dashed rgba(139, 0, 0, 0.2)',
+              border: `1px dashed ${theme.canvas.border}`,
               fontStyle: 'italic'
             }}>
               No universes found. Create one to get started.
@@ -469,8 +472,8 @@ const UniversesList = ({
                 <div
                   key={universe.slug}
                   style={{
-                    border: isActive ? '2px solid #7A0000' : `1px solid ${theme.canvas.text}`, // Changed #260000 to theme.canvas.text
-                    borderRadius: 2,
+                    border: isActive ? `2px solid ${theme.canvas.brand}` : `1px solid ${theme.canvas.border}`,
+                    borderRadius: 8,
                     backgroundColor: theme.canvas.bg,
                     padding: 12,
 
@@ -484,7 +487,7 @@ const UniversesList = ({
                     <div style={{ display: 'flex', alignItems: 'center', gap: 8, flex: 1 }}>
                       <div style={{ textAlign: 'left' }}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                          <span style={{ fontWeight: 600, color: '#260000' }}>{universe.name}</span>
+                          <span style={{ fontWeight: 600, color: theme.canvas.textPrimary }}>{universe.name}</span>
                           {isActive && (
                             <span style={{
                               fontSize: '0.6rem',
@@ -500,7 +503,7 @@ const UniversesList = ({
                         </div>
                         <div style={{
                           fontSize: isSlim ? '0.65rem' : '0.7rem',
-                          color: '#555',
+                          color: theme.canvas.textSecondary,
                           marginTop: 2,
                           display: 'flex',
                           gap: isSlim ? 6 : 8,
@@ -548,7 +551,7 @@ const UniversesList = ({
                     <div style={{ display: 'flex', flexDirection: 'column', gap: 12, paddingLeft: 24 }}>
                       {/* Storage Slots */}
                       <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                        <div style={{ fontSize: '0.75rem', fontWeight: 600, color: '#260000' }}>
+                        <div style={{ fontSize: '0.75rem', fontWeight: 600, color: theme.canvas.textPrimary }}>
                           Storage
                         </div>
 
@@ -560,7 +563,7 @@ const UniversesList = ({
                                 padding: 8,
                                 backgroundColor: theme.canvas.bg,
                                 borderRadius: 6,
-                                border: `2px solid ${resolvedSource === 'git' ? '#7A0000' : '#979090'}`,
+                                border: `2px solid ${resolvedSource === 'git' ? theme.canvas.brand : theme.canvas.border}`,
 
                                 display: 'flex',
                                 flexDirection: 'column',
@@ -572,7 +575,7 @@ const UniversesList = ({
                               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                                 <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                                   <Github size={14} />
-                                  <span style={{ fontSize: '0.72rem', fontWeight: 600, color: '#260000' }}>
+                                  <span style={{ fontSize: '0.72rem', fontWeight: 600, color: theme.canvas.textPrimary }}>
                                     @{universe.raw.gitRepo.linkedRepo.user}/{universe.raw.gitRepo.linkedRepo.repo}
                                   </span>
                                   {/* Source-of-truth badge removed; button below handles status */}
@@ -623,30 +626,30 @@ const UniversesList = ({
                                 return (
                                   <div style={{
                                     fontSize: '0.65rem',
-                                    color: '#444',
+                                    color: theme.canvas.textSecondary,
                                     marginTop: '4px',
                                     display: 'flex',
                                     flexDirection: 'column',
                                     gap: 2
                                   }}>
                                     <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-                                      <span style={{ fontWeight: 600, color: '#260000' }}>File:</span>
+                                      <span style={{ fontWeight: 600, color: theme.canvas.textPrimary }}>File:</span>
                                       <span style={{ wordBreak: 'break-word' }}>
                                         {fileName}
                                       </span>
                                     </div>
                                     <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-                                      <span style={{ fontWeight: 600, color: '#260000' }}>Status:</span>
+                                      <span style={{ fontWeight: 600, color: theme.canvas.textPrimary }}>Status:</span>
                                       <span style={{
-                                        color: hasError ? '#d32f2f' : isLoading ? '#ef6c00' : statusText === 'synced' ? '#7A0000' : '#666',
+                                        color: hasError ? '#d32f2f' : isLoading ? '#ef6c00' : statusText === 'synced' ? theme.canvas.brand : theme.canvas.textSecondary,
                                         fontWeight: 500
                                       }}>
                                         {isLoading ? '⟳ Loading...' : hasError ? '⚠ Error' : statusText}
                                       </span>
                                     </div>
                                     <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-                                      <span style={{ fontWeight: 600, color: '#260000' }}>Last saved:</span>
-                                      <span style={{ color: '#666' }}>{lastSync}</span>
+                                      <span style={{ fontWeight: 600, color: theme.canvas.textPrimary }}>Last saved:</span>
+                                      <span style={{ color: theme.canvas.textSecondary }}>{lastSync}</span>
                                     </div>
                                     {hasError && (
                                       <div style={{
@@ -688,9 +691,9 @@ const UniversesList = ({
                                         display: 'flex',
                                         alignItems: 'center',
                                         gap: 4,
-                                        border: '1px solid #7A0000',
-                                        backgroundColor: isSourceOfTruth ? '#7A0000' : 'transparent',
-                                        color: isSourceOfTruth ? theme.canvas.bg : '#7A0000',
+                                        border: `1px solid ${theme.canvas.brand}`,
+                                        backgroundColor: isSourceOfTruth ? theme.canvas.brand : 'transparent',
+                                        color: isSourceOfTruth ? theme.canvas.bg : theme.canvas.brand,
 
                                         opacity: canToggle ? 1 : 0.85
                                       }}
@@ -712,8 +715,8 @@ const UniversesList = ({
                                       ...buttonStyle(theme, 'outline'), // Added theme variable
                                       fontSize: '0.65rem',
                                       padding: '2px 6px',
-                                      color: '#7A0000',
-                                      borderColor: '#7A0000'
+                                      color: theme.canvas.brand,
+                                      borderColor: theme.canvas.brand
                                     }}
                                     title="Manual save"
                                   >
@@ -728,7 +731,7 @@ const UniversesList = ({
                               padding: 12,
                               backgroundColor: 'transparent',
                               borderRadius: 6,
-                              border: '2px dashed #979090',
+                              border: `2px dashed ${theme.canvas.border}`,
                               display: 'flex',
                               alignItems: 'center',
                               justifyContent: 'center'
@@ -738,8 +741,8 @@ const UniversesList = ({
                                 style={{
                                   ...buttonStyle(theme, 'outline'), // Added theme variable
                                   fontSize: '0.7rem',
-                                  color: '#666',
-                                  borderColor: '#979090'
+                                  color: theme.canvas.textSecondary,
+                                  borderColor: theme.canvas.border
                                 }}
                               >
                                 <Plus size={12} />
@@ -755,7 +758,7 @@ const UniversesList = ({
                                 padding: 8,
                                 backgroundColor: theme.canvas.bg,
                                 borderRadius: 6,
-                                border: `2px solid ${resolvedSource === 'local' ? '#7A0000' : '#979090'}`,
+                                border: `2px solid ${resolvedSource === 'local' ? theme.canvas.brand : theme.canvas.border}`,
                                 display: 'flex',
                                 flexDirection: 'column',
                                 gap: 6,
@@ -775,7 +778,7 @@ const UniversesList = ({
                                     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                                       <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                                         <Save size={14} />
-                                        <span style={{ fontSize: '0.72rem', fontWeight: 600, color: '#260000' }}>
+                                        <span style={{ fontSize: '0.72rem', fontWeight: 600, color: theme.canvas.textPrimary }}>
                                           Local File
                                         </span>
                                         {/* Source-of-truth badge removed; button below handles status */}
@@ -831,13 +834,13 @@ const UniversesList = ({
                                       gap: 2
                                     }}>
                                       <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-                                        <span style={{ fontWeight: 600, color: '#260000' }}>File:</span>
+                                        <span style={{ fontWeight: 600, color: theme.canvas.textPrimary }}>File:</span>
                                         <span style={{ wordBreak: 'break-word' }}>
                                           {localFile.displayPath || localFile.path || localFile.lastFilePath || localFile.suggestedPath || `${universe.slug}.redstring`}
                                         </span>
                                       </div>
                                       <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-                                        <span style={{ fontWeight: 600, color: '#260000' }}>Last saved:</span>
+                                        <span style={{ fontWeight: 600, color: theme.canvas.textPrimary }}>Last saved:</span>
                                         <span style={{ color: lastSavedColor }}>
                                           {lastSavedLabel}
                                         </span>
@@ -1013,7 +1016,7 @@ const UniversesList = ({
                                 padding: 12,
                                 backgroundColor: 'transparent',
                                 borderRadius: 6,
-                                border: '2px dashed #979090',
+                                border: `2px dashed ${theme.canvas.border}`,
                                 display: 'flex',
                                 alignItems: 'center',
                                 justifyContent: 'center',
@@ -1026,7 +1029,7 @@ const UniversesList = ({
                                   ...buttonStyle('outline'),
                                   fontSize: '0.7rem',
                                   color: '#666',
-                                  borderColor: '#979090'
+                                  borderColor: theme.canvas.border
                                 }}
                               >
                                 <Plus size={12} />
@@ -1043,7 +1046,7 @@ const UniversesList = ({
                                   backgroundColor: theme.canvas.bg,
                                   borderRadius: 6,
 
-                                  border: '1px solid #260000',
+                                  border: `1px solid ${theme.canvas.border}`,
                                   borderRadius: 6,
                                   boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
                                   zIndex: 1000,
@@ -1067,7 +1070,7 @@ const UniversesList = ({
                                       cursor: 'pointer',
                                       fontSize: '0.75rem',
                                       fontWeight: 600,
-                                      color: '#260000',
+                                      color: theme.canvas.textPrimary,
                                       display: 'flex',
                                       alignItems: 'center',
                                       gap: 6
@@ -1095,7 +1098,7 @@ const UniversesList = ({
                                       cursor: 'pointer',
                                       fontSize: '0.75rem',
                                       fontWeight: 600,
-                                      color: '#260000',
+                                      color: theme.canvas.textPrimary,
                                       display: 'flex',
                                       alignItems: 'center',
                                       gap: 6
