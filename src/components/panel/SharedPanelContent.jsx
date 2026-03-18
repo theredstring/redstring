@@ -1340,7 +1340,20 @@ const SharedPanelContent = ({
       event.preventDefault();
     }
     console.log('[ImageDelete] Calling onNodeUpdate to remove image');
-    onNodeUpdate({ imageSrc: null, thumbnailSrc: null, imageAspectRatio: null });
+
+    // Clear all image-related fields including Wikipedia semantic metadata
+    const updates = {
+      imageSrc: null,
+      thumbnailSrc: null,
+      imageAspectRatio: null,
+      semanticMetadata: {
+        ...(nodeData.semanticMetadata || {}),
+        wikipediaOriginalImage: null,
+        wikipediaThumbnail: null
+      }
+    };
+
+    onNodeUpdate(updates);
   };
 
   if (!nodeData) {
