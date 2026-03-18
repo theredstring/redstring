@@ -10,7 +10,7 @@ export const LIGHT_THEME = {
   canvas: {
     bg: '#bdb5b5',      // Main canvas/panel background
     textPrimary: '#260000',   // Primary text color on canvas bg
-    textSecondary: '#716C6C', // Secondary/muted text
+    textSecondary: '#979090', // Secondary/muted text (lighter for better readability)
     border: '#979090',   // Borders and dividers
     hover: '#cfc6c6',    // Hover states
     active: '#bdb5b5',   // Active tab/button states

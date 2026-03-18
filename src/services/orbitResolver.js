@@ -65,7 +65,7 @@ export async function fetchOrbitCandidatesForPrototype(prototype, options = {}) 
               {
                 name: r.name,
                 uri: r.uri,
-                predicate: r.predicate || 'relatedTo',
+                predicate: r.predicate ?? null,
                 source: r.source || 'orbit-local',
                 sourceTrust: r.sourceTrust ?? getSourceTrust(r.source || 'orbit-local'),
                 externalLinks: r.externalLinks || (r.uri ? [r.uri] : []),
@@ -93,7 +93,7 @@ export async function fetchOrbitCandidatesForPrototype(prototype, options = {}) 
             {
               name: r.itemLabel?.value || r.label?.value || r.name || 'Unknown',
               uri: r.item?.value || r.resource?.value || r.uri,
-              predicate: r.connectionType || r.predicate || 'relatedTo',
+              predicate: r.connectionType ?? r.predicate ?? null,
               source: r.source || 'external',
               sourceTrust: getSourceTrust(r.source || 'external'),
               externalLinks: r.externalLinks || (r.uri ? [r.uri] : []),

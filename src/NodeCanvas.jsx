@@ -19,7 +19,7 @@ import EdgeGlowIndicator from './components/EdgeGlowIndicator.jsx'; // Import th
 import BackToCivilization from './BackToCivilization.jsx'; // Import the BackToCivilization component
 import HoverVisionAid from './components/HoverVisionAid.jsx'; // Import the HoverVisionAid component
 import { getNodeDimensions } from './utils.js';
-import { getTextColor, hexToHsl, hslToHex } from './utils/colorUtils.js';
+import { getTextColor, getInvertedTextColor, hexToHsl, hslToHex } from './utils/colorUtils.js';
 import { getStorageKey } from './utils/storageUtils.js';
 import { getPrototypeIdFromItem } from './utils/abstraction.js';
 import { copySelection, pasteClipboard } from './utils/clipboard.js';
@@ -9463,7 +9463,7 @@ function NodeCanvas() {
                                     textAnchor="middle"
                                     dominantBaseline="middle"
                                     transform={`rotate(${adjustedAngle}, ${midX}, ${midY})`}
-                                    stroke={edgeColor}
+                                    stroke={getInvertedTextColor(edgeColor, theme.darkMode)}
                                     strokeWidth="6"
                                     strokeLinecap="round"
                                     strokeLinejoin="round"
@@ -10747,7 +10747,7 @@ function NodeCanvas() {
                                     textAnchor="middle"
                                     dominantBaseline="middle"
                                     transform={`rotate(${adjustedAngle}, ${midX}, ${midY})`}
-                                    stroke={edgeColor}
+                                    stroke={getInvertedTextColor(edgeColor, theme.darkMode)}
                                     strokeWidth="6"
                                     strokeLinecap="round"
                                     strokeLinejoin="round"

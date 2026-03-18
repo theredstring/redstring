@@ -37,6 +37,120 @@ const createRateLimiter = (limit, interval) => {
 const dbpediaRateLimiter = createRateLimiter(1, 500);
 
 /**
+ * Extract Wikipedia page title from URL
+ * @param {string} url - Wikipedia URL
+ * @returns {string|null} Page title or null
+ */
+function extractWikipediaPageTitle(url) {
+  if (!url) return null;
+  const match = url.match(/wikipedia\.org\/wiki\/([^#?]+)/);
+  return match ? decodeURIComponent(match[1]) : null;
+}
+
+/**
+ * Get Wikidata ID from Wikipedia URL (client-side, direct API call)
+ * @param {string} wikipediaUrl - Wikipedia article URL
+ * @returns {Promise<string|null>} Wikidata ID (e.g., "Q937") or null
+ */
+export async function getWikidataIdFromUrl(wikipediaUrl) {
+  const pageTitle = extractWikipediaPageTitle(wikipediaUrl);
+  if (!pageTitle) return null;
+
+  try {
+    // Call Wikipedia API directly (CORS-enabled with origin=*)
+    const response = await fetch(
+      `https://en.wikipedia.org/w/api.php?action=query&prop=pageprops&ppprop=wikibase_item&titles=${encodeURIComponent(pageTitle)}&format=json&origin=*`,
+      { headers: { 'Api-User-Agent': 'Redstring/1.0 (https://redstring.ai)' } }
+    );
+
+    if (!response.ok) return null;
+
+    const data = await response.json();
+    const pages = data.query?.pages;
+    if (!pages) return null;
+
+    // Get first page (there should only be one)
+    const pageId = Object.keys(pages)[0];
+    const wikidataId = pages[pageId]?.pageprops?.wikibase_item;
+
+    if (wikidataId) {
+      console.log(`[SemanticWebQuery] "${pageTitle}" → Wikidata ${wikidataId}`);
+    }
+    return wikidataId || null;
+  } catch (error) {
+    console.warn('[SemanticWebQuery] Failed to get Wikidata ID from Wikipedia URL:', error.message);
+    return null;
+  }
+}
+
+/**
+ * Query Wikidata relationships using a Wikidata Q-ID (more accurate than label search)
+ * @param {string} wikidataId - Wikidata ID (e.g., "Q937")
+ * @param {Object} options - Query options
+ * @returns {Promise<Array>} Relationship results
+ */
+export async function queryWikidataByQId(wikidataId, options = {}) {
+  const { timeout = 5000, limit = 30 } = options;
+
+  const query = `
+    SELECT DISTINCT ?related ?relatedLabel ?property ?propertyLabel WHERE {
+      wd:${wikidataId} ?property ?related .
+      ?related rdfs:label ?relatedLabel .
+      FILTER(LANG(?relatedLabel) = "en")
+      FILTER(STRSTARTS(STR(?property), "http://www.wikidata.org/prop/direct/"))
+
+      # Convert property URI to entity URI and fetch its label
+      BIND(STRAFTER(STR(?property), "http://www.wikidata.org/prop/direct/") AS ?propertyId)
+      BIND(IRI(CONCAT("http://www.wikidata.org/entity/", ?propertyId)) AS ?propertyEntity)
+
+      OPTIONAL {
+        ?propertyEntity rdfs:label ?propertyLabel .
+        FILTER(LANG(?propertyLabel) = "en")
+      }
+    } LIMIT ${limit}
+  `;
+
+  try {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), timeout);
+
+    const response = await fetch('https://query.wikidata.org/sparql', {
+      method: 'POST',
+      headers: {
+        'Accept': 'application/sparql-results+json',
+        'Content-Type': 'application/x-www-form-urlencoded',
+        'User-Agent': 'Redstring/1.0 (https://redstring.ai)'
+      },
+      body: `query=${encodeURIComponent(query)}`,
+      signal: controller.signal
+    });
+
+    clearTimeout(timeoutId);
+
+    if (!response.ok) {
+      console.warn(`[SemanticWebQuery] Wikidata Q-ID query failed: HTTP ${response.status}`);
+      return [];
+    }
+
+    const data = await response.json();
+    return data.results.bindings.map(item => ({
+      itemLabel: { value: item.relatedLabel?.value },
+      item: { value: item.related?.value },
+      predicate: item.propertyLabel?.value || item.property?.value,
+      source: 'wikidata',
+      type: 'relationship'
+    }));
+  } catch (error) {
+    if (error.name === 'AbortError') {
+      console.warn('[SemanticWebQuery] Wikidata Q-ID query timed out');
+    } else {
+      console.warn('[SemanticWebQuery] Wikidata Q-ID query error:', error.message);
+    }
+    return [];
+  }
+}
+
+/**
  * Simple Wikidata query for fast enrichment - just basic entity lookup
  * @param {string} entityName - Entity name to search for
  * @param {Object} options - Query options
@@ -991,9 +1105,16 @@ export async function findRelatedConcepts(entityName, options = {}) {
           ?item ?property ?related .
           ?related rdfs:label ?relatedLabel .
           FILTER(LANG(?relatedLabel) = "en")
-          FILTER(?property != rdfs:label)
-          FILTER(?property != schema:description)
-          SERVICE wikibase:label { bd:serviceParam wikibase:language "en" }
+          FILTER(STRSTARTS(STR(?property), "http://www.wikidata.org/prop/direct/"))
+
+          # Convert property URI to entity URI and fetch its label
+          BIND(STRAFTER(STR(?property), "http://www.wikidata.org/prop/direct/") AS ?propertyId)
+          BIND(IRI(CONCAT("http://www.wikidata.org/entity/", ?propertyId)) AS ?propertyEntity)
+
+          OPTIONAL {
+            ?propertyEntity rdfs:label ?propertyLabel .
+            FILTER(LANG(?propertyLabel) = "en")
+          }
         } LIMIT 30
       `;
 

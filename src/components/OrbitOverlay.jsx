@@ -8,6 +8,7 @@ import { candidateToConcept } from '../services/candidates.js';
 import { useTheme } from '../hooks/useTheme.js';
 import useGraphStore from '../store/graphStore.jsx';
 import { getTextColor } from '../utils/colorUtils';
+import { formatPredicate } from '../utils/predicateFormatter.js';
 
 const SPAWNABLE_NODE = 'spawnable_node';
 
@@ -30,6 +31,89 @@ const hashToUnitFloat = (str, salt = '') => {
   }
   // Convert to [0,1)
   return (h & 0x7fffffff) / 0x80000000;
+};
+
+// Component to render a connection from center to an orbit item
+const OrbitConnection = ({
+  sourceX,
+  sourceY,
+  targetX,
+  targetY,
+  predicate,
+  color,
+  isHovered = false
+}) => {
+  const theme = useTheme();
+
+  // Don't render generic or missing predicates
+  if (!predicate || predicate === 'relatedTo' || predicate === null) {
+    return null;
+  }
+
+  const formattedPredicate = formatPredicate(predicate);
+  const textColor = getTextColor(color, theme.darkMode);
+
+  // Calculate midpoint for label placement
+  const midX = (sourceX + targetX) / 2;
+  const midY = (sourceY + targetY) / 2;
+
+  // Calculate angle for text rotation
+  const dx = targetX - sourceX;
+  const dy = targetY - sourceY;
+  let angle = Math.atan2(dy, dx) * (180 / Math.PI);
+
+  // Keep text right-side up
+  if (angle > 90 || angle < -90) {
+    angle += 180;
+  }
+
+  // Font size matching NodeCanvas
+  const fontSize = 24;
+  const strokeWidth = Math.max(2, fontSize * 0.25); // ~6px
+
+  return (
+    <g className="orbit-connection" opacity={isHovered ? 1 : 0.6}>
+      {/* Connection line */}
+      <line
+        x1={sourceX}
+        y1={sourceY}
+        x2={targetX}
+        y2={targetY}
+        stroke={color}
+        strokeWidth={6}
+        strokeLinecap="round"
+        opacity={0.4}
+        style={{
+          pointerEvents: 'none',
+          transition: 'opacity 0.2s ease'
+        }}
+      />
+
+      {/* Label text with stroke outline */}
+      <text
+        x={midX}
+        y={midY}
+        fontSize={fontSize}
+        fontFamily="'EmOne', sans-serif"
+        fontWeight="bold"
+        fill={textColor}
+        stroke={color}
+        strokeWidth={strokeWidth}
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        paintOrder="stroke fill"
+        textAnchor="middle"
+        dominantBaseline="middle"
+        transform={`rotate(${angle}, ${midX}, ${midY})`}
+        style={{
+          pointerEvents: 'none',
+          userSelect: 'none'
+        }}
+      >
+        {formattedPredicate}
+      </text>
+    </g>
+  );
 };
 
 const DraggableOrbitItem = ({ candidate, x, y, rightPanelExpanded, onNodeClick }) => {
@@ -378,47 +462,125 @@ export default function OrbitOverlay({
   }
 
   return (
-    <g>
-      {ring1Positions.map(({ candidate, dims, x, y }) => (
-        <DraggableOrbitItem
-          key={`ring1-${candidate.id}`}
-          candidate={candidate}
-          x={x}
-          y={y}
-          width={dims.currentWidth}
-          height={dims.currentHeight}
-        />
-      ))}
-      {ring2Positions.map(({ candidate, dims, x, y }) => (
-        <DraggableOrbitItem
-          key={`ring2-${candidate.id}`}
-          candidate={candidate}
-          x={x}
-          y={y}
-          width={dims.currentWidth}
-          height={dims.currentHeight}
-        />
-      ))}
-      {ring3Positions.map(({ candidate, dims, x, y }) => (
-        <DraggableOrbitItem
-          key={`ring3-${candidate.id}`}
-          candidate={candidate}
-          x={x}
-          y={y}
-          width={dims.currentWidth}
-          height={dims.currentHeight}
-        />
-      ))}
-      {ring4Positions.map(({ candidate, dims, x, y }) => (
-        <DraggableOrbitItem
-          key={`ring4-${candidate.id}`}
-          candidate={candidate}
-          x={x}
-          y={y}
-          width={dims.currentWidth}
-          height={dims.currentHeight}
-        />
-      ))}
+    <g className="orbit-overlay">
+      {/* Render connections FIRST (behind orbit items) */}
+      <g className="orbit-connections">
+        {/* Ring 1 connections */}
+        {ring1Positions.map(({ candidate, x, y, dims }) => {
+          const targetCenterX = x + dims.currentWidth / 2;
+          const targetCenterY = y + dims.currentHeight / 2;
+
+          return (
+            <OrbitConnection
+              key={`conn-${candidate.id}`}
+              sourceX={centerX}
+              sourceY={centerY}
+              targetX={targetCenterX}
+              targetY={targetCenterY}
+              predicate={candidate.predicate}
+              color={candidate.color}
+            />
+          );
+        })}
+
+        {/* Ring 2 connections */}
+        {ring2Positions.map(({ candidate, x, y, dims }) => {
+          const targetCenterX = x + dims.currentWidth / 2;
+          const targetCenterY = y + dims.currentHeight / 2;
+
+          return (
+            <OrbitConnection
+              key={`conn-${candidate.id}`}
+              sourceX={centerX}
+              sourceY={centerY}
+              targetX={targetCenterX}
+              targetY={targetCenterY}
+              predicate={candidate.predicate}
+              color={candidate.color}
+            />
+          );
+        })}
+
+        {/* Ring 3 connections */}
+        {ring3Positions.map(({ candidate, x, y, dims }) => {
+          const targetCenterX = x + dims.currentWidth / 2;
+          const targetCenterY = y + dims.currentHeight / 2;
+
+          return (
+            <OrbitConnection
+              key={`conn-${candidate.id}`}
+              sourceX={centerX}
+              sourceY={centerY}
+              targetX={targetCenterX}
+              targetY={targetCenterY}
+              predicate={candidate.predicate}
+              color={candidate.color}
+            />
+          );
+        })}
+
+        {/* Ring 4 connections */}
+        {ring4Positions.map(({ candidate, x, y, dims }) => {
+          const targetCenterX = x + dims.currentWidth / 2;
+          const targetCenterY = y + dims.currentHeight / 2;
+
+          return (
+            <OrbitConnection
+              key={`conn-${candidate.id}`}
+              sourceX={centerX}
+              sourceY={centerY}
+              targetX={targetCenterX}
+              targetY={targetCenterY}
+              predicate={candidate.predicate}
+              color={candidate.color}
+            />
+          );
+        })}
+      </g>
+
+      {/* Render orbit items SECOND (on top of connections) */}
+      <g className="orbit-items">
+        {ring1Positions.map(({ candidate, dims, x, y }) => (
+          <DraggableOrbitItem
+            key={`ring1-${candidate.id}`}
+            candidate={candidate}
+            x={x}
+            y={y}
+            width={dims.currentWidth}
+            height={dims.currentHeight}
+          />
+        ))}
+        {ring2Positions.map(({ candidate, dims, x, y }) => (
+          <DraggableOrbitItem
+            key={`ring2-${candidate.id}`}
+            candidate={candidate}
+            x={x}
+            y={y}
+            width={dims.currentWidth}
+            height={dims.currentHeight}
+          />
+        ))}
+        {ring3Positions.map(({ candidate, dims, x, y }) => (
+          <DraggableOrbitItem
+            key={`ring3-${candidate.id}`}
+            candidate={candidate}
+            x={x}
+            y={y}
+            width={dims.currentWidth}
+            height={dims.currentHeight}
+          />
+        ))}
+        {ring4Positions.map(({ candidate, dims, x, y }) => (
+          <DraggableOrbitItem
+            key={`ring4-${candidate.id}`}
+            candidate={candidate}
+            x={x}
+            y={y}
+            width={dims.currentWidth}
+            height={dims.currentHeight}
+          />
+        ))}
+      </g>
     </g>
   );
 }

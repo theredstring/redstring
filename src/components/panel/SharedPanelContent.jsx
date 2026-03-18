@@ -721,7 +721,7 @@ const WikipediaEnrichment = ({ nodeData, onUpdateNode }) => {
                 style={{
                   padding: '6px',
                   marginBottom: '4px',
-                  border: '1px solid #ddd',
+                  border: `1px solid ${theme.canvas.border}`,
                   borderRadius: '4px',
                   cursor: 'pointer',
                   background: 'white',
@@ -746,7 +746,7 @@ const WikipediaEnrichment = ({ nodeData, onUpdateNode }) => {
             style={{
               marginTop: '6px',
               padding: '4px 8px',
-              border: '1px solid #ccc',
+              border: `1px solid ${theme.canvas.border}`,
               borderRadius: '3px',
               background: 'transparent',
               color: theme.canvas.textSecondary,
@@ -906,7 +906,7 @@ const WikipediaEnrichment = ({ nodeData, onUpdateNode }) => {
                   alignItems: 'center',
                   gap: '8px',
                   padding: '4px',
-                  border: '1px solid #ddd',
+                  border: `1px solid ${theme.canvas.border}`,
                   borderRadius: '4px',
                   cursor: 'pointer',
                   background: 'white',
@@ -948,7 +948,7 @@ const WikipediaEnrichment = ({ nodeData, onUpdateNode }) => {
                   alignItems: 'center',
                   gap: '8px',
                   padding: '4px',
-                  border: '1px solid #ddd',
+                  border: `1px solid ${theme.canvas.border}`,
                   borderRadius: '4px',
                   cursor: 'pointer',
                   background: 'white',
@@ -986,7 +986,7 @@ const WikipediaEnrichment = ({ nodeData, onUpdateNode }) => {
             style={{
               marginTop: '6px',
               padding: '4px 8px',
-              border: '1px solid #ccc',
+              border: `1px solid ${theme.canvas.border}`,
               borderRadius: '3px',
               background: 'transparent',
               color: theme.canvas.textSecondary,
@@ -1474,7 +1474,7 @@ const SharedPanelContent = ({
                 }}>
                   <span style={{
                     fontSize: '0.9rem',
-                    color: theme.canvas.textPrimary,
+                    color: theme.canvas.textSecondary,
                     fontFamily: "'EmOne', sans-serif"
                   }}>
                     Is {getArticleFor(typeName)}
@@ -1519,7 +1519,7 @@ const SharedPanelContent = ({
               }}>
                 <span style={{
                   fontSize: '0.9rem',
-                  color: theme.canvas.textPrimary,
+                  color: theme.canvas.textSecondary,
                   fontFamily: "'EmOne', sans-serif"
                 }}>
                   Is {getArticleFor(typeName)}
@@ -1694,7 +1694,7 @@ const SharedPanelContent = ({
               </div>
             )}
 
-            <div style={{ marginTop: '8px', fontSize: '9px', color: '#999', fontFamily: "'EmOne', sans-serif" }}>
+            <div style={{ marginTop: '8px', fontSize: '9px', color: theme.canvas.textSecondary, fontFamily: "'EmOne', sans-serif" }}>
               {isHomeTab && graphData?.id && (
                 <div style={{ marginBottom: '2px' }}>Graph ID: {graphData.id}</div>
               )}
@@ -1748,14 +1748,14 @@ const SharedPanelContent = ({
                           style={{
                             background: 'transparent',
                             border: 'none',
-                            color: '#999',
+                            color: theme.canvas.textSecondary,
                             cursor: 'pointer',
                             padding: '0 2px',
                             lineHeight: 1,
                             fontSize: '14px'
                           }}
                           onMouseEnter={(e) => { e.currentTarget.style.color = theme.canvas.textSecondary; }}
-                          onMouseLeave={(e) => { e.currentTarget.style.color = '#999'; }}
+                          onMouseLeave={(e) => { e.currentTarget.style.color = theme.canvas.textSecondary; }}
                         >
                           ×
                         </button>
@@ -1783,14 +1783,14 @@ const SharedPanelContent = ({
                           style={{
                             background: 'transparent',
                             border: 'none',
-                            color: '#999',
+                            color: theme.canvas.textSecondary,
                             cursor: 'pointer',
                             padding: '0 2px',
                             lineHeight: 1,
                             fontSize: '14px'
                           }}
                           onMouseEnter={(e) => { e.currentTarget.style.color = theme.canvas.textSecondary; }}
-                          onMouseLeave={(e) => { e.currentTarget.style.color = '#999'; }}
+                          onMouseLeave={(e) => { e.currentTarget.style.color = theme.canvas.textSecondary; }}
                         >
                           ×
                         </button>
@@ -1818,14 +1818,14 @@ const SharedPanelContent = ({
                           style={{
                             background: 'transparent',
                             border: 'none',
-                            color: '#999',
+                            color: theme.canvas.textSecondary,
                             cursor: 'pointer',
                             padding: '0 2px',
                             lineHeight: 1,
                             fontSize: '14px'
                           }}
                           onMouseEnter={(e) => { e.currentTarget.style.color = theme.canvas.textSecondary; }}
-                          onMouseLeave={(e) => { e.currentTarget.style.color = '#999'; }}
+                          onMouseLeave={(e) => { e.currentTarget.style.color = theme.canvas.textSecondary; }}
                         >
                           ×
                         </button>
@@ -1836,7 +1836,7 @@ const SharedPanelContent = ({
                   {!(hasWikipedia || hasWikidata || hasDBpedia) && (
                     <div style={{
                       fontSize: '10px',
-                      color: '#999',
+                      color: theme.canvas.textSecondary,
                       fontStyle: 'italic',
                       marginTop: '8px'
                     }}>
@@ -1847,7 +1847,7 @@ const SharedPanelContent = ({
               );
             })()}
 
-            <div style={{ marginTop: '8px', fontSize: '9px', color: '#999', fontFamily: "'EmOne', sans-serif" }}>
+            <div style={{ marginTop: '8px', fontSize: '9px', color: theme.canvas.textSecondary, fontFamily: "'EmOne', sans-serif" }}>
               {isHomeTab && graphData?.id && (
                 <div style={{ marginBottom: '2px' }}>Graph ID: {graphData.id}</div>
               )}
@@ -1951,7 +1951,7 @@ const SharedPanelContent = ({
         ) : (
           <div style={{
             marginRight: '15px',
-            color: '#999',
+            color: theme.canvas.textSecondary,
             fontSize: '0.9rem',
             fontFamily: "'EmOne', sans-serif",
             textAlign: 'left',
@@ -1991,7 +1991,7 @@ const SharedPanelContent = ({
         ) : (
           <div style={{
             marginRight: '15px',
-            color: '#999',
+            color: theme.canvas.textSecondary,
             fontSize: '0.9rem',
             fontFamily: "'EmOne', sans-serif",
             textAlign: 'left',

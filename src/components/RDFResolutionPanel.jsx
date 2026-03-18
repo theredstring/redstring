@@ -360,7 +360,7 @@ const RDFResolutionPanel = ({ nodeData, onUpdate, isVisible = false, onClose }) 
       maxWidth: '800px',
       maxHeight: '90vh',
       backgroundColor: theme.canvas.bg,
-      border: '2px solid #260000',
+      border: `2px solid ${theme.canvas.textPrimary}`,
 
       borderRadius: '12px',
       boxShadow: '0 8px 32px rgba(0, 0, 0, 0.3)',
@@ -370,14 +370,14 @@ const RDFResolutionPanel = ({ nodeData, onUpdate, isVisible = false, onClose }) 
     }}>
       {/* Header */}
       <div style={{
-        backgroundColor: '#260000',
+        backgroundColor: theme.canvas.textPrimary,
         color: theme.canvas.bg,
 
         padding: '16px 20px',
         display: 'flex',
         justifyContent: 'space-between',
         alignItems: 'center',
-        borderBottom: '2px solid #8B0000'
+        borderBottom: `2px solid ${theme.accent.primary}`
       }}>
         <h2 style={{ margin: 0, fontSize: '1.2rem', fontWeight: 'bold' }}>
           RDF Resolution & Validation
@@ -411,14 +411,14 @@ const RDFResolutionPanel = ({ nodeData, onUpdate, isVisible = false, onClose }) 
       }}>
         {/* Node Info */}
         <div style={{ marginBottom: '20px', padding: '16px', backgroundColor: 'rgba(38, 0, 0, 0.05)', borderRadius: '8px' }}>
-          <h3 style={{ margin: '0 0 8px 0', color: '#260000', fontSize: '1.1rem' }}>
+          <h3 style={{ margin: '0 0 8px 0', color: theme.canvas.textPrimary, fontSize: '1.1rem' }}>
             {nodeData?.name || 'Unnamed Node'}
           </h3>
-          <p style={{ margin: '0 0 8px 0', color: '#666', fontSize: '0.9rem' }}>
+          <p style={{ margin: '0 0 8px 0', color: theme.canvas.textSecondary, fontSize: '0.9rem' }}>
             {nodeData?.description || 'No description available'}
           </p>
           {nodeData?.externalLinks && (
-            <div style={{ fontSize: '0.85rem', color: '#666' }}>
+            <div style={{ fontSize: '0.85rem', color: theme.canvas.textSecondary }}>
               <strong>External Links:</strong> {nodeData.externalLinks.length}
             </div>
           )}
@@ -428,11 +428,11 @@ const RDFResolutionPanel = ({ nodeData, onUpdate, isVisible = false, onClose }) 
         <div style={{ marginBottom: '16px', padding: '16px', backgroundColor: 'rgba(156, 39, 176, 0.1)', borderRadius: '8px', border: '1px solid rgba(156, 39, 176, 0.3)' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '12px' }}>
             <Sparkles size={20} style={{ color: '#9C27B0' }} />
-            <h3 style={{ margin: 0, color: '#260000', fontSize: '1rem', fontWeight: 'bold' }}>
+            <h3 style={{ margin: 0, color: theme.canvas.textPrimary, fontSize: '1rem', fontWeight: 'bold' }}>
               What Does Auto-Enrich Do?
             </h3>
           </div>
-          <div style={{ fontSize: '0.85rem', color: '#260000', lineHeight: '1.4' }}>
+          <div style={{ fontSize: '0.85rem', color: theme.canvas.textPrimary, lineHeight: '1.4' }}>
             <strong>Auto-Enrich automatically finds rich information about your nodes from multiple sources:</strong>
           </div>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '8px', marginTop: '12px' }}>
@@ -453,7 +453,7 @@ const RDFResolutionPanel = ({ nodeData, onUpdate, isVisible = false, onClose }) 
 
         {/* Endpoint Status Indicators */}
         <div style={{ marginBottom: '16px', padding: '12px', backgroundColor: 'rgba(38, 0, 0, 0.05)', borderRadius: '6px', border: '1px solid rgba(38, 0, 0, 0.1)' }}>
-          <div style={{ fontSize: '0.9rem', fontWeight: 'bold', color: '#260000', marginBottom: '8px' }}>
+          <div style={{ fontSize: '0.9rem', fontWeight: 'bold', color: theme.canvas.textPrimary, marginBottom: '8px' }}>
             🌐 Semantic Web Endpoint Status:
           </div>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: '8px' }}>
@@ -461,33 +461,33 @@ const RDFResolutionPanel = ({ nodeData, onUpdate, isVisible = false, onClose }) 
             {/* Wikidata Status */}
             <div style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '6px 8px', backgroundColor: 'rgba(255, 255, 255, 0.8)', borderRadius: '4px', border: '1px solid rgba(0, 0, 0, 0.1)' }}>
               <div style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: '#28a745' }} />
-              <span style={{ fontSize: '0.8rem', color: '#260000', fontWeight: 'bold' }}>Wikidata</span>
+              <span style={{ fontSize: '0.8rem', color: theme.canvas.textPrimary, fontWeight: 'bold' }}>Wikidata</span>
               <span style={{ fontSize: '0.75rem', color: '#28a745', marginLeft: 'auto' }}>✓ Online</span>
             </div>
             
             {/* DBpedia Status */}
             <div style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '6px 8px', backgroundColor: 'rgba(255, 255, 255, 0.8)', borderRadius: '4px', border: '1px solid rgba(0, 0, 0, 0.1)' }}>
               <div style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: '#28a745' }} />
-              <span style={{ fontSize: '0.8rem', color: '#260000', fontWeight: 'bold' }}>DBpedia</span>
+              <span style={{ fontSize: '0.8rem', color: theme.canvas.textPrimary, fontWeight: 'bold' }}>DBpedia</span>
               <span style={{ fontSize: '0.75rem', color: '#28a745', marginLeft: 'auto' }}>✓ Online</span>
             </div>
             
             {/* Schema.org Status */}
             <div style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '6px 8px', backgroundColor: 'rgba(255, 255, 255, 0.8)', borderRadius: '4px', border: '1px solid rgba(0, 0, 0, 0.1)' }}>
               <div style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: '#dc3545' }} />
-              <span style={{ fontSize: '0.8rem', color: '#260000', fontWeight: 'bold' }}>Schema.org</span>
+              <span style={{ fontSize: '0.8rem', color: theme.canvas.textPrimary, fontWeight: 'bold' }}>Schema.org</span>
               <span style={{ fontSize: '0.75rem', color: '#dc3545', marginLeft: 'auto' }}>✗ CORS Blocked</span>
             </div>
             
             {/* Local Knowledge Status */}
             <div style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '6px 8px', backgroundColor: 'rgba(255, 255, 255, 0.8)', borderRadius: '4px', border: '1px solid rgba(0, 0, 0, 0.1)' }}>
               <div style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: '#28a745' }} />
-              <span style={{ fontSize: '0.8rem', color: '#260000', fontWeight: 'bold' }}>Local Knowledge</span>
+              <span style={{ fontSize: '0.8rem', color: theme.canvas.textPrimary, fontWeight: 'bold' }}>Local Knowledge</span>
               <span style={{ fontSize: '0.75rem', color: '#28a745', marginLeft: 'auto' }}>✓ Available</span>
             </div>
           </div>
           
-          <div style={{ marginTop: '8px', fontSize: '0.75rem', color: '#666', fontStyle: 'italic' }}>
+          <div style={{ marginTop: '8px', fontSize: '0.75rem', color: theme.canvas.textSecondary, fontStyle: 'italic' }}>
             💡 <strong>Note:</strong> CORS restrictions are normal browser security. Wikidata and DBpedia work, Schema.org is blocked.
           </div>
         </div>
@@ -522,7 +522,7 @@ const RDFResolutionPanel = ({ nodeData, onUpdate, isVisible = false, onClose }) 
             onClick={handleResolveLinks}
             disabled={!nodeData?.externalLinks || nodeData.externalLinks.length === 0 || resolutionState === 'loading'}
             style={{
-              backgroundColor: '#8B0000',
+              backgroundColor: theme.accent.primary,
               color: theme.canvas.bg,
 
               border: 'none',
@@ -536,7 +536,7 @@ const RDFResolutionPanel = ({ nodeData, onUpdate, isVisible = false, onClose }) 
               fontSize: '0.9rem'
             }}
             onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#A52A2A'}
-            onMouseLeave={(e) => e.currentTarget.style.backgroundColor = '#8B0000'}
+            onMouseLeave={(e) => e.currentTarget.style.backgroundColor = theme.accent.primary}
           >
             {resolutionState === 'loading' ? <Loader2 size={16} className="spin" /> : <ExternalLink size={16} />}
             Resolve Links
@@ -592,7 +592,7 @@ const RDFResolutionPanel = ({ nodeData, onUpdate, isVisible = false, onClose }) 
         {/* Resolution Results */}
         {resolutionState === 'resolved' && Object.keys(resolvedData).length > 0 && (
           <div style={{ marginBottom: '20px' }}>
-            <h3 style={{ margin: '0 0 12px 0', color: '#260000', fontSize: '1.1rem' }}>
+            <h3 style={{ margin: '0 0 12px 0', color: theme.canvas.textPrimary, fontSize: '1.1rem' }}>
               Resolved Data
             </h3>
             {Object.entries(resolvedData).map(([uri, result]) => (
@@ -617,7 +617,7 @@ const RDFResolutionPanel = ({ nodeData, onUpdate, isVisible = false, onClose }) 
                     <span style={{ fontSize: '0.9rem', fontWeight: 'bold' }}>
                       {result.status === 'resolved' ? 'Resolved' : 'Failed'}
                     </span>
-                    <span style={{ fontSize: '0.8rem', color: '#666', wordBreak: 'break-all' }}>
+                    <span style={{ fontSize: '0.8rem', color: theme.canvas.textSecondary, wordBreak: 'break-all' }}>
                       {uri}
                     </span>
                   </div>
@@ -649,7 +649,7 @@ const RDFResolutionPanel = ({ nodeData, onUpdate, isVisible = false, onClose }) 
                               </div>
                             ))}
                             {result.data.triples.length > 10 && (
-                              <div style={{ color: '#666', fontStyle: 'italic' }}>
+                              <div style={{ color: theme.canvas.textSecondary, fontStyle: 'italic' }}>
                                 ... and {result.data.triples.length - 10} more triples
                               </div>
                             )}
@@ -680,7 +680,7 @@ const RDFResolutionPanel = ({ nodeData, onUpdate, isVisible = false, onClose }) 
 
         {/* CORS Information */}
         <div style={{ marginBottom: '20px' }}>
-          <h3 style={{ margin: '0 0 12px 0', color: '#260000', fontSize: '1.1rem' }}>
+          <h3 style={{ margin: '0 0 12px 0', color: theme.canvas.textPrimary, fontSize: '1.1rem' }}>
             ℹ️ About External URI Resolution
           </h3>
           <div style={{ padding: '16px', backgroundColor: 'rgba(255, 193, 7, 0.1)', borderRadius: '8px', border: '1px solid rgba(255, 193, 7, 0.3)' }}>
@@ -704,7 +704,7 @@ const RDFResolutionPanel = ({ nodeData, onUpdate, isVisible = false, onClose }) 
 
         {/* Local Semantic Search */}
         <div style={{ marginBottom: '20px' }}>
-          <h3 style={{ margin: '0 0 12px 0', color: '#260000', fontSize: '1.1rem' }}>
+          <h3 style={{ margin: '0 0 12px 0', color: theme.canvas.textPrimary, fontSize: '1.1rem' }}>
             🧠 Local Semantic Search
           </h3>
           <div style={{ padding: '16px', backgroundColor: 'rgba(40, 167, 69, 0.1)', borderRadius: '8px', border: '1px solid rgba(40, 167, 69, 0.3)' }}>
@@ -781,13 +781,13 @@ const RDFResolutionPanel = ({ nodeData, onUpdate, isVisible = false, onClose }) 
                           width: '12px',
                           height: '12px',
                           borderRadius: '50%',
-                          backgroundColor: result.color || '#8B0000'
+                          backgroundColor: result.color || theme.accent.primary
                         }} />
                         <span style={{ fontWeight: 'bold', fontSize: '0.9rem' }}>
                           {result.name}
                         </span>
                         {result.type && (
-                          <span style={{ fontSize: '0.75rem', color: '#666', backgroundColor: 'rgba(0,0,0,0.1)', padding: '2px 6px', borderRadius: '3px' }}>
+                          <span style={{ fontSize: '0.75rem', color: theme.canvas.textSecondary, backgroundColor: 'rgba(0,0,0,0.1)', padding: '2px 6px', borderRadius: '3px' }}>
                             {result.type}
                           </span>
                         )}
@@ -797,7 +797,7 @@ const RDFResolutionPanel = ({ nodeData, onUpdate, isVisible = false, onClose }) 
                       </div>
                       
                       {result.description && (
-                        <div style={{ fontSize: '0.8rem', color: '#666', marginBottom: '4px', lineHeight: '1.3' }}>
+                        <div style={{ fontSize: '0.8rem', color: theme.canvas.textSecondary, marginBottom: '4px', lineHeight: '1.3' }}>
                           {result.description.length > 100 ? 
                             `${result.description.substring(0, 100)}...` : 
                             result.description
@@ -806,7 +806,7 @@ const RDFResolutionPanel = ({ nodeData, onUpdate, isVisible = false, onClose }) 
                       )}
                       
                       {result.context && (
-                        <div style={{ fontSize: '0.75rem', color: '#666' }}>
+                        <div style={{ fontSize: '0.75rem', color: theme.canvas.textSecondary }}>
                           <span style={{ marginRight: '8px' }}>
                             <Network size={12} style={{ display: 'inline', marginRight: '2px' }} />
                             {result.context.relationshipCount} connections
@@ -826,7 +826,7 @@ const RDFResolutionPanel = ({ nodeData, onUpdate, isVisible = false, onClose }) 
             )}
 
             {localSearchState === 'results' && localSearchResults.length === 0 && (
-              <div style={{ textAlign: 'center', padding: '20px', color: '#666' }}>
+              <div style={{ textAlign: 'center', padding: '20px', color: theme.canvas.textSecondary }}>
                 <Brain size={24} style={{ opacity: 0.5 }} />
                 <div style={{ marginTop: '8px', fontSize: '0.9rem' }}>No related entities found in your knowledge graph.</div>
                 <div style={{ marginTop: '4px', fontSize: '0.8rem', color: '#888' }}>
@@ -846,14 +846,14 @@ const RDFResolutionPanel = ({ nodeData, onUpdate, isVisible = false, onClose }) 
         {/* Auto-Enrichment Loading */}
         {autoEnrichmentState === 'loading' && (
           <div style={{ marginBottom: '20px' }}>
-            <h3 style={{ margin: '0 0 12px 0', color: '#260000', fontSize: '1.1rem' }}>
+            <h3 style={{ margin: '0 0 12px 0', color: theme.canvas.textPrimary, fontSize: '1.1rem' }}>
               ⏳ Auto-Enriching "{nodeData?.name || 'Node'}"...
             </h3>
             <div style={{ padding: '16px', backgroundColor: 'rgba(156, 39, 176, 0.1)', borderRadius: '8px', border: '1px solid rgba(156, 39, 176, 0.3)' }}>
               
               {/* Progress Steps */}
               <div style={{ marginBottom: '20px' }}>
-                <div style={{ fontSize: '0.9rem', fontWeight: 'bold', color: '#260000', marginBottom: '12px' }}>
+                <div style={{ fontSize: '0.9rem', fontWeight: 'bold', color: theme.canvas.textPrimary, marginBottom: '12px' }}>
                   Enrichment Progress:
                 </div>
                 
@@ -866,7 +866,7 @@ const RDFResolutionPanel = ({ nodeData, onUpdate, isVisible = false, onClose }) 
                     backgroundColor: enrichmentProgress.wikidata === 'completed' ? '#28a745' : 
                                    enrichmentProgress.wikidata === 'failed' ? '#dc3545' : '#ffc107' 
                   }} />
-                  <span style={{ fontSize: '0.85rem', color: '#260000' }}>
+                  <span style={{ fontSize: '0.85rem', color: theme.canvas.textPrimary }}>
                     {enrichmentProgress.wikidata === 'completed' ? 'Wikidata ✓ Completed' :
                      enrichmentProgress.wikidata === 'failed' ? 'Wikidata ✗ Failed' :
                      'Querying Wikidata...'}
@@ -885,7 +885,7 @@ const RDFResolutionPanel = ({ nodeData, onUpdate, isVisible = false, onClose }) 
                     backgroundColor: enrichmentProgress.dbpedia === 'completed' ? '#28a745' : 
                                    enrichmentProgress.dbpedia === 'failed' ? '#dc3545' : '#ffc107' 
                   }} />
-                  <span style={{ fontSize: '0.85rem', color: '#260000' }}>
+                  <span style={{ fontSize: '0.85rem', color: theme.canvas.textPrimary }}>
                     {enrichmentProgress.dbpedia === 'completed' ? 'DBpedia ✓ Completed' :
                      enrichmentProgress.dbpedia === 'failed' ? 'DBpedia ✗ Failed' :
                      'Querying DBpedia...'}
@@ -904,7 +904,7 @@ const RDFResolutionPanel = ({ nodeData, onUpdate, isVisible = false, onClose }) 
                     backgroundColor: enrichmentProgress.local === 'completed' ? '#28a745' : 
                                    enrichmentProgress.local === 'failed' ? '#dc3545' : '#ffc107' 
                   }} />
-                  <span style={{ fontSize: '0.85rem', color: '#260000' }}>
+                  <span style={{ fontSize: '0.85rem', color: theme.canvas.textPrimary }}>
                     {enrichmentProgress.local === 'completed' ? 'Local Knowledge ✓ Completed' :
                      enrichmentProgress.local === 'failed' ? 'Local Knowledge ✗ Failed' :
                      'Searching local knowledge...'}
@@ -918,19 +918,19 @@ const RDFResolutionPanel = ({ nodeData, onUpdate, isVisible = false, onClose }) 
               {/* Overall Progress */}
               <div style={{ textAlign: 'center', padding: '16px', backgroundColor: 'rgba(255, 255, 255, 0.8)', borderRadius: '6px' }}>
                 <Loader2 size={32} className="spin" style={{ color: '#9C27B0' }} />
-                <div style={{ marginTop: '12px', fontSize: '1rem', fontWeight: 'bold', color: '#260000' }}>
+                <div style={{ marginTop: '12px', fontSize: '1rem', fontWeight: 'bold', color: theme.canvas.textPrimary }}>
                   Enriching with Semantic Web Data
                 </div>
-                <div style={{ marginTop: '8px', fontSize: '0.9rem', color: '#666' }}>
+                <div style={{ marginTop: '8px', fontSize: '0.9rem', color: theme.canvas.textSecondary }}>
                   Querying multiple sources for rich entity information...
                 </div>
-                <div style={{ marginTop: '16px', fontSize: '0.8rem', color: '#8B0000', fontWeight: 'bold' }}>
+                <div style={{ marginTop: '16px', fontSize: '0.8rem', color: theme.accent.primary, fontWeight: 'bold' }}>
                   ⏱️ Expected completion: 10-30 seconds
                 </div>
                 
                 {/* Quick Status Summary */}
                 <div style={{ marginTop: '12px', padding: '8px', backgroundColor: 'rgba(156, 39, 176, 0.1)', borderRadius: '4px', fontSize: '0.75rem' }}>
-                  <div style={{ color: '#260000', fontWeight: 'bold', marginBottom: '4px' }}>Current Status:</div>
+                  <div style={{ color: theme.canvas.textPrimary, fontWeight: 'bold', marginBottom: '4px' }}>Current Status:</div>
                   <div style={{ display: 'flex', justifyContent: 'space-around', fontSize: '0.7rem' }}>
                     <span style={{ color: enrichmentProgress.wikidata === 'completed' ? '#28a745' : enrichmentProgress.wikidata === 'failed' ? '#dc3545' : '#ffc107' }}>
                       Wikidata: {enrichmentProgress.wikidata}
@@ -951,7 +951,7 @@ const RDFResolutionPanel = ({ nodeData, onUpdate, isVisible = false, onClose }) 
         {/* Auto-Enrichment Results */}
         {autoEnrichmentState === 'results' && autoEnrichmentResults && (
           <div style={{ marginBottom: '20px' }}>
-            <h3 style={{ margin: '0 0 12px 0', color: '#260000', fontSize: '1.1rem' }}>
+            <h3 style={{ margin: '0 0 12px 0', color: theme.canvas.textPrimary, fontSize: '1.1rem' }}>
               ✨ Auto-Enrichment Results for "{autoEnrichmentResults.nodeTitle}"
               {autoEnrichmentResults.summary?.fallbackMode && (
                 <span style={{ fontSize: '0.8rem', color: '#ff8c00', marginLeft: '8px', fontWeight: 'normal' }}>
@@ -967,25 +967,25 @@ const RDFResolutionPanel = ({ nodeData, onUpdate, isVisible = false, onClose }) 
                   <div style={{ fontSize: '1.2rem', fontWeight: 'bold', color: '#9C27B0' }}>
                     {autoEnrichmentResults.summary.totalSources}
                   </div>
-                  <div style={{ fontSize: '0.75rem', color: '#666' }}>Data Sources</div>
+                  <div style={{ fontSize: '0.75rem', color: theme.canvas.textSecondary }}>Data Sources</div>
                 </div>
                 <div style={{ textAlign: 'center', padding: '8px', backgroundColor: 'rgba(255, 255, 255, 0.7)', borderRadius: '6px' }}>
                   <div style={{ fontSize: '1.2rem', fontWeight: 'bold', color: '#9C27B0' }}>
                     {autoEnrichmentResults.summary.totalExternalData}
                   </div>
-                  <div style={{ fontSize: '0.75rem', color: '#666' }}>External Entities</div>
+                  <div style={{ fontSize: '0.75rem', color: theme.canvas.textSecondary }}>External Entities</div>
                 </div>
                 <div style={{ textAlign: 'center', padding: '8px', backgroundColor: 'rgba(255, 255, 255, 0.7)', borderRadius: '6px' }}>
                   <div style={{ fontSize: '1.2rem', fontWeight: 'bold', color: '#9C27B0' }}>
                     {autoEnrichmentResults.summary.totalSuggestions}
                   </div>
-                  <div style={{ fontSize: '0.75rem', color: '#666' }}>Suggestions</div>
+                  <div style={{ fontSize: '0.75rem', color: theme.canvas.textSecondary }}>Suggestions</div>
                 </div>
                 <div style={{ textAlign: 'center', padding: '8px', backgroundColor: 'rgba(255, 255, 255, 0.7)', borderRadius: '6px' }}>
                   <div style={{ fontSize: '1.2rem', fontWeight: 'bold', color: '#9C27B0' }}>
                     {autoEnrichmentResults.summary.totalLocalConnections}
                   </div>
-                  <div style={{ fontSize: '0.75rem', color: '#666' }}>Local Connections</div>
+                  <div style={{ fontSize: '0.75rem', color: theme.canvas.textSecondary }}>Local Connections</div>
                 </div>
               </div>
 
@@ -1008,7 +1008,7 @@ const RDFResolutionPanel = ({ nodeData, onUpdate, isVisible = false, onClose }) 
                           <span style={{ fontWeight: 'bold', fontSize: '0.9rem' }}>
                             {entity.label}
                           </span>
-                          <span style={{ fontSize: '0.75rem', color: '#666', backgroundColor: 'rgba(0,0,0,0.1)', padding: '2px 6px', borderRadius: '3px' }}>
+                          <span style={{ fontSize: '0.75rem', color: theme.canvas.textSecondary, backgroundColor: 'rgba(0,0,0,0.1)', padding: '2px 6px', borderRadius: '3px' }}>
                             {entity.type}
                           </span>
                           <span style={{ marginLeft: 'auto', fontSize: '0.75rem', color: '#9C27B0' }}>
@@ -1016,7 +1016,7 @@ const RDFResolutionPanel = ({ nodeData, onUpdate, isVisible = false, onClose }) 
                           </span>
                         </div>
                         {entity.description && (
-                          <div style={{ fontSize: '0.8rem', color: '#666', marginBottom: '4px', lineHeight: '1.3' }}>
+                          <div style={{ fontSize: '0.8rem', color: theme.canvas.textSecondary, marginBottom: '4px', lineHeight: '1.3' }}>
                             {entity.description.length > 150 ? 
                               `${entity.description.substring(0, 150)}...` : 
                               entity.description
@@ -1029,7 +1029,7 @@ const RDFResolutionPanel = ({ nodeData, onUpdate, isVisible = false, onClose }) 
                       </div>
                     ))}
                     {autoEnrichmentResults.externalData.length > 5 && (
-                      <div style={{ textAlign: 'center', fontSize: '0.8rem', color: '#666', fontStyle: 'italic' }}>
+                      <div style={{ textAlign: 'center', fontSize: '0.8rem', color: theme.canvas.textSecondary, fontStyle: 'italic' }}>
                         ... and {autoEnrichmentResults.externalData.length - 5} more entities
                       </div>
                     )}
@@ -1059,7 +1059,7 @@ const RDFResolutionPanel = ({ nodeData, onUpdate, isVisible = false, onClose }) 
                           <div style={{ fontWeight: 'bold', marginBottom: '2px', fontSize: '0.9rem' }}>
                             {suggestion.label}
                           </div>
-                          <div style={{ fontSize: '0.8rem', color: '#666', marginBottom: '4px' }}>
+                          <div style={{ fontSize: '0.8rem', color: theme.canvas.textSecondary, marginBottom: '4px' }}>
                             {suggestion.description}
                           </div>
                           <div style={{ fontSize: '0.75rem', color: '#888' }}>
@@ -1109,10 +1109,10 @@ const RDFResolutionPanel = ({ nodeData, onUpdate, isVisible = false, onClose }) 
                             width: '10px',
                             height: '10px',
                             borderRadius: '50%',
-                            backgroundColor: conn.color || '#8B0000'
+                            backgroundColor: conn.color || theme.accent.primary
                           }} />
                           <span style={{ fontWeight: 'bold' }}>{conn.name}</span>
-                          <span style={{ fontSize: '0.75rem', color: '#666' }}>({conn.type})</span>
+                          <span style={{ fontSize: '0.75rem', color: theme.canvas.textSecondary }}>({conn.type})</span>
                           <span style={{ marginLeft: 'auto', fontSize: '0.75rem', color: '#9C27B0' }}>
                             {Math.round(conn.relevance)}% relevant
                           </span>
@@ -1167,7 +1167,7 @@ const RDFResolutionPanel = ({ nodeData, onUpdate, isVisible = false, onClose }) 
         {/* Auto-Enrichment Error */}
         {autoEnrichmentState === 'error' && (
           <div style={{ marginBottom: '20px' }}>
-            <h3 style={{ margin: '0 0 12px 0', color: '#260000', fontSize: '1.1rem' }}>
+            <h3 style={{ margin: '0 0 12px 0', color: theme.canvas.textPrimary, fontSize: '1.1rem' }}>
               ❌ Auto-Enrichment Failed
             </h3>
             <div style={{ padding: '16px', backgroundColor: 'rgba(220, 53, 69, 0.1)', borderRadius: '8px', border: '1px solid rgba(220, 53, 69, 0.3)' }}>
@@ -1222,17 +1222,17 @@ const RDFResolutionPanel = ({ nodeData, onUpdate, isVisible = false, onClose }) 
         {/* Manual URI Correction */}
         {resolutionState === 'resolved' && Object.keys(resolvedData).length > 0 && (
           <div style={{ marginBottom: '20px' }}>
-            <h3 style={{ margin: '0 0 12px 0', color: '#260000', fontSize: '1.1rem' }}>
+            <h3 style={{ margin: '0 0 12px 0', color: theme.canvas.textPrimary, fontSize: '1.1rem' }}>
               Manual URI Correction
             </h3>
             <div style={{ padding: '16px', backgroundColor: 'rgba(38, 0, 0, 0.05)', borderRadius: '8px' }}>
-              <p style={{ margin: '0 0 12px 0', fontSize: '0.9rem', color: '#666' }}>
+              <p style={{ margin: '0 0 12px 0', fontSize: '0.9rem', color: theme.canvas.textSecondary }}>
                 If automatic resolution failed, you can manually specify the correct RDF schema URI or local identifier.
               </p>
               
               {/* Common Schema Suggestions */}
               <div style={{ marginBottom: '16px', padding: '12px', backgroundColor: 'rgba(255, 255, 255, 0.3)', borderRadius: '6px' }}>
-                <div style={{ marginBottom: '8px', fontSize: '0.85rem', fontWeight: 'bold', color: '#260000' }}>
+                <div style={{ marginBottom: '8px', fontSize: '0.85rem', fontWeight: 'bold', color: theme.canvas.textPrimary }}>
                   Schema Namespaces (Click to Copy):
                 </div>
                 
@@ -1278,20 +1278,20 @@ const RDFResolutionPanel = ({ nodeData, onUpdate, isVisible = false, onClose }) 
                   </div>
                 </div>
                 
-                <div style={{ marginTop: '8px', fontSize: '0.75rem', color: '#666', fontStyle: 'italic' }}>
+                <div style={{ marginTop: '8px', fontSize: '0.75rem', color: theme.canvas.textSecondary, fontStyle: 'italic' }}>
                   💡 <strong>Tip:</strong> Use <code>local:MyType</code> for local identifiers - they always work!
                 </div>
               </div>
               
               {Object.entries(resolvedData).map(([originalUri, result]) => (
                 <div key={originalUri} style={{ marginBottom: '16px' }}>
-                  <div style={{ marginBottom: '8px', fontSize: '0.85rem', color: '#666' }}>
+                  <div style={{ marginBottom: '8px', fontSize: '0.85rem', color: theme.canvas.textSecondary }}>
                     <strong>Original URI:</strong> {originalUri}
                   </div>
                   
                   <div style={{ display: 'flex', gap: '8px', alignItems: 'flex-end' }}>
                     <div style={{ flex: 1 }}>
-                      <label style={{ display: 'block', marginBottom: '4px', fontSize: '0.85rem', color: '#260000' }}>
+                      <label style={{ display: 'block', marginBottom: '4px', fontSize: '0.85rem', color: theme.canvas.textPrimary }}>
                         Corrected URI or Local ID:
                       </label>
                       <input
@@ -1312,7 +1312,7 @@ const RDFResolutionPanel = ({ nodeData, onUpdate, isVisible = false, onClose }) 
                     <button
                       onClick={() => handleManualResolve(originalUri)}
                       style={{
-                        backgroundColor: '#8B0000',
+                        backgroundColor: theme.accent.primary,
                         color: theme.canvas.bg,
                         border: 'none',
                         padding: '8px 12px',
@@ -1322,7 +1322,7 @@ const RDFResolutionPanel = ({ nodeData, onUpdate, isVisible = false, onClose }) 
                         fontWeight: 'bold'
                       }}
                       onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#A52A2A'}
-                      onMouseLeave={(e) => e.currentTarget.style.backgroundColor = '#8B0000'}
+                      onMouseLeave={(e) => e.currentTarget.style.backgroundColor = theme.accent.primary}
                     >
                       Try Again
                     </button>
@@ -1342,7 +1342,7 @@ const RDFResolutionPanel = ({ nodeData, onUpdate, isVisible = false, onClose }) 
         {/* Suggestions */}
         {suggestions.links && suggestions.links.length > 0 && (
           <div style={{ marginBottom: '20px' }}>
-            <h3 style={{ margin: '0 0 12px 0', color: '#260000', fontSize: '1.1rem' }}>
+            <h3 style={{ margin: '0 0 12px 0', color: theme.canvas.textPrimary, fontSize: '1.1rem' }}>
               Suggested External Links
             </h3>
             <div style={{ display: 'grid', gap: '8px' }}>
@@ -1360,7 +1360,7 @@ const RDFResolutionPanel = ({ nodeData, onUpdate, isVisible = false, onClose }) 
                     <div style={{ fontWeight: 'bold', marginBottom: '4px' }}>
                       {suggestion.label}
                     </div>
-                    <div style={{ fontSize: '0.8rem', color: '#666', wordBreak: 'break-all' }}>
+                    <div style={{ fontSize: '0.8rem', color: theme.canvas.textSecondary, wordBreak: 'break-all' }}>
                       {suggestion.uri}
                     </div>
                     <div style={{ fontSize: '0.75rem', color: '#888' }}>
@@ -1396,7 +1396,7 @@ const RDFResolutionPanel = ({ nodeData, onUpdate, isVisible = false, onClose }) 
         {/* Validation Results */}
         {validationResults && (
           <div style={{ marginBottom: '20px' }}>
-            <h3 style={{ margin: '0 0 12px 0', color: '#260000', fontSize: '1.1rem' }}>
+            <h3 style={{ margin: '0 0 12px 0', color: theme.canvas.textPrimary, fontSize: '1.1rem' }}>
               Validation Results
             </h3>
             <div style={{ backgroundColor: 'rgba(255, 255, 255, 0.3)', padding: '16px', borderRadius: '8px' }}>
@@ -1425,7 +1425,7 @@ const RDFResolutionPanel = ({ nodeData, onUpdate, isVisible = false, onClose }) 
                         {issue.severity.toUpperCase()}: {issue.message}
                       </div>
                       {issue.nodeId && (
-                        <div style={{ fontSize: '0.8rem', color: '#666' }}>
+                        <div style={{ fontSize: '0.8rem', color: theme.canvas.textSecondary }}>
                           Node: {issue.nodeId}
                         </div>
                       )}
@@ -1439,7 +1439,7 @@ const RDFResolutionPanel = ({ nodeData, onUpdate, isVisible = false, onClose }) 
 
         {/* Endpoint Status */}
         <div style={{ marginBottom: '20px' }}>
-          <h3 style={{ margin: '0 0 12px 0', color: '#260000', fontSize: '1.1rem' }}>
+          <h3 style={{ margin: '0 0 12px 0', color: theme.canvas.textPrimary, fontSize: '1.1rem' }}>
             Endpoint Status
           </h3>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '12px' }}>
@@ -1458,7 +1458,7 @@ const RDFResolutionPanel = ({ nodeData, onUpdate, isVisible = false, onClose }) 
                   <div style={{ fontWeight: 'bold', textTransform: 'capitalize' }}>
                     {endpoint}
                   </div>
-                  <div style={{ fontSize: '0.8rem', color: '#666' }}>
+                  <div style={{ fontSize: '0.8rem', color: theme.canvas.textSecondary }}>
                     {status.status === 'connected' ? 
                       `${status.responseTime}ms` : 
                       status.error || 'Connection failed'
@@ -1472,26 +1472,26 @@ const RDFResolutionPanel = ({ nodeData, onUpdate, isVisible = false, onClose }) 
 
         {/* Cache Management */}
         <div style={{ marginBottom: '20px' }}>
-          <h3 style={{ margin: '0 0 12px 0', color: '#260000', fontSize: '1.1rem' }}>
+          <h3 style={{ margin: '0 0 12px 0', color: theme.canvas.textPrimary, fontSize: '1.1rem' }}>
             Cache Management
           </h3>
           <div style={{ backgroundColor: 'rgba(255, 255, 255, 0.3)', padding: '16px', borderRadius: '8px' }}>
             {cacheStats && (
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(120px, 1fr))', gap: '16px', marginBottom: '12px' }}>
                 <div>
-                  <div style={{ fontSize: '0.8rem', color: '#666' }}>Total Entries</div>
+                  <div style={{ fontSize: '0.8rem', color: theme.canvas.textSecondary }}>Total Entries</div>
                   <div style={{ fontSize: '1.2rem', fontWeight: 'bold' }}>{cacheStats.totalEntries}</div>
                 </div>
                 <div>
-                  <div style={{ fontSize: '0.8rem', color: '#666' }}>Valid</div>
+                  <div style={{ fontSize: '0.8rem', color: theme.canvas.textSecondary }}>Valid</div>
                   <div style={{ fontSize: '1.2rem', fontWeight: 'bold', color: '#2E8B57' }}>{cacheStats.validEntries}</div>
                 </div>
                 <div>
-                  <div style={{ fontSize: '0.8rem', color: '#666' }}>Expired</div>
+                  <div style={{ fontSize: '0.8rem', color: theme.canvas.textSecondary }}>Expired</div>
                   <div style={{ fontSize: '1.2rem', fontWeight: 'bold', color: '#FF8C00' }}>{cacheStats.expiredEntries}</div>
                 </div>
                 <div>
-                  <div style={{ fontSize: '0.8rem', color: '#666' }}>Size</div>
+                  <div style={{ fontSize: '0.8rem', color: theme.canvas.textSecondary }}>Size</div>
                   <div style={{ fontSize: '1.2rem', fontWeight: 'bold' }}>{Math.round(cacheStats.cacheSize / 1024)}KB</div>
                 </div>
               </div>

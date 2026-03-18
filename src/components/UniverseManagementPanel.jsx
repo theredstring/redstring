@@ -488,7 +488,7 @@ const UniverseManagementPanel = ({
 
   const containerStyles = {
     fontFamily: "'EmOne', sans-serif",
-    color: '#260000',
+    color: theme.canvas.textPrimary,
     pointerEvents: 'auto',
     opacity: 1,
     padding: '12px',
@@ -519,7 +519,7 @@ const UniverseManagementPanel = ({
           alignItems: 'center',
           marginBottom: '16px',
           paddingBottom: '12px',
-          borderBottom: '1px solid #260000'
+          borderBottom: `1px solid ${theme.canvas.textPrimary}`
         }}>
           <h2 style={{ margin: 0, fontSize: '1.2rem', fontWeight: 'bold' }}>Universe Management</h2>
           {onClose && (
@@ -530,7 +530,7 @@ const UniverseManagementPanel = ({
                 border: 'none',
                 fontSize: '1.5rem',
                 cursor: 'pointer',
-                color: '#260000',
+                color: theme.canvas.textPrimary,
                 padding: '0',
                 width: '24px',
                 height: '24px',
@@ -549,7 +549,7 @@ const UniverseManagementPanel = ({
       {!isModal && showTitle && (
         <div style={{ marginBottom: '12px' }}>
           <div style={{ fontWeight: 'bold', fontSize: '1.1rem', marginBottom: '4px' }}>Universes</div>
-          <div style={{ fontSize: '0.8rem', color: '#666' }}>Manage your knowledge spaces</div>
+          <div style={{ fontSize: '0.8rem', color: theme.canvas.textSecondary }}>Manage your knowledge spaces</div>
         </div>
       )}
 
@@ -619,7 +619,7 @@ const UniverseManagementPanel = ({
       onClick={handleCreateUniverse}
       onMouseEnter={(e) => {
         e.currentTarget.style.backgroundColor = '#979090';
-        e.currentTarget.style.borderColor = '#260000';
+        e.currentTarget.style.borderColor = theme.canvas.textPrimary;
         e.currentTarget.style.borderStyle = 'solid';
       }}
       onMouseLeave={(e) => {
@@ -628,8 +628,8 @@ const UniverseManagementPanel = ({
         e.currentTarget.style.borderStyle = 'dashed';
       }}
       >
-        <Plus size={20} color="#260000" />
-        <div style={{ fontSize: '0.9rem', fontWeight: 600, color: '#260000' }}>
+        <Plus size={20} color={theme.canvas.textPrimary} />
+        <div style={{ fontSize: '0.9rem', fontWeight: 600, color: theme.canvas.textPrimary }}>
           Add Universe
         </div>
       </div>
@@ -653,7 +653,7 @@ const UniverseManagementPanel = ({
                 )}
                 {/* Node count display */}
                 {universe.metadata?.nodeCount > 0 && (
-                  <div style={{ fontSize: '0.7rem', color: '#666', fontWeight: 500, padding: '2px 5px', backgroundColor: 'rgba(0,0,0,0.1)', borderRadius: '8px' }}>
+                  <div style={{ fontSize: '0.7rem', color: theme.canvas.textSecondary, fontWeight: 500, padding: '2px 5px', backgroundColor: 'rgba(0,0,0,0.1)', borderRadius: '8px' }}>
                     {universe.metadata.nodeCount} node{universe.metadata.nodeCount !== 1 ? 's' : ''}
                   </div>
                 )}
@@ -665,8 +665,8 @@ const UniverseManagementPanel = ({
                     style={{
                       padding: '4px 8px',
                       backgroundColor: 'transparent',
-                      color: '#260000',
-                      border: '1px solid #260000',
+                      color: theme.canvas.textPrimary,
+                      border: `1px solid ${theme.canvas.textPrimary}`,
                       borderRadius: '4px',
                       fontSize: '0.75rem',
                       cursor: 'pointer',
@@ -704,7 +704,7 @@ const UniverseManagementPanel = ({
                 {/* Name and Stats */}
                 <div style={{ display: 'flex', flexDirection: isSlim ? 'column' : 'row', gap: isSlim ? '8px' : '12px' }}>
                   <div style={{ flex: isSlim ? '1' : '2' }}>
-                    <div style={{ fontSize: '0.75rem', color: '#666', marginBottom: '4px' }}>Name</div>
+                    <div style={{ fontSize: '0.75rem', color: theme.canvas.textSecondary, marginBottom: '4px' }}>Name</div>
                     <input
                       value={universe.name || ''}
                       onChange={(e) => handleRenameUniverse(universe.slug, e.target.value)}
@@ -722,8 +722,8 @@ const UniverseManagementPanel = ({
                   </div>
                   {/* Universe Stats */}
                   <div style={{ flex: '1', minWidth: isSlim ? 'auto' : '120px' }}>
-                    <div style={{ fontSize: '0.75rem', color: '#666', marginBottom: '4px' }}>Statistics</div>
-                    <div style={{ display: 'flex', gap: '8px', fontSize: '0.75rem', color: '#666' }}>
+                    <div style={{ fontSize: '0.75rem', color: theme.canvas.textSecondary, marginBottom: '4px' }}>Statistics</div>
+                    <div style={{ display: 'flex', gap: '8px', fontSize: '0.75rem', color: theme.canvas.textSecondary }}>
                       <span>{universe.metadata?.nodeCount || 0} nodes</span>
                       {universe.metadata?.lastOpened && (
                         <>
@@ -739,16 +739,16 @@ const UniverseManagementPanel = ({
 
                 {/* Repository summary */}
                 <div style={{ marginTop: isSlim ? '8px' : '10px' }}>
-                  <div style={{ fontSize: '0.75rem', color: '#666', marginBottom: '4px' }}>Repository</div>
+                  <div style={{ fontSize: '0.75rem', color: theme.canvas.textSecondary, marginBottom: '4px' }}>Repository</div>
                   {universe?.gitRepo?.linkedRepo ? (
                     <div style={{
                       backgroundColor: '#efe9e9',
-                      border: universe.gitRepo?.enabled ? '1px solid #260000' : '1px dashed #7A0000',
+                      border: universe.gitRepo?.enabled ? `1px solid ${theme.canvas.textPrimary}` : '1px dashed #7A0000',
                       borderRadius: '6px',
                       padding: isSlim ? '6px' : '8px'
                     }}>
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontWeight: 600, color: '#260000', fontSize: '0.85rem' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontWeight: 600, color: theme.canvas.textPrimary, fontSize: '0.85rem' }}>
                           <Github size={14} />
                           <span>@{universe.gitRepo.linkedRepo.user}/{universe.gitRepo.linkedRepo.repo}</span>
                         </div>
@@ -767,7 +767,7 @@ const UniverseManagementPanel = ({
                         {universe.gitRepo?.universeFolder || `universes/${universe.slug || 'universe'}`}/{universe.slug || 'universe'}.redstring
                       </div>
                       <div style={{ display: 'flex', gap: '8px', alignItems: 'center', marginTop: '8px', flexWrap: 'wrap' }}>
-                        <div style={{ fontSize: '0.65rem', color: '#260000', fontWeight: 600 }}>
+                        <div style={{ fontSize: '0.65rem', color: theme.canvas.textPrimary, fontWeight: 600 }}>
                           Mode: {universe.sourceOfTruth === 'git' ? 'Git' : 'Local fallback'}
                         </div>
                         {universe.gitRepo?.linkedRepo?.type === 'github' && (
@@ -798,7 +798,7 @@ const UniverseManagementPanel = ({
                       padding: isSlim ? '6px' : '8px',
                       borderRadius: '6px',
                       border: '1px dashed #979090',
-                      color: '#666',
+                      color: theme.canvas.textSecondary,
                       fontSize: '0.75rem'
                     }}>
                       No repository linked
@@ -820,7 +820,7 @@ const UniverseManagementPanel = ({
                       />
                     </div>
                     {isRepoLoading && (
-                      <div style={{ fontSize: '0.65rem', color: '#666' }}>Loading repositories…</div>
+                      <div style={{ fontSize: '0.65rem', color: theme.canvas.textSecondary }}>Loading repositories…</div>
                     )}
                     {universe.gitRepo?.linkedRepo && (
                       <button
@@ -845,17 +845,17 @@ const UniverseManagementPanel = ({
                 {/* Source of Truth Selection */}
                 <div style={{ display: 'flex', flexDirection: 'column', gap: isSlim ? '6px' : '8px' }}>
                   <div>
-                    <div style={{ fontSize: '0.75rem', color: '#666', marginBottom: '4px' }}>Storage Mode</div>
+                    <div style={{ fontSize: '0.75rem', color: theme.canvas.textSecondary, marginBottom: '4px' }}>Storage Mode</div>
                     <div style={{ display: 'flex', gap: isSlim ? '4px' : '6px', alignItems: 'center', flexWrap: 'wrap' }}>
                       {deviceInfo.supportsFileSystemAPI ? (
                         <button
                           onClick={() => handleSetSourceOfTruth('local')}
                           style={{
                             padding: isSlim ? '4px 8px' : '6px 10px',
-                            backgroundColor: activeUniverse?.sourceOfTruth === 'local' ? '#260000' : 'transparent',
-                            color: activeUniverse?.sourceOfTruth === 'local' ? theme.canvas.bg : '#260000',
+                            backgroundColor: activeUniverse?.sourceOfTruth === 'local' ? theme.canvas.textPrimary : 'transparent',
+                            color: activeUniverse?.sourceOfTruth === 'local' ? theme.canvas.bg : theme.canvas.textPrimary,
 
-                            border: '1px solid #260000',
+                            border: `1px solid ${theme.canvas.textPrimary}`,
                             borderRadius: '4px',
                             fontSize: '0.7rem',
                             cursor: 'pointer',
@@ -881,10 +881,10 @@ const UniverseManagementPanel = ({
                         onClick={() => handleSetSourceOfTruth('git')}
                         style={{
                           padding: isSlim ? '4px 8px' : '6px 10px',
-                          backgroundColor: activeUniverse?.sourceOfTruth === 'git' ? '#260000' : 'transparent',
-                          color: activeUniverse?.sourceOfTruth === 'git' ? theme.canvas.bg : '#260000',
+                          backgroundColor: activeUniverse?.sourceOfTruth === 'git' ? theme.canvas.textPrimary : 'transparent',
+                          color: activeUniverse?.sourceOfTruth === 'git' ? theme.canvas.bg : theme.canvas.textPrimary,
 
-                          border: '1px solid #260000',
+                          border: `1px solid ${theme.canvas.textPrimary}`,
                           borderRadius: '4px',
                           fontSize: '0.7rem',
                           cursor: 'pointer',

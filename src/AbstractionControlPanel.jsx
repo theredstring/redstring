@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { ChevronLeft, ChevronRight, Trash2, Plus, ArrowUpFromDot, ArrowRight, Edit3 } from 'lucide-react';
 import useGraphStore from './store/graphStore.jsx';
 import UnifiedBottomControlPanel from './UnifiedBottomControlPanel';
+import { useTheme } from './hooks/useTheme.js';
 
 const AbstractionControlPanel = ({ 
   selectedNode, 
@@ -17,6 +18,7 @@ const AbstractionControlPanel = ({
   onAnimationComplete,
   onActionHoverChange,
 }) => {
+  const theme = useTheme();
   const nodePrototypesMap = useGraphStore((state) => state.nodePrototypes);
   const openRightPanelNodeTab = useGraphStore((state) => state.openRightPanelNodeTab);
   const createAndAssignGraphDefinitionWithoutActivation = useGraphStore((state) => state.createAndAssignGraphDefinitionWithoutActivation);
@@ -146,7 +148,7 @@ const AbstractionControlPanel = ({
             display: 'inline-flex',
             alignItems: 'center',
             justifyContent: 'center',
-            backgroundColor: '#DEDADA',
+            backgroundColor: theme.canvas.hover,
             border: 'none',
             borderRadius: '16px',
             padding: '8px 16px',
@@ -167,7 +169,7 @@ const AbstractionControlPanel = ({
             display: 'inline-flex',
             alignItems: 'center',
             justifyContent: 'center',
-            backgroundColor: '#DEDADA',
+            backgroundColor: theme.canvas.hover,
             borderRadius: '16px',
             padding: '8px 16px',
             border: 'none',

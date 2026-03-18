@@ -88,6 +88,35 @@ function calculateWikipediaConfidence(nodeName, wikipediaResult) {
 }
 
 /**
+ * Get Wikidata ID (Q-ID) for a Wikipedia page title.
+ * Returns the Wikidata ID (e.g., "Q937") or null if not found.
+ */
+export async function getWikidataIdFromWikipedia(pageTitle) {
+  try {
+    const response = await fetch(
+      `https://en.wikipedia.org/w/api.php?action=query&prop=pageprops&ppprop=wikibase_item&titles=${encodeURIComponent(pageTitle)}&format=json&origin=*`,
+      { headers: { 'Api-User-Agent': 'Redstring/1.0 (https://redstring.ai)' } }
+    );
+
+    if (!response.ok) return null;
+
+    const data = await response.json();
+    const pages = data.query?.pages;
+    if (!pages) return null;
+
+    // Get first page (there should only be one)
+    const pageId = Object.keys(pages)[0];
+    const wikidataId = pages[pageId]?.pageprops?.wikibase_item;
+
+    console.error(`[WikipediaEnrichment] "${pageTitle}" → Wikidata ID: ${wikidataId || 'none'}`);
+    return wikidataId || null;
+  } catch (error) {
+    console.error('[WikipediaEnrichment] Failed to get Wikidata ID:', error.message);
+    return null;
+  }
+}
+
+/**
  * Lightweight Wikipedia summary fetch — 1 API call.
  * Returns { type, page? { title, description, url, thumbnail, originalImage }, options? }
  */
@@ -121,6 +150,9 @@ async function fetchWikipediaSummary(query) {
       return { type: 'disambiguation', options: [] };
     }
 
+    // Fetch Wikidata ID for this Wikipedia page
+    const wikidataId = await getWikidataIdFromWikipedia(data.title);
+
     return {
       type: 'direct',
       page: {
@@ -130,7 +162,8 @@ async function fetchWikipediaSummary(query) {
         thumbnail: data.thumbnail?.source || null,
         thumbnailWidth: data.thumbnail?.width || null,
         thumbnailHeight: data.thumbnail?.height || null,
-        originalImage: data.originalimage?.source || null
+        originalImage: data.originalimage?.source || null,
+        wikidataId: wikidataId || null
       }
     };
   } catch {

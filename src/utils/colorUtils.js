@@ -1,5 +1,5 @@
-const LIGHTNESS_THRESHOLD = 60;
-const DARK_TEXT_LIGHTNESS = 16;
+const LIGHTNESS_THRESHOLD = 50;
+const DARK_TEXT_LIGHTNESS = 12;
 
 // Helper function to convert CSS color names to hex
 export const cssColorToHex = (color) => {
@@ -122,7 +122,7 @@ export const hslToHex = (h, s, l) => {
   return `#${r.toString(16).padStart(2, '0')}${g.toString(16).padStart(2, '0')}${b.toString(16).padStart(2, '0')}`;
 };
 
-const LIGHT_TEXT_LIGHTNESS = 92;
+const LIGHT_TEXT_LIGHTNESS = 95;
 
 /**
  * Returns an appropriate text color (dark or light) based on the background color's brightness.
@@ -135,16 +135,24 @@ export const getTextColor = (backgroundColor, isDarkMode = false) => {
 
   const { h, s, l } = hexToHsl(backgroundColor);
 
-  // Colors from yellow through blue are perceptually brighter to human eyes,
+  // Colors from yellow through cyan are perceptually brighter to human eyes,
   // so we lower the threshold to switch to dark text earlier.
-  // Graduated: yellow strongest, green moderate, cyan/blue mild.
+  // Blue is perceptually dark so it gets less adjustment.
+  // Low saturation makes colors appear even brighter, so we boost the adjustment further.
   let hueAdjustment = 0;
   if (h > 45 && h < 70) {
-    hueAdjustment = 15;       // Yellow: strongest adjustment
+    hueAdjustment = 20;       // Yellow
   } else if (h >= 70 && h < 150) {
-    hueAdjustment = 10;       // Yellow-green / Green
-  } else if (h >= 150 && h < 260) {
-    hueAdjustment = 10;       // Cyan / Light blue / Blue
+    hueAdjustment = 20;       // Yellow-green / Green
+  } else if (h >= 150 && h < 200) {
+    hueAdjustment = 15;       // Cyan / Light blue
+  } else if (h >= 200 && h < 260) {
+    hueAdjustment = 5;        // Blue (perceptually dark, needs less adjustment)
+  }
+
+  // Low saturation = more washed out = appears brighter, needs dark text sooner
+  if (hueAdjustment > 0 && s < 50) {
+    hueAdjustment += Math.round((50 - s) / 5); // up to +10 extra at s=0
   }
 
   // In dark mode, we significantly increase the threshold to prefer light text
@@ -164,6 +172,44 @@ export const getTextColor = (backgroundColor, isDarkMode = false) => {
     // Create a light color with the same hue but very high lightness
     // This creates a "near white" that matches the theme
     return hslToHex(h, s, LIGHT_TEXT_LIGHTNESS);
+  }
+};
+
+/**
+ * Returns the opposite lightness text color from getTextColor.
+ * If getTextColor would return dark text, this returns light text, and vice versa.
+ * Used for connection labels where text sits on top of the edge color.
+ */
+export const getInvertedTextColor = (backgroundColor, isDarkMode = false) => {
+  if (!backgroundColor) return '#bdb5b5';
+
+  const { h, s, l } = hexToHsl(backgroundColor);
+
+  let hueAdjustment = 0;
+  if (h > 45 && h < 70) {
+    hueAdjustment = 20;
+  } else if (h >= 70 && h < 150) {
+    hueAdjustment = 20;
+  } else if (h >= 150 && h < 200) {
+    hueAdjustment = 15;
+  } else if (h >= 200 && h < 260) {
+    hueAdjustment = 5;
+  }
+
+  if (hueAdjustment > 0 && s < 50) {
+    hueAdjustment += Math.round((50 - s) / 5);
+  }
+
+  let threshold = LIGHTNESS_THRESHOLD - hueAdjustment;
+  if (isDarkMode) {
+    threshold = 80;
+  }
+
+  // Inverted: bright backgrounds get light text, dark backgrounds get dark text
+  if (l > threshold) {
+    return hslToHex(h, s, LIGHT_TEXT_LIGHTNESS);
+  } else {
+    return hslToHex(h, s, DARK_TEXT_LIGHTNESS);
   }
 };
 

@@ -25,7 +25,7 @@ function getColorFromPalettes(str) {
 
 // Predicate tiers and weights
 export const PREDICATE_TIERS = {
-  // Tier A (core)
+  // Tier A (core identity and attributes)
   instanceOf: { tier: 'A', weight: 1.0 },
   subclassOf: { tier: 'A', weight: 0.95 },
   memberOf: { tier: 'A', weight: 0.9 },
@@ -40,8 +40,24 @@ export const PREDICATE_TIERS = {
   label: { tier: 'A', weight: 0.85 },
   place: { tier: 'A', weight: 0.85 },
   date: { tier: 'A', weight: 0.8 },
+  // Biographical predicates
+  birthPlace: { tier: 'A', weight: 0.9 },
+  birthDate: { tier: 'A', weight: 0.85 },
+  deathPlace: { tier: 'A', weight: 0.85 },
+  deathDate: { tier: 'A', weight: 0.8 },
+  placeOfBirth: { tier: 'A', weight: 0.9 },
+  dateOfBirth: { tier: 'A', weight: 0.85 },
+  placeOfDeath: { tier: 'A', weight: 0.85 },
+  dateOfDeath: { tier: 'A', weight: 0.8 },
+  // Professional/identity predicates
+  occupation: { tier: 'A', weight: 0.9 },
+  country: { tier: 'A', weight: 0.85 },
+  nationality: { tier: 'A', weight: 0.85 },
+  position: { tier: 'A', weight: 0.85 },
+  field: { tier: 'A', weight: 0.8 },
+  knownFor: { tier: 'A', weight: 0.85 },
 
-  // Tier B (context)
+  // Tier B (relationships and context)
   influencedBy: { tier: 'B', weight: 0.7 },
   collaborator: { tier: 'B', weight: 0.7 },
   associatedAct: { tier: 'B', weight: 0.65 },
@@ -53,8 +69,35 @@ export const PREDICATE_TIERS = {
   relatedTo: { tier: 'B', weight: 0.6 },
   related: { tier: 'B', weight: 0.6 },
   related_via: { tier: 'B', weight: 0.6 },
+  // Organizational relationships
+  founder: { tier: 'B', weight: 0.75 },
+  foundedBy: { tier: 'B', weight: 0.75 },
+  employer: { tier: 'B', weight: 0.7 },
+  worksAt: { tier: 'B', weight: 0.7 },
+  employee: { tier: 'B', weight: 0.65 },
+  member: { tier: 'B', weight: 0.65 },
+  memberOfSportsTeam: { tier: 'B', weight: 0.65 },
+  team: { tier: 'B', weight: 0.65 },
+  affiliation: { tier: 'B', weight: 0.6 },
+  // Time-based relationships
+  inception: { tier: 'B', weight: 0.7 },
+  dissolved: { tier: 'B', weight: 0.65 },
+  founded: { tier: 'B', weight: 0.7 },
+  established: { tier: 'B', weight: 0.7 },
+  // Family relationships
+  spouse: { tier: 'B', weight: 0.7 },
+  child: { tier: 'B', weight: 0.65 },
+  parent: { tier: 'B', weight: 0.7 },
+  sibling: { tier: 'B', weight: 0.65 },
+  family: { tier: 'B', weight: 0.65 },
+  // Geographic relationships
+  citizenship: { tier: 'B', weight: 0.6 },
+  residence: { tier: 'B', weight: 0.6 },
+  location: { tier: 'B', weight: 0.65 },
+  locatedIn: { tier: 'B', weight: 0.65 },
+  capital: { tier: 'B', weight: 0.7 },
 
-  // Tier C (metadata)
+  // Tier C (metadata and identifiers)
   authorityId: { tier: 'C', weight: 0.3 },
   externalUrl: { tier: 'C', weight: 0.25 },
   category: { tier: 'C', weight: 0.2 }

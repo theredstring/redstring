@@ -405,7 +405,7 @@ const UnifiedBottomControlPanel = ({
     const baseNode = {
       id: selectedGroup.id,
       name: selectedGroup.name || 'Group',
-      color: selectedGroup.color || '#8B0000'
+      color: selectedGroup.color || theme.accent.primary
     };
 
     const dimensions = getNodeDimensions(baseNode, false, null);

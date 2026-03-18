@@ -118,7 +118,8 @@ export class KnowledgeFederation {
             results.relationships.push({
               source: entity,
               target: rel.target,
-              relation: rel.relation,
+              predicate: rel.predicate || rel.relation, // Support both field names
+              type: rel.predicate || rel.relation, // Alias for compatibility
               confidence: rel.confidence,
               sources: rel.sources
             });
@@ -443,8 +444,16 @@ export class KnowledgeFederation {
         ?item ?property ?related .
         ?related rdfs:label ?relatedLabel .
         FILTER(LANG(?relatedLabel) = "en")
-        FILTER(?property != rdfs:label)
-        SERVICE wikibase:label { bd:serviceParam wikibase:language "en" }
+        FILTER(STRSTARTS(STR(?property), "http://www.wikidata.org/prop/direct/"))
+
+        # Convert property URI to entity URI and fetch its label
+        BIND(STRAFTER(STR(?property), "http://www.wikidata.org/prop/direct/") AS ?propertyId)
+        BIND(IRI(CONCAT("http://www.wikidata.org/entity/", ?propertyId)) AS ?propertyEntity)
+
+        OPTIONAL {
+          ?propertyEntity rdfs:label ?propertyLabel .
+          FILTER(LANG(?propertyLabel) = "en")
+        }
       } LIMIT ${limit}
     `;
     
@@ -452,7 +461,7 @@ export class KnowledgeFederation {
       const results = await sparqlClient.executeQuery('wikidata', query);
       return results.map(result => ({
         target: result.relatedLabel?.value,
-        relation: result.propertyLabel?.value || 'related_to',
+        predicate: result.propertyLabel?.value || result.property?.value || 'related_to',
         confidence: 0.8
       }));
     } catch (error) {
@@ -522,7 +531,7 @@ export class KnowledgeFederation {
       const results = await sparqlClient.executeQuery('dbpedia', query);
       return results.map(result => ({
         target: result.relatedLabel?.value,
-        relation: this.simplifyDBpediaProperty(result.property?.value) || 'related_to',
+        predicate: this.simplifyDBpediaProperty(result.property?.value) || 'related_to',
         confidence: 0.7
       }));
     } catch (error) {
@@ -564,7 +573,7 @@ export class KnowledgeFederation {
       const data = await response.json();
       return data.edges.map(edge => ({
         target: this.extractConceptNetLabel(edge.end),
-        relation: edge.rel?.label || 'related_to',
+        predicate: edge.rel?.label || 'related_to',
         confidence: edge.weight || 0.5
       }));
     } catch (error) {

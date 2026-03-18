@@ -1,7 +1,7 @@
 import React, { useMemo, useState, useCallback, useRef } from 'react';
 import useGraphStore from './store/graphStore.jsx';
 import { getNodeDimensions } from './utils.js';
-import { getTextColor, hexToHsl, hslToHex } from './utils/colorUtils.js';
+import { getTextColor, getInvertedTextColor, hexToHsl, hslToHex } from './utils/colorUtils.js';
 import { useTheme } from './hooks/useTheme.js';
 
 /**
@@ -65,7 +65,7 @@ const ConnectionText = ({
           fontWeight="bold"
           textAnchor="middle"
           dominantBaseline="middle"
-          stroke={connection.color || '#000000'}
+          stroke={getInvertedTextColor(connection.color || '#800000', theme.darkMode)}
           strokeWidth={strokeWidth}
           strokeLinecap="round"
           strokeLinejoin="round"

@@ -7,7 +7,7 @@
 import React from 'react';
 import { calculateParallelEdgePath } from '../utils/canvas/parallelEdgeUtils.js';
 import { generateManhattanRoutingPath, generateCleanRoutingPath } from '../utils/canvas/edgeRouting.js';
-import { getTextColor } from '../utils/colorUtils.js';
+import { getTextColor, getInvertedTextColor } from '../utils/colorUtils.js';
 import { useTheme } from '../hooks/useTheme.js';
 
 /**
@@ -205,7 +205,7 @@ function EdgeRenderer({
             textAnchor="middle"
             dominantBaseline="middle"
             transform={`rotate(${angle > 90 || angle < -90 ? angle + 180 : angle}, ${useCurve ? parallelPath.apexX : midX}, ${useCurve ? parallelPath.apexY : midY})`}
-            stroke={edgeColor}
+            stroke={getInvertedTextColor(edgeColor || '#800000', theme.darkMode)}
             strokeWidth={Math.max(2, connectionFontSize * 0.25)}
             strokeLinecap="round"
             strokeLinejoin="round"

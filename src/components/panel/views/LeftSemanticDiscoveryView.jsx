@@ -12,6 +12,7 @@ import useGraphStore from '../../../store/graphStore.jsx';
 import { markPrototypesProtected } from '../../../services/prototypeProtection.js';
 import { generateConceptColor, getTextColor } from '../../../utils/colorUtils';
 import { useTheme } from '../../../hooks/useTheme.js';
+import { formatPredicate } from '../../../utils/predicateFormatter.js';
 
 // Left Semantic Discovery View - Concept Discovery Engine
 
@@ -148,12 +149,6 @@ const LeftSemanticDiscoveryView = ({ storeActions, nodePrototypesMap, openRightP
     return tail.replace(/[_-]+/g, ' ') || entry.uri || 'Unknown';
   };
 
-  const formatPredicate = (pred) => {
-    if (!pred) return 'relatedTo';
-    const tail = decodeURIComponent(String(pred).split('/').pop() || pred);
-    if (/^P\d+$/.test(tail)) return tail; // keep if purely PID
-    return tail.replace(/[_-]+/g, ' ');
-  };
 
   const generateRandomCatalog = (count = 5) => {
     return Array.from({ length: count }).map((_, idx) => {

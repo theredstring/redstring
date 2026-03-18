@@ -141,7 +141,7 @@ const PanelModal = ({
           width: `${width}px`,
           height: height === 'auto' ? 'auto' : `${height}px`,
           backgroundColor: theme.canvas.bg,
-          border: '2px solid #260000', // Maroon border
+          border: `2px solid ${theme.canvas.textPrimary}`
           borderRadius: '12px',
           boxShadow: '0 8px 32px rgba(0, 0, 0, 0.3)',
           zIndex: 9999,
@@ -155,10 +155,10 @@ const PanelModal = ({
         {title && (
           <div
             style={{
-              backgroundColor: '#260000',
+              backgroundColor: theme.canvas.textPrimary,
               color: theme.canvas.text,
               padding: '12px 16px',
-              borderBottom: '2px solid #8B0000',
+              borderBottom: `2px solid ${theme.accent.primary}`,
               display: 'flex',
               justifyContent: 'space-between',
               alignItems: 'center',

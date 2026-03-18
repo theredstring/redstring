@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import StandardDivider from './StandardDivider.jsx';
 import { ChevronRight } from 'lucide-react';
+import { useTheme } from '../hooks/useTheme.js';
 
 const CollapsibleSection = ({
   title,
@@ -10,6 +11,7 @@ const CollapsibleSection = ({
   count,
   rightAdornment
 }) => {
+  const theme = useTheme();
   const [isExpanded, setIsExpanded] = useState(defaultExpanded);
 
   return (
@@ -31,7 +33,7 @@ const CollapsibleSection = ({
           display: 'flex',
           alignItems: 'center',
           gap: '8px',
-          color: '#333',
+          color: theme.canvas.textPrimary,
           fontSize: '1.1rem',
           fontWeight: 'bold',
           fontFamily: "'EmOne', sans-serif"
@@ -40,7 +42,7 @@ const CollapsibleSection = ({
           {title}
           {count !== undefined && (
             <span style={{
-              color: '#666',
+              color: theme.canvas.textSecondary,
               fontSize: '0.9rem',
               fontWeight: 'normal'
             }}>
@@ -48,7 +50,7 @@ const CollapsibleSection = ({
             </span>
           )}
         </div>
-        <div style={{ display: 'flex', alignItems: 'center', color: '#333' }}>
+        <div style={{ display: 'flex', alignItems: 'center', color: theme.canvas.textPrimary }}>
           {rightAdornment}
           <span style={{
             display: 'flex',
@@ -56,7 +58,7 @@ const CollapsibleSection = ({
             justifyContent: 'center',
             transition: 'transform 0.2s ease',
             transform: isExpanded ? 'rotate(90deg)' : 'rotate(0deg)',
-            color: '#666'
+            color: theme.canvas.textSecondary
           }}>
             <ChevronRight size={16} />
           </span>
