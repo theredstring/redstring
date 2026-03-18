@@ -1297,6 +1297,7 @@ function NodeCanvas() {
   const isEdgePanningRef = useRef(false);
 
   const [recentlyPanned, setRecentlyPanned] = useState(false);
+  const orbitClickDownPos = useRef(null); // Track mousedown position for orbit overlay pan detection
 
   const [selectionRect, setSelectionRect] = useState(null);
   const [selectionStart, setSelectionStart] = useState(null);
@@ -5925,13 +5926,15 @@ function NodeCanvas() {
     handleMouseUp(e);
   };
   const handleCanvasClick = (e) => {
-    // Exit semantic orbit mode on any canvas click (safety net for overlay click)
-    // But NOT if the user just panned (drag-then-release fires click too).
-    // Note: mouseMoved.current is reset in handleMouseUp before click fires,
-    // so we rely on ignoreCanvasClick.current which is set when a pan occurred.
-    if (semanticOrbitActive && !ignoreCanvasClick.current) {
-      exitOrbitMode();
-      ignoreCanvasClick.current = false;
+    // Exit semantic orbit mode on canvas click — but not after a pan.
+    // ignoreCanvasClick is set true by handleMouseUp when a pan occurred.
+    if (semanticOrbitActive) {
+      if (ignoreCanvasClick.current) {
+        // Clear the flag so the next click works, but don't exit orbit
+        ignoreCanvasClick.current = false;
+      } else {
+        exitOrbitMode();
+      }
       return;
     }
 
@@ -11786,14 +11789,21 @@ function NodeCanvas() {
                               cursor: 'pointer',
                               pointerEvents: 'auto',
                             }}
+                            onMouseDown={(e) => {
+                              orbitClickDownPos.current = { x: e.clientX, y: e.clientY };
+                            }}
                             onClick={(e) => {
                               // Only exit orbit on a genuine click, not after panning.
-                              // mouseMoved is reset in handleMouseUp before click fires,
-                              // so use ignoreCanvasClick which is set when a pan occurred.
-                              if (!ignoreCanvasClick.current) {
-                                e.stopPropagation();
-                                exitOrbitMode();
+                              // Compare mousedown vs click position to detect drag/pan.
+                              const down = orbitClickDownPos.current;
+                              orbitClickDownPos.current = null;
+                              if (down) {
+                                const dx = e.clientX - down.x;
+                                const dy = e.clientY - down.y;
+                                if (dx * dx + dy * dy > 25) return; // moved >5px = was a pan
                               }
+                              e.stopPropagation();
+                              exitOrbitMode();
                             }}
                           />
                         </foreignObject>
