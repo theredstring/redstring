@@ -14,9 +14,9 @@ const SPAWNABLE_NODE = 'spawnable_node';
 
 const SOURCE_TO_RING_MARGIN = 200; // Gap from source node edge to first orbit ring
 const INTER_RING_MARGIN = 100;      // Gap between successive orbit rings
-const ORBIT_ANGULAR_SPEED_RAD_PER_SEC = 0.025; // Steady clockwise rotation
-const RADIAL_PERTURBATION_PX_BASE = 3; // very subtle radial wiggle
-const ANGLE_JITTER_RAD_BASE = 0.008; // subtle angle wobble
+const ORBIT_ANGULAR_SPEED_RAD_PER_SEC = 0.03; // Steady clockwise rotation
+const RADIAL_PERTURBATION_PX_BASE = 1; // very subtle radial wiggle
+const ANGLE_JITTER_RAD_BASE = 0.004; // subtle angle wobble
 const MIN_FREQ_HZ = 0.2;
 const MAX_FREQ_HZ = 1.2;
 
