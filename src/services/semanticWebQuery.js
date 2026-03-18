@@ -1149,18 +1149,27 @@ export async function findRelatedConcepts(entityName, options = {}) {
             FILTER(LANG(?relatedLabel) = "en")
             FILTER(?property != rdfs:label)
             FILTER(?property != rdfs:comment)
+            FILTER(!STRSTARTS(STR(?property), "http://dbpedia.org/ontology/wikiPage"))
+            FILTER(?property != <http://dbpedia.org/ontology/abstract>)
+            FILTER(?property != <http://dbpedia.org/ontology/thumbnail>)
+            FILTER(?property != <http://xmlns.com/foaf/0.1/depiction>)
+            FILTER(?property != owl:sameAs)
           } LIMIT 20
         `;
 
         const dbpediaRels = await executeSparql('https://dbpedia.org/sparql', dbpediaRelQuery, timeout);
         console.log(`[SemanticWebQuery] ✅ DBpedia returned ${dbpediaRels.length} relationships`);
-        results.push(...dbpediaRels.map(item => ({
-          itemLabel: { value: item.relatedLabel?.value },
-          item: { value: item.related?.value },
-          predicate: item.property?.value?.split('/').pop() || 'related',
-          source: 'dbpedia',
-          type: 'relationship'
-        })));
+        const NOISY_PREDICATES = /^(wikiPage|abstract$|thumbnail$|depiction$|sameAs$)/i;
+        results.push(...dbpediaRels
+          .map(item => ({
+            itemLabel: { value: item.relatedLabel?.value },
+            item: { value: item.related?.value },
+            predicate: item.property?.value?.split('/').pop() || 'related',
+            source: 'dbpedia',
+            type: 'relationship'
+          }))
+          .filter(item => !NOISY_PREDICATES.test(item.predicate))
+        );
       } catch (error) {
         console.warn('[SemanticWebQuery] ❌ DBpedia relationship query failed:', error.message);
       }

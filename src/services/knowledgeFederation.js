@@ -524,6 +524,11 @@ export class KnowledgeFederation {
         ?related rdfs:label ?relatedLabel .
         FILTER(LANG(?relatedLabel) = "en")
         FILTER(?property != rdfs:label && ?property != rdfs:comment)
+        FILTER(!STRSTARTS(STR(?property), "http://dbpedia.org/ontology/wikiPage"))
+        FILTER(?property != <http://dbpedia.org/ontology/abstract>)
+        FILTER(?property != <http://dbpedia.org/ontology/thumbnail>)
+        FILTER(?property != <http://xmlns.com/foaf/0.1/depiction>)
+        FILTER(?property != owl:sameAs)
       } LIMIT ${limit}
     `;
     
