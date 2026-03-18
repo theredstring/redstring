@@ -12,7 +12,8 @@ import { formatPredicate } from '../utils/predicateFormatter.js';
 
 const SPAWNABLE_NODE = 'spawnable_node';
 
-const DRAG_MARGIN = 90; // Spacing from node edge to orbit ring and between rings
+const SOURCE_TO_RING_MARGIN = 200; // Gap from source node edge to first orbit ring
+const INTER_RING_MARGIN = 100;      // Gap between successive orbit rings
 const ORBIT_ANGULAR_SPEED_RAD_PER_SEC = 0.015; // Very slow clockwise rotation
 const RADIAL_PERTURBATION_PX_BASE = 6; // subtle radial wiggle
 const ANGLE_JITTER_RAD_BASE = 0.008; // subtle angle wobble
@@ -364,25 +365,43 @@ const DraggableOrbitItem = ({ candidate, x, y, rightPanelExpanded, onNodeClick, 
   );
 };
 
-const computeRingRadius = (items, centerRadius, spacing, count) => {
-  // If no items, just return the center radius + spacing
+const computeRingRadius = (items, innerEdgeRadius, spacing, count) => {
+  // innerEdgeRadius = the outer edge of the previous ring (or source node)
   if (items.length === 0 || count === 0) {
-    return centerRadius + spacing;
+    return innerEdgeRadius + spacing;
   }
 
   const maxWidth = items.reduce((m, it) => Math.max(m, it.dims.currentWidth), 0);
 
-  // For a single item, no chord geometry needed - just use simple spacing
-  // (chord formula breaks down: sin(π) ≈ 0 causes division by ~0)
+  // For a single item, no chord geometry needed
   if (count === 1) {
-    return centerRadius + spacing + maxWidth / 2;
+    return innerEdgeRadius + spacing + maxWidth / 2;
   }
 
   const chordNeeded = maxWidth + spacing;
   const dTheta = (Math.PI * 2) / count;
   const minR = chordNeeded / (2 * Math.sin(dTheta / 2));
-  return Math.max(centerRadius + spacing + maxWidth / 2, minR);
+  return Math.max(innerEdgeRadius + spacing + maxWidth / 2, minR);
 };
+
+// Nudge an angle away from blocked angular ranges (inner ring items' connection paths)
+const COLLISION_PAD_RAD = 0.04; // extra angular padding after nudge (~2.3°)
+
+function nudgeAngleAwayFromBlocked(angle, blockedRanges) {
+  for (const { angle: blocked, halfWidth } of blockedRanges) {
+    let diff = angle - blocked;
+    // Normalize to [-π, π]
+    while (diff > Math.PI) diff -= 2 * Math.PI;
+    while (diff < -Math.PI) diff += 2 * Math.PI;
+
+    if (Math.abs(diff) < halfWidth) {
+      // Nudge in whichever direction is closer to escaping the blocked range
+      const nudgeDir = diff >= 0 ? 1 : -1;
+      angle = blocked + nudgeDir * (halfWidth + COLLISION_PAD_RAD);
+    }
+  }
+  return angle;
+}
 
 const measureCandidates = (candidates) => {
   return candidates.map((c) => {
@@ -424,22 +443,82 @@ export default function OrbitOverlay({
     return Math.max(focusWidth, focusHeight) / 2;
   }, [focusWidth, focusHeight]);
 
-  // Chain radius calculations: each ring builds on the previous one
+  // Chain radius calculations: ring1 uses SOURCE_TO_RING_MARGIN, subsequent rings use INTER_RING_MARGIN
   const ring1Radius = useMemo(() => {
-    return computeRingRadius(measuredRing1, centerRadius, DRAG_MARGIN, Math.max(1, measuredRing1.length));
+    return computeRingRadius(measuredRing1, centerRadius, SOURCE_TO_RING_MARGIN, Math.max(1, measuredRing1.length));
   }, [measuredRing1, centerRadius]);
 
   const ring2Radius = useMemo(() => {
-    return computeRingRadius(measuredRing2, ring1Radius + DRAG_MARGIN, DRAG_MARGIN, Math.max(1, measuredRing2.length));
-  }, [measuredRing2, ring1Radius]);
+    const ring1Outer = ring1Radius + (measuredRing1.length > 0
+      ? measuredRing1.reduce((m, it) => Math.max(m, it.dims.currentWidth), 0) / 2
+      : 0);
+    return computeRingRadius(measuredRing2, ring1Outer, INTER_RING_MARGIN, Math.max(1, measuredRing2.length));
+  }, [measuredRing2, ring1Radius, measuredRing1]);
 
   const ring3Radius = useMemo(() => {
-    return computeRingRadius(measuredRing3, ring2Radius + DRAG_MARGIN, DRAG_MARGIN, Math.max(1, measuredRing3.length));
-  }, [measuredRing3, ring2Radius]);
+    const ring2Outer = ring2Radius + (measuredRing2.length > 0
+      ? measuredRing2.reduce((m, it) => Math.max(m, it.dims.currentWidth), 0) / 2
+      : 0);
+    return computeRingRadius(measuredRing3, ring2Outer, INTER_RING_MARGIN, Math.max(1, measuredRing3.length));
+  }, [measuredRing3, ring2Radius, measuredRing2]);
 
   const ring4Radius = useMemo(() => {
-    return computeRingRadius(measuredRing4, ring3Radius + DRAG_MARGIN, DRAG_MARGIN, Math.max(1, measuredRing4.length));
-  }, [measuredRing4, ring3Radius]);
+    const ring3Outer = ring3Radius + (measuredRing3.length > 0
+      ? measuredRing3.reduce((m, it) => Math.max(m, it.dims.currentWidth), 0) / 2
+      : 0);
+    return computeRingRadius(measuredRing4, ring3Outer, INTER_RING_MARGIN, Math.max(1, measuredRing4.length));
+  }, [measuredRing4, ring3Radius, measuredRing3]);
+
+  // Compute collision-free base angles for all rings (runs only when ring compositions change, NOT every frame)
+  const collisionFreeAngles = useMemo(() => {
+    // Ring 1: evenly spaced, no collision avoidance needed (reference ring)
+    const r1n = Math.max(1, measuredRing1.length);
+    const ring1Angles = measuredRing1.map((_, i) => (2 * Math.PI * i) / r1n);
+
+    // Build blocked ranges from ring1: angular width each item blocks at ring1's radius
+    const ring1Blocked = ring1Angles.map((a, i) => ({
+      angle: a,
+      halfWidth: (measuredRing1[i]?.dims.currentWidth / 2 + 30) / ring1Radius,
+    }));
+
+    // Ring 2: half-step brick offset + nudge away from ring1 items
+    const r2n = Math.max(1, measuredRing2.length);
+    const r2Offset = Math.PI / Math.max(2, r2n);
+    const ring2Angles = measuredRing2.map((_, i) => {
+      const raw = (2 * Math.PI * i) / r2n + r2Offset;
+      return nudgeAngleAwayFromBlocked(raw, ring1Blocked);
+    });
+
+    const ring2Blocked = ring2Angles.map((a, i) => ({
+      angle: a,
+      halfWidth: (measuredRing2[i]?.dims.currentWidth / 2 + 30) / ring2Radius,
+    }));
+    const blocked12 = [...ring1Blocked, ...ring2Blocked];
+
+    // Ring 3: quarter-step offset + nudge away from ring1 & ring2 items
+    const r3n = Math.max(1, measuredRing3.length);
+    const r3Offset = Math.PI / (2 * Math.max(2, r3n));
+    const ring3Angles = measuredRing3.map((_, i) => {
+      const raw = (2 * Math.PI * i) / r3n + r3Offset;
+      return nudgeAngleAwayFromBlocked(raw, blocked12);
+    });
+
+    const ring3Blocked = ring3Angles.map((a, i) => ({
+      angle: a,
+      halfWidth: (measuredRing3[i]?.dims.currentWidth / 2 + 30) / ring3Radius,
+    }));
+    const blocked123 = [...blocked12, ...ring3Blocked];
+
+    // Ring 4: 3/4-step offset + nudge away from all inner items
+    const r4n = Math.max(1, measuredRing4.length);
+    const r4Offset = (3 * Math.PI) / (2 * Math.max(2, r4n));
+    const ring4Angles = measuredRing4.map((_, i) => {
+      const raw = (2 * Math.PI * i) / r4n + r4Offset;
+      return nudgeAngleAwayFromBlocked(raw, blocked123);
+    });
+
+    return { ring1: ring1Angles, ring2: ring2Angles, ring3: ring3Angles, ring4: ring4Angles };
+  }, [measuredRing1, measuredRing2, measuredRing3, measuredRing4, ring1Radius, ring2Radius, ring3Radius, ring4Radius]);
 
   // Animation time state (seconds). Throttled to ~20 FPS for efficiency.
   const [animTimeSec, setAnimTimeSec] = useState(0);
@@ -469,104 +548,40 @@ export default function OrbitOverlay({
     };
   }, []);
 
-  // Ring 1 positions: No brick-layer offset (deterministic)
-  const ring1Positions = useMemo(() => {
-    const n = Math.max(1, measuredRing1.length);
+  // Helper: compute animated positions from base angles + per-item perturbations
+  const computeAnimatedPositions = (measured, baseAngles, ringRadius, ringSalt) => {
     const positions = [];
-    for (let i = 0; i < measuredRing1.length; i++) {
-      const { candidate, dims } = measuredRing1[i];
-      const baseAngle = (2 * Math.PI * i) / n; // even spacing
-      // Deterministic per-item variation
-      const seed1 = hashToUnitFloat(candidate.id, 'ring1:radial');
-      const seed2 = hashToUnitFloat(candidate.id, 'ring1:angle');
-      const seed3 = hashToUnitFloat(candidate.id, 'ring1:freqR');
-      const seed4 = hashToUnitFloat(candidate.id, 'ring1:freqA');
+    for (let i = 0; i < measured.length; i++) {
+      const { candidate, dims } = measured[i];
+      const baseAngle = baseAngles[i] ?? 0;
+      const seed1 = hashToUnitFloat(candidate.id, `${ringSalt}:radial`);
+      const seed2 = hashToUnitFloat(candidate.id, `${ringSalt}:angle`);
+      const seed3 = hashToUnitFloat(candidate.id, `${ringSalt}:freqR`);
+      const seed4 = hashToUnitFloat(candidate.id, `${ringSalt}:freqA`);
       const radialAmp = RADIAL_PERTURBATION_PX_BASE * (0.6 + 0.8 * seed1);
       const angleJitterAmp = ANGLE_JITTER_RAD_BASE * (0.6 + 0.8 * seed2);
       const radialFreq = MIN_FREQ_HZ + (MAX_FREQ_HZ - MIN_FREQ_HZ) * seed3;
       const angleFreq = MIN_FREQ_HZ + (MAX_FREQ_HZ - MIN_FREQ_HZ) * seed4;
       const angle = baseAngle + ORBIT_ANGULAR_SPEED_RAD_PER_SEC * animTimeSec + angleJitterAmp * Math.sin(2 * Math.PI * angleFreq * animTimeSec + seed2 * 10);
-      const radius = ring1Radius + radialAmp * Math.sin(2 * Math.PI * radialFreq * animTimeSec + seed1 * 10);
+      const radius = ringRadius + radialAmp * Math.sin(2 * Math.PI * radialFreq * animTimeSec + seed1 * 10);
       const cx = centerX + radius * Math.cos(angle);
       const cy = centerY + radius * Math.sin(angle);
       positions.push({ candidate, dims, x: cx - dims.currentWidth / 2, y: cy - dims.currentHeight / 2 });
     }
     return positions;
-  }, [measuredRing1, ring1Radius, centerX, centerY, animTimeSec]);
+  };
 
-  // Ring 2 positions: Brick-layer offset (half-step forward)
-  const ring2Positions = useMemo(() => {
-    const n = Math.max(1, measuredRing2.length);
-    const positions = [];
-    const brickOffset = Math.PI / Math.max(2, n); // half-step forward
-    for (let i = 0; i < measuredRing2.length; i++) {
-      const { candidate, dims } = measuredRing2[i];
-      const baseAngle = (2 * Math.PI * i) / n + brickOffset;
-      const seed1 = hashToUnitFloat(candidate.id, 'ring2:radial');
-      const seed2 = hashToUnitFloat(candidate.id, 'ring2:angle');
-      const seed3 = hashToUnitFloat(candidate.id, 'ring2:freqR');
-      const seed4 = hashToUnitFloat(candidate.id, 'ring2:freqA');
-      const radialAmp = RADIAL_PERTURBATION_PX_BASE * (0.6 + 0.8 * seed1);
-      const angleJitterAmp = ANGLE_JITTER_RAD_BASE * (0.6 + 0.8 * seed2);
-      const radialFreq = MIN_FREQ_HZ + (MAX_FREQ_HZ - MIN_FREQ_HZ) * seed3;
-      const angleFreq = MIN_FREQ_HZ + (MAX_FREQ_HZ - MIN_FREQ_HZ) * seed4;
-      const angle = baseAngle + ORBIT_ANGULAR_SPEED_RAD_PER_SEC * animTimeSec + angleJitterAmp * Math.sin(2 * Math.PI * angleFreq * animTimeSec + seed2 * 10);
-      const radius = ring2Radius + radialAmp * Math.sin(2 * Math.PI * radialFreq * animTimeSec + seed1 * 10);
-      const cx = centerX + radius * Math.cos(angle);
-      const cy = centerY + radius * Math.sin(angle);
-      positions.push({ candidate, dims, x: cx - dims.currentWidth / 2, y: cy - dims.currentHeight / 2 });
-    }
-    return positions;
-  }, [measuredRing2, ring2Radius, centerX, centerY, animTimeSec]);
+  const ring1Positions = useMemo(() => computeAnimatedPositions(measuredRing1, collisionFreeAngles.ring1, ring1Radius, 'ring1'),
+    [measuredRing1, collisionFreeAngles, ring1Radius, centerX, centerY, animTimeSec]);
 
-  // Ring 3 positions: No brick offset (aligned with ring1 for stagger pattern)
-  const ring3Positions = useMemo(() => {
-    const n = Math.max(1, measuredRing3.length);
-    const positions = [];
-    for (let i = 0; i < measuredRing3.length; i++) {
-      const { candidate, dims } = measuredRing3[i];
-      const baseAngle = (2 * Math.PI * i) / n; // no offset, aligned with ring1
-      const seed1 = hashToUnitFloat(candidate.id, 'ring3:radial');
-      const seed2 = hashToUnitFloat(candidate.id, 'ring3:angle');
-      const seed3 = hashToUnitFloat(candidate.id, 'ring3:freqR');
-      const seed4 = hashToUnitFloat(candidate.id, 'ring3:freqA');
-      const radialAmp = RADIAL_PERTURBATION_PX_BASE * (0.6 + 0.8 * seed1);
-      const angleJitterAmp = ANGLE_JITTER_RAD_BASE * (0.6 + 0.8 * seed2);
-      const radialFreq = MIN_FREQ_HZ + (MAX_FREQ_HZ - MIN_FREQ_HZ) * seed3;
-      const angleFreq = MIN_FREQ_HZ + (MAX_FREQ_HZ - MIN_FREQ_HZ) * seed4;
-      const angle = baseAngle + ORBIT_ANGULAR_SPEED_RAD_PER_SEC * animTimeSec + angleJitterAmp * Math.sin(2 * Math.PI * angleFreq * animTimeSec + seed2 * 10);
-      const radius = ring3Radius + radialAmp * Math.sin(2 * Math.PI * radialFreq * animTimeSec + seed1 * 10);
-      const cx = centerX + radius * Math.cos(angle);
-      const cy = centerY + radius * Math.sin(angle);
-      positions.push({ candidate, dims, x: cx - dims.currentWidth / 2, y: cy - dims.currentHeight / 2 });
-    }
-    return positions;
-  }, [measuredRing3, ring3Radius, centerX, centerY, animTimeSec]);
+  const ring2Positions = useMemo(() => computeAnimatedPositions(measuredRing2, collisionFreeAngles.ring2, ring2Radius, 'ring2'),
+    [measuredRing2, collisionFreeAngles, ring2Radius, centerX, centerY, animTimeSec]);
 
-  // Ring 4 positions: Brick-layer offset
-  const ring4Positions = useMemo(() => {
-    const n = Math.max(1, measuredRing4.length);
-    const positions = [];
-    const brickOffset = Math.PI / Math.max(2, n); // half-step bricklaying
-    for (let i = 0; i < measuredRing4.length; i++) {
-      const { candidate, dims } = measuredRing4[i];
-      const baseAngle = (2 * Math.PI * i) / n + brickOffset;
-      const seed1 = hashToUnitFloat(candidate.id, 'ring4:radial');
-      const seed2 = hashToUnitFloat(candidate.id, 'ring4:angle');
-      const seed3 = hashToUnitFloat(candidate.id, 'ring4:freqR');
-      const seed4 = hashToUnitFloat(candidate.id, 'ring4:freqA');
-      const radialAmp = RADIAL_PERTURBATION_PX_BASE * (0.6 + 0.8 * seed1);
-      const angleJitterAmp = ANGLE_JITTER_RAD_BASE * (0.6 + 0.8 * seed2);
-      const radialFreq = MIN_FREQ_HZ + (MAX_FREQ_HZ - MIN_FREQ_HZ) * seed3;
-      const angleFreq = MIN_FREQ_HZ + (MAX_FREQ_HZ - MIN_FREQ_HZ) * seed4;
-      const angle = baseAngle + ORBIT_ANGULAR_SPEED_RAD_PER_SEC * animTimeSec + angleJitterAmp * Math.sin(2 * Math.PI * angleFreq * animTimeSec + seed2 * 10);
-      const radius = ring4Radius + radialAmp * Math.sin(2 * Math.PI * radialFreq * animTimeSec + seed1 * 10);
-      const cx = centerX + radius * Math.cos(angle);
-      const cy = centerY + radius * Math.sin(angle);
-      positions.push({ candidate, dims, x: cx - dims.currentWidth / 2, y: cy - dims.currentHeight / 2 });
-    }
-    return positions;
-  }, [measuredRing4, ring4Radius, centerX, centerY, animTimeSec]);
+  const ring3Positions = useMemo(() => computeAnimatedPositions(measuredRing3, collisionFreeAngles.ring3, ring3Radius, 'ring3'),
+    [measuredRing3, collisionFreeAngles, ring3Radius, centerX, centerY, animTimeSec]);
+
+  const ring4Positions = useMemo(() => computeAnimatedPositions(measuredRing4, collisionFreeAngles.ring4, ring4Radius, 'ring4'),
+    [measuredRing4, collisionFreeAngles, ring4Radius, centerX, centerY, animTimeSec]);
 
   // Early return check after all hooks are called
   if ((!ring1Candidates || ring1Candidates.length === 0) &&
