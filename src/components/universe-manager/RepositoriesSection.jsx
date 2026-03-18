@@ -26,7 +26,7 @@ function buttonStyle(theme, variant = 'outline') {
     display: 'flex',
     alignItems: 'center',
     gap: 6,
-    transition: 'all 0.15s'
+    transition: 'transform 120ms ease, background-color 0.15s, color 0.15s'
   };
 
   switch (variant) {
@@ -60,7 +60,12 @@ const RepositoriesSection = ({
         title="Repositories" 
         subtitle="Your curated list of repositories"
         actions={
-          <button onClick={onBrowseRepositories} style={buttonStyle(theme, 'solid')}>
+          <button 
+            onClick={onBrowseRepositories} 
+            style={buttonStyle(theme, 'solid')}
+            onMouseEnter={(e) => e.currentTarget.style.transform = 'scale(1.04)'}
+            onMouseLeave={(e) => e.currentTarget.style.transform = 'scale(1)'}
+          >
             <Github size={14} /> Add Repositories
           </button>
         }
@@ -87,7 +92,12 @@ const RepositoriesSection = ({
       title="Repositories" 
       subtitle={`${repositories.length} ${repositories.length === 1 ? 'repository' : 'repositories'} in your list`}
       actions={
-        <button onClick={onBrowseRepositories} style={buttonStyle(theme, 'solid')}>
+        <button 
+          onClick={onBrowseRepositories} 
+          style={buttonStyle(theme, 'solid')}
+          onMouseEnter={(e) => e.currentTarget.style.transform = 'scale(1.04)'}
+          onMouseLeave={(e) => e.currentTarget.style.transform = 'scale(1)'}
+        >
           <Github size={14} /> Add More
         </button>
       }
@@ -134,17 +144,19 @@ const RepositoriesSection = ({
 
                 <div style={{ display: 'flex', gap: 6 }}>
                   {repo.html_url && (
-                    <a
-                      href={repo.html_url}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      style={{
-                        ...buttonStyle(theme, 'outline'),
-                        textDecoration: 'none'
-                      }}
-                    >
-                      <ExternalLink size={14} />
-                    </a>
+                      <a
+                        href={repo.html_url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        style={{
+                          ...buttonStyle(theme, 'outline'),
+                          textDecoration: 'none'
+                        }}
+                        onMouseEnter={(e) => e.currentTarget.style.transform = 'scale(1.04)'}
+                        onMouseLeave={(e) => e.currentTarget.style.transform = 'scale(1)'}
+                      >
+                        <ExternalLink size={14} />
+                      </a>
                   )}
                 </div>
               </div>
@@ -273,12 +285,14 @@ const RepositoriesSection = ({
                               <button
                                 onClick={() => onImportUniverse(item, repoInfo)}
                                 style={{
-                                  ...buttonStyle('outline'),
-                                  borderColor: '#1565c0',
+                                  ...buttonStyle(theme, 'outline'),
+                                  borderColor: theme.canvas.border,
                                   color: theme.canvas.textSecondary,
                                   fontSize: '0.7rem',
                                   padding: '4px 8px'
                                 }}
+                                onMouseEnter={(e) => e.currentTarget.style.transform = 'scale(1.04)'}
+                                onMouseLeave={(e) => e.currentTarget.style.transform = 'scale(1)'}
                               >
                                 Import Copy
                               </button>
@@ -291,10 +305,10 @@ const RepositoriesSection = ({
                                     padding: '4px 8px'
                                   }}
                                   onMouseEnter={(e) => {
-                                    e.currentTarget.style.backgroundColor = theme.canvas.inactive;
+                                    e.currentTarget.style.transform = 'scale(1.04)';
                                   }}
                                   onMouseLeave={(e) => {
-                                    e.currentTarget.style.backgroundColor = theme.canvas.bg;
+                                    e.currentTarget.style.transform = 'scale(1)';
                                   }}
                                 >
                                   Attach to Universe

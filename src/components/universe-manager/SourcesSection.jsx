@@ -16,7 +16,7 @@ function buttonStyle(theme, variant = 'outline') {
     display: 'flex',
     alignItems: 'center',
     gap: 6,
-    transition: 'all 0.15s'
+    transition: 'transform 120ms ease, background-color 0.15s, color 0.15s'
   };
 
   switch (variant) {
@@ -103,12 +103,16 @@ const SourcesSection = ({
                     onClick={() => onDiscover(source)}
                     style={buttonStyle(theme, discovery.loading ? 'disabled' : 'outline')}
                     disabled={discovery.loading}
+                    onMouseEnter={(e) => { if (!discovery.loading) e.currentTarget.style.transform = 'scale(1.04)'; }}
+                    onMouseLeave={(e) => { e.currentTarget.style.transform = 'scale(1)'; }}
                   >
                     {discovery.loading ? 'Scanning…' : 'Discover universes'}
                   </button>
                   <button
                     onClick={() => onDetach(source)}
                     style={buttonStyle(theme, 'danger')}
+                    onMouseEnter={(e) => e.currentTarget.style.transform = 'scale(1.04)'}
+                    onMouseLeave={(e) => e.currentTarget.style.transform = 'scale(1)'}
                   >
                     Remove
                   </button>
@@ -149,6 +153,8 @@ const SourcesSection = ({
                       <button
                         onClick={() => onLinkDiscovered(item, { user: source.user, repo: source.repo })}
                         style={buttonStyle(theme, 'solid')}
+                        onMouseEnter={(e) => e.currentTarget.style.transform = 'scale(1.04)'}
+                        onMouseLeave={(e) => e.currentTarget.style.transform = 'scale(1)'}
                       >
                         Link
                       </button>

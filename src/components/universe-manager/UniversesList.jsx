@@ -18,7 +18,7 @@ function buttonStyle(theme, variant = 'outline') {
     display: 'flex',
     alignItems: 'center',
     gap: 6,
-    transition: 'all 0.15s',
+    transition: 'transform 120ms ease, background-color 0.15s, color 0.15s',
     outline: 'none',
     boxShadow: 'none'
   };
@@ -233,6 +233,8 @@ const UniversesList = ({
               <button
                 onClick={() => setShowLoadMenu(!showLoadMenu)}
                 style={buttonStyle(theme, 'outline')}
+                onMouseEnter={(e) => e.currentTarget.style.transform = 'scale(1.04)'}
+                onMouseLeave={(e) => e.currentTarget.style.transform = 'scale(1)'}
               >
                 <Download size={14} /> Load <ChevronDown size={12} />
 
@@ -302,6 +304,8 @@ const UniversesList = ({
               <button
                 onClick={() => setShowNewMenu(!showNewMenu)}
                 style={{ ...buttonStyle(theme, 'solid') }}
+                onMouseEnter={(e) => e.currentTarget.style.transform = 'scale(1.04)'}
+                onMouseLeave={(e) => e.currentTarget.style.transform = 'scale(1)'}
               >
                 <Plus size={14} /> New <ChevronDown size={12} />
 
@@ -682,6 +686,8 @@ const UniversesList = ({
                                           onSetPrimarySource(universe.slug, 'git');
                                         }
                                       }}
+                                      onMouseEnter={(e) => { if (canToggle) e.currentTarget.style.transform = 'scale(1.04)'; }}
+                                      onMouseLeave={(e) => { e.currentTarget.style.transform = 'scale(1)'; }}
                                       style={{
                                         fontSize: '0.65rem',
                                         padding: '2px 6px',
@@ -711,6 +717,8 @@ const UniversesList = ({
                                       e.stopPropagation();
                                       onSaveRepoSource(universe.slug);
                                     }}
+                                    onMouseEnter={(e) => e.currentTarget.style.transform = 'scale(1.04)'}
+                                    onMouseLeave={(e) => e.currentTarget.style.transform = 'scale(1)'}
                                     style={{
                                       ...buttonStyle(theme, 'outline'), // Added theme variable
                                       fontSize: '0.65rem',
@@ -744,6 +752,8 @@ const UniversesList = ({
                                   color: theme.canvas.textSecondary,
                                   borderColor: theme.canvas.border
                                 }}
+                                onMouseEnter={(e) => e.currentTarget.style.transform = 'scale(1.04)'}
+                                onMouseLeave={(e) => e.currentTarget.style.transform = 'scale(1)'}
                               >
                                 <Plus size={12} />
                                 Add Repository
@@ -914,6 +924,8 @@ const UniversesList = ({
                                               e.stopPropagation();
                                               onLinkLocalFile(universe.slug);
                                             }}
+                                            onMouseEnter={(e) => e.currentTarget.style.transform = 'scale(1.04)'}
+                                            onMouseLeave={(e) => e.currentTarget.style.transform = 'scale(1)'}
                                             style={{
                                               ...buttonStyle(theme, 'outline'), // Added theme variable
                                               fontSize: '0.62rem',
@@ -953,6 +965,8 @@ const UniversesList = ({
                                               e.stopPropagation();
                                               onGrantLocalPermission(universe.slug);
                                             }}
+                                            onMouseEnter={(e) => e.currentTarget.style.transform = 'scale(1.04)'}
+                                            onMouseLeave={(e) => e.currentTarget.style.transform = 'scale(1)'}
                                             style={{
                                               ...buttonStyle(theme, 'outline'), // Added theme variable
                                               fontSize: '0.62rem',
@@ -981,6 +995,8 @@ const UniversesList = ({
                                                 onSetPrimarySource(universe.slug, 'local');
                                               }
                                             }}
+                                            onMouseEnter={(e) => { if (canToggle) e.currentTarget.style.transform = 'scale(1.04)'; }}
+                                            onMouseLeave={(e) => { e.currentTarget.style.transform = 'scale(1)'; }}
                                             style={{
                                               fontSize: '0.65rem',
                                               padding: '2px 6px',
@@ -1031,6 +1047,8 @@ const UniversesList = ({
                                   color: theme.canvas.textSecondary,
                                   borderColor: theme.canvas.border
                                 }}
+                                onMouseEnter={(e) => e.currentTarget.style.transform = 'scale(1.04)'}
+                                onMouseLeave={(e) => e.currentTarget.style.transform = 'scale(1)'}
                               >
                                 <Plus size={12} />
                                 Add Local File
@@ -1061,6 +1079,14 @@ const UniversesList = ({
                                         onCreateLocalFile(universe.slug);
                                       }
                                     }}
+                                    onMouseEnter={(e) => {
+                                      e.currentTarget.style.backgroundColor = theme.canvas.hover;
+                                      e.currentTarget.style.transform = 'scale(1.04)';
+                                    }}
+                                    onMouseLeave={(e) => {
+                                      e.currentTarget.style.backgroundColor = 'transparent';
+                                      e.currentTarget.style.transform = 'scale(1)';
+                                    }}
                                     style={{
                                       width: '100%',
                                       padding: '8px 12px',
@@ -1075,8 +1101,6 @@ const UniversesList = ({
                                       alignItems: 'center',
                                       gap: 6
                                     }}
-                                    onMouseEnter={(e) => e.currentTarget.style.backgroundColor = theme.canvas.hover}
-                                    onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
                                   >
                                     <FileText size={12} /> Create New File
                                   </button>
@@ -1089,6 +1113,14 @@ const UniversesList = ({
                                         onLinkLocalFile(universe.slug);
                                       }
                                     }}
+                                    onMouseEnter={(e) => {
+                                      e.currentTarget.style.backgroundColor = theme.canvas.hover;
+                                      e.currentTarget.style.transform = 'scale(1.04)';
+                                    }}
+                                    onMouseLeave={(e) => {
+                                      e.currentTarget.style.backgroundColor = 'transparent';
+                                      e.currentTarget.style.transform = 'scale(1)';
+                                    }}
                                     style={{
                                       width: '100%',
                                       padding: '8px 12px',
@@ -1103,8 +1135,6 @@ const UniversesList = ({
                                       alignItems: 'center',
                                       gap: 6
                                     }}
-                                    onMouseEnter={(e) => e.currentTarget.style.backgroundColor = theme.canvas.hover}
-                                    onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
                                   >
                                     <Link size={12} /> Link Existing File
                                   </button>
