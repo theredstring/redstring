@@ -155,15 +155,9 @@ export const getTextColor = (backgroundColor, isDarkMode = false) => {
     hueAdjustment += Math.round((50 - s) / 5); // up to +10 extra at s=0
   }
 
-  // In dark mode, we significantly increase the threshold to prefer light text
-  // for a more consistent light-on-dark aesthetic across the app.
-  // Only the brightest colors (like very pale yellow or white) will get dark text.
-  // IMPORTANT: Hue adjustments still apply in dark mode - yellows appear brighter
-  // and need dark text at lower lightness values to maintain contrast.
+  // Nodes are self-contained visual elements that should look the same regardless
+  // of the app's theme. Text color is determined purely by the node's background color.
   let threshold = LIGHTNESS_THRESHOLD - hueAdjustment;
-  if (isDarkMode) {
-    threshold = 80 - hueAdjustment; // Apply hue adjustments to dark mode threshold too
-  }
 
   // If background is bright, use dark text with same hue
   if (l > threshold) {
@@ -202,10 +196,8 @@ export const getInvertedTextColor = (backgroundColor, isDarkMode = false) => {
     hueAdjustment += Math.round((50 - s) / 5);
   }
 
+  // Same threshold as getTextColor - nodes are self-contained
   let threshold = LIGHTNESS_THRESHOLD - hueAdjustment;
-  if (isDarkMode) {
-    threshold = 80 - hueAdjustment; // Apply hue adjustments to dark mode threshold too
-  }
 
   // Inverted: bright backgrounds get light text, dark backgrounds get dark text
   if (l > threshold) {

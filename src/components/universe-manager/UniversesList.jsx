@@ -27,7 +27,7 @@ function buttonStyle(theme, variant = 'outline') {
     case 'solid':
       return { ...base, backgroundColor: theme.canvas.textPrimary, color: theme.canvas.bg };
     case 'danger':
-      return { ...base, borderColor: '#7A0000', color: '#7A0000', backgroundColor: 'rgba(122,0,0,0.05)' };
+      return { ...base, borderColor: theme.canvas.brand, color: theme.canvas.brand, backgroundColor: 'rgba(122,0,0,0.05)' };
     case 'disabled':
       return { ...base, opacity: 0.5, cursor: 'not-allowed' };
     default:
@@ -266,7 +266,7 @@ const UniversesList = ({
                       alignItems: 'center',
                       gap: 6
                     }}
-                    onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#f5f5f5'}
+                    onMouseEnter={(e) => e.currentTarget.style.backgroundColor = theme.canvas.hover}
                     onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
                   >
                     <FileText size={12} /> Load from Local File
@@ -493,8 +493,8 @@ const UniversesList = ({
                               fontSize: '0.6rem',
                               padding: '2px 6px',
                               borderRadius: 10,
-                              backgroundColor: '#7A0000',
-                              color: '#ffffff',
+                              backgroundColor: theme.canvas.brand,
+                              color: '#DEDADA',
                               fontWeight: 700
                             }}>
                               ACTIVE
@@ -641,7 +641,7 @@ const UniversesList = ({
                                     <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
                                       <span style={{ fontWeight: 600, color: theme.canvas.textPrimary }}>Status:</span>
                                       <span style={{
-                                        color: hasError ? '#d32f2f' : isLoading ? '#ef6c00' : statusText === 'synced' ? theme.canvas.brand : theme.canvas.textSecondary,
+                                        color: hasError ? theme.alert.error.text : isLoading ? theme.alert.warning.text : statusText === 'synced' ? theme.canvas.brand : theme.canvas.textSecondary,
                                         fontWeight: 500
                                       }}>
                                         {isLoading ? '⟳ Loading...' : hasError ? '⚠ Error' : statusText}
@@ -655,11 +655,11 @@ const UniversesList = ({
                                       <div style={{
                                         marginTop: 4,
                                         padding: '3px 6px',
-                                        backgroundColor: '#ffebee',
+                                        backgroundColor: theme.alert.error.bg,
                                         borderRadius: 3,
-                                        border: '1px solid #ffcdd2'
+                                        border: `1px solid ${theme.alert.error.border}`
                                       }}>
-                                        <span style={{ color: '#c62828', fontSize: '0.6rem' }}>
+                                        <span style={{ color: theme.alert.error.text, fontSize: '0.6rem' }}>
                                           {syncStatus.error}
                                         </span>
                                       </div>
@@ -693,13 +693,13 @@ const UniversesList = ({
                                         gap: 4,
                                         border: `1px solid ${theme.canvas.brand}`,
                                         backgroundColor: isSourceOfTruth ? theme.canvas.brand : 'transparent',
-                                        color: isSourceOfTruth ? theme.canvas.bg : theme.canvas.brand,
+                                        color: isSourceOfTruth ? '#DEDADA' : theme.canvas.brand,
 
                                         opacity: canToggle ? 1 : 0.85
                                       }}
                                       title={!canToggle ? 'Only storage option (must remain source of truth)' : isSourceOfTruth ? 'Currently source of truth' : 'Click to make source of truth'}
                                     >
-                                      <Star size={10} fill={isSourceOfTruth ? theme.canvas.bg : 'none'} />
+                                      <Star size={10} fill={isSourceOfTruth ? '#DEDADA' : 'none'} />
 
                                       {isSourceOfTruth ? 'Source of Truth' : 'Not Source of Truth'}
                                     </button>
@@ -771,7 +771,7 @@ const UniversesList = ({
                                 const lastSavedLabel = localFile.lastSaved
                                   ? formatWhen(localFile.lastSaved)
                                   : 'Never';
-                                const lastSavedColor = localFile.lastSaved ? '#666' : '#999';
+                                const lastSavedColor = localFile.lastSaved ? theme.canvas.textPrimary : theme.canvas.textSecondary;
 
                                 return (
                                   <>
@@ -827,7 +827,7 @@ const UniversesList = ({
 
                                     <div style={{
                                       fontSize: '0.65rem',
-                                      color: '#444',
+                                      color: theme.canvas.textSecondary,
                                       marginTop: '4px',
                                       display: 'flex',
                                       flexDirection: 'column',
@@ -853,16 +853,16 @@ const UniversesList = ({
                                           marginTop: 6,
                                           padding: '6px 8px',
                                           borderRadius: 6,
-                                          backgroundColor: '#fff8e1',
-                                          border: '1px solid #ffca28',
+                                          backgroundColor: theme.alert.warning.bg,
+                                          border: `1px solid ${theme.alert.warning.border}`,
                                           display: 'flex',
                                           flexDirection: 'column',
                                           gap: 6
                                         }}
                                       >
                                         <div style={{ display: 'flex', alignItems: 'flex-start', gap: 6 }}>
-                                          <Info size={14} color="#f57c00" style={{ marginTop: 2, flexShrink: 0 }} />
-                                          <span style={{ fontSize: '0.65rem', color: '#f57c00', lineHeight: 1.3 }}>
+                                          <Info size={14} color={theme.alert.warning.text} style={{ marginTop: 2, flexShrink: 0 }} />
+                                          <span style={{ fontSize: '0.65rem', color: theme.alert.warning.text, lineHeight: 1.3 }}>
                                             File imported but not linked. Connect to enable auto-save.
                                           </span>
                                         </div>
@@ -879,7 +879,7 @@ const UniversesList = ({
                                               ...buttonStyle(theme, 'solid'), // Added theme variable
                                               fontSize: '0.65rem',
                                               padding: '4px 8px',
-                                              backgroundColor: '#f57c00',
+                                              backgroundColor: theme.alert.warning.text,
                                               border: 'none',
                                               width: 'auto'
                                             }}
@@ -896,9 +896,9 @@ const UniversesList = ({
                                           marginTop: 6,
                                           padding: '6px 8px',
                                           borderRadius: 6,
-                                          backgroundColor: 'rgba(122,0,0,0.12)',
-                                          border: '1px solid rgba(122,0,0,0.4)',
-                                          color: '#5a0000',
+                                          backgroundColor: theme.alert.error.bg,
+                                          border: `1px solid ${theme.alert.error.border}`,
+                                          color: theme.alert.error.text,
                                           fontSize: '0.65rem',
                                           display: 'flex',
                                           alignItems: 'center',
@@ -918,8 +918,8 @@ const UniversesList = ({
                                               ...buttonStyle(theme, 'outline'), // Added theme variable
                                               fontSize: '0.62rem',
                                               padding: '2px 6px',
-                                              borderColor: '#7A0000',
-                                              color: '#7A0000'
+                                              borderColor: theme.canvas.brand,
+                                              color: theme.canvas.brand
                                             }}
                                           >
                                             Reconnect
@@ -933,9 +933,9 @@ const UniversesList = ({
                                           marginTop: 6,
                                           padding: '6px 8px',
                                           borderRadius: 6,
-                                          backgroundColor: 'rgba(237,170,0,0.14)',
-                                          border: '1px solid rgba(237,170,0,0.4)',
-                                          color: '#5a3b00',
+                                          backgroundColor: theme.alert.warning.bg,
+                                          border: `1px solid ${theme.alert.warning.border}`,
+                                          color: theme.alert.warning.text,
                                           fontSize: '0.65rem',
                                           display: 'flex',
                                           alignItems: 'center',
@@ -957,8 +957,8 @@ const UniversesList = ({
                                               ...buttonStyle(theme, 'outline'), // Added theme variable
                                               fontSize: '0.62rem',
                                               padding: '2px 6px',
-                                              borderColor: '#b85e00',
-                                              color: '#b85e00'
+                                              borderColor: theme.alert.warning.text,
+                                              color: theme.alert.warning.text
                                             }}
                                           >
                                             Grant Access
@@ -990,15 +990,15 @@ const UniversesList = ({
                                               display: 'flex',
                                               alignItems: 'center',
                                               gap: 4,
-                                              border: '1px solid #7A0000',
-                                              backgroundColor: isSourceOfTruth ? '#7A0000' : 'transparent',
-                                              color: isSourceOfTruth ? theme.canvas.bg : '#7A0000',
+                                              border: `1px solid ${theme.canvas.brand}`,
+                                              backgroundColor: isSourceOfTruth ? theme.canvas.brand : 'transparent',
+                                              color: isSourceOfTruth ? '#DEDADA' : theme.canvas.brand,
 
                                               opacity: canToggle ? 1 : 0.85
                                             }}
                                             title={!canToggle ? 'Only storage option (must remain source of truth)' : isSourceOfTruth ? 'Currently source of truth' : 'Click to make source of truth'}
                                           >
-                                            <Star size={10} fill={isSourceOfTruth ? theme.canvas.bg : 'none'} />
+                                            <Star size={10} fill={isSourceOfTruth ? '#DEDADA' : 'none'} />
 
                                             {isSourceOfTruth ? 'Source of Truth' : 'Not Source of Truth'}
                                           </button>
@@ -1026,9 +1026,9 @@ const UniversesList = ({
                               <button
                                 onClick={() => setShowLocalFileMenu(showLocalFileMenu === universe.slug ? null : universe.slug)}
                                 style={{
-                                  ...buttonStyle('outline'),
+                                  ...buttonStyle(theme, 'outline'),
                                   fontSize: '0.7rem',
-                                  color: '#666',
+                                  color: theme.canvas.textSecondary,
                                   borderColor: theme.canvas.border
                                 }}
                               >
@@ -1075,7 +1075,7 @@ const UniversesList = ({
                                       alignItems: 'center',
                                       gap: 6
                                     }}
-                                    onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#f5f5f5'}
+                                    onMouseEnter={(e) => e.currentTarget.style.backgroundColor = theme.canvas.hover}
                                     onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
                                   >
                                     <FileText size={12} /> Create New File
@@ -1103,7 +1103,7 @@ const UniversesList = ({
                                       alignItems: 'center',
                                       gap: 6
                                     }}
-                                    onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#f5f5f5'}
+                                    onMouseEnter={(e) => e.currentTarget.style.backgroundColor = theme.canvas.hover}
                                     onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
                                   >
                                     <Link size={12} /> Link Existing File
@@ -1119,9 +1119,9 @@ const UniversesList = ({
                               padding: 8,
                               backgroundColor: 'rgba(122,0,0,0.08)',
                               borderRadius: 6,
-                              border: '1px solid #7A0000',
+                              border: `1px solid ${theme.canvas.brand}`,
                               fontSize: '0.7rem',
-                              color: '#7A0000',
+                              color: theme.canvas.brand,
                               textAlign: 'center',
                               fontWeight: 500
                             }}>
