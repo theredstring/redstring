@@ -1,4 +1,4 @@
-import React, { useMemo, useEffect, useRef, useState } from 'react';
+import React, { useMemo, useEffect, useRef, useState, useCallback } from 'react';
 
 import { useDrag } from 'react-dnd';
 import { getEmptyImage } from 'react-dnd-html5-backend';
@@ -268,7 +268,7 @@ const DraggableOrbitItem = ({ candidate, x, y, rightPanelExpanded, onNodeClick, 
       transform={ease < 1 ? `translate(${cx}, ${cy}) scale(${ease}) translate(${-cx}, ${-cy})` : undefined}
       style={{ opacity: baseOpacity * ease, transition: ease >= 1 ? 'opacity 0.2s ease' : undefined, cursor: 'pointer' }}
       onClick={(e) => { e.stopPropagation(); onClick?.(candidate, x, y, { currentWidth, currentHeight }); }}
-      onMouseEnter={() => onHover?.(candidate.id)}
+      onMouseEnter={() => onHover?.(candidate.id, x, y)}
       onMouseLeave={() => onHoverEnd?.()}
     >
       {/* Clip path for image nodes */}
@@ -434,6 +434,8 @@ export default function OrbitOverlay({
 }) {
   // Hover tracking for individual orbit items
   const [hoveredCandidateId, setHoveredCandidateId] = useState(null);
+  // Freeze position when hovered — stores { x, y } at hover start
+  const frozenPosRef = useRef(null);
 
   // Always call hooks first, before any early returns
   const measuredRing1 = useMemo(() => measureCandidates(ring1Candidates || []), [ring1Candidates]);
@@ -573,17 +575,38 @@ export default function OrbitOverlay({
     return positions;
   };
 
-  const ring1Positions = useMemo(() => computeAnimatedPositions(measuredRing1, collisionFreeAngles.ring1, ring1Radius, 'ring1'),
-    [measuredRing1, collisionFreeAngles, ring1Radius, centerX, centerY, animTimeSec]);
+  // Apply frozen position for hovered item
+  const applyFreeze = (positions) => {
+    if (!hoveredCandidateId || !frozenPosRef.current) return positions;
+    return positions.map(p =>
+      p.candidate.id === hoveredCandidateId
+        ? { ...p, x: frozenPosRef.current.x, y: frozenPosRef.current.y }
+        : p
+    );
+  };
 
-  const ring2Positions = useMemo(() => computeAnimatedPositions(measuredRing2, collisionFreeAngles.ring2, ring2Radius, 'ring2'),
-    [measuredRing2, collisionFreeAngles, ring2Radius, centerX, centerY, animTimeSec]);
+  const ring1Positions = applyFreeze(useMemo(() => computeAnimatedPositions(measuredRing1, collisionFreeAngles.ring1, ring1Radius, 'ring1'),
+    [measuredRing1, collisionFreeAngles, ring1Radius, centerX, centerY, animTimeSec]));
 
-  const ring3Positions = useMemo(() => computeAnimatedPositions(measuredRing3, collisionFreeAngles.ring3, ring3Radius, 'ring3'),
-    [measuredRing3, collisionFreeAngles, ring3Radius, centerX, centerY, animTimeSec]);
+  const ring2Positions = applyFreeze(useMemo(() => computeAnimatedPositions(measuredRing2, collisionFreeAngles.ring2, ring2Radius, 'ring2'),
+    [measuredRing2, collisionFreeAngles, ring2Radius, centerX, centerY, animTimeSec]));
 
-  const ring4Positions = useMemo(() => computeAnimatedPositions(measuredRing4, collisionFreeAngles.ring4, ring4Radius, 'ring4'),
-    [measuredRing4, collisionFreeAngles, ring4Radius, centerX, centerY, animTimeSec]);
+  const ring3Positions = applyFreeze(useMemo(() => computeAnimatedPositions(measuredRing3, collisionFreeAngles.ring3, ring3Radius, 'ring3'),
+    [measuredRing3, collisionFreeAngles, ring3Radius, centerX, centerY, animTimeSec]));
+
+  const ring4Positions = applyFreeze(useMemo(() => computeAnimatedPositions(measuredRing4, collisionFreeAngles.ring4, ring4Radius, 'ring4'),
+    [measuredRing4, collisionFreeAngles, ring4Radius, centerX, centerY, animTimeSec]));
+
+  // Hover callbacks that freeze/unfreeze position
+  const handleOrbitHover = useCallback((candidateId, x, y) => {
+    frozenPosRef.current = { x, y };
+    setHoveredCandidateId(candidateId);
+  }, []);
+
+  const handleOrbitHoverEnd = useCallback(() => {
+    frozenPosRef.current = null;
+    setHoveredCandidateId(null);
+  }, []);
 
   // Early return check after all hooks are called
   if ((!ring1Candidates || ring1Candidates.length === 0) &&
@@ -685,8 +708,8 @@ export default function OrbitOverlay({
             width={dims.currentWidth}
             height={dims.currentHeight}
             isHovered={hoveredCandidateId === candidate.id}
-            onHover={setHoveredCandidateId}
-            onHoverEnd={() => setHoveredCandidateId(null)}
+            onHover={handleOrbitHover}
+            onHoverEnd={handleOrbitHoverEnd}
             onClick={onOrbitItemClick}
           />
         ))}
@@ -699,8 +722,8 @@ export default function OrbitOverlay({
             width={dims.currentWidth}
             height={dims.currentHeight}
             isHovered={hoveredCandidateId === candidate.id}
-            onHover={setHoveredCandidateId}
-            onHoverEnd={() => setHoveredCandidateId(null)}
+            onHover={handleOrbitHover}
+            onHoverEnd={handleOrbitHoverEnd}
             onClick={onOrbitItemClick}
           />
         ))}
@@ -713,8 +736,8 @@ export default function OrbitOverlay({
             width={dims.currentWidth}
             height={dims.currentHeight}
             isHovered={hoveredCandidateId === candidate.id}
-            onHover={setHoveredCandidateId}
-            onHoverEnd={() => setHoveredCandidateId(null)}
+            onHover={handleOrbitHover}
+            onHoverEnd={handleOrbitHoverEnd}
             onClick={onOrbitItemClick}
           />
         ))}
@@ -727,8 +750,8 @@ export default function OrbitOverlay({
             width={dims.currentWidth}
             height={dims.currentHeight}
             isHovered={hoveredCandidateId === candidate.id}
-            onHover={setHoveredCandidateId}
-            onHoverEnd={() => setHoveredCandidateId(null)}
+            onHover={handleOrbitHover}
+            onHoverEnd={handleOrbitHoverEnd}
             onClick={onOrbitItemClick}
           />
         ))}
