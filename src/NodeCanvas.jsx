@@ -5926,9 +5926,12 @@ function NodeCanvas() {
   };
   const handleCanvasClick = (e) => {
     // Exit semantic orbit mode on any canvas click (safety net for overlay click)
-    // But NOT if the user just panned (drag-then-release fires click too)
-    if (semanticOrbitActive && !recentlyPanned && !mouseMoved.current) {
+    // But NOT if the user just panned (drag-then-release fires click too).
+    // Note: mouseMoved.current is reset in handleMouseUp before click fires,
+    // so we rely on ignoreCanvasClick.current which is set when a pan occurred.
+    if (semanticOrbitActive && !ignoreCanvasClick.current) {
       exitOrbitMode();
+      ignoreCanvasClick.current = false;
       return;
     }
 
@@ -11784,8 +11787,10 @@ function NodeCanvas() {
                               pointerEvents: 'auto',
                             }}
                             onClick={(e) => {
-                              // Only exit orbit on a genuine click, not after panning
-                              if (!recentlyPanned && !mouseMoved.current) {
+                              // Only exit orbit on a genuine click, not after panning.
+                              // mouseMoved is reset in handleMouseUp before click fires,
+                              // so use ignoreCanvasClick which is set when a pan occurred.
+                              if (!ignoreCanvasClick.current) {
                                 e.stopPropagation();
                                 exitOrbitMode();
                               }
