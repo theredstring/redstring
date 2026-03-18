@@ -1918,7 +1918,8 @@ const SharedPanelContent = ({
                 color: 'inherit',
                 display: 'flex',
                 alignItems: 'center',
-                marginRight: '0'
+                marginRight: '0',
+                outline: 'none'
               }}
             >
               <Trash2 size={14} />
