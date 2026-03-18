@@ -4,6 +4,7 @@ import GraphListItem from '../../../GraphListItem.jsx';
 import { showContextMenu } from '../../GlobalContextMenu.jsx';
 import PanelIconButton from '../../shared/PanelIconButton.jsx';
 import useGraphStore from '../../../store/graphStore.jsx';
+import { useTheme } from '../../../hooks/useTheme.js';
 
 // Internal Left Grid View (Open Things)
 const LeftGridView = ({
@@ -21,6 +22,7 @@ const LeftGridView = ({
   storeActions,
   onOpenSearch,
 }) => {
+  const theme = useTheme();
   // Context menu options for open things tab
   const getTabContextMenuOptions = () => [
     {
@@ -45,7 +47,7 @@ const LeftGridView = ({
       }}
     >
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px', flexShrink: 0 }}>
-        <h2 style={{ margin: 0, color: '#260000', userSelect: 'none', fontSize: '1.1rem', fontWeight: 'bold', fontFamily: "'EmOne', sans-serif" }}>
+        <h2 style={{ margin: 0, color: theme.canvas.textPrimary, userSelect: 'none', fontSize: '1.1rem', fontWeight: 'bold', fontFamily: "'EmOne', sans-serif" }}>
           Open Things
         </h2>
         <div style={{ display: 'flex', gap: '4px' }}>
@@ -86,7 +88,7 @@ const LeftGridView = ({
           />
         ))}
         {openGraphsForList.length === 0 && (
-          <div style={{ color: '#666', textAlign: 'center', marginTop: '20px', fontFamily: "'EmOne', sans-serif" }}>No Things currently open.</div>
+          <div style={{ color: theme.canvas.textSecondary, textAlign: 'center', marginTop: '20px', fontFamily: "'EmOne', sans-serif" }}>No Things currently open.</div>
         )}
       </div>
     </div>

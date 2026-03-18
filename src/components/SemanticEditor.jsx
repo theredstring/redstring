@@ -38,6 +38,7 @@ const extractDOI = (input) => {
 };
 
 const SemanticLinkInput = ({ onAdd, placeholder, type, icon: Icon, defaultValue = '' }) => {
+  const theme = useTheme();
   const [input, setInput] = useState(defaultValue);
   const [isValid, setIsValid] = useState(false);
 
@@ -86,7 +87,7 @@ const SemanticLinkInput = ({ onAdd, placeholder, type, icon: Icon, defaultValue 
 
   return (
     <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flex: 1 }}>
-      <Icon size={16} style={{ color: '#260000', marginTop: '1px' }} />
+      <Icon size={16} style={{ color: theme.canvas.textPrimary, marginTop: '1px' }} />
       <input
         type="text"
         value={input}
@@ -96,7 +97,7 @@ const SemanticLinkInput = ({ onAdd, placeholder, type, icon: Icon, defaultValue 
         style={{
           flex: 1,
           padding: '6px 8px',
-          border: `1px solid ${isValid ? '#28a745' : (input ? '#dc3545' : '#8B0000')}`,
+          border: `1px solid ${isValid ? '#28a745' : (input ? '#dc3545' : theme.accent.primary)}`,
           borderRadius: '6px',
           fontSize: '14px',
           fontFamily: "'EmOne', sans-serif",
@@ -108,10 +109,10 @@ const SemanticLinkInput = ({ onAdd, placeholder, type, icon: Icon, defaultValue 
         disabled={!isValid}
         style={{
           padding: '6px 10px',
-          border: '1px solid #8B0000',
+          border: `1px solid ${theme.accent.primary}`,
           borderRadius: '6px',
-          backgroundColor: isValid ? '#8B0000' : 'transparent',
-          color: isValid ? '#EFE8E5' : '#8B0000',
+          backgroundColor: isValid ? theme.accent.primary : 'transparent',
+          color: isValid ? getTextColor(theme.accent.primary, theme.darkMode) : theme.canvas.textSecondary,
           cursor: isValid ? 'pointer' : 'not-allowed',
           fontSize: '12px'
         }}

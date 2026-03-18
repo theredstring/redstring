@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { useTheme } from '../../hooks/useTheme.js';
 
 /**
  * PanelIconButton - Reusable icon button matching right panel style
@@ -14,11 +15,11 @@ import React, { useState } from 'react';
  * @param {Object} props
  * @param {React.Component} props.icon - Lucide icon component
  * @param {number} [props.size=20] - Icon size in pixels (matches right panel icons)
- * @param {string} [props.color="#260000"] - Icon color (default dark maroon like right panel buttons)
+ * @param {string} [props.color] - Icon color (defaults to theme.canvas.textPrimary)
  * @param {boolean} [props.filled=false] - Whether icon should be filled
- * @param {string} [props.fillColor="maroon"] - Fill color when filled
+ * @param {string} [props.fillColor] - Fill color when filled (defaults to theme.accent.primary)
  * @param {boolean} [props.fillOnHover=false] - Whether icon should fill when hovered
- * @param {string} [props.hoverFillColor="maroon"] - Fill color when hovered
+ * @param {string} [props.hoverFillColor] - Fill color when hovered (defaults to theme.accent.primary)
  * @param {Function} props.onClick - Click handler
  * @param {string} [props.title] - Tooltip text
  * @param {boolean} [props.disabled=false] - Whether button is disabled
@@ -28,18 +29,24 @@ import React, { useState } from 'react';
 const PanelIconButton = ({
   icon: IconComponent,
   size = 20,
-  color = '#260000',
+  color,
   filled = false,
-  fillColor = 'maroon',
+  fillColor,
   fillOnHover = false,
-  hoverFillColor = 'maroon',
+  hoverFillColor,
   onClick,
   title,
   disabled = false,
   style = {},
   className = ''
 }) => {
+  const theme = useTheme();
   const [isHovered, setIsHovered] = useState(false);
+
+  // Use theme colors as defaults
+  const actualColor = color || theme.canvas.textPrimary;
+  const actualFillColor = fillColor || theme.accent.primary;
+  const actualHoverFillColor = hoverFillColor || theme.accent.primary;
 
   const handleClick = (e) => {
     if (!disabled && onClick) {
@@ -72,10 +79,10 @@ const PanelIconButton = ({
     ...style
   };
 
-  // PieMenu-style hover effect: light gray fill (#DEDADA) with maroon stroke (3px)
+  // PieMenu-style hover effect: light gray fill with accent stroke (3px)
   const hoverStyles = isHovered && !disabled ? {
-    backgroundColor: '#DEDADA',
-    boxShadow: '0 0 0 3px maroon',
+    backgroundColor: theme.canvas.hover,
+    boxShadow: `0 0 0 3px ${theme.accent.primary}`,
   } : {};
 
   return (
@@ -93,8 +100,8 @@ const PanelIconButton = ({
     >
       <IconComponent
         size={size}
-        color={isHovered && !disabled ? hoverFillColor : color}
-        fill={filled ? (isHovered && !disabled ? hoverFillColor : fillColor) : 'none'}
+        color={isHovered && !disabled ? actualHoverFillColor : actualColor}
+        fill={filled ? (isHovered && !disabled ? actualHoverFillColor : actualFillColor) : 'none'}
         style={{
           flexShrink: 0,
           transition: 'color 0.2s ease, fill 0.2s ease',

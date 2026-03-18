@@ -11,7 +11,7 @@ import { getTextColor } from '../utils/colorUtils';
 
 const SPAWNABLE_NODE = 'spawnable_node';
 
-const DRAG_MARGIN = 10; // Spacing from node edge to orbit ring
+const DRAG_MARGIN = 55; // Spacing from node edge to orbit ring and between rings
 const ORBIT_ANGULAR_SPEED_RAD_PER_SEC = 0.015; // Very slow clockwise rotation
 const RADIAL_PERTURBATION_PX_BASE = 6; // subtle radial wiggle
 const ANGLE_JITTER_RAD_BASE = 0.008; // subtle angle wobble
@@ -57,6 +57,7 @@ const DraggableOrbitItem = ({ candidate, x, y, rightPanelExpanded, onNodeClick }
 
   const label = candidate.name || 'Untitled';
   const fill = candidate.color || NODE_DEFAULT_COLOR;
+  const hasImage = Boolean(candidate.imageSrc);
 
   // Re-calculate width and height based on candidate for rendering
   const tempNode = {
@@ -68,56 +69,108 @@ const DraggableOrbitItem = ({ candidate, x, y, rightPanelExpanded, onNodeClick }
   };
   const { currentWidth, currentHeight } = getNodeDimensions(tempNode, false, null);
 
+  // Text sizing constants (match UniversalNodeRenderer full canvas context)
+  const baseFontSize = 24;
+  const baseLineHeight = 24;
+  const baseVerticalPadding = 10;
+  const baseSingleLineSidePadding = 22;
+
+  // Text contrast
+  const textColor = getTextColor(fill, theme.darkMode);
+
   return (
-    <g style={{ opacity: isDragging ? 0.5 : 1 }}>
+    <g ref={drag} style={{ opacity: isDragging ? 0.3 : 1 }}>
+      {/* Clip path for image nodes */}
+      {hasImage && (
+        <defs>
+          <clipPath id={`orbit-image-clip-${candidate.id}`}>
+            <rect
+              x={x}
+              y={y}
+              width={currentWidth}
+              height={currentHeight}
+              rx={NODE_CORNER_RADIUS}
+              ry={NODE_CORNER_RADIUS}
+            />
+          </clipPath>
+        </defs>
+      )}
+
+      {/* Image (if present) */}
+      {hasImage && (
+        <image
+          x={x}
+          y={y}
+          width={currentWidth}
+          height={currentHeight}
+          href={candidate.imageSrc}
+          preserveAspectRatio="xMidYMid slice"
+          clipPath={`url(#orbit-image-clip-${candidate.id})`}
+          style={{ pointerEvents: 'none' }}
+        />
+      )}
+
+      {/* Node background - stroke for image nodes, fill for text nodes */}
       <rect
-        x={x + 6}
-        y={y + 6}
-        rx={NODE_CORNER_RADIUS - 6}
-        ry={NODE_CORNER_RADIUS - 6}
-        width={currentWidth - 12}
-        height={currentHeight - 12}
-        fill={fill}
-        stroke={'none'}
-      />
-      <foreignObject
         x={x}
         y={y}
         width={currentWidth}
         height={currentHeight}
-        style={{ overflow: 'visible' }}
-        ref={drag}
-      >
-        <div
-          style={{
-            width: `${currentWidth}px`,
-            height: `${currentHeight}px`,
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            padding: '20px 22px',
-            boxSizing: 'border-box',
-            cursor: 'grab',
-            userSelect: 'none',
-            pointerEvents: 'auto',
-            backgroundColor: fill,
-            border: `1px solid rgba(0,0,0,0.1)`,
-            fontFamily: "'EmOne', sans-serif",
-            color: getTextColor(fill, theme.darkMode),
-            fontWeight: 'bold',
-            fontSize: '14px',
-            lineHeight: '1.2',
-            textAlign: 'center',
-            wordBreak: 'break-word',
-            overflowWrap: 'break-word',
-            borderRadius: `${NODE_CORNER_RADIUS}px`,
-            boxShadow: '0 2px 4px rgba(0,0,0,0.2)'
-          }}
-          title={`${label}`}
+        rx={NODE_CORNER_RADIUS}
+        ry={NODE_CORNER_RADIUS}
+        fill={hasImage ? 'none' : fill}
+        stroke={hasImage ? fill : 'none'}
+        strokeWidth={hasImage ? 1.5 : 0}
+        style={{ pointerEvents: 'none' }}
+      />
+
+      {/* Text using foreignObject - only show if no image */}
+      {!hasImage && (
+        <foreignObject
+          x={x}
+          y={y}
+          width={currentWidth}
+          height={currentHeight}
+          style={{ pointerEvents: 'auto', overflow: 'hidden' }}
         >
-          {label}
-        </div>
-      </foreignObject>
+          <div
+            style={{
+              display: 'flex',
+              flexDirection: 'column',
+              alignItems: 'center',
+              justifyContent: 'center',
+              width: '100%',
+              height: '100%',
+              padding: `${baseVerticalPadding}px ${baseSingleLineSidePadding}px`,
+              boxSizing: 'border-box',
+              userSelect: 'none',
+              minWidth: 0,
+              cursor: 'grab',
+            }}
+          >
+            <span
+              style={{
+                fontSize: `${baseFontSize}px`,
+                fontWeight: 'bold',
+                color: textColor,
+                lineHeight: `${baseLineHeight}px`,
+                letterSpacing: '-0.3px',
+                whiteSpace: 'normal',
+                overflowWrap: 'break-word',
+                wordBreak: 'break-word',
+                textAlign: 'center',
+                minWidth: 0,
+                display: 'inline-block',
+                width: '100%',
+                fontFamily: 'EmOne, sans-serif',
+                textRendering: 'optimizeLegibility',
+              }}
+            >
+              {label}
+            </span>
+          </div>
+        </foreignObject>
+      )}
     </g>
   );
 };
@@ -318,20 +371,11 @@ export default function OrbitOverlay({
 
   // Early return check after all hooks are called
   if ((!ring1Candidates || ring1Candidates.length === 0) &&
-      (!ring2Candidates || ring2Candidates.length === 0) &&
-      (!ring3Candidates || ring3Candidates.length === 0) &&
-      (!ring4Candidates || ring4Candidates.length === 0)) {
+    (!ring2Candidates || ring2Candidates.length === 0) &&
+    (!ring3Candidates || ring3Candidates.length === 0) &&
+    (!ring4Candidates || ring4Candidates.length === 0)) {
     return null;
   }
-
-  // Debug: Log ring distribution and radii
-  console.log('🔵 Orbit rings:', {
-    ring1: { count: ring1Candidates?.length || 0, radius: ring1Radius },
-    ring2: { count: ring2Candidates?.length || 0, radius: ring2Radius },
-    ring3: { count: ring3Candidates?.length || 0, radius: ring3Radius },
-    ring4: { count: ring4Candidates?.length || 0, radius: ring4Radius },
-    centerRadius
-  });
 
   return (
     <g>

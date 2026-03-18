@@ -135,14 +135,22 @@ export const getTextColor = (backgroundColor, isDarkMode = false) => {
 
   const { h, s, l } = hexToHsl(backgroundColor);
 
-  // Yellows are naturally very bright to human eyes even at lower lightness values
-  // We consider hues between 45 (yellow-orange) and 70 (yellow-green) to be "yellow"
-  const isYellow = h > 45 && h < 70;
-  
-  // In dark mode, we significantly increase the threshold to prefer light text 
+  // Colors from yellow through blue are perceptually brighter to human eyes,
+  // so we lower the threshold to switch to dark text earlier.
+  // Graduated: yellow strongest, green moderate, cyan/blue mild.
+  let hueAdjustment = 0;
+  if (h > 45 && h < 70) {
+    hueAdjustment = 15;       // Yellow: strongest adjustment
+  } else if (h >= 70 && h < 150) {
+    hueAdjustment = 10;       // Yellow-green / Green
+  } else if (h >= 150 && h < 260) {
+    hueAdjustment = 10;       // Cyan / Light blue / Blue
+  }
+
+  // In dark mode, we significantly increase the threshold to prefer light text
   // for a more consistent light-on-dark aesthetic across the app.
   // Only the brightest colors (like very pale yellow or white) will get dark text.
-  let threshold = isYellow ? LIGHTNESS_THRESHOLD - 15 : LIGHTNESS_THRESHOLD;
+  let threshold = LIGHTNESS_THRESHOLD - hueAdjustment;
   if (isDarkMode) {
     threshold = 80; // Only switch to dark text if lightness is > 80%
   }

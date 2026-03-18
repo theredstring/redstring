@@ -70,7 +70,7 @@ const LeftLibraryView = ({
       }}
     >
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '16px' }}>
-        <h2 style={{ margin: 0, color: '#260000', userSelect: 'none', fontSize: '1.1rem', fontWeight: 'bold', fontFamily: "'EmOne', sans-serif" }}>
+        <h2 style={{ margin: 0, color: theme.canvas.textPrimary, userSelect: 'none', fontSize: '1.1rem', fontWeight: 'bold', fontFamily: "'EmOne', sans-serif" }}>
           Saved Things
         </h2>
         <PanelIconButton
@@ -99,7 +99,7 @@ const LeftLibraryView = ({
       )}
 
       {savedNodesByType.size === 0 ? (
-        <div style={{ color: '#666', fontSize: '0.9rem', fontFamily: "'EmOne', sans-serif", textAlign: 'center', marginTop: '20px' }}>
+        <div style={{ color: theme.canvas.textSecondary, fontSize: '0.9rem', fontFamily: "'EmOne', sans-serif", textAlign: 'center', marginTop: '20px' }}>
           Bookmark Things to add them here.
         </div>
       ) : (

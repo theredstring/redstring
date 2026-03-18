@@ -1,6 +1,7 @@
 import React from 'react';
 import { ArrowLeft, ExternalLink, Plus, Network, Info } from 'lucide-react';
 import { getTextColor } from '../../../utils/colorUtils';
+import { useTheme } from '../../../hooks/useTheme.js';
 import DraggableConceptCard from '../items/DraggableConceptCard';
 
 // Detail view for a focused semantic concept
@@ -13,17 +14,18 @@ const ConceptDetailView = ({
     onPreviewGraph,
     isLoading
 }) => {
+    const theme = useTheme();
     if (!concept) return null;
 
-    const headerColor = concept.color || '#8B0000';
-    const textColor = getTextColor(headerColor);
+    const headerColor = concept.color || theme.accent.primary;
+    const textColor = getTextColor(headerColor, theme.darkMode);
 
     return (
         <div className="concept-detail-view" style={{
             display: 'flex',
             flexDirection: 'column',
             height: '100%',
-            background: '#fff',
+            background: theme.canvas.bg,
             borderRadius: '8px',
             overflow: 'hidden'
         }}>
@@ -85,7 +87,7 @@ const ConceptDetailView = ({
                     <div style={{
                         fontSize: '14px',
                         lineHeight: '1.5',
-                        color: '#333',
+                        color: theme.canvas.textPrimary,
                         fontFamily: "'EmOne', sans-serif"
                     }}>
                         {concept.description}
@@ -95,14 +97,14 @@ const ConceptDetailView = ({
                         display: 'flex',
                         gap: '12px',
                         fontSize: '11px',
-                        color: '#666'
+                        color: theme.canvas.textSecondary
                     }}>
                         {concept.semanticMetadata?.externalLinks?.length > 0 && (
                             <a
                                 href={concept.semanticMetadata.externalLinks[0]}
                                 target="_blank"
                                 rel="noopener noreferrer"
-                                style={{ display: 'flex', alignItems: 'center', gap: '4px', color: '#666', textDecoration: 'none' }}
+                                style={{ display: 'flex', alignItems: 'center', gap: '4px', color: theme.canvas.textSecondary, textDecoration: 'none' }}
                             >
                                 <ExternalLink size={10} />
                                 {concept.source}
@@ -123,8 +125,8 @@ const ConceptDetailView = ({
                         style={{
                             flex: 1,
                             padding: '8px',
-                            background: '#260000',
-                            color: '#EFE8E5',
+                            background: theme.accent.primary,
+                            color: getTextColor(theme.accent.primary, theme.darkMode),
                             border: 'none',
                             borderRadius: '6px',
                             fontFamily: "'EmOne', sans-serif",
@@ -145,9 +147,9 @@ const ConceptDetailView = ({
                         style={{
                             flex: 1,
                             padding: '8px',
-                            background: '#f0e6e3',
-                            color: '#260000',
-                            border: '1px solid #260000',
+                            background: theme.canvas.hover,
+                            color: theme.canvas.textPrimary,
+                            border: `1px solid ${theme.canvas.textPrimary}`,
                             borderRadius: '6px',
                             fontFamily: "'EmOne', sans-serif",
                             fontSize: '12px',
@@ -168,7 +170,7 @@ const ConceptDetailView = ({
                     <div style={{
                         fontSize: '12px',
                         fontWeight: 'bold',
-                        color: '#260000',
+                        color: theme.canvas.textPrimary,
                         marginBottom: '8px',
                         fontFamily: "'EmOne', sans-serif",
                         borderBottom: '1px solid #eee',
@@ -183,7 +185,7 @@ const ConceptDetailView = ({
                                 width: '20px',
                                 height: '20px',
                                 border: '2px solid #f3f3f3',
-                                borderTop: '2px solid #8B0000',
+                                borderTop: `2px solid ${theme.accent.primary}`,
                                 borderRadius: '50%',
                                 animation: 'spin 1s linear infinite'
                             }} />
@@ -245,7 +247,7 @@ const ConceptDetailView = ({
                                         </div>
                                         <div style={{
                                             fontSize: '13px',
-                                            color: '#260000',
+                                            color: theme.canvas.textPrimary,
                                             fontWeight: '500',
                                             flex: 1
                                         }}>

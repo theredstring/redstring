@@ -475,6 +475,7 @@ const getWikipediaSection = async (pageTitle, sectionId) => {
 
 // Wikipedia Enrichment Component
 const WikipediaEnrichment = ({ nodeData, onUpdateNode }) => {
+  const theme = useTheme();
   const [isSearching, setIsSearching] = useState(false);
   const [searchResult, setSearchResult] = useState(null);
   const [showDisambiguation, setShowDisambiguation] = useState(false);
@@ -673,10 +674,10 @@ const WikipediaEnrichment = ({ nodeData, onUpdateNode }) => {
             alignItems: 'center',
             gap: '6px',
             padding: '6px 10px',
-            border: '1px solid #8B0000',
+            border: `1px solid ${theme.accent.primary}`,
             borderRadius: '6px',
             background: 'transparent',
-            color: '#8B0000',
+            color: theme.accent.primary,
             fontFamily: "'EmOne', sans-serif",
             fontSize: '11px',
             cursor: isSearching ? 'wait' : 'pointer',
@@ -695,13 +696,13 @@ const WikipediaEnrichment = ({ nodeData, onUpdateNode }) => {
         <div style={{
           marginTop: '8px',
           padding: '12px',
-          border: '1px solid #8B0000',
+          border: `1px solid ${theme.accent.primary}`,
           borderRadius: '6px',
           background: 'rgba(139,0,0,0.05)'
         }}>
           <div style={{
             fontSize: '11px',
-            color: '#8B0000',
+            color: theme.accent.primary,
             fontFamily: "'EmOne', sans-serif",
             fontWeight: 'bold',
             marginBottom: '8px'
@@ -731,10 +732,10 @@ const WikipediaEnrichment = ({ nodeData, onUpdateNode }) => {
                 onMouseEnter={(e) => e.currentTarget.style.background = 'rgba(139,0,0,0.05)'}
                 onMouseLeave={(e) => e.currentTarget.style.background = 'white'}
               >
-                <div style={{ fontWeight: 'bold', color: '#8B0000', marginBottom: '2px' }}>
+                <div style={{ fontWeight: 'bold', color: theme.accent.primary, marginBottom: '2px' }}>
                   {option.title}
                 </div>
-                <div style={{ color: '#666', lineHeight: '1.3' }}>
+                <div style={{ color: theme.canvas.textSecondary, lineHeight: '1.3' }}>
                   {option.snippet}
                 </div>
               </div>
@@ -766,7 +767,7 @@ const WikipediaEnrichment = ({ nodeData, onUpdateNode }) => {
           gap: '6px',
           marginTop: '8px',
           fontSize: '10px',
-          color: '#8B0000',
+          color: theme.accent.primary,
           fontFamily: "'EmOne', sans-serif"
         }}>
           <BookOpen size={10} />
@@ -778,10 +779,10 @@ const WikipediaEnrichment = ({ nodeData, onUpdateNode }) => {
               alignItems: 'center',
               gap: '2px',
               padding: '2px 4px',
-              border: '1px solid #8B0000',
+              border: `1px solid ${theme.accent.primary}`,
               borderRadius: '3px',
               background: 'transparent',
-              color: '#8B0000',
+              color: theme.accent.primary,
               fontSize: '8px',
               cursor: 'pointer',
               fontFamily: "'EmOne', sans-serif"
@@ -807,10 +808,10 @@ const WikipediaEnrichment = ({ nodeData, onUpdateNode }) => {
               alignItems: 'center',
               gap: '2px',
               padding: '2px 4px',
-              border: '1px solid #8B0000',
+              border: `1px solid ${theme.accent.primary}`,
               borderRadius: '3px',
               background: 'transparent',
-              color: '#8B0000',
+              color: theme.accent.primary,
               fontSize: '8px',
               cursor: (nodeData.semanticMetadata?.wikipediaOriginalImage || nodeData.semanticMetadata?.wikipediaThumbnail) ? 'pointer' : 'not-allowed',
               fontFamily: "'EmOne', sans-serif"
@@ -853,7 +854,7 @@ const WikipediaEnrichment = ({ nodeData, onUpdateNode }) => {
               alignItems: 'center',
               gap: '2px',
               padding: '2px 4px',
-              border: '1px solid #666',
+              border: `1px solid ${theme.canvas.textSecondary}`,
               borderRadius: '3px',
               background: 'transparent',
               color: theme.canvas.textSecondary,
@@ -872,13 +873,13 @@ const WikipediaEnrichment = ({ nodeData, onUpdateNode }) => {
         <div style={{
           marginTop: '8px',
           padding: '8px',
-          border: '1px solid #8B0000',
+          border: `1px solid ${theme.accent.primary}`,
           borderRadius: '6px',
           background: 'rgba(139,0,0,0.05)'
         }}>
           <div style={{
             fontSize: '10px',
-            color: '#8B0000',
+            color: theme.accent.primary,
             fontFamily: "'EmOne', sans-serif",
             fontWeight: 'bold',
             marginBottom: '6px'
@@ -927,7 +928,7 @@ const WikipediaEnrichment = ({ nodeData, onUpdateNode }) => {
                 <span style={{
                   fontSize: '9px',
                   fontFamily: "'EmOne', sans-serif",
-                  color: '#8B0000',
+                  color: theme.accent.primary,
                   fontWeight: 'bold'
                 }}>
                   Main image
@@ -973,7 +974,7 @@ const WikipediaEnrichment = ({ nodeData, onUpdateNode }) => {
                 <span style={{
                   fontSize: '9px',
                   fontFamily: "'EmOne', sans-serif",
-                  color: '#666'
+                  color: theme.canvas.textSecondary
                 }}>
                   Image {index + 1}
                 </span>
@@ -1341,7 +1342,7 @@ const SharedPanelContent = ({
 
   if (!nodeData) {
     return (
-      <div style={{ padding: '10px', color: '#aaa', fontFamily: "'EmOne', sans-serif" }}>
+      <div style={{ padding: '10px', color: theme.canvas.textSecondary, fontFamily: "'EmOne', sans-serif" }}>
         No data available...
       </div>
     );
@@ -1452,7 +1453,7 @@ const SharedPanelContent = ({
           ? nodePrototypes.get(nodeData.typeNodeId)
           : null;
         const typeName = typePrototype?.name || 'Thing';
-        const typeColor = typePrototype?.color || '#8B0000';
+        const typeColor = typePrototype?.color || theme.accent.primary;
 
         if (typeName === 'Type') {
           console.error(`[TypeRenderingBug] typeName is "Type"! nodeData.typeNodeId:`, nodeData.typeNodeId);
@@ -1573,7 +1574,7 @@ const SharedPanelContent = ({
                 lineHeight: '1.4',
                 backgroundColor: 'transparent',
                 outline: 'none',
-                color: '#260000',
+                color: theme.canvas.textPrimary,
                 resize: 'none',
                 minHeight: '40px',
                 height: 'auto',
@@ -1631,15 +1632,15 @@ const SharedPanelContent = ({
           <div style={{
             fontSize: '11px',
             fontFamily: "'EmOne', sans-serif",
-            color: '#260000',
+            color: theme.canvas.textPrimary,
             marginBottom: '12px'
           }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px' }}>
               <div style={{
                 padding: '2px 6px',
-                background: '#8B0000',
+                background: theme.accent.primary,
                 borderRadius: '4px',
-                color: '#EFE8E5',
+                color: getTextColor(theme.accent.primary, theme.darkMode),
                 fontSize: '9px',
                 fontWeight: 'bold'
               }}>
@@ -1679,10 +1680,10 @@ const SharedPanelContent = ({
                   onClick={() => window.open(nodeData.semanticMetadata.originMetadata.originalUri, '_blank')}
                   style={{
                     padding: '4px 8px',
-                    border: '1px solid #8B0000',
+                    border: `1px solid ${theme.accent.primary}`,
                     borderRadius: '3px',
                     background: 'transparent',
-                    color: '#8B0000',
+                    color: theme.accent.primary,
                     fontSize: '8px',
                     cursor: 'pointer',
                     fontFamily: "'EmOne', sans-serif"
@@ -1736,7 +1737,7 @@ const SharedPanelContent = ({
                             href={url}
                             target="_blank"
                             rel="noopener noreferrer"
-                            style={{ color: '#8B0000', marginLeft: '8px' }}
+                            style={{ color: theme.accent.primary, marginLeft: '8px' }}
                           >
                             View Article
                           </a>
@@ -1753,7 +1754,7 @@ const SharedPanelContent = ({
                             lineHeight: 1,
                             fontSize: '14px'
                           }}
-                          onMouseEnter={(e) => { e.currentTarget.style.color = '#666'; }}
+                          onMouseEnter={(e) => { e.currentTarget.style.color = theme.canvas.textSecondary; }}
                           onMouseLeave={(e) => { e.currentTarget.style.color = '#999'; }}
                         >
                           ×
@@ -1771,7 +1772,7 @@ const SharedPanelContent = ({
                             href={url}
                             target="_blank"
                             rel="noopener noreferrer"
-                            style={{ color: '#8B0000', marginLeft: '8px' }}
+                            style={{ color: theme.accent.primary, marginLeft: '8px' }}
                           >
                             View Data
                           </a>
@@ -1788,7 +1789,7 @@ const SharedPanelContent = ({
                             lineHeight: 1,
                             fontSize: '14px'
                           }}
-                          onMouseEnter={(e) => { e.currentTarget.style.color = '#666'; }}
+                          onMouseEnter={(e) => { e.currentTarget.style.color = theme.canvas.textSecondary; }}
                           onMouseLeave={(e) => { e.currentTarget.style.color = '#999'; }}
                         >
                           ×
@@ -1806,7 +1807,7 @@ const SharedPanelContent = ({
                             href={url}
                             target="_blank"
                             rel="noopener noreferrer"
-                            style={{ color: '#8B0000', marginLeft: '8px' }}
+                            style={{ color: theme.accent.primary, marginLeft: '8px' }}
                           >
                             View Resource
                           </a>
@@ -1823,7 +1824,7 @@ const SharedPanelContent = ({
                             lineHeight: 1,
                             fontSize: '14px'
                           }}
-                          onMouseEnter={(e) => { e.currentTarget.style.color = '#666'; }}
+                          onMouseEnter={(e) => { e.currentTarget.style.color = theme.canvas.textSecondary; }}
                           onMouseLeave={(e) => { e.currentTarget.style.color = '#999'; }}
                         >
                           ×
@@ -1864,11 +1865,11 @@ const SharedPanelContent = ({
                 background: 'rgba(139, 0, 0, 0.05)',
                 borderRadius: '4px',
                 fontSize: '10px',
-                color: '#8B0000',
+                color: theme.accent.primary,
                 fontFamily: "'EmOne', sans-serif"
               }}>
                 <span>Auto-enriched from Wikipedia</span>
-                <span style={{ color: '#666', fontSize: '9px' }}>
+                <span style={{ color: theme.canvas.textSecondary, fontSize: '9px' }}>
                   ({Math.round(nodeData.semanticMetadata.autoEnrichConfidence * 100)}% match)
                 </span>
               </div>

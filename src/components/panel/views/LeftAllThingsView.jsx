@@ -68,7 +68,7 @@ const LeftAllThingsView = ({
       }}
     >
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '16px' }}>
-        <h2 style={{ margin: 0, color: '#260000', userSelect: 'none', fontSize: '1.1rem', fontWeight: 'bold', fontFamily: "'EmOne', sans-serif" }}>
+        <h2 style={{ margin: 0, color: theme.canvas.textPrimary, userSelect: 'none', fontSize: '1.1rem', fontWeight: 'bold', fontFamily: "'EmOne', sans-serif" }}>
           All Things
         </h2>
         <PanelIconButton
@@ -96,7 +96,7 @@ const LeftAllThingsView = ({
         </div>
       )}
       {allNodesByType.size === 0 ? (
-        <div style={{ color: '#666', fontSize: '0.9rem', fontFamily: "'EmOne', sans-serif", textAlign: 'center', marginTop: '20px' }}>
+        <div style={{ color: theme.canvas.textSecondary, fontSize: '0.9rem', fontFamily: "'EmOne', sans-serif", textAlign: 'center', marginTop: '20px' }}>
           No nodes found.
         </div>
       ) : (

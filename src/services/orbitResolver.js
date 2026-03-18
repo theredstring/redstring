@@ -207,8 +207,6 @@ export async function fetchOrbitCandidatesForPrototype(prototype, options = {}) 
     const tierB = aggregated.filter((c) => c.tier === 'B');
     const tierC = aggregated.filter((c) => c.tier === 'C');
 
-    console.log(`📊 Tier distribution: A=${tierA.length}, B=${tierB.length}, C=${tierC.length}`);
-
     // Ring 1: Tier A top concepts (closest to node)
     const ring1 = tierA.slice(0, 10);
 

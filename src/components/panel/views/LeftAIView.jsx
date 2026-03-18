@@ -16,6 +16,7 @@ import { applyLayout, FORCE_LAYOUT_DEFAULTS } from '../../../services/graphLayou
 import { getNodeDimensions } from '../../../utils';
 import DruidInstance from '../../../services/DruidInstance.js';
 import { getTextColor } from '../../../utils/colorUtils.js';
+import { useTheme } from '../../../hooks/useTheme.js';
 import { queueThumbnailFetch } from '../../../services/imageCache.js';
 import fullBodySvg from '../../../assets/svg/wizard/full_body.svg';
 import headSvg from '../../../assets/svg/wizard/head.svg';
@@ -770,7 +771,7 @@ function applyToolResultToStore(toolName, result, toolCallId) {
     }
     store.createGroup(graphId, {
       name: result.name,
-      color: result.color || '#8B0000',
+      color: result.color || theme.accent.primary,
       memberInstanceIds
     });
     console.log('[Wizard] Successfully created group:', result.name, '| members:', memberInstanceIds.length);
@@ -1487,6 +1488,7 @@ const LeftAIView = ({ compact = false,
   edgesMap,
   nodePrototypesMap
 }) => {
+  const theme = useTheme();
   const [isConnected, setIsConnected] = React.useState(false);
   const [messages, setMessages] = React.useState([]);
   const [currentInput, setCurrentInput] = React.useState('');
@@ -3078,15 +3080,15 @@ const LeftAIView = ({ compact = false,
         {showToolsDropdown && (
           <div className="ai-tools-dropdown" style={{
             position: 'absolute', top: '100%', right: 0,
-            backgroundColor: '#1e1e1e',
-            border: '1px solid #333',
+            backgroundColor: theme.canvas.inactive,
+            border: `1px solid ${theme.canvas.border}`,
             borderRadius: '4px', padding: '8px', zIndex: 100,
             width: '280px', maxHeight: '400px', overflowY: 'auto',
             boxShadow: '0 4px 12px rgba(0,0,0,0.5)',
             marginTop: '4px',
             textAlign: 'left'
           }}>
-            <div style={{ fontSize: '12px', fontWeight: 'bold', marginBottom: '8px', color: '#888', paddingBottom: '4px', borderBottom: '1px solid #333' }}>Available Tools (Click to test)</div>
+            <div style={{ fontSize: '12px', fontWeight: 'bold', marginBottom: '8px', color: theme.canvas.textSecondary, paddingBottom: '4px', borderBottom: `1px solid ${theme.canvas.border}` }}>Available Tools (Click to test)</div>
 
             {/* Combine and map all tools */}
             {[...mcpClient.getAvailableTools(), ...wizardTools].map(tool => (
@@ -3095,7 +3097,7 @@ const LeftAIView = ({ compact = false,
                 className="ai-tool-dropdown-item"
                 style={{
                   padding: '8px', cursor: 'pointer',
-                  borderBottom: '1px solid #2a2a2a'
+                  borderBottom: `1px solid ${theme.canvas.border}`
                 }}
                 onClick={() => {
                   const props = tool.inputSchema?.properties || tool.parameters?.properties || {};
@@ -3127,18 +3129,18 @@ const LeftAIView = ({ compact = false,
                   setTestToolArgs(JSON.stringify(schemaVars, null, 2));
                   setShowToolsDropdown(false);
                 }}
-                onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#2a2a2a'}
+                onMouseEnter={(e) => e.currentTarget.style.backgroundColor = theme.canvas.hover}
                 onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
               >
-                <div style={{ color: '#e0e0e0', fontSize: '13px', fontWeight: '500' }}>
+                <div style={{ color: theme.canvas.textPrimary, fontSize: '13px', fontWeight: '500' }}>
                   {tool.name}
-                  {wizardTools.some(t => t.name === tool.name) && <span style={{ fontSize: '10px', color: '#888', marginLeft: '6px' }}>(Wizard)</span>}
+                  {wizardTools.some(t => t.name === tool.name) && <span style={{ fontSize: '10px', color: theme.canvas.textSecondary, marginLeft: '6px' }}>(Wizard)</span>}
                 </div>
-                <div style={{ color: '#888', fontSize: '11px', marginTop: '4px', lineHeight: '1.3' }}>{tool.description}</div>
+                <div style={{ color: theme.canvas.textSecondary, fontSize: '11px', marginTop: '4px', lineHeight: '1.3' }}>{tool.description}</div>
               </div>
             ))}
             {mcpClient.getAvailableTools().length === 0 && wizardTools.length === 0 && (
-              <div style={{ fontSize: '12px', color: '#888', padding: '8px', textAlign: 'center' }}>No tools available right now.<br />Connect to bridge first.</div>
+              <div style={{ fontSize: '12px', color: theme.canvas.textSecondary, padding: '8px', textAlign: 'center' }}>No tools available right now.<br />Connect to bridge first.</div>
             )}
           </div>
         )}
@@ -3214,7 +3216,7 @@ const LeftAIView = ({ compact = false,
         <div className="ai-advanced-panel" style={{
           padding: '12px',
           backgroundColor: '#1a1a1a',
-          borderBottom: '1px solid #333',
+          borderBottom: `1px solid ${theme.canvas.border}`,
           fontSize: '12px',
           color: '#ccc',
           animation: 'slideDown 0.2s ease-out'
@@ -3226,20 +3228,20 @@ const LeftAIView = ({ compact = false,
             </div>
             <button
               onClick={() => setShowAdvanced(false)}
-              style={{ background: 'none', border: 'none', color: '#666', cursor: 'pointer', padding: '2px' }}
+              style={{ background: 'none', border: 'none', color: theme.canvas.textSecondary, cursor: 'pointer', padding: '2px' }}
             >
               <X size={14} />
             </button>
           </div>
 
           <div style={{ display: 'grid', gridTemplateColumns: '80px 1fr', gap: '4px 8px' }}>
-            <span style={{ color: '#888' }}>Provider:</span>
+            <span style={{ color: theme.canvas.textSecondary }}>Provider:</span>
             <span style={{ fontFamily: 'monospace' }}>{currentApiConfig?.provider || 'None'}</span>
 
-            <span style={{ color: '#888' }}>Model:</span>
+            <span style={{ color: theme.canvas.textSecondary }}>Model:</span>
             <span style={{ fontFamily: 'monospace' }}>{currentApiConfig?.model || 'Default'}</span>
 
-            <span style={{ color: '#888' }}>Endpoint:</span>
+            <span style={{ color: theme.canvas.textSecondary }}>Endpoint:</span>
             <span style={{
               fontFamily: 'monospace',
               overflow: 'hidden',
@@ -3326,14 +3328,14 @@ const LeftAIView = ({ compact = false,
           boxShadow: '0 8px 24px rgba(0,0,0,0.4)',
           display: 'flex', flexDirection: 'column'
         }}>
-          <h3 style={{ margin: '0 0 8px 0', color: '#e0e0e0', fontSize: '13px', borderBottom: '1px solid #333', paddingBottom: '6px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <h3 style={{ margin: '0 0 8px 0', color: theme.canvas.textPrimary, fontSize: '13px', borderBottom: `1px solid ${theme.canvas.border}`, paddingBottom: '6px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
             <span>Test: {selectedTestTool.name}</span>
-            <span style={{ fontSize: '10px', color: '#666', fontWeight: 'normal', backgroundColor: '#2a2a2a', padding: '2px 4px', borderRadius: '4px' }}>
+            <span style={{ fontSize: '10px', color: theme.canvas.textSecondary, fontWeight: 'normal', backgroundColor: theme.canvas.inactive, padding: '2px 4px', borderRadius: '4px' }}>
               {selectedTestTool.isMcpTool ? 'MCP' : 'WIZARD'}
             </span>
           </h3>
-          <div style={{ color: '#aaa', fontSize: '11px', marginBottom: '12px', flexShrink: 0, lineHeight: '1.3' }}>{selectedTestTool.description}</div>
-          <div style={{ fontSize: '11px', color: '#888', marginBottom: '6px', fontWeight: '500' }}>Arguments (JSON)</div>
+          <div style={{ color: theme.canvas.textSecondary, fontSize: '11px', marginBottom: '12px', flexShrink: 0, lineHeight: '1.3' }}>{selectedTestTool.description}</div>
+          <div style={{ fontSize: '11px', color: theme.canvas.textSecondary, marginBottom: '6px', fontWeight: '500' }}>Arguments (JSON)</div>
           <textarea
             value={testToolArgs}
             onChange={(e) => setTestToolArgs(e.target.value)}
@@ -3345,7 +3347,7 @@ const LeftAIView = ({ compact = false,
             }}
           />
           <div style={{ display: 'flex', justifyContent: 'space-between', gap: '8px', flexShrink: 0 }}>
-            <button onClick={() => setSelectedTestTool(null)} className="ai-flat-button" style={{ padding: '6px 12px', fontSize: '11px', color: '#888' }}>Cancel</button>
+            <button onClick={() => setSelectedTestTool(null)} className="ai-flat-button" style={{ padding: '6px 12px', fontSize: '11px', color: theme.canvas.textSecondary }}>Cancel</button>
             <button disabled={isProcessing} onClick={async () => {
               const toolName = selectedTestTool.name;
               const isMcpTool = selectedTestTool.isMcpTool;
@@ -3420,7 +3422,7 @@ const LeftAIView = ({ compact = false,
               } finally {
                 setIsProcessing(false);
               }
-            }} className="ai-flat-button" style={{ backgroundColor: '#2a2a2a', padding: '6px 12px', fontSize: '11px', border: '1px solid #444', borderRadius: '4px', cursor: 'pointer', color: '#e0e0e0' }}>
+            }} className="ai-flat-button" style={{ backgroundColor: theme.canvas.inactive, padding: '6px 12px', fontSize: '11px', border: `1px solid ${theme.canvas.border}`, borderRadius: '4px', cursor: 'pointer', color: theme.canvas.textPrimary }}>
               Execute {selectedTestTool.name}
             </button>
           </div>
@@ -3519,7 +3521,7 @@ const LeftAIView = ({ compact = false,
                             setIsChatUndoOpen(true);
                           }}
                           style={{
-                            background: 'transparent', border: 'none', color: '#260000',
+                            background: 'transparent', border: 'none', color: theme.canvas.textPrimary,
                             padding: '0', cursor: 'pointer', opacity: 0.8, display: 'flex', alignItems: 'center',
                             marginTop: '-2px'
                           }}
@@ -3622,7 +3624,7 @@ const LeftAIView = ({ compact = false,
           <div className="ai-input-container" style={{ marginBottom: toggleClearance }}>
             <textarea ref={inputRef} value={currentInput} onChange={(e) => setCurrentInput(e.target.value)} onKeyPress={handleKeyPress} placeholder={viewMode === 'druid' ? "Share an observation and I'll build upon it..." : viewMode === 'wizard' ? "Ask anything and I'll cast my spells..." : "Ask me anything about your knowledge graph..."} disabled={isProcessing} className="ai-input" rows={2} />
             {isProcessing && currentAgentRequest ? (
-              <button onClick={handleStopAgent} className="ai-stop-button" title="Stop Agent"><Square fill="#DEDADA" color="#DEDADA" /></button>
+              <button onClick={handleStopAgent} className="ai-stop-button" title="Stop Agent"><Square fill={theme.canvas.textPrimary} color={theme.canvas.textPrimary} /></button>
             ) : (
               <button onClick={handleSendMessage} disabled={!currentInput.trim() || isProcessing} className="ai-send-button"><Send /></button>
             )}

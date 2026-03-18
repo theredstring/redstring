@@ -4,6 +4,7 @@ import { getEmptyImage } from 'react-dnd-html5-backend';
 import { XCircle } from 'lucide-react';
 import { NODE_DEFAULT_COLOR, PANEL_CLOSE_ICON_SIZE } from '../../../constants';
 import { getTextColor } from '../../../utils/colorUtils';
+import { useTheme } from '../../../hooks/useTheme.js';
 
 const ItemTypes = {
   SPAWNABLE_NODE: 'spawnable_node'
@@ -18,6 +19,7 @@ const getSemanticNodeColor = (nodeData) => {
 };
 
 const SavedNodeItem = ({ node, onClick, onDoubleClick, onUnsave, isActive }) => {
+  const theme = useTheme();
   const [isHovered, setIsHovered] = useState(false);
   const [{ isDragging }, drag, preview] = useDrag(() => ({
     type: ItemTypes.SPAWNABLE_NODE,
@@ -46,7 +48,7 @@ const SavedNodeItem = ({ node, onClick, onDoubleClick, onUnsave, isActive }) => 
       style={{
         position: 'relative',
         backgroundColor: node.semanticMetadata?.isSemanticNode ? getSemanticNodeColor(node) : (node.color || NODE_DEFAULT_COLOR),
-        color: getTextColor(node.semanticMetadata?.isSemanticNode ? getSemanticNodeColor(node) : (node.color || NODE_DEFAULT_COLOR)),
+        color: getTextColor(node.semanticMetadata?.isSemanticNode ? getSemanticNodeColor(node) : (node.color || NODE_DEFAULT_COLOR), theme.darkMode),
         borderRadius: '10px',
         padding: '4px 6px',
         fontSize: '0.8rem',
@@ -100,11 +102,11 @@ const SavedNodeItem = ({ node, onClick, onDoubleClick, onUnsave, isActive }) => 
         <XCircle
           size={PANEL_CLOSE_ICON_SIZE}
           style={{
-            color: '#999999',
+            color: theme.canvas.textSecondary,
             transition: 'color 0.2s ease',
           }}
-          onMouseEnter={(e) => e.currentTarget.style.color = '#EFE8E5'}
-          onMouseLeave={(e) => e.currentTarget.style.color = '#999999'}
+          onMouseEnter={(e) => e.currentTarget.style.color = theme.canvas.textPrimary}
+          onMouseLeave={(e) => e.currentTarget.style.color = theme.canvas.textSecondary}
         />
       </div>
     </div>

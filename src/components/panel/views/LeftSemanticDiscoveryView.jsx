@@ -1042,7 +1042,7 @@ const LeftSemanticDiscoveryView = ({ storeActions, nodePrototypesMap, openRightP
       <div className="panel-content-inner semantic-discovery-panel" style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
         {/* Header */}
         <div className="semantic-discovery-header" style={{ marginBottom: '16px' }}>
-          <h2 style={{ margin: 0, color: '#260000', userSelect: 'none', fontSize: '1.1rem', fontWeight: 'bold', fontFamily: "'EmOne', sans-serif", marginBottom: '12px' }}>
+          <h2 style={{ margin: 0, color: theme.canvas.textPrimary, userSelect: 'none', fontSize: '1.1rem', fontWeight: 'bold', fontFamily: "'EmOne', sans-serif", marginBottom: '12px' }}>
             Semantic Discovery
           </h2>
           <Dropdown
@@ -1072,11 +1072,11 @@ const LeftSemanticDiscoveryView = ({ storeActions, nodePrototypesMap, openRightP
             }}
           >
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <div style={{ fontSize: 12, fontWeight: 'bold', color: '#260000', fontFamily: "'EmOne', sans-serif" }}>
+              <div style={{ fontSize: 12, fontWeight: 'bold', color: theme.canvas.textPrimary, fontFamily: "'EmOne', sans-serif" }}>
                 Wikidata Slice (feeds Orbit & All Things)
               </div>
               {catalogLoading && (
-                <div style={{ fontSize: 11, color: '#260000', background: '#f0e6e3', padding: '4px 8px', borderRadius: 10 }}>
+                <div style={{ fontSize: 11, color: theme.canvas.textPrimary, background: theme.canvas.hover, padding: '4px 8px', borderRadius: 10 }}>
                   Loading…
                 </div>
               )}
@@ -1084,8 +1084,8 @@ const LeftSemanticDiscoveryView = ({ storeActions, nodePrototypesMap, openRightP
                 onClick={handleLoadCatalog}
                 disabled={isSearching || catalogLoading}
                 style={{
-                  background: isSearching || catalogLoading ? '#a88c87' : '#260000',
-                  color: '#EFE8E5',
+                  background: isSearching || catalogLoading ? theme.canvas.inactive : theme.accent.primary,
+                  color: getTextColor(theme.accent.primary, theme.darkMode),
                   border: 'none',
                   borderRadius: 10,
                   padding: '6px 12px',
@@ -1100,13 +1100,13 @@ const LeftSemanticDiscoveryView = ({ storeActions, nodePrototypesMap, openRightP
                 {catalogLoading ? 'Loading…' : 'Load Wikidata slice'}
               </button>
             </div>
-            <div style={{ fontSize: 11, color: availableSeedCount > 0 ? '#4b3732' : '#8B0000', marginTop: -6 }}>
+            <div style={{ fontSize: 11, color: availableSeedCount > 0 ? theme.canvas.textSecondary : theme.accent.primary, marginTop: -6 }}>
               {availableSeedCount > 0
                 ? `Available seeds from current graphs: ${availableSeedCount}`
                 : 'No graph seeds found — loader may start empty until you add nodes or supply a query.'}
             </div>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-              <label style={{ display: 'flex', flexDirection: 'column', fontSize: 11, color: '#260000', gap: 6 }}>
+              <label style={{ display: 'flex', flexDirection: 'column', fontSize: 11, color: theme.canvas.textPrimary, gap: 6 }}>
                 <span style={{ display: 'flex', justifyContent: 'space-between' }}>
                   <span>Seeds from graph</span>
                   <span style={{ fontWeight: 'bold' }}>{catalogParams.seedCount}</span>
@@ -1117,12 +1117,12 @@ const LeftSemanticDiscoveryView = ({ storeActions, nodePrototypesMap, openRightP
                   max={500}
                   value={catalogParams.seedCount}
                   onChange={(e) => handleParamChange('seedCount', Number(e.target.value))}
-                  style={{ accentColor: '#8B0000', background: 'transparent' }}
+                  style={{ accentColor: theme.accent.primary, background: 'transparent' }}
                   title="How many current prototypes to seed the slice with"
                 />
-                <span style={{ fontSize: 10, color: '#5a403a' }}>Start with top N prototypes from the active web/selection.</span>
+                <span style={{ fontSize: 10, color: theme.canvas.textSecondary }}>Start with top N prototypes from the active web/selection.</span>
               </label>
-              <label style={{ display: 'flex', flexDirection: 'column', fontSize: 11, color: '#260000', gap: 6 }}>
+              <label style={{ display: 'flex', flexDirection: 'column', fontSize: 11, color: theme.canvas.textPrimary, gap: 6 }}>
                 <span style={{ display: 'flex', justifyContent: 'space-between' }}>
                   <span>Max depth</span>
                   <span style={{ fontWeight: 'bold' }}>{catalogParams.maxDepth}</span>
@@ -1133,12 +1133,12 @@ const LeftSemanticDiscoveryView = ({ storeActions, nodePrototypesMap, openRightP
                   max={3}
                   value={catalogParams.maxDepth}
                   onChange={(e) => handleParamChange('maxDepth', Number(e.target.value))}
-                  style={{ accentColor: '#8B0000', background: 'transparent' }}
+                  style={{ accentColor: theme.accent.primary, background: 'transparent' }}
                   title="How many hops away to pull related entities"
                 />
-                <span style={{ fontSize: 10, color: '#5a403a' }}>Expansion hops from each seed.</span>
+                <span style={{ fontSize: 10, color: theme.canvas.textSecondary }}>Expansion hops from each seed.</span>
               </label>
-              <label style={{ display: 'flex', flexDirection: 'column', fontSize: 11, color: '#260000', gap: 6 }}>
+              <label style={{ display: 'flex', flexDirection: 'column', fontSize: 11, color: theme.canvas.textPrimary, gap: 6 }}>
                 <span style={{ display: 'flex', justifyContent: 'space-between' }}>
                   <span>Entities per level</span>
                   <span style={{ fontWeight: 'bold' }}>{catalogParams.maxEntitiesPerLevel}</span>
@@ -1149,12 +1149,12 @@ const LeftSemanticDiscoveryView = ({ storeActions, nodePrototypesMap, openRightP
                   max={50}
                   value={catalogParams.maxEntitiesPerLevel}
                   onChange={(e) => handleParamChange('maxEntitiesPerLevel', Number(e.target.value))}
-                  style={{ accentColor: '#8B0000', background: 'transparent' }}
+                  style={{ accentColor: theme.accent.primary, background: 'transparent' }}
                   title="Max related entities collected per hop"
                 />
-                <span style={{ fontSize: 10, color: '#5a403a' }}>Per-hop breadth cap.</span>
+                <span style={{ fontSize: 10, color: theme.canvas.textSecondary }}>Per-hop breadth cap.</span>
               </label>
-              <label style={{ display: 'flex', flexDirection: 'column', fontSize: 11, color: '#260000', gap: 6 }}>
+              <label style={{ display: 'flex', flexDirection: 'column', fontSize: 11, color: theme.canvas.textPrimary, gap: 6 }}>
                 <span style={{ display: 'flex', justifyContent: 'space-between' }}>
                   <span>Predicate cap</span>
                   <span style={{ fontWeight: 'bold' }}>{catalogParams.predicateCap}</span>
@@ -1165,12 +1165,12 @@ const LeftSemanticDiscoveryView = ({ storeActions, nodePrototypesMap, openRightP
                   max={20}
                   value={catalogParams.predicateCap}
                   onChange={(e) => handleParamChange('predicateCap', Number(e.target.value))}
-                  style={{ accentColor: '#8B0000', background: 'transparent' }}
+                  style={{ accentColor: theme.accent.primary, background: 'transparent' }}
                   title="Max properties kept per entity"
                 />
-                <span style={{ fontSize: 10, color: '#5a403a' }}>Keeps only the top predicates per entity.</span>
+                <span style={{ fontSize: 10, color: theme.canvas.textSecondary }}>Keeps only the top predicates per entity.</span>
               </label>
-              <label style={{ display: 'flex', flexDirection: 'column', fontSize: 11, color: '#260000', gap: 6 }}>
+              <label style={{ display: 'flex', flexDirection: 'column', fontSize: 11, color: theme.canvas.textPrimary, gap: 6 }}>
                 <span style={{ display: 'flex', justifyContent: 'space-between' }}>
                   <span>Entity cap</span>
                   <span style={{ fontWeight: 'bold' }}>{catalogParams.entityCap.toLocaleString()}</span>
@@ -1182,12 +1182,12 @@ const LeftSemanticDiscoveryView = ({ storeActions, nodePrototypesMap, openRightP
                   step={500}
                   value={catalogParams.entityCap}
                   onChange={(e) => handleParamChange('entityCap', Number(e.target.value))}
-                  style={{ accentColor: '#8B0000', background: 'transparent' }}
+                  style={{ accentColor: theme.accent.primary, background: 'transparent' }}
                   title="Hard stop on total entities ingested"
                 />
-                <span style={{ fontSize: 10, color: '#5a403a' }}>Global limit to keep the slice lean.</span>
+                <span style={{ fontSize: 10, color: theme.canvas.textSecondary }}>Global limit to keep the slice lean.</span>
               </label>
-              <label style={{ display: 'flex', flexDirection: 'column', fontSize: 11, color: '#260000', gap: 6 }}>
+              <label style={{ display: 'flex', flexDirection: 'column', fontSize: 11, color: theme.canvas.textPrimary, gap: 6 }}>
                 <span style={{ display: 'flex', justifyContent: 'space-between' }}>
                   <span>Seed strategy</span>
                   <span style={{ fontWeight: 'bold' }}>{catalogParams.seedStrategy === 'graph' ? 'From graph' : 'Random primer'}</span>
@@ -1199,9 +1199,9 @@ const LeftSemanticDiscoveryView = ({ storeActions, nodePrototypesMap, openRightP
                       flex: 1,
                       padding: '6px 8px',
                       borderRadius: 8,
-                      border: '1px solid #8B0000',
-                      background: catalogParams.seedStrategy === 'graph' ? '#8B0000' : 'transparent',
-                      color: catalogParams.seedStrategy === 'graph' ? '#EFE8E5' : '#260000',
+                      border: `1px solid ${theme.accent.primary}`,
+                      background: catalogParams.seedStrategy === 'graph' ? theme.accent.primary : 'transparent',
+                      color: catalogParams.seedStrategy === 'graph' ? getTextColor(theme.accent.primary, theme.darkMode) : theme.canvas.textPrimary,
                       cursor: 'pointer',
                       fontSize: 12
                     }}
@@ -1215,9 +1215,9 @@ const LeftSemanticDiscoveryView = ({ storeActions, nodePrototypesMap, openRightP
                       flex: 1,
                       padding: '6px 8px',
                       borderRadius: 8,
-                      border: '1px solid #8B0000',
-                      background: catalogParams.seedStrategy === 'random' ? '#8B0000' : 'transparent',
-                      color: catalogParams.seedStrategy === 'random' ? '#EFE8E5' : '#260000',
+                      border: `1px solid ${theme.accent.primary}`,
+                      background: catalogParams.seedStrategy === 'random' ? theme.accent.primary : 'transparent',
+                      color: catalogParams.seedStrategy === 'random' ? getTextColor(theme.accent.primary, theme.darkMode) : theme.canvas.textPrimary,
                       cursor: 'pointer',
                       fontSize: 12
                     }}
@@ -1226,17 +1226,17 @@ const LeftSemanticDiscoveryView = ({ storeActions, nodePrototypesMap, openRightP
                     Random primer
                   </button>
                 </div>
-                <span style={{ fontSize: 10, color: '#5a403a' }}>
+                <span style={{ fontSize: 10, color: theme.canvas.textSecondary }}>
                   Use current web as seeds or let the loader pick a random primer if the graph is empty.
                 </span>
               </label>
             </div>
-            <div style={{ fontSize: 11, color: '#4b3732', display: 'flex', gap: 12, flexWrap: 'wrap' }}>
+            <div style={{ fontSize: 11, color: theme.canvas.textSecondary, display: 'flex', gap: 12, flexWrap: 'wrap' }}>
               <div title="Estimated unique entities ingested">≈ {estimateCatalog.entities.toLocaleString()} entities</div>
               <div title="Estimated statements stored locally">≈ {estimateCatalog.triples.toLocaleString()} triples</div>
               <div title="Approximate on-disk footprint">~ {estimateCatalog.sizeMB} MB on disk</div>
               <div title="Likely results surfaced per search in this slice">~ {estimateCatalog.perSearchResults} results / search</div>
-              {catalogStatus && <div style={{ color: '#260000', fontWeight: 'bold' }}>{catalogStatus}</div>}
+              {catalogStatus && <div style={{ color: theme.canvas.textPrimary, fontWeight: 'bold' }}>{catalogStatus}</div>}
             </div>
             {catalogLoading && (
               <div style={{ marginTop: 6 }}>
@@ -1245,7 +1245,7 @@ const LeftSemanticDiscoveryView = ({ storeActions, nodePrototypesMap, openRightP
                     style={{
                       height: '100%',
                       width: `${Math.round((catalogProgress ?? 0.1) * 100)}%`,
-                      background: '#8B0000',
+                      background: theme.accent.primary,
                       transition: 'width 0.4s ease',
                     }}
                   />
@@ -1259,13 +1259,13 @@ const LeftSemanticDiscoveryView = ({ storeActions, nodePrototypesMap, openRightP
                   border: '1px solid rgba(38,0,0,0.12)',
                   borderRadius: 10,
                   padding: '8px 10px',
-                  background: '#f8f4f2',
+                  background: theme.canvas.hover,
                   maxHeight: 150,
                   overflow: 'auto'
                 }}
               >
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
-                  <div style={{ fontSize: 11, fontWeight: 'bold', color: '#260000' }}>
+                  <div style={{ fontSize: 11, fontWeight: 'bold', color: theme.canvas.textPrimary }}>
                     Import log
                   </div>
                   <button
@@ -1277,8 +1277,8 @@ const LeftSemanticDiscoveryView = ({ storeActions, nodePrototypesMap, openRightP
                     }}
                     style={{
                       background: 'transparent',
-                      border: '1px solid #8B0000',
-                      color: '#8B0000',
+                      border: `1px solid ${theme.accent.primary}`,
+                      color: theme.accent.primary,
                       borderRadius: 8,
                       padding: '4px 8px',
                       fontSize: 10,
@@ -1290,16 +1290,16 @@ const LeftSemanticDiscoveryView = ({ storeActions, nodePrototypesMap, openRightP
                   </button>
                 </div>
                 {catalogLog.length === 0 && (
-                  <div style={{ fontSize: 11, color: '#5a403a' }}>Waiting for events…</div>
+                  <div style={{ fontSize: 11, color: theme.canvas.textSecondary }}>Waiting for events…</div>
                 )}
                 {catalogLog.length > 0 && (
                   <ul style={{ listStyle: 'none', padding: 0, margin: 0, display: 'flex', flexDirection: 'column', gap: 4 }}>
                     {catalogLog.slice().reverse().map((entry, idx) => (
                       <li
                         key={`${entry.ts.toISOString()}-${idx}`}
-                        style={{ fontSize: 11, color: '#3a2723', background: '#fff', borderRadius: 8, padding: '6px 8px', boxShadow: '0 1px 2px rgba(0,0,0,0.06)' }}
+                        style={{ fontSize: 11, color: theme.canvas.textPrimary, background: theme.canvas.bg, borderRadius: 8, padding: '6px 8px', boxShadow: '0 1px 2px rgba(0,0,0,0.06)' }}
                       >
-                        <div style={{ fontSize: 10, color: '#7a615c' }}>{entry.ts.toLocaleTimeString()}</div>
+                        <div style={{ fontSize: 10, color: theme.canvas.textSecondary }}>{entry.ts.toLocaleTimeString()}</div>
                         <div>{entry.msg}</div>
                       </li>
                     ))}
@@ -1335,7 +1335,7 @@ const LeftSemanticDiscoveryView = ({ storeActions, nodePrototypesMap, openRightP
                 description: '',
                 source: 'loading...',
                 relationships: [], // Empty relationships trigger the fetch
-                color: '#8B0000',
+                color: theme.accent.primary,
                 semanticMetadata: {
                   confidence: 0,
                   externalLinks: []
@@ -1356,7 +1356,7 @@ const LeftSemanticDiscoveryView = ({ storeActions, nodePrototypesMap, openRightP
             {/* Enhanced Context Display */}
             {(contexts.panel || contexts.graph || selectedNode) && (
               <div className="contexts-display" style={{ marginBottom: '16px' }}>
-                <div style={{ fontSize: '11px', color: '#260000', fontFamily: "'EmOne', sans-serif", marginBottom: '8px', fontWeight: 'bold' }}>
+                <div style={{ fontSize: '11px', color: theme.canvas.textPrimary, fontFamily: "'EmOne', sans-serif", marginBottom: '8px', fontWeight: 'bold' }}>
                   Quick Search
                 </div>
 
@@ -1388,15 +1388,15 @@ const LeftSemanticDiscoveryView = ({ storeActions, nodePrototypesMap, openRightP
                           gap: 6,
                           padding: '6px 10px',
                           borderRadius: '12px',
-                          background: contexts.panel.nodeData?.color || '#8B0000'
+                          background: contexts.panel.nodeData?.color || theme.accent.primary
                         }}>
-                          <Search size={14} style={{ color: getTextColor(contexts.panel.nodeData?.color || '#8B0000', theme.darkMode) }} />
-                          <span style={{ color: getTextColor(contexts.panel.nodeData?.color || '#8B0000', theme.darkMode), fontFamily: "'EmOne', sans-serif", fontSize: 12, fontWeight: 'bold', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: 220 }}>
+                          <Search size={14} style={{ color: getTextColor(contexts.panel.nodeData?.color || theme.accent.primary, theme.darkMode) }} />
+                          <span style={{ color: getTextColor(contexts.panel.nodeData?.color || theme.accent.primary, theme.darkMode), fontFamily: "'EmOne', sans-serif", fontSize: 12, fontWeight: 'bold', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: 220 }}>
                             {contexts.panel.nodeName}
                           </span>
                         </div>
                       </div>
-                      <div style={{ fontSize: 11, color: '#260000', fontFamily: "'EmOne', sans-serif", marginLeft: 0, paddingBottom: 6 }}>from Panel</div>
+                      <div style={{ fontSize: 11, color: theme.canvas.textPrimary, fontFamily: "'EmOne', sans-serif", marginLeft: 0, paddingBottom: 6 }}>from Panel</div>
                     </div>
                   )}
 
@@ -1434,7 +1434,7 @@ const LeftSemanticDiscoveryView = ({ storeActions, nodePrototypesMap, openRightP
                           </span>
                         </div>
                       </div>
-                      <div style={{ fontSize: 11, color: '#260000', fontFamily: "'EmOne', sans-serif", marginLeft: 0, paddingBottom: 6 }}>from Active Web</div>
+                      <div style={{ fontSize: 11, color: theme.canvas.textPrimary, fontFamily: "'EmOne', sans-serif", marginLeft: 0, paddingBottom: 6 }}>from Active Web</div>
                     </div>
                   )}
 
@@ -1472,7 +1472,7 @@ const LeftSemanticDiscoveryView = ({ storeActions, nodePrototypesMap, openRightP
                           </span>
                         </div>
                       </div>
-                      <div style={{ fontSize: 11, color: '#260000', fontFamily: "'EmOne', sans-serif", marginLeft: 0, paddingBottom: 6 }}>from Selected</div>
+                      <div style={{ fontSize: 11, color: theme.canvas.textPrimary, fontFamily: "'EmOne', sans-serif", marginLeft: 0, paddingBottom: 6 }}>from Selected</div>
                     </div>
                   )}
                 </div>
@@ -1481,7 +1481,7 @@ const LeftSemanticDiscoveryView = ({ storeActions, nodePrototypesMap, openRightP
 
             {/* Manual Search Bar - Always visible */}
             <div style={{ marginBottom: '16px' }}>
-              <div style={{ fontSize: '11px', color: '#260000', fontFamily: "'EmOne', sans-serif", marginBottom: '8px', fontWeight: 'bold' }}>
+              <div style={{ fontSize: '11px', color: theme.canvas.textPrimary, fontFamily: "'EmOne', sans-serif", marginBottom: '8px', fontWeight: 'bold' }}>
                 Search Semantic Web
               </div>
               <div style={{ display: 'flex', gap: '6px' }}>
@@ -1494,12 +1494,12 @@ const LeftSemanticDiscoveryView = ({ storeActions, nodePrototypesMap, openRightP
                   style={{
                     flex: 1,
                     padding: '6px 8px',
-                    border: '1px solid #260000',
+                    border: `1px solid ${theme.canvas.textPrimary}`,
                     borderRadius: '4px',
                     fontSize: '11px',
                     fontFamily: "'EmOne', sans-serif",
                     background: 'transparent',
-                    color: '#260000'
+                    color: theme.canvas.textPrimary
                   }}
                 />
                 <button
@@ -1507,10 +1507,10 @@ const LeftSemanticDiscoveryView = ({ storeActions, nodePrototypesMap, openRightP
                   disabled={isSearching || !manualQuery?.trim()}
                   style={{
                     padding: '6px 12px',
-                    border: '1px solid #260000',
+                    border: `1px solid ${theme.canvas.textPrimary}`,
                     borderRadius: '4px',
                     background: 'transparent',
-                    color: '#260000',
+                    color: theme.canvas.textPrimary,
                     fontSize: '11px',
                     fontFamily: "'EmOne', sans-serif",
                     cursor: isSearching ? 'wait' : 'pointer',
@@ -1534,7 +1534,7 @@ const LeftSemanticDiscoveryView = ({ storeActions, nodePrototypesMap, openRightP
             {/* Concept Results - Regular Search */}
             {discoveredConcepts.length > 0 && !semanticExpansionResults.length && (
               <div className="discovered-concepts" style={{ flex: 1, overflow: 'auto' }}>
-                <div style={{ marginBottom: '12px', fontSize: '12px', color: '#260000', fontFamily: "'EmOne', sans-serif", fontWeight: 'bold' }}>
+                <div style={{ marginBottom: '12px', fontSize: '12px', color: theme.canvas.textPrimary, fontFamily: "'EmOne', sans-serif", fontWeight: 'bold' }}>
                   Discovered Concepts ({discoveredConcepts.length})
                 </div>
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: '8px' }}>
@@ -1589,10 +1589,10 @@ const LeftSemanticDiscoveryView = ({ storeActions, nodePrototypesMap, openRightP
                       disabled={isSearching}
                       style={{
                         padding: '8px 16px',
-                        border: '1px solid #666',
+                        border: `1px solid ${theme.canvas.textSecondary}`,
                         borderRadius: '6px',
                         background: isSearching ? '#333' : 'transparent',
-                        color: isSearching ? '#888' : '#666',
+                        color: theme.canvas.textSecondary,
                         fontSize: '10px',
                         cursor: isSearching ? 'wait' : 'pointer',
                         fontFamily: "'EmOne', sans-serif",
@@ -1607,7 +1607,7 @@ const LeftSemanticDiscoveryView = ({ storeActions, nodePrototypesMap, openRightP
                       onMouseLeave={(e) => {
                         if (!isSearching) {
                           e.target.style.background = 'transparent';
-                          e.target.style.borderColor = '#666';
+                          e.target.style.borderColor = theme.canvas.textSecondary;
                         }
                       }}
                     >
@@ -1634,7 +1634,7 @@ const LeftSemanticDiscoveryView = ({ storeActions, nodePrototypesMap, openRightP
                 }} />
                 <div style={{
                   fontSize: '12px',
-                  color: '#260000',
+                  color: theme.canvas.textPrimary,
                   fontFamily: "'EmOne', sans-serif",
                   fontWeight: 'bold',
                   marginBottom: '8px'
@@ -1643,7 +1643,7 @@ const LeftSemanticDiscoveryView = ({ storeActions, nodePrototypesMap, openRightP
                 </div>
                 <div style={{
                   fontSize: '10px',
-                  color: '#666',
+                  color: theme.canvas.textSecondary,
                   fontFamily: "'EmOne', sans-serif",
                   textAlign: 'center'
                 }}>
@@ -1673,7 +1673,7 @@ const LeftSemanticDiscoveryView = ({ storeActions, nodePrototypesMap, openRightP
                 </div>
                 <div style={{
                   fontSize: '10px',
-                  color: '#666',
+                  color: theme.canvas.textSecondary,
                   fontFamily: "'EmOne', sans-serif"
                 }}>
                   Finding related concepts for {nodePrototypesMap.get(expandingNodeId)?.name}
@@ -1699,7 +1699,7 @@ const LeftSemanticDiscoveryView = ({ storeActions, nodePrototypesMap, openRightP
                   <div style={{ fontSize: '10px', color: '#228B22', fontFamily: "'EmOne', sans-serif", fontWeight: 'bold' }}>
                     Expanding: {nodePrototypesMap.get(expandingNodeId)?.name || 'Selected Node'}
                   </div>
-                  <div style={{ fontSize: '9px', color: '#666', marginTop: '2px' }}>
+                  <div style={{ fontSize: '9px', color: theme.canvas.textSecondary, marginTop: '2px' }}>
                     Drag concepts to canvas or click to add to library
                   </div>
                 </div>
@@ -1735,10 +1735,10 @@ const LeftSemanticDiscoveryView = ({ storeActions, nodePrototypesMap, openRightP
                     }}
                     style={{
                       padding: '6px 12px',
-                      border: '1px solid #666',
+                      border: `1px solid ${theme.canvas.textSecondary}`,
                       borderRadius: '4px',
                       background: 'transparent',
-                      color: '#666',
+                      color: theme.canvas.textSecondary,
                       fontSize: '10px',
                       cursor: 'pointer',
                       fontFamily: "'EmOne', sans-serif"
@@ -1758,7 +1758,7 @@ const LeftSemanticDiscoveryView = ({ storeActions, nodePrototypesMap, openRightP
                       border: '1px solid #228B22',
                       borderRadius: '4px',
                       background: '#228B22',
-                      color: '#EFE8E5',
+                      color: getTextColor(theme.accent.primary, theme.darkMode),
                       fontSize: '10px',
                       cursor: 'pointer',
                       fontFamily: "'EmOne', sans-serif",
@@ -1777,7 +1777,7 @@ const LeftSemanticDiscoveryView = ({ storeActions, nodePrototypesMap, openRightP
         {viewMode === 'history' && (
           <div className="search-history-view" style={{ flex: 1, overflow: 'auto' }}>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '12px' }}>
-              <div style={{ fontSize: '12px', color: '#260000', fontFamily: "'EmOne', sans-serif", fontWeight: 'bold' }}>
+              <div style={{ fontSize: '12px', color: theme.canvas.textPrimary, fontFamily: "'EmOne', sans-serif", fontWeight: 'bold' }}>
                 Discovery History ({searchHistory.length})
               </div>
               {searchHistory.length > 0 && (
@@ -1787,7 +1787,7 @@ const LeftSemanticDiscoveryView = ({ storeActions, nodePrototypesMap, openRightP
                   style={{
                     background: 'transparent',
                     border: 'none',
-                    color: '#666',
+                    color: theme.canvas.textSecondary,
                     width: '24px',
                     height: '24px',
                     lineHeight: 1,
@@ -1802,7 +1802,7 @@ const LeftSemanticDiscoveryView = ({ storeActions, nodePrototypesMap, openRightP
               )}
             </div>
             {searchHistory.length === 0 ? (
-              <div style={{ padding: '20px', textAlign: 'center', color: '#666', fontSize: '11px', fontFamily: "'EmOne', sans-serif" }}>
+              <div style={{ padding: '20px', textAlign: 'center', color: theme.canvas.textSecondary, fontSize: '11px', fontFamily: "'EmOne', sans-serif" }}>
                 No discoveries yet. Open a node and search for related concepts.
               </div>
             ) : (
@@ -1815,14 +1815,14 @@ const LeftSemanticDiscoveryView = ({ storeActions, nodePrototypesMap, openRightP
                   borderRadius: '6px'
                 }}>
                   <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                    <div style={{ fontSize: '11px', color: '#260000', fontWeight: 'bold' }}>{historyItem.query}</div>
+                    <div style={{ fontSize: '11px', color: theme.canvas.textPrimary, fontWeight: 'bold' }}>{historyItem.query}</div>
                     <button
                       title="Remove from history"
                       onClick={() => handleDeleteHistoryItem(historyItem.id)}
                       style={{
                         background: 'transparent',
                         border: 'none',
-                        color: '#999',
+                        color: theme.canvas.textSecondary,
                         cursor: 'pointer',
                         padding: 0,
                         lineHeight: 1,
@@ -1832,7 +1832,7 @@ const LeftSemanticDiscoveryView = ({ storeActions, nodePrototypesMap, openRightP
                       ×
                     </button>
                   </div>
-                  <div style={{ fontSize: '9px', color: '#666', marginTop: '2px' }}>
+                  <div style={{ fontSize: '9px', color: theme.canvas.textSecondary, marginTop: '2px' }}>
                     {historyItem.timestamp.toLocaleString()} • {historyItem.resultCount} concepts
                   </div>
                   <button
@@ -1845,8 +1845,8 @@ const LeftSemanticDiscoveryView = ({ storeActions, nodePrototypesMap, openRightP
                       padding: '6px 10px',
                       border: 'none',
                       borderRadius: '12px',
-                      background: '#260000',
-                      color: '#EFE8E5',
+                      background: theme.accent.primary,
+                      color: getTextColor(theme.accent.primary, theme.darkMode),
                       fontSize: '10px',
                       fontWeight: 'bold',
                       cursor: 'pointer',

@@ -5,6 +5,7 @@ import SharedPanelContent from './SharedPanelContent.jsx';
 import useGraphStore from "../../store/graphStore.jsx";
 import ColorPicker from '../../ColorPicker.jsx';
 import PanelColorPickerPortal from '../PanelColorPickerPortal.jsx';
+import { useTheme } from '../../hooks/useTheme.js';
 
 /**
  * Wrapper component that handles data fetching and action binding
@@ -21,6 +22,7 @@ const PanelContentWrapper = memo(({
   onStartHurtleAnimationFromPanel,
   isUltraSlim = false
 }) => {
+  const theme = useTheme();
   // #region agent log
   // Agent log removed
   // #endregion
@@ -65,7 +67,7 @@ const PanelContentWrapper = memo(({
         id: activeGraphId,
         name: currentGraph.name || 'Untitled Graph',
         description: currentGraph.description || '',
-        color: currentGraph.color || '#8B0000',
+        color: currentGraph.color || theme.accent.primary,
         typeNodeId: null,
         definitionGraphIds: [activeGraphId]
       };
@@ -119,7 +121,7 @@ const PanelContentWrapper = memo(({
           prototypeId: instance.prototypeId,
           name: prototype.name || 'Unnamed Component', // Always preserve prototype name
           description: prototype.description || '',
-          color: prototype.color || '#8B0000', // Assuming NODE_DEFAULT_COLOR is defined elsewhere or needs to be imported
+          color: prototype.color || theme.accent.primary, // Assuming NODE_DEFAULT_COLOR is defined elsewhere or needs to be imported
           // Instance spatial data
           x: instance.x || 0,
           y: instance.y || 0,
@@ -169,7 +171,7 @@ const PanelContentWrapper = memo(({
           prototypeId,
           name: prototype.name || 'Unnamed Component',
           description: prototype.description || '',
-          color: prototype.color || '#8B0000',
+          color: prototype.color || theme.accent.primary,
           typeNodeId: prototype.typeNodeId,
           definitionGraphIds: definitionIds
         });
@@ -190,7 +192,7 @@ const PanelContentWrapper = memo(({
           prototypeId: definingNodeId,
           name: prototype.name || 'Unnamed Component',
           description: prototype.description || '',
-          color: prototype.color || '#8B0000',
+          color: prototype.color || theme.accent.primary,
           typeNodeId: prototype.typeNodeId,
           definitionGraphIds: Array.isArray(prototype.definitionGraphIds) ? prototype.definitionGraphIds : []
         });
@@ -352,7 +354,7 @@ const PanelContentWrapper = memo(({
         id: subjectPrototypeId,
         name: subject,
         description: `Semantic node: ${subject}`,
-        color: subjectColor || '#8B0000',
+        color: subjectColor || theme.accent.primary,
         definitionGraphIds: []
       });
     }
@@ -375,7 +377,7 @@ const PanelContentWrapper = memo(({
         id: objectPrototypeId,
         name: object,
         description: `Semantic node: ${object}`,
-        color: objectColor || '#8B0000',
+        color: objectColor || theme.accent.primary,
         definitionGraphIds: []
       });
     }
@@ -440,7 +442,7 @@ const PanelContentWrapper = memo(({
             sourceId: subjectInstanceId,
             destinationId: objectInstanceId,
             label: predicate,
-            color: '#666666'
+            color: theme.canvas.textSecondary
           });
         }
       } catch { }
@@ -472,7 +474,7 @@ const PanelContentWrapper = memo(({
     }
 
     return (
-      <div style={{ padding: '10px', color: '#aaa', fontFamily: "'EmOne', sans-serif" }}>
+      <div style={{ padding: '10px', color: theme.canvas.textSecondary, fontFamily: "'EmOne', sans-serif" }}>
         {errorMessage}
       </div>
     );
@@ -504,7 +506,7 @@ const PanelContentWrapper = memo(({
         isVisible={colorPickerVisible}
         onClose={handleColorPickerClose}
         onColorChange={handleColorChange}
-        currentColor={colorPickerNodeId && nodePrototypes ? nodePrototypes.get(colorPickerNodeId)?.color || '#8B0000' : '#8B0000'}
+        currentColor={colorPickerNodeId && nodePrototypes ? nodePrototypes.get(colorPickerNodeId)?.color || theme.accent.primary : theme.accent.primary}
         position={colorPickerPosition}
         direction="down-left"
       />

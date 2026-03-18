@@ -71,7 +71,7 @@ const CustomDragLayer = () => {
     backgroundColor: theme.canvas.bg, // Active tab color for preview
     borderTopLeftRadius: '10px',
     borderTopRightRadius: '10px',
-    color: '#260000',
+    color: theme.canvas.textPrimary,
     fontWeight: 'bold',
     fontSize: '0.9rem',
     display: 'inline-flex',
@@ -93,7 +93,7 @@ const CustomDragLayer = () => {
           textOverflow: 'ellipsis',
           borderRadius: '8px',
           backgroundColor: theme.canvas.bg,
-          border: `2px solid ${item.node.color || '#260000'}`,
+          border: `2px solid ${item.node.color || theme.canvas.textPrimary}`,
           marginRight: '8px',
           userSelect: 'none'
         }}>

@@ -672,7 +672,7 @@ const Panel = memo(forwardRef(
           typeInfo = {
             id: typeId,
             name: typeNode.name || 'Thing',
-            color: typeNode.color || '#8B0000'
+            color: typeNode.color || theme.accent.primary
           };
         } else {
           // Node has no type or invalid type, use base "Thing"
@@ -680,7 +680,7 @@ const Panel = memo(forwardRef(
           typeInfo = {
             id: 'base-thing-prototype',
             name: 'Thing',
-            color: '#8B0000' // Default maroon color for untyped nodes
+            color: theme.accent.primary // Default color for untyped nodes
           };
         }
 
@@ -720,7 +720,7 @@ const Panel = memo(forwardRef(
           typeInfo = {
             id: typeId,
             name: typeNode.name || 'Thing',
-            color: typeNode.color || '#8B0000'
+            color: typeNode.color || theme.accent.primary
           };
         } else {
           // Node has no type or invalid type, use base "Thing"
@@ -728,7 +728,7 @@ const Panel = memo(forwardRef(
           typeInfo = {
             id: 'base-thing-prototype',
             name: 'Thing',
-            color: '#8B0000' // Default maroon color for untyped nodes
+            color: theme.accent.primary // Default color for untyped nodes
           };
         }
 
@@ -1741,7 +1741,7 @@ const Panel = memo(forwardRef(
         if (!nodeData) {
           // Node data doesn't exist globally - error case
           panelContent = (
-            <div style={{ padding: '10px', color: '#aaa', fontFamily: "'EmOne', sans-serif" }}>Node data not found globally...</div>
+            <div style={{ padding: '10px', color: theme.canvas.textSecondary, fontFamily: "'EmOne', sans-serif" }}>Node data not found globally...</div>
           );
         } else {
           panelContent = (
@@ -1770,7 +1770,10 @@ const Panel = memo(forwardRef(
     // Dynamically build transition string, removing backgroundColor
     const transitionStyle = `transform 0.2s ease${isAnimatingWidth ? ', width 0.2s ease' : ''}`;
 
-    const handleBaseColor = '#260000'; // header maroon
+    // Convert theme color to rgba for handle
+    const handleBaseColorHex = theme.canvas.textPrimary;
+    const handleRgb = handleBaseColorHex.match(/^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i);
+    const handleRgbValues = handleRgb ? `${parseInt(handleRgb[1], 16)},${parseInt(handleRgb[2], 16)},${parseInt(handleRgb[3], 16)}` : '38,0,0';
     const handleOpacity = isResizing.current ? 1 : (isHandleHover ? 0.18 : 0.08);
     const handleStyle = {
       position: 'absolute',
@@ -1779,7 +1782,7 @@ const Panel = memo(forwardRef(
       width: '14px',
       cursor: 'col-resize',
       zIndex: 10001,
-      backgroundColor: `rgba(38,0,0,${handleOpacity})`,
+      backgroundColor: `rgba(${handleRgbValues},${handleOpacity})`,
       transition: 'background-color 0.15s ease, opacity 0.15s ease',
       borderRadius: '2px',
       touchAction: 'none'
@@ -2050,7 +2053,11 @@ const Panel = memo(forwardRef(
                         paddingRight: '42px',
                         overflowX: 'auto',
                         overflowY: 'hidden',
-                        backgroundColor: isNodeHoveringTabBar ? 'rgba(139, 0, 0, 0.1)' : 'transparent',
+                        backgroundColor: isNodeHoveringTabBar ? (() => {
+                          const hex = theme.accent.primary;
+                          const rgb = hex.match(/^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i);
+                          return rgb ? `rgba(${parseInt(rgb[1], 16)},${parseInt(rgb[2], 16)},${parseInt(rgb[3], 16)},0.1)` : 'rgba(139, 0, 0, 0.1)';
+                        })() : 'transparent',
                         transition: 'background-color 0.2s ease'
                       }}
                     >
@@ -2079,8 +2086,8 @@ const Panel = memo(forwardRef(
                           right: '20px',
                           top: '50%',
                           transform: 'translateY(-50%)',
-                          backgroundColor: '#8B0000',
-                          color: '#EFE8E5',
+                          backgroundColor: theme.accent.primary,
+                          color: getTextColor(theme.accent.primary, theme.darkMode),
                           borderRadius: '50%',
                           width: '24px',
                           height: '24px',
@@ -2129,7 +2136,7 @@ const Panel = memo(forwardRef(
           isVisible={colorPickerVisible}
           onClose={handleCloseColorPicker}
           onColorChange={handleColorChange}
-          currentColor={colorPickerNodeId ? nodePrototypesMap.get(colorPickerNodeId)?.color || '#8B0000' : '#8B0000'}
+          currentColor={colorPickerNodeId ? nodePrototypesMap.get(colorPickerNodeId)?.color || theme.accent.primary : theme.accent.primary}
           position={colorPickerPosition}
           direction="down-left"
         />
@@ -2153,7 +2160,7 @@ const Panel = memo(forwardRef(
                   id: newTypeId,
                   name: name.trim(),
                   description: '',
-                  color: color || '#8B0000',
+                  color: color || theme.accent.primary,
                   definitionGraphIds: [],
                   typeNodeId: null,
                 };

@@ -3,6 +3,7 @@ import { useDrag } from 'react-dnd';
 import { getEmptyImage } from 'react-dnd-html5-backend';
 import { Search } from 'lucide-react';
 import { getTextColor } from '../../../utils/colorUtils';
+import { useTheme } from '../../../hooks/useTheme.js';
 
 const ItemTypes = {
   SPAWNABLE_NODE: 'spawnable_node'
@@ -10,6 +11,7 @@ const ItemTypes = {
 
 // Ghost Semantic Node - Appears during semantic expansion with ghost-like effects
 const GhostSemanticNode = ({ concept, index, onMaterialize, onSelect }) => {
+  const theme = useTheme();
   const [{ isDragging }, drag, preview] = useDrag(() => ({
     type: ItemTypes.SPAWNABLE_NODE,
     item: {
@@ -76,7 +78,7 @@ const GhostSemanticNode = ({ concept, index, onMaterialize, onSelect }) => {
         right: '3px',
         fontSize: '8px',
         opacity: 0.6,
-        color: getTextColor(concept.color) // In contrasting color
+        color: getTextColor(concept.color, theme.darkMode) // In contrasting color
       }}>
         ✨
       </div>
@@ -89,7 +91,7 @@ const GhostSemanticNode = ({ concept, index, onMaterialize, onSelect }) => {
           right: '20px', // Position to the left of ghost indicator
           width: '18px',
           height: '18px',
-          backgroundColor: '#EFE8E5', // Canvas color
+          backgroundColor: theme.canvas.bg, // Canvas color
           borderRadius: '4px',
           display: 'flex',
           alignItems: 'center',
@@ -119,14 +121,14 @@ const GhostSemanticNode = ({ concept, index, onMaterialize, onSelect }) => {
         <Search
           size={12}
           style={{
-            color: getTextColor(concept.color) // Icon in contrasting color
+            color: getTextColor(concept.color, theme.darkMode) // Icon in contrasting color
           }}
         />
       </div>
 
       {/* Compact node content */}
       <div style={{
-        color: getTextColor(concept.color), // Name in contrasting color
+        color: getTextColor(concept.color, theme.darkMode), // Name in contrasting color
         fontFamily: "'EmOne', sans-serif",
         fontSize: '9px',
         fontWeight: 'bold',
@@ -144,7 +146,7 @@ const GhostSemanticNode = ({ concept, index, onMaterialize, onSelect }) => {
       {concept.semanticMetadata?.confidence && (
         <div style={{
           fontSize: '6px',
-          color: getTextColor(concept.color), // Confidence in contrasting color
+          color: getTextColor(concept.color, theme.darkMode), // Confidence in contrasting color
           opacity: 0.6,
           fontFamily: "'EmOne', sans-serif"
         }}>
@@ -158,7 +160,7 @@ const GhostSemanticNode = ({ concept, index, onMaterialize, onSelect }) => {
         bottom: '2px',
         left: '3px',
         fontSize: '6px',
-        color: getTextColor(concept.color), // Connection count in contrasting color
+        color: getTextColor(concept.color, theme.darkMode), // Connection count in contrasting color
         opacity: 0.5,
         fontFamily: "'EmOne', sans-serif"
       }}>

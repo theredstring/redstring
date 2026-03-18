@@ -1,4 +1,27 @@
 // Candidate schema utilities and scoring
+import { PALETTES } from '../ai/palettes.js';
+
+// Get a consistent color from existing palettes based on a string
+// Dynamically uses all palette colors, so updates when palettes change
+function getColorFromPalettes(str) {
+  // Flatten all palette colors into a single array
+  const allColors = Object.values(PALETTES).flatMap(palette =>
+    Object.values(palette.colors)
+  );
+
+  if (allColors.length === 0) return '#8B0000'; // Fallback if no palettes
+
+  // Simple hash function for consistent color selection
+  let hash = 0;
+  for (let i = 0; i < str.length; i++) {
+    hash = str.charCodeAt(i) + ((hash << 5) - hash);
+    hash = hash & hash; // Convert to 32bit integer
+  }
+
+  // Use hash to pick a color consistently
+  const index = Math.abs(hash) % allColors.length;
+  return allColors[index];
+}
 
 // Predicate tiers and weights
 export const PREDICATE_TIERS = {
@@ -63,7 +86,7 @@ export function normalizeToCandidate(result, context = {}) {
   const externalLinks = Array.isArray(result.externalLinks) ? result.externalLinks : (uri ? [uri] : []);
   const equivalentClasses = Array.isArray(result.equivalentClasses) ? result.equivalentClasses : (Array.isArray(result.types) ? result.types.map(t => ({ '@id': t })) : []);
   const retrievedAt = result.retrievedAt || new Date().toISOString();
-  const color = result.color || '#8B0000';
+  const color = result.color || getColorFromPalettes(name);
 
   const score = scoreCandidate({
     sourceTrust: result.sourceTrust ?? 0.8,
