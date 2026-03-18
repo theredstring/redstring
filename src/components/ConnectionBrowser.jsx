@@ -22,6 +22,7 @@ const ConnectionBrowser = ({ nodeData, onMaterializeConnection, isUltraSlim = fa
   const [error, setError] = useState(null);
   const [containerWidth, setContainerWidth] = useState(400); // Default width
   const [searchFilter, setSearchFilter] = useState(''); // Search filter
+  const [minConfidence, setMinConfidence] = useState(0); // Confidence filter for semantic connections
 
 
   const { activeGraphId, nodePrototypes, graphs, edges } = useGraphStore();

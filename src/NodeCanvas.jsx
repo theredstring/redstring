@@ -25,7 +25,7 @@ import { getPrototypeIdFromItem } from './utils/abstraction.js';
 import { copySelection, pasteClipboard } from './utils/clipboard.js';
 import { analyzeNodeDistribution, getClusterBoundingBox } from './utils/clusterAnalysis.js';
 import { v4 as uuidv4 } from 'uuid'; // Import UUID generator
-import { Edit3, Trash2, Link, Package, PackageOpen, Expand, ArrowUpFromDot, Triangle, Layers, ArrowLeft, SendToBack, ArrowBigRightDash, Palette, MoreHorizontal, Bookmark, Plus, CornerUpLeft, CornerDownLeft, Merge, Undo2, Clock, LayoutGrid } from 'lucide-react'; // Icons for PieMenu
+import { Edit3, Trash2, Link, Package, PackageOpen, Expand, ArrowUpFromDot, Triangle, Layers, ArrowLeft, SendToBack, ArrowBigRightDash, Palette, Orbit, Bookmark, Plus, CornerUpLeft, CornerDownLeft, Merge, Undo2, Clock, LayoutGrid } from 'lucide-react'; // Icons for PieMenu
 import ColorPicker from './ColorPicker';
 import { useDrop } from 'react-dnd';
 import { fetchOrbitCandidatesForPrototype } from './services/orbitResolver.js';
@@ -156,6 +156,8 @@ function NodeCanvas() {
   const pinchRef = useRef({ active: false, startDist: 0, startZoom: 1, centerClient: { x: 0, y: 0 }, centerWorld: null, lastCenterClient: { x: 0, y: 0 }, lastDist: 0 });
   const pinchSmoothingRef = useRef({ lastFrameTime: 0, velocity: { x: 0, y: 0 } });
   const [orbitData, setOrbitData] = useState({ ring1: [], ring2: [], ring3: [], ring4: [], all: [] });
+  const [semanticOrbitActive, setSemanticOrbitActive] = useState(false);
+  const semanticOrbitActiveRef = useRef(false);
   const wasDraggingRef = useRef(false); // Track if a drag just occurred to prevent click events
   const dragHistoryRecordedRef = useRef(false); // Guard against double recording of drag events
 
@@ -2571,7 +2573,7 @@ function NodeCanvas() {
   useEffect(() => {
     const nodesSelected = selectedInstanceIds.size > 0;
     const edgeSelected = selectedEdgeId !== null || selectedEdgeIds.size > 0;
-    const shouldShow = Boolean(nodesSelected && !edgeSelected && !abstractionCarouselVisible && !connectionNamePrompt.visible);
+    const shouldShow = Boolean(nodesSelected && !edgeSelected && !abstractionCarouselVisible && !connectionNamePrompt.visible && !semanticOrbitActive);
     if (shouldShow) {
       setNodeControlPanelShouldShow(true);
       setNodeControlPanelVisible(true);
@@ -2585,7 +2587,7 @@ function NodeCanvas() {
     } else if (!shouldShow && nodeControlPanelVisible) {
       setNodeControlPanelVisible(false);
     }
-  }, [selectedInstanceIds, selectedEdgeId, selectedEdgeIds, abstractionCarouselVisible, connectionNamePrompt.visible, nodeControlPanelVisible]);
+  }, [selectedInstanceIds, selectedEdgeId, selectedEdgeIds, abstractionCarouselVisible, connectionNamePrompt.visible, nodeControlPanelVisible, semanticOrbitActive]);
 
   // --- Connection Control Panel Management ---
   useEffect(() => {
@@ -3756,14 +3758,15 @@ function NodeCanvas() {
           }
         },
         {
-          id: 'more', label: 'More', icon: MoreHorizontal, action: (instanceId) => {
-
-            // TODO: Implement additional options menu/submenu
+          id: 'orbit', label: 'Semantic Orbit', icon: Orbit, action: (instanceId) => {
+            setSemanticOrbitActive(true);
+            setSelectedNodeIdForPieMenu(null);
+            setNodeControlPanelVisible(false);
           }
         }
       ];
     }
-  }, [storeActions, setSelectedInstanceIds, setPreviewingNodeId, selectedNodeIdForPieMenu, previewingNodeId, nodes, activeGraphId, abstractionCarouselVisible, abstractionCarouselNode, carouselPieMenuStage, carouselFocusedNode, carouselAnimationState, PackageOpen, Package, ArrowUpFromDot, Edit3, Trash2, Bookmark, ArrowLeft, SendToBack, Plus, CornerUpLeft, CornerDownLeft, Palette, MoreHorizontal, zoomLevel, panOffset, containerRef, handlePieMenuColorPickerOpen, savedNodeIds]);
+  }, [storeActions, setSelectedInstanceIds, setPreviewingNodeId, selectedNodeIdForPieMenu, previewingNodeId, nodes, activeGraphId, abstractionCarouselVisible, abstractionCarouselNode, carouselPieMenuStage, carouselFocusedNode, carouselAnimationState, PackageOpen, Package, ArrowUpFromDot, Edit3, Trash2, Bookmark, ArrowLeft, SendToBack, Plus, CornerUpLeft, CornerDownLeft, Palette, Orbit, zoomLevel, panOffset, containerRef, handlePieMenuColorPickerOpen, savedNodeIds]);
 
   // Log button changes for debugging
   useEffect(() => {
@@ -5912,6 +5915,12 @@ function NodeCanvas() {
     handleMouseUp(e);
   };
   const handleCanvasClick = (e) => {
+    // Exit semantic orbit mode on any canvas click (safety net for overlay click)
+    if (semanticOrbitActive) {
+      exitOrbitMode();
+      return;
+    }
+
     // Priority: Check related control panels FIRST before any other checks (like ignoreCanvasClick)
     // This ensures clicking off always dismisses the panel even if a slight drag occurred
     if (connectionControlPanelShouldShow || connectionControlPanelVisible || selectedEdgeId || selectedEdgeIds.size > 0) {
@@ -6824,7 +6833,7 @@ function NodeCanvas() {
   }, [selectedInstanceIds, isTransitioningPieMenu, abstractionPrompt.visible, abstractionCarouselVisible, selectedNodeIdForPieMenu, carouselAnimationState, justCompletedCarouselExit]); // Added carousel protection flags
   // Effect to prepare and render PieMenu when selectedNodeIdForPieMenu changes and not transitioning
   useEffect(() => {
-    if (selectedNodeIdForPieMenu && !isTransitioningPieMenu) {
+    if (selectedNodeIdForPieMenu && !isTransitioningPieMenu && !semanticOrbitActive) {
       const node = nodes.find(n => n.id === selectedNodeIdForPieMenu);
       if (node) {
         // Check if we're in carousel mode and have dynamic dimensions
@@ -6893,12 +6902,17 @@ function NodeCanvas() {
     }
   }, [isPieMenuRendered]);
 
-  // Fetch orbit candidates when exactly one node is selected
+  // Sync semanticOrbitActive ref for RAF callbacks
+  useEffect(() => {
+    semanticOrbitActiveRef.current = semanticOrbitActive;
+  }, [semanticOrbitActive]);
+
+  // Fetch orbit candidates only when orbit mode is explicitly active
   useEffect(() => {
     let cancelled = false;
     (async () => {
       try {
-        if (selectedInstanceIds.size !== 1) {
+        if (!semanticOrbitActive || selectedInstanceIds.size !== 1) {
           setOrbitData({ ring1: [], ring2: [], ring3: [], ring4: [], all: [] });
           return;
         }
@@ -6924,7 +6938,27 @@ function NodeCanvas() {
       }
     })();
     return () => { cancelled = true; };
-  }, [selectedInstanceIds, activeGraphId]);
+  }, [semanticOrbitActive, selectedInstanceIds, activeGraphId]);
+
+  // Exit orbit mode when node is deselected
+  useEffect(() => {
+    if (selectedInstanceIds.size === 0 && semanticOrbitActive) {
+      setSemanticOrbitActive(false);
+      setOrbitData({ ring1: [], ring2: [], ring3: [], ring4: [], all: [] });
+    }
+  }, [selectedInstanceIds, semanticOrbitActive]);
+
+  // Exit orbit mode callback
+  const exitOrbitMode = useCallback(() => {
+    setSemanticOrbitActive(false);
+    setOrbitData({ ring1: [], ring2: [], ring3: [], ring4: [], all: [] });
+    // Re-show control panel if nodes still selected
+    if (selectedInstanceIds.size > 0) {
+      setNodeControlPanelVisible(true);
+      setNodeControlPanelShouldShow(true);
+    }
+  }, [selectedInstanceIds]);
+
   // --- Hurtle Animation State & Logic ---
   const [hurtleAnimation, setHurtleAnimation] = useState(null);
   const hurtleAnimationRef = useRef(null);
@@ -11547,6 +11581,23 @@ function NodeCanvas() {
                       )}
 
 
+
+                      {/* Dark overlay for semantic orbit mode */}
+                      {semanticOrbitActive && (
+                        <rect
+                          x={canvasSize.offsetX}
+                          y={canvasSize.offsetY}
+                          width={canvasSize.width}
+                          height={canvasSize.height}
+                          fill="black"
+                          opacity={0.5}
+                          style={{ pointerEvents: 'auto', cursor: 'pointer' }}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            exitOrbitMode();
+                          }}
+                        />
+                      )}
 
                       {/* Render the "Active" Node (if it exists and not being dragged) */}
                       {activeNodeToRender && visibleNodeIds.has(activeNodeToRender.id) && (

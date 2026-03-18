@@ -7,7 +7,7 @@ import { NODE_CORNER_RADIUS, NODE_PADDING, NODE_DEFAULT_COLOR } from '../constan
 import { candidateToConcept } from '../services/candidates.js';
 import { useTheme } from '../hooks/useTheme.js';
 import useGraphStore from '../store/graphStore.jsx';
-import { getTextColor } from '../utils/colorUtils';
+import { getTextColor, getInvertedTextColor } from '../utils/colorUtils';
 import { formatPredicate } from '../utils/predicateFormatter.js';
 
 const SPAWNABLE_NODE = 'spawnable_node';
@@ -53,34 +53,77 @@ const OrbitConnection = ({
   const formattedPredicate = formatPredicate(predicate);
   const textColor = getTextColor(color, theme.darkMode);
 
+  // Calculate direction vector and length (matching NodeCanvas)
+  const dx = targetX - sourceX;
+  const dy = targetY - sourceY;
+  const length = Math.sqrt(dx * dx + dy * dy);
+
   // Calculate midpoint for label placement
   const midX = (sourceX + targetX) / 2;
   const midY = (sourceY + targetY) / 2;
 
-  // Calculate angle for text rotation
-  const dx = targetX - sourceX;
-  const dy = targetY - sourceY;
-  let angle = Math.atan2(dy, dx) * (180 / Math.PI);
+  // Calculate arrow position - find intersection with target node edge, then offset back
+  // This matches NodeCanvas edge rendering (lines 9950-9954)
+  const targetWidth = 150; // Approximate orbit item width
+  const targetHeight = 80; // Approximate orbit item height
 
+  // Find intersection with target node rectangle
+  const halfWidth = targetWidth / 2;
+  const halfHeight = targetHeight / 2;
+
+  // Direction from source to target
+  const dirX = dx / length;
+  const dirY = dy / length;
+
+  // Calculate intersection with node bounds (simplified - assumes rectangle)
+  let tIntersect = Infinity;
+
+  // Check intersection with each side
+  if (dirX !== 0) {
+    const tRight = (halfWidth) / Math.abs(dirX);
+    const tLeft = (halfWidth) / Math.abs(dirX);
+    tIntersect = Math.min(tIntersect, tRight, tLeft);
+  }
+  if (dirY !== 0) {
+    const tTop = (halfHeight) / Math.abs(dirY);
+    const tBottom = (halfHeight) / Math.abs(dirY);
+    tIntersect = Math.min(tIntersect, tTop, tBottom);
+  }
+
+  // Position arrow back from intersection point
+  // Adjust offset based on angle - larger offset for diagonal/corner intersections
+  const angle = Math.abs(Math.atan2(dy, dx) * (180 / Math.PI));
+  const normalizedAngle = angle > 90 ? 180 - angle : angle;
+  const isQuantizedSlope = normalizedAngle < 15 || normalizedAngle > 75; // Near horizontal/vertical
+  const baseOffset = 50; // Base offset distance
+  const arrowLength = isQuantizedSlope ? baseOffset * 0.7 : baseOffset; // Larger offset for corners
+  const intersectionX = targetX - dirX * tIntersect;
+  const intersectionY = targetY - dirY * tIntersect;
+  const arrowX = intersectionX - dirX * arrowLength;
+  const arrowY = intersectionY - dirY * arrowLength;
+  const arrowAngle = Math.atan2(dy, dx) * (180 / Math.PI);
+
+  // Calculate text rotation angle
+  let textAngle = arrowAngle;
   // Keep text right-side up
-  if (angle > 90 || angle < -90) {
-    angle += 180;
+  if (textAngle > 90 || textAngle < -90) {
+    textAngle += 180;
   }
 
   // Font size matching NodeCanvas
   const fontSize = 24;
-  const strokeWidth = Math.max(2, fontSize * 0.25); // ~6px
+  const textStrokeWidth = Math.max(2, fontSize * 0.25); // ~6px
 
   return (
     <g className="orbit-connection" opacity={isHovered ? 1 : 0.6}>
-      {/* Connection line */}
+      {/* Connection line - thicker like NodeCanvas, ends at arrow */}
       <line
         x1={sourceX}
         y1={sourceY}
-        x2={targetX}
-        y2={targetY}
+        x2={arrowX}
+        y2={arrowY}
         stroke={color}
-        strokeWidth={6}
+        strokeWidth={16}
         strokeLinecap="round"
         opacity={0.4}
         style={{
@@ -88,6 +131,22 @@ const OrbitConnection = ({
           transition: 'opacity 0.2s ease'
         }}
       />
+
+      {/* Directional arrow at target (matching NodeCanvas positioning) */}
+      <g
+        transform={`translate(${arrowX}, ${arrowY}) rotate(${arrowAngle + 90})`}
+        style={{ pointerEvents: 'none' }}
+      >
+        <polygon
+          points="-18,22 18,22 0,-22"
+          fill={color}
+          stroke={color}
+          strokeWidth="6"
+          strokeLinejoin="round"
+          strokeLinecap="round"
+          paintOrder="stroke fill"
+        />
+      </g>
 
       {/* Label text with stroke outline */}
       <text
@@ -97,14 +156,14 @@ const OrbitConnection = ({
         fontFamily="'EmOne', sans-serif"
         fontWeight="bold"
         fill={textColor}
-        stroke={color}
-        strokeWidth={strokeWidth}
+        stroke={getInvertedTextColor(color, theme.darkMode)}
+        strokeWidth={textStrokeWidth}
         strokeLinecap="round"
         strokeLinejoin="round"
         paintOrder="stroke fill"
         textAnchor="middle"
         dominantBaseline="middle"
-        transform={`rotate(${angle}, ${midX}, ${midY})`}
+        transform={`rotate(${textAngle}, ${midX}, ${midY})`}
         style={{
           pointerEvents: 'none',
           userSelect: 'none'

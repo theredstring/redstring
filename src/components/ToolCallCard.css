@@ -1,6 +1,6 @@
 .tool-call-card {
   background: var(--canvas-bg);
-  border: 1px solid #260000;
+  border: 1px solid var(--canvas-text);
   border-radius: 0;
   margin: 0;
   overflow: hidden;
@@ -18,7 +18,7 @@
 }
 
 .tool-call-header:hover {
-  background: rgba(38, 0, 0, 0.03);
+  background: var(--canvas-hover);
 }
 
 .tool-icon {
@@ -28,7 +28,7 @@
   align-items: center;
   justify-content: center;
   margin-top: 5px;
-  color: rgba(38, 0, 0, 0.5);
+  color: var(--canvas-text-muted);
 }
 
 .status-completed .tool-icon {
@@ -55,7 +55,7 @@
 
 .tool-name {
   font-weight: 600;
-  color: #260000;
+  color: var(--canvas-text);
   font-size: 12px;
   font-family: 'EmOne', sans-serif;
   flex-shrink: 0;
@@ -63,14 +63,14 @@
 
 .status-badge {
   font-size: 11px;
-  color: #260000;
+  color: var(--canvas-text);
   opacity: 0.9;
   font-family: 'EmOne', sans-serif;
   flex-shrink: 0;
 }
 
 .expand-icon {
-  color: #260000;
+  color: var(--canvas-text);
   opacity: 0.8;
   transition: transform 0.2s ease;
   margin-left: auto;
@@ -84,7 +84,7 @@
 }
 
 .tool-call-summary {
-  color: rgba(38, 0, 0, 0.7);
+  color: var(--canvas-text-muted);
   font-size: 11px;
   font-family: 'EmOne', sans-serif;
   line-height: 1.4;
@@ -92,7 +92,7 @@
 
 .tool-call-details {
   padding: 8px 10px;
-  border-top: 1px solid rgba(38, 0, 0, 0.1);
+  border-top: 1px solid var(--canvas-border);
   animation: slideDown 0.2s ease;
   font-family: 'EmOne', sans-serif;
 }
@@ -132,7 +132,7 @@
 }
 
 .detail-section h4 {
-  color: rgba(38, 0, 0, 0.7);
+  color: var(--canvas-text-muted);
   font-size: 11px;
   font-weight: 600;
   text-transform: uppercase;
@@ -142,26 +142,29 @@
 }
 
 .node-list,
-.edge-list {
+.edge-list,
+.group-list {
   list-style: none;
   padding: 0;
   margin: 0;
-  color: #260000;
+  color: var(--canvas-text);
   font-size: 12px;
   line-height: 1.6;
 }
 
-.node-list li {
+.node-list li,
+.group-list li {
   padding: 2px 0;
   padding-left: 12px;
   position: relative;
 }
 
-.node-list li::before {
+.node-list li::before,
+.group-list li::before {
   content: '•';
   position: absolute;
   left: 0;
-  color: rgba(38, 0, 0, 0.5);
+  color: var(--canvas-text-muted);
 }
 
 .edge-list li {
@@ -172,25 +175,25 @@
 }
 
 .edge-arrow {
-  color: rgba(38, 0, 0, 0.5);
+  color: var(--canvas-text-muted);
   font-size: 10px;
 }
 
 .edge-type {
-  color: rgba(38, 0, 0, 0.6);
+  color: var(--canvas-text-muted);
   font-size: 11px;
   font-style: italic;
 }
 
 .more-items {
-  color: rgba(38, 0, 0, 0.6);
+  color: var(--canvas-text-muted);
   font-style: italic;
   padding-left: 12px;
 }
 
 .execution-time {
   margin-top: 8px;
-  color: rgba(38, 0, 0, 0.6);
+  color: var(--canvas-text-muted);
   font-size: 11px;
   text-align: right;
   font-family: 'EmOne', sans-serif;
@@ -217,7 +220,7 @@
 
 /* Status-specific styling */
 .status-running .tool-call-header {
-  border-left: 2px solid rgba(38, 0, 0, 0.3);
+  border-left: 2px solid var(--canvas-border);
 }
 
 .status-completed .tool-call-header {

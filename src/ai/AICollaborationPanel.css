@@ -138,6 +138,11 @@
   position: relative;
 }
 
+html.dark-mode .ai-tab {
+  color: #DEDADA;
+  border-color: var(--canvas-text-muted);
+}
+
 .ai-tab:hover {
   background: rgba(38, 0, 0, 0.08);
   border-color: rgba(38, 0, 0, 0.2);
@@ -145,10 +150,16 @@
   transform: translateY(-1px);
 }
 
+html.dark-mode .ai-tab:hover {
+  background: var(--canvas-hover);
+  border-color: var(--canvas-text-muted);
+  color: #DEDADA;
+}
+
 .ai-tab.active {
   background: #260000;
-  color: var(--canvas-text);
-  border-color: #260000;
+  color: #DEDADA;
+  border: none;
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
 }
 
@@ -203,7 +214,7 @@
 
 .ai-mode-select {
   background: #260000;
-  color: var(--canvas-text);
+  color: #DEDADA;
   border: none;
   padding: 8px 20px 8px 10px;
   /* more right padding for arrow, less left */
@@ -227,7 +238,7 @@
   right: 8px;
   top: 50%;
   transform: translateY(-50%);
-  color: var(--canvas-text);
+  color: #DEDADA;
   pointer-events: none;
 }
 
@@ -237,7 +248,7 @@
 
 .ai-mode-select option {
   background: #260000;
-  color: var(--canvas-text);
+  color: #DEDADA;
 }
 
 .ai-status-indicator {
@@ -392,11 +403,11 @@
 }
 
 .ai-message-user .ai-message-avatar {
-  color: #260000;
+  color: var(--canvas-text);
 }
 
 .ai-message-ai .ai-message-avatar {
-  color: #260000;
+  color: var(--canvas-text);
 }
 
 /* System messages have no avatar styling */
@@ -445,7 +456,8 @@
 
 .ai-message-timestamp {
   font-size: 11px;
-  color: rgba(38, 0, 0, 0.5);
+  color: var(--canvas-text-muted);
+  opacity: 0.7;
   margin-top: 4px;
 }
 
@@ -459,7 +471,7 @@
 
 .ai-tool-call {
   background: var(--canvas-bg);
-  border: 1px solid #260000;
+  border: 1px solid var(--canvas-text);
   border-radius: 0;
   padding: 8px 10px;
   font-size: 12px;
@@ -480,7 +492,7 @@
 }
 
 .ai-tool-call-running {
-  border-color: #260000;
+  border-color: var(--canvas-text);
   background: var(--canvas-bg);
 }
 
@@ -567,7 +579,7 @@
 .ai-processing-status {
   margin-top: 8px;
   font-size: 12px;
-  color: #260000;
+  color: var(--canvas-text);
   font-style: italic;
   font-weight: 600;
   display: inline-flex;

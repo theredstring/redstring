@@ -219,7 +219,7 @@ const ToolCallCard = ({ toolCallId, toolName, status, args, result, error, times
                         {status === 'completed' && result && !error && (
                             <div className="tool-undo-container" style={{ margin: '0 8px 0 auto', display: 'flex', alignItems: 'center' }}>
                                 {isUndone ? (
-                                    <span style={{ color: '#7A0000', display: 'flex', alignItems: 'center', gap: '3px', opacity: 1 }} title="Tool call undone">
+                                    <span style={{ color: 'var(--canvas-text)', display: 'flex', alignItems: 'center', gap: '3px', opacity: 1 }} title="Tool call undone">
                                         <X size={16} />
                                     </span>
                                 ) : (
@@ -231,7 +231,7 @@ const ToolCallCard = ({ toolCallId, toolName, status, args, result, error, times
                                             }}
                                             style={{
                                                 background: 'transparent', border: 'none',
-                                                color: '#260000', padding: '2px', cursor: 'pointer',
+                                                color: 'var(--canvas-text)', padding: '2px', cursor: 'pointer',
                                                 display: 'flex', alignItems: 'center', opacity: 0.8
                                             }}
                                             title="Undo this action"
@@ -440,7 +440,7 @@ const ToolCallCard = ({ toolCallId, toolName, status, args, result, error, times
                                     return (
                                         <div key={key} style={{ display: 'flex' }}>
                                             <span style={{ fontWeight: 'bold', width: '120px', flexShrink: 0, textTransform: 'capitalize' }}>{key.replace(/([A-Z])/g, ' $1').trim()}:</span>
-                                            <span style={{ color: 'var(--text-color, rgba(38, 0, 0, 0.8))', wordBreak: 'break-word' }}>{valueStr}</span>
+                                            <span style={{ color: 'var(--canvas-text)', wordBreak: 'break-word' }}>{valueStr}</span>
                                         </div>
                                     );
                                 })}

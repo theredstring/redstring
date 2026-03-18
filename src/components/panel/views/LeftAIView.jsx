@@ -3448,7 +3448,7 @@ const LeftAIView = ({ compact = false,
             {isHydrated && isConnected && messages.length === 0 && (
               <div style={{ textAlign: 'center', display: 'flex', flexDirection: 'column', alignItems: 'center', padding: '40px 0' }}>
                 <img src={fullBodySvg} alt="Wizard" style={{ width: '150px', marginBottom: '16px' }} />
-                <div style={{ color: theme.canvas.textSecondary, fontFamily: "'EmOne', sans-serif", fontSize: '14px' }}>What will we build today?</div>
+                <div style={{ color: '#DEDADA', fontFamily: "'EmOne', sans-serif", fontSize: '14px' }}>What will we build today?</div>
               </div>
             )}
             {messages.map((message, idx) => {
