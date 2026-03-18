@@ -4992,6 +4992,14 @@ function NodeCanvas() {
           const { e: mouseEvent, currentX, currentY, nodes: nodeList, visibleNodeIds } = pendingHoverCheck.current;
           pendingHoverCheck.current = null;
 
+          // Suppress all hover effects during semantic orbit mode
+          if (semanticOrbitActiveRef.current) {
+            setHoveredNodeForVision(null);
+            setHoveredConnectionForVision(null);
+            setHoveredEdgeInfo(null);
+            return;
+          }
+
           const hoveredNode = nodeList.find(
             (node) => visibleNodeIds.has(node.id) && isInsideNode(node, mouseEvent.clientX, mouseEvent.clientY)
           );
@@ -7137,6 +7145,13 @@ function NodeCanvas() {
     runHurtleAnimation(animationData);
   }, [containerRef, runHurtleAnimation]);
 
+  // Callback for activating semantic orbit from control panel
+  const activateSemanticOrbit = useCallback(() => {
+    setSemanticOrbitActive(true);
+    setNodeControlPanelVisible(false);
+    setSelectedNodeIdForPieMenu(null);
+  }, []);
+
   // Use unified control panel actions hook (depends on startHurtleAnimationFromPanel above)
   const {
     handleNodePanelDelete,
@@ -7147,7 +7162,7 @@ function NodeCanvas() {
     handleNodePanelAbstraction,
     handleNodePanelEdit,
     handleNodePanelSave,
-    handleNodePanelMore,
+    handleNodePanelOrbit,
     handleNodePanelPalette,
     handleNodePanelGroup
   } = useControlPanelActions({
@@ -7172,7 +7187,8 @@ function NodeCanvas() {
     setEditingNodeIdOnCanvas,
     NODE_DEFAULT_COLOR,
     onStartHurtleAnimationFromPanel: startHurtleAnimationFromPanel,
-    onOpenColorPicker: handlePieMenuColorPickerOpen
+    onOpenColorPicker: handlePieMenuColorPickerOpen,
+    onActivateSemanticOrbit: activateSemanticOrbit
   });
 
   // Node-group control panel action handlers
@@ -12190,7 +12206,7 @@ function NodeCanvas() {
             onEdit={handleNodePanelEdit}
             onSave={handleNodePanelSave}
             onPalette={handleNodePanelPalette}
-            onMore={handleNodePanelMore}
+            onOrbit={handleNodePanelOrbit}
             onGroup={handleNodePanelGroup}
             hasLeftNav={false}
             hasRightNav={false}

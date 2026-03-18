@@ -410,6 +410,14 @@ html.dark-mode .ai-tab:hover {
   color: var(--canvas-text);
 }
 
+html.dark-mode .ai-message-ai .ai-message-avatar img {
+  filter: brightness(0) invert(1);
+}
+
+html.dark-mode .ai-messages img[alt="Wizard"] {
+  filter: brightness(0) invert(1);
+}
+
 /* System messages have no avatar styling */
 .ai-message-system .ai-message-avatar {
   display: none;

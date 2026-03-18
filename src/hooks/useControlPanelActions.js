@@ -33,7 +33,8 @@ export function useControlPanelActions({
   setEditingNodeIdOnCanvas,
   NODE_DEFAULT_COLOR,
   onStartHurtleAnimationFromPanel,
-  onOpenColorPicker
+  onOpenColorPicker,
+  onActivateSemanticOrbit
 }) {
 
   const handleNodePanelDelete = useCallback(() => {
@@ -138,10 +139,11 @@ export function useControlPanelActions({
     storeActions.toggleSavedNode(first.id);
   }, [selectedNodePrototypes, storeActions]);
 
-  const handleNodePanelMore = useCallback(() => {
-    // For now, just log - could implement additional menu
-    console.log('[useControlPanelActions] More options requested');
-  }, []);
+  const handleNodePanelOrbit = useCallback(() => {
+    if (onActivateSemanticOrbit) {
+      onActivateSemanticOrbit();
+    }
+  }, [onActivateSemanticOrbit]);
 
   const handleNodePanelPalette = useCallback((buttonPosition) => {
     const first = selectedNodePrototypes[0];
@@ -201,7 +203,7 @@ export function useControlPanelActions({
     handleNodePanelAbstraction,
     handleNodePanelEdit,
     handleNodePanelSave,
-    handleNodePanelMore,
+    handleNodePanelOrbit,
     handleNodePanelPalette,
     handleNodePanelGroup
   };

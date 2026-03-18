@@ -175,7 +175,7 @@ const OrbitConnection = ({
   );
 };
 
-const DraggableOrbitItem = ({ candidate, x, y, rightPanelExpanded, onNodeClick }) => {
+const DraggableOrbitItem = ({ candidate, x, y, rightPanelExpanded, onNodeClick, isHovered, onHover, onHoverEnd }) => {
   const theme = useTheme();
   const rotation = useGraphStore(state => state.orbitRotation);
   const concept = useMemo(() => candidateToConcept(candidate), [candidate]);
@@ -222,7 +222,12 @@ const DraggableOrbitItem = ({ candidate, x, y, rightPanelExpanded, onNodeClick }
   const textColor = getTextColor(fill, theme.darkMode);
 
   return (
-    <g ref={drag} style={{ opacity: isDragging ? 0.3 : 1 }}>
+    <g
+      ref={drag}
+      style={{ opacity: isDragging ? 0.3 : (isHovered ? 1.0 : 0.6), transition: 'opacity 0.2s ease' }}
+      onMouseEnter={() => onHover?.(candidate.id)}
+      onMouseLeave={() => onHoverEnd?.()}
+    >
       {/* Clip path for image nodes */}
       {hasImage && (
         <defs>
@@ -365,6 +370,9 @@ export default function OrbitOverlay({
   ring3Candidates,
   ring4Candidates
 }) {
+  // Hover tracking for individual orbit items
+  const [hoveredCandidateId, setHoveredCandidateId] = useState(null);
+
   // Always call hooks first, before any early returns
   const measuredRing1 = useMemo(() => measureCandidates(ring1Candidates || []), [ring1Candidates]);
   const measuredRing2 = useMemo(() => measureCandidates(ring2Candidates || []), [ring2Candidates]);
@@ -545,6 +553,7 @@ export default function OrbitOverlay({
               targetY={targetCenterY}
               predicate={candidate.predicate}
               color={candidate.color}
+              isHovered={hoveredCandidateId === candidate.id}
             />
           );
         })}
@@ -563,6 +572,7 @@ export default function OrbitOverlay({
               targetY={targetCenterY}
               predicate={candidate.predicate}
               color={candidate.color}
+              isHovered={hoveredCandidateId === candidate.id}
             />
           );
         })}
@@ -581,6 +591,7 @@ export default function OrbitOverlay({
               targetY={targetCenterY}
               predicate={candidate.predicate}
               color={candidate.color}
+              isHovered={hoveredCandidateId === candidate.id}
             />
           );
         })}
@@ -599,6 +610,7 @@ export default function OrbitOverlay({
               targetY={targetCenterY}
               predicate={candidate.predicate}
               color={candidate.color}
+              isHovered={hoveredCandidateId === candidate.id}
             />
           );
         })}
@@ -614,6 +626,9 @@ export default function OrbitOverlay({
             y={y}
             width={dims.currentWidth}
             height={dims.currentHeight}
+            isHovered={hoveredCandidateId === candidate.id}
+            onHover={setHoveredCandidateId}
+            onHoverEnd={() => setHoveredCandidateId(null)}
           />
         ))}
         {ring2Positions.map(({ candidate, dims, x, y }) => (
@@ -624,6 +639,9 @@ export default function OrbitOverlay({
             y={y}
             width={dims.currentWidth}
             height={dims.currentHeight}
+            isHovered={hoveredCandidateId === candidate.id}
+            onHover={setHoveredCandidateId}
+            onHoverEnd={() => setHoveredCandidateId(null)}
           />
         ))}
         {ring3Positions.map(({ candidate, dims, x, y }) => (
@@ -634,6 +652,9 @@ export default function OrbitOverlay({
             y={y}
             width={dims.currentWidth}
             height={dims.currentHeight}
+            isHovered={hoveredCandidateId === candidate.id}
+            onHover={setHoveredCandidateId}
+            onHoverEnd={() => setHoveredCandidateId(null)}
           />
         ))}
         {ring4Positions.map(({ candidate, dims, x, y }) => (
@@ -644,6 +665,9 @@ export default function OrbitOverlay({
             y={y}
             width={dims.currentWidth}
             height={dims.currentHeight}
+            isHovered={hoveredCandidateId === candidate.id}
+            onHover={setHoveredCandidateId}
+            onHoverEnd={() => setHoveredCandidateId(null)}
           />
         ))}
       </g>

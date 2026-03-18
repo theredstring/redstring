@@ -139,7 +139,7 @@ const UnifiedBottomControlPanel = ({
   onEdit,
   onSave,
   onPalette,
-  onMore,
+  onOrbit,
   onGroup,
 
   // Optional navigations (shown on node mode)
@@ -728,12 +728,12 @@ const UnifiedBottomControlPanel = ({
                 </div>
                 <div
                   className="piemenu-button"
-                  onClick={onMore || onDelete}
-                  title="More"
-                  onMouseEnter={() => triggerActionHover('control-more', 'More')}
+                  onClick={onOrbit || onDelete}
+                  title="Semantic Orbit"
+                  onMouseEnter={() => triggerActionHover('control-orbit', 'Semantic Orbit')}
                   onMouseLeave={clearActionHover}
                 >
-                  <MoreHorizontal size={iconSize} />
+                  <Orbit size={iconSize} />
                 </div>
               </>
             ) : isNodeGroup ? (

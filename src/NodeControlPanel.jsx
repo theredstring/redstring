@@ -16,7 +16,7 @@ const NodeControlPanel = ({
   onEdit,
   onSave,
   onPalette,
-  onMore,
+  onOrbit,
   onGroup,
   onLeftNav,
   onRightNav,
@@ -45,7 +45,7 @@ const NodeControlPanel = ({
       onEdit={onEdit}
       onSave={onSave}
       onPalette={onPalette}
-      onMore={onMore}
+      onOrbit={onOrbit}
       onGroup={onGroup}
       onLeftNav={onLeftNav}
       onRightNav={onRightNav}
