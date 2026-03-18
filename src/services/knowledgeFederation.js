@@ -528,7 +528,12 @@ export class KnowledgeFederation {
         FILTER(?property != <http://dbpedia.org/ontology/abstract>)
         FILTER(?property != <http://dbpedia.org/ontology/thumbnail>)
         FILTER(?property != <http://xmlns.com/foaf/0.1/depiction>)
+        FILTER(?property != <http://xmlns.com/foaf/0.1/isPrimaryTopicOf>)
         FILTER(?property != owl:sameAs)
+        FILTER(?property != <http://www.w3.org/2004/02/skos/core#broader>)
+        FILTER(?property != <http://www.w3.org/2004/02/skos/core#narrower>)
+        FILTER(?property != <http://www.w3.org/2004/02/skos/core#related>)
+        FILTER(?property != rdfs:seeAlso)
       } LIMIT ${limit}
     `;
     

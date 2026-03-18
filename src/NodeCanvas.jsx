@@ -6468,17 +6468,17 @@ function NodeCanvas() {
           <div style={{ position: 'absolute', top: '10px', right: '10px', cursor: 'pointer' }}>
             <X size={MODAL_CLOSE_ICON_SIZE} color="#999" onClick={handleConnectionPromptClose} />
           </div>
-          <div style={{ textAlign: 'center', marginBottom: '15px', color: 'black' }}>
+          <div style={{ textAlign: 'center', marginBottom: '15px', color: theme.canvas.textPrimary }}>
             <strong style={{ fontSize: '18px' }}>Name Your Connection</strong>
           </div>
-          <div style={{ textAlign: 'center', marginBottom: '15px', color: '#666', fontSize: '14px' }}>
+          <div style={{ textAlign: 'center', marginBottom: '15px', color: theme.canvas.textSecondary, fontSize: '14px' }}>
             The Thing that will define your Connection,<br />
             in verb form if available.
           </div>
           <div style={{ display: 'flex', alignItems: 'center' }}>
             <Palette
               size={20}
-              color="#260000"
+              color={theme.canvas.textPrimary}
               style={{ cursor: 'pointer', flexShrink: 0, marginRight: '8px' }}
               onMouseDown={(e) => e.stopPropagation()}
               onClick={(e) => {
@@ -6499,7 +6499,7 @@ function NodeCanvas() {
                 if (e.key === 'Enter') handleConnectionPromptSubmit();
                 if (e.key === 'Escape') handleConnectionPromptClose();
               }}
-              style={{ flex: 1, padding: '10px', borderRadius: '5px', border: '1px solid #260000', marginRight: '10px' }}
+              style={{ flex: 1, padding: '10px', borderRadius: '5px', border: `1px solid ${theme.canvas.border}`, marginRight: '10px', backgroundColor: theme.canvas.bg, color: theme.canvas.textPrimary }}
               autoFocus
             />
             <button
@@ -6562,13 +6562,13 @@ function NodeCanvas() {
           <div style={{ position: 'absolute', top: '10px', right: '10px', cursor: 'pointer' }}>
             <X size={MODAL_CLOSE_ICON_SIZE} color="#999" onClick={handleClosePrompt} />
           </div>
-          <div style={{ textAlign: 'center', marginBottom: '15px', color: 'black' }}>
+          <div style={{ textAlign: 'center', marginBottom: '15px', color: theme.canvas.textPrimary }}>
             <strong style={{ fontSize: '18px' }}>Name Your Thing</strong>
           </div>
           <div style={{ display: 'flex', alignItems: 'center' }}>
             <Palette
               size={20}
-              color="#260000"
+              color={theme.canvas.textPrimary}
               style={{ cursor: 'pointer', flexShrink: 0, marginRight: '8px' }}
               onMouseDown={(e) => e.stopPropagation()}
               onClick={(e) => {
@@ -6584,7 +6584,7 @@ function NodeCanvas() {
               value={nodeNamePrompt.name}
               onChange={(e) => setNodeNamePrompt({ ...nodeNamePrompt, name: e.target.value })}
               onKeyDown={(e) => { if (e.key === 'Enter') handlePromptSubmit(); }}
-              style={{ flex: 1, padding: '10px', borderRadius: '5px', border: '1px solid #260000', marginRight: '10px' }}
+              style={{ flex: 1, padding: '10px', borderRadius: '5px', border: `1px solid ${theme.canvas.border}`, marginRight: '10px', backgroundColor: theme.canvas.bg, color: theme.canvas.textPrimary }}
               autoFocus
             />
             <button
@@ -8413,13 +8413,21 @@ function NodeCanvas() {
                 flexDirection: 'column',
                 gap: '16px',
                 fontFamily: "'EmOne', sans-serif",
-                color: '#260000',
+                color: theme.canvas.textPrimary,
                 letterSpacing: '0.06em',
                 fontSize: '18px',
                 pointerEvents: 'none'
               }}
             >
-              <div className="loading-spinner" style={{ borderColor: '#979090', borderTopColor: '#260000', width: 52, height: 52 }} />
+              <div
+                className="loading-spinner"
+                style={{
+                  borderColor: theme.canvas.border,
+                  borderTopColor: theme.canvas.textPrimary,
+                  width: 52,
+                  height: 52
+                }}
+              />
               <div>Preparing your universe…</div>
             </div>
           ) : (!isUniverseLoaded || !hasUniverseFile) ? (
@@ -8441,14 +8449,14 @@ function NodeCanvas() {
                 <div style={{
                   fontSize: '32px',
                   fontFamily: "'EmOne', sans-serif",
-                  color: '#260000',
+                  color: theme.canvas.textPrimary,
                   opacity: 0.8,
                   textAlign: 'center'
                 }}>
                   Redstring
                   <div style={{
                     fontSize: '12px',
-                    color: '#666',
+                    color: theme.canvas.textSecondary,
                     marginTop: '8px',
                     opacity: 0.6
                   }}>
@@ -8469,23 +8477,26 @@ function NodeCanvas() {
                     style={{
                       marginTop: '24px',
                       background: 'transparent',
-                      border: `1px solid ${theme.canvas.bg}`,
-                      color: 'rgba(38, 0, 0, 0.5)',
+                      border: `1px solid ${theme.canvas.border}`,
+                      color: theme.canvas.textSecondary,
                       padding: '8px 16px',
                       borderRadius: '4px',
                       cursor: 'pointer',
                       fontSize: '0.9rem',
                       fontFamily: "'EmOne', sans-serif",
                       transition: 'all 0.2s ease',
-                      pointerEvents: 'auto'
+                      pointerEvents: 'auto',
+                      opacity: 0.7
                     }}
                     onMouseOver={(e) => {
-                      e.target.style.borderColor = 'rgba(38, 0, 0, 0.4)';
-                      e.target.style.color = 'rgba(38, 0, 0, 0.8)';
+                      e.target.style.borderColor = theme.canvas.textSecondary;
+                      e.target.style.color = theme.canvas.textPrimary;
+                      e.target.style.opacity = 1;
                     }}
                     onMouseOut={(e) => {
-                      e.target.style.borderColor = 'rgba(38, 0, 0, 0.2)';
-                      e.target.style.color = 'rgba(38, 0, 0, 0.5)';
+                      e.target.style.borderColor = theme.canvas.border;
+                      e.target.style.color = theme.canvas.textSecondary;
+                      e.target.style.opacity = 0.7;
                     }}
                   >
                     Go to Universes
@@ -8522,7 +8533,7 @@ function NodeCanvas() {
               gap: '24px',
               fontFamily: "'EmOne', sans-serif"
             }}>
-              <div style={{ fontSize: '16px', color: '#260000', opacity: 0.7 }}>
+              <div style={{ fontSize: '16px', color: theme.canvas.textPrimary, opacity: 0.7 }}>
                 Open a New Thing
               </div>
               <button
@@ -8531,7 +8542,7 @@ function NodeCanvas() {
                   width: '120px',
                   height: '120px',
                   backgroundColor: 'transparent',
-                  border: '3px dotted #260000',
+                  border: `3px dotted ${theme.canvas.textPrimary}`,
                   borderRadius: '16px',
                   cursor: 'pointer',
                   display: 'flex',
@@ -8550,7 +8561,7 @@ function NodeCanvas() {
                 }}
                 title="Create New Thing"
               >
-                <Plus size={48} strokeWidth={2} color="#260000" />
+                <Plus size={48} strokeWidth={2} color={theme.canvas.textPrimary} />
               </button>
             </div>
           ) : (
@@ -9016,7 +9027,8 @@ function NodeCanvas() {
                                   cx={x}
                                   cy={y}
                                   r={Math.min(6, Math.max(3, gridSize * 0.06))}
-                                  fill="#260000"
+                                  fill={theme.canvas.textPrimary}
+                                  opacity={0.3}
                                   pointerEvents="none"
                                 />
                               );

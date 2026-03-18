@@ -1153,21 +1153,31 @@ export async function findRelatedConcepts(entityName, options = {}) {
             FILTER(?property != <http://dbpedia.org/ontology/abstract>)
             FILTER(?property != <http://dbpedia.org/ontology/thumbnail>)
             FILTER(?property != <http://xmlns.com/foaf/0.1/depiction>)
+            FILTER(?property != <http://xmlns.com/foaf/0.1/isPrimaryTopicOf>)
             FILTER(?property != owl:sameAs)
+            FILTER(?property != <http://www.w3.org/2004/02/skos/core#broader>)
+            FILTER(?property != <http://www.w3.org/2004/02/skos/core#narrower>)
+            FILTER(?property != <http://www.w3.org/2004/02/skos/core#related>)
+            FILTER(?property != rdfs:seeAlso)
           } LIMIT 20
         `;
 
         const dbpediaRels = await executeSparql('https://dbpedia.org/sparql', dbpediaRelQuery, timeout);
         console.log(`[SemanticWebQuery] ✅ DBpedia returned ${dbpediaRels.length} relationships`);
-        const NOISY_PREDICATES = /^(wikiPage|abstract$|thumbnail$|depiction$|sameAs$)/i;
+        const NOISY_PREDICATES = /^(wikiPage|abstract$|thumbnail$|depiction$|sameAs$|broader$|narrower$|seeAlso$|isPrimaryTopicOf$)/i;
         results.push(...dbpediaRels
-          .map(item => ({
-            itemLabel: { value: item.relatedLabel?.value },
-            item: { value: item.related?.value },
-            predicate: item.property?.value?.split('/').pop() || 'related',
-            source: 'dbpedia',
-            type: 'relationship'
-          }))
+          .map(item => {
+            // Split on both / and # to handle URI fragments (e.g. skos/core#broader → broader)
+            const propUri = item.property?.value || '';
+            const predicate = propUri.split(/[/#]/).pop() || 'related';
+            return {
+              itemLabel: { value: item.relatedLabel?.value },
+              item: { value: item.related?.value },
+              predicate,
+              source: 'dbpedia',
+              type: 'relationship'
+            };
+          })
           .filter(item => !NOISY_PREDICATES.test(item.predicate))
         );
       } catch (error) {

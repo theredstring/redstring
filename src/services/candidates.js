@@ -101,7 +101,7 @@ export const PREDICATE_TIERS = {
   authorityId: { tier: 'C', weight: 0.3 },
   externalUrl: { tier: 'C', weight: 0.25 },
   category: { tier: 'C', weight: 0.2 },
-  // Wiki infrastructure noise — deprioritize if any slip through SPARQL filters
+  // Infrastructure noise — deprioritize if any slip through SPARQL filters
   wikiPageWikiLink: { tier: 'C', weight: 0.1 },
   wikiPageExternalLink: { tier: 'C', weight: 0.05 },
   wikiPageRedirects: { tier: 'C', weight: 0.05 },
@@ -111,7 +111,11 @@ export const PREDICATE_TIERS = {
   wikiPageLength: { tier: 'C', weight: 0.05 },
   abstract: { tier: 'C', weight: 0.05 },
   thumbnail: { tier: 'C', weight: 0.05 },
-  depiction: { tier: 'C', weight: 0.05 }
+  depiction: { tier: 'C', weight: 0.05 },
+  broader: { tier: 'C', weight: 0.1 },
+  narrower: { tier: 'C', weight: 0.1 },
+  seeAlso: { tier: 'C', weight: 0.1 },
+  isPrimaryTopicOf: { tier: 'C', weight: 0.05 }
 };
 
 export function getPredicateInfo(predicate) {

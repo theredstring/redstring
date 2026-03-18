@@ -745,6 +745,10 @@ html.dark-mode .ai-message-ai .ai-message-avatar img {
   /* Make button match textarea height */
 }
 
+html.dark-mode .ai-input-container {
+  border-top-color: var(--canvas-border);
+}
+
 .ai-input {
   flex: 1;
   background: rgba(38, 0, 0, 0.05);
@@ -761,13 +765,28 @@ html.dark-mode .ai-message-ai .ai-message-avatar img {
   max-height: 100px;
 }
 
+html.dark-mode .ai-input {
+  background: rgba(222, 218, 218, 0.05);
+  border-color: var(--canvas-border);
+  color: #DEDADA;
+}
+
 .ai-input::placeholder {
   color: rgba(38, 0, 0, 0.5);
+}
+
+html.dark-mode .ai-input::placeholder {
+  color: rgba(222, 218, 218, 0.5);
 }
 
 .ai-input:focus {
   border-color: #260000;
   box-shadow: 0 0 0 2px rgba(38, 0, 0, 0.1);
+}
+
+html.dark-mode .ai-input:focus {
+  border-color: #DEDADA;
+  box-shadow: 0 0 0 2px rgba(222, 218, 218, 0.1);
 }
 
 .ai-input:disabled {
@@ -791,11 +810,21 @@ html.dark-mode .ai-message-ai .ai-message-avatar img {
   flex-shrink: 0;
 }
 
+html.dark-mode .ai-send-button,
+html.dark-mode .ai-stop-button {
+  border-color: var(--canvas-border);
+}
+
 .ai-send-button {
   background: #260000;
   /* header maroon */
-  color: var(--canvas-text);
-  /* canvas text color */
+  color: var(--canvas-bg);
+  /* contrast against maroon */
+}
+
+html.dark-mode .ai-send-button {
+  background: #DEDADA;
+  color: var(--canvas-bg);
 }
 
 .ai-send-button:hover:not(:disabled) {
@@ -804,11 +833,22 @@ html.dark-mode .ai-message-ai .ai-message-avatar img {
   transform: translateY(-1px);
 }
 
+html.dark-mode .ai-send-button:hover:not(:disabled) {
+  background: #f0eeee;
+  transform: translateY(-1px);
+}
+
 .ai-send-button:disabled {
   background: rgba(38, 0, 0, 0.2);
   color: rgba(38, 0, 0, 0.5);
   cursor: not-allowed;
   border-color: rgba(38, 0, 0, 0.2);
+}
+
+html.dark-mode .ai-send-button:disabled {
+  background: rgba(222, 218, 218, 0.2);
+  color: rgba(222, 218, 218, 0.5);
+  border-color: rgba(222, 218, 218, 0.2);
 }
 
 .ai-stop-button {
