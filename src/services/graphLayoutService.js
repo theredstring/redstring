@@ -438,7 +438,7 @@ export const FORCE_LAYOUT_DEFAULTS = {
 
   // Presets
   layoutScale: 'balanced',
-  layoutScaleMultiplier: 1.6,  // Refined value from tuner (was 1.0)
+  layoutScaleMultiplier: 1.0,
   iterationPreset: 'balanced'
 };
 

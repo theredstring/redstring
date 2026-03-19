@@ -40,7 +40,7 @@ import AutoGraphModal from './components/AutoGraphModal';
 import ForceSimulationModal from './components/ForceSimulationModal';
 import { parseInputData, generateGraph } from './services/autoGraphGenerator';
 import { applyLayout, getClusterGeometries, FORCE_LAYOUT_DEFAULTS } from './services/graphLayoutService.js';
-import { NavigationMode, calculateNavigationParams } from './services/canvasNavigationService.js';
+import { NavigationMode, calculateNavigationParams, navigateAfterLayout } from './services/canvasNavigationService.js';
 import { debugLogSync } from './utils/debugLogger.js';
 import { getNodeHitbox, getVisualConnectionEndpoints } from './utils/canvas/nodeHitbox.js';
 import { stabilizeLabelPosition, clearLabelStabilization } from './utils/canvas/labelStabilization.js';
@@ -7461,6 +7461,20 @@ function NodeCanvas() {
     }
   }, [activeGraphId, selectedGroup, storeActions, setSelectedInstanceIds, setGroupControlPanelVisible, setSelectedGroup]);
 
+  // Trigger auto-layout via the Force Simulation Tuner (invisible, autoStart mode)
+  const triggerAutoLayout = useCallback(() => {
+    if (!activeGraphId) return;
+    if (!hydratedNodes || hydratedNodes.length === 0) {
+      alert('Active graph has no nodes to layout yet.');
+      return;
+    }
+    if (hydratedNodes.length > 50) {
+      console.log(`[AutoLayout] Skipping: graph too large (${hydratedNodes.length} nodes)`);
+      return;
+    }
+    setAutoLayoutRunning(true);
+  }, [activeGraphId, hydratedNodes]);
+
   // Context Menu options for canvas background
   const getCanvasContextMenuOptions = useCallback(() => {
     return [
@@ -7468,11 +7482,11 @@ function NodeCanvas() {
         label: 'Auto Layout Web',
         icon: <LayoutGrid size={14} />,
         action: () => {
-          applyAutoLayoutToActiveGraph();
+          triggerAutoLayout();
         }
       }
     ];
-  }, [applyAutoLayoutToActiveGraph]);
+  }, [triggerAutoLayout]);
 
   // Context Menu options for nodes - core functionality without pie menu transition logic
   const getContextMenuOptions = useCallback((instanceId) => {
@@ -7617,15 +7631,26 @@ function NodeCanvas() {
                 x: node.x + dimensions.currentWidth / 2,
                 y: node.y + dimensions.currentHeight / 2
               };
-              const rect = containerRef.current?.getBoundingClientRect();
-              if (rect) {
-                const screenX = nodeCenter.x * zoomLevel + panOffset.x + rect.left;
-                const screenY = nodeCenter.y * zoomLevel + panOffset.y + rect.top;
+              const svgRect = svgRef.current.getBoundingClientRect();
+              const screenX = svgRect.left + (nodeCenter.x * zoomLevel + panOffset.x);
+              const screenY = svgRect.top + (nodeCenter.y * zoomLevel + panOffset.y);
 
-                handlePieMenuColorPickerOpen(instanceId, { x: screenX, y: screenY });
-              }
-            }, 10);
+              // Use this as anchor for color picker
+              handlePieMenuColorPickerOpen(instanceId, { x: screenX, y: screenY });
+            }, 50);
           }
+        }
+      },
+      // Semantic Orbit
+      {
+        label: 'Semantic Orbit',
+        icon: <Orbit size={14} />,
+        action: () => {
+          setSemanticOrbitActive(true);
+          setSelectedNodeIdForPieMenu(null);
+          setNodeControlPanelVisible(false);
+          // Ensure the node is the only one selected for orbit focus
+          setSelectedInstanceIds(new Set([instanceId]));
         }
       }
     ];
@@ -7911,7 +7936,7 @@ function NodeCanvas() {
         // This prevents layout thrashing during quick wizard operations
         debounceTimer = setTimeout(() => {
           clearLabelStabilization(); // Clear label cache before layout change
-          applyAutoLayoutToActiveGraph();
+          triggerAutoLayout();
           debounceTimer = null;
         }, 500);
       }
@@ -7925,7 +7950,7 @@ function NodeCanvas() {
       }
       window.removeEventListener('rs-trigger-auto-layout', handleTriggerAutoLayout);
     };
-  }, [applyAutoLayoutToActiveGraph, activeGraphId]);
+  }, [triggerAutoLayout, activeGraphId]);
 
   // Listen for selectNode events from the Wizard AI
   useEffect(() => {
@@ -8166,7 +8191,7 @@ function NodeCanvas() {
           setForceSimModalVisible(true);
         }}
         onAutoLayoutGraph={() => {
-          applyAutoLayoutToActiveGraph();
+          triggerAutoLayout();
         }}
         onCondenseNodes={condenseGraphNodes}
         onNewUniverse={async () => {
@@ -12815,8 +12840,11 @@ function NodeCanvas() {
         }}
         autoStart={autoLayoutRunning}
         invisible={autoLayoutRunning && !forceSimModalVisible}
-        onSimulationComplete={() => setAutoLayoutRunning(false)}
-        autoLayoutDuration={1000}
+        onSimulationComplete={() => {
+          setAutoLayoutRunning(false);
+          navigateAfterLayout(activeGraphId, hydratedNodes?.length || 0);
+        }}
+        autoLayoutDuration={2000}
         graphId={activeGraphId}
         storeActions={storeActions}
         layoutScalePreset={forceLayoutScalePreset}

@@ -313,7 +313,7 @@ const ForceSimulationModal = ({
   // Auto-start the simulation when opened in invisible/auto-layout mode
   useEffect(() => {
     if (isOpen && autoStart) {
-      setSimulationSpeed(0.3);  // Always use slow speed for auto-layout
+      setSimulationSpeed(1.0);  // Full speed for auto-layout
       setIsRunning(true);
       // Stop after fixed duration regardless of whether alpha has settled
       const timer = setTimeout(() => {
