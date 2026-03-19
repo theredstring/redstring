@@ -57,12 +57,7 @@ const STORAGE_LABELS = {
   [STORAGE_TYPES.BROWSER]: 'Browser cache'
 };
 
-const STATUS_COLORS = {
-  success: '#2e7d32',
-  info: '#1565c0',
-  warning: '#ef6c00',
-  error: '#c62828'
-};
+// STATUS_COLORS moved inside UniverseManager component to be theme-aware
 
 const blankState = {
   universes: [],
@@ -212,6 +207,13 @@ function buttonStyle(theme,  variant = 'outline') {
 
 const UniverseManager = ({ variant = 'panel', onRequestClose }) => {
   const theme = useTheme();
+
+  const statusColors = useMemo(() => ({
+    success: theme.darkMode ? '#E7E79E' : '#354702',
+    warning: theme.darkMode ? '#b39ddb' : '#512da8',
+    error: theme.darkMode ? '#C09191' : '#7A0000',
+    info: theme.darkMode ? '#64b5f6' : '#1565c0'
+  }), [theme.darkMode]);
   const [serviceState, setServiceState] = useState(blankState);
   const [loading, setLoading] = useState(true);
   const [initializing, setInitializing] = useState(false); // Start false - don't block UI on load
@@ -979,10 +981,10 @@ const UniverseManager = ({ variant = 'panel', onRequestClose }) => {
   );
 
   const statusBadge = useMemo(() => {
-    if (hasOAuth && hasApp) return { label: 'Fully Connected', tone: STATUS_COLORS.success };
-    if (hasOAuth || hasApp) return { label: 'Partially Connected', tone: STATUS_COLORS.info };
-    return { label: 'Not Connected', tone: STATUS_COLORS.error };
-  }, [hasOAuth, hasApp]);
+    if (hasOAuth && hasApp) return { label: 'Fully Connected', tone: statusColors.success };
+    if (hasOAuth || hasApp) return { label: 'Partially Connected', tone: statusColors.info };
+    return { label: 'Not Connected', tone: statusColors.error };
+  }, [hasOAuth, hasApp, statusColors]);
 
   const handleCreateUniverse = async () => {
     // Show creation mode selection dialog first
@@ -4092,7 +4094,7 @@ const UniverseManager = ({ variant = 'panel', onRequestClose }) => {
     : {
       background: 'transparent',
       padding: 15,
-      paddingBottom: 15,
+      paddingBottom: 30 + bottomSafeArea, // Total ~100px
       height: '100%',
       overflowY: 'auto'
     };
@@ -4172,16 +4174,17 @@ const UniverseManager = ({ variant = 'panel', onRequestClose }) => {
       {syncStatus && (
         <div
           style={{
-            borderRadius: 8,
-            border: `1px solid ${STATUS_COLORS[syncStatus.type] || STATUS_COLORS.info}`,
-            backgroundColor: 'rgba(255,255,255,0.4)',
-            padding: 12,
+            borderRadius: 6,
+            border: `1px solid ${statusColors[syncStatus.type] || statusColors.info}`,
+            backgroundColor: theme.canvas.bg,
+            padding: '10px 14px',
             display: 'flex',
             alignItems: 'center',
-            gap: 8
+            gap: 12,
+            color: statusColors[syncStatus.type] || statusColors.info
           }}
         >
-          <AlertCircle size={16} color={STATUS_COLORS[syncStatus.type] || STATUS_COLORS.info} />
+          <AlertCircle size={16} color={statusColors[syncStatus.type] || statusColors.info} />
           <span style={{ fontSize: '0.8rem' }}>{syncStatus.message}</span>
         </div>
       )}
@@ -4291,7 +4294,7 @@ const UniverseManager = ({ variant = 'panel', onRequestClose }) => {
             const base = activeUniverse?.sync || {};
             let displayState = 'idle';
             let displayLabel = 'All changes saved';
-            let displayTone = '#2e7d32';
+            let displayTone = theme.darkMode ? '#81c784' : '#2e7d32';
             let displayDesc = '';
 
             const pendingCommits = Number(engine?.pendingCommits || 0);
@@ -4299,20 +4302,20 @@ const UniverseManager = ({ variant = 'panel', onRequestClose }) => {
             if (engine?.isInErrorBackoff || engine?.isHealthy === false) {
               displayState = 'error';
               displayLabel = 'Unable to save changes';
-              displayTone = '#c62828';
+              displayTone = theme.darkMode ? '#e57373' : '#c62828';
             } else if (engine?.isRunning || pendingCommits > 0) {
               displayState = 'saving';
               displayLabel = 'Saving...';
-              displayTone = '#666';
+              displayTone = theme.canvas.textSecondary;
             } else if (engine?.isPaused) {
               displayState = 'paused';
               displayLabel = 'Sync paused';
-              displayTone = '#ef6c00';
+              displayTone = theme.darkMode ? '#b39ddb' : '#512da8'; // Purple variants
               displayDesc = 'Resume to save changes.';
             } else if (engine?.hasChanges) {
               displayState = 'unsaved';
               displayLabel = 'Unsaved changes';
-              displayTone = '#b85e00';
+              displayTone = theme.darkMode ? '#b39ddb' : '#512da8'; // Purple variants
             } else if (base?.state && base?.label) {
               // Fallback to mapped state
               displayState = base.state;
@@ -4346,7 +4349,7 @@ const UniverseManager = ({ variant = 'panel', onRequestClose }) => {
                 style={{
                   border: `1px solid ${theme.canvas.border}`,
                   borderRadius: 8,
-                  backgroundColor: 'rgba(255,255,255,0.15)',
+                  backgroundColor: theme.canvas.bg,
                   padding: '12px 16px',
                   display: 'flex',
                   alignItems: 'center',
@@ -4356,16 +4359,16 @@ const UniverseManager = ({ variant = 'panel', onRequestClose }) => {
               >
                 <div style={{ display: 'flex', alignItems: 'center', gap: 10, flex: 1 }}>
                   {displayState === 'saving' && (
-                    <RefreshCw size={16} style={{ animation: 'spin 1s linear infinite', color: '#666', flexShrink: 0 }} />
+                    <RefreshCw size={16} style={{ animation: 'spin 1s linear infinite', color: displayTone, flexShrink: 0 }} />
                   )}
                   {displayState === 'error' && (
-                    <AlertCircle size={16} style={{ color: '#c62828', flexShrink: 0 }} />
+                    <AlertCircle size={16} style={{ color: displayTone, flexShrink: 0 }} />
                   )}
                   {displayState === 'unsaved' && (
-                    <AlertCircle size={16} style={{ color: '#ef6c00', flexShrink: 0 }} />
+                    <AlertCircle size={16} style={{ color: displayTone, flexShrink: 0 }} />
                   )}
                   {displayState === 'idle' && (
-                    <CheckCircle size={16} style={{ color: '#2e7d32', flexShrink: 0 }} />
+                    <CheckCircle size={16} style={{ color: displayTone, flexShrink: 0 }} />
                   )}
                   <div style={{ flex: 1 }}>
                     <div style={{ fontSize: '0.9rem', fontWeight: 600, color: displayTone || theme.canvas.textPrimary }}>

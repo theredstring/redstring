@@ -3,12 +3,7 @@ import { useTheme } from '../../hooks/useTheme.js';
 import SectionCard from './shared/SectionCard.jsx';
 import PanelIconButton from '../shared/PanelIconButton.jsx';
 
-const STATUS_COLORS = {
-  success: '#2e7d32',
-  warning: '#ef6c00',
-  error: '#c62828',
-  info: '#1565c0'
-};
+// moved STATUS_COLORS inside component
 
 
 const AuthSection = ({
@@ -28,6 +23,13 @@ const AuthSection = ({
   isSlim = false
 }) => {
   const theme = useTheme();
+
+  const STATUS_COLORS = {
+    success: theme.darkMode ? '#E7E79E' : '#354702',
+    warning: theme.darkMode ? '#b39ddb' : '#512da8',
+    error: theme.darkMode ? '#C09191' : '#7A0000',
+    info: theme.darkMode ? '#64b5f6' : '#1565c0'
+  };
   // If not logged in and not loading
 
   return (
@@ -50,10 +52,10 @@ const AuthSection = ({
 
       <div
         style={{
-          border: `1px solid ${statusBadge.tone}`,
+          border: `1px solid ${theme.canvas.border}`,
           borderRadius: 6,
           padding: '10px 12px',
-          backgroundColor: 'rgba(255,255,255,0.15)',
+          backgroundColor: theme.canvas.bg,
           display: 'flex',
           flexDirection: 'column',
           gap: 6
@@ -61,7 +63,7 @@ const AuthSection = ({
       >
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           <Shield size={20} fill={statusBadge.tone} color="transparent" strokeWidth={0} />
-          <span style={{ fontWeight: 600 }}>{statusBadge.label}</span>
+          <span style={{ fontWeight: 700, color: statusBadge.tone }}>{statusBadge.label}</span>
         </div>
         <div style={{ fontSize: '0.75rem', color: theme.canvas.textPrimary, display: 'flex', flexDirection: 'column', gap: 4 }}>
           <div>{hasApp ? 'GitHub App ready for auto-sync' : 'Install GitHub App for auto-sync'}</div>
@@ -87,7 +89,7 @@ const AuthSection = ({
             {hasOAuth ? (
               <span style={{ fontSize: '0.7rem', color: STATUS_COLORS.success, fontWeight: 700 }}>Connected</span>
             ) : (
-               <span style={{ fontSize: '0.7rem', color: theme.canvas.textSecondary }}>Not connected</span>
+               <span style={{ fontSize: '0.7rem', color: STATUS_COLORS.error, fontWeight: 700 }}>Not connected</span>
             )}
           </div>
           <div style={{ fontSize: '0.75rem', color: theme.canvas.textSecondary }}>Browse and manage repositories</div>
@@ -127,7 +129,7 @@ const AuthSection = ({
             {hasApp ? (
               <span style={{ fontSize: '0.7rem', color: STATUS_COLORS.success, fontWeight: 700 }}>Installed</span>
             ) : (
-               <span style={{ fontSize: '0.7rem', color: theme.canvas.textSecondary }}>Not installed</span>
+               <span style={{ fontSize: '0.7rem', color: STATUS_COLORS.error, fontWeight: 700 }}>Not installed</span>
             )}
           </div>
           <div style={{ fontSize: '0.75rem', color: theme.canvas.textSecondary }}>Enables secure auto-sync with Git</div>

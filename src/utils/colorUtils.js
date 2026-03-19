@@ -143,11 +143,13 @@ export const getTextColor = (backgroundColor, isDarkMode = false) => {
   if (h > 45 && h < 70) {
     hueAdjustment = 20;       // Yellow
   } else if (h >= 70 && h < 150) {
-    hueAdjustment = 20;       // Yellow-green / Green
+    hueAdjustment = 15;       // Yellow-green / Green (reduced from 20 for earlier light text on dark greens)
   } else if (h >= 150 && h < 200) {
     hueAdjustment = 15;       // Cyan / Light blue
   } else if (h >= 200 && h < 260) {
     hueAdjustment = 5;        // Blue (perceptually dark, needs less adjustment)
+  } else if (h >= 260 && h < 320) {
+    hueAdjustment = -5;       // Purple (darker purples get light text sooner)
   }
 
   // Low saturation = more washed out = appears brighter, needs dark text sooner
@@ -185,11 +187,13 @@ export const getInvertedTextColor = (backgroundColor, isDarkMode = false) => {
   if (h > 45 && h < 70) {
     hueAdjustment = 20;
   } else if (h >= 70 && h < 150) {
-    hueAdjustment = 20;
+    hueAdjustment = 15;       // Reduced from 20 for earlier light text on dark greens
   } else if (h >= 150 && h < 200) {
     hueAdjustment = 15;
   } else if (h >= 200 && h < 260) {
     hueAdjustment = 5;
+  } else if (h >= 260 && h < 320) {
+    hueAdjustment = -5;       // Darker purples get light text sooner
   }
 
   if (hueAdjustment > 0 && s < 50) {

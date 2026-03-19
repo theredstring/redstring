@@ -11,13 +11,6 @@ import {
 } from 'lucide-react';
 import { useTheme } from '../../hooks/useTheme.js';
 
-const STATUS_COLORS = {
-  success: '#2e7d32',
-  warning: '#ef6c00',
-  error: '#c62828',
-  info: '#1565c0'
-};
-
 function formatWhen(timestamp) {
   if (!timestamp) return 'Never';
   try {
@@ -40,6 +33,15 @@ function formatWhen(timestamp) {
 }
 
 const ConnectionStats = ({ universe, syncStatus, isSlim = false }) => {
+  const theme = useTheme();
+  
+  const STATUS_COLORS = {
+    success: theme.darkMode ? '#E7E79E' : '#354702',
+    warning: theme.darkMode ? '#b39ddb' : '#512da8', // Purple variants to replace the previous orange
+    error: theme.darkMode ? '#C09191' : '#7A0000',
+    info: theme.darkMode ? '#64b5f6' : '#1565c0'
+  };
+
   const sync = universe.sync || {};
   const engine = sync.engine || syncStatus || {};
 
@@ -50,7 +52,7 @@ const ConnectionStats = ({ universe, syncStatus, isSlim = false }) => {
     value: sync.label || 'Unknown',
     tone: sync.tone || STATUS_COLORS.info,
     description: sync.description || '',
-    icon: <GitBranch size={12} />
+    icon: <GitBranch />
   });
 
   cards.push({
@@ -58,7 +60,7 @@ const ConnectionStats = ({ universe, syncStatus, isSlim = false }) => {
     value: typeof sync.pendingCommits === 'number' ? sync.pendingCommits : '—',
     tone: sync.pendingCommits > 0 ? STATUS_COLORS.warning : STATUS_COLORS.success,
     description: sync.pendingCommits > 0 ? 'Changes queued for the next push.' : 'Working tree clean.',
-    icon: sync.pendingCommits > 0 ? <RefreshCw size={12} /> : <Save size={12} />
+    icon: sync.pendingCommits > 0 ? <RefreshCw /> : <Save />
   });
 
   // Explicit unsaved-changes indicator (includes engine.hasChanges or pending commits)
@@ -68,7 +70,7 @@ const ConnectionStats = ({ universe, syncStatus, isSlim = false }) => {
     value: unsaved ? 'Yes' : 'No',
     tone: unsaved ? STATUS_COLORS.warning : STATUS_COLORS.success,
     description: unsaved ? 'There are edits not yet committed to Git.' : 'All changes are persisted.',
-    icon: unsaved ? <RefreshCw size={12} /> : <CheckCircle size={12} />
+    icon: unsaved ? <RefreshCw /> : <CheckCircle />
   });
 
   cards.push({
@@ -76,7 +78,7 @@ const ConnectionStats = ({ universe, syncStatus, isSlim = false }) => {
     value: sync.isHealthy === false ? 'Degraded' : (sync.isHealthy === true ? 'Healthy' : 'Unknown'),
     tone: sync.isHealthy === true ? STATUS_COLORS.success : (sync.isHealthy === false ? STATUS_COLORS.error : STATUS_COLORS.info),
     description: sync.isInBackoff ? 'Engine is backing off after repeated failures.' : (sync.isHealthy === true ? 'Background commits available.' : 'Monitoring background sync status.'),
-    icon: sync.isHealthy === true ? <CheckCircle size={12} color={STATUS_COLORS.success} /> : <AlertCircle size={12} color={sync.isHealthy === false ? STATUS_COLORS.error : STATUS_COLORS.warning} />
+    icon: sync.isHealthy === true ? <CheckCircle /> : <AlertCircle />
   });
 
   cards.push({
@@ -84,7 +86,7 @@ const ConnectionStats = ({ universe, syncStatus, isSlim = false }) => {
     value: sync.lastSync ? formatWhen(sync.lastSync) : 'Never',
     tone: STATUS_COLORS.info,
     description: engine.lastCommitTime ? `Last commit at ${formatWhen(engine.lastCommitTime)}` : 'No commits recorded yet.',
-    icon: <Clock size={12} />
+    icon: <Clock />
   });
 
   const localFile = universe.raw?.localFile;
@@ -97,7 +99,7 @@ const ConnectionStats = ({ universe, syncStatus, isSlim = false }) => {
       description: localConnected
         ? 'Autosave to local disk is active.'
         : 'Pick or reconnect a file handle to enable autosave.',
-      icon: <Save size={12} />
+      icon: <Save />
     });
   }
 
@@ -111,10 +113,10 @@ const ConnectionStats = ({ universe, syncStatus, isSlim = false }) => {
         ? 'Local file is primary. Git operates as backup.'
         : 'Browser cache currently holds the latest state.',
     icon: universe.sourceOfTruth === 'git'
-      ? <Github size={12} />
+      ? <Github />
       : universe.sourceOfTruth === 'local'
-        ? <Save size={12} />
-        : <Cloud size={12} />
+        ? <Save />
+        : <Cloud />
   });
 
   if (sync.consecutiveErrors > 0) {
@@ -123,35 +125,32 @@ const ConnectionStats = ({ universe, syncStatus, isSlim = false }) => {
       value: sync.consecutiveErrors,
       tone: STATUS_COLORS.error,
       description: sync.lastErrorTime ? `Last error at ${formatWhen(sync.lastErrorTime)}` : 'Recent sync errors detected.',
-      icon: <AlertCircle size={12} color={STATUS_COLORS.error} />
+      icon: <AlertCircle />
     });
   }
 
-  const theme = useTheme();
-
   return (
-    <div style={{ display: 'grid', gap: 5, gridTemplateColumns: isSlim ? '1fr' : 'repeat(auto-fit, minmax(140px, 1fr))' }}>
+    <div style={{ display: 'grid', gap: 8, gridTemplateColumns: isSlim ? '1fr' : 'repeat(auto-fit, minmax(180px, 1fr))' }}>
       {cards.map((card, idx) => (
         <div
           key={`${card.title}-${idx}`}
           style={{
-            border: `1px solid ${card.tone}`,
-            backgroundColor: 'rgba(255,255,255,0.15)',
-            borderRadius: 6,
-            padding: 6,
+            border: `1px solid ${theme.canvas.border}`,
+            backgroundColor: theme.canvas.bg,
+            borderRadius: 8,
+            padding: 12,
             display: 'flex',
             flexDirection: 'column',
-            gap: 2,
-            minHeight: 56
+            gap: 6
           }}
         >
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', color: theme.canvas.textPrimary }}>
-            <div style={{ fontSize: '0.68rem', fontWeight: 700 }}>{card.title}</div>
-            {card.icon || null}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, color: card.tone }}>
+            {card.icon ? React.cloneElement(card.icon, { size: 18, strokeWidth: 2.5 }) : null}
+            <div style={{ fontSize: '0.9rem', fontWeight: 800 }}>{card.value}</div>
           </div>
-          <div style={{ fontSize: '0.85rem', fontWeight: 700, color: card.tone }}>{card.value}</div>
+          <div style={{ fontSize: '0.75rem', fontWeight: 700, color: theme.canvas.textPrimary }}>{card.title}</div>
           {card.description && (
-            <div style={{ fontSize: '0.63rem', color: theme.canvas.textSecondary, lineHeight: 1.2 }}>{card.description}</div>
+            <div style={{ fontSize: '0.65rem', color: theme.canvas.textSecondary, lineHeight: 1.3 }}>{card.description}</div>
           )}
         </div>
       ))}
