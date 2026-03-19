@@ -332,7 +332,7 @@ const UnifiedSelector = ({
                   padding: isSmallScreen ? '12px 14px' : '10px 16px',
                   borderTopLeftRadius: '16px',
                   borderTopRightRadius: '16px',
-                  color: '#FFFFFF',
+                  color: theme.canvas.textPrimary,
                   fontFamily: "'EmOne', sans-serif",
                   fontWeight: 'bold',
                   fontSize: isSmallScreen ? '15px' : '14px',
