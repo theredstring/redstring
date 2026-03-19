@@ -1,5 +1,5 @@
 import React from 'react';
-import { Bot, Key, Settings, RotateCcw, Undo2, Send, User, Square, Copy, Trash2, Brain, Wrench, Plus, X } from 'lucide-react';
+import { Bot, Key, Settings, RotateCcw, Undo2, Send, User, Square, Copy, Brain, Wrench, Plus, X, ChevronDown } from 'lucide-react';
 import * as fileStorage from '../../../store/fileStorage.js';
 import APIKeySetup from '../../../ai/components/APIKeySetup.jsx';
 import mcpClient from '../../../services/mcpClient.js';
@@ -1497,14 +1497,6 @@ const LeftAIView = ({ compact = false,
   const [isProcessing, setIsProcessing] = React.useState(false);
   const [showAdvanced, setShowAdvanced] = React.useState(false);
   const [currentApiConfig, setCurrentApiConfig] = React.useState(null);
-
-  // Load current API config when advanced options are shown
-  React.useEffect(() => {
-    if (showAdvanced) {
-      apiKeyManager.getAPIKeyInfo().then(setCurrentApiConfig);
-    }
-  }, [showAdvanced]);
-
   const [showToolsDropdown, setShowToolsDropdown] = React.useState(false);
   const [wizardTools, setWizardTools] = React.useState([]);
   const [selectedTestTool, setSelectedTestTool] = React.useState(null);
@@ -1513,6 +1505,27 @@ const LeftAIView = ({ compact = false,
   const [hasAPIKey, setHasAPIKey] = React.useState(false);
   const [apiKeyInfo, setApiKeyInfo] = React.useState(null);
   const [viewMode, setViewMode] = React.useState('wizard'); // 'wizard', 'chat', 'druid'
+  const [showModeMenu, setShowModeMenu] = React.useState(false);
+  const modeMenuRef = React.useRef(null);
+
+  // Load current API config when advanced options are shown
+  React.useEffect(() => {
+    if (showAdvanced) {
+      apiKeyManager.getAPIKeyInfo().then(setCurrentApiConfig);
+    }
+  }, [showAdvanced]);
+
+  // Close mode menu when clicking outside
+  React.useEffect(() => {
+    if (!showModeMenu) return;
+    const handleClickOutside = (event) => {
+      if (modeMenuRef.current && !modeMenuRef.current.contains(event.target)) {
+        setShowModeMenu(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [showModeMenu]);
   const [currentAgentRequest, setCurrentAgentRequest] = React.useState(null);
   const [wizardStage, setWizardStage] = React.useState(null); // Track current wizard stage
   const [druidInstance, setDruidInstance] = React.useState(null); // Druid cognitive state manager
@@ -3052,17 +3065,20 @@ const LeftAIView = ({ compact = false,
     <div className="ai-header-actions">
       <PanelIconButton
         icon={Plus}
+        size={18}
         onClick={handleNewConversation}
         title="New Conversation"
       />
       <PanelIconButton
         icon={Key}
+        size={18}
         active={showAPIKeySetup}
         onClick={() => setShowAPIKeySetup(!showAPIKeySetup)}
         title={hasAPIKey ? 'Manage API Key' : 'Setup API Key'}
       />
       <PanelIconButton
         icon={Settings}
+        size={18}
         active={showAdvanced}
         onClick={() => setShowAdvanced(!showAdvanced)}
         title="Advanced Options"
@@ -3070,6 +3086,7 @@ const LeftAIView = ({ compact = false,
       <div style={{ position: 'relative', display: 'inline-block' }}>
         <PanelIconButton
           icon={Wrench}
+          size={18}
           active={showToolsDropdown}
           onClick={() => setShowToolsDropdown(!showToolsDropdown)}
           title="Test Tool Calls"
@@ -3144,18 +3161,14 @@ const LeftAIView = ({ compact = false,
       </div>
       <PanelIconButton
         icon={Copy}
+        size={18}
         onClick={handleCopyConversation}
         title="Copy conversation to clipboard"
         disabled={messages.length === 0}
       />
       <PanelIconButton
-        icon={Trash2}
-        onClick={handleClearConversation}
-        title="Clear conversation"
-        disabled={messages.length === 0}
-      />
-      <PanelIconButton
         icon={RotateCcw}
+        size={18}
         className={isConnected ? 'ai-refresh-button' : 'ai-connect-button'}
         onClick={refreshBridgeConnection}
         title={isConnected ? 'Bridge connected' : 'Reconnect bridge daemon'}
@@ -3170,15 +3183,76 @@ const LeftAIView = ({ compact = false,
       <div className="ai-panel-header">
         {!compact ? (
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%', gridColumn: '1 / -1' }}>
-            <div className="ai-mode-dropdown">
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
               <div className="ai-status-indicator-wrapper">
                 <div className={`ai-status-indicator ${isConnected ? 'connected' : 'disconnected'}`} />
               </div>
-              <select className="ai-mode-select" value={viewMode} onChange={(e) => setViewMode(e.target.value)} aria-label="Mode">
-                <option value="wizard">The Wizard</option>
-                <option value="druid">The Druid</option>
-                <option value="chat">Chat</option>
-              </select>
+              <div ref={modeMenuRef} style={{ position: 'relative' }}>
+                <button
+                  onClick={() => setShowModeMenu(!showModeMenu)}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 6,
+                    background: '#260000',
+                    color: '#DEDADA',
+                    border: 'none',
+                    borderRadius: 6,
+                    padding: '7px 10px',
+                    fontFamily: 'EmOne, sans-serif',
+                    fontSize: 14,
+                    fontWeight: 600,
+                    cursor: 'pointer',
+                    whiteSpace: 'nowrap',
+                    transition: 'background 0.15s ease'
+                  }}
+                  onMouseEnter={e => e.currentTarget.style.background = '#3b0000'}
+                  onMouseLeave={e => e.currentTarget.style.background = '#260000'}
+                >
+                  {viewMode === 'wizard' ? 'The Wizard' : 'Chat'}
+                  <ChevronDown size={13} style={{ opacity: 0.8, transition: 'transform 0.15s ease', transform: showModeMenu ? 'rotate(180deg)' : 'rotate(0deg)' }} />
+                </button>
+                {showModeMenu && (
+                  <div style={{
+                    position: 'absolute',
+                    top: '100%',
+                    left: 0,
+                    marginTop: 4,
+                    backgroundColor: theme.canvas.bg,
+                    border: `1px solid ${theme.canvas.border}`,
+                    borderRadius: 6,
+                    boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
+                    zIndex: 1000,
+                    minWidth: 160
+                  }}>
+                    {[{ value: 'wizard', label: 'The Wizard' }, { value: 'chat', label: 'Chat' }].map(opt => (
+                      <button
+                        key={opt.value}
+                        onClick={() => { setViewMode(opt.value); setShowModeMenu(false); }}
+                        style={{
+                          width: '100%',
+                          padding: '7px 10px',
+                          border: 'none',
+                          background: viewMode === opt.value ? theme.canvas.inactive : 'none',
+                          textAlign: 'left',
+                          cursor: 'pointer',
+                          fontSize: '0.8rem',
+                          fontWeight: viewMode === opt.value ? 700 : 600,
+                          color: viewMode === opt.value ? theme.canvas.textPrimary : theme.canvas.textSecondary,
+                          fontFamily: 'EmOne, sans-serif',
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: 6
+                        }}
+                        onMouseEnter={e => { if (viewMode !== opt.value) e.currentTarget.style.backgroundColor = theme.canvas.hover; }}
+                        onMouseLeave={e => { if (viewMode !== opt.value) e.currentTarget.style.backgroundColor = 'transparent'; }}
+                      >
+                        {opt.label}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
             </div>
             <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
               {headerActionsEl}
@@ -3186,15 +3260,76 @@ const LeftAIView = ({ compact = false,
           </div>
         ) : (
           <div style={{ display: 'flex', flexDirection: 'column', width: '100%', gridColumn: '1 / -1' }}>
-            <div className="ai-mode-dropdown">
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
               <div className="ai-status-indicator-wrapper">
                 <div className={`ai-status-indicator ${isConnected ? 'connected' : 'disconnected'}`} />
               </div>
-              <select className="ai-mode-select" value={viewMode} onChange={(e) => setViewMode(e.target.value)} aria-label="Mode">
-                <option value="wizard">The Wizard</option>
-                <option value="druid">The Druid</option>
-                <option value="chat">Chat</option>
-              </select>
+              <div ref={modeMenuRef} style={{ position: 'relative' }}>
+                <button
+                  onClick={() => setShowModeMenu(!showModeMenu)}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 6,
+                    background: '#260000',
+                    color: '#DEDADA',
+                    border: 'none',
+                    borderRadius: 6,
+                    padding: '7px 10px',
+                    fontFamily: 'EmOne, sans-serif',
+                    fontSize: 14,
+                    fontWeight: 600,
+                    cursor: 'pointer',
+                    whiteSpace: 'nowrap',
+                    transition: 'background 0.15s ease'
+                  }}
+                  onMouseEnter={e => e.currentTarget.style.background = '#3b0000'}
+                  onMouseLeave={e => e.currentTarget.style.background = '#260000'}
+                >
+                  {viewMode === 'wizard' ? 'The Wizard' : 'Chat'}
+                  <ChevronDown size={13} style={{ opacity: 0.8, transition: 'transform 0.15s ease', transform: showModeMenu ? 'rotate(180deg)' : 'rotate(0deg)' }} />
+                </button>
+                {showModeMenu && (
+                  <div style={{
+                    position: 'absolute',
+                    top: '100%',
+                    left: 0,
+                    marginTop: 4,
+                    backgroundColor: theme.canvas.bg,
+                    border: `1px solid ${theme.canvas.border}`,
+                    borderRadius: 6,
+                    boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
+                    zIndex: 1000,
+                    minWidth: 160
+                  }}>
+                    {[{ value: 'wizard', label: 'The Wizard' }, { value: 'chat', label: 'Chat' }].map(opt => (
+                      <button
+                        key={opt.value}
+                        onClick={() => { setViewMode(opt.value); setShowModeMenu(false); }}
+                        style={{
+                          width: '100%',
+                          padding: '7px 10px',
+                          border: 'none',
+                          background: viewMode === opt.value ? theme.canvas.inactive : 'none',
+                          textAlign: 'left',
+                          cursor: 'pointer',
+                          fontSize: '0.8rem',
+                          fontWeight: viewMode === opt.value ? 700 : 600,
+                          color: viewMode === opt.value ? theme.canvas.textPrimary : theme.canvas.textSecondary,
+                          fontFamily: 'EmOne, sans-serif',
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: 6
+                        }}
+                        onMouseEnter={e => { if (viewMode !== opt.value) e.currentTarget.style.backgroundColor = theme.canvas.hover; }}
+                        onMouseLeave={e => { if (viewMode !== opt.value) e.currentTarget.style.backgroundColor = 'transparent'; }}
+                      >
+                        {opt.label}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
             </div>
             <div style={{ display: 'flex', justifyContent: 'flex-start', marginTop: 8, paddingLeft: 6 }}>
               {headerActionsEl}

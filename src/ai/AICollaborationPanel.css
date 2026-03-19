@@ -209,55 +209,11 @@ html.dark-mode .ai-tab.active {
 }
 
 /* Mode dropdown styling */
-.ai-mode-dropdown {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
 .ai-status-indicator-wrapper {
   display: flex;
   align-items: center;
 }
 
-.ai-mode-select {
-  background: #260000;
-  color: #DEDADA;
-  border: none;
-  padding: 8px 20px 8px 10px;
-  /* more right padding for arrow, less left */
-  border-radius: 6px;
-  font-family: 'EmOne', sans-serif;
-  font-size: 14px;
-  cursor: pointer;
-  outline: none;
-  -webkit-appearance: none;
-  -moz-appearance: none;
-  appearance: none;
-}
-
-.ai-mode-dropdown {
-  position: relative;
-}
-
-.ai-mode-dropdown::after {
-  content: '▾';
-  position: absolute;
-  right: 8px;
-  top: 50%;
-  transform: translateY(-50%);
-  color: #DEDADA;
-  pointer-events: none;
-}
-
-.ai-mode-select:hover {
-  background: #3b0000;
-}
-
-.ai-mode-select option {
-  background: #260000;
-  color: #DEDADA;
-}
 
 .ai-status-indicator {
   width: 8px;
@@ -296,13 +252,15 @@ html.dark-mode .ai-tab.active {
   color: rgba(38, 0, 0, 0.7);
 }
 
-/* Header actions - buttons in header (right aligned) */
+/* Header actions - 3x2 grid layout matching right panel buttons */
 .ai-header-actions {
-  display: flex;
-  gap: 8px;
+  display: grid;
+  grid-template-columns: repeat(3, auto);
+  gap: 6px;
   align-items: center;
   justify-self: end;
 }
+
 
 .ai-flat-button {
   background: none;

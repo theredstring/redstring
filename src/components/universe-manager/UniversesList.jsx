@@ -61,7 +61,8 @@ const UniversesList = ({
   const [showLoadMenu, setShowLoadMenu] = useState(false);
   const [showNewMenu, setShowNewMenu] = useState(false);
   const [showLocalFileMenu, setShowLocalFileMenu] = useState(null); // Track which universe's menu is open
-  const [isHeaderSlim, setIsHeaderSlim] = useState(false); // Track if header should stack at < 400px
+  const [isHeaderSlim, setIsHeaderSlim] = useState(false); // Track if header should stack at < 480px
+  const [isVerySlim, setIsVerySlim] = useState(false); // Track if container is < 320px for aggressive space-saving
   const [workspaceFolder, setWorkspaceFolder] = useState(() => {
     try {
       return localStorage.getItem('redstring_workspace_folder_name') || null;
@@ -99,6 +100,7 @@ const UniversesList = ({
       for (const entry of entries) {
         const width = entry.contentRect?.width || el.clientWidth || 0;
         setIsHeaderSlim(width < 480);
+        setIsVerySlim(width < 320);
       }
     });
 
@@ -191,6 +193,13 @@ const UniversesList = ({
     }
   };
 
+  // Helper function for responsive sizing
+  const getResponsiveValue = (normalValue, slimValue, verySlimValue) => {
+    if (isVerySlim) return verySlimValue;
+    if (isSlim) return slimValue;
+    return normalValue;
+  };
+
   return (
     <div ref={containerRef}>
       <SectionCard
@@ -201,10 +210,17 @@ const UniversesList = ({
           <div style={{ display: 'flex', gap: 6 }}>
             <div ref={loadMenuRef} style={{ position: 'relative' }}>
               <PanelIconButton
-                icon={Download}
-                label={<React.Fragment>Load <ChevronDown size={12} /></React.Fragment>}
+                icon={Upload}
+                size={isVerySlim ? 16 : 18}
+                label={isVerySlim ? null : (
+                  <React.Fragment>
+                    Load <ChevronDown size={12} style={{ verticalAlign: 'middle', marginBottom: '1px' }} />
+                  </React.Fragment>
+                )}
                 variant="outline"
+                style={isVerySlim ? { padding: '5px' } : {}}
                 onClick={() => setShowLoadMenu(!showLoadMenu)}
+                title={isVerySlim ? "Load" : undefined}
               />
               {showLoadMenu && (
                 <div style={{
@@ -270,9 +286,16 @@ const UniversesList = ({
             <div ref={newMenuRef} style={{ position: 'relative' }}>
               <PanelIconButton
                 icon={Plus}
-                label={<React.Fragment>New <ChevronDown size={12} /></React.Fragment>}
+                size={isVerySlim ? 16 : 18}
+                label={isVerySlim ? null : (
+                  <React.Fragment>
+                    New <ChevronDown size={12} style={{ verticalAlign: 'middle', marginBottom: '1px' }} />
+                  </React.Fragment>
+                )}
                 variant="solid"
+                style={isVerySlim ? { padding: '5px' } : {}}
                 onClick={() => setShowNewMenu(!showNewMenu)}
+                title={isVerySlim ? "New" : undefined}
               />
               {showNewMenu && (
                 <div style={{
@@ -339,7 +362,7 @@ const UniversesList = ({
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
           {/* Workspace Folder Section */}
           <div style={{
-            padding: '10px 12px',
+            padding: isVerySlim ? '8px 10px' : '10px 12px',
             backgroundColor: theme.canvas.bg,
             borderRadius: 6,
             border: `1px solid ${theme.canvas.border}`,
@@ -350,16 +373,20 @@ const UniversesList = ({
           }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, flex: 1, minWidth: 0 }}>
               {workspaceFolder ? (
-                <FolderOpen size={18} color={theme.darkMode ? '#CCAAA8' : theme.canvas.brand} />
+                <FolderOpen size={isVerySlim ? 16 : 18} color={theme.darkMode ? '#CCAAA8' : theme.canvas.brand} />
               ) : (
-                <Folder size={18} color={theme.darkMode ? '#CCAAA8' : theme.canvas.textSecondary} />
+                <Folder size={isVerySlim ? 16 : 18} color={theme.darkMode ? '#CCAAA8' : theme.canvas.textSecondary} />
               )}
               <div style={{ display: 'flex', flexDirection: 'column', minWidth: 0 }}>
-                <span style={{ fontSize: '0.72rem', fontWeight: 600, color: theme.canvas.textPrimary }}>
+                <span style={{
+                  fontSize: isVerySlim ? '0.68rem' : '0.72rem',
+                  fontWeight: 600,
+                  color: theme.canvas.textPrimary
+                }}>
                   Workspace Folder
                 </span>
                 <span style={{
-                  fontSize: '0.65rem',
+                  fontSize: isVerySlim ? '0.6rem' : '0.65rem',
                   color: workspaceFolder ? theme.canvas.textPrimary : theme.canvas.textSecondary,
                   overflow: 'hidden',
                   textOverflow: 'ellipsis',
@@ -369,17 +396,23 @@ const UniversesList = ({
                 </span>
               </div>
             </div>
-            <div style={{ display: 'flex', gap: 4, flexShrink: 0 }}>
+            <div style={{
+              display: 'flex',
+              gap: isVerySlim ? 2 : 4,
+              flexShrink: 0
+            }}>
               <PanelIconButton
                 icon={workspaceFolder ? FolderOpen : Upload}
-                size={18}
+                size={isVerySlim ? 14 : 18}
+                style={isVerySlim ? { padding: '5px' } : {}}
                 onClick={handlePickWorkspaceFolder}
                 title={workspaceFolder ? 'Change workspace folder' : 'Choose workspace folder'}
               />
               {workspaceFolder && (
                 <PanelIconButton
                   icon={X}
-                  size={16}
+                  size={isVerySlim ? 12 : 16}
+                  style={isVerySlim ? { padding: '6px' } : {}}
                   onClick={handleClearWorkspaceFolder}
                   title="Unlink workspace folder"
                 />
@@ -450,67 +483,75 @@ const UniversesList = ({
                   }}
                 >
                   {/* Header */}
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, flex: 1 }}>
-                      <div style={{ textAlign: 'left' }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                          <span style={{ fontWeight: 600, color: theme.canvas.textPrimary }}>{universe.name}</span>
-                          {isActive && (
-                            <span style={{
-                              fontSize: '0.6rem',
-                              padding: '2px 6px',
-                              borderRadius: 10,
-                              backgroundColor: theme.canvas.brand,
-                              color: '#DEDADA',
-                              fontWeight: 700
-                            }}>
-                              ACTIVE
-                            </span>
-                          )}
-                        </div>
-                        <div style={{
-                          fontSize: isSlim ? '0.65rem' : '0.7rem',
-                          color: theme.canvas.textSecondary,
-                          marginTop: 2,
-                          display: 'flex',
-                          gap: isSlim ? 6 : 8,
-                          flexWrap: 'wrap'
-                        }}>
-                          <span>{graphCount} webs</span>
-                          <span>·</span>
-                          <span>{nodeCount} things</span>
-                          {!isSlim && (
-                            <>
-                              <span>·</span>
-                              <span>{connectionCount} connections</span>
-                            </>
-                          )}
-                        </div>
+                  <div style={{
+                    display: 'flex',
+                    flexDirection: isVerySlim ? 'column' : 'row',
+                    justifyContent: isVerySlim ? 'flex-start' : 'space-between',
+                    alignItems: isVerySlim ? 'flex-start' : 'center',
+                    gap: isVerySlim ? 8 : 0
+                  }}>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 4, flex: 1 }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                        <span style={{ fontWeight: 600, color: theme.canvas.textPrimary }}>{universe.name}</span>
+                        {isActive && (
+                          <span style={{
+                            fontSize: '0.6rem',
+                            padding: '2px 6px',
+                            borderRadius: 10,
+                            backgroundColor: theme.canvas.brand,
+                            color: '#DEDADA',
+                            fontWeight: 700
+                          }}>
+                            ACTIVE
+                          </span>
+                        )}
+                      </div>
+                      <div style={{
+                        fontSize: isSlim ? '0.65rem' : '0.7rem',
+                        color: theme.canvas.textSecondary,
+                        display: 'flex',
+                        gap: isSlim ? 6 : 8,
+                        flexWrap: 'wrap'
+                      }}>
+                        <span>{graphCount} webs</span>
+                        <span>·</span>
+                        <span>{nodeCount} things</span>
+                        {!isSlim && (
+                          <>
+                            <span>·</span>
+                            <span>{connectionCount} connections</span>
+                          </>
+                        )}
                       </div>
                     </div>
-                    <div style={{
-                      display: 'flex',
-                      gap: isSlim ? 4 : 6,
-                      alignItems: 'center',
-                      flexShrink: 0
-                    }}>
-                      {!isActive && (
-                        <PanelIconButton
-                          icon={ArrowRightLeft}
-                          size={isSlim ? 18 : 20}
-                          onClick={() => onSwitchUniverse(universe.slug)}
-                          title="Switch to this universe"
-                        />
-                      )}
-                      {universes.length > 1 && (
-                        <PanelIconButton
-                          icon={X}
-                          size={isSlim ? 18 : 20}
-                          onClick={() => onDeleteUniverse(universe.slug, universe.name)}
-                          title="Delete universe"
-                        />
-                      )}
-                    </div>
+                    {/* Action buttons - on right in normal mode, below in very-slim mode */}
+                    {(!isActive || universes.length > 1) && (
+                      <div style={{
+                        display: 'flex',
+                        gap: isVerySlim ? 2 : (isSlim ? 4 : 6),
+                        alignItems: 'center',
+                        flexShrink: 0
+                      }}>
+                        {!isActive && (
+                          <PanelIconButton
+                            icon={ArrowRightLeft}
+                            size={isVerySlim ? 14 : (isSlim ? 18 : 20)}
+                            style={isVerySlim ? { padding: '5px' } : {}}
+                            onClick={() => onSwitchUniverse(universe.slug)}
+                            title="Switch to this universe"
+                          />
+                        )}
+                        {universes.length > 1 && (
+                          <PanelIconButton
+                            icon={X}
+                            size={isVerySlim ? 14 : (isSlim ? 18 : 20)}
+                            style={isVerySlim ? { padding: '5px' } : {}}
+                            onClick={() => onDeleteUniverse(universe.slug, universe.name)}
+                            title="Delete universe"
+                          />
+                        )}
+                      </div>
+                    )}
                   </div>
 
                   {/* Expanded Content - Only for Active Universe */}
@@ -550,13 +591,14 @@ const UniversesList = ({
                                 <div style={{
                                   display: 'flex',
                                   alignItems: 'center',
-                                  gap: isSlim ? 2 : 4,
+                                  gap: isVerySlim ? 1 : (isSlim ? 2 : 4),
                                   flexShrink: 0
                                 }}>
                                   {onDownloadRepoFile && (
                                     <PanelIconButton
                                       icon={Download}
-                                      size={isSlim ? 16 : 18}
+                                      size={isVerySlim ? 14 : (isSlim ? 16 : 18)}
+                                      style={isVerySlim ? { padding: '5px' } : {}}
                                       onClick={(e) => {
                                         e.stopPropagation();
                                         onDownloadRepoFile(universe.slug);
@@ -566,7 +608,8 @@ const UniversesList = ({
                                   )}
                                   <PanelIconButton
                                     icon={X}
-                                    size={isSlim ? 16 : 18}
+                                    size={isVerySlim ? 14 : (isSlim ? 16 : 18)}
+                                    style={isVerySlim ? { padding: '5px' } : {}}
                                     onClick={(e) => {
                                       e.stopPropagation();
                                       if (onRemoveRepoSource && universe.raw.gitRepo?.linkedRepo) {
@@ -707,18 +750,20 @@ const UniversesList = ({
                             }}>
                                 <PanelIconButton
                                   icon={Plus}
-                                  label="Add Repository"
+                                  label={isVerySlim ? null : "Add Repository"}
                                   variant="outline"
-                                  size={12}
+                                  size={isVerySlim ? 14 : 12}
                                   strokeWidth={2}
                                   hoverStrokeWidth={4}
                                   hoverTextColor={theme.accent.primary}
                                   style={{
                                     fontSize: '0.7rem',
                                     color: theme.canvas.textSecondary,
-                                    borderColor: theme.canvas.border
+                                    borderColor: theme.canvas.border,
+                                    ...(isVerySlim && { padding: '5px' })
                                   }}
                                   onClick={() => onLinkRepo && onLinkRepo(universe.slug)}
+                                  title={isVerySlim ? "Add Repository" : undefined}
                                 />
                             </div>
                           )}
@@ -758,13 +803,14 @@ const UniversesList = ({
                                       <div style={{
                                         display: 'flex',
                                         alignItems: 'center',
-                                        gap: isSlim ? 2 : 4,
+                                        gap: isVerySlim ? 1 : (isSlim ? 2 : 4),
                                         flexShrink: 0
                                       }}>
                                         {onSwapLocalFile && (
                                           <PanelIconButton
                                             icon={ArrowRightLeft}
-                                            size={isSlim ? 16 : 18}
+                                            size={isVerySlim ? 14 : (isSlim ? 16 : 18)}
+                                            style={isVerySlim ? { padding: '5px' } : {}}
                                             onClick={(e) => {
                                               e.stopPropagation();
                                               onSwapLocalFile(universe.slug);
@@ -775,7 +821,8 @@ const UniversesList = ({
                                         {onDownloadLocalFile && (
                                           <PanelIconButton
                                             icon={Download}
-                                            size={isSlim ? 16 : 18}
+                                            size={isVerySlim ? 14 : (isSlim ? 16 : 18)}
+                                            style={isVerySlim ? { padding: '5px' } : {}}
                                             onClick={(e) => {
                                               e.stopPropagation();
                                               onDownloadLocalFile(universe.slug);
@@ -786,7 +833,8 @@ const UniversesList = ({
                                         {onRemoveLocalFile && (
                                           <PanelIconButton
                                             icon={X}
-                                            size={isSlim ? 16 : 18}
+                                            size={isVerySlim ? 14 : (isSlim ? 16 : 18)}
+                                            style={isVerySlim ? { padding: '5px' } : {}}
                                             onClick={(e) => {
                                               e.stopPropagation();
                                               onRemoveLocalFile(universe.slug);
@@ -1001,18 +1049,24 @@ const UniversesList = ({
                             >
                                 <PanelIconButton
                                   icon={Plus}
-                                  label={<React.Fragment>Add Local File <ChevronDown size={10} /></React.Fragment>}
+                                  label={isVerySlim ? null : (
+                                    <React.Fragment>
+                                      Add Local File <ChevronDown size={10} style={{ verticalAlign: 'middle', marginBottom: '1px' }} />
+                                    </React.Fragment>
+                                  )}
                                   variant="outline"
-                                  size={12}
+                                  size={isVerySlim ? 14 : 12}
                                   strokeWidth={2}
                                   hoverStrokeWidth={4}
                                   hoverTextColor={theme.accent.primary}
                                   style={{
                                     fontSize: '0.7rem',
                                     color: theme.canvas.textSecondary,
-                                    borderColor: theme.canvas.border
+                                    borderColor: theme.canvas.border,
+                                    ...(isVerySlim && { padding: '5px' })
                                   }}
                                   onClick={() => setShowLocalFileMenu(showLocalFileMenu === universe.slug ? null : universe.slug)}
+                                  title={isVerySlim ? "Add Local File" : undefined}
                                 />
 
                               {showLocalFileMenu === universe.slug && (

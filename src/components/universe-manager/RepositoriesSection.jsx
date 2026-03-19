@@ -31,30 +31,31 @@ const RepositoriesSection = ({
   const theme = useTheme();
   if (repositories.length === 0) {
     return (
-      <SectionCard 
-        title="Repositories" 
-        subtitle="Your curated list of repositories"
-        actions={
-          <PanelIconButton 
+      <SectionCard
+        title="Repositories"
+        subtitle="Your chosen repositories"
+      >
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+          <PanelIconButton
             icon={Github}
+            size={18}
             label="Add Repositories"
             variant="solid"
             onClick={onBrowseRepositories}
           />
-        }
-      >
-        <div
-          style={{
-            padding: 16,
-            border: `1px dashed ${theme.canvas.border}`,
-            borderRadius: 8,
-            backgroundColor: theme.canvas.bg,
-            textAlign: 'center',
-            color: theme.canvas.textSecondary,
-            fontSize: '0.8rem'
-          }}
-        >
-          No repositories in your list. Click "Add Repositories" to browse your GitHub repos and add them here.
+          <div
+            style={{
+              padding: 16,
+              border: `1px dashed ${theme.canvas.border}`,
+              borderRadius: 8,
+              backgroundColor: theme.canvas.bg,
+              textAlign: 'center',
+              color: theme.canvas.textSecondary,
+              fontSize: '0.8rem'
+            }}
+          >
+            No repositories in your list. Click "Add Repositories" to browse your GitHub repos and add them here.
+          </div>
         </div>
       </SectionCard>
     );
@@ -67,6 +68,7 @@ const RepositoriesSection = ({
       actions={
         <PanelIconButton 
           icon={Github}
+          size={18}
           label="Add More"
           variant="solid"
           onClick={onBrowseRepositories}

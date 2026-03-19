@@ -74,6 +74,7 @@ const SourcesSection = ({
                 <div style={{ display: 'flex', gap: 6 }}>
                   <PanelIconButton
                     icon={discovery.loading ? RotateCcw : Github}
+                    size={18}
                     onClick={() => onDiscover(source)}
                     label={discovery.loading ? 'Scanning…' : 'Discover universes'}
                     variant="outline"
@@ -82,6 +83,7 @@ const SourcesSection = ({
                   />
                   <PanelIconButton
                     icon={Trash2}
+                    size={18}
                     onClick={() => onDetach(source)}
                     label="Remove"
                     variant="danger"

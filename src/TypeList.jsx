@@ -328,13 +328,13 @@ const TypeList = ({ nodes, setSelectedNodes, selectedNodes = new Set() }) => {
           alignItems: 'center',
           justifyContent: 'center',
           background: headerBg,
-          border: '2px solid ' + (theme.canvas?.border || '#BDB5B5'), // Canvas color stroke
+          border: '2px solid ' + (theme.canvas?.bg || '#BDB5B5'), // Canvas color stroke
           borderRadius: '8px',
           padding: 0,
           cursor: 'pointer',
           color: '#EFE8E5',
           zIndex: 20000, // Higher than panels (10000)
-          boxShadow: '0 0 0 3px ' + (theme.canvas?.border || '#BDB5B5') + ', 0 2px 5px rgba(0, 0, 0, 0.2)',
+          boxShadow: '0 0 0 3px ' + (theme.canvas?.bg || '#BDB5B5') + ', 0 2px 5px rgba(0, 0, 0, 0.2)',
           transition: 'background-color 0.2s ease, color 0.2s ease'
         }}
       >

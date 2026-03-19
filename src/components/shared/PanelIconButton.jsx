@@ -75,7 +75,7 @@ const PanelIconButton = ({
     alignItems: 'center',
     justifyContent: 'center',
     gap: '8px',
-    padding: isPill ? '6px 14px' : '4px',
+    padding: isPill ? '6px 14px' : '6px',
     border: variant === 'outline' ? `1px solid ${theme.darkMode ? theme.canvas.border : 'rgba(38, 0, 0, 0.3)'}` : (isSolid ? `1px solid ${theme.canvas.textPrimary}` : 'none'),
     background: isSolid ? theme.canvas.textPrimary : 'transparent',
     backgroundColor: isSolid ? theme.canvas.textPrimary : 'transparent',
