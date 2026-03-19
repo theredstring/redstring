@@ -2,7 +2,9 @@ import React, { useState } from 'react';
 import CanvasModal from './CanvasModal';
 import MaroonSlider from './MaroonSlider.jsx';
 import useGraphStore from '../store/graphStore.jsx';
-import { Monitor, Grid3x3, Cable, Keyboard, Type } from 'lucide-react';
+import { useTheme } from '../hooks/useTheme.js';
+import { Monitor, Grid3x3, Cable, Keyboard, Type, Brain } from 'lucide-react';
+import AISection from './settings/AISection.jsx';
 import './SettingsModal.css';
 
 /**
@@ -11,6 +13,7 @@ import './SettingsModal.css';
  * Reads/writes settings directly via useGraphStore.
  */
 const SettingsModal = ({ isVisible, onClose }) => {
+  const theme = useTheme();
   const [activeSection, setActiveSection] = useState('display');
   const [viewportSize, setViewportSize] = useState(() => ({
     width: typeof window !== 'undefined' ? window.innerWidth : 1200,
@@ -26,6 +29,17 @@ const SettingsModal = ({ isVisible, onClose }) => {
     };
     window.addEventListener('resize', handleResize);
     return () => window.removeEventListener('resize', handleResize);
+  }, []);
+
+  // Handle opening to specific section via event
+  React.useEffect(() => {
+    const handleOpenSettings = (e) => {
+      if (e.detail?.section && sections[e.detail.section]) {
+        setActiveSection(e.detail.section);
+      }
+    };
+    window.addEventListener('openSettingsModal', handleOpenSettings);
+    return () => window.removeEventListener('openSettingsModal', handleOpenSettings);
   }, []);
 
   // Pull live state from the store for reactive rendering
@@ -74,6 +88,7 @@ const SettingsModal = ({ isVisible, onClose }) => {
 
   // Icon map for sidebar navigation
   const sectionIcons = {
+    ai: <Brain size={16} style={{ minWidth: '16px', flexShrink: 0 }} />,
     display: <Monitor size={16} style={{ minWidth: '16px', flexShrink: 0 }} />,
     grid: <Grid3x3 size={16} style={{ minWidth: '16px', flexShrink: 0 }} />,
     connections: <Cable size={16} style={{ minWidth: '16px', flexShrink: 0 }} />,
@@ -82,6 +97,10 @@ const SettingsModal = ({ isVisible, onClose }) => {
   };
 
   const sections = {
+    ai: {
+      title: 'AI & API Keys',
+      content: <AISection />
+    },
     display: {
       title: 'Display',
       content: (
@@ -259,12 +278,15 @@ const SettingsModal = ({ isVisible, onClose }) => {
   };
 
   const modalContent = (
-    <div style={{
-      display: 'flex',
-      height: '100%',
-      fontFamily: "'EmOne', sans-serif",
-      fontSize: isCompactLayout ? '0.85rem' : '0.9rem'
-    }}>
+    <div
+      className={theme.darkMode ? 'settings-dark' : ''}
+      style={{
+        display: 'flex',
+        height: '100%',
+        fontFamily: "'EmOne', sans-serif",
+        fontSize: isCompactLayout ? '0.85rem' : '0.9rem'
+      }}
+    >
       {/* Close button */}
       <button
         onClick={onClose}
@@ -279,7 +301,7 @@ const SettingsModal = ({ isVisible, onClose }) => {
           right: isCompactLayout ? '32px' : '40px',
           background: 'none',
           border: 'none',
-          color: '#666',
+          color: theme.canvas.textSecondary,
           cursor: 'pointer',
           padding: '6px',
           borderRadius: '4px',
@@ -289,8 +311,8 @@ const SettingsModal = ({ isVisible, onClose }) => {
           zIndex: 10,
           touchAction: 'manipulation'
         }}
-        onMouseEnter={(e) => e.currentTarget.style.color = '#260000'}
-        onMouseLeave={(e) => e.currentTarget.style.color = '#666'}
+        onMouseEnter={(e) => e.currentTarget.style.color = theme.canvas.textPrimary}
+        onMouseLeave={(e) => e.currentTarget.style.color = theme.canvas.textSecondary}
       >
         ✕
       </button>
@@ -301,7 +323,7 @@ const SettingsModal = ({ isVisible, onClose }) => {
           className="settings-modal-sidebar"
           style={{
             width: '180px',
-            borderRight: '1px solid #260000',
+            borderRight: `1px solid ${theme.canvas.border}`,
             padding: '20px 12px',
             overflowY: 'auto',
             flexShrink: 0
@@ -310,7 +332,7 @@ const SettingsModal = ({ isVisible, onClose }) => {
           <h3 style={{
             margin: '0 0 16px 0',
             fontSize: '1.1rem',
-            color: '#260000'
+            color: theme.canvas.textPrimary
           }}>
             Settings
           </h3>
@@ -323,8 +345,8 @@ const SettingsModal = ({ isVisible, onClose }) => {
                 marginBottom: '4px',
                 borderRadius: '6px',
                 cursor: 'pointer',
-                backgroundColor: activeSection === key ? 'rgba(139, 0, 0, 0.1)' : 'transparent',
-                color: activeSection === key ? '#8B0000' : '#333',
+                backgroundColor: activeSection === key ? (theme.darkMode ? 'rgba(139, 0, 0, 0.25)' : 'rgba(139, 0, 0, 0.1)') : 'transparent',
+                color: activeSection === key ? theme.accent.primary : theme.canvas.textSecondary,
                 fontWeight: activeSection === key ? 'bold' : 'normal',
                 fontSize: '0.85rem',
                 display: 'flex',
@@ -334,7 +356,7 @@ const SettingsModal = ({ isVisible, onClose }) => {
               }}
               onMouseEnter={(e) => {
                 if (activeSection !== key) {
-                  e.currentTarget.style.backgroundColor = 'rgba(139, 0, 0, 0.05)';
+                  e.currentTarget.style.backgroundColor = theme.darkMode ? 'rgba(139, 0, 0, 0.12)' : 'rgba(139, 0, 0, 0.05)';
                 }
               }}
               onMouseLeave={(e) => {
@@ -371,11 +393,11 @@ const SettingsModal = ({ isVisible, onClose }) => {
                 width: '100%',
                 padding: '10px',
                 borderRadius: '6px',
-                border: '1px solid #ddd',
-                backgroundColor: 'white',
+                border: `1px solid ${theme.canvas.border}`,
+                backgroundColor: theme.darkMode ? theme.canvas.hover : 'white',
                 fontSize: '0.9rem',
                 fontFamily: "'EmOne', sans-serif",
-                color: '#333'
+                color: theme.canvas.textPrimary
               }}
             >
               {Object.keys(sections).map((key) => (
@@ -389,7 +411,7 @@ const SettingsModal = ({ isVisible, onClose }) => {
 
         <h2 style={{
           margin: '0 0 20px 0',
-          color: '#260000',
+          color: theme.canvas.textPrimary,
           fontSize: isCompactLayout ? '1.3rem' : '1.5rem'
         }}>
           {sections[activeSection].title}
@@ -397,7 +419,7 @@ const SettingsModal = ({ isVisible, onClose }) => {
 
         <div style={{
           lineHeight: '1.6',
-          color: '#333'
+          color: theme.canvas.textSecondary
         }}>
           {sections[activeSection].content}
         </div>

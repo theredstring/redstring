@@ -1,0 +1,137 @@
+/* AI Settings Section - Minimal, Settings-adapted styles */
+
+/* Value display for existing config */
+.ai-value {
+  font-size: 0.85rem;
+  color: #333;
+  font-family: 'EmOne', sans-serif;
+  padding: 4px 0;
+}
+
+/* Input fields */
+.ai-input {
+  width: 100%;
+  padding: 8px 10px;
+  border: 1px solid #ccc;
+  border-radius: 6px;
+  font-size: 0.85rem;
+  font-family: 'EmOne', sans-serif;
+  background: #fff;
+  color: #333;
+  transition: border-color 0.2s;
+}
+
+.ai-input:focus {
+  outline: none;
+  border-color: #8B0000;
+  box-shadow: 0 0 0 2px rgba(139, 0, 0, 0.1);
+}
+
+.ai-input:disabled {
+  background: #f3f4f6;
+  color: #9ca3af;
+  cursor: not-allowed;
+}
+
+/* Action buttons */
+.ai-action-btn {
+  padding: 6px 12px;
+  border-radius: 6px;
+  font-size: 0.75rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  font-family: 'EmOne', sans-serif;
+  border: 1px solid transparent;
+}
+
+.ai-btn-primary {
+  background: #059669;
+  color: #fff;
+  border-color: #059669;
+}
+
+.ai-btn-primary:hover:not(:disabled) {
+  background: #047857;
+}
+
+.ai-btn-secondary {
+  background: #260000;
+  color: #fff;
+  border-color: #260000;
+}
+
+.ai-btn-secondary:hover:not(:disabled) {
+  background: #8B0000;
+}
+
+.ai-btn-danger {
+  background: #fee2e2;
+  color: #dc2626;
+  border-color: #fecaca;
+}
+
+.ai-btn-danger:hover:not(:disabled) {
+  background: #fecaca;
+}
+
+.ai-action-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* ========== Dark Mode Overrides ========== */
+
+.settings-dark .ai-value {
+  color: #DEDADA;
+}
+
+.settings-dark .ai-input {
+  background: #4a4545;
+  color: #DEDADA;
+  border-color: #6a6464;
+}
+
+.settings-dark .ai-input:focus {
+  border-color: #8B0000;
+  box-shadow: 0 0 0 2px rgba(139, 0, 0, 0.25);
+}
+
+.settings-dark .ai-input:disabled {
+  background: #3F3A3A;
+  color: #6a6464;
+}
+
+.settings-dark .ai-btn-secondary {
+  background: #6a6464;
+  color: #DEDADA;
+  border-color: #6a6464;
+}
+
+.settings-dark .ai-btn-secondary:hover:not(:disabled) {
+  background: #8B0000;
+  border-color: #8B0000;
+}
+
+.settings-dark .ai-btn-danger {
+  background: rgba(211, 47, 47, 0.15);
+  color: #ff8a80;
+  border-color: rgba(211, 47, 47, 0.4);
+}
+
+.settings-dark .ai-btn-danger:hover:not(:disabled) {
+  background: rgba(211, 47, 47, 0.25);
+}
+
+/* Responsive */
+@media (max-width: 640px) {
+  .ai-input {
+    font-size: 0.8rem;
+    padding: 7px 9px;
+  }
+
+  .ai-action-btn {
+    padding: 5px 10px;
+    font-size: 0.7rem;
+  }
+}

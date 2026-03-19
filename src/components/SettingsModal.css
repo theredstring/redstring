@@ -197,3 +197,83 @@
 .settings-section-subtitle:first-child {
   margin-top: 0;
 }
+
+/* ========== Dark Mode Overrides ========== */
+
+.settings-dark .settings-modal-sidebar,
+.settings-dark .settings-modal-content {
+  scrollbar-color: rgba(222, 218, 218, 0.15) rgba(222, 218, 218, 0.05);
+}
+
+.settings-dark .settings-modal-sidebar::-webkit-scrollbar-track,
+.settings-dark .settings-modal-content::-webkit-scrollbar-track {
+  background: rgba(222, 218, 218, 0.05);
+}
+
+.settings-dark .settings-modal-sidebar::-webkit-scrollbar-thumb,
+.settings-dark .settings-modal-content::-webkit-scrollbar-thumb {
+  background-color: rgba(222, 218, 218, 0.15);
+}
+
+.settings-dark .settings-modal-sidebar:hover::-webkit-scrollbar-thumb,
+.settings-dark .settings-modal-content:hover::-webkit-scrollbar-thumb {
+  background-color: rgba(222, 218, 218, 0.4);
+}
+
+.settings-dark .settings-row {
+  border-bottom-color: rgba(222, 218, 218, 0.1);
+}
+
+.settings-dark .settings-row-label {
+  color: #DEDADA;
+}
+
+.settings-dark .settings-row-description {
+  color: #BDB5B5;
+}
+
+.settings-dark .settings-toggle-track {
+  background-color: #6a6464;
+}
+
+.settings-dark .settings-toggle-thumb {
+  background-color: #DEDADA;
+}
+
+.settings-dark .settings-option-btn {
+  border-color: #6a6464;
+  background: #4a4545;
+  color: #DEDADA;
+}
+
+.settings-dark .settings-option-btn:hover {
+  border-color: #8B0000;
+  color: #ff9a9a;
+}
+
+.settings-dark .settings-option-btn.active {
+  background-color: #8B0000;
+  border-color: #8B0000;
+  color: #fff;
+}
+
+.settings-dark .settings-modal-content .maroon-slider {
+  color: #DEDADA;
+}
+
+.settings-dark .settings-modal-content .maroon-slider__label {
+  color: #DEDADA;
+}
+
+.settings-dark .settings-modal-content .maroon-slider__value {
+  color: #DEDADA;
+  background: #6a6464;
+}
+
+.settings-dark .settings-section-divider {
+  border-top-color: rgba(222, 218, 218, 0.12);
+}
+
+.settings-dark .settings-section-subtitle {
+  color: #ff9a9a;
+}

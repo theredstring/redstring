@@ -219,18 +219,17 @@ html.dark-mode .ai-tab.active {
   width: 8px;
   height: 8px;
   border-radius: 50%;
-  background: #2e2e2e;
-  border: 1px solid #260000;
+  background: #888;
+  border: none;
   transition: all 0.25s ease;
 }
 
 .ai-status-indicator.connected {
-  background: #260000;
-  /* Maroon color for connected state */
+  background: #516A02;
 }
 
 .ai-status-indicator.disconnected {
-  background: #f44336;
+  background: #D60001;
 }
 
 /* Graph info next to Wizard (left of actions) */

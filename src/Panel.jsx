@@ -55,6 +55,7 @@ import LeftSemanticDiscoveryView from './components/panel/views/LeftSemanticDisc
 import LeftGridView from './components/panel/views/LeftGridView.jsx';
 import LeftAIView from './components/panel/views/LeftAIView.jsx';
 import LeftHistoryView from './components/panel/views/LeftHistoryView.jsx';
+import { fetchWikidataSlice } from './services/wikidataSlice.js';
 
 // Generate color for concept based on name hash - unified color system
 // Uses the same saturation and brightness as maroon (#8B0000) but with different hues
@@ -869,25 +870,37 @@ const Panel = memo(forwardRef(
       console.log(`[toggleSection] Toggled section '${name}'. New collapsed state: ${!sectionCollapsed[name]}`);
     };
 
-    // --- Semantic catalog loader hook ---
+    // --- Semantic catalog loader hook (client-side, no server needed) ---
     const handleLoadWikidataCatalog = async (payload) => {
       try {
-        const resp = await fetch('/api/catalog/wikidata-slice', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(payload),
-        });
-        if (!resp.ok) {
-          const text = await resp.text();
-          console.warn('[Panel] Wikidata slice load failed:', resp.status, text);
-          throw new Error(text || `HTTP ${resp.status}`);
+        const params = payload?.params || {};
+
+        // Extract seed labels based on strategy
+        let seedLabels = [];
+        if (params.seedStrategy === 'graph' && nodePrototypesMap) {
+          const seedCount = Math.max(1, Number(params.seedCount) || 50);
+          const prototypes = Array.from(nodePrototypesMap.values());
+          seedLabels = prototypes
+            .filter(p => p?.name && p.id !== 'base-thing-prototype' && p.id !== 'base-connection-prototype')
+            .slice(0, seedCount)
+            .map(p => p.name);
         }
-        const data = await resp.json().catch(() => ({}));
-        console.log('[Panel] Wikidata slice load response:', data);
-        return data;
+        // Empty seedLabels → fetchWikidataSlice uses default seeds
+
+        const perSeed = Math.min(50, Math.max(1, Number(params.maxEntitiesPerLevel) || 15));
+        const maxTotal = Math.min(800, Math.max(10, Number(params.entityCap) || 200));
+
+        const sampleCatalog = await fetchWikidataSlice(seedLabels, { perSeed, maxTotal });
+        console.log('[Panel] Wikidata slice loaded:', sampleCatalog.length, 'entities');
+
+        return {
+          ok: true,
+          jobId: Date.now().toString(),
+          sampleCatalog,
+        };
       } catch (err) {
         console.warn('[Panel] Wikidata slice load error:', err);
-        throw err;
+        return { error: err?.message || 'Client-side Wikidata slice failed' };
       }
     };
 

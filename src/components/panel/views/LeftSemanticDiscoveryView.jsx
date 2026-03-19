@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
-import { Search, Loader2, X, RotateCcw } from 'lucide-react';
-import Dropdown from '../../Dropdown.jsx';
+import { Search, Loader2, X, RotateCcw, ChevronDown, Compass, BookOpen, Clock } from 'lucide-react';
+import PanelIconButton from '../../shared/PanelIconButton.jsx';
 import DraggableConceptCard from '../items/DraggableConceptCard.jsx';
 import GhostSemanticNode from '../items/GhostSemanticNode.jsx';
 import ConceptDetailView from './ConceptDetailView.jsx';
@@ -122,6 +122,8 @@ const LeftSemanticDiscoveryView = ({ storeActions, nodePrototypesMap, openRightP
   const [focusedConcept, setFocusedConcept] = useState(null);
   const [navigationStack, setNavigationStack] = useState([]);
   const [viewMode, setViewMode] = useState('discover'); // 'discover', 'history', 'catalog'
+  const [showViewMenu, setShowViewMenu] = useState(false);
+  const viewMenuRef = useRef(null);
   const [manualQuery, setManualQuery] = useState('');
   const [expandingNodeId, setExpandingNodeId] = useState(null);
   const [semanticExpansionResults, setSemanticExpansionResults] = useState([]);
@@ -141,7 +143,7 @@ const LeftSemanticDiscoveryView = ({ storeActions, nodePrototypesMap, openRightP
   const [catalogLog, setCatalogLog] = useState([]);
   const [catalogJobId, setCatalogJobId] = useState(null);
   const [catalogProgress, setCatalogProgress] = useState(null); // 0-1
-  const catalogLastStatusRef = useRef('');
+
 
   const makeFriendlyName = (entry) => {
     if (entry.label) return entry.label;
@@ -338,56 +340,17 @@ const LeftSemanticDiscoveryView = ({ storeActions, nodePrototypesMap, openRightP
     }
   };
 
-  // Poll catalog status while loading or jobId set
+  // Indeterminate progress animation while the client-side SPARQL query runs
   useEffect(() => {
-    if (!catalogLoading) return undefined;
-    let cancelled = false;
-    const poll = async () => {
-      try {
-        const resp = await fetch('/api/catalog/status');
-        if (!resp.ok) {
-          appendCatalogLog(`Status poll failed: HTTP ${resp.status}`);
-          return;
-        }
-        const data = await resp.json();
-        if (cancelled) return;
-        if (data.state) {
-          const statusLine = `${data.state}${data.lastMessage ? `: ${data.lastMessage}` : ''}`;
-          setCatalogStatus(statusLine);
-          if (catalogLastStatusRef.current !== statusLine) {
-            catalogLastStatusRef.current = statusLine;
-            appendCatalogLog(`Status: ${statusLine}`);
-          }
-          if (typeof data.progress === 'number') {
-            setCatalogProgress(Math.min(1, Math.max(0, data.progress)));
-          } else if (data.state === 'running') {
-            // optimistic nudge if no progress returned
-            setCatalogProgress((prev) => {
-              if (prev == null) return 0.15;
-              return Math.min(0.9, prev + 0.05);
-            });
-          }
-        }
-        if (data.state === 'failed') {
-          setCatalogProgress((prev) => (prev == null ? 0 : prev));
-          setCatalogLoading(false);
-        }
-        if (data.state === 'completed') {
-          setCatalogProgress(1);
-          setTimeout(() => {
-            setCatalogLoading(false);
-            setCatalogProgress(null);
-          }, 800);
-        }
-      } catch {
-        // ignore
-      }
-      if (!cancelled) {
-        setTimeout(poll, 800);
-      }
-    };
-    poll();
-    return () => { cancelled = true; };
+    if (!catalogLoading) {
+      setCatalogProgress(null);
+      return;
+    }
+    setCatalogProgress(0.15);
+    const interval = setInterval(() => {
+      setCatalogProgress((prev) => (prev != null ? Math.min(0.9, prev + 0.05) : 0.15));
+    }, 600);
+    return () => clearInterval(interval);
   }, [catalogLoading]);
 
   // Persist discovery history and search results across sessions (localStorage)
@@ -427,6 +390,18 @@ const LeftSemanticDiscoveryView = ({ storeActions, nodePrototypesMap, openRightP
       // Non-fatal
     }
   }, [discoveredConcepts]);
+
+  // Close view menu when clicking outside
+  useEffect(() => {
+    if (!showViewMenu) return;
+    const handleClickOutside = (event) => {
+      if (viewMenuRef.current && !viewMenuRef.current.contains(event.target)) {
+        setShowViewMenu(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [showViewMenu]);
 
   const handleDeleteHistoryItem = (id) => {
     setSearchHistory((prev) => prev.filter((h) => h.id !== id));
@@ -1040,15 +1015,64 @@ const LeftSemanticDiscoveryView = ({ storeActions, nodePrototypesMap, openRightP
           <h2 style={{ margin: 0, color: theme.canvas.textPrimary, userSelect: 'none', fontSize: '1.1rem', fontWeight: 'bold', fontFamily: "'EmOne', sans-serif", marginBottom: '12px' }}>
             Semantic Discovery
           </h2>
-          <Dropdown
-            options={[
-              { value: 'discover', label: 'Discover' },
-              { value: 'catalog', label: 'Catalog' },
-              { value: 'history', label: `History${searchHistory.length ? ` (${searchHistory.length})` : ''}` }
-            ]}
-            value={viewMode}
-            onChange={setViewMode}
-          />
+          <div ref={viewMenuRef} style={{ position: 'relative' }}>
+            <PanelIconButton
+              icon={viewMode === 'catalog' ? BookOpen : viewMode === 'history' ? Clock : Compass}
+              size={18}
+              label={
+                <React.Fragment>
+                  {viewMode === 'catalog' ? 'Catalog' : viewMode === 'history' ? `History${searchHistory.length ? ` (${searchHistory.length})` : ''}` : 'Discover'}{' '}
+                  <ChevronDown size={12} style={{ verticalAlign: 'middle', marginBottom: '1px' }} />
+                </React.Fragment>
+              }
+              variant="outline"
+              onClick={() => setShowViewMenu(!showViewMenu)}
+            />
+            {showViewMenu && (
+              <div style={{
+                position: 'absolute',
+                top: '100%',
+                left: 0,
+                marginTop: 4,
+                backgroundColor: theme.canvas.bg,
+                border: `1px solid ${theme.canvas.border}`,
+                borderRadius: 6,
+                boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
+                zIndex: 1000,
+                minWidth: 180
+              }}>
+                {[
+                  { value: 'discover', label: 'Discover', icon: Compass },
+                  { value: 'catalog', label: 'Catalog', icon: BookOpen },
+                  { value: 'history', label: `History${searchHistory.length ? ` (${searchHistory.length})` : ''}`, icon: Clock }
+                ].map(opt => (
+                  <button
+                    key={opt.value}
+                    onClick={() => { setViewMode(opt.value); setShowViewMenu(false); }}
+                    style={{
+                      width: '100%',
+                      padding: '6px 10px',
+                      border: 'none',
+                      background: viewMode === opt.value ? theme.canvas.inactive : 'none',
+                      textAlign: 'left',
+                      cursor: 'pointer',
+                      fontSize: '0.75rem',
+                      fontWeight: 600,
+                      color: theme.canvas.textPrimary,
+                      fontFamily: "'EmOne', sans-serif",
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 6
+                    }}
+                    onMouseEnter={e => e.currentTarget.style.backgroundColor = theme.canvas.hover}
+                    onMouseLeave={e => e.currentTarget.style.backgroundColor = viewMode === opt.value ? theme.canvas.inactive : 'transparent'}
+                  >
+                    <opt.icon size={12} /> {opt.label}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
         </div>
 
         {viewMode === 'catalog' && (
