@@ -112,12 +112,12 @@ button:hover {
 }
 
 ::selection {
-  background: transparent !important;
+  background: rgba(122, 0, 0, 0.3) !important; /* Brand color (#7A0000) with 30% opacity */
   color: inherit !important;
 }
 
 ::-moz-selection {
-  background: transparent !important;
+  background: rgba(122, 0, 0, 0.3) !important;
   color: inherit !important;
 }
 
