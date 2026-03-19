@@ -1,0 +1,132 @@
+.plan-card {
+  background: var(--canvas-bg);
+  border: 1px solid #260000;
+  border-radius: 0;
+  padding: 12px 16px;
+  margin: 8px 0;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+  animation: slideUpFade 0.3s ease-out;
+  font-family: 'EmOne', sans-serif;
+}
+
+.plan-card-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 10px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--canvas-text);
+}
+
+.plan-card-icon {
+  color: #8B0000;
+}
+
+.plan-card-title {
+  letter-spacing: 0.5px;
+}
+
+.plan-card-separator {
+  opacity: 0.4;
+}
+
+.plan-card-progress {
+  font-weight: 400;
+  opacity: 0.6;
+}
+
+.plan-card-steps {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.plan-card-step {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 3px 0;
+  font-size: 13px;
+  color: var(--canvas-text);
+  transition: opacity 0.2s ease;
+}
+
+.plan-card-step-icon {
+  width: 16px;
+  text-align: center;
+  flex-shrink: 0;
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.plan-card-step-text {
+  line-height: 1.4;
+}
+
+/* Done steps */
+.plan-card-step--done .plan-card-step-icon {
+  color: #516A02;
+}
+
+.plan-card-step--done .plan-card-step-text {
+  opacity: 0.5;
+  text-decoration: line-through;
+  text-decoration-color: rgba(0, 0, 0, 0.15);
+}
+
+/* In-progress steps */
+.plan-card-step--in_progress .plan-card-step-icon {
+  color: #8B0000;
+  animation: stepPulse 2s ease-in-out infinite;
+}
+
+.plan-card-step--in_progress .plan-card-step-text {
+  font-weight: 600;
+}
+
+/* Pending steps */
+.plan-card-step--pending .plan-card-step-icon {
+  opacity: 0.3;
+}
+
+.plan-card-step--pending .plan-card-step-text {
+  opacity: 0.4;
+}
+
+/* Dark mode */
+.dark-mode .plan-card {
+  border-color: var(--canvas-border);
+}
+
+.dark-mode .plan-card-icon {
+  color: #c0392b;
+}
+
+.dark-mode .plan-card-step--done .plan-card-step-icon {
+  color: #7d9b1e;
+}
+
+.dark-mode .plan-card-step--done .plan-card-step-text {
+  text-decoration-color: rgba(255, 255, 255, 0.15);
+}
+
+.dark-mode .plan-card-step--in_progress .plan-card-step-icon {
+  color: #c0392b;
+}
+
+@keyframes stepPulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}
+
+@keyframes slideUpFade {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}

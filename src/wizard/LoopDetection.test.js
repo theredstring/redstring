@@ -16,6 +16,8 @@ vi.mock('./LLMClient.js', () => ({
 
 vi.mock('./ContextBuilder.js', () => ({
   buildContext: vi.fn(() => 'Mock context'),
+  buildPersistentContextHeader: vi.fn(() => 'Mock context'),
+  buildPlanContext: vi.fn(() => ''),
 }));
 
 vi.mock('./tools/index.js', () => ({

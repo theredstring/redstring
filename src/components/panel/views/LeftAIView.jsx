@@ -4,6 +4,7 @@ import * as fileStorage from '../../../store/fileStorage.js';
 import mcpClient from '../../../services/mcpClient.js';
 import apiKeyManager from '../../../services/apiKeyManager.js';
 import MultipleChoiceOverlay from '../../../ai/components/MultipleChoiceOverlay.jsx';
+import PlanCard from '../../../ai/components/PlanCard.jsx';
 import { bridgeFetch, bridgeEventSource } from '../../../services/bridgeConfig.js';
 import StandardDivider from '../../StandardDivider.jsx';
 import { HEADER_HEIGHT, NODE_DEFAULT_COLOR } from '../../../constants.js';
@@ -2779,6 +2780,16 @@ const LeftAIView = ({ compact = false,
                     } else {
                       console.warn('[Wizard] tool_result received but no matching tool_call block found!', event.id);
                     }
+                    // Live-update plan card: replace existing plan block or create new one
+                    if (event.name === 'planTask' && event.result?.steps) {
+                      const existingPlanIdx = blocks.findIndex(b => b.type === 'plan');
+                      const planBlock = { type: 'plan', id: 'plan-' + streamingMessageId, steps: event.result.steps, timestamp: now };
+                      if (existingPlanIdx >= 0) {
+                        blocks[existingPlanIdx] = planBlock;
+                      } else {
+                        blocks.push(planBlock);
+                      }
+                    }
                   } else if (event.type === 'response') {
                     const lastBlock = blocks.length > 0 ? blocks[blocks.length - 1] : null;
                     if (lastBlock && lastBlock.type === 'text') {
@@ -3544,6 +3555,14 @@ const LeftAIView = ({ compact = false,
                                 useGraphStore.getState().revertWizardAction(id);
                                 upsertToolCall({ id, isUndone: true });
                               }}
+                            />
+                          );
+                        }
+                        if (block.type === 'plan') {
+                          return (
+                            <PlanCard
+                              key={block.id || `plan-${i}`}
+                              steps={block.steps}
                             />
                           );
                         }

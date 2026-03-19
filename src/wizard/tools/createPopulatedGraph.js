@@ -5,6 +5,7 @@
 import queueManager from '../../services/queue/Queue.js';
 import { resolvePaletteColor, getRandomPalette } from '../../ai/palettes.js';
 import { validateEdges } from './edgeValidator.js';
+import { analyzeGraphQuality } from './graphQuality.js';
 
 /**
  * Create a new graph and populate it with nodes, edges, and groups
@@ -146,6 +147,9 @@ export async function createPopulatedGraph(args, graphState, cid, ensureSchedule
   // const goalId = queueManager.enqueue('goalQueue', { ... });
   // if (ensureSchedulerStarted) ensureSchedulerStarted();
 
+  // Analyze graph quality for LLM feedback
+  const qualityReport = analyzeGraphQuality(nodeSpecs, edgeSpecs);
+
   // Returns full spec so UI can apply it directly
   // Note: nodesAdded/edgesAdded are ARRAYS for ToolCallCard display
   return {
@@ -168,6 +172,8 @@ export async function createPopulatedGraph(args, graphState, cid, ensureSchedule
     edgeWarning: droppedEdges.length > 0
       ? `${droppedEdges.length} edge(s) were dropped because they referenced nodes not in the nodes array: ${droppedEdges.map(d => `${d.source} → ${d.target} (${d.reason})`).join('; ')}`
       : null,
+    // Quality analysis — LLM should fix issues before responding
+    qualityReport,
     // Include full spec for UI to apply
     spec: {
       nodes: nodeSpecs,

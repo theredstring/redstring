@@ -697,6 +697,55 @@ export function getToolDefinitions() {
                 },
                 required: []
             }
+        },
+        {
+            name: 'planTask',
+            description: 'Create or update a step-by-step task plan. Call this FIRST before any multi-step work (building graphs with 5+ nodes, defining multiple nodes, etc.). Update step statuses as you complete them. Do NOT respond to the user until all steps are done.',
+            parameters: {
+                type: 'object',
+                properties: {
+                    steps: {
+                        type: 'array',
+                        description: 'Array of plan steps. Send the FULL plan each time (not just changed steps).',
+                        items: {
+                            type: 'object',
+                            properties: {
+                                description: { type: 'string', description: 'What this step accomplishes' },
+                                status: { type: 'string', enum: ['pending', 'in_progress', 'done'], description: 'Current status of this step' }
+                            },
+                            required: ['description', 'status']
+                        }
+                    }
+                },
+                required: ['steps']
+            }
+        },
+        {
+            name: 'sketchGraph',
+            description: 'Sketch a graph structure in lightweight shorthand before building it. Returns a quality preview (orphans, connectivity) and an expanded spec ready to pass to createPopulatedGraph or populateDefinitionGraph. Use this to validate structure cheaply before committing.',
+            parameters: {
+                type: 'object',
+                properties: {
+                    name: { type: 'string', description: 'Graph/node name this sketch is for' },
+                    palette: { type: 'string', description: 'Color palette to use for expansion' },
+                    nodes: {
+                        type: 'array',
+                        description: 'Node names. Optionally add [Type] suffix: ["Engine Block", "Pistons [Component]"]',
+                        items: { type: 'string' }
+                    },
+                    edges: {
+                        type: 'array',
+                        description: 'Edges as "Source -> Relation -> Target" strings: ["Pistons -> Housed In -> Engine Block"]',
+                        items: { type: 'string' }
+                    },
+                    groups: {
+                        type: 'array',
+                        description: 'Groups as "GroupName: member1, member2" strings',
+                        items: { type: 'string' }
+                    }
+                },
+                required: ['name', 'nodes', 'edges']
+            }
         }
     ];
 }

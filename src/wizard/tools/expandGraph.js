@@ -8,6 +8,7 @@
 
 import { resolvePaletteColor, getRandomPalette } from '../../ai/palettes.js';
 import { validateEdges } from './edgeValidator.js';
+import { analyzeGraphQuality } from './graphQuality.js';
 
 /**
  * Convert string to Title Case
@@ -126,6 +127,9 @@ export async function expandGraph(args, graphState, cid, ensureSchedulerStarted)
     } : undefined
   }));
 
+  // Analyze graph quality for LLM feedback
+  const qualityReport = analyzeGraphQuality(nodeSpecs, edgeSpecs);
+
   // Return full spec so UI can apply it directly (same pattern as createPopulatedGraph)
   return {
     action: 'expandGraph',
@@ -142,6 +146,8 @@ export async function expandGraph(args, graphState, cid, ensureSchedulerStarted)
     edgeWarning: droppedEdges.length > 0
       ? `${droppedEdges.length} edge(s) were dropped because they referenced nodes not in the nodes array: ${droppedEdges.map(d => `${d.source} → ${d.target} (${d.reason})`).join('; ')}`
       : null,
+    // Quality analysis — LLM should fix issues before responding
+    qualityReport,
     // Include full spec for UI to apply
     spec: {
       nodes: nodeSpecs,

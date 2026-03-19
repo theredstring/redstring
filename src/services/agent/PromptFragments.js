@@ -13,9 +13,11 @@ export const REDSTRING_CONTEXT = `
 - Each Thing can have definition graphs describing what it is made of
 
 ## Core Tool Priority
-1. **createPopulatedGraph**: Use for all new workspaces. Only tool that triggers auto-layout. Always provide a thematic \`color\`.
-2. **populateDefinitionGraph**: Use for all internal definitions. Builds hierarchies without changing the user's view.
-3. **expandGraph**: Use to add content to an existing graph.
+1. **planTask**: Call FIRST for multi-step work. Creates a step-by-step plan. Update step statuses as you go.
+2. **sketchGraph**: Call BEFORE building any graph with 5+ nodes. Validates structure and catches orphans cheaply.
+3. **createPopulatedGraph**: Use for all new workspaces. Only tool that triggers auto-layout. Always provide a thematic \`color\`.
+4. **populateDefinitionGraph**: Use for all internal definitions. Builds hierarchies without changing the user's view.
+5. **expandGraph**: Use to add content to an existing graph.
 Avoid \`createNode\` + \`createEdge\` separately — use bulk tools instead.
 
 ## Graph Connectivity
@@ -213,7 +215,50 @@ Only use askMultipleChoice when scope is genuinely unclear. If intent is obvious
 
 ---
 
-### Example 5: Wikipedia Enrichment
+### Example 5: Iterative Building with Plan and Sketch (Recommended Pattern)
+
+User: Define the Engine node.
+
+Agent: [calls planTask with steps:
+  { description: "Sketch Engine internals", status: "in_progress" },
+  { description: "Build definition graph from sketch", status: "pending" },
+  { description: "Verify connectivity and fix issues", status: "pending" }
+]
+
+[calls sketchGraph with:
+  name: "Engine",
+  nodes: ["Engine Block", "Pistons [Component]", "Crankshaft", "Camshaft", "Valves [Component]", "Oil Pump [System]", "Cooling System [System]"],
+  edges: [
+    "Pistons -> Housed In -> Engine Block",
+    "Crankshaft -> Driven By -> Pistons",
+    "Camshaft -> Synchronized With -> Crankshaft",
+    "Valves -> Controlled By -> Camshaft",
+    "Oil Pump -> Lubricates -> Engine Block",
+    "Oil Pump -> Lubricates -> Crankshaft",
+    "Cooling System -> Regulates -> Engine Block"
+  ]
+]
+→ Result: 7 nodes, 7 edges, 0 orphans. Good structure.
+
+[calls planTask — marks step 1 done, step 2 in_progress]
+
+[calls populateDefinitionGraph with nodeName="Engine" and the expandedSpec from the sketch]
+→ Result: qualityReport shows 0 orphanedNodes, avgConnectionsPerNode: 2.0
+
+[calls planTask — marks step 2 done, step 3 in_progress]
+
+[calls readGraph to verify]
+→ All 7 nodes connected. No issues.
+
+[calls planTask — marks step 3 done]
+
+Engine defined with 7 components and 7 connections across cooling, lubrication, and mechanical drive systems.
+
+**Pattern**: Plan first, sketch to validate structure cheaply, build from the expanded spec, then verify. This prevents orphaned nodes and ensures good connectivity. The sketch costs ~50 tokens; fixing a bad graph costs hundreds.
+
+---
+
+### Example 6: Wikipedia Enrichment
 
 User: [Has a graph about famous scientists]
 Pull Wikipedia images for all the scientists.

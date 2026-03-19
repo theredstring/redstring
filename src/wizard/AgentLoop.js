@@ -7,7 +7,7 @@ import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { callLLM, streamLLM } from './LLMClient.js';
-import { buildContext, buildPersistentContextHeader } from './ContextBuilder.js';
+import { buildContext, buildPersistentContextHeader, buildPlanContext } from './ContextBuilder.js';
 import { executeTool, getToolDefinitions } from './tools/index.js';
 import { WIZARD_SYSTEM_PROMPT } from '../services/agent/WizardPrompt.js';
 
@@ -562,6 +562,11 @@ function updateGraphState(graphState, _toolName, _args, result) {
     // No-op for predictive state — enrichment is async and happens client-side.
     // The node's description/image will be updated after Wikipedia fetch completes.
     console.error('[updateGraphState] enrichFromWikipedia: queued for', result.nodeName, '(async client-side)');
+  } else if (result.action === 'planTask') {
+    // Store plan state on graphState for context injection (not real graph data)
+    graphState._currentPlan = result.steps;
+    const done = result.steps.filter(s => s.status === 'done').length;
+    console.error('[updateGraphState] planTask: updated plan', done + '/' + result.steps.length, 'complete');
   }
 }
 
@@ -654,7 +659,8 @@ export async function* runAgent(userMessage, graphState, config = {}, ensureSche
     // Rebuild context from (potentially mutated) graphState so LLM sees current state
     if (iteration > 0) {
       const freshContext = buildPersistentContextHeader(graphState, contextItems);
-      messages[0] = { role: 'system', content: systemPromptTemplate.replace('{context}', freshContext) };
+      const planCtx = graphState._currentPlan ? buildPlanContext(graphState._currentPlan) : '';
+      messages[0] = { role: 'system', content: systemPromptTemplate.replace('{context}', freshContext + planCtx) };
     }
     if (abortSignal?.aborted) {
       yield { type: 'done', iterations: iteration };

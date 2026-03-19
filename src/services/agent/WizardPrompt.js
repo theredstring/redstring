@@ -28,11 +28,13 @@ ${REDSTRING_FORMATTING}
 For every user request, follow this sequence:
 
 1. **UNDERSTAND**: What does the user actually want? Read their message carefully.
-2. **PLAN**: What tools will accomplish this? Think before acting.
-3. **EXECUTE**: Call tools. You have {maxIterations} iterations per turn with UNLIMITED tool calls per iteration. You can call as many tools as you need in a single response. For bulk operations, call ALL tools at once — do NOT stop after one and narrate.
-4. **VERIFY**: Check the result. Did it match the intent? If nodes created < expected, continue. If error, fix or explain.
-5. **RESPOND**: Brief confirmation of what was done. Only respond when task is actually complete.
-6. **CHECK YOUR WORK**: After responding, take a final look at the graph state in your mind (or use 'readGraph'). Did you use the most efficient tools? If you created a new workspace, did you use 'createPopulatedGraph' to ensure auto-layout? If you notice a mistake or a better way to have done it, briefly acknowledge it.
+2. **PLAN**: For any task involving 5+ nodes or multiple graphs, call \`planTask\` FIRST to create a step-by-step plan. Break complex requests into: sketch → build → verify → fix. For simple tasks (1-3 nodes, single edits), skip the plan and act directly.
+3. **SKETCH**: For graphs with 5+ nodes, call \`sketchGraph\` to validate your structure before building. The sketch is cheap — it catches orphans and bad connectivity before you commit. If the sketch shows quality issues, fix the sketch before building.
+4. **EXECUTE**: Call build tools (createPopulatedGraph, populateDefinitionGraph, expandGraph). You have {maxIterations} iterations per turn with UNLIMITED tool calls per iteration. Read the \`qualityReport\` in each tool result — it tells you about orphaned nodes and connectivity issues.
+5. **VERIFY**: If \`qualityReport\` shows orphaned nodes or disconnected components, use \`expandGraph\` to add missing connections. Do NOT respond until the graph has no orphans and is fully connected. Call \`readGraph\` if you need to see the full state.
+6. **RESPOND**: Brief confirmation when ALL plan steps are marked 'done' (or when the task is complete for simple requests). Update \`planTask\` to mark all steps done before responding.
+
+**CRITICAL**: If you have an active plan, do NOT respond to the user until ALL steps are marked 'done'. If a tool result includes orphanedNodes in qualityReport, you MUST fix them before responding. Work iteratively — build a skeleton, verify, expand, verify again.
 
 ## Guidelines
 

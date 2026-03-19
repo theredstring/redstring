@@ -201,6 +201,23 @@ export function truncateContext(context, maxLength = 4000) {
 }
 
 /**
+ * Build plan context string for injection into system prompt
+ * @param {Array} plan - Array of { description, status } steps
+ * @returns {string} Formatted plan string
+ */
+export function buildPlanContext(plan) {
+  if (!plan || plan.length === 0) return '';
+  const done = plan.filter(s => s.status === 'done').length;
+  const lines = plan.map((step, i) => {
+    const icon = step.status === 'done' ? '[DONE]'
+      : step.status === 'in_progress' ? '[IN PROGRESS]'
+      : '[ ]';
+    return `  ${i + 1}. ${icon} ${step.description}`;
+  });
+  return `\n\n## Active Plan (${done}/${plan.length} complete)\n${lines.join('\n')}\nIMPORTANT: Do NOT respond to the user until ALL steps are marked done.`;
+}
+
+/**
  * Build persistent context header respecting UI context toggles
  * @param {Object} graphState - Graph state from UI
  * @param {Array} contextItems - Array of { type, id, label, enabled } from UI context chips

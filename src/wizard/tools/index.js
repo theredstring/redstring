@@ -47,6 +47,8 @@ import { getGraphInstances } from './getGraphInstances.js';
 import { inspectWorkspace } from './inspectWorkspace.js';
 import { themeGraph } from './themeGraph.js';
 import { enrichFromWikipedia } from './enrichFromWikipedia.js';
+import { planTask } from './planTask.js';
+import { sketchGraph } from './sketchGraph.js';
 import { getToolDefinitions } from './schemas.js';
 
 const TOOLS = {
@@ -87,7 +89,9 @@ const TOOLS = {
   getGraphInstances,
   inspectWorkspace,
   themeGraph,
-  enrichFromWikipedia
+  enrichFromWikipedia,
+  planTask,
+  sketchGraph
 };
 
 /**
