@@ -18,6 +18,135 @@ const __dirname = path.dirname(__filename);
 let SYSTEM_PROMPT = WIZARD_SYSTEM_PROMPT;
 
 /**
+ * Shared helper: apply a bulk graph spec (nodes + edges) to the agent's internal
+ * graphState. Used by createPopulatedGraph, expandGraph, and populateDefinitionGraph.
+ *
+ * 1. Creates type prototypes for inline node types
+ * 2. Creates node instances + prototypes, builds name→instanceId map
+ * 3. Creates edges (previously missing!) with synthetic IDs
+ *
+ * @param {Object} graphState - The agent's mutable in-memory graph state
+ * @param {Object} targetGraph - The graph object within graphState.graphs to populate
+ * @param {Object} spec - { nodes: [...], edges: [...], groups: [...] }
+ * @returns {{ nodesAdded: number, edgesAdded: number }}
+ */
+function applyBulkSpecToInternalState(graphState, targetGraph, spec) {
+  const nodeSpecs = spec.nodes || [];
+  const edgeSpecs = spec.edges || [];
+
+  graphState.nodePrototypes = graphState.nodePrototypes || [];
+  graphState.edges = graphState.edges || [];
+  targetGraph.instances = targetGraph.instances || [];
+  targetGraph.edgeIds = targetGraph.edgeIds || [];
+
+  // 1. Extract and track inline type prototypes
+  const typeMap = new Map();
+  nodeSpecs.forEach(n => {
+    if (n.type) {
+      const tLower = n.type.toLowerCase().trim();
+      if (!typeMap.has(tLower)) {
+        let existingProtoId = null;
+        for (const proto of graphState.nodePrototypes) {
+          if ((proto.name || '').toLowerCase().trim() === tLower) {
+            existingProtoId = proto.id;
+            break;
+          }
+        }
+        if (existingProtoId) {
+          typeMap.set(tLower, existingProtoId);
+        } else {
+          const newProtoId = `proto-auto-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+          typeMap.set(tLower, newProtoId);
+          graphState.nodePrototypes.push({
+            id: newProtoId,
+            name: n.type,
+            color: n.typeColor || '#A0A0A0',
+            description: n.typeDescription || '',
+            typeNodeId: null,
+            definitionGraphIds: []
+          });
+        }
+      }
+    }
+  });
+
+  // 2. Create node instances + prototypes, build name→instanceId map
+  const nameToInstId = new Map();
+
+  // Pre-populate from existing instances (critical for expandGraph where edges connect to existing nodes)
+  for (const inst of targetGraph.instances) {
+    const proto = graphState.nodePrototypes.find(p => p.id === inst.prototypeId);
+    if (proto?.name) {
+      nameToInstId.set(proto.name, inst.id);
+      nameToInstId.set(proto.name.toLowerCase().trim(), inst.id);
+    }
+    if (inst.name) {
+      nameToInstId.set(inst.name, inst.id);
+      nameToInstId.set(inst.name.toLowerCase().trim(), inst.id);
+    }
+  }
+
+  nodeSpecs.forEach((n, idx) => {
+    const protoId = `proto-${Date.now()}-${idx}`;
+    const instId = `inst-${Date.now()}-${idx}-${Math.random().toString(36).slice(2, 6)}`;
+
+    targetGraph.instances.push({
+      id: instId,
+      prototypeId: protoId,
+      name: n.name
+    });
+
+    graphState.nodePrototypes.push({
+      id: protoId,
+      name: n.name,
+      color: n.color || '#5B6CFF',
+      description: n.description || '',
+      typeNodeId: n.type ? typeMap.get(n.type.toLowerCase().trim()) : null,
+      definitionGraphIds: []
+    });
+
+    nameToInstId.set(n.name, instId);
+    nameToInstId.set((n.name || '').toLowerCase().trim(), instId);
+  });
+
+  // 3. Create edges — resolve source/target by name, add to graphState.edges + targetGraph.edgeIds
+  let edgesAdded = 0;
+  edgeSpecs.forEach(e => {
+    const sourceId = nameToInstId.get(e.source) || nameToInstId.get((e.source || '').toLowerCase().trim());
+    const destId = nameToInstId.get(e.target) || nameToInstId.get((e.target || '').toLowerCase().trim());
+
+    if (sourceId && destId) {
+      const edgeId = `edge-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+
+      // Resolve definitionNodeIds for readGraph to display the connection type
+      let definitionNodeIds = [];
+      const typeName = e.definitionNode?.name || e.type;
+      if (typeName) {
+        const tLower = typeName.toLowerCase().trim();
+        for (const proto of graphState.nodePrototypes) {
+          if ((proto.name || '').toLowerCase().trim() === tLower) {
+            definitionNodeIds = [proto.id];
+            break;
+          }
+        }
+      }
+
+      targetGraph.edgeIds.push(edgeId);
+      graphState.edges.push({
+        id: edgeId,
+        sourceId,
+        destinationId: destId,
+        type: e.type || 'relates to',
+        definitionNodeIds
+      });
+      edgesAdded++;
+    }
+  });
+
+  return { nodesAdded: nodeSpecs.length, edgesAdded };
+}
+
+/**
  * Keep graphState in sync after mutating tool calls so subsequent
  * tools within the same agent loop see up-to-date state.
  *
@@ -103,136 +232,29 @@ function updateGraphState(graphState, _toolName, _args, result) {
     }
     console.error('[updateGraphState] deleteNode:', result.name, '| before:', beforeCount, '→ after:', targetGraph?.instances?.length || 0, '| graph:', targetGraphId);
   } else if (result.action === 'createPopulatedGraph' && result.spec) {
-    // New populated graph — update activeGraphId and add graph + nodes
+    // New populated graph — update activeGraphId and add graph + nodes + edges
     graphState.activeGraphId = result.graphId;
     graphState.graphs = graphState.graphs || [];
-    graphState.nodePrototypes = graphState.nodePrototypes || [];
-
-    // Helper to extract and track inline types
-    const typeMap = new Map();
-    (result.spec.nodes || []).forEach(n => {
-      if (n.type) {
-        const tLower = n.type.toLowerCase().trim();
-        if (!typeMap.has(tLower)) {
-          let existingProtoId = null;
-          for (const proto of graphState.nodePrototypes) {
-            if ((proto.name || '').toLowerCase().trim() === tLower) {
-              existingProtoId = proto.id;
-              break;
-            }
-          }
-          if (existingProtoId) {
-            typeMap.set(tLower, existingProtoId);
-          } else {
-            const newProtoId = `proto-auto-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
-            typeMap.set(tLower, newProtoId);
-            graphState.nodePrototypes.push({
-              id: newProtoId,
-              name: n.type,
-              color: n.typeColor || '#A0A0A0',
-              description: n.typeDescription || '',
-              typeNodeId: null,
-              definitionGraphIds: []
-            });
-            console.error('[updateGraphState] Auto-created inline type node (predictive):', n.type, '→', newProtoId);
-          }
-        }
-      }
-    });
-
-    const newInstances = (result.spec.nodes || []).map((n, idx) => {
-      const protoId = `proto-${Date.now()}-${idx}`;
-
-      // Add prototype to global registry
-      graphState.nodePrototypes.push({
-        id: protoId,
-        name: n.name,
-        color: n.color || '#5B6CFF',
-        description: n.description || '',
-        typeNodeId: n.type ? typeMap.get(n.type.toLowerCase().trim()) : null,
-        definitionGraphIds: []
-      });
-
-      return {
-        id: `inst-${Date.now()}-${idx}`,
-        prototypeId: protoId,
-        name: n.name
-      };
-    });
 
     graphState.graphs.push({
       id: result.graphId,
       name: result.graphName,
-      instances: newInstances,
+      instances: [],
       edgeIds: [],
       groups: [],
       definingNodeIds: Array.isArray(result.definingNodeIds) ? result.definingNodeIds : []
     });
+    const targetGraph = graphState.graphs[graphState.graphs.length - 1];
+    const counts = applyBulkSpecToInternalState(graphState, targetGraph, result.spec);
 
-    console.error('[updateGraphState] createPopulatedGraph: added', newInstances.length, 'nodes with prototypes to new graph', result.graphId);
+    console.error('[updateGraphState] createPopulatedGraph: added', counts.nodesAdded, 'nodes +', counts.edgesAdded, 'edges to new graph', result.graphId);
   } else if (result.action === 'expandGraph' && result.spec) {
-    // Nodes added to target graph
+    // Nodes + edges added to target graph
     const targetGraphId = result.graphId || graphState.activeGraphId;
     const targetGraph = (graphState.graphs || []).find(g => g.id === targetGraphId);
     if (targetGraph) {
-      targetGraph.instances = targetGraph.instances || [];
-      graphState.nodePrototypes = graphState.nodePrototypes || [];
-
-      // Helper to extract and track inline types
-      const typeMap = new Map();
-      (result.spec.nodes || []).forEach(n => {
-        if (n.type) {
-          const tLower = n.type.toLowerCase().trim();
-          if (!typeMap.has(tLower)) {
-            let existingProtoId = null;
-            for (const proto of graphState.nodePrototypes) {
-              if ((proto.name || '').toLowerCase().trim() === tLower) {
-                existingProtoId = proto.id;
-                break;
-              }
-            }
-            if (existingProtoId) {
-              typeMap.set(tLower, existingProtoId);
-            } else {
-              const newProtoId = `proto-auto-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
-              typeMap.set(tLower, newProtoId);
-              graphState.nodePrototypes.push({
-                id: newProtoId,
-                name: n.type,
-                color: n.typeColor || '#A0A0A0',
-                description: n.typeDescription || '',
-                typeNodeId: null,
-                definitionGraphIds: []
-              });
-              console.error('[updateGraphState] Auto-created inline type node (predictive):', n.type, '→', newProtoId);
-            }
-          }
-        }
-      });
-
-      (result.spec.nodes || []).forEach((n, idx) => {
-        const protoId = `proto-${Date.now()}-${idx}`;
-        const instId = `inst-${Date.now()}-${idx}-${Math.random().toString(36).slice(2, 6)}`;
-
-        // Add instance to target graph
-        targetGraph.instances.push({
-          id: instId,
-          prototypeId: protoId,
-          name: n.name
-        });
-
-        // Add prototype to global registry so subsequent tools can find it by name
-        graphState.nodePrototypes.push({
-          id: protoId,
-          name: n.name,
-          color: n.color || '#5B6CFF',
-          description: n.description || '',
-          typeNodeId: n.type ? typeMap.get(n.type.toLowerCase().trim()) : null,
-          definitionGraphIds: []
-        });
-      });
-
-      console.error('[updateGraphState] expandGraph: added', (result.spec.nodes || []).length, 'nodes with prototypes to', targetGraphId);
+      const counts = applyBulkSpecToInternalState(graphState, targetGraph, result.spec);
+      console.error('[updateGraphState] expandGraph: added', counts.nodesAdded, 'nodes +', counts.edgesAdded, 'edges to', targetGraphId);
     }
   } else if (result.action === 'createEdge') {
     const targetGraphId = result.graphId || graphState.activeGraphId;
@@ -348,67 +370,17 @@ function updateGraphState(graphState, _toolName, _args, result) {
     });
 
     // 2. Update prototype's definitionGraphIds array
-    const proto = (graphState.nodePrototypes || []).find(p => p.id === result.prototypeId);
-    if (proto) {
-      proto.definitionGraphIds = proto.definitionGraphIds || [];
-      proto.definitionGraphIds.push(result.graphId);
+    const defProto = (graphState.nodePrototypes || []).find(p => p.id === result.prototypeId);
+    if (defProto) {
+      defProto.definitionGraphIds = defProto.definitionGraphIds || [];
+      defProto.definitionGraphIds.push(result.graphId);
     }
 
-    // 3. Add nodes to this new graph
+    // 3. Add nodes + edges to this new graph
     const targetGraph = graphState.graphs[graphState.graphs.length - 1];
+    const counts = applyBulkSpecToInternalState(graphState, targetGraph, result.spec);
 
-    // Helper to extract and track inline types
-    const typeMap = new Map();
-    (result.spec.nodes || []).forEach(n => {
-      if (n.type) {
-        const tLower = n.type.toLowerCase().trim();
-        if (!typeMap.has(tLower)) {
-          let existingProtoId = null;
-          for (const proto of graphState.nodePrototypes) {
-            if ((proto.name || '').toLowerCase().trim() === tLower) {
-              existingProtoId = proto.id;
-              break;
-            }
-          }
-          if (existingProtoId) {
-            typeMap.set(tLower, existingProtoId);
-          } else {
-            const newProtoId = `proto-auto-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
-            typeMap.set(tLower, newProtoId);
-            graphState.nodePrototypes.push({
-              id: newProtoId,
-              name: n.type,
-              color: n.typeColor || '#A0A0A0',
-              description: n.typeDescription || '',
-              typeNodeId: null,
-              definitionGraphIds: []
-            });
-          }
-        }
-      }
-    });
-
-    (result.spec.nodes || []).forEach((n, idx) => {
-      const protoId = `proto-${Date.now()}-${idx}`;
-      const instId = `inst-${Date.now()}-${idx}-${Math.random().toString(36).slice(2, 6)}`;
-
-      targetGraph.instances.push({
-        id: instId,
-        prototypeId: protoId,
-        name: n.name
-      });
-
-      graphState.nodePrototypes.push({
-        id: protoId,
-        name: n.name,
-        color: n.color || '#5B6CFF',
-        description: n.description || '',
-        typeNodeId: n.type ? typeMap.get(n.type.toLowerCase().trim()) : null,
-        definitionGraphIds: []
-      });
-    });
-
-    console.error('[updateGraphState] populateDefinitionGraph: created', result.graphId, 'and expanded with', (result.spec.nodes || []).length, 'nodes');
+    console.error('[updateGraphState] populateDefinitionGraph: created', result.graphId, 'with', counts.nodesAdded, 'nodes +', counts.edgesAdded, 'edges');
   } else if (result.action === 'removeDefinitionGraph') {
     // Remove definition graph from node's definitionGraphIds
     const proto = (graphState.nodePrototypes || []).find(p => p.id === result.prototypeId);

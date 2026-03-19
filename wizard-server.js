@@ -150,7 +150,7 @@ app.post('/api/wizard', async (req, res) => {
       cid: config?.cid || `wizard-${Date.now()}`,
       conversationHistory: conversationHistory || [],
       systemPrompt: config?.systemPrompt,
-      maxIterations: config?.persona === 'druid' ? 25 : 10,
+      maxIterations: config?.persona === 'druid' ? 77 : 33,
       contextItems: req.body.contextItems || []
     };
 

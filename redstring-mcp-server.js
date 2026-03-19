@@ -2547,7 +2547,7 @@ app.post('/api/ai/agent', async (req, res) => {
 
     // Initialize agent state
     const agentState = {
-      maxIterations: 30, // generous, Cursor-like
+      maxIterations: 33, // generous, Cursor-like
       currentIteration: 0,
       allToolCalls: [],
       conversationHistory: [],

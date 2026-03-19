@@ -637,7 +637,7 @@ function NodeCanvas() {
         queueThumbnailFetch(protoId, proto.semanticMetadata.wikipediaThumbnail, ratio, proto.name || '');
       }
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeGraphId]);
 
   // <<< Derive active graph data directly >>>
@@ -6678,7 +6678,7 @@ function NodeCanvas() {
           const currentMode = useGraphStore.getState().typeListMode;
           const newMode = currentMode === 'connection' ? 'node' :
             currentMode === 'node' ? 'component' :
-            currentMode === 'component' ? 'closed' : 'connection';
+              currentMode === 'component' ? 'closed' : 'connection';
 
           storeActions.setTypeListMode(newMode);
 
@@ -11587,9 +11587,9 @@ function NodeCanvas() {
 
                   // If no higher-priority node is active, use the selected node for orbit overlay
                   if (!nodeIdToKeepActiveForStacking &&
-                      selectedInstanceIds.size === 1 &&
-                      !selectionStart &&
-                      !abstractionCarouselVisible) {
+                    selectedInstanceIds.size === 1 &&
+                    !selectionStart &&
+                    !abstractionCarouselVisible) {
                     nodeIdToKeepActiveForStacking = [...selectedInstanceIds][0];
                   }
 
@@ -12204,7 +12204,7 @@ function NodeCanvas() {
                   } else if (typeof storeActions.createAndAssignGraphDefinition === 'function') {
                     storeActions.createAndAssignGraphDefinition(node.id);
                   }
-                  
+
                   // Also open in right panel
                   if (typeof storeActions.openRightPanelNodeTab === 'function') {
                     storeActions.openRightPanelNodeTab(node.id, node.name);
@@ -12844,7 +12844,7 @@ function NodeCanvas() {
           setAutoLayoutRunning(false);
           navigateAfterLayout(activeGraphId, hydratedNodes?.length || 0);
         }}
-        autoLayoutDuration={2000}
+        autoLayoutDuration={1500}
         graphId={activeGraphId}
         storeActions={storeActions}
         layoutScalePreset={forceLayoutScalePreset}

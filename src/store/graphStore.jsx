@@ -48,7 +48,7 @@ const getDefaultAutoLayoutSettings = () => ({
   manhattanBends: 'auto',
   cleanLaneSpacing: 200,
   layoutScale: 'balanced',
-  layoutScaleMultiplier: 1.6,
+  layoutScaleMultiplier: 1.0,
   layoutIterations: 'balanced',
   groupLayoutAlgorithm: 'node-driven',
   showClusterHulls: false // Debug visualization for connectivity clusters
@@ -56,7 +56,7 @@ const getDefaultAutoLayoutSettings = () => ({
 
 const getDefaultForceTunerSettings = () => ({
   layoutScale: 'balanced',
-  layoutScaleMultiplier: 1.6,
+  layoutScaleMultiplier: 1.0,
   layoutIterations: 'balanced',
   // Individual force parameters
   repulsionStrength: 2200,
