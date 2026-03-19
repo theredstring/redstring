@@ -157,10 +157,18 @@ html.dark-mode .ai-tab:hover {
 }
 
 .ai-tab.active {
-  background: #260000;
-  color: #DEDADA;
+  background: #DEDADA;
+  color: #8B0000;
+  font-weight: 600;
   border: none;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  box-shadow: 0 0 0 3px #8B0000;
+}
+
+html.dark-mode .ai-tab.active {
+  background: #DEDADA;
+  color: #8B0000;
+  font-weight: 600;
+  box-shadow: 0 0 0 3px #8B0000;
 }
 
 .ai-tab-title-input {

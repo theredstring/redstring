@@ -32,7 +32,7 @@ const IntegratedUniverseModal = ({
           width: 'min(95vw, 800px)',
           height: 'min(95vh, 700px)',
           backgroundColor: theme.canvas.bg,
-          border: '2px solid #260000',
+          border: `2px solid ${theme.canvas.textPrimary}`,
           borderRadius: '12px',
           display: 'flex',
           flexDirection: 'column',
@@ -47,10 +47,10 @@ const IntegratedUniverseModal = ({
           alignItems: 'center',
           justifyContent: 'space-between',
           padding: '16px 20px',
-          borderBottom: '2px solid #260000',
-          backgroundColor: '#979090'
+          borderBottom: `2px solid ${theme.canvas.textPrimary}`,
+          backgroundColor: theme.canvas.border
         }}>
-          <div style={{ fontWeight: 'bold', fontSize: '1.2rem', color: '#260000' }}>
+          <div style={{ fontWeight: 'bold', fontSize: '1.2rem', color: theme.canvas.textPrimary }}>
             Universe Manager
           </div>
           
@@ -58,8 +58,8 @@ const IntegratedUniverseModal = ({
             onClick={onClose}
             style={{
               background: 'transparent',
-              border: '2px solid #260000',
-              color: '#260000',
+              border: `2px solid ${theme.canvas.textPrimary}`,
+              color: theme.canvas.textPrimary,
               cursor: 'pointer',
               fontSize: '1.2rem',
               width: '32px',

@@ -4,7 +4,7 @@
     flex-direction: column;
     height: 100%;
     background-color: var(--canvas-bg);
-    color: #260000;
+    color: var(--canvas-text);
     overflow: hidden;
     font-family: 'EmOne', sans-serif;
 }
@@ -15,21 +15,21 @@
     display: flex;
     justify-content: space-between;
     align-items: baseline;
-    border-bottom: 1px solid rgba(38, 0, 0, 0.08);
+    border-bottom: 1px solid var(--canvas-border);
 }
 
 .history-header h2 {
     margin: 0;
     font-size: 16px;
     font-weight: 600;
-    color: #260000;
+    color: var(--canvas-text);
     letter-spacing: -0.01em;
     font-family: 'EmOne', sans-serif;
 }
 
 .history-stats {
     font-size: 11px;
-    opacity: 0.5;
+    color: var(--canvas-text-muted);
     font-weight: 500;
     font-family: 'EmOne', sans-serif;
 }
@@ -39,7 +39,7 @@
     display: flex;
     padding: 8px 16px;
     gap: 8px;
-    border-bottom: 1px solid rgba(38, 0, 0, 0.05);
+    border-bottom: 1px solid var(--canvas-border);
 }
 
 .filter-tab {
@@ -52,7 +52,7 @@
     border: none;
     border-radius: 6px;
     background: transparent;
-    color: rgba(38, 0, 0, 0.5);
+    color: var(--canvas-text-muted);
     cursor: pointer;
     font-size: 12px;
     font-weight: 500;
@@ -60,14 +60,15 @@
 }
 
 .filter-tab:hover {
-    background-color: rgba(38, 0, 0, 0.05);
-    color: #260000;
+    background-color: var(--canvas-hover);
+    color: var(--canvas-text);
 }
 
 .filter-tab.active {
-    background-color: rgba(255, 255, 255, 0.6);
+    background-color: #DEDADA;
     color: #8B0000;
-    box-shadow: 0 1px 2px rgba(38, 0, 0, 0.05);
+    font-weight: 600;
+    box-shadow: 0 0 0 3px #8B0000;
 }
 
 .filter-tab:disabled {
@@ -88,7 +89,7 @@
     align-items: center;
     justify-content: center;
     height: 60%;
-    color: rgba(38, 0, 0, 0.4);
+    color: var(--canvas-text-muted);
     text-align: center;
     padding: 32px;
 }
@@ -97,6 +98,14 @@
     margin-top: 12px;
     font-size: 13px;
     font-weight: 500;
+    color: var(--canvas-text-muted);
+}
+
+.history-empty small {
+    color: var(--canvas-text-muted);
+    font-size: 11px;
+    margin-top: 4px;
+    display: block;
 }
 
 .history-item {
@@ -104,45 +113,38 @@
     align-items: center;
     padding: 7px 12px;
     gap: 12px;
-    /* Use transparent border to reserve space for the active state/head */
     border: 3px solid transparent;
-    border-bottom: 3px solid transparent;
-    /* Override bottom separataor? */
     border-radius: 8px;
-    /* Always rounded */
-
     margin: 3px 12px;
-    /* Increased margin for better clearance */
-    /* Consistent margin inside container, added vertical spacing */
     box-sizing: border-box;
-    /* Ensure padding/border don't overflow width */
     width: auto;
-    /* Let it fill available space minus margins */
-
-    transition: background-color 0.15s ease, border-color 0.15s ease;
+    transition: background-color 0.15s ease, border-color 0.15s ease, transform 0.1s ease;
     cursor: pointer;
-    /* Interactive */
     position: relative;
     user-select: none;
 }
 
-/* We need a separator line, but border-radius messes with border-bottom full width. 
-   So we might need a pseudo-element for the separator line if we want it?
-   Or just accept the spaced styling. 
-   Let's remove the old border-bottom separator and just rely on spacing or hover. 
-*/
-
 .history-item:hover {
-    background-color: rgba(255, 255, 255, 0.4);
+    background-color: var(--canvas-hover);
+    transform: translateX(2px);
 }
 
 /* Subtly distinguish global actions */
 .history-item.global {
-    background-color: rgba(139, 0, 0, 0.015);
+    background-color: rgba(139, 0, 0, 0.04);
+}
+
+/* Dark mode adjustments for global items */
+:root.dark-mode .history-item.global {
+    background-color: rgba(139, 0, 0, 0.15);
 }
 
 .history-item.global:hover {
-    background-color: rgba(139, 0, 0, 0.04);
+    background-color: rgba(139, 0, 0, 0.08);
+}
+
+:root.dark-mode .history-item.global:hover {
+    background-color: rgba(139, 0, 0, 0.25);
 }
 
 .history-item.undone {
@@ -153,14 +155,11 @@
 .history-item.head {
     background-color: transparent;
     border-color: #8B0000;
-    /* Padding/margin already handled by base class */
 }
 
-/* Head indicator dot on the right? Or border left? Doing border left above. 
-   Also can add the dot. */
+/* Head indicator - visual marker for current state */
 .history-head-indicator {
-    display: none;
-    /* Hide dot since we have the box outline */
+    display: none; /* Hidden by default, border is used instead */
     position: absolute;
     right: 12px;
     top: 50%;
@@ -179,13 +178,24 @@
     width: 24px;
     height: 24px;
     border-radius: 6px;
-    background-color: rgba(38, 0, 0, 0.05);
-    color: #554444;
+    background-color: var(--canvas-hover);
+    color: var(--canvas-text-muted);
+    transition: background-color 0.15s ease, color 0.15s ease;
+}
+
+.history-item:hover .history-item-icon {
+    background-color: var(--canvas-active);
+    color: var(--canvas-text);
 }
 
 .history-item.global .history-item-icon {
-    background-color: rgba(139, 69, 19, 0.1);
-    color: #8B4513;
+    background-color: rgba(139, 0, 0, 0.15);
+    color: #8B0000;
+}
+
+:root.dark-mode .history-item.global .history-item-icon {
+    background-color: rgba(139, 0, 0, 0.25);
+    color: #ff9999;
 }
 
 .history-item-content {
@@ -196,7 +206,7 @@
 .history-item-description {
     font-size: 13px;
     font-weight: 500;
-    color: #260000;
+    color: var(--canvas-text);
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -217,5 +227,5 @@
 
 .history-time {
     font-size: 11px;
-    color: rgba(38, 0, 0, 0.5);
+    color: var(--canvas-text-muted);
 }

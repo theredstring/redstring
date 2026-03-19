@@ -33,10 +33,10 @@ const CanvasConfirmDialog = ({
   };
 
   const iconColors = {
-    danger: '#7A0000',
+    danger: theme.accent.secondary,
     warning: '#ef6c00',
     info: '#1565c0',
-    default: '#260000'
+    default: theme.canvas.textPrimary
   };
 
   const buttonStyle = (isPrimary) => ({
@@ -50,15 +50,15 @@ const CanvasConfirmDialog = ({
     display: 'flex',
     alignItems: 'center',
     gap: 6,
-    border: isPrimary && variant === 'danger' 
-      ? '2px solid #7A0000' 
-      : '2px solid #260000',
-    backgroundColor: isPrimary 
-      ? (variant === 'danger' ? '#7A0000' : '#260000')
+    border: isPrimary && variant === 'danger'
+      ? `2px solid ${theme.accent.secondary}`
+      : `2px solid ${theme.canvas.textPrimary}`,
+    backgroundColor: isPrimary
+      ? (variant === 'danger' ? theme.accent.secondary : theme.canvas.textPrimary)
       : 'transparent',
-    color: isPrimary 
-      ? theme.canvas.text
-      : '#260000'
+    color: isPrimary
+      ? (theme.darkMode ? theme.canvas.textPrimary : theme.canvas.bg)
+      : theme.canvas.textPrimary
   });
 
   // Dialog dimensions (estimate)
@@ -102,7 +102,7 @@ const CanvasConfirmDialog = ({
           top: `${top}px`,
           width: `${dialogWidth}px`,
           backgroundColor: theme.canvas.bg,
-          border: '3px solid #260000',
+          border: `3px solid ${theme.canvas.textPrimary}`,
           borderRadius: '12px',
           display: 'flex',
           flexDirection: 'column',
@@ -119,8 +119,8 @@ const CanvasConfirmDialog = ({
             alignItems: 'center',
             gap: 10,
             padding: '14px 18px',
-            borderBottom: '2px solid #260000',
-            backgroundColor: '#979090',
+            borderBottom: `2px solid ${theme.canvas.textPrimary}`,
+            backgroundColor: theme.canvas.border,
             borderTopLeftRadius: '12px',
             borderTopRightRadius: '12px'
           }}
@@ -135,7 +135,7 @@ const CanvasConfirmDialog = ({
               margin: 0,
               fontSize: '1rem',
               fontWeight: 700,
-              color: '#260000'
+              color: theme.canvas.textPrimary
             }}
           >
             {title}
@@ -149,7 +149,7 @@ const CanvasConfirmDialog = ({
               margin: 0,
               fontSize: '0.9rem',
               lineHeight: 1.5,
-              color: '#260000',
+              color: theme.canvas.textPrimary,
               whiteSpace: 'pre-wrap'
             }}
           >
@@ -163,8 +163,8 @@ const CanvasConfirmDialog = ({
             display: 'flex',
             gap: 10,
             padding: '12px 18px',
-            borderTop: '2px solid #260000',
-            backgroundColor: '#979090',
+            borderTop: `2px solid ${theme.canvas.textPrimary}`,
+            backgroundColor: theme.canvas.border,
             justifyContent: 'flex-end',
             borderBottomLeftRadius: '12px',
             borderBottomRightRadius: '12px'
@@ -179,7 +179,7 @@ const CanvasConfirmDialog = ({
             }}
             style={buttonStyle(false)}
             onMouseEnter={(e) => {
-              e.currentTarget.style.backgroundColor = 'rgba(38, 0, 0, 0.1)';
+              e.currentTarget.style.backgroundColor = theme.darkMode ? 'rgba(38, 0, 0, 0.2)' : 'rgba(38, 0, 0, 0.1)';
             }}
             onMouseLeave={(e) => {
               e.currentTarget.style.backgroundColor = 'transparent';
@@ -201,7 +201,7 @@ const CanvasConfirmDialog = ({
               }
             }}
             onMouseLeave={(e) => {
-              e.currentTarget.style.backgroundColor = variant === 'danger' ? '#7A0000' : '#260000';
+              e.currentTarget.style.backgroundColor = variant === 'danger' ? theme.accent.secondary : theme.canvas.textPrimary;
             }}
           >
             {confirmLabel}

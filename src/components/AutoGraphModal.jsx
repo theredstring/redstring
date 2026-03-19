@@ -1,22 +1,43 @@
 /**
  * Auto Graph Modal
- * 
+ *
  * Modal UI for generating graphs from various data formats
  */
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { X, Play, FileText, Zap } from 'lucide-react';
 import { getSampleData } from '../services/autoGraphGenerator.js';
+import { useTheme } from '../hooks/useTheme.js';
 import './AutoGraphModal.css';
 
 const AutoGraphModal = ({ isOpen, onClose, onGenerate, activeGraphId }) => {
+  const theme = useTheme();
   const [inputFormat, setInputFormat] = useState('simple');
   const [layoutAlgorithm, setLayoutAlgorithm] = useState('force');
   const [customData, setCustomData] = useState('');
   const [selectedSample, setSelectedSample] = useState('simple');
   const [inputMode, setInputMode] = useState('sample'); // 'sample' or 'custom'
   const [targetMode, setTargetMode] = useState('current'); // 'current' or 'new'
-  
+
+  // Inject CSS custom properties for theming
+  useEffect(() => {
+    if (isOpen) {
+      const root = document.documentElement;
+      root.style.setProperty('--autograph-modal-bg', theme.canvas.bg);
+      root.style.setProperty('--autograph-modal-text', theme.canvas.textPrimary);
+      root.style.setProperty('--autograph-modal-text-secondary', theme.canvas.textSecondary);
+      root.style.setProperty('--autograph-modal-border', theme.canvas.textPrimary);
+      root.style.setProperty('--autograph-modal-accent', theme.accent.primary);
+      root.style.setProperty('--autograph-modal-hover', theme.canvas.hover);
+      root.style.setProperty('--autograph-modal-input-bg', theme.darkMode ? theme.canvas.hover : '#ffffff');
+      root.style.setProperty('--autograph-modal-footer-bg', theme.darkMode ? theme.canvas.active : '#f5f5f5');
+      root.style.setProperty('--autograph-modal-header-bg', theme.accent.primary);
+      root.style.setProperty('--autograph-modal-header-text', theme.darkMode ? theme.canvas.textPrimary : '#EFE8E5');
+      root.style.setProperty('--autograph-modal-info-bg', `rgba(78, 205, 196, ${theme.darkMode ? '0.15' : '0.1'})`);
+      root.style.setProperty('--autograph-modal-info-border', `rgba(78, 205, 196, ${theme.darkMode ? '0.4' : '0.3'})`);
+    }
+  }, [isOpen, theme, theme.darkMode]);
+
   if (!isOpen) return null;
 
   const samples = {

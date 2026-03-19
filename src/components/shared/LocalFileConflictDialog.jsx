@@ -32,8 +32,8 @@ const formatTimestamp = (timestamp) => {
 
 const OptionCard = ({ option, actionLabel, onSelect, tone = 'neutral' }) => {
   const theme = useTheme();
-  const accentColor = tone === 'accent' ? '#7A0000' : '#260000';
-  const baseBorder = tone === 'accent' ? '#7A0000' : '#260000';
+  const accentColor = tone === 'accent' ? theme.accent.secondary : theme.canvas.textPrimary;
+  const baseBorder = tone === 'accent' ? theme.accent.secondary : theme.canvas.textPrimary;
   const metadataRows = [];
   const headerIcon = tone === 'accent' ? <FileCode size={16} /> : <HardDrive size={16} />;
 
@@ -70,10 +70,10 @@ const OptionCard = ({ option, actionLabel, onSelect, tone = 'neutral' }) => {
           {headerIcon}
           <span>{option.role}</span>
         </div>
-        <div style={{ fontSize: '0.95rem', fontWeight: 700, color: '#260000' }}>
+        <div style={{ fontSize: '0.95rem', fontWeight: 700, color: theme.canvas.textPrimary }}>
           {option.label}
         </div>
-        <div style={{ fontSize: '0.8rem', color: '#333', wordBreak: 'break-word' }}>
+        <div style={{ fontSize: '0.8rem', color: theme.canvas.textSecondary, wordBreak: 'break-word' }}>
           {displayValue}
         </div>
       </div>
@@ -84,7 +84,7 @@ const OptionCard = ({ option, actionLabel, onSelect, tone = 'neutral' }) => {
           gridTemplateColumns: 'minmax(120px, 140px) 1fr',
           gap: '6px 10px',
           fontSize: '0.8rem',
-          color: '#260000'
+          color: theme.canvas.textPrimary
         }}
       >
         {metadataRows.map((row) => (
@@ -103,7 +103,7 @@ const OptionCard = ({ option, actionLabel, onSelect, tone = 'neutral' }) => {
           borderRadius: 8,
           border: `2px solid ${accentColor}`,
           backgroundColor: tone === 'accent' ? accentColor : 'transparent',
-          color: tone === 'accent' ? theme.canvas.bg : '#260000',
+          color: tone === 'accent' ? (theme.darkMode ? theme.canvas.textPrimary : theme.canvas.bg) : theme.canvas.textPrimary,
           fontWeight: 700,
           fontSize: '0.85rem',
           cursor: 'pointer',
@@ -111,7 +111,7 @@ const OptionCard = ({ option, actionLabel, onSelect, tone = 'neutral' }) => {
           transition: 'all 0.2s'
         }}
         onMouseEnter={(e) => {
-          e.currentTarget.style.backgroundColor = tone === 'accent' ? '#5A0000' : 'rgba(38,0,0,0.1)';
+          e.currentTarget.style.backgroundColor = tone === 'accent' ? '#5A0000' : theme.canvas.hover;
         }}
         onMouseLeave={(e) => {
           e.currentTarget.style.backgroundColor = tone === 'accent' ? accentColor : 'transparent';
@@ -153,7 +153,7 @@ const LocalFileConflictDialog = ({
         style={{
           width: 'min(95vw, 760px)',
           backgroundColor: theme.canvas.bg,
-          border: '3px solid #260000',
+          border: `3px solid ${theme.canvas.textPrimary}`,
           borderRadius: 14,
           display: 'flex',
           flexDirection: 'column',
@@ -171,18 +171,18 @@ const LocalFileConflictDialog = ({
             alignItems: 'center',
             gap: 12,
             padding: '16px 20px',
-            borderBottom: '2px solid #260000',
-            backgroundColor: '#979090'
+            borderBottom: `2px solid ${theme.canvas.textPrimary}`,
+            backgroundColor: theme.canvas.border
           }}
         >
-          <div style={{ color: '#7A0000', display: 'flex', alignItems: 'center', gap: 10 }}>
+          <div style={{ color: theme.accent.secondary, display: 'flex', alignItems: 'center', gap: 10 }}>
             <AlertTriangle size={22} />
           </div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-            <h2 style={{ margin: 0, fontSize: '1.1rem', fontWeight: 700, color: '#260000' }}>
+            <h2 style={{ margin: 0, fontSize: '1.1rem', fontWeight: 700, color: theme.canvas.textPrimary }}>
               Resolve Local File Conflict
             </h2>
-            <p style={{ margin: 0, fontSize: '0.85rem', color: '#260000', lineHeight: 1.4 }}>
+            <p style={{ margin: 0, fontSize: '0.85rem', color: theme.canvas.textPrimary, lineHeight: 1.4 }}>
               We found multiple local files associated with "{universeName}". Choose which file should act as the source of truth going forward.
             </p>
           </div>
@@ -224,8 +224,8 @@ const LocalFileConflictDialog = ({
             display: 'flex',
             justifyContent: 'flex-end',
             padding: '12px 18px',
-            borderTop: '2px solid #260000',
-            backgroundColor: '#979090'
+            borderTop: `2px solid ${theme.canvas.textPrimary}`,
+            backgroundColor: theme.canvas.border
           }}
         >
           <button
@@ -233,9 +233,9 @@ const LocalFileConflictDialog = ({
             style={{
               padding: '8px 16px',
               borderRadius: 8,
-              border: '2px solid #260000',
+              border: `2px solid ${theme.canvas.textPrimary}`,
               backgroundColor: 'transparent',
-              color: '#260000',
+              color: theme.canvas.textPrimary,
               fontWeight: 700,
               fontSize: '0.85rem',
               cursor: 'pointer',
@@ -243,7 +243,7 @@ const LocalFileConflictDialog = ({
               transition: 'background-color 0.2s'
             }}
             onMouseEnter={(e) => {
-              e.currentTarget.style.backgroundColor = 'rgba(38,0,0,0.1)';
+              e.currentTarget.style.backgroundColor = theme.canvas.hover;
             }}
             onMouseLeave={(e) => {
               e.currentTarget.style.backgroundColor = 'transparent';

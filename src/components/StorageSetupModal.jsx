@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import CanvasModal from './CanvasModal';
 import { isElectron } from '../utils/fileAccessAdapter.js';
 import { FolderOpen, ArrowRightCircle, ArrowRight } from 'lucide-react';
+import { useTheme } from '../hooks/useTheme.js';
 
 /**
  * Storage Setup Modal
@@ -19,6 +20,7 @@ const StorageSetupModal = ({
   onBrowserStorageSelected = null,
   ...canvasModalProps
 }) => {
+  const theme = useTheme();
   const [viewportSize, setViewportSize] = useState(() => ({
     width: typeof window !== 'undefined' ? window.innerWidth : 1200,
     height: typeof window !== 'undefined' ? window.innerHeight : 900
@@ -102,7 +104,7 @@ const StorageSetupModal = ({
       <div style={{ textAlign: 'center', marginBottom: isCompactLayout ? '16px' : '24px', flexShrink: 0 }}>
         <h1 style={{
           margin: '0 0 4px 0',
-          color: '#8B0000',
+          color: theme.accent.primary,
           fontSize: isCompactLayout ? '1.5rem' : '1.8rem',
           fontWeight: '600',
           fontFamily: "'EmOne', sans-serif",
@@ -112,7 +114,7 @@ const StorageSetupModal = ({
         </h1>
         <h2 style={{
           margin: '0 0 8px 0',
-          color: '#260000',
+          color: theme.canvas.textPrimary,
           fontSize: isCompactLayout ? '1.2rem' : '1.5rem',
           fontWeight: 'bold',
           fontFamily: "'EmOne', sans-serif"
@@ -152,7 +154,7 @@ const StorageSetupModal = ({
           }}>
             <div style={{
               flexShrink: 0,
-              color: '#260000',
+              color: theme.canvas.textPrimary,
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center'
@@ -164,7 +166,7 @@ const StorageSetupModal = ({
                 margin: '0 0 4px 0',
                 fontSize: isCompactLayout ? '1rem' : '1.1rem',
                 fontWeight: 'bold',
-                color: '#260000',
+                color: theme.canvas.textPrimary,
                 fontFamily: "'EmOne', sans-serif"
               }}>
                 Choose a Folder
@@ -172,7 +174,7 @@ const StorageSetupModal = ({
               <p style={{
                 margin: '4px 0 0 0',
                 fontSize: isCompactLayout ? '0.85rem' : '0.9rem',
-                color: '#260000',
+                color: theme.canvas.textPrimary,
                 lineHeight: '1.4'
               }}>
                 Save all universes in one place. Works across sessions.
@@ -230,7 +232,7 @@ const StorageSetupModal = ({
             }}>
               <div style={{
                 flexShrink: 0,
-                color: '#260000',
+                color: theme.canvas.textPrimary,
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center'
@@ -242,7 +244,7 @@ const StorageSetupModal = ({
                   margin: '0 0 4px 0',
                   fontSize: isCompactLayout ? '1rem' : '1.1rem',
                   fontWeight: 'bold',
-                  color: '#260000',
+                  color: theme.canvas.textPrimary,
                   fontFamily: "'EmOne', sans-serif"
                 }}>
                   Skip Folder Setup
@@ -250,7 +252,7 @@ const StorageSetupModal = ({
                 <div style={{
                   marginBottom: '6px',
                   fontStyle: 'italic',
-                  color: '#260000',
+                  color: theme.canvas.textPrimary,
                   fontSize: '0.85rem'
                 }}>
                   Finish Set Up on the Universes Tab in the Left Panel
@@ -266,7 +268,7 @@ const StorageSetupModal = ({
                 width: '100%',
                 padding: isCompactLayout ? '10px' : '12px',
                 backgroundColor: 'transparent',
-                color: '#260000',
+                color: theme.canvas.textPrimary,
                 border: '2px solid #260000',
                 borderRadius: '6px',
                 cursor: 'pointer',
@@ -288,7 +290,7 @@ const StorageSetupModal = ({
       <div style={{ textAlign: 'center', marginBottom: '44px', flexShrink: 0, marginTop: '-40px' }}>
         <h2 style={{
           margin: '0 0 8px 0',
-          color: '#260000',
+          color: theme.canvas.textPrimary,
           fontSize: isCompactLayout ? '1.3rem' : '1.6rem',
           fontWeight: 'bold',
           fontFamily: "'EmOne', sans-serif"
@@ -308,7 +310,7 @@ const StorageSetupModal = ({
           display: 'block',
           marginBottom: '8px',
           fontWeight: 'bold',
-          color: '#260000',
+          color: theme.canvas.textPrimary,
           fontSize: '0.9rem'
         }}>
           Universe Name
@@ -326,7 +328,7 @@ const StorageSetupModal = ({
             borderRadius: '8px',
             border: '2px solid #260000',
             backgroundColor: '#DEDADA',
-            color: '#260000',
+            color: theme.canvas.textPrimary,
             boxSizing: 'border-box',
             fontFamily: "'EmOne', sans-serif",
             marginBottom: '24px',

@@ -141,7 +141,7 @@ const PanelModal = ({
           width: `${width}px`,
           height: height === 'auto' ? 'auto' : `${height}px`,
           backgroundColor: theme.canvas.bg,
-          border: `2px solid ${theme.canvas.textPrimary}`
+          border: `2px solid ${theme.canvas.textPrimary}`,
           borderRadius: '12px',
           boxShadow: '0 8px 32px rgba(0, 0, 0, 0.3)',
           zIndex: 9999,
@@ -185,7 +185,7 @@ const PanelModal = ({
                 alignItems: 'center',
                 justifyContent: 'center'
               }}
-              onMouseEnter={(e) => e.currentTarget.style.backgroundColor = 'rgba(189, 181, 181, 0.2)'}
+              onMouseEnter={(e) => e.currentTarget.style.backgroundColor = theme.canvas.hover}
               onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
             >
               ✕

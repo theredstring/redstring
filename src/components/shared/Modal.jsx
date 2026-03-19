@@ -42,7 +42,7 @@ const Modal = ({
           ...sizeStyles[size],
           ...style,
           backgroundColor: theme.canvas.bg,
-          border: '1px solid #260000',
+          border: `1px solid ${theme.canvas.textPrimary}`,
           borderRadius: 12,
           display: 'flex',
           flexDirection: 'column',
@@ -59,8 +59,8 @@ const Modal = ({
             alignItems: 'center',
             justifyContent: 'space-between',
             padding: '16px 20px',
-            borderBottom: '1px solid #260000',
-            backgroundColor: '#979090',
+            borderBottom: `1px solid ${theme.canvas.textPrimary}`,
+            backgroundColor: theme.canvas.border,
             flexShrink: 0
           }}
         >
@@ -69,7 +69,7 @@ const Modal = ({
               margin: 0,
               fontSize: '1.1rem',
               fontWeight: 700,
-              color: '#260000'
+              color: theme.canvas.textPrimary
             }}
           >
             {title}
@@ -80,7 +80,7 @@ const Modal = ({
               style={{
                 background: 'none',
                 border: 'none',
-                color: '#260000',
+                color: theme.canvas.textPrimary,
                 cursor: 'pointer',
                 padding: '4px',
                 borderRadius: '4px',
@@ -89,7 +89,7 @@ const Modal = ({
                 justifyContent: 'center',
                 transition: 'background-color 0.2s'
               }}
-              onMouseEnter={(e) => e.target.style.backgroundColor = 'rgba(38, 0, 0, 0.1)'}
+              onMouseEnter={(e) => e.target.style.backgroundColor = theme.canvas.hover}
               onMouseLeave={(e) => e.target.style.backgroundColor = 'transparent'}
               aria-label="Close modal"
             >

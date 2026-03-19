@@ -35,10 +35,10 @@ const ConfirmDialog = ({
   };
 
   const iconColors = {
-    danger: '#7A0000',
+    danger: theme.accent.secondary,
     warning: '#ef6c00',
     info: '#1565c0',
-    default: '#260000'
+    default: theme.canvas.textPrimary
   };
 
   const buttonStyle = (isPrimary) => ({
@@ -52,13 +52,13 @@ const ConfirmDialog = ({
     display: 'flex',
     alignItems: 'center',
     gap: 6,
-    border: '2px solid #7A0000',
-    backgroundColor: isPrimary 
-      ? '#7A0000'
+    border: `2px solid ${theme.accent.secondary}`,
+    backgroundColor: isPrimary
+      ? theme.accent.secondary
       : 'transparent',
-    color: isPrimary 
-      ? theme.canvas.text
-      : '#7A0000'
+    color: isPrimary
+      ? (theme.darkMode ? theme.canvas.textPrimary : '#EFE8E5')
+      : theme.accent.secondary
   });
 
   return (
@@ -80,7 +80,7 @@ const ConfirmDialog = ({
           width: 'min(95vw, 480px)',
           maxHeight: '85vh',
           backgroundColor: theme.canvas.bg,
-          border: '3px solid #260000',
+          border: `3px solid ${theme.canvas.textPrimary}`,
           borderRadius: 12,
           display: 'flex',
           flexDirection: 'column',
@@ -97,8 +97,8 @@ const ConfirmDialog = ({
             alignItems: 'center',
             gap: 12,
             padding: '20px 24px',
-            borderBottom: '2px solid #260000',
-            backgroundColor: '#979090'
+            borderBottom: `2px solid ${theme.canvas.textPrimary}`,
+            backgroundColor: theme.canvas.border
           }}
         >
           {showIcon && (
@@ -111,7 +111,7 @@ const ConfirmDialog = ({
               margin: 0,
               fontSize: '1.2rem',
               fontWeight: 700,
-              color: '#260000'
+              color: theme.canvas.textPrimary
             }}
           >
             {title}
@@ -125,7 +125,7 @@ const ConfirmDialog = ({
                     margin: '0 0 12px 0',
                     fontSize: '0.9rem',
                     lineHeight: 1.5,
-                    color: '#260000',
+                    color: theme.canvas.textPrimary,
                     whiteSpace: 'pre-wrap'
                   }}
                 >
@@ -141,7 +141,7 @@ const ConfirmDialog = ({
                           marginBottom: 6,
                           fontSize: '0.8rem',
                           fontWeight: 600,
-                          color: '#260000'
+                          color: theme.canvas.textPrimary
                         }}
                       >
                         {inputField.label}
@@ -164,10 +164,10 @@ const ConfirmDialog = ({
                         padding: '8px 10px',
                         fontSize: '0.85rem',
                         fontFamily: "'EmOne', sans-serif",
-                        border: '2px solid #260000',
+                        border: `2px solid ${theme.canvas.textPrimary}`,
                         borderRadius: 6,
-                        backgroundColor: '#ffffff',
-                        color: '#260000',
+                        backgroundColor: theme.darkMode ? theme.canvas.hover : '#ffffff',
+                        color: theme.canvas.textPrimary,
                         outline: 'none',
                         boxSizing: 'border-box'
                       }}
@@ -180,12 +180,12 @@ const ConfirmDialog = ({
                     style={{
                       marginTop: 12,
                       padding: 10,
-                      backgroundColor: '#979090',
-                      border: '1px solid #260000',
+                      backgroundColor: theme.canvas.border,
+                      border: `1px solid ${theme.canvas.textPrimary}`,
                       borderRadius: 6,
                       fontSize: '0.8rem',
                       lineHeight: 1.4,
-                      color: '#260000',
+                      color: theme.canvas.textPrimary,
                       whiteSpace: 'pre-wrap'
                     }}
                   >
@@ -200,8 +200,8 @@ const ConfirmDialog = ({
             display: 'flex',
             gap: 10,
             padding: '12px 20px',
-            borderTop: '2px solid #260000',
-            backgroundColor: '#979090',
+            borderTop: `2px solid ${theme.canvas.textPrimary}`,
+            backgroundColor: theme.canvas.border,
             justifyContent: 'flex-end'
           }}
         >
@@ -214,7 +214,7 @@ const ConfirmDialog = ({
                   }}
                   style={buttonStyle(false)}
                   onMouseEnter={(e) => {
-                    e.currentTarget.style.backgroundColor = 'rgba(122, 0, 0, 0.1)';
+                    e.currentTarget.style.backgroundColor = theme.darkMode ? 'rgba(122, 0, 0, 0.2)' : 'rgba(122, 0, 0, 0.1)';
                   }}
                   onMouseLeave={(e) => {
                     e.currentTarget.style.backgroundColor = 'transparent';
@@ -241,7 +241,7 @@ const ConfirmDialog = ({
                   }}
                   onMouseLeave={(e) => {
                     if (inputField && !inputValue.trim()) return;
-                    e.currentTarget.style.backgroundColor = '#7A0000';
+                    e.currentTarget.style.backgroundColor = theme.accent.secondary;
                   }}
                 >
                   {confirmLabel}

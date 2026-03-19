@@ -4091,9 +4091,10 @@ const UniverseManager = ({ variant = 'panel', onRequestClose }) => {
     }
     : {
       background: 'transparent',
-      padding: 0,
-      paddingBottom: bottomSafeArea, // Add TypeList gap spacing for panel variant too
-      height: '100%'
+      padding: 15,
+      paddingBottom: 15,
+      height: '100%',
+      overflowY: 'auto'
     };
 
   // Device message only shown if there are limitations

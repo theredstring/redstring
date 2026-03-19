@@ -164,10 +164,10 @@ const CanvasModal = ({
         {title && (
           <div
             style={{
-              backgroundColor: '#260000',
-              color: theme.canvas.text,
+              backgroundColor: theme.canvas.textPrimary,
+              color: theme.canvas.bg,
               padding: '12px 16px',
-              borderBottom: '2px solid #8B0000',
+              borderBottom: `2px solid ${theme.accent.primary}`,
               display: 'flex',
               justifyContent: 'space-between',
               alignItems: 'center',
@@ -186,7 +186,7 @@ const CanvasModal = ({
               style={{
                 background: 'none',
                 border: 'none',
-                color: theme.canvas.text,
+                color: theme.canvas.bg,
                 cursor: 'pointer',
                 padding: '4px',
                 borderRadius: '4px',
@@ -194,7 +194,7 @@ const CanvasModal = ({
                 alignItems: 'center',
                 justifyContent: 'center'
               }}
-              onMouseEnter={(e) => e.currentTarget.style.backgroundColor = 'rgba(189, 181, 181, 0.2)'}
+              onMouseEnter={(e) => e.currentTarget.style.backgroundColor = theme.darkMode ? 'rgba(222, 218, 218, 0.2)' : 'rgba(189, 181, 181, 0.2)'}
               onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
             >
               ✕
