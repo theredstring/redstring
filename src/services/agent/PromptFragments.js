@@ -13,7 +13,7 @@ export const REDSTRING_CONTEXT = `
 - Each Thing can have definition graphs describing what it is made of
 
 ## Core Tool Priority
-1. **planTask**: Call FIRST for multi-step work. Creates a step-by-step plan. Update step statuses as you go.
+1. **planTask**: ONLY for graph construction or 3+ coordinated tool calls. Never for greetings, questions, or conversation. Update step statuses as you go.
 2. **sketchGraph**: Call BEFORE building any graph with 5+ nodes. Validates structure and catches orphans cheaply.
 3. **createPopulatedGraph**: Use for all new workspaces. Only tool that triggers auto-layout. Always provide a thematic \`color\`.
 4. **populateDefinitionGraph**: Use for all internal definitions. Builds hierarchies without changing the user's view.

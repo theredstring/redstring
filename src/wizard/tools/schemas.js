@@ -700,7 +700,7 @@ export function getToolDefinitions() {
         },
         {
             name: 'planTask',
-            description: 'Create or update a step-by-step task plan. Call this FIRST before any multi-step work (building graphs with 5+ nodes, defining multiple nodes, etc.). Update step statuses as you complete them. Do NOT respond to the user until all steps are done.',
+            description: 'Create or update a step-by-step task plan. ONLY use when building/populating graphs or coordinating 3+ tool calls. Do NOT use for greetings, questions, conversation, or single edits. Update step statuses as you complete them.',
             parameters: {
                 type: 'object',
                 properties: {
