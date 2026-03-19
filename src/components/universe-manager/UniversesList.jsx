@@ -98,7 +98,7 @@ const UniversesList = ({
     const observer = new ResizeObserver((entries) => {
       for (const entry of entries) {
         const width = entry.contentRect?.width || el.clientWidth || 0;
-        setIsHeaderSlim(width < 400);
+        setIsHeaderSlim(width < 480);
       }
     });
 
@@ -340,10 +340,9 @@ const UniversesList = ({
           {/* Workspace Folder Section */}
           <div style={{
             padding: '10px 12px',
-            backgroundColor: theme.canvas.inactive,
-            opacity: 0.9,
+            backgroundColor: theme.canvas.bg,
             borderRadius: 6,
-            border: workspaceFolder ? `2px solid ${theme.canvas.brand}` : `2px dashed ${theme.canvas.border}`,
+            border: `1px solid ${theme.canvas.border}`,
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'space-between',
@@ -351,9 +350,9 @@ const UniversesList = ({
           }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, flex: 1, minWidth: 0 }}>
               {workspaceFolder ? (
-                <FolderOpen size={18} color={theme.canvas.brand} />
+                <FolderOpen size={18} color={theme.darkMode ? '#CCAAA8' : theme.canvas.brand} />
               ) : (
-                <Folder size={18} color={theme.canvas.textSecondary} />
+                <Folder size={18} color={theme.darkMode ? '#CCAAA8' : theme.canvas.textSecondary} />
               )}
               <div style={{ display: 'flex', flexDirection: 'column', minWidth: 0 }}>
                 <span style={{ fontSize: '0.72rem', fontWeight: 600, color: theme.canvas.textPrimary }}>
