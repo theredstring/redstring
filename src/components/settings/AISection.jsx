@@ -441,7 +441,7 @@ const AISection = () => {
               </div>
 
               {selectedPreset && (
-                <div style={{ fontSize: '0.75rem', color: theme.canvas.textSecondary, padding: '8px 0', borderBottom: `1px solid ${theme.darkMode ? 'rgba(222,218,218,0.1)' : 'rgba(38,0,0,0.08)'}` }}>
+                <div style={{ fontSize: '0.75rem', color: theme.canvas.textPrimary, padding: '8px 0', borderBottom: `1px solid ${theme.darkMode ? 'rgba(222,218,218,0.1)' : 'rgba(38,0,0,0.08)'}` }}>
                   {selectedPreset.setupInstructions}
                 </div>
               )}
@@ -478,13 +478,13 @@ const AISection = () => {
               </div>
 
               {selectedPreset?.commonModels.length > 0 && (
-                <div style={{ fontSize: '0.7rem', color: theme.darkMode ? '#ff9a9a' : '#8B0000', paddingBottom: '10px', borderBottom: `1px solid ${theme.darkMode ? 'rgba(222,218,218,0.1)' : 'rgba(38,0,0,0.08)'}` }}>
+                <div style={{ fontSize: '0.7rem', color: theme.darkMode ? '#ff9a9a' : '#260000', paddingBottom: '10px', borderBottom: `1px solid ${theme.darkMode ? 'rgba(222,218,218,0.1)' : 'rgba(38,0,0,0.08)'}` }}>
                   Suggested: {selectedPreset.commonModels.map((m, i) => (
                     <React.Fragment key={m}>
                       <button
                         type="button"
                         onClick={() => setModel(m)}
-                        style={{ background: 'none', border: 'none', color: theme.darkMode ? '#ff9a9a' : '#8B0000', textDecoration: 'underline', cursor: 'pointer', padding: 0, font: 'inherit' }}
+                        style={{ background: 'none', border: 'none', color: theme.darkMode ? '#ff9a9a' : '#260000', textDecoration: 'underline', cursor: 'pointer', padding: 0, font: 'inherit' }}
                       >
                         {m}
                       </button>
@@ -630,7 +630,7 @@ const AISection = () => {
                 style={{
                   background: 'none',
                   border: 'none',
-                  color: theme.darkMode ? '#ff9a9a' : '#8B0000',
+                  color: theme.darkMode ? '#ff9a9a' : '#260000',
                   fontSize: '0.75rem',
                   cursor: 'pointer',
                   textDecoration: 'underline',
@@ -688,12 +688,12 @@ const AISection = () => {
                   </button>
                 </div>
               ) : (
-                <div style={{ fontSize: '0.75rem', color: theme.canvas.textSecondary, fontStyle: 'italic' }}>
+                <div style={{ fontSize: '0.75rem', color: theme.canvas.textPrimary, fontStyle: 'italic' }}>
                   Using existing key •{' '}
                   <button
                     type="button"
                     onClick={() => { setAllowKeyEdit(true); setShowKey(false); }}
-                    style={{ background: 'none', border: 'none', color: theme.darkMode ? '#ff9a9a' : '#8B0000', textDecoration: 'underline', cursor: 'pointer', padding: 0, font: 'inherit' }}
+                    style={{ background: 'none', border: 'none', color: theme.darkMode ? '#ff9a9a' : '#260000', textDecoration: 'underline', cursor: 'pointer', padding: 0, font: 'inherit' }}
                   >
                     Edit
                   </button>
