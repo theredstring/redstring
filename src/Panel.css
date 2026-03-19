@@ -36,22 +36,11 @@
   color-scheme: light;            /* Force light scheme for this input to avoid UA dark styles */
   caret-color: #260000;           /* Default caret color to match text */
   min-width: 10px;                /* CSS minimum width to help caret visibility */
-  }
-  
+}
+
 /* Override caret-color for the input specifically within the header */
 header .editable-title-input {
   caret-color: var(--canvas-text); /* Light caret for dark header background */
-}
-
-/* Override selection color for the input specifically within the header */
-header .editable-title-input::selection {
-  background-color: rgba(189, 181, 181, 0.2); /* Subtle light selection background */
-  color: var(--canvas-text);                         /* Maintain light text color during selection */
-}
-
-.editable-title-input::selection {
-  background-color: rgba(40, 0, 0, 0.2); /* Subtle dark selection background */
-  color: #260000;                         /* Maintain text color during selection */
 }
 
   .panel-bio-textarea {
