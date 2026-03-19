@@ -230,7 +230,7 @@ const UnifiedSelector = ({
             >
               <X size={closeIconSize} color="#999" onClick={() => { setName(''); setColorPickerVisible(false); onClose?.(); }} />
             </div>
-            <div style={{ textAlign: 'left', marginBottom: isSmallScreen ? '15px' : '10px', color: theme.canvas.text }}>
+            <div style={{ textAlign: 'left', marginBottom: isSmallScreen ? '15px' : '10px', color: theme.canvas.textPrimary }}>
               <strong style={{ fontSize: dialogTitleSize, fontFamily: "'EmOne', sans-serif" }}>{title}</strong>
             </div>
             {subtitle && (
@@ -243,7 +243,7 @@ const UnifiedSelector = ({
               {!searchOnly && (
                 <Palette
                   size={iconSize}
-                  color={theme.canvas.text}
+                  color={theme.canvas.textPrimary}
                   style={{
                     cursor: 'pointer',
                     flexShrink: 0,
@@ -273,8 +273,8 @@ const UnifiedSelector = ({
                   marginRight: searchOnly ? 0 : (isSmallScreen ? '6px' : '10px'),
                   fontSize: isMobilePortrait ? '15px' : '14px',
                   touchAction: 'manipulation',
-                  backgroundColor: theme.canvas.text,
-                  color: theme.canvas.bg,
+                  backgroundColor: theme.darkMode ? theme.canvas.inactive : theme.canvas.textPrimary,
+                  color: '#FFFFFF',
                   fontFamily: "'EmOne', sans-serif"
                 }}
                 autoFocus={false}
@@ -332,7 +332,7 @@ const UnifiedSelector = ({
                   padding: isSmallScreen ? '12px 14px' : '10px 16px',
                   borderTopLeftRadius: '16px',
                   borderTopRightRadius: '16px',
-                  color: theme.canvas.text,
+                  color: '#FFFFFF',
                   fontFamily: "'EmOne', sans-serif",
                   fontWeight: 'bold',
                   fontSize: isSmallScreen ? '15px' : '14px',
@@ -346,7 +346,7 @@ const UnifiedSelector = ({
                 style={{
                   flex: 1,
                   margin: '0 5px 5px 5px',
-                  backgroundColor: '#979090',
+                  backgroundColor: theme.canvas.border,
                   borderRadius: '11px', // Fully rounded inner rectangle
                   overflow: 'hidden',
                   display: 'flex',
