@@ -14,8 +14,8 @@
 
 .dropdown-button {
   background: transparent;
-  border: 1px solid #260000;
-  color: #260000;
+  border: 1px solid var(--canvas-border);
+  color: var(--canvas-text);
   font-family: 'EmOne', sans-serif;
   font-size: 0.85rem;
   font-weight: bold;
@@ -31,19 +31,19 @@
 }
 
 .dropdown-button:hover {
-  background-color: rgba(38, 0, 0, 0.05);
-  border-color: #260000;
+  background-color: var(--canvas-hover);
+  border-color: var(--canvas-border);
 }
 
 .dropdown-button:focus {
-  background-color: rgba(38, 0, 0, 0.1);
-  border-color: #260000;
-  box-shadow: 0 0 0 2px rgba(38, 0, 0, 0.2);
+  background-color: var(--canvas-hover);
+  border-color: var(--canvas-border);
+  box-shadow: 0 0 0 2px var(--canvas-border);
 }
 
 .dropdown-button.open {
-  background-color: rgba(38, 0, 0, 0.1);
-  border-color: #260000;
+  background-color: var(--canvas-hover);
+  border-color: var(--canvas-border);
 }
 
 .dropdown-selected {
@@ -57,7 +57,7 @@
 .dropdown-icon {
   margin-left: 8px;
   transition: transform 0.2s ease;
-  color: #260000;
+  color: var(--canvas-text);
   flex-shrink: 0;
 }
 
@@ -71,9 +71,9 @@
   left: 0;
   right: 0;
   background: var(--canvas-bg);
-  border: 1px solid #260000;
+  border: 1px solid var(--canvas-border);
   border-radius: 6px;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
   z-index: 1000;
   margin-top: 4px;
   max-height: 200px;
@@ -83,7 +83,7 @@
 .dropdown-option {
   padding: 8px 12px;
   cursor: pointer;
-  color: #260000;
+  color: var(--canvas-text);
   font-family: 'EmOne', sans-serif;
   font-size: 0.85rem;
   font-weight: bold;
@@ -93,11 +93,11 @@
 
 .dropdown-option:hover,
 .dropdown-option:focus {
-  background-color: rgba(38, 0, 0, 0.1);
+  background-color: var(--canvas-hover);
 }
 
 .dropdown-option.selected {
-  background-color: rgba(38, 0, 0, 0.15);
+  background-color: var(--canvas-inactive);
 }
 
 .dropdown-option:first-child {
@@ -115,7 +115,7 @@
   display: flex;
   align-items: center;
   font-size: 0.8rem;
-  color: #666;
+  color: var(--canvas-text-muted);
   font-family: 'EmOne', sans-serif;
 }
 

@@ -4,12 +4,14 @@ import { getEmptyImage } from 'react-dnd-html5-backend';
 import { Search, Bookmark, ArrowRight } from 'lucide-react';
 import useGraphStore from '../../../store/graphStore.jsx';
 import { getTextColor } from '../../../utils/colorUtils';
+import { useTheme } from '../../../hooks/useTheme.js';
 
 const ItemTypes = {
   SPAWNABLE_NODE: 'spawnable_node'
 };
 
 const DraggableConceptCard = ({ concept, index = 0, onMaterialize, onUnsave, onSelect, onFocus, isSelected }) => {
+  const theme = useTheme();
   const [{ isDragging }, drag, preview] = useDrag(() => ({
     type: ItemTypes.SPAWNABLE_NODE,
     item: {
@@ -70,12 +72,12 @@ const DraggableConceptCard = ({ concept, index = 0, onMaterialize, onUnsave, onS
         padding: '10px 70px 10px 10px', // More right padding for better icon spacing
         background: concept.color, // Background is node color
         borderRadius: '12px', // More rounded like actual nodes
-        border: '1px solid rgba(189,181,181,0.3)',
+        border: `1px solid ${theme.darkMode ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.1)'}`,
         cursor: 'grab',
         opacity: isDragging ? 0.5 : 1,
         transition: 'all 0.2s ease',
         marginBottom: '6px',
-        boxShadow: isDragging ? '0 4px 12px rgba(0,0,0,0.3)' : '0 2px 4px rgba(0,0,0,0.1)',
+        boxShadow: isDragging ? '0 4px 12px rgba(0,0,0,0.3)' : '0 2px 4px rgba(0,0,0,0.15)',
         position: 'relative',
         userSelect: 'none',
         animation: `conceptSlideIn 0.3s ease ${index * 50}ms both`,
@@ -124,7 +126,7 @@ const DraggableConceptCard = ({ concept, index = 0, onMaterialize, onUnsave, onS
         <Search
           size={32}
           style={{
-            color: getTextColor(concept.color), // Contrasting color
+            color: getTextColor(concept.color, theme.darkMode), // Contrasting color
             pointerEvents: 'none'
           }}
         />
@@ -163,8 +165,8 @@ const DraggableConceptCard = ({ concept, index = 0, onMaterialize, onUnsave, onS
         <Bookmark
           size={32}
           style={{
-            color: getTextColor(concept.color), // Contrasting color
-            fill: isBookmarked ? getTextColor(concept.color) : 'transparent', // Filled when saved, transparent when unsaved
+            color: getTextColor(concept.color, theme.darkMode), // Contrasting color
+            fill: isBookmarked ? getTextColor(concept.color, theme.darkMode) : 'transparent', // Filled when saved, transparent when unsaved
             pointerEvents: 'none'
           }}
         />
@@ -172,7 +174,7 @@ const DraggableConceptCard = ({ concept, index = 0, onMaterialize, onUnsave, onS
 
       {/* Node Name */}
       <div style={{
-        color: getTextColor(concept.color), // Node name in contrasting color
+        color: getTextColor(concept.color, theme.darkMode), // Node name in contrasting color
         fontFamily: "'EmOne', sans-serif",
         fontSize: '16px', // Larger title
         fontWeight: 'bold',
@@ -192,7 +194,7 @@ const DraggableConceptCard = ({ concept, index = 0, onMaterialize, onUnsave, onS
       {(concept.semanticMetadata?.connectionInfo?.predicate || concept.defaultPredicate) && (
         <div style={{
           fontSize: '10px',
-          color: getTextColor(concept.color), // In contrasting color
+          color: getTextColor(concept.color, theme.darkMode), // In contrasting color
           opacity: 0.8,
           fontFamily: "'EmOne', sans-serif",
           marginBottom: '6px',
@@ -208,11 +210,11 @@ const DraggableConceptCard = ({ concept, index = 0, onMaterialize, onUnsave, onS
               <span style={{ maxWidth: '80px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                 {concept.semanticMetadata.connectionInfo.originalEntity}
               </span>
-              <ArrowRight size={10} color={getTextColor(concept.color)} />
+              <ArrowRight size={10} color={getTextColor(concept.color, theme.darkMode)} />
               <span>
                 {concept.semanticMetadata.connectionInfo.predicate || concept.defaultPredicate}
               </span>
-              <ArrowRight size={10} color={getTextColor(concept.color)} />
+              <ArrowRight size={10} color={getTextColor(concept.color, theme.darkMode)} />
             </>
           ) : (
             // Fallback for when we don't know the exact subject (e.g. general search results)
@@ -223,7 +225,7 @@ const DraggableConceptCard = ({ concept, index = 0, onMaterialize, onUnsave, onS
 
       {/* Truncated Description */}
       <div style={{
-        color: getTextColor(concept.color), // Description in contrasting color
+        color: getTextColor(concept.color, theme.darkMode), // Description in contrasting color
         fontFamily: "'EmOne', sans-serif",
         fontSize: '11px',
         lineHeight: '1.4',
@@ -242,7 +244,7 @@ const DraggableConceptCard = ({ concept, index = 0, onMaterialize, onUnsave, onS
       {/* Bottom Info Bar */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <div style={{
-          color: getTextColor(concept.color), // Info bar in contrasting color
+          color: getTextColor(concept.color, theme.darkMode), // Info bar in contrasting color
           fontFamily: "'EmOne', sans-serif",
           fontSize: '10px', // Larger for better readability
           opacity: 0.8,

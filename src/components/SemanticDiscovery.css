@@ -7,7 +7,7 @@
 .semantic-discovery-empty {
   padding: 20px 8px;
   text-align: center;
-  color: #666;
+  color: var(--canvas-text-muted);
   font-family: 'EmOne', sans-serif;
   font-size: 12px;
 }
@@ -15,7 +15,7 @@
 /* Clean Tab Navigation */
 .discovery-tabs {
   display: flex;
-  border-bottom: 1px solid #333;
+  border-bottom: 1px solid var(--canvas-border);
   margin-bottom: 16px;
 }
 
@@ -23,7 +23,7 @@
   padding: 8px 16px;
   border: none;
   background: transparent;
-  color: #888;
+  color: var(--canvas-text-muted);
   font-family: 'EmOne', sans-serif;
   font-size: 12px;
   font-weight: 500;
@@ -33,7 +33,7 @@
 }
 
 .discovery-tab:hover {
-  color: #bbb;
+  color: var(--canvas-text);
 }
 
 .discovery-tab.active {

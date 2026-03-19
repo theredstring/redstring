@@ -52,7 +52,7 @@ const GhostSemanticNode = ({ concept, index, onMaterialize, onSelect }) => {
         padding: '6px',
         background: concept.color, // Background is node color
         borderRadius: '8px',
-        border: '1px dashed rgba(189,181,181,0.4)',
+        border: `1px dashed ${theme.darkMode ? 'rgba(255,255,255,0.2)' : 'rgba(0,0,0,0.2)'}`,
         cursor: 'grab',
         opacity: isDragging ? 0.3 : ghostOpacity,
         transform: `scale(${isDragging ? 0.95 : 1})`,
@@ -66,7 +66,7 @@ const GhostSemanticNode = ({ concept, index, onMaterialize, onSelect }) => {
         alignItems: 'center',
         // Ghost-like effects inspired by AbstractionCarousel
         animation: `ghostFadeIn 0.3s ease ${animationDelay}ms both, ghostFloat 2s ease-in-out infinite ${animationDelay + 500}ms`,
-        boxShadow: `0 2px 8px rgba(34,139,34,0.3), inset 0 1px 0 rgba(255,255,255,0.1)`,
+        boxShadow: `0 2px 8px ${theme.darkMode ? 'rgba(0,0,0,0.4)' : 'rgba(34,139,34,0.3)'}, inset 0 1px 0 rgba(255,255,255,0.1)`,
         backdropFilter: 'blur(1px)'
       }}
       title={`${concept.name} - Drag to canvas or click to add`}

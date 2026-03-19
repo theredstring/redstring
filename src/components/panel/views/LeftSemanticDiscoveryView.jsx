@@ -1429,7 +1429,7 @@ const LeftSemanticDiscoveryView = ({ storeActions, nodePrototypesMap, openRightP
                           </span>
                         </div>
                       </div>
-                      <div style={{ fontSize: 11, color: theme.canvas.textPrimary, fontFamily: "'EmOne', sans-serif", marginLeft: 0, paddingBottom: 6 }}>from Active Web</div>
+                      <div style={{ fontSize: 11, color: theme.canvas.textSecondary, fontFamily: "'EmOne', sans-serif", marginLeft: 0, paddingBottom: 6 }}>from Active Web</div>
                     </div>
                   )}
 
@@ -1467,7 +1467,7 @@ const LeftSemanticDiscoveryView = ({ storeActions, nodePrototypesMap, openRightP
                           </span>
                         </div>
                       </div>
-                      <div style={{ fontSize: 11, color: theme.canvas.textPrimary, fontFamily: "'EmOne', sans-serif", marginLeft: 0, paddingBottom: 6 }}>from Selected</div>
+                      <div style={{ fontSize: 11, color: theme.canvas.textSecondary, fontFamily: "'EmOne', sans-serif", marginLeft: 0, paddingBottom: 6 }}>from Selected</div>
                     </div>
                   )}
                 </div>
@@ -1489,7 +1489,7 @@ const LeftSemanticDiscoveryView = ({ storeActions, nodePrototypesMap, openRightP
                   style={{
                     flex: 1,
                     padding: '6px 8px',
-                    border: `1px solid ${theme.canvas.textPrimary}`,
+                    border: `1px solid ${theme.canvas.border}`,
                     borderRadius: '4px',
                     fontSize: '11px',
                     fontFamily: "'EmOne', sans-serif",
@@ -1502,7 +1502,7 @@ const LeftSemanticDiscoveryView = ({ storeActions, nodePrototypesMap, openRightP
                   disabled={isSearching || !manualQuery?.trim()}
                   style={{
                     padding: '6px 12px',
-                    border: `1px solid ${theme.canvas.textPrimary}`,
+                    border: `1px solid ${theme.canvas.border}`,
                     borderRadius: '4px',
                     background: 'transparent',
                     color: theme.canvas.textPrimary,
@@ -1584,9 +1584,9 @@ const LeftSemanticDiscoveryView = ({ storeActions, nodePrototypesMap, openRightP
                       disabled={isSearching}
                       style={{
                         padding: '8px 16px',
-                        border: `1px solid ${theme.canvas.textSecondary}`,
+                        border: `1px solid ${theme.canvas.border}`,
                         borderRadius: '6px',
-                        background: isSearching ? '#333' : 'transparent',
+                        background: isSearching ? theme.canvas.inactive : 'transparent',
                         color: theme.canvas.textSecondary,
                         fontSize: '10px',
                         cursor: isSearching ? 'wait' : 'pointer',
@@ -1595,8 +1595,8 @@ const LeftSemanticDiscoveryView = ({ storeActions, nodePrototypesMap, openRightP
                       }}
                       onMouseEnter={(e) => {
                         if (!isSearching) {
-                          e.target.style.background = 'rgba(102, 102, 102, 0.1)';
-                          e.target.style.borderColor = '#888';
+                          e.target.style.background = theme.canvas.hover;
+                          e.target.style.borderColor = theme.canvas.border;
                         }
                       }}
                       onMouseLeave={(e) => {
@@ -1619,9 +1619,9 @@ const LeftSemanticDiscoveryView = ({ storeActions, nodePrototypesMap, openRightP
                 <div style={{
                   width: '32px',
                   height: '32px',
-                  border: `3px solid ${theme.canvas.bg}`,
+                  border: `3px solid ${theme.canvas.border}`,
 
-                  borderTop: '3px solid #7A0000',
+                  borderTop: `3px solid ${theme.accent.primary}`,
                   borderRadius: '50%',
                   animation: 'spin 1s linear infinite',
                   marginBottom: '12px',
@@ -1805,8 +1805,8 @@ const LeftSemanticDiscoveryView = ({ storeActions, nodePrototypesMap, openRightP
                 <div key={historyItem.id} style={{
                   padding: '8px',
                   marginBottom: '8px',
-                  background: 'rgba(255,255,255,0.02)',
-                  border: '1px solid #333',
+                  background: 'rgba(128,128,128,0.05)',
+                  border: `1px solid ${theme.canvas.border}`,
                   borderRadius: '6px'
                 }}>
                   <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
