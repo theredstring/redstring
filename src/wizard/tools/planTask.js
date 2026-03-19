@@ -23,6 +23,18 @@ export async function planTask(args) {
     throw new Error('planTask requires a non-empty steps array');
   }
 
+  // Reject trivially small plans — if there's only 1 step, you don't need a plan, just do it.
+  if (steps.length === 1) {
+    throw new Error('A 1-step plan is not a plan. If the task is that simple, just do it directly without planTask. Only use planTask for multi-step graph construction or 3+ coordinated tool calls.');
+  }
+
+  // Reject plans that don't involve graph work — check if any step mentions graph-related actions
+  const graphKeywords = /graph|node|edge|sketch|build|populate|definition|create|expand|connect|layout|enrich/i;
+  const hasGraphWork = steps.some(s => graphKeywords.test(s.description));
+  if (!hasGraphWork) {
+    throw new Error('planTask is only for graph construction tasks. This plan does not involve building or modifying graphs. Just respond to the user directly with text — no plan needed.');
+  }
+
   // Validate step format
   for (let i = 0; i < steps.length; i++) {
     const step = steps[i];
