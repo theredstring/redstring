@@ -140,3 +140,66 @@
 .mc-other-submit:hover {
     background: rgba(38, 0, 0, 0.2);
 }
+
+/* Dark mode */
+.dark-mode .mc-overlay-container {
+    border-color: var(--canvas-border);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+}
+
+.dark-mode .mc-question {
+    color: var(--canvas-text);
+}
+
+.dark-mode .mc-option-button {
+    background: rgba(255, 255, 255, 0.05);
+    border-color: var(--canvas-border);
+    color: var(--canvas-text);
+}
+
+.dark-mode .mc-option-button:hover {
+    background: rgba(255, 255, 255, 0.12);
+    border-color: var(--canvas-border);
+}
+
+.dark-mode .mc-option-none {
+    background: #c0392b;
+    border-color: #c0392b;
+    color: #DEDADA;
+}
+
+.dark-mode .mc-option-none:hover {
+    background: #a93226;
+    border-color: #a93226;
+}
+
+.dark-mode .mc-option-other {
+    background: transparent;
+    border: 1px dashed rgba(255, 255, 255, 0.25);
+}
+
+.dark-mode .mc-option-other:hover {
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px dashed rgba(255, 255, 255, 0.4);
+}
+
+.dark-mode .mc-other-input {
+    background: rgba(255, 255, 255, 0.05);
+    border-color: rgba(255, 255, 255, 0.15);
+    color: var(--canvas-text);
+}
+
+.dark-mode .mc-other-input:focus {
+    border-color: rgba(255, 255, 255, 0.3);
+    background: rgba(255, 255, 255, 0.08);
+}
+
+.dark-mode .mc-other-submit {
+    background: rgba(255, 255, 255, 0.08);
+    color: var(--canvas-text);
+    border-color: var(--canvas-border);
+}
+
+.dark-mode .mc-other-submit:hover {
+    background: rgba(255, 255, 255, 0.15);
+}

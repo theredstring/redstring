@@ -1,6 +1,7 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import './MultipleChoiceOverlay.css';
 import headSvg from '../../assets/svg/wizard/head.svg';
+import { useTheme } from '../../hooks/useTheme.js';
 
 /**
  * Overlay for rendering a multiple choice question from the AI
@@ -13,6 +14,39 @@ import headSvg from '../../assets/svg/wizard/head.svg';
 export default function MultipleChoiceOverlay({ question, options, onSelect, onDismiss }) {
     const [otherText, setOtherText] = useState('');
     const [showOtherInput, setShowOtherInput] = useState(false);
+    const theme = useTheme();
+
+    const renderMarkdown = useMemo(() => {
+        const escapeHtml = (str) =>
+            str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+
+        return (text) => {
+            if (!text) return text;
+            let html = escapeHtml(text);
+
+            // Inline code
+            html = html.replace(/`([^`]+)`/g, `<code style="background:${theme.canvas.inactive};padding:2px 4px;border-radius:3px;">$1</code>`);
+            // ***bold+italic***
+            html = html.replace(/\*\*\*(.+?)\*\*\*/g, '<strong><em>$1</em></strong>');
+            // **bold**
+            html = html.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+            // *italic*
+            html = html.replace(/\*(.+?)\*/g, '<em>$1</em>');
+            // Unordered lists
+            html = html.replace(/^\s*-\s+(.*)$/gim, '<li style="margin-left:20px;margin-bottom:2px;">$1</li>');
+            html = html.replace(/(?:<li[^>]*>.*?<\/li>\s*)+/g, (match) => {
+                const clean = match.replace(/\n\s*</g, '<');
+                return `<ul style="margin:4px 0;padding:0;list-style-type:disc;">${clean}</ul>`;
+            });
+            // Newlines to <br> (skip inside ul)
+            html = html.split(/(<ul[\s\S]*?<\/ul>)/i).map(part => {
+                if (part.startsWith('<ul')) return part;
+                return part.replace(/\n/g, '<br>');
+            }).join('');
+
+            return html;
+        };
+    }, [theme.canvas.inactive]);
 
     const handleOptionClick = (option) => {
         onSelect(option);
@@ -33,7 +67,7 @@ export default function MultipleChoiceOverlay({ question, options, onSelect, onD
         <div className="mc-overlay-container">
             <div className="mc-question-header">
                 <img src={headSvg} alt="Wizard" className="mc-wizard-face" />
-                <div className="mc-question">{question}</div>
+                <div className="mc-question" dangerouslySetInnerHTML={{ __html: renderMarkdown(question) }} />
             </div>
             <div className="mc-options">
                 {options.map((opt, i) => (
@@ -41,9 +75,8 @@ export default function MultipleChoiceOverlay({ question, options, onSelect, onD
                         key={i}
                         className="mc-option-button"
                         onClick={() => handleOptionClick(opt)}
-                    >
-                        {opt}
-                    </button>
+                        dangerouslySetInnerHTML={{ __html: renderMarkdown(opt) }}
+                    />
                 ))}
 
                 <button

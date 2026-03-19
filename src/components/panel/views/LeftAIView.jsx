@@ -2780,15 +2780,13 @@ const LeftAIView = ({ compact = false,
                     } else {
                       console.warn('[Wizard] tool_result received but no matching tool_call block found!', event.id);
                     }
-                    // Live-update plan card: replace existing plan block or create new one
+                    // Live-update plan card: remove from old position and push to end so it floats to bottom
                     if (event.name === 'planTask' && event.result?.steps) {
                       const existingPlanIdx = blocks.findIndex(b => b.type === 'plan');
-                      const planBlock = { type: 'plan', id: 'plan-' + streamingMessageId, steps: event.result.steps, timestamp: now };
                       if (existingPlanIdx >= 0) {
-                        blocks[existingPlanIdx] = planBlock;
-                      } else {
-                        blocks.push(planBlock);
+                        blocks.splice(existingPlanIdx, 1);
                       }
+                      blocks.push({ type: 'plan', id: 'plan-' + streamingMessageId, steps: event.result.steps, timestamp: now });
                     }
                   } else if (event.type === 'response') {
                     const lastBlock = blocks.length > 0 ? blocks[blocks.length - 1] : null;
@@ -3539,6 +3537,7 @@ const LeftAIView = ({ compact = false,
                           );
                         }
                         if (block.type === 'tool_call') {
+                          if (block.name === 'planTask') return null;
                           return (
                             <ToolCallCard
                               key={block.id || `tc-${i}`}
