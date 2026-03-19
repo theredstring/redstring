@@ -9,7 +9,8 @@ const MaroonSlider = ({
   step = 1,
   onChange,
   disabled = false,
-  suffix = ''
+  suffix = '',
+  displayValue
 }) => {
   return (
     <div className="maroon-slider" aria-disabled={disabled}>
@@ -33,7 +34,7 @@ const MaroonSlider = ({
           aria-valuenow={value}
         />
         <div className="maroon-slider__value">
-          {value}
+          {displayValue !== undefined ? displayValue : value}
           {suffix}
         </div>
       </div>

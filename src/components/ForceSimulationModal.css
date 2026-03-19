@@ -1,28 +1,30 @@
+/* ===== Force Simulation Modal — Light/Dark themed ===== */
+
 .force-sim-modal {
   position: fixed;
   z-index: 20000;
-  background: #260000;
-  border: 2px solid #7A0000;
+  background: #bdb5b5;
+  border: 2px solid #979090;
   border-radius: 8px;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.8);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.3);
   font-family: 'EmOne', sans-serif;
-  color: var(--canvas-text-muted);
+  color: #260000;
   width: 500px;
   max-height: 90vh;
   display: flex;
   flex-direction: column;
-  /* Removed global user-select: none - now applied selectively */
 }
 
+/* --- Header --- */
 .force-sim-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
   padding: 12px 16px;
-  background: #7A0000;
-  border-bottom: 2px solid #8B0000;
+  background: #8B0000;
+  border-bottom: 2px solid #7A0000;
   border-radius: 6px 6px 0 0;
-  user-select: none; /* Prevent text selection during dragging */
+  user-select: none;
 }
 
 .force-sim-header h3 {
@@ -48,261 +50,179 @@
   opacity: 0.7;
 }
 
+/* --- Body --- */
 .force-sim-body {
   display: flex;
   flex-direction: column;
   gap: 16px;
   padding: 16px;
   overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(38, 0, 0, 0.1) rgba(38, 0, 0, 0.05);
 }
 
+.force-sim-body::-webkit-scrollbar {
+  width: 20px;
+}
+
+.force-sim-body::-webkit-scrollbar-track {
+  background: rgba(38, 0, 0, 0.05);
+  border-radius: 4px;
+}
+
+.force-sim-body::-webkit-scrollbar-thumb {
+  background-color: rgba(38, 0, 0, 0.1);
+  border-radius: 4px;
+  border: 6px solid transparent;
+  background-clip: padding-box;
+}
+
+.force-sim-body:hover::-webkit-scrollbar-thumb {
+  background-color: #260000;
+  border-width: 4px;
+}
+
+/* --- Stats box --- */
 .force-sim-stats-box {
   display: flex;
   gap: 24px;
-  padding: 16px;
-  background: #1a0000;
-  border: 1px solid #7A0000;
-  border-radius: 4px;
-  margin-bottom: 12px;
+  padding: 12px 16px;
+  background: rgba(38, 0, 0, 0.05);
+  border: 1px solid rgba(38, 0, 0, 0.08);
+  border-radius: 6px;
 }
 
 .force-sim-stat {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 2px;
 }
 
 .force-sim-stat-label {
-  font-size: 11px;
-  color: var(--canvas-text-muted);
-  opacity: 0.7;
+  font-size: 0.7rem;
+  color: #3F3A3A;
   text-transform: uppercase;
   letter-spacing: 0.5px;
 }
 
 .force-sim-stat-value {
-  font-size: 16px;
-  color: #4ecdc4;
+  font-size: 15px;
+  color: #8B0000;
   font-weight: bold;
-  user-select: text; /* Allow users to select and copy stat values */
+  user-select: text;
   cursor: text;
 }
 
+.force-sim-stat-value.running {
+  color: #2e7d32;
+}
+
+/* --- Info box --- */
 .force-sim-info {
-  padding: 12px;
-  background: rgba(78, 205, 196, 0.1);
-  border: 1px solid rgba(78, 205, 196, 0.3);
-  border-radius: 4px;
-  font-size: 13px;
-  color: var(--canvas-text-muted);
-  margin-bottom: 16px;
-  text-align: center;
-}
-
-.force-sim-controls {
   display: flex;
-  flex-direction: column;
-  gap: 16px;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  background: rgba(139, 0, 0, 0.06);
+  border: 1px solid rgba(139, 0, 0, 0.15);
+  border-radius: 6px;
+  font-size: 0.8rem;
+  color: #3F3A3A;
 }
 
+.force-sim-info svg {
+  flex-shrink: 0;
+  color: #8B0000;
+}
+
+/* --- Control buttons --- */
 .force-sim-buttons {
   display: flex;
-  gap: 8px;
+  gap: 6px;
   flex-wrap: wrap;
 }
 
 .force-sim-btn {
-  background: #7A0000;
-  color: #ffffff;
-  border: 1px solid #8B0000;
-  padding: 8px 16px;
-  border-radius: 4px;
-  font-size: 14px;
+  background: #fff;
+  color: #260000;
+  border: 1px solid #979090;
+  padding: 6px 12px;
+  border-radius: 6px;
+  font-size: 0.8rem;
   font-family: 'EmOne', sans-serif;
   cursor: pointer;
   display: flex;
   align-items: center;
-  gap: 6px;
-  transition: background 0.2s;
-  user-select: none; /* Buttons shouldn't be selectable */
+  gap: 5px;
+  transition: all 0.15s ease;
+  user-select: none;
 }
 
 .force-sim-btn:hover {
-  background: #8B0000;
+  border-color: #8B0000;
+  color: #8B0000;
 }
 
-.force-sim-btn-secondary {
-  background: #4ecdc4;
-  color: #260000;
-  border-color: #4ecdc4;
-  font-weight: bold;
+.force-sim-btn.active {
+  background-color: #8B0000;
+  border-color: #8B0000;
+  color: #fff;
 }
 
-.force-sim-btn-secondary:hover {
-  background: #6ee7df;
-  border-color: #6ee7df;
-}
-
-.force-sim-btn-primary {
-  background: #4ecdc4;
-  color: #260000;
-  border: 1px solid #4ecdc4;
-  font-weight: bold;
-}
-
-.force-sim-btn-primary:hover {
-  background: #6ee7df;
-}
-
-.force-sim-params {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-  max-height: 550px;
-  overflow-y: auto;
-  padding: 8px;
-  background: #1a0000;
-  border: 1px solid #7A0000;
-  border-radius: 4px;
-}
-
-.force-sim-param {
-  display: grid;
-  grid-template-columns: 140px 1fr 80px;
-  align-items: center;
-  gap: 12px;
-}
-
-.force-sim-param label {
-  font-size: 13px;
-  color: var(--canvas-text-muted);
-  user-select: none; /* Labels don't need to be selectable */
-}
-
-.force-sim-param input[type="range"] {
-  -webkit-appearance: none;
-  width: 100%;
-  height: 6px;
-  border-radius: 3px;
-  background: #260000;
-  outline: none;
-  border: 1px solid #7A0000;
-}
-
-.force-sim-param input[type="range"]::-webkit-slider-thumb {
-  -webkit-appearance: none;
-  appearance: none;
-  width: 16px;
-  height: 16px;
-  border-radius: 50%;
-  background: #7A0000;
-  cursor: pointer;
-  border: 2px solid #8B0000;
-  transition: background 0.2s;
-}
-
-.force-sim-param input[type="range"]::-webkit-slider-thumb:hover {
-  background: #8B0000;
-}
-
-.force-sim-param input[type="range"]::-moz-range-thumb {
-  width: 16px;
-  height: 16px;
-  border-radius: 50%;
-  background: #7A0000;
-  cursor: pointer;
-  border: 2px solid #8B0000;
-  transition: background 0.2s;
-}
-
-.force-sim-param input[type="range"]::-moz-range-thumb:hover {
-  background: #8B0000;
-}
-
-.force-sim-param span {
-  font-size: 13px;
-  color: #4ecdc4;
-  text-align: right;
-  font-weight: bold;
-  user-select: text; /* Allow users to select and copy parameter values */
-  cursor: text;
-}
-
-.force-sim-preset-row {
+/* --- Presets section --- */
+.force-sim-preset-section {
   display: flex;
   flex-direction: column;
   gap: 8px;
-  padding: 12px 12px 0;
 }
 
 .force-sim-preset-label {
-  font-size: 12px;
+  font-size: 0.8rem;
+  font-weight: bold;
+  color: #8B0000;
   text-transform: uppercase;
   letter-spacing: 0.5px;
-  color: #ffb3b3;
-  opacity: 0.8;
 }
 
-.force-sim-chip-row,
-.force-sim-chip-group {
+/* --- Slider sections --- */
+.force-sim-slider-section {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px;
+  background: rgba(38, 0, 0, 0.03);
+  border: 1px solid rgba(38, 0, 0, 0.08);
+  border-radius: 6px;
+}
+
+.force-sim-slider-section .settings-section-subtitle {
+  margin: 0 0 4px 0;
+}
+
+/* --- Quick presets for Layout Scale / Speed --- */
+.force-sim-quick-presets {
   display: flex;
   gap: 6px;
   flex-wrap: wrap;
+  margin-top: 4px;
 }
 
-.force-sim-chip-group {
-  grid-column: 1 / span 3;
-  margin-top: 6px;
-}
-
-.force-sim-chip {
-  flex: 1;
-  min-width: 90px;
-  background: #2a0000;
-  border: 1px solid #7A0000;
-  border-radius: 999px;
-  color: var(--canvas-text-muted);
-  font-size: 12px;
-  font-family: 'EmOne', sans-serif;
-  padding: 6px 12px;
-  cursor: pointer;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 2px;
-  transition: background 0.2s, border 0.2s, color 0.2s;
-  user-select: none; /* Preset chips shouldn't be selectable */
-}
-
-.force-sim-chip small {
-  font-size: 11px;
-  color: var(--canvas-text-muted);
-  opacity: 0.8;
-}
-
-.force-sim-chip.active {
-  background: #7A0000;
-  color: #ffffff;
-  border-color: #ff7070;
-}
-
-/* JSON textarea styles */
+/* --- JSON textarea --- */
 .force-sim-json-container {
-  margin-top: 16px;
-  padding: 12px;
-  background: #1a0000;
-  border: 1px solid #7A0000;
-  border-radius: 4px;
+  padding: 8px;
+  background: rgba(38, 0, 0, 0.05);
+  border: 1px solid rgba(38, 0, 0, 0.08);
+  border-radius: 6px;
 }
 
 .force-sim-json-textarea {
   width: 100%;
-  min-height: 200px;
+  min-height: 180px;
   max-height: 300px;
-  background: #0d0000;
-  border: 1px solid #7A0000;
+  background: #fff;
+  border: 1px solid #979090;
   border-radius: 4px;
-  color: #4ecdc4;
+  color: #260000;
   font-family: 'Courier New', monospace;
   font-size: 12px;
   padding: 8px;
@@ -311,25 +231,133 @@
   cursor: text;
 }
 
-/* Section styles for grouping parameters */
-.force-sim-section {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-  padding: 12px;
-  background: #1a0000;
-  border: 1px solid #7A0000;
-  border-radius: 4px;
-  margin-top: 8px;
+/* --- MaroonSlider overrides for this modal --- */
+.force-sim-body .maroon-slider__label {
+  color: #260000;
+  font-weight: bold;
+  font-size: 0.8rem;
 }
 
-.force-sim-section-title {
-  margin: 0;
-  font-size: 14px;
+.force-sim-body .maroon-slider__value {
+  color: #fff;
+  background: #260000;
   font-weight: bold;
-  color: #ffb3b3;
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
-  padding-bottom: 8px;
-  border-bottom: 1px solid rgba(122, 0, 0, 0.5);
+}
+
+/* ===== Dark Mode ===== */
+
+.force-sim-dark {
+  background: #3F3A3A;
+  border-color: #6a6464;
+  color: #DEDADA;
+}
+
+.force-sim-dark .force-sim-body {
+  scrollbar-color: rgba(222, 218, 218, 0.15) rgba(222, 218, 218, 0.05);
+}
+
+.force-sim-dark .force-sim-body::-webkit-scrollbar-track {
+  background: rgba(222, 218, 218, 0.05);
+}
+
+.force-sim-dark .force-sim-body::-webkit-scrollbar-thumb {
+  background-color: rgba(222, 218, 218, 0.15);
+}
+
+.force-sim-dark .force-sim-body:hover::-webkit-scrollbar-thumb {
+  background-color: rgba(222, 218, 218, 0.4);
+}
+
+.force-sim-dark .force-sim-stats-box {
+  background: rgba(222, 218, 218, 0.05);
+  border-color: rgba(222, 218, 218, 0.1);
+}
+
+.force-sim-dark .force-sim-stat-label {
+  color: #BDB5B5;
+}
+
+.force-sim-dark .force-sim-stat-value {
+  color: #ff9a9a;
+}
+
+.force-sim-dark .force-sim-stat-value.running {
+  color: #a5d6a7;
+}
+
+.force-sim-dark .force-sim-info {
+  background: rgba(139, 0, 0, 0.15);
+  border-color: rgba(139, 0, 0, 0.3);
+  color: #BDB5B5;
+}
+
+.force-sim-dark .force-sim-info svg {
+  color: #ff9a9a;
+}
+
+.force-sim-dark .force-sim-btn {
+  background: #4a4545;
+  color: #DEDADA;
+  border-color: #6a6464;
+}
+
+.force-sim-dark .force-sim-btn:hover {
+  border-color: #8B0000;
+  color: #ff9a9a;
+}
+
+.force-sim-dark .force-sim-btn.active {
+  background-color: #8B0000;
+  border-color: #8B0000;
+  color: #fff;
+}
+
+.force-sim-dark .force-sim-preset-label {
+  color: #ff9a9a;
+}
+
+.force-sim-dark .settings-option-btn {
+  border-color: #6a6464;
+  background: #4a4545;
+  color: #DEDADA;
+}
+
+.force-sim-dark .settings-option-btn:hover {
+  border-color: #8B0000;
+  color: #ff9a9a;
+}
+
+.force-sim-dark .settings-option-btn.active {
+  background-color: #8B0000;
+  border-color: #8B0000;
+  color: #fff;
+}
+
+.force-sim-dark .force-sim-slider-section {
+  background: rgba(222, 218, 218, 0.03);
+  border-color: rgba(222, 218, 218, 0.1);
+}
+
+.force-sim-dark .settings-section-subtitle {
+  color: #ff9a9a;
+}
+
+.force-sim-dark .force-sim-json-container {
+  background: rgba(222, 218, 218, 0.05);
+  border-color: rgba(222, 218, 218, 0.1);
+}
+
+.force-sim-dark .force-sim-json-textarea {
+  background: #2e2a2a;
+  border-color: #6a6464;
+  color: #DEDADA;
+}
+
+.force-sim-dark .force-sim-body .maroon-slider__label {
+  color: #DEDADA;
+}
+
+.force-sim-dark .force-sim-body .maroon-slider__value {
+  color: #DEDADA;
+  background: #6a6464;
 }
