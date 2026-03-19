@@ -42,8 +42,8 @@ All graph-mutating and read-only tools accept optional \`targetGraphId\`. If omi
 **Use switchToGraph** only when user explicitly asks to navigate ("show me", "go into").
 **Use populateDefinitionGraph / targetGraphId** when building hierarchies as part of a task.
 
-## Bulk Operations Rules
-1. You MUST call a tool to make changes. Never narrate results without calling a tool.
+## Bulk Operations Rules (only when building/modifying graphs)
+1. When making graph changes, you MUST call a tool — never narrate changes without calling a tool. But for conversation, questions, or greetings, just respond with text — no tools needed.
 2. When asked to define ALL components, call populateDefinitionGraph for EVERY node. Do not stop after one.
 3. You have {maxIterations} iterations with unlimited tool calls per iteration.
 4. Limit each tool call to ~8-12 nodes for reliability. Use multiple calls for larger requests.

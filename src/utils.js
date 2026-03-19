@@ -11,6 +11,10 @@ import useGraphStore from './store/graphStore.jsx'; // Import store for textSett
 let measurementContainer = null;
 let measurementSpan = null;
 let descriptionMeasurementDiv = null;
+let nameMeasurementDiv = null;
+
+// Font-load guard: clear dimension cache once the custom font is ready
+let fontLoadListenerAdded = false;
 
 const ensureMeasurementElements = () => {
   if (typeof document === 'undefined') {
@@ -64,9 +68,37 @@ const ensureMeasurementElements = () => {
   descriptionMeasurementDiv.style.fontSize = `${scaledFontSize}px`;
   descriptionMeasurementDiv.style.lineHeight = `${scaledDescriptionLineHeight}px`;
 
+  if (!nameMeasurementDiv) {
+    nameMeasurementDiv = document.createElement('div');
+    const style = nameMeasurementDiv.style;
+    style.fontFamily = "'EmOne', sans-serif";
+    style.fontWeight = 'bold';
+    style.whiteSpace = 'normal';
+    style.overflowWrap = 'break-word';
+    style.wordBreak = 'break-word';
+    style.textAlign = 'center';
+    style.hyphens = 'auto';
+    style.display = 'block';
+    style.boxSizing = 'border-box';
+    style.padding = '0';
+    measurementContainer.appendChild(nameMeasurementDiv);
+  }
+  // Always update font size and line height to match current settings
+  nameMeasurementDiv.style.fontSize = `${scaledFontSize}px`;
+  nameMeasurementDiv.style.lineHeight = `${scaledLineHeight}px`;
+
+  // Set up font-load listener to clear dimension cache when custom font loads
+  if (!fontLoadListenerAdded && document.fonts) {
+    fontLoadListenerAdded = true;
+    document.fonts.ready.then(() => {
+      dimensionCache.clear();
+    });
+  }
+
   return {
     textSpan: measurementSpan,
-    descriptionDiv: descriptionMeasurementDiv
+    descriptionDiv: descriptionMeasurementDiv,
+    nameDiv: nameMeasurementDiv
   };
 };
 
@@ -124,7 +156,7 @@ export const getNodeDimensions = (node, isPreviewing = false, descriptionContent
   // Create cache key based on all properties that affect dimensions
   // Include text settings to invalidate cache when text size changes
   const textSettings = useGraphStore.getState().textSettings;
-  const cacheKey = `${nodeName}-${thumbnailSrc || 'noimg'}-${isPreviewing}-${descriptionContent || 'nodesc'}-${textSettings.fontSize}-${textSettings.lineSpacing}`;
+  const cacheKey = `${nodeName}-${thumbnailSrc || 'noimg'}-${isPreviewing}-${descriptionContent || 'nodesc'}-${textSettings.fontSize}-${textSettings.lineSpacing}-${lineHeightBase}`;
 
   const cached = dimensionCache.get(cacheKey);
   if (cached) {
@@ -161,15 +193,15 @@ export const getNodeDimensions = (node, isPreviewing = false, descriptionContent
     // We want the text to wrap EXACTLY as it did in the unexpanded node.
     const textWidthWithBuffer = textWidth + 20;
     const unexpandedWidth = Math.max(NODE_WIDTH, Math.min(textWidthWithBuffer + 2 * NODE_PADDING, EXPANDED_NODE_WIDTH));
-    textWidthTarget = unexpandedWidth - 56; // 56 is the standard average padding (28px per side)
+    textWidthTarget = unexpandedWidth - 60; // Use multi-line padding (30px per side) for conservative measurement
   } else if (hasImage) {
     baseWidth = EXPANDED_NODE_WIDTH;
     baseHeight = NODE_HEIGHT; // Start with base, image adds later
-    textWidthTarget = baseWidth - 56; // Account for average padding (28px per side: between 22px single-line and 30px multi-line)
+    textWidthTarget = baseWidth - 60; // Use multi-line padding (30px per side) for conservative measurement
   } else {
     baseWidth = NODE_WIDTH;
     baseHeight = NODE_HEIGHT;
-    textWidthTarget = baseWidth - 56; // Account for average padding (28px per side: between 22px single-line and 30px multi-line)
+    textWidthTarget = baseWidth - 60; // Use multi-line padding (30px per side) for conservative measurement
   }
 
   // --- Shared Constant ---
@@ -178,10 +210,26 @@ export const getNodeDimensions = (node, isPreviewing = false, descriptionContent
   // --- Calculate Dimensions Based on State ---
   let currentWidth, currentHeight, textAreaHeight, imageWidth, calculatedImageHeight, innerNetworkWidth, innerNetworkHeight, descriptionAreaHeight;
 
+  // Shared: compute scaled values for DOM measurement
+  const scaledLineHeightShared = (lineHeightBase || 28) * textSettings.lineSpacing;
+  const scaledFontSizeShared = 20 * textSettings.fontSize;
+  const fontReady = (typeof document !== 'undefined' && document.fonts?.check?.(`bold ${scaledFontSizeShared}px EmOne`)) ?? false;
+
   if (isPreviewing) {
     currentWidth = baseWidth;
     // Calculate textAreaHeight dynamically based on actual text wrapping with correct width
-    const textBlockHeight = calculateTextAreaHeight(nodeName, textWidthTarget, lineHeightBase);
+    let textBlockHeight;
+    if (measurementElements?.nameDiv && fontReady) {
+      const { nameDiv } = measurementElements;
+      nameDiv.style.fontSize = `${scaledFontSizeShared}px`;
+      nameDiv.style.lineHeight = `${scaledLineHeightShared}px`;
+      nameDiv.style.width = `${textWidthTarget}px`;
+      nameDiv.textContent = nodeName;
+      textBlockHeight = nameDiv.offsetHeight;
+      nameDiv.textContent = '';
+    } else {
+      textBlockHeight = calculateTextAreaHeight(nodeName, textWidthTarget, lineHeightBase);
+    }
     textAreaHeight = Math.max(PREVIEW_TEXT_AREA_HEIGHT, textBlockHeight + TEXT_V_PADDING_TOTAL);
 
     innerNetworkWidth = currentWidth - 2 * NODE_PADDING;
@@ -229,7 +277,18 @@ export const getNodeDimensions = (node, isPreviewing = false, descriptionContent
   } else if (hasImage) {
     currentWidth = baseWidth;
     // Calculate text block height based on expanded width
-    const textBlockHeight = calculateTextAreaHeight(nodeName, textWidthTarget, lineHeightBase);
+    let textBlockHeight;
+    if (measurementElements?.nameDiv && fontReady) {
+      const { nameDiv } = measurementElements;
+      nameDiv.style.fontSize = `${scaledFontSizeShared}px`;
+      nameDiv.style.lineHeight = `${scaledLineHeightShared}px`;
+      nameDiv.style.width = `${textWidthTarget}px`;
+      nameDiv.textContent = nodeName;
+      textBlockHeight = nameDiv.offsetHeight;
+      nameDiv.textContent = '';
+    } else {
+      textBlockHeight = calculateTextAreaHeight(nodeName, textWidthTarget, lineHeightBase);
+    }
     // Text area height is text height + vertical padding, with a minimum.
     textAreaHeight = Math.max(NODE_HEIGHT, textBlockHeight + TEXT_V_PADDING_TOTAL);
 
@@ -262,14 +321,27 @@ export const getNodeDimensions = (node, isPreviewing = false, descriptionContent
     currentWidth = Math.max(NODE_WIDTH, Math.min(textWidthWithBuffer + 2 * NODE_PADDING, EXPANDED_NODE_WIDTH));
 
     let textBlockHeight;
-    const scaledLineHeight = 28 * textSettings.lineSpacing;
     // If it's a single word and not at max width, don't let it wrap.
     if (isSingleWord && currentWidth < EXPANDED_NODE_WIDTH) {
-      textBlockHeight = scaledLineHeight;
+      textBlockHeight = scaledLineHeightShared;
     } else {
-      // Otherwise, calculate wrapping based on the node's actual current width.
-      const actualTextWidth = currentWidth - 56; // Account for average padding (28px per side: between 22px single-line and 30px multi-line)
-      textBlockHeight = calculateTextAreaHeight(nodeName, actualTextWidth);
+      // Use multi-line padding (30px per side = 60px total) for conservative measurement.
+      // This guarantees height is always sufficient even when text wraps to multiline.
+      const actualTextWidth = currentWidth - 60;
+
+      // Attempt DOM measurement for accurate wrapped text height
+      if (measurementElements?.nameDiv && fontReady) {
+        const { nameDiv } = measurementElements;
+        nameDiv.style.fontSize = `${scaledFontSizeShared}px`;
+        nameDiv.style.lineHeight = `${scaledLineHeightShared}px`;
+        nameDiv.style.width = `${actualTextWidth}px`;
+        nameDiv.textContent = nodeName;
+        textBlockHeight = nameDiv.offsetHeight;
+        nameDiv.textContent = '';
+      } else {
+        // SSR/non-DOM/font-not-ready fallback: use character-counting heuristic
+        textBlockHeight = calculateTextAreaHeight(nodeName, actualTextWidth, lineHeightBase);
+      }
     }
 
     // Total height is the text block height plus padding, with a minimum of NODE_HEIGHT

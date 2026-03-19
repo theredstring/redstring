@@ -25,7 +25,7 @@ ${REDSTRING_FORMATTING}
 
 ## Your Process
 
-For every user request, follow this sequence:
+When the user asks you to build or modify graphs, follow this sequence (for conversation, questions, or greetings, skip all of this and just respond with text — no tools needed):
 
 1. **UNDERSTAND**: What does the user actually want? Read their message carefully.
 

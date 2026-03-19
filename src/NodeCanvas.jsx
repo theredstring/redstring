@@ -974,11 +974,14 @@ function NodeCanvas() {
   const baseDimsById = useMemo(() => {
     const map = new Map();
     const cache = dimensionCacheRef.current;
+    // Include textSettings in cache key so dimensions recalculate when text size changes
+    const tsFontSize = textSettings?.fontSize || 1;
+    const tsLineSpacing = textSettings?.lineSpacing || 1;
 
     for (const n of nodes) {
       // Create a stable key based only on properties that affect dimensions
       // (not position x/y or scale which change during drag)
-      const cacheKey = `${n.prototypeId}-${n.name}-${n.thumbnailSrc || 'noimg'}`;
+      const cacheKey = `${n.prototypeId}-${n.name}-${n.thumbnailSrc || 'noimg'}-${tsFontSize}-${tsLineSpacing}`;
 
       // Check if we have cached dimensions for this node's dimensional properties
       let dims = cache.get(cacheKey);
@@ -993,8 +996,7 @@ function NodeCanvas() {
     }
 
     // Clean up cache entries for nodes that no longer exist
-    // Only keep entries for current nodes to prevent memory leaks
-    const currentCacheKeys = new Set(nodes.map(n => `${n.prototypeId}-${n.name}-${n.thumbnailSrc || 'noimg'}`));
+    const currentCacheKeys = new Set(nodes.map(n => `${n.prototypeId}-${n.name}-${n.thumbnailSrc || 'noimg'}-${tsFontSize}-${tsLineSpacing}`));
     for (const key of cache.keys()) {
       if (!currentCacheKeys.has(key)) {
         cache.delete(key);
@@ -1002,7 +1004,7 @@ function NodeCanvas() {
     }
 
     return map;
-  }, [nodes]);
+  }, [nodes, textSettings?.fontSize, textSettings?.lineSpacing]);
   // Defer viewport-dependent culling until pan/zoom state is initialized below
   const [visibleNodeIds, setVisibleNodeIds] = useState(() => new Set());
   const [visibleEdges, setVisibleEdges] = useState(() => []);

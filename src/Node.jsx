@@ -176,7 +176,7 @@ const Node = ({
     // Pass a dummy descriptionContent if needed, or null if getNodeDimensions doesn't use it for unexpanded
     return isPreviewing ? getNodeDimensions(node, false, null) : null;
   }, [node, isPreviewing]);
-  const previewTextMaxWidth = unexpandedDims ? unexpandedDims.currentWidth - 56 : undefined; // 56px = 2 * 28px (padding for unexpanded node name)
+  const previewTextMaxWidth = unexpandedDims ? unexpandedDims.currentWidth - 60 : undefined; // 60px = 2 * 30px (multi-line padding for consistent wrapping)
 
   // Determine if text will be multiline for conditional padding
   const isMultiline = useMemo(() => {
@@ -186,15 +186,14 @@ const Node = ({
     const words = displayTitle.trim().split(/\s+/);
     if (words.length === 1) return false;
 
-    // Estimate available width for text based on current width and the
-    // actual single-line side padding that will be applied in the UI.
-    // This prevents premature wrapping for short names (e.g., "Jim Carrey").
-    const singleLineSidePadding = isPreviewing
-      ? (hasAnyDefinitions ? 140 : 25)
-      : 22;
-    const availableWidth = currentWidth - (2 * singleLineSidePadding);
+    // Use multi-line padding (30px per side) for consistent estimation that
+    // matches the conservative measurement in getNodeDimensions.
+    const multiLineSidePadding = isPreviewing
+      ? (hasAnyDefinitions ? 140 : 30)
+      : 30;
+    const availableWidth = currentWidth - (2 * multiLineSidePadding);
 
-    // Quick character-based estimation (more accurate than previous method)
+    // Quick character-based estimation
     // Account for font size scaling when calculating char width
     const averageCharWidth = 12 * textSettings.fontSize; // Scale with font size
     const charsPerLine = Math.floor(availableWidth / averageCharWidth);
