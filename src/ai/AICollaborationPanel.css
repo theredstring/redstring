@@ -699,6 +699,18 @@ html.dark-mode .ai-message-ai .ai-message-avatar img {
   text-align: right;
 }
 
+html.dark-mode .ai-context-usage-bar {
+  background: rgba(255, 255, 255, 0.12);
+}
+
+html.dark-mode .ai-context-usage-fill {
+  background: rgba(255, 255, 255, 0.35);
+}
+
+html.dark-mode .ai-context-usage-label {
+  color: rgba(255, 255, 255, 0.45);
+}
+
 /* Input Container */
 .ai-input-container {
   padding: 16px 20px;
