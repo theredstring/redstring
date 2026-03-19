@@ -3567,37 +3567,34 @@ const UniverseManager = ({ variant = 'panel', onRequestClose }) => {
 
     if (slot.type === STORAGE_TYPES.GIT && slot.repo) {
       actions.push(
-        <button
+        <PanelIconButton
           key="open"
+          label="View Repo"
+          variant="outline"
           onClick={() => window.open(`https://github.com/${slot.repo.user}/${slot.repo.repo}`, '_blank', 'noopener')}
-          style={buttonStyle(theme, 'outline')}
-        >
-          View Repo
-        </button>
+        />
       );
     }
 
     if (!isPrimary) {
       actions.push(
-        <button
+        <PanelIconButton
           key="primary"
+          label="Make Primary"
+          variant="solid"
           onClick={() => handleSetPrimarySlot(universe.slug, slot)}
-          style={buttonStyle(theme, 'solid')}
-        >
-          Make Primary
-        </button>
+        />
       );
     }
 
     if (slot.type === STORAGE_TYPES.GIT && slot.repo) {
       actions.push(
-        <button
+        <PanelIconButton
           key="detach"
+          label="Detach"
+          variant="danger"
           onClick={() => handleDetachRepo(universe, { user: slot.repo.user, repo: slot.repo.repo })}
-          style={buttonStyle(theme, 'danger')}
-        >
-          Detach
-        </button>
+        />
       );
     }
 
@@ -3709,18 +3706,16 @@ const UniverseManager = ({ variant = 'panel', onRequestClose }) => {
             </div>
           </div>
           <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-            <button
+            <PanelIconButton
+              label="Relink File"
+              variant="outline"
               onClick={() => handleLinkLocalFile(universe.slug)}
-              style={buttonStyle(theme, 'outline')}
-            >
-              Relink File
-            </button>
-            <button
+            />
+            <PanelIconButton
+              label="Download"
+              variant="outline"
               onClick={() => handleDownloadLocalFile(universe.slug)}
-              style={buttonStyle(theme, 'outline')}
-            >
-              Download
-            </button>
+            />
           </div>
         </div>
         {localFile.unavailableReason && (
@@ -3785,19 +3780,17 @@ const UniverseManager = ({ variant = 'panel', onRequestClose }) => {
               </div>
             </div>
             <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-              <button
+              <PanelIconButton
+                label={discovery.loading ? 'Scanning…' : 'Discover universes'}
+                variant={discovery.loading ? 'disabled' : 'outline'}
                 onClick={() => handleDiscover(source)}
-                style={buttonStyle(theme, discovery.loading ? 'disabled' : 'outline')}
                 disabled={discovery.loading}
-              >
-                {discovery.loading ? 'Scanning…' : 'Discover universes'}
-              </button>
-              <button
+              />
+              <PanelIconButton
+                label="Remove"
+                variant="danger"
                 onClick={() => handleDetachRepo(universe, source)}
-                style={buttonStyle(theme, 'danger')}
-              >
-                Remove
-              </button>
+              />
             </div>
           </div>
 
@@ -3833,28 +3826,26 @@ const UniverseManager = ({ variant = 'panel', onRequestClose }) => {
                     <div style={{ fontSize: '0.68rem', color: '#555' }}>{item.path || item.location || 'Unknown path'}</div>
                   </div>
                   <div style={{ display: 'flex', gap: 6 }}>
-                    <button
-                      onClick={() => handleImportDiscovered(item, { user: source.user, repo: source.repo })}
+                    <PanelIconButton
+                      label="Import Copy"
+                      variant="outline"
                       style={{
-                        ...buttonStyle(theme, 'outline'),
                         borderColor: '#1565c0',
                         color: '#1565c0',
                         backgroundColor: 'rgba(21,101,192,0.12)'
                       }}
-                    >
-                      Import Copy
-                    </button>
-                    <button
-                      onClick={() => handleLinkDiscovered(item, { user: source.user, repo: source.repo })}
+                      onClick={() => handleImportDiscovered(item, { user: source.user, repo: source.repo })}
+                    />
+                    <PanelIconButton
+                      label="Sync to Universe"
+                      variant="solid"
                       style={{
-                        ...buttonStyle(theme, 'solid'),
                         backgroundColor: '#7A0000',
                         color: '#ffffff',
                         borderColor: '#7A0000'
                       }}
-                    >
-                      Sync to Universe
-                    </button>
+                      onClick={() => handleLinkDiscovered(item, { user: source.user, repo: source.repo })}
+                    />
                   </div>
                 </div>
               ))}
@@ -3914,15 +3905,24 @@ const UniverseManager = ({ variant = 'panel', onRequestClose }) => {
             </div>
           </div>
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-            <button onClick={() => handleAttachRepo(activeUniverse.slug)} style={buttonStyle(theme, 'solid')}>
-              Link repository
-            </button>
-            <button onClick={() => handleForceSave(activeUniverse.slug)} style={buttonStyle(theme, 'outline')}>
-              <Save size={14} /> Save
-            </button>
-            <button onClick={handleReloadActive} style={buttonStyle(theme, 'outline')}>
-              <RefreshCw size={14} /> Reload
-            </button>
+            <PanelIconButton
+              icon={Github}
+              label="Link repository"
+              variant="solid"
+              onClick={() => handleAttachRepo(activeUniverse.slug)}
+            />
+            <PanelIconButton
+              icon={Save}
+              label="Save"
+              variant="outline"
+              onClick={() => handleForceSave(activeUniverse.slug)}
+            />
+            <PanelIconButton
+              icon={RefreshCw}
+              label="Reload"
+              variant="outline"
+              onClick={handleReloadActive}
+            />
           </div>
         </div>
 
@@ -4022,9 +4022,12 @@ const UniverseManager = ({ variant = 'panel', onRequestClose }) => {
           <div style={{ fontWeight: 700, fontSize: '1rem', color: theme.canvas.textPrimary }}>Universes</div>
           <div style={{ fontSize: '0.75rem', color: theme.canvas.textSecondary }}>Manage your knowledge spaces</div>
         </div>
-        <button onClick={handleCreateUniverse} style={buttonStyle(theme, 'solid')}>
-          <Plus size={14} /> New
-        </button>
+        <PanelIconButton
+          icon={Plus}
+          label="New"
+          variant="solid"
+          onClick={handleCreateUniverse}
+        />
       </div>
 
       <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
@@ -4053,17 +4056,20 @@ const UniverseManager = ({ variant = 'panel', onRequestClose }) => {
               </div>
               <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', width: isSlim ? '100%' : 'auto', flexShrink: 0 }}>
                 {!isActive && (
-                  <button onClick={() => handleSwitchUniverse(universe.slug)} style={buttonStyle(theme, 'outline')}>
-                    Switch
-                  </button>
+                  <PanelIconButton
+                    label="Switch"
+                    variant="outline"
+                    onClick={() => handleSwitchUniverse(universe.slug)}
+                  />
                 )}
                 {serviceState.universes.length > 1 && (
-                  <button
+                  <PanelIconButton
+                    icon={Trash2}
+                    label="Delete"
+                    variant="danger"
+                    size={12}
                     onClick={() => handleDeleteUniverse(universe.slug, universe.name)}
-                    style={buttonStyle(theme, 'danger')}
-                  >
-                    <Trash2 size={12} /> Delete
-                  </button>
+                  />
                 )}
               </div>
             </div>
@@ -4134,9 +4140,11 @@ const UniverseManager = ({ variant = 'panel', onRequestClose }) => {
     >
       {variant === 'modal' && typeof onRequestClose === 'function' && (
         <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
-          <button onClick={onRequestClose} style={buttonStyle(theme, 'outline')}>
-            Close
-          </button>
+          <PanelIconButton
+            label="Close"
+            variant="outline"
+            onClick={onRequestClose}
+          />
         </div>
       )}
 
@@ -4373,12 +4381,12 @@ const UniverseManager = ({ variant = 'panel', onRequestClose }) => {
                   </div>
                 </div>
                 {displayState === 'unsaved' && (
-                  <button
+                  <PanelIconButton
+                    icon={Save}
+                    label="Save now"
+                    variant="solid"
                     onClick={() => handleForceSave(activeUniverse.slug)}
-                    style={{ ...buttonStyle(theme, 'solid'), flexShrink: 0 }}
-                  >
-                    <Save size={14} /> Save now
-                  </button>
+                  />
                 )}
                 {lastTime && displayState !== 'saving' && displayState !== 'unsaved' && (
                   <div style={{
@@ -4757,7 +4765,9 @@ const UniverseManager = ({ variant = 'panel', onRequestClose }) => {
           )}
 
           <div style={{ marginTop: 8, display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
-            <button
+            <PanelIconButton
+              label="← Back to Repositories"
+              variant="outline"
               onClick={() => {
                 setShowUniverseFileSelector(false);
                 setPendingRepoAttachment(null);
@@ -4765,10 +4775,7 @@ const UniverseManager = ({ variant = 'panel', onRequestClose }) => {
                 setShowRepositoryManager(true);
                 setRepositoryIntent(null);
               }}
-              style={buttonStyle(theme, 'outline')}
-            >
-              ← Back to Repositories
-            </button>
+            />
           </div>
         </div>
       </Modal>

@@ -20,6 +20,9 @@ import { useTheme } from '../../../hooks/useTheme.js';
 import { queueThumbnailFetch } from '../../../services/imageCache.js';
 import headSvg from '../../../assets/svg/wizard/head.svg';
 
+// Shared Components
+import PanelIconButton from '../../shared/PanelIconButton.jsx';
+
 /**
  * Build the update object for a node from a server enrichment match.
  * Shared between single and batch enrichment.
@@ -3047,35 +3050,30 @@ const LeftAIView = ({ compact = false,
 
   const headerActionsEl = (
     <div className="ai-header-actions">
-      <button
-        className="ai-flat-button"
+      <PanelIconButton
+        icon={Plus}
         onClick={handleNewConversation}
         title="New Conversation"
-      >
-        <Plus size={20} />
-      </button>
-      <button
-        className={`ai-flat-button ${showAPIKeySetup ? 'active' : ''}`}
+      />
+      <PanelIconButton
+        icon={Key}
+        active={showAPIKeySetup}
         onClick={() => setShowAPIKeySetup(!showAPIKeySetup)}
         title={hasAPIKey ? 'Manage API Key' : 'Setup API Key'}
-      >
-        <Key size={20} />
-      </button>
-      <button
-        className="ai-flat-button"
+      />
+      <PanelIconButton
+        icon={Settings}
+        active={showAdvanced}
         onClick={() => setShowAdvanced(!showAdvanced)}
         title="Advanced Options"
-      >
-        <Settings size={20} />
-      </button>
+      />
       <div style={{ position: 'relative', display: 'inline-block' }}>
-        <button
-          className={`ai-flat-button ${showToolsDropdown ? 'active' : ''}`}
+        <PanelIconButton
+          icon={Wrench}
+          active={showToolsDropdown}
           onClick={() => setShowToolsDropdown(!showToolsDropdown)}
           title="Test Tool Calls"
-        >
-          <Wrench size={20} />
-        </button>
+        />
         {showToolsDropdown && (
           <div className="ai-tools-dropdown" style={{
             position: 'absolute', top: '100%', right: 0,
@@ -3144,30 +3142,25 @@ const LeftAIView = ({ compact = false,
           </div>
         )}
       </div>
-      <button
-        className="ai-flat-button"
+      <PanelIconButton
+        icon={Copy}
         onClick={handleCopyConversation}
         title="Copy conversation to clipboard"
         disabled={messages.length === 0}
-      >
-        <Copy size={20} />
-      </button>
-      <button
-        className="ai-flat-button"
+      />
+      <PanelIconButton
+        icon={Trash2}
         onClick={handleClearConversation}
         title="Clear conversation"
         disabled={messages.length === 0}
-      >
-        <Trash2 size={20} />
-      </button>
-      <button
-        className={`ai-flat-button ${isConnected ? 'ai-refresh-button' : 'ai-connect-button'}`}
+      />
+      <PanelIconButton
+        icon={RotateCcw}
+        className={isConnected ? 'ai-refresh-button' : 'ai-connect-button'}
         onClick={refreshBridgeConnection}
         title={isConnected ? 'Bridge connected' : 'Reconnect bridge daemon'}
         disabled={isProcessing}
-      >
-        <RotateCcw size={20} />
-      </button>
+      />
 
     </div>
   );

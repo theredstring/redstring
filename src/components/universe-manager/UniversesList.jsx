@@ -5,36 +5,6 @@ import { useTheme } from '../../hooks/useTheme.js';
 import SectionCard from './shared/SectionCard.jsx';
 import PanelIconButton from '../shared/PanelIconButton.jsx';
 
-function buttonStyle(theme, variant = 'outline') {
-  const base = {
-    border: `1px solid ${theme.canvas.border}`,
-    backgroundColor: 'transparent',
-    color: theme.canvas.textPrimary,
-    padding: '6px 12px',
-    borderRadius: 6,
-    cursor: 'pointer',
-    fontSize: '0.8rem',
-    fontWeight: 600,
-    display: 'flex',
-    alignItems: 'center',
-    gap: 6,
-    transition: 'transform 120ms ease, background-color 0.15s, color 0.15s',
-    outline: 'none',
-    boxShadow: 'none'
-  };
-
-  switch (variant) {
-    case 'solid':
-      return { ...base, backgroundColor: theme.canvas.textPrimary, color: theme.canvas.bg };
-    case 'danger':
-      return { ...base, borderColor: theme.canvas.brand, color: theme.canvas.brand, backgroundColor: 'rgba(122,0,0,0.05)' };
-    case 'disabled':
-      return { ...base, opacity: 0.5, cursor: 'not-allowed' };
-    default:
-      return base;
-  }
-}
-
 
 function formatWhen(timestamp) {
   if (!timestamp) return 'Never';
@@ -230,15 +200,12 @@ const UniversesList = ({
         actions={
           <div style={{ display: 'flex', gap: 6 }}>
             <div ref={loadMenuRef} style={{ position: 'relative' }}>
-              <button
+              <PanelIconButton
+                icon={Download}
+                label={<React.Fragment>Load <ChevronDown size={12} /></React.Fragment>}
+                variant="outline"
                 onClick={() => setShowLoadMenu(!showLoadMenu)}
-                style={buttonStyle(theme, 'outline')}
-                onMouseEnter={(e) => e.currentTarget.style.transform = 'scale(1.04)'}
-                onMouseLeave={(e) => e.currentTarget.style.transform = 'scale(1)'}
-              >
-                <Download size={14} /> Load <ChevronDown size={12} />
-
-              </button>
+              />
               {showLoadMenu && (
                 <div style={{
                   position: 'absolute',
@@ -301,15 +268,12 @@ const UniversesList = ({
               )}
             </div>
             <div ref={newMenuRef} style={{ position: 'relative' }}>
-              <button
+              <PanelIconButton
+                icon={Plus}
+                label={<React.Fragment>New <ChevronDown size={12} /></React.Fragment>}
+                variant="solid"
                 onClick={() => setShowNewMenu(!showNewMenu)}
-                style={{ ...buttonStyle(theme, 'solid') }}
-                onMouseEnter={(e) => e.currentTarget.style.transform = 'scale(1.04)'}
-                onMouseLeave={(e) => e.currentTarget.style.transform = 'scale(1)'}
-              >
-                <Plus size={14} /> New <ChevronDown size={12} />
-
-              </button>
+              />
               {showNewMenu && (
                 <div style={{
                   position: 'absolute',
@@ -712,25 +676,23 @@ const UniversesList = ({
                                   );
                                 })()}
                                 {onSaveRepoSource && (
-                                  <button
+                                  <PanelIconButton
+                                    icon={Save}
+                                    label="Save"
+                                    variant="outline"
+                                    size={10}
+                                    style={{ 
+                                      fontSize: '0.65rem',
+                                      padding: '2px 8px',
+                                      color: theme.canvas.brand,
+                                      borderColor: theme.canvas.brand
+                                    }}
                                     onClick={(e) => {
                                       e.stopPropagation();
                                       onSaveRepoSource(universe.slug);
                                     }}
-                                    onMouseEnter={(e) => e.currentTarget.style.transform = 'scale(1.04)'}
-                                    onMouseLeave={(e) => e.currentTarget.style.transform = 'scale(1)'}
-                                    style={{
-                                      ...buttonStyle(theme, 'outline'), // Added theme variable
-                                      fontSize: '0.65rem',
-                                      padding: '2px 6px',
-                                      color: theme.canvas.brand,
-                                      borderColor: theme.canvas.brand
-                                    }}
                                     title="Manual save"
-                                  >
-                                    <Save size={10} />
-                                    Save
-                                  </button>
+                                  />
                                 )}
                               </div>
                             </div>
@@ -744,20 +706,21 @@ const UniversesList = ({
                               alignItems: 'center',
                               justifyContent: 'center'
                             }}>
-                              <button
-                                onClick={() => onLinkRepo && onLinkRepo(universe.slug)}
-                                style={{
-                                  ...buttonStyle(theme, 'outline'), // Added theme variable
-                                  fontSize: '0.7rem',
-                                  color: theme.canvas.textSecondary,
-                                  borderColor: theme.canvas.border
-                                }}
-                                onMouseEnter={(e) => e.currentTarget.style.transform = 'scale(1.04)'}
-                                onMouseLeave={(e) => e.currentTarget.style.transform = 'scale(1)'}
-                              >
-                                <Plus size={12} />
-                                Add Repository
-                              </button>
+                                <PanelIconButton
+                                  icon={Plus}
+                                  label="Add Repository"
+                                  variant="outline"
+                                  size={12}
+                                  strokeWidth={2}
+                                  hoverStrokeWidth={4}
+                                  hoverTextColor={theme.accent.primary}
+                                  style={{
+                                    fontSize: '0.7rem',
+                                    color: theme.canvas.textSecondary,
+                                    borderColor: theme.canvas.border
+                                  }}
+                                  onClick={() => onLinkRepo && onLinkRepo(universe.slug)}
+                                />
                             </div>
                           )}
 
@@ -877,25 +840,25 @@ const UniversesList = ({
                                           </span>
                                         </div>
                                         <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-                                          <button
-                                            onClick={(e) => {
-                                              e.stopPropagation();
-                                              if (onGrantLocalPermission) {
-                                                // Trigger pick/saveAs flow
-                                                onGrantLocalPermission(universe.slug, { mode: 'saveAs', suggestedName: localFile.lastImportedFile || localFile.displayPath });
-                                              }
-                                            }}
-                                            style={{
-                                              ...buttonStyle(theme, 'solid'), // Added theme variable
+                                          <PanelIconButton
+                                            icon={FileText}
+                                            label="Pick File / Save As"
+                                            variant="solid"
+                                            size={12}
+                                            style={{ 
                                               fontSize: '0.65rem',
-                                              padding: '4px 8px',
+                                              padding: '4px 10px',
                                               backgroundColor: theme.alert.warning.text,
                                               border: 'none',
                                               width: 'auto'
                                             }}
-                                          >
-                                            Pick File / Save As
-                                          </button>
+                                            onClick={(e) => {
+                                              e.stopPropagation();
+                                              if (onGrantLocalPermission) {
+                                                onGrantLocalPermission(universe.slug, { mode: 'saveAs', suggestedName: localFile.lastImportedFile || localFile.displayPath });
+                                              }
+                                            }}
+                                          />
                                         </div>
                                       </div>
                                     )}
@@ -919,23 +882,22 @@ const UniversesList = ({
                                       >
                                         <span>Reconnect this file to continue saving locally.</span>
                                         {onLinkLocalFile && (
-                                          <button
-                                            onClick={(e) => {
-                                              e.stopPropagation();
-                                              onLinkLocalFile(universe.slug);
-                                            }}
-                                            onMouseEnter={(e) => e.currentTarget.style.transform = 'scale(1.04)'}
-                                            onMouseLeave={(e) => e.currentTarget.style.transform = 'scale(1)'}
-                                            style={{
-                                              ...buttonStyle(theme, 'outline'), // Added theme variable
-                                              fontSize: '0.62rem',
-                                              padding: '2px 6px',
-                                              borderColor: theme.canvas.brand,
-                                              color: theme.canvas.brand
-                                            }}
-                                          >
-                                            Reconnect
-                                          </button>
+                                            <PanelIconButton
+                                              icon={RotateCcw}
+                                              label="Reconnect"
+                                              variant="outline"
+                                              size={12}
+                                              style={{
+                                                fontSize: '0.62rem',
+                                                padding: '2px 8px',
+                                                borderColor: theme.canvas.brand,
+                                                color: theme.canvas.brand
+                                              }}
+                                              onClick={(e) => {
+                                                e.stopPropagation();
+                                                onLinkLocalFile(universe.slug);
+                                              }}
+                                            />
                                         )}
                                       </div>
                                     )}
@@ -960,23 +922,22 @@ const UniversesList = ({
                                           {localFile.reconnectMessage || 'Grant file access permission to resume auto-saving.'}
                                         </span>
                                         {onGrantLocalPermission && (
-                                          <button
-                                            onClick={(e) => {
-                                              e.stopPropagation();
-                                              onGrantLocalPermission(universe.slug);
-                                            }}
-                                            onMouseEnter={(e) => e.currentTarget.style.transform = 'scale(1.04)'}
-                                            onMouseLeave={(e) => e.currentTarget.style.transform = 'scale(1)'}
-                                            style={{
-                                              ...buttonStyle(theme, 'outline'), // Added theme variable
-                                              fontSize: '0.62rem',
-                                              padding: '2px 6px',
-                                              borderColor: theme.alert.warning.text,
-                                              color: theme.alert.warning.text
-                                            }}
-                                          >
-                                            Grant Access
-                                          </button>
+                                            <PanelIconButton
+                                              icon={Key}
+                                              label="Grant Access"
+                                              variant="outline"
+                                              size={12}
+                                              style={{
+                                                fontSize: '0.62rem',
+                                                padding: '2px 8px',
+                                                borderColor: theme.alert.warning.text,
+                                                color: theme.alert.warning.text
+                                              }}
+                                              onClick={(e) => {
+                                                e.stopPropagation();
+                                                onGrantLocalPermission(universe.slug);
+                                              }}
+                                            />
                                         )}
                                       </div>
                                     )}
@@ -1039,21 +1000,21 @@ const UniversesList = ({
                                 position: 'relative'
                               }}
                             >
-                              <button
-                                onClick={() => setShowLocalFileMenu(showLocalFileMenu === universe.slug ? null : universe.slug)}
-                                style={{
-                                  ...buttonStyle(theme, 'outline'),
-                                  fontSize: '0.7rem',
-                                  color: theme.canvas.textSecondary,
-                                  borderColor: theme.canvas.border
-                                }}
-                                onMouseEnter={(e) => e.currentTarget.style.transform = 'scale(1.04)'}
-                                onMouseLeave={(e) => e.currentTarget.style.transform = 'scale(1)'}
-                              >
-                                <Plus size={12} />
-                                Add Local File
-                                <ChevronDown size={10} />
-                              </button>
+                                <PanelIconButton
+                                  icon={Plus}
+                                  label={<React.Fragment>Add Local File <ChevronDown size={10} /></React.Fragment>}
+                                  variant="outline"
+                                  size={12}
+                                  strokeWidth={2}
+                                  hoverStrokeWidth={4}
+                                  hoverTextColor={theme.accent.primary}
+                                  style={{
+                                    fontSize: '0.7rem',
+                                    color: theme.canvas.textSecondary,
+                                    borderColor: theme.canvas.border
+                                  }}
+                                  onClick={() => setShowLocalFileMenu(showLocalFileMenu === universe.slug ? null : universe.slug)}
+                                />
 
                               {showLocalFileMenu === universe.slug && (
                                 <div style={{

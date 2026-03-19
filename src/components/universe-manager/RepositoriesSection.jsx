@@ -13,31 +13,6 @@ import { useTheme } from '../../hooks/useTheme.js';
 import SectionCard from './shared/SectionCard.jsx';
 import PanelIconButton from '../shared/PanelIconButton.jsx';
 
-function buttonStyle(theme, variant = 'outline') {
-  const base = {
-    border: `1px solid ${theme.canvas.border}`,
-    backgroundColor: 'transparent',
-    color: theme.canvas.textPrimary,
-    padding: '6px 12px',
-    borderRadius: 6,
-    cursor: 'pointer',
-    fontSize: '0.8rem',
-    fontWeight: 600,
-    display: 'flex',
-    alignItems: 'center',
-    gap: 6,
-    transition: 'transform 120ms ease, background-color 0.15s, color 0.15s'
-  };
-
-  switch (variant) {
-    case 'solid':
-      return { ...base, backgroundColor: theme.canvas.textPrimary, color: theme.canvas.bg };
-    case 'disabled':
-      return { ...base, opacity: 0.5, cursor: 'not-allowed' };
-    default:
-      return base;
-  }
-}
 
 /**
  * RepositoriesSection - Shows your managed repositories
@@ -60,14 +35,12 @@ const RepositoriesSection = ({
         title="Repositories" 
         subtitle="Your curated list of repositories"
         actions={
-          <button 
-            onClick={onBrowseRepositories} 
-            style={buttonStyle(theme, 'solid')}
-            onMouseEnter={(e) => e.currentTarget.style.transform = 'scale(1.04)'}
-            onMouseLeave={(e) => e.currentTarget.style.transform = 'scale(1)'}
-          >
-            <Github size={14} /> Add Repositories
-          </button>
+          <PanelIconButton 
+            icon={Github}
+            label="Add Repositories"
+            variant="solid"
+            onClick={onBrowseRepositories}
+          />
         }
       >
         <div
@@ -92,14 +65,12 @@ const RepositoriesSection = ({
       title="Repositories" 
       subtitle={`${repositories.length} ${repositories.length === 1 ? 'repository' : 'repositories'} in your list`}
       actions={
-        <button 
-          onClick={onBrowseRepositories} 
-          style={buttonStyle(theme, 'solid')}
-          onMouseEnter={(e) => e.currentTarget.style.transform = 'scale(1.04)'}
-          onMouseLeave={(e) => e.currentTarget.style.transform = 'scale(1)'}
-        >
-          <Github size={14} /> Add More
-        </button>
+        <PanelIconButton 
+          icon={Github}
+          label="Add More"
+          variant="solid"
+          onClick={onBrowseRepositories}
+        />
       }
     >
       <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
@@ -143,21 +114,12 @@ const RepositoriesSection = ({
                 </div>
 
                 <div style={{ display: 'flex', gap: 6 }}>
-                  {repo.html_url && (
-                      <a
-                        href={repo.html_url}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        style={{
-                          ...buttonStyle(theme, 'outline'),
-                          textDecoration: 'none'
-                        }}
-                        onMouseEnter={(e) => e.currentTarget.style.transform = 'scale(1.04)'}
-                        onMouseLeave={(e) => e.currentTarget.style.transform = 'scale(1)'}
-                      >
-                        <ExternalLink size={14} />
-                      </a>
-                  )}
+                    <PanelIconButton
+                      icon={ExternalLink}
+                      onClick={() => window.open(repo.html_url, '_blank')}
+                      title="View on GitHub"
+                      variant="outline"
+                    />
                 </div>
               </div>
 
@@ -281,38 +243,28 @@ const RepositoriesSection = ({
                           </div>
 
                           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                            {onImportUniverse && (
-                              <button
-                                onClick={() => onImportUniverse(item, repoInfo)}
-                                style={{
-                                  ...buttonStyle(theme, 'outline'),
-                                  borderColor: theme.canvas.border,
-                                  color: theme.canvas.textSecondary,
-                                  fontSize: '0.7rem',
-                                  padding: '4px 8px'
-                                }}
-                                onMouseEnter={(e) => e.currentTarget.style.transform = 'scale(1.04)'}
-                                onMouseLeave={(e) => e.currentTarget.style.transform = 'scale(1)'}
-                              >
-                                Import Copy
-                              </button>
-                            )}
-                                <button
-                                  onClick={() => onAttach(item, repo)}
-                                  style={{
-                                    ...buttonStyle(theme, 'outline'),
-                                    fontSize: '0.7rem',
-                                    padding: '4px 8px'
-                                  }}
-                                  onMouseEnter={(e) => {
-                                    e.currentTarget.style.transform = 'scale(1.04)';
-                                  }}
-                                  onMouseLeave={(e) => {
-                                    e.currentTarget.style.transform = 'scale(1)';
-                                  }}
-                                >
-                                  Attach to Universe
-                                </button>
+                            <PanelIconButton
+                              icon={Link}
+                              label="Import Copy"
+                              variant="outline"
+                              size={12}
+                              style={{
+                                fontSize: '0.7rem',
+                                padding: '4px 8px'
+                              }}
+                              onClick={() => onImportUniverse && onImportUniverse(item, repoInfo)}
+                            />
+                            <PanelIconButton
+                              icon={RefreshCw}
+                              label="Attach to Universe"
+                              variant="outline"
+                              size={12}
+                              style={{
+                                fontSize: '0.7rem',
+                                padding: '4px 8px'
+                              }}
+                              onClick={() => onAttach(item, repo)}
+                            />
                           </div>
                         </div>
                       );

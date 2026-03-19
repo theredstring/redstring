@@ -230,3 +230,28 @@
 .status-failed .tool-call-header {
   border-left: 2px solid rgba(244, 67, 54, 0.5);
 }
+
+.args-container {
+  padding: 4px 0;
+  font-size: 13px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.arg-row {
+  display: flex;
+}
+
+.arg-key {
+  font-weight: 600;
+  width: 120px;
+  flex-shrink: 0;
+  text-transform: capitalize;
+  color: var(--canvas-text-muted);
+}
+
+.arg-value {
+  color: var(--canvas-text);
+  word-break: break-word;
+}

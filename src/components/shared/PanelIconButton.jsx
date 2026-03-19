@@ -23,20 +23,30 @@ import { useTheme } from '../../hooks/useTheme.js';
  * @param {Function} props.onClick - Click handler
  * @param {string} [props.title] - Tooltip text
  * @param {boolean} [props.disabled=false] - Whether button is disabled
+ * @param {number} [props.strokeWidth=2] - Default stroke width for icon
+ * @param {number} [props.hoverStrokeWidth] - Stroke width on hover
+ * @param {string} [props.hoverTextColor] - Text color on hover
  * @param {Object} [props.style] - Additional inline styles
  * @param {string} [props.className] - Additional CSS class
  */
 const PanelIconButton = ({
   icon: IconComponent,
-  size = 20,
+  size = 16,
   color,
+  label,
+  labelPosition = 'right',
+  variant = 'ghost',
   filled = false,
   fillColor,
   fillOnHover = false,
   hoverFillColor,
   onClick,
   title,
+  active = false,
   disabled = false,
+  strokeWidth = 2,
+  hoverStrokeWidth,
+  hoverTextColor,
   style = {},
   className = ''
 }) => {
@@ -44,9 +54,11 @@ const PanelIconButton = ({
   const [isHovered, setIsHovered] = useState(false);
 
   // Use theme colors as defaults
-  const actualColor = color || theme.canvas.textPrimary;
+  const isSolid = variant === 'solid';
+  const actualColor = color || (isSolid ? theme.canvas.bg : theme.canvas.textPrimary);
   const actualFillColor = fillColor || theme.accent.primary;
-  const actualHoverFillColor = hoverFillColor || theme.accent.primary;
+  const hoverStrokeColor = variant === 'danger' ? '#F44336' : theme.accent.primary;
+  const actualHoverFillColor = hoverFillColor || hoverStrokeColor;
 
   const handleClick = (e) => {
     if (!disabled && onClick) {
@@ -55,16 +67,19 @@ const PanelIconButton = ({
     }
   };
 
+  const isPill = !!label;
+
   const buttonStyle = {
     position: 'relative',
     display: 'inline-flex',
     alignItems: 'center',
     justifyContent: 'center',
-    padding: '4px',
-    border: 'none',
-    // Forcefully clear any global button background styles
-    background: 'transparent',
-    backgroundColor: 'transparent',
+    gap: '8px',
+    padding: isPill ? '6px 14px' : '4px',
+    border: variant === 'outline' ? `1px solid ${theme.canvas.border}` : (isSolid ? `1px solid ${theme.canvas.textPrimary}` : 'none'),
+    background: isSolid ? theme.canvas.textPrimary : 'transparent',
+    backgroundColor: isSolid ? theme.canvas.textPrimary : 'transparent',
+    color: actualColor,
     backgroundImage: 'none',
     boxShadow: 'none',
     outline: 'none',
@@ -74,40 +89,73 @@ const PanelIconButton = ({
     cursor: disabled ? 'not-allowed' : 'pointer',
     opacity: disabled ? 0.5 : 1,
     flexShrink: 0,
-    transition: 'background-color 0.2s ease, box-shadow 0.2s ease',
-    borderRadius: '50%',
+    transition: 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)',
+    borderRadius: isPill ? '20px' : '50%',
     ...style
   };
 
   // PieMenu-style hover effect: light gray fill with accent stroke (3px)
   // Always use light hover background in both light and dark modes
-  const hoverStyles = isHovered && !disabled ? {
+  const showActiveState = (isHovered || active) && !disabled;
+  const hoverStyles = showActiveState ? {
     backgroundColor: '#DEDADA',
-    boxShadow: `0 0 0 3px ${theme.accent.primary}`,
-  } : {};
+    boxShadow: `0 0 0 3px ${hoverStrokeColor}`,
+    borderColor: 'transparent',
+    color: hoverTextColor || hoverStrokeColor,
+    transform: 'scale(1.04)' // Natively adding hover grow
+  } : {
+    transform: 'scale(1)'
+  };
+
+  const currentStrokeWidth = showActiveState && hoverStrokeWidth ? hoverStrokeWidth : strokeWidth;
 
   return (
     <button
-      className={`panel-icon-button ${className}`}
+      className={`panel-icon-button ${variant} ${active ? 'active' : ''} ${className}`}
       style={{ ...buttonStyle, ...hoverStyles }}
       type="button"
       onClick={handleClick}
       onMouseEnter={() => setIsHovered(true)}
       onMouseLeave={() => setIsHovered(false)}
       onBlur={() => setIsHovered(false)}
-      title={title}
+      title={title || label}
       disabled={disabled}
-      aria-label={title}
+      aria-label={title || label}
     >
-      <IconComponent
-        size={size}
-        color={isHovered && !disabled ? actualHoverFillColor : actualColor}
-        fill={filled ? (isHovered && !disabled ? actualHoverFillColor : actualFillColor) : 'none'}
-        style={{
-          flexShrink: 0,
-          transition: 'color 0.2s ease, fill 0.2s ease',
-        }}
-      />
+      {label && labelPosition === 'left' && (
+        <span style={{ 
+          fontSize: '13px', 
+          fontWeight: 600, 
+          fontFamily: "'EmOne', sans-serif",
+          color: 'inherit'
+        }}>
+          {label}
+        </span>
+      )}
+      
+      {IconComponent && (
+        <IconComponent
+          size={size}
+          color={showActiveState ? (variant === 'danger' ? '#F44336' : actualHoverFillColor) : actualColor}
+          fill={filled ? (showActiveState ? actualHoverFillColor : actualFillColor) : 'none'}
+          strokeWidth={currentStrokeWidth}
+          style={{
+            flexShrink: 0,
+            transition: 'color 0.2s ease, fill 0.2s ease, stroke-width 0.2s ease',
+          }}
+        />
+      )}
+
+      {label && labelPosition === 'right' && (
+        <span style={{ 
+          fontSize: '13px', 
+          fontWeight: 600, 
+          fontFamily: "'EmOne', sans-serif",
+          color: 'inherit'
+        }}>
+          {label}
+        </span>
+      )}
     </button>
   );
 };

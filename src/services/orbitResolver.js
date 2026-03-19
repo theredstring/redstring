@@ -22,8 +22,11 @@ const TRICKLE_DELAY_MS = 120;
 
 // Deduplicate, sort, and partition candidates into 4 rings
 export function dedupeAndPartitionOrbit(candidates) {
+  // Filter out externalUrl predicates - they're shown in Semantic Web tab instead
+  const filtered = candidates.filter(c => c.predicate !== 'externalUrl');
+
   const seen = new Set();
-  const unique = candidates.filter((c) => {
+  const unique = filtered.filter((c) => {
     if (seen.has(c.id)) return false;
     seen.add(c.id);
     return true;

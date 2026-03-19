@@ -1,7 +1,7 @@
-import React from 'react';
 import { Settings, Shield, Github, LogOut, CheckCircle, AlertCircle, Loader2 } from 'lucide-react';
 import { useTheme } from '../../hooks/useTheme.js';
 import SectionCard from './shared/SectionCard.jsx';
+import PanelIconButton from '../shared/PanelIconButton.jsx';
 
 const STATUS_COLORS = {
   success: '#2e7d32',
@@ -10,33 +10,6 @@ const STATUS_COLORS = {
   info: '#1565c0'
 };
 
-function buttonStyle(theme, variant = 'outline') {
-  const base = {
-    border: `1px solid ${theme.canvas.border}`,
-    backgroundColor: 'transparent',
-    color: theme.canvas.textPrimary,
-    padding: '6px 12px',
-    borderRadius: 6,
-    cursor: 'pointer',
-    fontSize: '0.8rem',
-    fontWeight: 600,
-    display: 'flex',
-    alignItems: 'center',
-    gap: 6,
-    transition: 'transform 120ms ease, background-color 0.15s, color 0.15s'
-  };
-
-  switch (variant) {
-    case 'solid':
-      return { ...base, backgroundColor: theme.canvas.textPrimary, color: theme.canvas.bg };
-    case 'danger':
-      return { ...base, borderColor: '#c62828', color: '#c62828' };
-    case 'disabled':
-      return { ...base, opacity: 0.5, cursor: 'not-allowed' };
-    default:
-      return base;
-  }
-}
 
 const AuthSection = ({
   statusBadge,
@@ -87,7 +60,7 @@ const AuthSection = ({
         }}
       >
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          <Shield size={14} fill={statusBadge.tone} />
+          <Shield size={20} fill={statusBadge.tone} color="transparent" strokeWidth={0} />
           <span style={{ fontWeight: 600 }}>{statusBadge.label}</span>
         </div>
         <div style={{ fontSize: '0.75rem', color: theme.canvas.textPrimary, display: 'flex', flexDirection: 'column', gap: 4 }}>
@@ -119,15 +92,13 @@ const AuthSection = ({
           </div>
           <div style={{ fontSize: '0.75rem', color: theme.canvas.textSecondary }}>Browse and manage repositories</div>
           <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
-            <button
+            <PanelIconButton
+              icon={Github}
               onClick={onGitHubAuth}
-              style={buttonStyle(theme, isConnecting ? 'disabled' : 'solid')}
+              label={hasOAuth ? 'Reconnect' : 'Connect'}
+              variant={isConnecting ? 'disabled' : 'solid'}
               disabled={isConnecting}
-              onMouseEnter={(e) => { if (!isConnecting) e.currentTarget.style.transform = 'scale(1.04)'; }}
-              onMouseLeave={(e) => { e.currentTarget.style.transform = 'scale(1)'; }}
-            >
-              <Github size={14} /> {hasOAuth ? 'Reconnect' : 'Connect'}
-            </button>
+            />
             <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: '0.72rem', color: theme.canvas.textPrimary }}>
               <input 
                 type="checkbox" 
@@ -160,15 +131,13 @@ const AuthSection = ({
             )}
           </div>
           <div style={{ fontSize: '0.75rem', color: theme.canvas.textSecondary }}>Enables secure auto-sync with Git</div>
-          <button
+          <PanelIconButton
+            icon={Settings}
             onClick={onGitHubApp}
-            style={buttonStyle(theme, isConnecting ? 'disabled' : 'solid')}
+            label={hasApp ? 'Manage' : 'Install App'}
+            variant={isConnecting ? 'disabled' : 'solid'}
             disabled={isConnecting}
-            onMouseEnter={(e) => { if (!isConnecting) e.currentTarget.style.transform = 'scale(1.04)'; }}
-            onMouseLeave={(e) => { e.currentTarget.style.transform = 'scale(1)'; }}
-          >
-            <Settings size={14} /> {hasApp ? 'Manage' : 'Install App'}
-          </button>
+          />
         </div>
       </div>
 

@@ -427,20 +427,14 @@ const ToolCallCard = ({ toolCallId, toolName, status, args, result, error, times
                     {parsedArgs && Object.keys(parsedArgs).length > 0 && toolName !== 'createPopulatedGraph' && toolName !== 'expandGraph' && toolName !== 'searchNodes' && toolName !== 'searchConnections' && toolName !== 'getNodeContext' && (
                         <div className="detail-section">
                             <h4>Tool Parameters</h4>
-                            <div className="args-container" style={{
-                                padding: '4px 0',
-                                fontSize: '13px',
-                                display: 'flex',
-                                flexDirection: 'column',
-                                gap: '4px'
-                            }}>
+                            <div className="args-container">
                                 {Object.entries(parsedArgs).map(([key, value]) => {
                                     if (key === 'addMembers' || key === 'removeMembers') return null;
                                     const valueStr = typeof value === 'object' ? JSON.stringify(value) : String(value);
                                     return (
-                                        <div key={key} style={{ display: 'flex' }}>
-                                            <span style={{ fontWeight: 'bold', width: '120px', flexShrink: 0, textTransform: 'capitalize' }}>{key.replace(/([A-Z])/g, ' $1').trim()}:</span>
-                                            <span style={{ color: 'var(--canvas-text)', wordBreak: 'break-word' }}>{valueStr}</span>
+                                        <div key={key} className="arg-row">
+                                            <span className="arg-key">{key.replace(/([A-Z])/g, ' $1').trim()}:</span>
+                                            <span className="arg-value">{valueStr}</span>
                                         </div>
                                     );
                                 })}

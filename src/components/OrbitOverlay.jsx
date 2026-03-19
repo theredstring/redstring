@@ -66,7 +66,8 @@ const OrbitConnection = ({
   const connEase = 1 - Math.pow(1 - entranceProgress, 3);
 
   // Don't render generic, missing, or infrastructure predicates
-  const HIDDEN_PREDICATES = new Set(['relatedTo', 'related', 'related_to', 'related_via', 'externalUrl', 'broader', 'narrower', 'seeAlso', 'isPrimaryTopicOf', 'wikiPageWikiLink']);
+  // Note: 'externalUrl' filtered earlier in orbitResolver.js dedupeAndPartitionOrbit()
+  const HIDDEN_PREDICATES = new Set(['relatedTo', 'related', 'related_to', 'related_via', 'broader', 'narrower', 'seeAlso', 'isPrimaryTopicOf', 'wikiPageWikiLink']);
   if (!predicate || predicate === null || HIDDEN_PREDICATES.has(predicate)) {
     return null;
   }

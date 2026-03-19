@@ -1,35 +1,8 @@
-import React from 'react';
-import { Github } from 'lucide-react';
+import { Github, RotateCcw, Link as LinkIcon, Trash2 } from 'lucide-react';
 import { useTheme } from '../../hooks/useTheme.js';
 import SectionCard from './shared/SectionCard.jsx';
+import PanelIconButton from '../shared/PanelIconButton.jsx';
 
-function buttonStyle(theme, variant = 'outline') {
-  const base = {
-    border: `1px solid ${theme.canvas.border}`,
-    backgroundColor: 'transparent',
-    color: theme.canvas.textPrimary,
-    padding: '6px 12px',
-    borderRadius: 6,
-    cursor: 'pointer',
-    fontSize: '0.8rem',
-    fontWeight: 600,
-    display: 'flex',
-    alignItems: 'center',
-    gap: 6,
-    transition: 'transform 120ms ease, background-color 0.15s, color 0.15s'
-  };
-
-  switch (variant) {
-    case 'solid':
-      return { ...base, backgroundColor: theme.canvas.textPrimary, color: theme.canvas.bg };
-    case 'danger':
-      return { ...base, borderColor: '#c62828', color: '#c62828' };
-    case 'disabled':
-      return { ...base, opacity: 0.5, cursor: 'not-allowed' };
-    default:
-      return base;
-  }
-}
 
 /**
  * SourcesSection - Displays external GitHub repository sources
@@ -99,23 +72,20 @@ const SourcesSection = ({
                   </div>
                 </div>
                 <div style={{ display: 'flex', gap: 6 }}>
-                  <button
+                  <PanelIconButton
+                    icon={discovery.loading ? RotateCcw : Github}
                     onClick={() => onDiscover(source)}
-                    style={buttonStyle(theme, discovery.loading ? 'disabled' : 'outline')}
+                    label={discovery.loading ? 'Scanning…' : 'Discover universes'}
+                    variant="outline"
                     disabled={discovery.loading}
-                    onMouseEnter={(e) => { if (!discovery.loading) e.currentTarget.style.transform = 'scale(1.04)'; }}
-                    onMouseLeave={(e) => { e.currentTarget.style.transform = 'scale(1)'; }}
-                  >
-                    {discovery.loading ? 'Scanning…' : 'Discover universes'}
-                  </button>
-                  <button
+                    className={discovery.loading ? 'ai-spinning' : ''}
+                  />
+                  <PanelIconButton
+                    icon={Trash2}
                     onClick={() => onDetach(source)}
-                    style={buttonStyle(theme, 'danger')}
-                    onMouseEnter={(e) => e.currentTarget.style.transform = 'scale(1.04)'}
-                    onMouseLeave={(e) => e.currentTarget.style.transform = 'scale(1)'}
-                  >
-                    Remove
-                  </button>
+                    label="Remove"
+                    variant="danger"
+                  />
                 </div>
               </div>
 
@@ -150,14 +120,13 @@ const SourcesSection = ({
                         <div style={{ fontWeight: 600, fontSize: '0.78rem' }}>{item.name || item.slug || 'Universe'}</div>
                           <div style={{ fontSize: '0.68rem', color: theme.canvas.textSecondary }}>{item.path || item.location || 'Unknown path'}</div>
                       </div>
-                      <button
+                      <PanelIconButton
+                        icon={LinkIcon}
                         onClick={() => onLinkDiscovered(item, { user: source.user, repo: source.repo })}
-                        style={buttonStyle(theme, 'solid')}
-                        onMouseEnter={(e) => e.currentTarget.style.transform = 'scale(1.04)'}
-                        onMouseLeave={(e) => e.currentTarget.style.transform = 'scale(1)'}
-                      >
-                        Link
-                      </button>
+                        label="Link"
+                        variant="solid"
+                        size={14}
+                      />
                     </div>
                   ))}
                 </div>
