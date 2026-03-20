@@ -142,6 +142,10 @@
 }
 
 /* Dark mode */
+.dark-mode .mc-wizard-face {
+    filter: brightness(0) invert(1);
+}
+
 .dark-mode .mc-overlay-container {
     border-color: var(--canvas-border);
     box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);

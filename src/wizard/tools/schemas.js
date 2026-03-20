@@ -270,7 +270,7 @@ export function getToolDefinitions() {
                     palette: { type: 'string', description: 'Palette name (see system prompt for options).' },
                     name: { type: 'string', description: 'Name for the new graph workspace.' },
                     color: { type: 'string', description: 'Optional color for the node that defines this graph, from the chosen palette. DO NOT use hex codes.' },
-                    description: { type: 'string', description: 'Optional description of the graph' },
+                    description: { type: 'string', description: 'High-level bio of this graph/concept — becomes the defining node\'s description visible in the parent graph. Required.' },
                     nodes: {
                         type: 'array',
                         description: 'Array of nodes to create. Give each node a brief description!',
@@ -338,7 +338,7 @@ export function getToolDefinitions() {
                         }
                     }
                 },
-                required: ['name', 'nodes', 'edges']
+                required: ['name', 'description', 'nodes', 'edges']
             }
         },
         {
@@ -458,12 +458,12 @@ export function getToolDefinitions() {
                             properties: {
                                 name: { type: 'string' },
                                 color: { type: 'string', description: 'Color name from chosen palette.' },
-                                description: { type: 'string' },
+                                description: { type: 'string', description: 'Very brief summary of what this node represents' },
                                 type: { type: 'string', description: 'Optional: name of the category/type this node falls under (e.g., "Mammal" for a "Dog" node).' },
                                 typeColor: { type: 'string', description: 'Optional: color for the type node, supports palettes. Use muted colors.' },
                                 typeDescription: { type: 'string', description: 'Optional: brief description of the type itself.' }
                             },
-                            required: ['name']
+                            required: ['name', 'description']
                         }
                     },
                     edges: {

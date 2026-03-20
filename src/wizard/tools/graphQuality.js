@@ -104,6 +104,14 @@ export function analyzeGraphQuality(nodes, edges) {
     issues.push(`Low connectivity (avg ${avgConnectionsPerNode} connections/node). Aim for 2-3 connections per node.`);
   }
 
+  // Check for nodes missing descriptions
+  const noDescriptionNodes = nodes
+    .filter(n => !n.description || n.description.trim() === '')
+    .map(n => n.name);
+  if (noDescriptionNodes.length > 0) {
+    issues.push(`${noDescriptionNodes.length} node(s) have no description: ${noDescriptionNodes.join(', ')}. Add brief bios.`);
+  }
+
   const feedback = issues.length > 0
     ? 'QUALITY ISSUES: ' + issues.join(' ')
     : `Good structure. ${nodes.length} nodes, ${edges.length} edges, all connected.`;
@@ -113,6 +121,7 @@ export function analyzeGraphQuality(nodes, edges) {
     disconnectedComponents: componentCount,
     avgConnectionsPerNode,
     weakNodes,
+    noDescriptionNodes,
     densityScore,
     feedback
   };

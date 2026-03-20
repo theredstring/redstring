@@ -174,6 +174,11 @@ export async function createPopulatedGraph(args, graphState, cid, ensureSchedule
       : null,
     // Quality analysis — LLM should fix issues before responding
     qualityReport,
+    // Hint: defining node bio check
+    definingNodeMissingBio: !description || description.trim() === '',
+    bioHint: (!description || description.trim() === '')
+        ? `This graph has no description. It becomes the bio of "${name}" in the parent graph. Provide one via the description parameter.`
+        : null,
     // Include full spec for UI to apply
     spec: {
       nodes: nodeSpecs,

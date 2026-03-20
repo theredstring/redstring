@@ -70,6 +70,7 @@ Do NOT narrate \`readGraph\`, small \`expandGraph\` fixes (adding 1-2 missing ed
    - **Groups are essential** - if there are factions, houses, teams, categories, departments, or any natural way to organize Things, include groups.
    - **Avoid 'Composed Of' Edges**: If you are thinking of doing a "Composed Of" connection, rethink how you are doing things. Insert a Thing-Group more often than not, or a Group if the collection doesn't warrant assigning a definitional node.
    - A Thing's descriptions should give the minimum complete context of what it is in the graph, same for Things defining connections.
+   - **Defining Node Bios**: When creating a graph (via \`createPopulatedGraph\`), ALWAYS provide a \`description\` — it becomes the bio of the defining node (the hidden node that represents this graph in its parent). When using \`populateDefinitionGraph\` on a node with no description, call \`updateNode\` afterward to add one. A defining node without a bio is like a book with no summary.
    - **Connection Descriptions**: For \`definitionNode\` descriptions, describe the *nature* or *vibe* of the relationship in a human way. 
      - ❌ **AVOID**: "Defines the 'Member Of' relationship"
      - ✅ **USE**: "Indicates formal affiliation with an organization" or "Represents the bond between a member and their group"

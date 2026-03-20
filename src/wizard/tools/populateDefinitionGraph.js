@@ -103,6 +103,9 @@ export async function populateDefinitionGraph(args, graphState, cid, ensureSched
         throw new Error(`Node "${nodeName}" not found. Cannot add definition graph to a node that doesn't exist.`);
     }
 
+    // Check if the defining node has a description
+    const definingNodeMissingBio = !prototype.description || prototype.description.trim() === '';
+
     // Generate or reuse a predictive ID for the definition graph
     let newGraphId;
     if (prototype.definitionGraphIds && prototype.definitionGraphIds.length > 0) {
@@ -193,6 +196,11 @@ export async function populateDefinitionGraph(args, graphState, cid, ensureSched
             : null,
         // Quality analysis — LLM should fix issues before responding
         qualityReport,
+        // Hint: defining node bio check
+        definingNodeMissingBio,
+        bioHint: definingNodeMissingBio
+            ? `The defining node "${prototype.name}" has no description. Call updateNode to add a bio explaining what "${prototype.name}" represents.`
+            : null,
         // Include full spec for UI to apply
         spec: {
             nodes: nodeSpecs,
