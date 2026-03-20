@@ -17,7 +17,9 @@ export function getToolDefinitions() {
                     color: { type: 'string', description: 'Color name from palette (e.g. "tan"). DO NOT use hex codes.' },
                     description: { type: 'string', description: 'What this node represents' },
                     targetGraphId: { type: 'string', description: 'Graph ID to create in. If omitted, uses active graph.' },
-                    typeNodeId: { type: 'string', description: 'Prototype ID of type node. Use setNodeType for name-based assignment.' }
+                    typeNodeId: { type: 'string', description: 'Prototype ID of type node. Use setNodeType for name-based assignment.' },
+                    enrich: { type: 'boolean', description: 'If true (default), auto-enrich from Wikipedia after creation.' },
+                    overwriteDescription: { type: 'boolean', description: 'If true, replace existing description with Wikipedia description during enrichment. Default: false.' }
                 },
                 required: ['name']
             }
@@ -228,7 +230,9 @@ export function getToolDefinitions() {
                             required: ['name', 'memberNames']
                         }
                     },
-                    targetGraphId: { type: 'string', description: 'Graph ID. If omitted, uses active graph.' }
+                    targetGraphId: { type: 'string', description: 'Graph ID. If omitted, uses active graph.' },
+                    enrich: { type: 'boolean', description: 'If true (default), auto-enrich new nodes from Wikipedia.' },
+                    overwriteDescription: { type: 'boolean', description: 'If true, replace node descriptions with Wikipedia descriptions during enrichment. Default: false.' }
                 }
             }
         },
@@ -263,7 +267,7 @@ export function getToolDefinitions() {
         },
         {
             name: 'createPopulatedGraph',
-            description: 'Create a new graph workspace with nodes, edges, and groups. Triggers auto-layout.',
+            description: 'Create a new graph workspace with nodes, edges, and groups. Triggers auto-layout. Auto-enriches all nodes and the defining node from Wikipedia by default.',
             parameters: {
                 type: 'object',
                 properties: {
@@ -336,7 +340,9 @@ export function getToolDefinitions() {
                             },
                             required: ['name', 'memberNames']
                         }
-                    }
+                    },
+                    enrich: { type: 'boolean', description: 'If true (default), auto-enrich all created nodes and the defining node from Wikipedia.' },
+                    overwriteDescription: { type: 'boolean', description: 'If true, replace node descriptions with Wikipedia descriptions during enrichment. Default: false.' }
                 },
                 required: ['name', 'description', 'nodes', 'edges']
             }
@@ -444,7 +450,7 @@ export function getToolDefinitions() {
         },
         {
             name: 'populateDefinitionGraph',
-            description: 'Create and populate a definition graph for a node in one step. Non-disruptive.',
+            description: 'Create and populate a definition graph for a node in one step. Non-disruptive. Auto-enriches all created nodes and the defining node from Wikipedia by default.',
             parameters: {
                 type: 'object',
                 properties: {
@@ -506,7 +512,9 @@ export function getToolDefinitions() {
                             },
                             required: ['name', 'memberNames']
                         }
-                    }
+                    },
+                    enrich: { type: 'boolean', description: 'If true (default), auto-enrich created nodes and the defining node from Wikipedia.' },
+                    overwriteDescription: { type: 'boolean', description: 'If true, replace node descriptions with Wikipedia descriptions during enrichment. Default: false.' }
                 },
                 required: ['nodeName', 'nodes', 'edges']
             }

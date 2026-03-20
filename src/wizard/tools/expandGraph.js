@@ -41,7 +41,7 @@ function generateConnectionColor(name) {
  * @returns {Promise<Object>} { action, nodesAdded, edgesAdded, spec }
  */
 export async function expandGraph(args, graphState, cid, ensureSchedulerStarted) {
-  const { nodes = [], edges = [], groups = [], targetGraphId, palette } = args;
+  const { nodes = [], edges = [], groups = [], targetGraphId, palette, enrich, overwriteDescription } = args;
 
   if ((!nodes || nodes.length === 0) && (!edges || edges.length === 0)) {
     throw new Error('At least one node or edge is required');
@@ -148,6 +148,9 @@ export async function expandGraph(args, graphState, cid, ensureSchedulerStarted)
       : null,
     // Quality analysis — LLM should fix issues before responding
     qualityReport,
+    // Enrichment control
+    enrich: enrich !== false,
+    overwriteDescription: overwriteDescription || false,
     // Include full spec for UI to apply
     spec: {
       nodes: nodeSpecs,

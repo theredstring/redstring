@@ -16,7 +16,7 @@ import { analyzeGraphQuality } from './graphQuality.js';
  * @returns {Promise<Object>} { graphId, graphName, nodesAdded, edgesAdded, groupsAdded }
  */
 export async function createPopulatedGraph(args, graphState, cid, ensureSchedulerStarted) {
-  const { name, description = '', nodes = [], edges = [], groups = [], targetGraphId, palette, color } = args;
+  const { name, description = '', nodes = [], edges = [], groups = [], targetGraphId, palette, color, enrich, overwriteDescription } = args;
 
   console.error('[createPopulatedGraph] Called with:');
   console.error('[createPopulatedGraph] - name:', name);
@@ -179,6 +179,9 @@ export async function createPopulatedGraph(args, graphState, cid, ensureSchedule
     bioHint: (!description || description.trim() === '')
         ? `This graph has no description. It becomes the bio of "${name}" in the parent graph. Provide one via the description parameter.`
         : null,
+    // Enrichment control
+    enrich: enrich !== false,
+    overwriteDescription: overwriteDescription || false,
     // Include full spec for UI to apply
     spec: {
       nodes: nodeSpecs,

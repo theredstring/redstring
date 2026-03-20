@@ -85,7 +85,7 @@ function findPrototypeByName(nodeName, nodePrototypes, graphState = null) {
  * @returns {Promise<Object>} Action spec with new graph ID and added spec
  */
 export async function populateDefinitionGraph(args, graphState, cid, ensureSchedulerStarted) {
-    const { nodeName, nodes = [], edges = [], groups = [], palette } = args;
+    const { nodeName, nodes = [], edges = [], groups = [], palette, enrich, overwriteDescription } = args;
 
     if (!nodeName) {
         throw new Error('nodeName is required');
@@ -201,6 +201,9 @@ export async function populateDefinitionGraph(args, graphState, cid, ensureSched
         bioHint: definingNodeMissingBio
             ? `The defining node "${prototype.name}" has no description. Call updateNode to add a bio explaining what "${prototype.name}" represents.`
             : null,
+        // Enrichment control
+        enrich: enrich !== false,
+        overwriteDescription: overwriteDescription || false,
         // Include full spec for UI to apply
         spec: {
             nodes: nodeSpecs,

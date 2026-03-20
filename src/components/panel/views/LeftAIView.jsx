@@ -143,7 +143,7 @@ async function enrichNodeWithWikipedia(nodeName, _graphId, options = {}) {
  * This is near-instant: one HTTP call + a single store write.
  * Images appear progressively as they're fetched in the background.
  */
-async function enrichMultipleNodes(nodeNames, _graphId) {
+async function enrichMultipleNodes(nodeNames, _graphId, { overwriteDescription = false } = {}) {
   console.log(`[Auto-Enrich] 🚀 Starting enrichment for ${nodeNames.length} nodes (via server)`);
 
   // ── Phase 1: Server-side batch Wikipedia lookup ──
@@ -190,7 +190,7 @@ async function enrichMultipleNodes(nodeNames, _graphId) {
     }
 
     const nodeProto = store.nodePrototypes.get(targetProtoId);
-    const updates = buildEnrichmentUpdates(nodeProto, searchResult, confidence);
+    const updates = buildEnrichmentUpdates(nodeProto, searchResult, confidence, { overwriteDescription });
 
     // Store image URLs in metadata
     if (searchResult.page.originalImage || searchResult.page.thumbnail) {
@@ -368,9 +368,9 @@ function applyToolResultToStore(toolName, result, toolCallId) {
     });
     console.log('[Wizard] Successfully created node:', result.name);
 
-    // NEW: Launch Wikipedia enrichment asynchronously (only if no description provided)
-    if (!result.description || result.description.trim() === '') {
-      enrichNodeWithWikipedia(result.name, graphId).catch(err => {
+    // Launch Wikipedia enrichment asynchronously (if enrich is not explicitly false)
+    if (result.enrich !== false && (!result.description || result.description.trim() === '')) {
+      enrichNodeWithWikipedia(result.name, graphId, { overwriteDescription: result.overwriteDescription || false }).catch(err => {
         console.warn('[Auto-Enrich] Wikipedia enrichment failed:', err);
       });
     }
@@ -1086,12 +1086,25 @@ function applyToolResultToStore(toolName, result, toolCallId) {
       }
     }, 600);
 
-    const newNodeNames = result.spec.nodes.map(n => n.name);
-    setTimeout(() => {
-      enrichMultipleNodes(newNodeNames, graphId).catch(err => {
-        console.warn('[Auto-Enrich] Batch enrichment failed:', err);
-      });
-    }, 1000);
+    if (result.enrich !== false) {
+      const newNodeNames = result.spec.nodes.map(n => n.name);
+
+      // Include the defining node in the enrichment batch
+      const freshStore = useGraphStore.getState();
+      const defGraph = freshStore.graphs.get(graphId);
+      if (defGraph?.definingNodeIds?.length > 0) {
+        const definingProto = freshStore.nodePrototypes.get(defGraph.definingNodeIds[0]);
+        if (definingProto && !newNodeNames.includes(definingProto.name)) {
+          newNodeNames.push(definingProto.name);
+        }
+      }
+
+      setTimeout(() => {
+        enrichMultipleNodes(newNodeNames, graphId, { overwriteDescription: result.overwriteDescription || false }).catch(err => {
+          console.warn('[Auto-Enrich] Batch enrichment failed:', err);
+        });
+      }, 1000);
+    }
 
     return;
   }
@@ -1237,14 +1250,26 @@ function applyToolResultToStore(toolName, result, toolCallId) {
       }
     }, 600);
 
-    // 5. NEW: Launch batch Wikipedia enrichment asynchronously
-    // Wait 1s for nodes to be fully created in store
-    const nodeNames = result.spec.nodes.map(n => n.name);
-    setTimeout(() => {
-      enrichMultipleNodes(nodeNames, graphId).catch(err => {
-        console.warn('[Auto-Enrich] Batch enrichment failed:', err);
-      });
-    }, 1000);
+    // 5. Launch batch Wikipedia enrichment asynchronously (if enrich is not explicitly false)
+    if (result.enrich !== false) {
+      const nodeNames = result.spec.nodes.map(n => n.name);
+
+      // Include the defining node in the enrichment batch
+      const freshStore = useGraphStore.getState();
+      const createdGraph = freshStore.graphs.get(graphId);
+      if (createdGraph?.definingNodeIds?.length > 0) {
+        const definingProto = freshStore.nodePrototypes.get(createdGraph.definingNodeIds[0]);
+        if (definingProto && !nodeNames.includes(definingProto.name)) {
+          nodeNames.push(definingProto.name);
+        }
+      }
+
+      setTimeout(() => {
+        enrichMultipleNodes(nodeNames, graphId, { overwriteDescription: result.overwriteDescription || false }).catch(err => {
+          console.warn('[Auto-Enrich] Batch enrichment failed:', err);
+        });
+      }, 1000);
+    }
   } else if (result.action === 'expandGraph' && result.spec) {
     // Handle expandGraph — apply nodes and edges to the ACTIVE graph
     console.log('[Wizard] Applying expandGraph to active graph:', result.graphId);
@@ -1350,14 +1375,15 @@ function applyToolResultToStore(toolName, result, toolCallId) {
       }
     }, 600);
 
-    // NEW: Launch batch Wikipedia enrichment asynchronously
-    // Wait 1s for nodes to be fully created in store
-    const nodeNames = result.spec.nodes.map(n => n.name);
-    setTimeout(() => {
-      enrichMultipleNodes(nodeNames, activeGraphId).catch(err => {
-        console.warn('[Auto-Enrich] Batch enrichment failed:', err);
-      });
-    }, 1000);
+    // Launch batch Wikipedia enrichment asynchronously (if enrich is not explicitly false)
+    if (result.enrich !== false) {
+      const nodeNames = result.spec.nodes.map(n => n.name);
+      setTimeout(() => {
+        enrichMultipleNodes(nodeNames, activeGraphId, { overwriteDescription: result.overwriteDescription || false }).catch(err => {
+          console.warn('[Auto-Enrich] Batch enrichment failed:', err);
+        });
+      }, 1000);
+    }
   }
 
   // Handle setNodeType — set or clear a node's type, auto-creating the type node if needed

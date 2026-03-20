@@ -202,6 +202,17 @@
   color: #c0392b;
 }
 
+/* Dark mode — explicit colors instead of opacity for readability */
+.dark-mode .plan-card-separator { opacity: 1; color: #8a8484; }
+.dark-mode .plan-card-progress { opacity: 1; color: #BDB5B5; }
+.dark-mode .plan-card-step--done .plan-card-step-text { opacity: 1; color: #9a9494; }
+.dark-mode .plan-card-step--pending .plan-card-step-icon { opacity: 1; color: #7a7474; }
+.dark-mode .plan-card-step--pending .plan-card-step-text { opacity: 1; color: #8a8484; }
+.dark-mode .plan-card-substep-text { opacity: 1; color: #c4bebe; }
+.dark-mode .plan-card-substep--done .plan-card-substep-text { opacity: 1; color: #8a8484; }
+.dark-mode .plan-card-substep--pending .plan-card-substep-icon { opacity: 1; color: #6a6464; }
+.dark-mode .plan-card-substep--pending .plan-card-substep-text { opacity: 1; color: #7a7474; }
+
 @keyframes stepPulse {
   0%, 100% { opacity: 1; }
   50% { opacity: 0.5; }
