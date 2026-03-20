@@ -1524,7 +1524,6 @@ if (typeof window !== 'undefined') {
 // Wizard loading strings and scramble component
 const WIZARD_LOADING_STRINGS = [
   "Perusing ancient tomes",
-  "Weaving threads of knowledge",
   "Visiting the gnomes",
   "Stirring cauldron of connections",
   "Pondering my orb",
@@ -1541,15 +1540,21 @@ const WIZARD_LOADING_STRINGS = [
   "Asking spirits",
   "Casting spells",
   "Having fun",
+  "Producing house music",
   "Polishing crystal ball",
   "Consulting the Great One",
   "Weaving web of fate",
   "Shuffling tarot cards",
   "Scrolling through scrolls",
   "Building schemas",
+  "Theorizing",
+  "Taking deep breath",
+  "Minimizing slop",
   "Performing divination",
   "Prancing through the forest",
   "Looking out the castle window",
+  "Casting a cantrip",
+  "Cracking the case",
   "Performing exorcism",
   "Consulting the oracle",
   "Considering necromancy",
@@ -1560,22 +1565,34 @@ const WIZARD_LOADING_STRINGS = [
   "Summoning entities",
   "Brewing potion of insight",
   "Gazing into the abyss",
+  "Pumping iron",
   "Fighting evil",
+  "Distracting you",
+  "Writing doom-scrolls",
+  "Getting existential",
   "Muttering incantations",
   "Weaving a tapestry",
   "Locking in",
   "Opening crypt",
+  "Staying up late",
   "Checking my phone",
   "Shaking 8 ball",
+  "Gaming",
   "Trying new things",
+  "Doing taxes",
+  "Playing tennis",
   "Adjusting pointy hat",
   "Breaking curses",
   "Aligning chakras",
   "Taking a nap",
+  "Booking a trip",
   "Upgrading wand",
   "Cleaning monocle",
+  "Unfurling thesaurus",
+  "Doing yoga",
   "Levitating",
   "Waving wand demurely",
+  "Manufacturing sparkles",
   "Scrying",
   "Lunch break",
   "Herding ontological cats",
@@ -2909,6 +2926,30 @@ const LeftAIView = ({ compact = false,
                   applyToolResultToStore(event.name, event.result, event.id || event.toolCallId);
                 }
 
+                // Pre-compute plan card decision BEFORE updateMsgInArray so both
+                // setConversations and setMessages apply the same action
+                let planUpdate = null;
+                if (event.type === 'tool_result' && event.name === 'planTask' && event.result?.steps) {
+                  const incomingTopStatuses = event.result.steps.map(s => s.status);
+                  const frozenSteps = JSON.parse(JSON.stringify(event.result.steps));
+                  const planNow = Date.now();
+                  if (lastTopLevelStepStatuses === null) {
+                    planCardCounter++;
+                    planUpdate = { action: 'create', steps: frozenSteps, id: `plan-${planCardCounter}-${streamingMessageId}`, timestamp: planNow };
+                  } else {
+                    const topLevelChanged =
+                      incomingTopStatuses.length !== lastTopLevelStepStatuses.length ||
+                      incomingTopStatuses.some((s, i) => lastTopLevelStepStatuses[i] !== s);
+                    if (topLevelChanged) {
+                      planCardCounter++;
+                      planUpdate = { action: 'freeze_and_create', steps: frozenSteps, id: `plan-${planCardCounter}-${streamingMessageId}`, timestamp: planNow };
+                    } else {
+                      planUpdate = { action: 'update_in_place', steps: frozenSteps, timestamp: planNow };
+                    }
+                  }
+                  lastTopLevelStepStatuses = incomingTopStatuses;
+                }
+
                 // Internal updater function to apply changes to a message array
                 const updateMsgInArray = (currMessages) => {
                   const updated = [...currMessages];
@@ -2962,40 +3003,20 @@ const LeftAIView = ({ compact = false,
                     } else {
                       console.warn('[Wizard] tool_result received but no matching tool_call block found!', event.id);
                     }
-                    // Plan card timeline: freeze old card on top-level step change, update in place for substep-only changes
-                    if (event.name === 'planTask' && event.result?.steps) {
-                      const incomingTopStatuses = event.result.steps.map(s => s.status);
-                      const frozenSteps = JSON.parse(JSON.stringify(event.result.steps));
-
-                      if (lastTopLevelStepStatuses === null) {
-                        // First plan card for this wizard call
-                        planCardCounter++;
-                        blocks.push({ type: 'plan', id: `plan-${planCardCounter}-${streamingMessageId}`, steps: frozenSteps, timestamp: now, frozen: false });
-                      } else {
-                        const topLevelChanged =
-                          incomingTopStatuses.length !== lastTopLevelStepStatuses.length ||
-                          incomingTopStatuses.some((status, i) => lastTopLevelStepStatuses[i] !== status);
-
-                        if (topLevelChanged) {
-                          // Freeze the latest active plan card, push a new one
-                          const latestPlanIdx = blocks.reduce((last, b, idx) => b.type === 'plan' && !b.frozen ? idx : last, -1);
-                          if (latestPlanIdx >= 0) {
-                            blocks[latestPlanIdx] = { ...blocks[latestPlanIdx], frozen: true };
-                          }
-                          planCardCounter++;
-                          blocks.push({ type: 'plan', id: `plan-${planCardCounter}-${streamingMessageId}`, steps: frozenSteps, timestamp: now, frozen: false });
-                        } else {
-                          // Substep-only change: update latest active card in place
-                          const latestPlanIdx = blocks.reduce((last, b, idx) => b.type === 'plan' && !b.frozen ? idx : last, -1);
-                          if (latestPlanIdx >= 0) {
-                            blocks[latestPlanIdx] = { ...blocks[latestPlanIdx], steps: frozenSteps, timestamp: now };
-                          } else {
-                            planCardCounter++;
-                            blocks.push({ type: 'plan', id: `plan-${planCardCounter}-${streamingMessageId}`, steps: frozenSteps, timestamp: now, frozen: false });
-                          }
+                    // Apply pre-computed plan card decision (computed outside updateMsgInArray)
+                    if (planUpdate) {
+                      if (planUpdate.action === 'create') {
+                        blocks.push({ type: 'plan', id: planUpdate.id, steps: planUpdate.steps, timestamp: planUpdate.timestamp, frozen: false });
+                      } else if (planUpdate.action === 'freeze_and_create') {
+                        const latestPlanIdx = blocks.reduce((last, b, idx) => b.type === 'plan' && !b.frozen ? idx : last, -1);
+                        if (latestPlanIdx >= 0) blocks[latestPlanIdx] = { ...blocks[latestPlanIdx], frozen: true };
+                        blocks.push({ type: 'plan', id: planUpdate.id, steps: planUpdate.steps, timestamp: planUpdate.timestamp, frozen: false });
+                      } else if (planUpdate.action === 'update_in_place') {
+                        const latestPlanIdx = blocks.reduce((last, b, idx) => b.type === 'plan' && !b.frozen ? idx : last, -1);
+                        if (latestPlanIdx >= 0) {
+                          blocks[latestPlanIdx] = { ...blocks[latestPlanIdx], steps: planUpdate.steps, timestamp: planUpdate.timestamp };
                         }
                       }
-                      lastTopLevelStepStatuses = incomingTopStatuses;
                     }
                   } else if (event.type === 'response') {
                     const lastBlock = blocks.length > 0 ? blocks[blocks.length - 1] : null;
@@ -3816,9 +3837,10 @@ const LeftAIView = ({ compact = false,
 
               // Show thinking dots:
               // - Chat/druid: when no streaming content yet (original behavior)
-              // - Wizard: when no running tool call chips are visible (between iterations, thinking)
+              // - Wizard: when no running tool calls AND no text response streaming yet
               const hasRunningToolCalls = streamingMsg?.contentBlocks?.some(b => b.type === 'tool_call' && b.status === 'running');
-              const showDots = viewMode === 'wizard' ? !hasRunningToolCalls : !hasStreamingContent;
+              const hasStreamingText = streamingMsg?.contentBlocks?.some(b => b.type === 'text' && b.content);
+              const showDots = viewMode === 'wizard' ? (!hasRunningToolCalls && !hasStreamingText) : !hasStreamingContent;
 
               if (viewMode === 'wizard') {
                 // Always render in wizard mode to keep WizardLoadingText mounted

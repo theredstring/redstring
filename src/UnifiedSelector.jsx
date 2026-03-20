@@ -7,6 +7,7 @@ import ColorPicker from './ColorPicker';
 import useViewportBounds from './hooks/useViewportBounds';
 import useMobileDetection from './hooks/useMobileDetection';
 import { useTheme } from './hooks/useTheme.js';
+import PanelIconButton from './components/shared/PanelIconButton';
 import './UnifiedSelector.css';
 
 
@@ -95,6 +96,7 @@ const UnifiedSelector = ({
   const handleColorChange = (newColor) => setColor(newColor);
 
   const scrollContainerRef = useRef(null);
+  const touchHandledRef = useRef(false);
 
   // Handle wheel events for scrolling
   const handleWheel = useCallback((e) => {
@@ -172,10 +174,21 @@ const UnifiedSelector = ({
       <div
         style={{
           position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.3)',
-          backdropFilter: 'blur(2px)', WebkitBackdropFilter: 'blur(2px)', zIndex: 1000
+          backdropFilter: 'blur(2px)', WebkitBackdropFilter: 'blur(2px)', zIndex: 1000,
+          touchAction: 'manipulation'
         }}
         onPointerDown={(e) => e.stopPropagation()} // Stop propagation on backdrop too to prevent canvas panning
+        onTouchEnd={(e) => {
+          if (e.target === e.currentTarget) {
+            touchHandledRef.current = true;
+            setName('');
+            setColorPickerVisible(false);
+            onClose?.();
+            setTimeout(() => { touchHandledRef.current = false; }, 400);
+          }
+        }}
         onClick={(e) => {
+          if (touchHandledRef.current) return;
           if (e.target === e.currentTarget) {
             setName('');
             setColorPickerVisible(false);
@@ -212,26 +225,33 @@ const UnifiedSelector = ({
               flexShrink: 0,
               maxWidth: '100%',
               boxSizing: 'border-box',
-              pointerEvents: 'auto'
+              pointerEvents: 'auto',
+              touchAction: 'manipulation'
             }}
             onClick={(e) => e.stopPropagation()}
+            onTouchEnd={(e) => e.stopPropagation()}
             onMouseDown={(e) => e.stopPropagation()}
           >
-            <div
-              style={{
-                position: 'absolute',
-                top: isMobilePortrait ? '8px' : '10px',
-                right: isMobilePortrait ? '8px' : '10px',
-                cursor: 'pointer',
-                padding: isMobilePortrait ? '4px' : '0',
-                touchAction: 'manipulation'
-              }}
-              onPointerDown={(e) => e.stopPropagation()}
-            >
-              <X size={closeIconSize} color="#999" onClick={() => { setName(''); setColorPickerVisible(false); onClose?.(); }} />
-            </div>
-            <div style={{ textAlign: 'left', marginBottom: isSmallScreen ? '15px' : '10px', color: theme.canvas.textPrimary }}>
-              <strong style={{ fontSize: dialogTitleSize, fontFamily: "'EmOne', sans-serif" }}>{title}</strong>
+            <div style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              marginBottom: isSmallScreen ? '15px' : '10px'
+            }}>
+              <strong style={{ fontSize: dialogTitleSize, fontFamily: "'EmOne', sans-serif", color: theme.canvas.textPrimary }}>{title}</strong>
+              <PanelIconButton
+                icon={X}
+                size={closeIconSize}
+                color="#999"
+                onClick={() => { setName(''); setColorPickerVisible(false); onClose?.(); }}
+                title="Close"
+                style={{
+                  minWidth: '36px',
+                  minHeight: '36px',
+                  flexShrink: 0,
+                  marginLeft: '8px'
+                }}
+              />
             </div>
             {subtitle && (
               <div
@@ -248,11 +268,19 @@ const UnifiedSelector = ({
                     cursor: 'pointer',
                     flexShrink: 0,
                     touchAction: 'manipulation',
-                    padding: isMobilePortrait ? '4px' : '0'
+                    padding: isMobilePortrait ? '8px' : '4px',
+                    minWidth: '36px',
+                    minHeight: '36px'
                   }}
                   onPointerDown={(e) => e.stopPropagation()}
                   onMouseDown={(e) => e.stopPropagation()}
-                  onClick={(e) => handleColorPickerToggle(e.currentTarget, e)}
+                  onTouchEnd={(e) => {
+                    e.stopPropagation();
+                    touchHandledRef.current = true;
+                    handleColorPickerToggle(e.currentTarget, e);
+                    setTimeout(() => { touchHandledRef.current = false; }, 400);
+                  }}
+                  onClick={(e) => { if (touchHandledRef.current) return; handleColorPickerToggle(e.currentTarget, e); }}
                   title="Change color"
                 />
               )}
@@ -281,7 +309,13 @@ const UnifiedSelector = ({
               />
               {!searchOnly && (
                 <button
-                  onClick={handleSubmit}
+                  onTouchEnd={(e) => {
+                    e.stopPropagation();
+                    touchHandledRef.current = true;
+                    handleSubmit();
+                    setTimeout(() => { touchHandledRef.current = false; }, 400);
+                  }}
+                  onClick={(e) => { if (touchHandledRef.current) return; handleSubmit(); }}
                   onPointerDown={(e) => e.stopPropagation()}
                   style={{
                     padding: inputPadding,
@@ -407,7 +441,14 @@ const UnifiedSelector = ({
                           }
                         }}
                         onPointerDown={(e) => e.stopPropagation()}
+                        onTouchEnd={(e) => {
+                          e.stopPropagation();
+                          touchHandledRef.current = true;
+                          onNodeSelect?.(prototype);
+                          setTimeout(() => { touchHandledRef.current = false; }, 400);
+                        }}
                         onClick={(e) => {
+                          if (touchHandledRef.current) return;
                           e.stopPropagation();
                           onNodeSelect?.(prototype);
                         }}

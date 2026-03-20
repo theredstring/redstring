@@ -348,6 +348,7 @@ html.dark-mode .ai-tab.active {
 .ai-messages {
   flex: 1;
   overflow-y: auto;
+  overflow-x: hidden;
   padding: 16px 20px;
   display: flex;
   flex-direction: column;
@@ -411,9 +412,11 @@ html.dark-mode .ai-message-ai .ai-message-avatar img {
 
 .ai-message-content {
   flex: 1;
+  min-width: 0;
   display: flex;
   flex-direction: column;
   gap: 8px;
+  overflow: hidden;
 }
 
 .ai-message-text {
@@ -422,9 +425,11 @@ html.dark-mode .ai-message-ai .ai-message-avatar img {
   font-size: 14px;
   word-wrap: break-word;
   overflow-wrap: break-word;
+  word-break: break-word;
   user-select: text;
   cursor: text;
   white-space: normal;
+  min-width: 0;
 }
 
 .ai-message-text em {

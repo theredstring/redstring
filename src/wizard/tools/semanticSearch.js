@@ -9,13 +9,7 @@
  */
 
 import { fastEnrichFromSemanticWeb, findRelatedConcepts } from '../../services/semanticWebQuery.js';
-
-// Redirect console.log → console.error during service calls (MCP stdio safety)
-function withSafeConsole(fn) {
-  const origLog = console.log;
-  console.log = console.error;
-  return fn().finally(() => { console.log = origLog; });
-}
+import { withSafeConsole } from './withSafeConsole.js';
 
 /**
  * @param {Object} args - { query, mode?, limit? }

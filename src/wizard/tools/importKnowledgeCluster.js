@@ -10,13 +10,7 @@
 
 import { KnowledgeFederation } from '../../services/knowledgeFederation.js';
 import { resolvePaletteColor, getRandomPalette } from '../../ai/palettes.js';
-
-// Redirect console.log → console.error during service calls (MCP stdio safety)
-function withSafeConsole(fn) {
-  const origLog = console.log;
-  console.log = console.error;
-  return fn().finally(() => { console.log = origLog; });
-}
+import { withSafeConsole } from './withSafeConsole.js';
 
 /**
  * Convert predicate string to Title Case

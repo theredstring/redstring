@@ -8,13 +8,7 @@
  */
 
 import { sparqlClient } from '../../services/sparqlClient.js';
-
-// Redirect console.log → console.error during service calls (MCP stdio safety)
-function withSafeConsole(fn) {
-  const origLog = console.log;
-  console.log = console.error;
-  return fn().finally(() => { console.log = origLog; });
-}
+import { withSafeConsole } from './withSafeConsole.js';
 
 const VALID_ENDPOINTS = ['wikidata', 'dbpedia', 'schema'];
 

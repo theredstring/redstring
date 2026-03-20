@@ -41,19 +41,53 @@ function stripEmptyRequired(schema) {
 }
 
 /**
+ * Condense tool schemas for all providers.
+ * Moves enum constraints into descriptions to reduce token count
+ * without changing the structural shape of the schema.
+ */
+function condenseSchema(schema) {
+  if (!schema || typeof schema !== 'object' || !schema.properties) return;
+  for (const prop of Object.values(schema.properties)) {
+    if (prop.type === 'string' && prop.enum) {
+      prop.description = (prop.description || '') + `. One of: ${prop.enum.join(', ')}`;
+      delete prop.enum;
+    }
+    if (prop.type === 'array' && prop.items?.enum) {
+      prop.description = (prop.description || '') + `. Values: ${prop.items.enum.join(', ')}`;
+      delete prop.items.enum;
+    }
+    if (prop.type === 'array' && prop.items?.type === 'object' && prop.items.properties) {
+      for (const iv of Object.values(prop.items.properties)) {
+        if (iv.type === 'string' && iv.enum) {
+          iv.description = (iv.description || '') + `. One of: ${iv.enum.join(', ')}`;
+          delete iv.enum;
+        }
+      }
+    }
+    if (prop.type === 'object' && prop.properties) {
+      condenseSchema(prop);
+    }
+  }
+}
+
+/**
  * Normalize tool definitions for different providers
  */
 function normalizeTools(tools) {
   if (!tools || tools.length === 0) return undefined;
 
-  return tools.map(tool => ({
-    type: 'function',
-    function: {
-      name: tool.name,
-      description: tool.description || '',
-      parameters: tool.parameters || {}
-    }
-  }));
+  return tools.map(tool => {
+    const params = JSON.parse(JSON.stringify(tool.parameters || {}));
+    condenseSchema(params);
+    return {
+      type: 'function',
+      function: {
+        name: tool.name,
+        description: tool.description || '',
+        parameters: params
+      }
+    };
+  });
 }
 
 /**
@@ -743,6 +777,7 @@ async function* streamGemini(messages, tools, { model, apiKey, temperature, maxT
         ));
         // Strip empty required arrays — Gemini may misinterpret required:[] as "all required"
         stripEmptyRequired(params);
+        condenseSchema(params);
         return {
           name: t.function?.name || t.name,
           description: t.function?.description || t.description || '',

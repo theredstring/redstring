@@ -104,18 +104,17 @@ export const useCanvasTouch = ({
 
     // --- Helpers ---
 
-    /** Check if a touch target is on the canvas surface (SVG, canvas-area bg) vs a UI overlay (panel, modal, button) */
+    /** Check if a touch target is on the canvas surface (SVG, canvas-area bg) vs a UI overlay */
     const isCanvasSurfaceTarget = (target) => {
         if (!target || !containerRef.current) return true; // default to canvas
-        // If the touch is directly on the canvas-area div, it's canvas
+        // If the touch is directly on the canvas-area div itself, it's canvas
         if (target === containerRef.current) return true;
-        // If the touch is inside a panel, modal, button, or interactive UI element, it's NOT canvas
-        if (target.closest?.('.panel, .modal-backdrop, [role="dialog"], button, a, input, select, textarea, [role="button"]')) return false;
-        // If the touch is inside the SVG, it's canvas
+        // If the touch is inside the SVG (nodes, edges, canvas background), it's canvas
         const svg = containerRef.current.querySelector('svg');
-        if (svg && svg.contains(target)) return true;
-        // If the target is inside the canvas-area container but not in any known UI overlay, treat as canvas
-        if (containerRef.current.contains(target)) return true;
+        if (svg && (target === svg || svg.contains(target))) return true;
+        // Everything else (panels, modals, selectors, buttons, overlays) is NOT canvas.
+        // Many UI elements (UnifiedSelector, Panels) are DOM children of canvas-area
+        // but positioned with fixed/absolute — they must not be intercepted.
         return false;
     };
 

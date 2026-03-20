@@ -10,15 +10,7 @@
 import { discoverConnections } from '../../services/semanticDiscovery.js';
 import { dedupeAndPartitionOrbit } from '../../services/orbitResolver.js';
 import { normalizeToCandidate } from '../../services/candidates.js';
-
-// Redirect console.log → console.error during service calls.
-// The imported services use console.log for diagnostics, but in the MCP server
-// process stdout IS the stdio transport — any console.log corrupts the protocol.
-function withSafeConsole(fn) {
-  const origLog = console.log;
-  console.log = console.error;
-  return fn().finally(() => { console.log = origLog; });
-}
+import { withSafeConsole } from './withSafeConsole.js';
 
 /**
  * @param {Object} args - { entityName, sources?, minConfidence?, limit? }

@@ -1,5 +1,4 @@
 import { buildPalettePromptFragment } from '../../ai/palettes.js';
-import { getToolDefinitions } from '../../wizard/tools/schemas.js';
 
 export const PALETTE_INSTRUCTIONS = buildPalettePromptFragment();
 
@@ -100,57 +99,6 @@ Choose a palette and use its color names for all \`color\` fields. Use palette n
 - **clay**: purple, mud, sage, tan
 - **purple-gradient**: darkest, dark, mid, light
 `;
-
-export function buildToolsPromptFragment() {
-  const tools = getToolDefinitions();
-
-  const toolDescriptions = tools.map(t => {
-    let str = `### ${t.name}\n${t.description}\n`;
-    if (t.parameters && t.parameters.properties && Object.keys(t.parameters.properties).length > 0) {
-      for (const [pName, pVal] of Object.entries(t.parameters.properties)) {
-        const req = t.parameters.required && t.parameters.required.includes(pName) ? '(required)' : '(optional)';
-        str += `- \`${pName}\` ${req}: ${pVal.description}\n`;
-      }
-    } else {
-      str += `- No parameters required\n`;
-    }
-    return str.trim();
-  }).join('\n\n');
-
-  return `## Your Tools
-
-You have these tools available:
-
-${toolDescriptions}
-
-## Wikipedia Enrichment
-
-Graph-building tools (\`createPopulatedGraph\`, \`populateDefinitionGraph\`, \`expandGraph\`, \`createNode\`) **auto-enrich all created nodes from Wikipedia by default** — pulling images, descriptions, and links. The defining node of the graph is also enriched automatically.
-
-**IMPORTANT**: If the nodes you are creating represent **common knowledge** — things that would likely have a Wikipedia article — you should use \`overwriteDescription: true\`. This includes: people, places, countries, animals, plants, scientific concepts, historical events, organizations, companies, technologies, diseases, chemical elements, planets, cities, languages, religions, sports, musical instruments, art movements, etc. When in doubt, assume it has a Wikipedia article and enrich.
-
-- **\`enrich\`** (boolean, default true): Leave as default for most topics. Only set to \`false\` for abstract, structural, or fictional concepts that clearly won't have Wikipedia pages (e.g., "Main Character Arc", "Team Dynamics").
-- **\`overwriteDescription\`** (boolean, default false): Set to \`true\` for common-knowledge topics so nodes get authoritative Wikipedia descriptions and images instead of your brief summaries.
-
-**When to use explicit \`enrichFromWikipedia\`**: Call this for nodes that already exist but haven't been enriched, or to re-enrich a node with \`overwriteDescription: true\`.
-
-**Skip enrichment (\`enrich: false\`) for**: Abstract/internal concepts, relationship types, purely structural nodes, or fictional entities without Wikipedia pages.
-
-## Editing vs. Expanding
-
-**CRITICAL**: Know the difference between ADDING and EDITING:
-
-| Intent | Tool | Example |
-|--------|------|---------|
-| Add new nodes/connections | \`expandGraph\` | "Add moons to the solar system" |
-| Change what a connection means | \`updateEdge\` | "Change 'relates to' → 'contains'" |
-| Bulk-refine existing connections | \`replaceEdges\` | "Make all connections more specific" |
-| Remove a connection | \`deleteEdge\` | "Remove the link between X and Y" |
-
-**Never use \`expandGraph\` to "fix" or "refine" existing connections.** It only adds — it cannot update or remove. This will create duplicate edges.`;
-}
-
-export const REDSTRING_TOOLS = buildToolsPromptFragment();
 
 export const REDSTRING_FORMATTING = `
 ## Formatting

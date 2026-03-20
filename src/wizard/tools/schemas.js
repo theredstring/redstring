@@ -10,16 +10,16 @@ export function getToolDefinitions() {
             parameters: {
                 type: 'object',
                 properties: {
-                    palette: { type: 'string', description: 'Palette name (see system prompt for options). If omitted, a random palette is chosen.' },
+                    palette: { type: 'string', description: 'Palette name. If omitted, a random palette is chosen.' },
                     name: {
                         type: 'string', description: 'The node\'s display name'
                     },
-                    color: { type: 'string', description: 'Color name from palette (e.g. "tan"). DO NOT use hex codes.' },
+                    color: { type: 'string', description: 'Palette color (no hex).' },
                     description: { type: 'string', description: 'What this node represents' },
-                    targetGraphId: { type: 'string', description: 'Graph ID to create in. If omitted, uses active graph.' },
+                    targetGraphId: { type: 'string', description: 'Graph to target (default: active).' },
                     typeNodeId: { type: 'string', description: 'Prototype ID of type node. Use setNodeType for name-based assignment.' },
-                    enrich: { type: 'boolean', description: 'If true (default), auto-enrich from Wikipedia after creation.' },
-                    overwriteDescription: { type: 'boolean', description: 'If true, replace existing description with Wikipedia description during enrichment. Default: false.' }
+                    enrich: { type: 'boolean', description: 'Auto-enrich from Wikipedia (default: true).' },
+                    overwriteDescription: { type: 'boolean', description: 'Overwrite description from Wikipedia (default: false).' }
                 },
                 required: ['name']
             }
@@ -30,11 +30,11 @@ export function getToolDefinitions() {
             parameters: {
                 type: 'object',
                 properties: {
-                    nodeName: { type: 'string', description: 'Current name of the node to update (fuzzy matched)' },
+                    nodeName: { type: 'string', description: 'Current name of the node to update' },
                     name: { type: 'string', description: 'New name for the node' },
                     color: { type: 'string', description: 'New color' },
                     description: { type: 'string', description: 'New description' },
-                    targetGraphId: { type: 'string', description: 'Graph ID. If omitted, uses active graph.' },
+                    targetGraphId: { type: 'string', description: 'Graph to target (default: active).' },
                     typeNodeId: {
                         type: 'string', description: 'Optional: Prototype ID of the type node to assign. Sets the node\'s type / category.'
                     }
@@ -48,8 +48,8 @@ export function getToolDefinitions() {
             parameters: {
                 type: 'object',
                 properties: {
-                    nodeName: { type: 'string', description: 'Name of the node to delete (fuzzy matched)' },
-                    targetGraphId: { type: 'string', description: 'Graph ID. If omitted, uses active graph.' }
+                    nodeName: { type: 'string', description: 'Name of the node to delete' },
+                    targetGraphId: { type: 'string', description: 'Graph to target (default: active).' }
                 },
                 required: ['nodeName']
             }
@@ -60,10 +60,10 @@ export function getToolDefinitions() {
             parameters: {
                 type: 'object',
                 properties: {
-                    sourceId: { type: 'string', description: 'Name of the source node (fuzzy matched)' },
-                    targetId: { type: 'string', description: 'Name of the target node (fuzzy matched)' },
+                    sourceId: { type: 'string', description: 'Name of the source node' },
+                    targetId: { type: 'string', description: 'Name of the target node' },
                     type: { type: 'string', description: 'Relationship type like "contains", "relates to"' },
-                    targetGraphId: { type: 'string', description: 'Optional: ID of graph to create edge in. If omitted, uses active graph.' }
+                    targetGraphId: { type: 'string', description: 'Graph to target (default: active).' }
                 },
                 required: ['sourceId', 'targetId']
             }
@@ -78,7 +78,7 @@ export function getToolDefinitions() {
                     targetName: { type: 'string', description: 'Name of the target node' },
                     type: { type: 'string', description: 'New relationship type' },
                     directionality: { type: 'string', description: '"unidirectional", "bidirectional", "reverse", or "none"' },
-                    targetGraphId: { type: 'string', description: 'Graph ID. If omitted, uses active graph.' }
+                    targetGraphId: { type: 'string', description: 'Graph to target (default: active).' }
                 },
                 required: ['sourceName', 'targetName']
             }
@@ -90,9 +90,9 @@ export function getToolDefinitions() {
                 type: 'object',
                 properties: {
                     edgeId: { type: 'string', description: 'The edge ID to delete (if known)' },
-                    sourceName: { type: 'string', description: 'Name of the source node (fuzzy matched)' },
-                    targetName: { type: 'string', description: 'Name of the target node (fuzzy matched)' },
-                    targetGraphId: { type: 'string', description: 'Graph ID. If omitted, uses active graph.' }
+                    sourceName: { type: 'string', description: 'Name of the source node' },
+                    targetName: { type: 'string', description: 'Name of the target node' },
+                    targetGraphId: { type: 'string', description: 'Graph to target (default: active).' }
                 },
                 required: []
             }
@@ -104,7 +104,7 @@ export function getToolDefinitions() {
                 type: 'object',
                 properties: {
                     query: { type: 'string', description: 'Optional. Search keyword or name. Omit to return all nodes. Individual words work best for broad searches.' },
-                    targetGraphId: { type: 'string', description: 'Graph ID. If omitted, uses active graph.' },
+                    targetGraphId: { type: 'string', description: 'Graph to target (default: active).' },
                     limit: { type: 'number', description: 'Max results to return. Defaults to 100.' },
                     offset: { type: 'number', description: 'Skips this many results for pagination. Use with hasMore=true responses.' }
                 },
@@ -118,7 +118,7 @@ export function getToolDefinitions() {
                 type: 'object',
                 properties: {
                     query: { type: 'string', description: 'Optional. Search keyword - can be a connection type (e.g., "contains") or node name. Omit to return all connections.' },
-                    targetGraphId: { type: 'string', description: 'Graph ID. If omitted, uses active graph.' },
+                    targetGraphId: { type: 'string', description: 'Graph to target (default: active).' },
                     limit: { type: 'number', description: 'Max results to return. Defaults to 100.' },
                     offset: { type: 'number', description: 'Skips this many results for pagination. Use with hasMore=true responses.' }
                 },
@@ -127,7 +127,7 @@ export function getToolDefinitions() {
         },
         {
             name: 'selectNode',
-            description: 'Select and highlight a node on the canvas by name (fuzzy matched).',
+            description: 'Select and highlight a node on the canvas by name.',
             parameters: {
                 type: 'object',
                 properties: {
@@ -153,7 +153,7 @@ export function getToolDefinitions() {
             parameters: {
                 type: 'object',
                 properties: {
-                    targetGraphId: { type: 'string', description: 'Graph ID. If omitted, uses active graph.' }
+                    targetGraphId: { type: 'string', description: 'Graph to target (default: active).' }
                 },
                 required: []
             }
@@ -177,7 +177,7 @@ export function getToolDefinitions() {
             parameters: {
                 type: 'object',
                 properties: {
-                    palette: { type: 'string', description: 'Palette name (see system prompt for options).' },
+                    palette: { type: 'string', description: 'Palette name.' },
                     nodes: {
                         type: 'array',
                         description: 'Array of nodes to create',
@@ -185,7 +185,7 @@ export function getToolDefinitions() {
                             type: 'object',
                             properties: {
                                 name: { type: 'string' },
-                                color: { type: 'string', description: 'Color name from chosen palette. DO NOT use hex codes.' },
+                                color: { type: 'string', description: 'Palette color (no hex).' },
                                 description: { type: 'string' },
                                 type: { type: 'string', description: 'Optional: name of the category/type this node falls under (e.g., "Mammal" for a "Dog" node).' },
                                 typeColor: { type: 'string', description: 'Optional: color for the type node, supports palettes. Use muted colors.' },
@@ -230,9 +230,9 @@ export function getToolDefinitions() {
                             required: ['name', 'memberNames']
                         }
                     },
-                    targetGraphId: { type: 'string', description: 'Graph ID. If omitted, uses active graph.' },
-                    enrich: { type: 'boolean', description: 'If true (default), auto-enrich new nodes from Wikipedia.' },
-                    overwriteDescription: { type: 'boolean', description: 'If true, replace node descriptions with Wikipedia descriptions during enrichment. Default: false.' }
+                    targetGraphId: { type: 'string', description: 'Graph to target (default: active).' },
+                    enrich: { type: 'boolean', description: 'Auto-enrich from Wikipedia (default: true).' },
+                    overwriteDescription: { type: 'boolean', description: 'Overwrite description from Wikipedia (default: false).' }
                 }
             }
         },
@@ -260,7 +260,7 @@ export function getToolDefinitions() {
                             required: ['source', 'target', 'type']
                         }
                     },
-                    targetGraphId: { type: 'string', description: 'Graph ID. If omitted, uses active graph.' }
+                    targetGraphId: { type: 'string', description: 'Graph to target (default: active).' }
                 },
                 required: ['edges']
             }
@@ -271,7 +271,7 @@ export function getToolDefinitions() {
             parameters: {
                 type: 'object',
                 properties: {
-                    palette: { type: 'string', description: 'Palette name (see system prompt for options).' },
+                    palette: { type: 'string', description: 'Palette name.' },
                     name: { type: 'string', description: 'Name for the new graph workspace.' },
                     color: { type: 'string', description: 'Optional color for the node that defines this graph, from the chosen palette. DO NOT use hex codes.' },
                     description: { type: 'string', description: 'High-level bio of this graph/concept — becomes the defining node\'s description visible in the parent graph. Required.' },
@@ -282,7 +282,7 @@ export function getToolDefinitions() {
                             type: 'object',
                             properties: {
                                 name: { type: 'string', description: 'Node name - use Title Case (e.g., "Romeo Montague", not "romeo_montague")' },
-                                color: { type: 'string', description: 'Color name from chosen palette. DO NOT use hex codes.' },
+                                color: { type: 'string', description: 'Palette color (no hex).' },
                                 description: { type: 'string', description: 'Very brief summary of what this node represents' },
                                 type: { type: 'string', description: 'Highly recommended: name of the category/type this node falls under (e.g., "Character" or "Location").' },
                                 typeColor: { type: 'string', description: 'Optional: color for the type node, supports palettes. Use muted colors for types.' },
@@ -309,7 +309,7 @@ export function getToolDefinitions() {
                                     description: 'Defines the connection type. Use Title Case for name.',
                                     properties: {
                                         name: { type: 'string', description: 'Connection type name in Title Case (e.g., "Loves", "Parent Of", "Orbits")' },
-                                        color: { type: 'string', description: 'Color name from chosen palette.' },
+                                        color: { type: 'string', description: 'Palette color.' },
                                         description: { type: 'string', description: 'What this connection means' }
                                     },
                                     required: ['name']
@@ -325,7 +325,7 @@ export function getToolDefinitions() {
                             type: 'object',
                             properties: {
                                 name: { type: 'string', description: 'Group name (e.g., "House Montague", "Engineering Team")' },
-                                color: { type: 'string', description: 'Color name from chosen palette.' },
+                                color: { type: 'string', description: 'Palette color.' },
                                 memberNames: { type: 'array', items: { type: 'string' }, description: 'Names of nodes that belong to this group - must match names in the nodes array' },
                                 definedBy: {
                                     type: 'object',
@@ -341,8 +341,8 @@ export function getToolDefinitions() {
                             required: ['name', 'memberNames']
                         }
                     },
-                    enrich: { type: 'boolean', description: 'If true (default), auto-enrich all created nodes and the defining node from Wikipedia.' },
-                    overwriteDescription: { type: 'boolean', description: 'If true, replace node descriptions with Wikipedia descriptions during enrichment. Default: false.' }
+                    enrich: { type: 'boolean', description: 'Auto-enrich from Wikipedia (default: true).' },
+                    overwriteDescription: { type: 'boolean', description: 'Overwrite description from Wikipedia (default: false).' }
                 },
                 required: ['name', 'description', 'nodes', 'edges']
             }
@@ -359,8 +359,8 @@ export function getToolDefinitions() {
                         items: { type: 'string' },
                         description: 'Names of existing nodes to include in the group'
                     },
-                    color: { type: 'string', description: 'Color name from palette (e.g. "tan").' },
-                    targetGraphId: { type: 'string', description: 'Graph ID. If omitted, uses active graph.' }
+                    color: { type: 'string', description: 'Palette color.' },
+                    targetGraphId: { type: 'string', description: 'Graph to target (default: active).' }
                 },
                 required: ['name', 'memberNames']
             }
@@ -393,7 +393,7 @@ export function getToolDefinitions() {
                         items: { type: 'string' },
                         description: 'Names of nodes to remove from the group'
                     },
-                    targetGraphId: { type: 'string', description: 'Graph ID. If omitted, uses active graph.' }
+                    targetGraphId: { type: 'string', description: 'Graph to target (default: active).' }
                 },
                 required: ['groupName']
             }
@@ -405,7 +405,7 @@ export function getToolDefinitions() {
                 type: 'object',
                 properties: {
                     groupName: { type: 'string', description: 'Name of the group to delete' },
-                    targetGraphId: { type: 'string', description: 'Graph ID. If omitted, uses active graph.' }
+                    targetGraphId: { type: 'string', description: 'Graph to target (default: active).' }
                 },
                 required: ['groupName']
             }
@@ -420,7 +420,7 @@ export function getToolDefinitions() {
                     thingName: { type: 'string', description: 'Name for the Thing that defines this group (can be existing or new)' },
                     createNewThing: { type: 'boolean', description: 'If true, creates a new Thing. If false, tries to find existing Thing by thingName.' },
                     newThingColor: { type: 'string', description: 'Color for the new Thing if creating one' },
-                    targetGraphId: { type: 'string', description: 'Graph ID. If omitted, uses active graph.' }
+                    targetGraphId: { type: 'string', description: 'Graph to target (default: active).' }
                 },
                 required: ['groupName']
             }
@@ -432,7 +432,7 @@ export function getToolDefinitions() {
                 type: 'object',
                 properties: {
                     groupName: { type: 'string', description: 'Name of the Thing-Group to collapse' },
-                    targetGraphId: { type: 'string', description: 'Graph ID. If omitted, uses active graph.' }
+                    targetGraphId: { type: 'string', description: 'Graph to target (default: active).' }
                 },
                 required: ['groupName']
             }
@@ -443,7 +443,7 @@ export function getToolDefinitions() {
             parameters: {
                 type: 'object',
                 properties: {
-                    nodeName: { type: 'string', description: 'Name of the node whose definition graphs to inspect (fuzzy matched)' }
+                    nodeName: { type: 'string', description: 'Name of the node whose definition graphs to inspect' }
                 },
                 required: ['nodeName']
             }
@@ -454,8 +454,8 @@ export function getToolDefinitions() {
             parameters: {
                 type: 'object',
                 properties: {
-                    nodeName: { type: 'string', description: 'Name of the node to add a definition graph to (fuzzy matched)' },
-                    palette: { type: 'string', description: 'Palette name (see system prompt for options).' },
+                    nodeName: { type: 'string', description: 'Name of the node to add a definition graph to' },
+                    palette: { type: 'string', description: 'Palette name.' },
                     nodes: {
                         type: 'array',
                         description: 'Array of nodes to create inside the definition graph',
@@ -463,7 +463,7 @@ export function getToolDefinitions() {
                             type: 'object',
                             properties: {
                                 name: { type: 'string' },
-                                color: { type: 'string', description: 'Color name from chosen palette.' },
+                                color: { type: 'string', description: 'Palette color.' },
                                 description: { type: 'string', description: 'Very brief summary of what this node represents' },
                                 type: { type: 'string', description: 'Optional: name of the category/type this node falls under (e.g., "Mammal" for a "Dog" node).' },
                                 typeColor: { type: 'string', description: 'Optional: color for the type node, supports palettes. Use muted colors.' },
@@ -491,7 +491,7 @@ export function getToolDefinitions() {
                                     description: 'Defines what this connection type means.',
                                     properties: {
                                         name: { type: 'string', description: 'Connection type name in Title Case (e.g., "Loves", "Parent Of", "Orbits")' },
-                                        color: { type: 'string', description: 'Color name from chosen palette.' },
+                                        color: { type: 'string', description: 'Palette color.' },
                                         description: { type: 'string', description: 'What this connection means' }
                                     },
                                     required: ['name']
@@ -507,14 +507,14 @@ export function getToolDefinitions() {
                             type: 'object',
                             properties: {
                                 name: { type: 'string', description: 'Group name (e.g., "Engineering Team")' },
-                                color: { type: 'string', description: 'Color name from chosen palette.' },
+                                color: { type: 'string', description: 'Palette color.' },
                                 memberNames: { type: 'array', items: { type: 'string' }, description: 'Names of nodes that belong to this group - must EXACTLY match names in the nodes array' }
                             },
                             required: ['name', 'memberNames']
                         }
                     },
-                    enrich: { type: 'boolean', description: 'If true (default), auto-enrich created nodes and the defining node from Wikipedia.' },
-                    overwriteDescription: { type: 'boolean', description: 'If true, replace node descriptions with Wikipedia descriptions during enrichment. Default: false.' }
+                    enrich: { type: 'boolean', description: 'Auto-enrich from Wikipedia (default: true).' },
+                    overwriteDescription: { type: 'boolean', description: 'Overwrite description from Wikipedia (default: false).' }
                 },
                 required: ['nodeName', 'nodes', 'edges']
             }
@@ -525,7 +525,7 @@ export function getToolDefinitions() {
             parameters: {
                 type: 'object',
                 properties: {
-                    nodeName: { type: 'string', description: 'Name of the node to remove definition graph from (fuzzy matched)' },
+                    nodeName: { type: 'string', description: 'Name of the node to remove definition graph from' },
                     definitionIndex: { type: 'number', description: 'Which definition graph to remove (0-based index). Default: 0.' }
                 },
                 required: ['nodeName']
@@ -595,7 +595,7 @@ export function getToolDefinitions() {
             parameters: {
                 type: 'object',
                 properties: {
-                    nodeName: { type: 'string', description: 'Name of the node to set the type on (fuzzy matched)' },
+                    nodeName: { type: 'string', description: 'Name of the node to set the type on' },
                     typeName: {
                         type: 'string', description: 'Name of the type/category node. If it doesn\'t exist, it will be auto - created.Omit if clearing.'
                     },
@@ -613,7 +613,7 @@ export function getToolDefinitions() {
             parameters: {
                 type: 'object',
                 properties: {
-                    nodeName: { type: 'string', description: 'Name of the node to read chains for (fuzzy matched)' }
+                    nodeName: { type: 'string', description: 'Name of the node to read chains for' }
                 },
                 required: ['nodeName']
             }
@@ -624,12 +624,12 @@ export function getToolDefinitions() {
             parameters: {
                 type: 'object',
                 properties: {
-                    nodeName: { type: 'string', description: 'Name of the chain owner node (fuzzy matched)' },
+                    nodeName: { type: 'string', description: 'Name of the chain owner node' },
                     dimension: { type: 'string', description: 'Dimension name, e.g., "Generalization Axis"' },
                     editAction: { type: 'string', enum: ['add', 'remove'], description: '"add" to insert a node, "remove" to take one out' },
-                    targetNodeName: { type: 'string', description: 'Name of the node to add or remove (fuzzy matched)' },
+                    targetNodeName: { type: 'string', description: 'Name of the node to add or remove' },
                     direction: { type: 'string', enum: ['above', 'below'], description: 'For "add": "above" inserts toward more generic, "below" inserts toward more specific. Defaults to "above".' },
-                    relativeTo: { type: 'string', description: 'Optional: Name of a node already in the chain to insert relative to (fuzzy matched)' }
+                    relativeTo: { type: 'string', description: 'Optional: Name of a node already in the chain to insert relative to' }
                 },
                 required: ['nodeName', 'dimension', 'editAction', 'targetNodeName']
             }
@@ -687,9 +687,9 @@ export function getToolDefinitions() {
             parameters: {
                 type: 'object',
                 properties: {
-                    nodeName: { type: 'string', description: 'Name of the node to enrich from Wikipedia (fuzzy matched)' },
-                    targetGraphId: { type: 'string', description: 'Graph ID. If omitted, uses active graph.' },
-                    overwriteDescription: { type: 'boolean', description: 'If true, replace the node\'s existing description with the Wikipedia description. Defaults to false (preserves existing descriptions).' }
+                    nodeName: { type: 'string', description: 'Name of the node to enrich from Wikipedia' },
+                    targetGraphId: { type: 'string', description: 'Graph to target (default: active).' },
+                    overwriteDescription: { type: 'boolean', description: 'Overwrite description from Wikipedia (default: false).' }
                 },
                 required: ['nodeName']
             }
@@ -702,7 +702,7 @@ export function getToolDefinitions() {
                 properties: {
                     palette: { type: 'string', description: 'Optional: Name of a known palette (e.g., "retro", "rainbow"). If omitted, it will pick one or use baseColor.' },
                     baseColor: { type: 'string', description: 'Optional: A specific hex color to base the theme around if no palette is supplied.' },
-                    targetGraphId: { type: 'string', description: 'Optional: ID of the graph to theme. Defaults to the active graph.' }
+                    targetGraphId: { type: 'string', description: 'Graph to target (default: active).' }
                 },
                 required: []
             }
@@ -744,7 +744,7 @@ export function getToolDefinitions() {
         // ── Semantic Web Tools ──────────────────────────────────────────
         {
             name: 'discoverOrbit',
-            description: 'Discover semantic web connections for an entity — the agent version of Semantic Orbit. Queries Wikidata and DBpedia for ranked relationships partitioned into 4 quality rings. Use this to explore what an entity is connected to before deciding what to materialize.',
+            description: 'Discover semantic web connections for an entity. Returns ranked relationships in 4 quality rings from Wikidata/DBpedia. Use before materializeSemanticEntities.',
             parameters: {
                 type: 'object',
                 properties: {
@@ -762,7 +762,7 @@ export function getToolDefinitions() {
         },
         {
             name: 'semanticSearch',
-            description: 'Search the semantic web for entity information. Two modes: "enrich" looks up a single entity across Wikidata/DBpedia/Wikipedia for descriptions and links; "related" finds related concepts via SPARQL relationship queries.',
+            description: 'Search the semantic web. "enrich" mode: entity lookup with descriptions/links. "related" mode: find related concepts via SPARQL.',
             parameters: {
                 type: 'object',
                 properties: {
@@ -775,7 +775,7 @@ export function getToolDefinitions() {
         },
         {
             name: 'materializeSemanticEntities',
-            description: 'Turn semantic web discoveries into real Redstring nodes and edges. Use after discoverOrbit or semanticSearch to create nodes from discovered entities. Connections get semantic relationship types (e.g., "Developed By", "Genre") as edge labels.',
+            description: 'Turn semantic web discoveries into Redstring nodes and edges. Use after discoverOrbit/semanticSearch. Connections become typed edges.',
             parameters: {
                 type: 'object',
                 properties: {
@@ -806,8 +806,8 @@ export function getToolDefinitions() {
                             required: ['source', 'target']
                         }
                     },
-                    targetGraphId: { type: 'string', description: 'Graph ID. If omitted, uses active graph.' },
-                    enrich: { type: 'boolean', description: 'If true (default), auto-enrich new nodes from Wikipedia.' },
+                    targetGraphId: { type: 'string', description: 'Graph to target (default: active).' },
+                    enrich: { type: 'boolean', description: 'Auto-enrich from Wikipedia (default: true).' },
                     palette: { type: 'string', description: 'Palette name.' }
                 },
                 required: ['entities']
@@ -815,7 +815,7 @@ export function getToolDefinitions() {
         },
         {
             name: 'importKnowledgeCluster',
-            description: 'Import a knowledge cluster from the semantic web around a seed entity. Uses BFS traversal to discover and materialize a neighborhood of related entities with their relationships. Good for quickly building a knowledge graph about a topic.',
+            description: 'BFS import of a knowledge cluster around a seed entity from the semantic web. Creates a neighborhood of related entities with relationships.',
             parameters: {
                 type: 'object',
                 properties: {
@@ -827,8 +827,8 @@ export function getToolDefinitions() {
                         items: { type: 'string', enum: ['wikidata', 'dbpedia'] },
                         description: 'Sources to query. Default: both.'
                     },
-                    targetGraphId: { type: 'string', description: 'Graph ID. If omitted, uses active graph.' },
-                    enrich: { type: 'boolean', description: 'If true (default), auto-enrich nodes from Wikipedia.' },
+                    targetGraphId: { type: 'string', description: 'Graph to target (default: active).' },
+                    enrich: { type: 'boolean', description: 'Auto-enrich from Wikipedia (default: true).' },
                     palette: { type: 'string', description: 'Palette name.' }
                 },
                 required: ['seedEntity']

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import { useTheme } from '../../hooks/useTheme.js';
 
 /**
@@ -61,17 +61,23 @@ const PanelIconButton = ({
   const actualHoverFillColor = hoverFillColor || hoverStrokeColor;
 
   const handleClick = (e) => {
+    if (touchHandledRef.current) return; // Already handled by touch
     if (!disabled && onClick) {
       e.stopPropagation();
       onClick(e);
     }
   };
 
+  // Track whether touch already handled the action to prevent double-fire with onClick.
+  // Cannot use e.preventDefault() in onTouchEnd since React registers it as passive.
+  const touchHandledRef = useRef(false);
+
   const handleTouchEnd = (e) => {
     if (!disabled && onClick) {
-      e.preventDefault(); // Prevent synthetic click (we handle it here)
       e.stopPropagation();
+      touchHandledRef.current = true;
       onClick(e);
+      setTimeout(() => { touchHandledRef.current = false; }, 400);
     }
   };
 

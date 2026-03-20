@@ -5,6 +5,7 @@
   margin: 0;
   overflow: hidden;
   transition: all 0.2s ease;
+  min-width: 0;
 }
 
 .tool-call-header {
@@ -43,6 +44,8 @@
   flex-direction: column;
   gap: 4px;
   width: 100%;
+  min-width: 0;
+  overflow: hidden;
 }
 
 .tool-header-row {
@@ -50,6 +53,7 @@
   align-items: center;
   gap: 8px;
   width: 100%;
+  min-width: 0;
 }
 
 .tool-name {
@@ -87,6 +91,9 @@
   font-size: 11px;
   font-family: 'EmOne', sans-serif;
   line-height: 1.4;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .tool-call-details {
@@ -94,6 +101,8 @@
   border-top: 1px solid var(--canvas-border);
   animation: slideDown 0.2s ease;
   font-family: 'EmOne', sans-serif;
+  overflow: hidden;
+  word-break: break-word;
 }
 
 @keyframes slideDown {

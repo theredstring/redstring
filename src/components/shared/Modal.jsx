@@ -13,6 +13,9 @@ const Modal = ({
 }) => {
   const theme = useTheme();
   const modalRef = useRef(null);
+  // Track touch-handled to prevent double-fire (touch + synthetic click).
+  // Cannot use preventDefault() in onTouchEnd since React registers it as passive.
+  const touchHandledRef = useRef(false);
 
   if (!isOpen) return null;
 
@@ -21,6 +24,29 @@ const Modal = ({
     medium: { width: 'min(95vw, 380px)', height: 'min(85vh, 600px)' },
     large: { width: 'min(95vw, 480px)', height: 'min(90vh, 700px)' },
     slim: { width: 'min(95vw, 400px)', height: 'min(90vh, 750px)' }
+  };
+
+  const handleBackdropTouchEnd = (e) => {
+    touchHandledRef.current = true;
+    onClose();
+    setTimeout(() => { touchHandledRef.current = false; }, 400);
+  };
+
+  const handleBackdropClick = (e) => {
+    if (touchHandledRef.current) return;
+    onClose();
+  };
+
+  const handleCloseTouchEnd = (e) => {
+    e.stopPropagation();
+    touchHandledRef.current = true;
+    onClose();
+    setTimeout(() => { touchHandledRef.current = false; }, 400);
+  };
+
+  const handleCloseClick = (e) => {
+    if (touchHandledRef.current) return;
+    onClose();
   };
 
   return (
@@ -36,8 +62,8 @@ const Modal = ({
         padding: '20px',
         touchAction: 'manipulation'
       }}
-      onClick={onClose}
-      onTouchEnd={(e) => { e.preventDefault(); onClose(); }}
+      onClick={handleBackdropClick}
+      onTouchEnd={handleBackdropTouchEnd}
     >
       <div
         style={{
@@ -80,22 +106,25 @@ const Modal = ({
           </h2>
           {showCloseButton && (
             <button
-              onClick={onClose}
-              onTouchEnd={(e) => { e.preventDefault(); e.stopPropagation(); onClose(); }}
+              onClick={handleCloseClick}
+              onTouchEnd={handleCloseTouchEnd}
               style={{
                 background: 'none',
                 border: 'none',
                 color: theme.canvas.textPrimary,
                 cursor: 'pointer',
-                padding: '4px',
-                borderRadius: '4px',
+                padding: '8px',
+                borderRadius: '50%',
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
-                transition: 'background-color 0.2s'
+                transition: 'background-color 0.2s',
+                minWidth: '36px',
+                minHeight: '36px',
+                touchAction: 'manipulation'
               }}
-              onMouseEnter={(e) => e.target.style.backgroundColor = theme.canvas.hover}
-              onMouseLeave={(e) => e.target.style.backgroundColor = 'transparent'}
+              onMouseEnter={(e) => e.currentTarget.style.backgroundColor = theme.canvas.hover}
+              onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
               aria-label="Close modal"
             >
               <X size={20} />

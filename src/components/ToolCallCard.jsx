@@ -77,7 +77,10 @@ const ToolCallCard = ({ toolCallId, toolName, status, args, result, error, times
     };
 
     const getSummaryText = () => {
-        if (error) return error;
+        if (error) {
+            const maxLen = 80;
+            return error.length > maxLen ? error.slice(0, maxLen) + '...' : error;
+        }
         if (!result) return '';
 
         if (toolName === 'searchNodes') {
