@@ -247,6 +247,23 @@ const ColorPicker = ({
         minWidth: '240px'
       }}
     >
+      {/* Decorative palette icon */}
+      <PanelIconButton
+        icon={Palette}
+        size={16}
+        title="Color Picker"
+        onClick={(e) => e.stopPropagation()}
+        disabled
+        style={{
+          position: 'absolute',
+          top: '8px',
+          right: '8px',
+          padding: '4px',
+          opacity: 0.6,
+          cursor: 'default'
+        }}
+      />
+
       {/* Color preview */}
       <div style={{
         display: 'flex',
@@ -272,7 +289,7 @@ const ColorPicker = ({
       <div style={{ marginBottom: '12px' }}>
         <label style={{
           display: 'block',
-          color: '#260000',
+          color: theme.canvas.textPrimary,
           fontSize: '12px',
           fontWeight: 'bold',
           marginBottom: '4px'
@@ -288,7 +305,7 @@ const ColorPicker = ({
               height: 20px;
               border-radius: 50%;
               background: ${currentPreviewColor};
-              border: 2px solid #260000;
+              border: 2px solid ${theme.canvas.textPrimary};
               cursor: pointer;
               box-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
             }
@@ -297,7 +314,7 @@ const ColorPicker = ({
               height: 20px;
               border-radius: 50%;
               background: ${currentPreviewColor};
-              border: 2px solid #260000;
+              border: 2px solid ${theme.canvas.textPrimary};
               cursor: pointer;
               box-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
             }
@@ -338,7 +355,7 @@ const ColorPicker = ({
       <div style={{ marginBottom: '12px' }}>
         <label style={{
           display: 'block',
-          color: '#260000',
+          color: theme.canvas.textPrimary,
           fontSize: '12px',
           fontWeight: 'bold',
           marginBottom: '4px'
@@ -354,7 +371,7 @@ const ColorPicker = ({
               height: 20px;
               border-radius: 50%;
               background: ${hsvToHex(selectedHue, selectedSaturation / 100, selectedBrightness / 100)};
-              border: 2px solid #260000;
+              border: 2px solid ${theme.canvas.textPrimary};
               cursor: pointer;
               box-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
             }
@@ -363,7 +380,7 @@ const ColorPicker = ({
               height: 20px;
               border-radius: 50%;
               background: ${hsvToHex(selectedHue, selectedSaturation / 100, selectedBrightness / 100)};
-              border: 2px solid #260000;
+              border: 2px solid ${theme.canvas.textPrimary};
               cursor: pointer;
               box-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
             }
@@ -396,7 +413,7 @@ const ColorPicker = ({
       <div style={{ marginBottom: '12px' }}>
         <label style={{
           display: 'block',
-          color: '#260000',
+          color: theme.canvas.textPrimary,
           fontSize: '12px',
           fontWeight: 'bold',
           marginBottom: '4px'
@@ -412,7 +429,7 @@ const ColorPicker = ({
               height: 20px;
               border-radius: 50%;
               background: ${hsvToHex(selectedHue, selectedSaturation / 100, selectedBrightness / 100)};
-              border: 2px solid #260000;
+              border: 2px solid ${theme.canvas.textPrimary};
               cursor: pointer;
               box-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
             }
@@ -421,7 +438,7 @@ const ColorPicker = ({
               height: 20px;
               border-radius: 50%;
               background: ${hsvToHex(selectedHue, selectedSaturation / 100, selectedBrightness / 100)};
-              border: 2px solid #260000;
+              border: 2px solid ${theme.canvas.textPrimary};
               cursor: pointer;
               box-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
             }
@@ -454,7 +471,7 @@ const ColorPicker = ({
       <div>
         <label style={{
           display: 'block',
-          color: '#260000',
+          color: theme.canvas.textPrimary,
           fontSize: '12px',
           fontWeight: 'bold',
           marginBottom: '4px'
@@ -474,10 +491,10 @@ const ColorPicker = ({
             maxWidth: '100%',
             minWidth: '0',
             padding: '6px 8px',
-            border: '1px solid #260000',
+            border: `1px solid ${theme.canvas.textPrimary}`,
             borderRadius: '4px',
-            backgroundColor: '#EFE8E5',
-            color: '#260000',
+            backgroundColor: theme.darkMode ? theme.canvas.hover : '#EFE8E5',
+            color: theme.canvas.textPrimary,
             fontSize: '14px',
             fontFamily: "'EmOne', sans-serif",
             boxSizing: 'border-box'

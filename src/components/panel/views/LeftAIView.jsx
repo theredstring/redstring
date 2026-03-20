@@ -1530,7 +1530,7 @@ const WIZARD_LOADING_STRINGS = [
   "Pondering my orb",
   "Deep in meditation",
   "Deciphering runes",
-  "Eating perpetual stew",
+  "Cooking perpetual stew",
   "Channeling arcane energies",
   "Taking a water break",
   "Getting esoteric",
@@ -1543,26 +1543,36 @@ const WIZARD_LOADING_STRINGS = [
   "Polishing crystal ball",
   "Consulting the Great One",
   "Weaving web of fate",
-  "Shuffling through scrolls",
+  "Shuffling tarot cards",
+  "Scrolling through scrolls",
+  "Building schemas",
+  "Performing divination",
   "Prancing through the forest",
   "Looking out the castle window",
+  "Performing exorcisms",
   "Consulting the oracle",
   "Growing herbs in my garden",
   "Contemplating the mystical",
+  "Burning a candle",
+  "Feeding the birds",
   "Summoning entities",
   "Brewing potion of insight",
   "Gazing into the abyss",
   "Muttering incantations",
   "Weaving a tapestry",
   "Locking in",
+  "Checking my phone",
+  "Shaking 8 ball",
   "Adjusting pointy hat",
+  "Breaking curses",
   "Aligning chakras",
   "Taking a nap",
   "Upgrading wand",
+  "Cleaning monocle",
   "Levitating",
   "Waving wand demurely",
   "Scrying",
-  "Lost in semantic void",
+  "Lunch break",
   "Herding ontological cats",
   "Connecting cosmic dots",
   "Tracing invisible threads",
@@ -2860,6 +2870,9 @@ const LeftAIView = ({ compact = false,
       // Track processed event IDs to prevent duplicates (React StrictMode safety)
       const processedEvents = new Set();
       let eventCounter = 0;
+      // Track top-level step statuses to detect step-level vs substep-level changes
+      let lastTopLevelStepStatuses = null;
+      let planCardCounter = 0;
 
       const targetConversationId = activeConversationId;
       try {
@@ -2944,13 +2957,40 @@ const LeftAIView = ({ compact = false,
                     } else {
                       console.warn('[Wizard] tool_result received but no matching tool_call block found!', event.id);
                     }
-                    // Live-update plan card: remove from old position and push to end so it floats to bottom
+                    // Plan card timeline: freeze old card on top-level step change, update in place for substep-only changes
                     if (event.name === 'planTask' && event.result?.steps) {
-                      const existingPlanIdx = blocks.findIndex(b => b.type === 'plan');
-                      if (existingPlanIdx >= 0) {
-                        blocks.splice(existingPlanIdx, 1);
+                      const incomingTopStatuses = event.result.steps.map(s => s.status);
+                      const frozenSteps = JSON.parse(JSON.stringify(event.result.steps));
+
+                      if (lastTopLevelStepStatuses === null) {
+                        // First plan card for this wizard call
+                        planCardCounter++;
+                        blocks.push({ type: 'plan', id: `plan-${planCardCounter}-${streamingMessageId}`, steps: frozenSteps, timestamp: now, frozen: false });
+                      } else {
+                        const topLevelChanged =
+                          incomingTopStatuses.length !== lastTopLevelStepStatuses.length ||
+                          incomingTopStatuses.some((status, i) => lastTopLevelStepStatuses[i] !== status);
+
+                        if (topLevelChanged) {
+                          // Freeze the latest active plan card, push a new one
+                          const latestPlanIdx = blocks.reduce((last, b, idx) => b.type === 'plan' && !b.frozen ? idx : last, -1);
+                          if (latestPlanIdx >= 0) {
+                            blocks[latestPlanIdx] = { ...blocks[latestPlanIdx], frozen: true };
+                          }
+                          planCardCounter++;
+                          blocks.push({ type: 'plan', id: `plan-${planCardCounter}-${streamingMessageId}`, steps: frozenSteps, timestamp: now, frozen: false });
+                        } else {
+                          // Substep-only change: update latest active card in place
+                          const latestPlanIdx = blocks.reduce((last, b, idx) => b.type === 'plan' && !b.frozen ? idx : last, -1);
+                          if (latestPlanIdx >= 0) {
+                            blocks[latestPlanIdx] = { ...blocks[latestPlanIdx], steps: frozenSteps, timestamp: now };
+                          } else {
+                            planCardCounter++;
+                            blocks.push({ type: 'plan', id: `plan-${planCardCounter}-${streamingMessageId}`, steps: frozenSteps, timestamp: now, frozen: false });
+                          }
+                        }
                       }
-                      blocks.push({ type: 'plan', id: 'plan-' + streamingMessageId, steps: event.result.steps, timestamp: now });
+                      lastTopLevelStepStatuses = incomingTopStatuses;
                     }
                   } else if (event.type === 'response') {
                     const lastBlock = blocks.length > 0 ? blocks[blocks.length - 1] : null;
@@ -3727,6 +3767,7 @@ const LeftAIView = ({ compact = false,
                             <PlanCard
                               key={block.id || `plan-${i}`}
                               steps={block.steps}
+                              frozen={!!block.frozen}
                             />
                           );
                         }

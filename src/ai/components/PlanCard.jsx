@@ -9,15 +9,21 @@ import './PlanCard.css';
  * Supports nested substeps under each step. Substeps are visible when the parent
  * step is in_progress or done, collapsed when pending.
  */
-export default function PlanCard({ steps }) {
+export default function PlanCard({ steps, frozen = false }) {
   if (!steps || steps.length === 0) return null;
 
   const done = steps.filter(s => s.status === 'done').length;
   const total = steps.length;
   const isComplete = done === total;
 
+  const className = [
+    'plan-card',
+    isComplete ? 'plan-card--complete' : '',
+    frozen ? 'plan-card--frozen' : ''
+  ].filter(Boolean).join(' ');
+
   return (
-    <div className={`plan-card${isComplete ? ' plan-card--complete' : ''}`}>
+    <div className={className}>
       <div className="plan-card-header">
         <span className="plan-card-icon">✦</span>
         <span className="plan-card-title">Plan</span>
@@ -33,7 +39,7 @@ export default function PlanCard({ steps }) {
               </span>
               <span className="plan-card-step-text">{step.description}</span>
             </div>
-            {step.substeps && step.substeps.length > 0 && (step.status === 'in_progress' || step.status === 'done') && (
+            {!frozen && step.substeps && step.substeps.length > 0 && (step.status === 'in_progress' || step.status === 'done') && (
               <div className="plan-card-substeps">
                 {step.substeps.map((sub, j) => (
                   <div

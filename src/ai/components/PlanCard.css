@@ -213,6 +213,38 @@
 .dark-mode .plan-card-substep--pending .plan-card-substep-icon { opacity: 1; color: #6a6464; }
 .dark-mode .plan-card-substep--pending .plan-card-substep-text { opacity: 1; color: #7a7474; }
 
+/* Frozen plan cards — historical snapshots */
+.plan-card--frozen {
+  opacity: 0.55;
+  border-color: transparent;
+  box-shadow: none;
+  animation: none;
+  padding: 8px 16px;
+  margin: 4px 0;
+}
+
+.plan-card--frozen .plan-card-header {
+  margin-bottom: 6px;
+  font-size: 12px;
+}
+
+.plan-card--frozen .plan-card-step {
+  font-size: 12px;
+  padding: 2px 0;
+}
+
+.plan-card--frozen .plan-card-step--in_progress .plan-card-step-icon {
+  animation: none;
+}
+
+.plan-card--frozen .plan-card-substep--in_progress .plan-card-substep-icon {
+  animation: none;
+}
+
+.dark-mode .plan-card--frozen {
+  opacity: 0.45;
+}
+
 @keyframes stepPulse {
   0%, 100% { opacity: 1; }
   50% { opacity: 0.5; }
