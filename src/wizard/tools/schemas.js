@@ -675,12 +675,13 @@ export function getToolDefinitions() {
         },
         {
             name: 'enrichFromWikipedia',
-            description: 'Pull Wikipedia data for a node: fetches the Wikipedia image, description, and link. Use this to enrich nodes with real-world knowledge and imagery.',
+            description: 'Pull Wikipedia data for a node: fetches the Wikipedia image, description, and link. Use this to enrich nodes with real-world knowledge and imagery. By default, existing descriptions are preserved — set overwriteDescription to true to replace them with the Wikipedia description.',
             parameters: {
                 type: 'object',
                 properties: {
                     nodeName: { type: 'string', description: 'Name of the node to enrich from Wikipedia (fuzzy matched)' },
-                    targetGraphId: { type: 'string', description: 'Graph ID. If omitted, uses active graph.' }
+                    targetGraphId: { type: 'string', description: 'Graph ID. If omitted, uses active graph.' },
+                    overwriteDescription: { type: 'boolean', description: 'If true, replace the node\'s existing description with the Wikipedia description. Defaults to false (preserves existing descriptions).' }
                 },
                 required: ['nodeName']
             }

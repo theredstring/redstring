@@ -12,7 +12,7 @@
  * @returns {Promise<Object>} Action spec for client-side enrichment
  */
 export async function enrichFromWikipedia(args, graphState) {
-  const { nodeName, targetGraphId } = args;
+  const { nodeName, targetGraphId, overwriteDescription = false } = args;
 
   if (!nodeName) {
     throw new Error('nodeName is required');
@@ -46,6 +46,7 @@ export async function enrichFromWikipedia(args, graphState) {
     action: 'enrichFromWikipedia',
     nodeName: resolvedProto?.name || nodeName,
     prototypeId: resolvedProto?.id || null,
-    graphId
+    graphId,
+    overwriteDescription
   };
 }

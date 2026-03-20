@@ -11,7 +11,6 @@ import SemanticEditor from '../SemanticEditor.jsx';
 import ConnectionBrowser from '../ConnectionBrowser.jsx';
 import StandardDivider from '../StandardDivider.jsx';
 import PanelIconButton from '../shared/PanelIconButton.jsx';
-import AgentConfigEditor from '../AgentConfigEditor.jsx';
 import { fastEnrichFromSemanticWeb } from '../../services/semanticWebQuery.js';
 import useGraphStore from "../../store/graphStore.jsx";
 
@@ -2042,24 +2041,6 @@ const SharedPanelContent = ({
           nodeData={nodeData}
           onMaterializeConnection={onMaterializeConnection}
           isUltraSlim={isUltraSlim}
-        />
-      </CollapsibleSection>
-
-      {/* Dividing line above Agent section */}
-      <StandardDivider margin="20px 0" />
-
-      {/* Agent Configuration Section */}
-      <CollapsibleSection
-        title="Agent"
-        defaultExpanded={false}
-      >
-        <AgentConfigEditor
-          config={nodeData?.agentConfig}
-          onChange={(config) => {
-            useGraphStore.getState().updateNodePrototype(nodeData.id, (draft) => {
-              draft.agentConfig = config;
-            });
-          }}
         />
       </CollapsibleSection>
 

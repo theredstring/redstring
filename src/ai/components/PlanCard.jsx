@@ -14,9 +14,10 @@ export default function PlanCard({ steps }) {
 
   const done = steps.filter(s => s.status === 'done').length;
   const total = steps.length;
+  const isComplete = done === total;
 
   return (
-    <div className="plan-card">
+    <div className={`plan-card${isComplete ? ' plan-card--complete' : ''}`}>
       <div className="plan-card-header">
         <span className="plan-card-icon">✦</span>
         <span className="plan-card-title">Plan</span>

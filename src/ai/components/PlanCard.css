@@ -21,6 +21,11 @@
 
 .plan-card-icon {
   color: #8B0000;
+  transition: color 0.3s ease;
+}
+
+.plan-card--complete .plan-card-icon {
+  color: #516A02;
 }
 
 .plan-card-title {
@@ -167,6 +172,10 @@
 
 .dark-mode .plan-card-icon {
   color: #c0392b;
+}
+
+.dark-mode .plan-card--complete .plan-card-icon {
+  color: #7d9b1e;
 }
 
 .dark-mode .plan-card-step--done .plan-card-step-icon {

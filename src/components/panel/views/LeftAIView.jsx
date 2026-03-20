@@ -27,8 +27,8 @@ import PanelIconButton from '../../shared/PanelIconButton.jsx';
  * Build the update object for a node from a server enrichment match.
  * Shared between single and batch enrichment.
  */
-function buildEnrichmentUpdates(nodeProto, searchResult, confidence) {
-  const hasExistingDescription = nodeProto.description && nodeProto.description.trim().length > 10;
+function buildEnrichmentUpdates(nodeProto, searchResult, confidence, { overwriteDescription = false } = {}) {
+  const hasExistingDescription = !overwriteDescription && nodeProto.description && nodeProto.description.trim().length > 10;
 
   // Compute aspect ratio from API-provided thumbnail dimensions (survives save/load)
   const tw = searchResult.page.thumbnailWidth;
@@ -63,7 +63,7 @@ function buildEnrichmentUpdates(nodeProto, searchResult, confidence) {
  * Used for explicit wizard tool calls (not batch).
  */
 async function enrichNodeWithWikipedia(nodeName, _graphId, options = {}) {
-  const { minConfidence = 0.40 } = options;
+  const { minConfidence = 0.40, overwriteDescription = false } = options;
 
   try {
     console.log(`[Auto-Enrich] Starting Wikipedia enrichment for "${nodeName}" (via server)`);
@@ -96,7 +96,7 @@ async function enrichNodeWithWikipedia(nodeName, _graphId, options = {}) {
     }
 
     const nodeProto = store.nodePrototypes.get(targetNodeProtoId);
-    const updates = buildEnrichmentUpdates(nodeProto, searchResult, confidence);
+    const updates = buildEnrichmentUpdates(nodeProto, searchResult, confidence, { overwriteDescription });
 
     // Store original image URL in metadata for lazy loading
     if (searchResult.page.originalImage) {
@@ -1452,10 +1452,11 @@ function applyToolResultToStore(toolName, result, toolCallId) {
     // Async client-side enrichment — kick off Wikipedia fetch in browser context
     const nodeName = result.nodeName;
     const graphId = result.graphId || store.activeGraphId;
-    console.log('[Wizard] Applying enrichFromWikipedia for:', nodeName);
+    const overwriteDescription = result.overwriteDescription || false;
+    console.log('[Wizard] Applying enrichFromWikipedia for:', nodeName, overwriteDescription ? '(overwrite description)' : '(preserve description)');
 
     // Run async enrichment (don't block — fire and forget)
-    enrichNodeWithWikipedia(nodeName, graphId, { minConfidence: 0.0 }).then(enrichResult => {
+    enrichNodeWithWikipedia(nodeName, graphId, { minConfidence: 0.0, overwriteDescription }).then(enrichResult => {
       if (enrichResult?.success) {
         console.log(`[Wizard] ✅ Wikipedia enrichment succeeded for "${nodeName}"`);
       } else {
