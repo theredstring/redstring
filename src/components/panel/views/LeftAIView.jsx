@@ -3603,9 +3603,12 @@ const LeftAIView = ({ compact = false,
               const streamingMsg = messages.find(m => m.isStreaming);
               const hasStreamingContent = streamingMsg && (streamingMsg.contentBlocks?.length > 0);
 
-              // Only show thinking dots if no streaming content yet
-              // AND we're in chat/druid mode (wizard mode always shows tool calls immediately)
-              if (!hasStreamingContent && viewMode !== 'wizard') {
+              // Show thinking dots:
+              // - Chat/druid: when no streaming content yet (original behavior)
+              // - Wizard: when no running tool call chips are visible (between iterations, thinking)
+              const hasRunningToolCalls = streamingMsg?.contentBlocks?.some(b => b.type === 'tool_call' && b.status === 'running');
+              const showDots = viewMode === 'wizard' ? !hasRunningToolCalls : !hasStreamingContent;
+              if (showDots) {
                 return (
                   <div className="ai-thinking-row">
                     <div className="ai-message-avatar"><img src={headSvg} alt="Wizard" style={{ width: 40, height: 40 }} /></div>

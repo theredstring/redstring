@@ -43,6 +43,18 @@
   animation-delay: 0.4s;
 }
 
+html.dark-mode .ai-thinking-row .ai-message-avatar img {
+  filter: brightness(0) invert(1);
+}
+
+html.dark-mode .ai-thinking-row .ai-message-avatar {
+  color: #DEDADA;
+}
+
+html.dark-mode .ai-thinking-dots {
+  color: #DEDADA;
+}
+
 @keyframes dot-bounce {
 
   0%,
