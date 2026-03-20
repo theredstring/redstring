@@ -2184,7 +2184,9 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
           if (sourceId && destId && graph.instances.has(sourceId) && graph.instances.has(destId)) {
             const edgeId = edge.id || uuidv4();
 
-            // DUPLICATE EDGE PREVENTION: Check if an edge already exists between these nodes
+            // DUPLICATE EDGE PREVENTION: Only block if same nodes AND same connection type
+            // Different types between the same pair are allowed (e.g., A→B "Loves" + A→B "Rivals With")
+            const newTypeName = toTitleCase(edge.definitionNode?.name || edge.type || 'Connection');
             let existingEdgeId = null;
             for (const eId of (graph.edgeIds || [])) {
               const existingEdge = draft.edges.get(eId);
@@ -2192,8 +2194,11 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
                 (existingEdge.sourceId === sourceId && existingEdge.destinationId === destId) ||
                 (existingEdge.sourceId === destId && existingEdge.destinationId === sourceId)
               )) {
-                existingEdgeId = eId;
-                break;
+                const existingTypeName = existingEdge.name || '';
+                if (existingTypeName.toLowerCase() === newTypeName.toLowerCase()) {
+                  existingEdgeId = eId;
+                  break;
+                }
               }
             }
 

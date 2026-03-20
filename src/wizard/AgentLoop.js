@@ -626,6 +626,9 @@ export async function* runAgent(userMessage, graphState, config = {}, ensureSche
 
   // Loop detection: track tool call signatures per iteration to detect cycles
   const iterationSignatures = [];
+  // Track consecutive text-only nudges to prevent infinite nudge loops
+  let consecutiveNudges = 0;
+  const MAX_CONSECUTIVE_NUDGES = 3;
 
   for (let iteration = 0; iteration < maxIterations; iteration++) {
     // Rebuild context from (potentially mutated) graphState so LLM sees current state
@@ -734,12 +737,28 @@ export async function* runAgent(userMessage, graphState, config = {}, ensureSche
         const planIncomplete = plan && plan.length > 0 && !plan.every(s => s.status === 'done');
 
         if (planIncomplete) {
-          // Plan has incomplete steps — nudge the model to continue instead of stopping
+          consecutiveNudges++;
           const doneCount = plan.filter(s => s.status === 'done').length;
-          console.error(`[AgentLoop] ⚠️ Model returned text-only but plan is incomplete (${doneCount}/${plan.length} done). Nudging to continue.`);
+
+          if (consecutiveNudges > MAX_CONSECUTIVE_NUDGES) {
+            // Too many nudges — model can't continue, stop gracefully
+            console.error(`[AgentLoop] ✗ Model nudged ${MAX_CONSECUTIVE_NUDGES} times but won't continue plan (${doneCount}/${plan.length} done). Stopping.`);
+            yield { type: 'done', iterations: iteration + 1, reason: 'nudge_limit' };
+            return;
+          }
+
+          // Build specific list of incomplete steps so the model knows exactly what to do
+          const incompleteSteps = plan
+            .map((s, i) => ({ ...s, index: i + 1 }))
+            .filter(s => s.status !== 'done');
+          const stepList = incompleteSteps
+            .map(s => `  ${s.index}. [${s.status.toUpperCase()}] ${s.description}`)
+            .join('\n');
+
+          console.error(`[AgentLoop] ⚠️ Model returned text-only but plan is incomplete (${doneCount}/${plan.length} done). Nudge ${consecutiveNudges}/${MAX_CONSECUTIVE_NUDGES}.`);
           messages.push({
             role: 'user',
-            content: 'You still have incomplete plan steps. Continue working through your plan — do not stop until all steps are done.'
+            content: `Your plan is NOT complete (${doneCount}/${plan.length} steps done). These steps still need work:\n${stepList}\n\nUnless you need to ask the user a clarifying question to proceed, do NOT respond to the user yet. Pick up the next incomplete step and call the appropriate tools to complete it. Update the plan with planTask as you go.`
           });
           continue; // Skip termination, continue the loop
         }
@@ -748,6 +767,9 @@ export async function* runAgent(userMessage, graphState, config = {}, ensureSche
         yield { type: 'done', iterations: iteration + 1, reason: 'model_done' };
         return;
       }
+
+      // Model called tools — reset nudge counter since it's back on track
+      consecutiveNudges = 0;
 
       // Execute tools sequentially
       for (const toolCall of iterationToolCalls) {

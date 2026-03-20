@@ -54,7 +54,7 @@ export function getToolDefinitions() {
         },
         {
             name: 'createEdge',
-            description: 'Connect two nodes by name. Use node names (not IDs) to specify source and target.',
+            description: 'Connect two existing nodes by name. Creates a single edge. For multiple connections at once, prefer expandGraph with an edges array.',
             parameters: {
                 type: 'object',
                 properties: {
@@ -171,7 +171,7 @@ export function getToolDefinitions() {
         },
         {
             name: 'expandGraph',
-            description: 'Add nodes, edges, and groups to an existing graph. Provide at least one node or edge.',
+            description: 'Add nodes, edges, and groups to an existing graph. You can create multiple different connections between the same two nodes (e.g., A→B "Loves" and A→B "Rivals With"). Nodes referenced in edges can be existing nodes already in the graph OR new nodes in the nodes array. Provide at least one node or edge.',
             parameters: {
                 type: 'object',
                 properties: {
@@ -194,7 +194,7 @@ export function getToolDefinitions() {
                     },
                     edges: {
                         type: 'array',
-                        description: 'Array of edges to create',
+                        description: 'Array of edges to create. You can include multiple edges between the same two nodes as long as each has a different type/definitionNode.',
                         items: {
                             type: 'object',
                             properties: {
@@ -289,7 +289,7 @@ export function getToolDefinitions() {
                     },
                     edges: {
                         type: 'array',
-                        description: 'Array of edges. Each must have a definitionNode.',
+                        description: 'Array of edges — you can have multiple edges between the same pair with different definitionNodes. Each must have a definitionNode.',
                         items: {
                             type: 'object',
                             properties: {
@@ -468,7 +468,7 @@ export function getToolDefinitions() {
                     },
                     edges: {
                         type: 'array',
-                        description: 'Array of edges to create inside the definition graph. Highly recommended unless creating a simple Set or Collection. Every edge MUST have a definitionNode.',
+                        description: 'Array of edges to create inside the definition graph — you can have multiple edges between the same pair with different definitionNodes. Highly recommended unless creating a simple Set or Collection. Every edge MUST have a definitionNode.',
                         items: {
                             type: 'object',
                             properties: {

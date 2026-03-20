@@ -55,6 +55,19 @@ html.dark-mode .ai-thinking-dots {
   color: #DEDADA;
 }
 
+.wizard-loading-text {
+  font-family: 'EmOne', sans-serif;
+  font-size: 13px;
+  color: #8B0000;
+  white-space: nowrap;
+  overflow: hidden;
+  min-width: 0;
+}
+
+html.dark-mode .wizard-loading-text {
+  color: #DEDADA;
+}
+
 @keyframes dot-bounce {
 
   0%,

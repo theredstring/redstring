@@ -1483,6 +1483,97 @@ if (typeof window !== 'undefined') {
   window.__rs_applyToolResultToStore = applyToolResultToStore;
 }
 
+// Wizard loading strings and scramble component
+const WIZARD_LOADING_STRINGS = [
+  "Consulting ancient tomes",
+  "Weaving threads of knowledge",
+  "Stirring cauldron of connections",
+  "Deciphering runes",
+  "Channeling arcane energies",
+  "Polishing crystal ball",
+  "Untangling web of fate",
+  "Shuffling through scrolls",
+  "Summoning relevant entities",
+  "Brewing potion of insight",
+  "Muttering incantations",
+  "Adjusting pointy hat",
+  "Waving wand dramatically",
+  "Lost in semantic void",
+  "Herding conceptual cats",
+  "Connecting cosmic dots",
+  "Tracing invisible threads",
+  "Binding nodes with enchantment",
+];
+
+const ARCANE_GLYPHS = '◈◇△▽☽★⚡✧⊕∴∞⌘☾◬⟁⊛⊜⊝※⌬⍟⎔⏣⏥⏦';
+
+function WizardLoadingText() {
+  const [displayText, setDisplayText] = React.useState(() =>
+    WIZARD_LOADING_STRINGS[Math.floor(Math.random() * WIZARD_LOADING_STRINGS.length)]
+  );
+  const currentRef = React.useRef(displayText);
+
+  React.useEffect(() => {
+    let scrambleInterval = null;
+    let cycleTimeout = null;
+
+    const pickNext = () => {
+      let next;
+      do {
+        next = WIZARD_LOADING_STRINGS[Math.floor(Math.random() * WIZARD_LOADING_STRINGS.length)];
+      } while (next === currentRef.current && WIZARD_LOADING_STRINGS.length > 1);
+      return next;
+    };
+
+    const scrambleTo = (target) => {
+      const len = Math.max(currentRef.current.length, target.length);
+      let ticks = 0;
+      const maxTicks = 13; // ~400ms at 30ms interval
+
+      scrambleInterval = setInterval(() => {
+        ticks++;
+        if (ticks >= maxTicks) {
+          clearInterval(scrambleInterval);
+          scrambleInterval = null;
+          currentRef.current = target;
+          setDisplayText(target);
+          return;
+        }
+        // Progressive reveal: resolve characters left-to-right as ticks progress
+        const revealCount = Math.floor((ticks / maxTicks) * target.length);
+        let scrambled = '';
+        for (let i = 0; i < len; i++) {
+          if (i < revealCount) {
+            scrambled += target[i] || '';
+          } else if (target[i] === ' ') {
+            scrambled += ' ';
+          } else {
+            scrambled += ARCANE_GLYPHS[Math.floor(Math.random() * ARCANE_GLYPHS.length)];
+          }
+        }
+        setDisplayText(scrambled);
+      }, 30);
+    };
+
+    const scheduleCycle = () => {
+      cycleTimeout = setTimeout(() => {
+        const next = pickNext();
+        scrambleTo(next);
+        scheduleCycle();
+      }, 3500);
+    };
+
+    scheduleCycle();
+
+    return () => {
+      if (scrambleInterval) clearInterval(scrambleInterval);
+      if (cycleTimeout) clearTimeout(cycleTimeout);
+    };
+  }, []);
+
+  return <span className="wizard-loading-text">{displayText}</span>;
+}
+
 // Internal AI Collaboration View component (migrated from src/ai/AICollaborationPanel.jsx)
 const LeftAIView = ({ compact = false,
   activeGraphId,
@@ -3612,6 +3703,7 @@ const LeftAIView = ({ compact = false,
                 return (
                   <div className="ai-thinking-row">
                     <div className="ai-message-avatar"><img src={headSvg} alt="Wizard" style={{ width: 40, height: 40 }} /></div>
+                    {viewMode === 'wizard' && <WizardLoadingText />}
                     <span className="ai-thinking-dots">
                       <span>•</span>
                       <span>•</span>
