@@ -738,13 +738,12 @@ html.dark-mode .ai-context-usage-label {
 
 /* Input Container */
 .ai-input-container {
-  padding: 16px 20px;
+  padding: 10px 20px;
   background: var(--canvas-bg);
   border-top: 1px solid #260000;
   display: flex;
   gap: 12px;
   align-items: stretch;
-  /* Make button match textarea height */
 }
 
 html.dark-mode .ai-input-container {
@@ -753,10 +752,11 @@ html.dark-mode .ai-input-container {
 
 .ai-input {
   flex: 1;
+  box-sizing: border-box;
   background: rgba(38, 0, 0, 0.05);
   border: 1px solid #260000;
   border-radius: 6px;
-  padding: 12px 16px;
+  padding: 8px 12px;
   color: #260000;
   font-family: 'EmOne', sans-serif;
   font-size: 14px;
@@ -764,7 +764,8 @@ html.dark-mode .ai-input-container {
   outline: none;
   transition: all 0.2s ease;
   min-height: 20px;
-  max-height: 100px;
+  max-height: 200px;
+  overflow-y: auto;
 }
 
 html.dark-mode .ai-input {

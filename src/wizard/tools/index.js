@@ -49,6 +49,11 @@ import { themeGraph } from './themeGraph.js';
 import { enrichFromWikipedia } from './enrichFromWikipedia.js';
 import { planTask } from './planTask.js';
 import { sketchGraph } from './sketchGraph.js';
+import { discoverOrbit } from './discoverOrbit.js';
+import { semanticSearch } from './semanticSearch.js';
+import { materializeSemanticEntities } from './materializeSemanticEntities.js';
+import { importKnowledgeCluster } from './importKnowledgeCluster.js';
+import { querySparql } from './querySparql.js';
 import { getToolDefinitions } from './schemas.js';
 
 const TOOLS = {
@@ -91,7 +96,12 @@ const TOOLS = {
   themeGraph,
   enrichFromWikipedia,
   planTask,
-  sketchGraph
+  sketchGraph,
+  discoverOrbit,
+  semanticSearch,
+  materializeSemanticEntities,
+  importKnowledgeCluster,
+  querySparql
 };
 
 /**

@@ -741,6 +741,112 @@ export function getToolDefinitions() {
                 required: ['steps']
             }
         },
+        // ── Semantic Web Tools ──────────────────────────────────────────
+        {
+            name: 'discoverOrbit',
+            description: 'Discover semantic web connections for an entity — the agent version of Semantic Orbit. Queries Wikidata and DBpedia for ranked relationships partitioned into 4 quality rings. Use this to explore what an entity is connected to before deciding what to materialize.',
+            parameters: {
+                type: 'object',
+                properties: {
+                    entityName: { type: 'string', description: 'Entity name to discover connections for (e.g., "Albert Einstein", "Machine Learning")' },
+                    sources: {
+                        type: 'array',
+                        items: { type: 'string', enum: ['dbpedia', 'wikidata'] },
+                        description: 'Which sources to query. Default: both.'
+                    },
+                    minConfidence: { type: 'number', description: 'Minimum confidence threshold (0-1). Default: 0.3.' },
+                    limit: { type: 'number', description: 'Max results. Default: 30.' }
+                },
+                required: ['entityName']
+            }
+        },
+        {
+            name: 'semanticSearch',
+            description: 'Search the semantic web for entity information. Two modes: "enrich" looks up a single entity across Wikidata/DBpedia/Wikipedia for descriptions and links; "related" finds related concepts via SPARQL relationship queries.',
+            parameters: {
+                type: 'object',
+                properties: {
+                    query: { type: 'string', description: 'Entity name or search term' },
+                    mode: { type: 'string', enum: ['enrich', 'related'], description: '"enrich" (default): entity lookup with descriptions/links. "related": find related concepts.' },
+                    limit: { type: 'number', description: 'Max results for "related" mode. Default: 15.' }
+                },
+                required: ['query']
+            }
+        },
+        {
+            name: 'materializeSemanticEntities',
+            description: 'Turn semantic web discoveries into real Redstring nodes and edges. Use after discoverOrbit or semanticSearch to create nodes from discovered entities. Connections get semantic relationship types (e.g., "Developed By", "Genre") as edge labels.',
+            parameters: {
+                type: 'object',
+                properties: {
+                    entities: {
+                        type: 'array',
+                        description: 'Entities to create as nodes',
+                        items: {
+                            type: 'object',
+                            properties: {
+                                name: { type: 'string', description: 'Entity name' },
+                                description: { type: 'string', description: 'Optional description' },
+                                color: { type: 'string', description: 'Optional color from palette' }
+                            },
+                            required: ['name']
+                        }
+                    },
+                    connections: {
+                        type: 'array',
+                        description: 'Optional: semantic connections to create as edges',
+                        items: {
+                            type: 'object',
+                            properties: {
+                                source: { type: 'string', description: 'Source entity name' },
+                                target: { type: 'string', description: 'Target entity name' },
+                                relation: { type: 'string', description: 'Relationship type (e.g., "developed by", "genre", "influenced by")' },
+                                directionality: { type: 'string', enum: ['unidirectional', 'bidirectional', 'none'], description: 'Arrow direction. Default: unidirectional.' }
+                            },
+                            required: ['source', 'target']
+                        }
+                    },
+                    targetGraphId: { type: 'string', description: 'Graph ID. If omitted, uses active graph.' },
+                    enrich: { type: 'boolean', description: 'If true (default), auto-enrich new nodes from Wikipedia.' },
+                    palette: { type: 'string', description: 'Palette name.' }
+                },
+                required: ['entities']
+            }
+        },
+        {
+            name: 'importKnowledgeCluster',
+            description: 'Import a knowledge cluster from the semantic web around a seed entity. Uses BFS traversal to discover and materialize a neighborhood of related entities with their relationships. Good for quickly building a knowledge graph about a topic.',
+            parameters: {
+                type: 'object',
+                properties: {
+                    seedEntity: { type: 'string', description: 'Starting entity name (e.g., "Quantum Computing", "Renaissance")' },
+                    maxDepth: { type: 'number', description: 'BFS traversal depth (1-2). Default: 1. Use 2 for broader exploration.' },
+                    maxEntitiesPerLevel: { type: 'number', description: 'Max entities per BFS level (1-15). Default: 5.' },
+                    sources: {
+                        type: 'array',
+                        items: { type: 'string', enum: ['wikidata', 'dbpedia'] },
+                        description: 'Sources to query. Default: both.'
+                    },
+                    targetGraphId: { type: 'string', description: 'Graph ID. If omitted, uses active graph.' },
+                    enrich: { type: 'boolean', description: 'If true (default), auto-enrich nodes from Wikipedia.' },
+                    palette: { type: 'string', description: 'Palette name.' }
+                },
+                required: ['seedEntity']
+            }
+        },
+        {
+            name: 'querySparql',
+            description: 'Execute a raw SPARQL SELECT query against Wikidata, DBpedia, or Schema.org. Advanced tool for precise semantic web queries. Returns flattened result bindings.',
+            parameters: {
+                type: 'object',
+                properties: {
+                    endpoint: { type: 'string', enum: ['wikidata', 'dbpedia', 'schema'], description: 'SPARQL endpoint to query' },
+                    query: { type: 'string', description: 'SPARQL SELECT query string' },
+                    limit: { type: 'number', description: 'Optional result limit (max 100). Applied if query lacks LIMIT clause.' }
+                },
+                required: ['endpoint', 'query']
+            }
+        },
         {
             name: 'sketchGraph',
             description: 'Sketch a graph structure in lightweight shorthand before building it. Returns a quality preview (orphans, connectivity) and an expanded spec ready to pass to createPopulatedGraph or populateDefinitionGraph. Use this to validate structure cheaply before committing.',
@@ -791,6 +897,8 @@ const ADVANCED_TOOLS = new Set([
     'updateEdge',
     'updateGroup',
     'listGroups',
+    'querySparql',
+    'importKnowledgeCluster',
 ]);
 
 /**

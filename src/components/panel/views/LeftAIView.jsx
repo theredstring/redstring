@@ -1930,6 +1930,14 @@ const LeftAIView = ({ compact = false,
   const messagesEndRef = React.useRef(null);
   const inputRef = React.useRef(null);
 
+  // Auto-resize textarea when currentInput changes programmatically (send, undo, clear)
+  React.useEffect(() => {
+    if (inputRef.current) {
+      inputRef.current.style.height = 'auto';
+      inputRef.current.style.height = Math.min(inputRef.current.scrollHeight, 200) + 'px';
+    }
+  }, [currentInput]);
+
   const handleChatUndo = (targetMessageId) => {
     const messageIndex = messages.findIndex(m => m.id === targetMessageId);
     if (messageIndex === -1) return;
@@ -3861,7 +3869,11 @@ const LeftAIView = ({ compact = false,
           </div>
 
           <div className="ai-input-container" style={{ marginBottom: toggleClearance }}>
-            <textarea ref={inputRef} value={currentInput} onChange={(e) => setCurrentInput(e.target.value)} onKeyPress={handleKeyPress} placeholder={viewMode === 'druid' ? "Share an observation and I'll build upon it..." : viewMode === 'wizard' ? "Ask anything and I'll cast my spells..." : "Ask me anything about your Universe..."} disabled={isProcessing} className="ai-input" rows={2} />
+            <textarea ref={inputRef} value={currentInput} onChange={(e) => {
+              setCurrentInput(e.target.value);
+              e.target.style.height = 'auto';
+              e.target.style.height = Math.min(e.target.scrollHeight, 200) + 'px';
+            }} onKeyPress={handleKeyPress} placeholder={viewMode === 'druid' ? "Share an observation and I'll build upon it..." : viewMode === 'wizard' ? "Ask anything and I'll cast my spells..." : "Ask me anything about your Universe..."} disabled={isProcessing} className="ai-input" rows={1} />
             {isProcessing && currentAgentRequest ? (
               <button onClick={handleStopAgent} className="ai-stop-button" title="Stop Agent"><Square fill={theme.canvas.textPrimary} color={theme.canvas.textPrimary} /></button>
             ) : (
