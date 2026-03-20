@@ -706,12 +706,24 @@ export function getToolDefinitions() {
                 properties: {
                     steps: {
                         type: 'array',
-                        description: 'Array of plan steps. Send the FULL plan each time (not just changed steps).',
+                        description: 'Array of plan steps. Send the FULL plan each time (not just changed steps). Add substeps to break down each step before executing it.',
                         items: {
                             type: 'object',
                             properties: {
                                 description: { type: 'string', description: 'What this step accomplishes' },
-                                status: { type: 'string', enum: ['pending', 'in_progress', 'done'], description: 'Current status of this step' }
+                                status: { type: 'string', enum: ['pending', 'in_progress', 'done'], description: 'Current status of this step' },
+                                substeps: {
+                                    type: 'array',
+                                    description: 'Optional breakdown of this step into smaller chunks. Add substeps right before executing a step to plan the specific nodes, edges, or actions.',
+                                    items: {
+                                        type: 'object',
+                                        properties: {
+                                            description: { type: 'string', description: 'Specific action within this step' },
+                                            status: { type: 'string', enum: ['pending', 'in_progress', 'done'] }
+                                        },
+                                        required: ['description', 'status']
+                                    }
+                                }
                             },
                             required: ['description', 'status']
                         }

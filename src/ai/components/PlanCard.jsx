@@ -6,8 +6,8 @@ import './PlanCard.css';
  * Matches the visual language of MultipleChoiceOverlay (sharp corners, EmOne font,
  * maroon accents, slideUpFade entrance).
  *
- * Updates in-place when the wizard calls planTask again — the parent replaces
- * the steps prop rather than creating a new card.
+ * Supports nested substeps under each step. Substeps are visible when the parent
+ * step is in_progress or done, collapsed when pending.
  */
 export default function PlanCard({ steps }) {
   if (!steps || steps.length === 0) return null;
@@ -25,14 +25,28 @@ export default function PlanCard({ steps }) {
       </div>
       <div className="plan-card-steps">
         {steps.map((step, i) => (
-          <div
-            className={`plan-card-step plan-card-step--${step.status}`}
-            key={i}
-          >
-            <span className="plan-card-step-icon">
-              {step.status === 'done' ? '✓' : step.status === 'in_progress' ? '▸' : '○'}
-            </span>
-            <span className="plan-card-step-text">{step.description}</span>
+          <div key={i} className="plan-card-step-group">
+            <div className={`plan-card-step plan-card-step--${step.status}`}>
+              <span className="plan-card-step-icon">
+                {step.status === 'done' ? '✓' : step.status === 'in_progress' ? '▸' : '○'}
+              </span>
+              <span className="plan-card-step-text">{step.description}</span>
+            </div>
+            {step.substeps && step.substeps.length > 0 && (step.status === 'in_progress' || step.status === 'done') && (
+              <div className="plan-card-substeps">
+                {step.substeps.map((sub, j) => (
+                  <div
+                    key={j}
+                    className={`plan-card-substep plan-card-substep--${sub.status}`}
+                  >
+                    <span className="plan-card-substep-icon">
+                      {sub.status === 'done' ? '✓' : sub.status === 'in_progress' ? '▸' : '○'}
+                    </span>
+                    <span className="plan-card-substep-text">{sub.description}</span>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         ))}
       </div>

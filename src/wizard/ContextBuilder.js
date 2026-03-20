@@ -202,19 +202,37 @@ export function truncateContext(context, maxLength = 4000) {
 
 /**
  * Build plan context string for injection into system prompt
- * @param {Array} plan - Array of { description, status } steps
+ * @param {Array} plan - Array of { description, status, substeps? } steps
+ * @param {number} iteration - Current iteration (0-indexed)
+ * @param {number} maxIterations - Max iterations allowed
  * @returns {string} Formatted plan string
  */
-export function buildPlanContext(plan) {
+export function buildPlanContext(plan, iteration, maxIterations) {
   if (!plan || plan.length === 0) return '';
   const done = plan.filter(s => s.status === 'done').length;
+  const iterInfo = typeof iteration === 'number' && typeof maxIterations === 'number'
+    ? ` — Iteration ${iteration + 1} of ${maxIterations}`
+    : '';
   const lines = plan.map((step, i) => {
     const icon = step.status === 'done' ? '[DONE]'
       : step.status === 'in_progress' ? '[IN PROGRESS]'
       : '[ ]';
-    return `  ${i + 1}. ${icon} ${step.description}`;
+    let line = `  ${i + 1}. ${icon} ${step.description}`;
+
+    // Add substep lines if present
+    if (step.substeps && step.substeps.length > 0) {
+      for (let j = 0; j < step.substeps.length; j++) {
+        const sub = step.substeps[j];
+        const subIcon = sub.status === 'done' ? '[DONE]'
+          : sub.status === 'in_progress' ? '[IN PROGRESS]'
+          : '[ ]';
+        const letter = String.fromCharCode(97 + j);
+        line += `\n    ${letter}. ${subIcon} ${sub.description}`;
+      }
+    }
+    return line;
   });
-  return `\n\n## Active Plan (${done}/${plan.length} complete)\n${lines.join('\n')}\nIMPORTANT: Do NOT respond to the user until ALL steps are marked done.`;
+  return `\n\n## Active Plan (${done}/${plan.length} complete)${iterInfo}\n${lines.join('\n')}\nIMPORTANT: Do NOT respond to the user until ALL steps are marked done.`;
 }
 
 /**

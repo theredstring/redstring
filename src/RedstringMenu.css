@@ -118,6 +118,7 @@
     transition: background-color 0.2s;
     text-align: left;
     outline: none;
+    touch-action: manipulation;
 }
 
 .submenu-item:hover {
@@ -218,6 +219,7 @@ div.submenu-item {
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
+    touch-action: manipulation;
 }
 
 .recent-file-item:hover {

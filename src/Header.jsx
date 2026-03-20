@@ -576,6 +576,7 @@ const Header = ({
         flexShrink: 0,
         position: 'relative',
         zIndex: 11000,
+        touchAction: 'manipulation',
       }}
     >
       {/* Menu button container with explicit height */}

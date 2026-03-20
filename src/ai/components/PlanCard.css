@@ -42,6 +42,11 @@
   gap: 2px;
 }
 
+.plan-card-step-group {
+  display: flex;
+  flex-direction: column;
+}
+
 .plan-card-step {
   display: flex;
   align-items: flex-start;
@@ -94,6 +99,67 @@
   opacity: 0.4;
 }
 
+/* Substeps */
+.plan-card-substeps {
+  margin-left: 24px;
+  padding: 2px 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.plan-card-substep {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  padding: 2px 0;
+  font-size: 11px;
+  color: var(--canvas-text);
+  transition: opacity 0.2s ease;
+}
+
+.plan-card-substep-icon {
+  width: 14px;
+  text-align: center;
+  flex-shrink: 0;
+  font-size: 10px;
+  line-height: 1.5;
+}
+
+.plan-card-substep-text {
+  line-height: 1.5;
+  opacity: 0.8;
+}
+
+/* Substep statuses */
+.plan-card-substep--done .plan-card-substep-icon {
+  color: #516A02;
+}
+
+.plan-card-substep--done .plan-card-substep-text {
+  opacity: 0.4;
+  text-decoration: line-through;
+  text-decoration-color: rgba(0, 0, 0, 0.1);
+}
+
+.plan-card-substep--in_progress .plan-card-substep-icon {
+  color: #8B0000;
+  animation: stepPulse 2s ease-in-out infinite;
+}
+
+.plan-card-substep--in_progress .plan-card-substep-text {
+  font-weight: 600;
+  opacity: 1;
+}
+
+.plan-card-substep--pending .plan-card-substep-icon {
+  opacity: 0.25;
+}
+
+.plan-card-substep--pending .plan-card-substep-text {
+  opacity: 0.35;
+}
+
 /* Dark mode */
 .dark-mode .plan-card {
   border-color: var(--canvas-border);
@@ -112,6 +178,18 @@
 }
 
 .dark-mode .plan-card-step--in_progress .plan-card-step-icon {
+  color: #c0392b;
+}
+
+.dark-mode .plan-card-substep--done .plan-card-substep-icon {
+  color: #7d9b1e;
+}
+
+.dark-mode .plan-card-substep--done .plan-card-substep-text {
+  text-decoration-color: rgba(255, 255, 255, 0.1);
+}
+
+.dark-mode .plan-card-substep--in_progress .plan-card-substep-icon {
   color: #c0392b;
 }
 

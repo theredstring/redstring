@@ -33,9 +33,11 @@ const Modal = ({
         alignItems: 'center',
         justifyContent: 'center',
         zIndex: 1000,
-        padding: '20px'
+        padding: '20px',
+        touchAction: 'manipulation'
       }}
       onClick={onClose}
+      onTouchEnd={(e) => { e.preventDefault(); onClose(); }}
     >
       <div
         style={{
@@ -48,9 +50,11 @@ const Modal = ({
           flexDirection: 'column',
           boxShadow: '0 20px 40px rgba(0, 0, 0, 0.3)',
           fontFamily: "'EmOne', sans-serif",
-          overflow: 'hidden'
+          overflow: 'hidden',
+          touchAction: 'manipulation'
         }}
         onClick={(e) => e.stopPropagation()}
+        onTouchEnd={(e) => e.stopPropagation()}
       >
         {/* Header */}
         <div
@@ -77,6 +81,7 @@ const Modal = ({
           {showCloseButton && (
             <button
               onClick={onClose}
+              onTouchEnd={(e) => { e.preventDefault(); e.stopPropagation(); onClose(); }}
               style={{
                 background: 'none',
                 border: 'none',

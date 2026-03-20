@@ -67,6 +67,14 @@ const PanelIconButton = ({
     }
   };
 
+  const handleTouchEnd = (e) => {
+    if (!disabled && onClick) {
+      e.preventDefault(); // Prevent synthetic click (we handle it here)
+      e.stopPropagation();
+      onClick(e);
+    }
+  };
+
   const isPill = !!label;
 
   const buttonStyle = {
@@ -117,6 +125,7 @@ const PanelIconButton = ({
       style={{ ...buttonStyle, ...hoverStyles }}
       type="button"
       onClick={handleClick}
+      onTouchEnd={handleTouchEnd}
       onMouseEnter={() => setIsHovered(true)}
       onMouseLeave={() => setIsHovered(false)}
       onBlur={() => setIsHovered(false)}

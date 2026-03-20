@@ -77,6 +77,12 @@ input, textarea, [contenteditable] {
   user-select: text;
 }
 
+/* Ensure interactive elements handle taps reliably on touch devices,
+   overriding parent touch-action: none from canvas */
+button, [role="button"], a, input, select, textarea {
+  touch-action: manipulation;
+}
+
 a {
   font-weight: 500;
   color: #646cff;

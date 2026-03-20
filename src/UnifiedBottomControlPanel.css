@@ -5,6 +5,7 @@
   bottom: 20px;
   z-index: 20001;
   pointer-events: auto;
+  touch-action: manipulation;
   max-width: 95vw;
   /* Prevent overflow on mobile */
 }

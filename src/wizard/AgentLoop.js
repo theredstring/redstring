@@ -629,13 +629,14 @@ export async function* runAgent(userMessage, graphState, config = {}, ensureSche
 
   for (let iteration = 0; iteration < maxIterations; iteration++) {
     // Rebuild context from (potentially mutated) graphState so LLM sees current state
-    if (iteration > 0) {
-      const freshContext = buildPersistentContextHeader(graphState, contextItems);
-      const planCtx = graphState._currentPlan ? buildPlanContext(graphState._currentPlan) : '';
+    {
+      const freshContext = iteration > 0 ? buildPersistentContextHeader(graphState, contextItems) : initialContext;
+      const planCtx = graphState._currentPlan ? buildPlanContext(graphState._currentPlan, iteration, maxIterations) : '';
       messages[0] = { role: 'system', content: systemPromptTemplate.replace('{context}', freshContext + planCtx) };
     }
     if (abortSignal?.aborted) {
-      yield { type: 'done', iterations: iteration };
+      console.error(`[AgentLoop] ✓ Abort signal detected at iteration ${iteration}. Stopping.`);
+      yield { type: 'done', iterations: iteration, reason: 'aborted' };
       return;
     }
     try {
@@ -673,7 +674,10 @@ export async function* runAgent(userMessage, graphState, config = {}, ensureSche
         }
       }
 
-      console.error('[AgentLoop] Iteration', iteration, 'complete. Content length:', iterationContent.length, 'Tool calls:', iterationToolCalls.length);
+      const planStatus = graphState._currentPlan
+        ? `plan: ${graphState._currentPlan.filter(s => s.status === 'done').length}/${graphState._currentPlan.length} done`
+        : 'no plan';
+      console.error(`[AgentLoop] Iteration ${iteration}/${maxIterations} complete. Text: ${iterationContent.length} chars, Tools: ${iterationToolCalls.length}, ${planStatus}`);
 
       // Loop detection: build a signature from tools and their arguments this iteration
       if (iterationToolCalls.length > 0) {
@@ -714,9 +718,34 @@ export async function* runAgent(userMessage, graphState, config = {}, ensureSche
         });
       }
 
-      // No tool calls = model is done. Return control to the user.
+      // Empty response (no text AND no tools) — always nudge regardless of plan state
+      if (iterationContent.length === 0 && iterationToolCalls.length === 0) {
+        console.error(`[AgentLoop] ⚠️ Model returned empty response (no text, no tools) at iteration ${iteration}. Nudging.`);
+        messages.push({
+          role: 'user',
+          content: 'Your previous response was empty. Please continue — either respond to the user or call the appropriate tools.'
+        });
+        continue;
+      }
+
+      // No tool calls — check if the model should keep going or if it's truly done
       if (iterationToolCalls.length === 0) {
-        yield { type: 'done', iterations: iteration + 1 };
+        const plan = graphState._currentPlan;
+        const planIncomplete = plan && plan.length > 0 && !plan.every(s => s.status === 'done');
+
+        if (planIncomplete) {
+          // Plan has incomplete steps — nudge the model to continue instead of stopping
+          const doneCount = plan.filter(s => s.status === 'done').length;
+          console.error(`[AgentLoop] ⚠️ Model returned text-only but plan is incomplete (${doneCount}/${plan.length} done). Nudging to continue.`);
+          messages.push({
+            role: 'user',
+            content: 'You still have incomplete plan steps. Continue working through your plan — do not stop until all steps are done.'
+          });
+          continue; // Skip termination, continue the loop
+        }
+
+        console.error(`[AgentLoop] ✓ Model returned text-only with no active plan. Stopping. (iteration ${iteration + 1})`);
+        yield { type: 'done', iterations: iteration + 1, reason: 'model_done' };
         return;
       }
 
@@ -776,16 +805,22 @@ export async function* runAgent(userMessage, graphState, config = {}, ensureSche
       // Loop continues - LLM will verify results and decide: more work or respond
     } catch (error) {
       if (error.name === 'AbortError' || error.message?.includes('aborted')) {
-        console.error('[AgentLoop] Agent loop aborted gracefully');
+        console.error('[AgentLoop] ✓ Agent loop aborted gracefully (user cancelled)');
+        yield { type: 'done', iterations: iteration + 1, reason: 'aborted' };
         return;
       }
+      console.error(`[AgentLoop] ✗ Unexpected error at iteration ${iteration}:`, error.message);
       yield { type: 'error', message: error.message };
-      yield { type: 'done', iterations: iteration + 1 };
+      yield { type: 'done', iterations: iteration + 1, reason: 'error' };
       return;
     }
   }
 
   // Max iterations reached
-  yield { type: 'response', content: 'Reached maximum iterations. Task may be incomplete.' };
-  yield { type: 'done', iterations: maxIterations };
+  const planStatus = graphState._currentPlan
+    ? `Plan: ${graphState._currentPlan.filter(s => s.status === 'done').length}/${graphState._currentPlan.length} done.`
+    : '';
+  console.error(`[AgentLoop] ✗ Max iterations (${maxIterations}) reached. ${planStatus}`);
+  yield { type: 'response', content: `Reached maximum iterations (${maxIterations}). ${planStatus} Task may be incomplete.` };
+  yield { type: 'done', iterations: maxIterations, reason: 'max_iterations' };
 }

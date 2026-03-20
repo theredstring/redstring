@@ -104,6 +104,21 @@ export const useCanvasTouch = ({
 
     // --- Helpers ---
 
+    /** Check if a touch target is on the canvas surface (SVG, canvas-area bg) vs a UI overlay (panel, modal, button) */
+    const isCanvasSurfaceTarget = (target) => {
+        if (!target || !containerRef.current) return true; // default to canvas
+        // If the touch is directly on the canvas-area div, it's canvas
+        if (target === containerRef.current) return true;
+        // If the touch is inside a panel, modal, button, or interactive UI element, it's NOT canvas
+        if (target.closest?.('.panel, .modal-backdrop, [role="dialog"], button, a, input, select, textarea, [role="button"]')) return false;
+        // If the touch is inside the SVG, it's canvas
+        const svg = containerRef.current.querySelector('svg');
+        if (svg && svg.contains(target)) return true;
+        // If the target is inside the canvas-area container but not in any known UI overlay, treat as canvas
+        if (containerRef.current.contains(target)) return true;
+        return false;
+    };
+
     const normalizeTouchEvent = (e) => {
         // For touch end events, changedTouches has the final position where finger lifted
         const t = e.touches?.[0] || e.changedTouches?.[0];
@@ -121,6 +136,9 @@ export const useCanvasTouch = ({
     // --- Handlers ---
 
     const handleTouchStartCanvas = (e) => {
+        // Don't intercept touches on UI overlays (panels, modals, buttons)
+        if (!isCanvasSurfaceTarget(e.target)) return;
+
         if (e && e.cancelable) {
             e.preventDefault();
             e.stopPropagation();
@@ -353,6 +371,11 @@ export const useCanvasTouch = ({
     };
 
     const handleTouchEndCanvas = (e) => {
+        // Don't intercept touches on UI overlays (panels, modals, buttons)
+        // But always process if a canvas gesture (pan/pinch/drag) is active
+        const hasActiveGesture = isMouseDown.current || pinchRef.current.active || touchState.current.isDragging;
+        if (!hasActiveGesture && !isCanvasSurfaceTarget(e.target)) return;
+
         if (e && e.cancelable) {
             e.preventDefault();
             e.stopPropagation();

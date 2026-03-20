@@ -1896,6 +1896,7 @@ const Panel = memo(forwardRef(
             flexDirection: 'column',
             transform: transformStyle,
             transition: transitionStyle, // Animate transform and width
+            touchAction: 'manipulation', // Override parent's touch-action: none for reliable tap handling
           }}
           onTouchStart={(e) => e.stopPropagation()}
         >
