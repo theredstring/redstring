@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Palette, Trash2 } from 'lucide-react';
 import { useTheme } from './hooks/useTheme.js';
 import { cssColorToHex } from './utils/colorUtils';
+import PanelIconButton from './components/shared/PanelIconButton.jsx';
 
 const ColorPicker = ({
   isVisible,
@@ -239,7 +240,7 @@ const ColorPicker = ({
         ...getPositionStyle(),
         backgroundColor: theme.canvas.bg,
 
-        border: '2px solid #260000',
+        border: `2px solid ${theme.canvas.textPrimary}`,
         borderRadius: '8px',
         padding: '16px',
         boxShadow: '0 4px 12px rgba(0, 0, 0, 0.3)',
@@ -258,11 +259,11 @@ const ColorPicker = ({
             width: '24px',
             height: '24px',
             backgroundColor: currentPreviewColor,
-            border: '2px solid #260000',
+            border: `2px solid ${theme.canvas.textPrimary}`,
             borderRadius: '4px'
           }}
         />
-        <span style={{ color: '#260000', fontWeight: 'bold', fontSize: '14px' }}>
+        <span style={{ color: theme.canvas.textPrimary, fontWeight: 'bold', fontSize: '14px' }}>
           Color Your Thing
         </span>
       </div>

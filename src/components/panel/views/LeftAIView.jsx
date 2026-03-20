@@ -3073,7 +3073,8 @@ const LeftAIView = ({ compact = false,
     if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSendMessage(); }
   };
 
-  const toggleClearance = HEADER_HEIGHT + 14;
+  const typeListMode = useGraphStore(state => state.typeListMode);
+  const toggleClearance = typeListMode === 'closed' ? HEADER_HEIGHT + 10 : 0;
 
   // Save active conversation messages to file
   React.useEffect(() => {

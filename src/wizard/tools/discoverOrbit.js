@@ -11,6 +11,15 @@ import { discoverConnections } from '../../services/semanticDiscovery.js';
 import { dedupeAndPartitionOrbit } from '../../services/orbitResolver.js';
 import { normalizeToCandidate } from '../../services/candidates.js';
 
+// Redirect console.log → console.error during service calls.
+// The imported services use console.log for diagnostics, but in the MCP server
+// process stdout IS the stdio transport — any console.log corrupts the protocol.
+function withSafeConsole(fn) {
+  const origLog = console.log;
+  console.log = console.error;
+  return fn().finally(() => { console.log = origLog; });
+}
+
 /**
  * @param {Object} args - { entityName, sources?, minConfidence?, limit? }
  * @param {Object} graphState - Current graph state (unused for this read-only tool)
@@ -31,29 +40,32 @@ export async function discoverOrbit(args, graphState) {
   const sanitized = entityName.trim();
   console.error(`[discoverOrbit] Discovering connections for "${sanitized}"`);
 
-  // Use the same discovery service that powers the Connection Browser's "Semantic Web" tab
-  const discovery = await discoverConnections(sanitized, {
-    timeout: 20000,
-    limit,
-    sources,
-    minConfidence
+  // Wrap service calls to redirect console.log → console.error (MCP stdio safety)
+  const { discovery, orbits } = await withSafeConsole(async () => {
+    // Use the same discovery service that powers the Connection Browser's "Semantic Web" tab
+    const disc = await discoverConnections(sanitized, {
+      timeout: 20000,
+      limit,
+      sources,
+      minConfidence
+    });
+
+    // Convert discovery results into orbit candidates using the same scoring system
+    const context = { contextFit: 0.85 };
+    const candidates = disc.connections.map(conn =>
+      normalizeToCandidate({
+        name: conn.target,
+        uri: conn.targetUri,
+        predicate: conn.relation,
+        source: conn.provider,
+        sourceTrust: conn.confidence,
+        externalLinks: conn.targetUri ? [conn.targetUri] : []
+      }, context)
+    );
+
+    // Partition into 4 orbit rings using the same algorithm as the UI orbit
+    return { discovery: disc, orbits: dedupeAndPartitionOrbit(candidates) };
   });
-
-  // Convert discovery results into orbit candidates using the same scoring system
-  const context = { contextFit: 0.85 };
-  const candidates = discovery.connections.map(conn =>
-    normalizeToCandidate({
-      name: conn.target,
-      uri: conn.targetUri,
-      predicate: conn.relation,
-      source: conn.provider,
-      sourceTrust: conn.confidence,
-      externalLinks: conn.targetUri ? [conn.targetUri] : []
-    }, context)
-  );
-
-  // Partition into 4 orbit rings using the same algorithm as the UI orbit
-  const orbits = dedupeAndPartitionOrbit(candidates);
 
   // Format for LLM consumption — strip internal scoring fields, keep what's useful
   const formatCandidate = (c) => ({

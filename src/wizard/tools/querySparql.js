@@ -9,6 +9,13 @@
 
 import { sparqlClient } from '../../services/sparqlClient.js';
 
+// Redirect console.log → console.error during service calls (MCP stdio safety)
+function withSafeConsole(fn) {
+  const origLog = console.log;
+  console.log = console.error;
+  return fn().finally(() => { console.log = origLog; });
+}
+
 const VALID_ENDPOINTS = ['wikidata', 'dbpedia', 'schema'];
 
 /**
@@ -35,9 +42,9 @@ export async function querySparql(args, graphState) {
 
   console.error(`[querySparql] Executing SPARQL on ${endpoint} (${finalQuery.length} chars)`);
 
-  const results = await sparqlClient.executeQuery(endpoint, finalQuery, {
-    timeout: 30000
-  });
+  const results = await withSafeConsole(() =>
+    sparqlClient.executeQuery(endpoint, finalQuery, { timeout: 30000 })
+  );
 
   // Flatten SPARQL bindings for easier LLM consumption
   const rows = (results || []).map(binding => {

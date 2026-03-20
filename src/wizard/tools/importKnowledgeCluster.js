@@ -11,6 +11,13 @@
 import { KnowledgeFederation } from '../../services/knowledgeFederation.js';
 import { resolvePaletteColor, getRandomPalette } from '../../ai/palettes.js';
 
+// Redirect console.log → console.error during service calls (MCP stdio safety)
+function withSafeConsole(fn) {
+  const origLog = console.log;
+  console.log = console.error;
+  return fn().finally(() => { console.log = origLog; });
+}
+
 /**
  * Convert predicate string to Title Case
  */
@@ -67,13 +74,15 @@ export async function importKnowledgeCluster(args, graphState) {
 
   // Create federation instance — pass null for graphStore since
   // only SPARQL queries are needed (no ConceptNet proxy)
-  const federation = new KnowledgeFederation(null);
-
-  const clusterResult = await federation.importKnowledgeCluster(seedEntity.trim(), {
-    maxDepth: safeDepth,
-    maxEntitiesPerLevel: safeEntitiesPerLevel,
-    includeSources: sources,
-    includeRelationships: true
+  // Wrap in withSafeConsole because KnowledgeFederation uses console.log internally
+  const clusterResult = await withSafeConsole(async () => {
+    const federation = new KnowledgeFederation(null);
+    return federation.importKnowledgeCluster(seedEntity.trim(), {
+      maxDepth: safeDepth,
+      maxEntitiesPerLevel: safeEntitiesPerLevel,
+      includeSources: sources,
+      includeRelationships: true
+    });
   });
 
   if (!clusterResult || clusterResult.totalEntities === 0) {

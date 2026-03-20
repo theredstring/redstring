@@ -10,6 +10,13 @@
 
 import { fastEnrichFromSemanticWeb, findRelatedConcepts } from '../../services/semanticWebQuery.js';
 
+// Redirect console.log → console.error during service calls (MCP stdio safety)
+function withSafeConsole(fn) {
+  const origLog = console.log;
+  console.log = console.error;
+  return fn().finally(() => { console.log = origLog; });
+}
+
 /**
  * @param {Object} args - { query, mode?, limit? }
  * @param {Object} graphState - Current graph state (unused)
@@ -30,8 +37,10 @@ export async function semanticSearch(args, graphState) {
   console.error(`[semanticSearch] Searching for "${sanitized}" (mode: ${mode})`);
 
   if (mode === 'related') {
-    // Find related concepts via SPARQL
-    const results = await findRelatedConcepts(sanitized, { limit, timeout: 15000 });
+    // Find related concepts via SPARQL (wrapped for MCP stdio safety)
+    const results = await withSafeConsole(() =>
+      findRelatedConcepts(sanitized, { limit, timeout: 15000 })
+    );
 
     const concepts = (results || []).slice(0, limit).map(r => ({
       name: r.itemLabel?.value || r.label?.value || r.name || 'Unknown',
@@ -50,8 +59,10 @@ export async function semanticSearch(args, graphState) {
     };
   }
 
-  // Default: enrich mode — look up entity across Wikidata/DBpedia/Wikipedia
-  const enrichment = await fastEnrichFromSemanticWeb(sanitized, { timeout: 15000 });
+  // Default: enrich mode (wrapped for MCP stdio safety)
+  const enrichment = await withSafeConsole(() =>
+    fastEnrichFromSemanticWeb(sanitized, { timeout: 15000 })
+  );
 
   const result = {
     query: sanitized,
