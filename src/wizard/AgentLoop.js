@@ -542,7 +542,7 @@ function updateGraphState(graphState, _toolName, _args, result) {
   }
 }
 
-const DEFAULT_MAX_ITERATIONS = 33;
+const DEFAULT_MAX_ITERATIONS = 77;
 
 /**
  * Sanitize tool results before sending to LLM conversation history.

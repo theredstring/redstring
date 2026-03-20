@@ -772,7 +772,7 @@ app.post('/api/ai/agent', async (req, res) => {
     }
     const apiKey = req.headers.authorization.replace('Bearer ', '');
     if (typeof runAutonomousAgent === 'function') {
-      const result = await runAutonomousAgent({ message, systemPrompt, context, requestedModel, apiKey, agentState: { maxIterations: 30, currentIteration: 0, allToolCalls: [], conversationHistory: [], toolCallBudget: 40 } });
+      const result = await runAutonomousAgent({ message, systemPrompt, context, requestedModel, apiKey, agentState: { maxIterations: 77, currentIteration: 0, allToolCalls: [], conversationHistory: [], toolCallBudget: 40 } });
       return res.json(result);
     }
     return res.status(503).json({ error: 'Agent not ready' });
@@ -2547,7 +2547,7 @@ app.post('/api/ai/agent', async (req, res) => {
 
     // Initialize agent state
     const agentState = {
-      maxIterations: 33, // generous, Cursor-like
+      maxIterations: 77,
       currentIteration: 0,
       allToolCalls: [],
       conversationHistory: [],
