@@ -13,6 +13,7 @@ const SaveStatusDisplay = () => {
   const leftPanelExpanded = useGraphStore(state => state.leftPanelExpanded);
   const rightPanelExpanded = useGraphStore(state => state.rightPanelExpanded);
   const typeListMode = useGraphStore(state => state.typeListMode);
+  const darkMode = useGraphStore(state => state.darkMode);
   
   const viewportBounds = useViewportBounds(
     leftPanelExpanded,
@@ -153,22 +154,24 @@ const SaveStatusDisplay = () => {
         background: 'transparent',
         border: 'none',
         padding: 0,
-        color: '#260000',
+        color: darkMode ? '#e0e0e0' : '#260000',
         zIndex: 20000,
         fontSize: '16px',
         fontFamily: "'EmOne', sans-serif",
-        fontWeight: 'bold', // Strong text handles stroke better visually
-        // Simulate a 2px outer stroke with multiple offsets
-        textShadow: `
-          -2px -2px 0 #BDB5B5,
-           0   -2px 0 #BDB5B5,
-           2px -2px 0 #BDB5B5,
-           2px  0   0 #BDB5B5,
-           2px  2px 0 #BDB5B5,
-           0    2px 0 #BDB5B5,
-          -2px  2px 0 #BDB5B5,
-          -2px  0   0 #BDB5B5
-        `,
+        fontWeight: 'bold',
+        textShadow: (() => {
+          const strokeColor = darkMode ? '#3F3A3A' : '#BDB5B5';
+          return `
+          -2px -2px 0 ${strokeColor},
+           0   -2px 0 ${strokeColor},
+           2px -2px 0 ${strokeColor},
+           2px  0   0 ${strokeColor},
+           2px  2px 0 ${strokeColor},
+           0    2px 0 ${strokeColor},
+          -2px  2px 0 ${strokeColor},
+          -2px  0   0 ${strokeColor}
+        `;
+        })(),
         userSelect: 'none',
 
         cursor: isCTA ? 'pointer' : 'default',

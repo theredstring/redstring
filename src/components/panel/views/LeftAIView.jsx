@@ -3727,11 +3727,27 @@ const LeftAIView = ({ compact = false,
               // - Wizard: when no running tool call chips are visible (between iterations, thinking)
               const hasRunningToolCalls = streamingMsg?.contentBlocks?.some(b => b.type === 'tool_call' && b.status === 'running');
               const showDots = viewMode === 'wizard' ? !hasRunningToolCalls : !hasStreamingContent;
+
+              if (viewMode === 'wizard') {
+                // Always render in wizard mode to keep WizardLoadingText mounted
+                // (unmounting resets the scramble animation timer, so transitions never play)
+                return (
+                  <div className="ai-thinking-row" style={showDots ? undefined : { display: 'none' }}>
+                    <div className="ai-message-avatar"><img src={headSvg} alt="Wizard" style={{ width: 40, height: 40 }} /></div>
+                    <WizardLoadingText />
+                    <span className="ai-thinking-dots">
+                      <span>•</span>
+                      <span>•</span>
+                      <span>•</span>
+                    </span>
+                  </div>
+                );
+              }
+
               if (showDots) {
                 return (
                   <div className="ai-thinking-row">
                     <div className="ai-message-avatar"><img src={headSvg} alt="Wizard" style={{ width: 40, height: 40 }} /></div>
-                    {viewMode === 'wizard' && <WizardLoadingText />}
                     <span className="ai-thinking-dots">
                       <span>•</span>
                       <span>•</span>
