@@ -123,6 +123,19 @@ You have these tools available:
 
 ${toolDescriptions}
 
+## Wikipedia Enrichment
+
+Graph-building tools (\`createPopulatedGraph\`, \`populateDefinitionGraph\`, \`expandGraph\`, \`createNode\`) **auto-enrich all created nodes from Wikipedia by default** — pulling images, descriptions, and links. The defining node of the graph is also enriched automatically.
+
+**IMPORTANT**: If the nodes you are creating represent **common knowledge** — things that would likely have a Wikipedia article — you should use \`overwriteDescription: true\`. This includes: people, places, countries, animals, plants, scientific concepts, historical events, organizations, companies, technologies, diseases, chemical elements, planets, cities, languages, religions, sports, musical instruments, art movements, etc. When in doubt, assume it has a Wikipedia article and enrich.
+
+- **\`enrich\`** (boolean, default true): Leave as default for most topics. Only set to \`false\` for abstract, structural, or fictional concepts that clearly won't have Wikipedia pages (e.g., "Main Character Arc", "Team Dynamics").
+- **\`overwriteDescription\`** (boolean, default false): Set to \`true\` for common-knowledge topics so nodes get authoritative Wikipedia descriptions and images instead of your brief summaries.
+
+**When to use explicit \`enrichFromWikipedia\`**: Call this for nodes that already exist but haven't been enriched, or to re-enrich a node with \`overwriteDescription: true\`.
+
+**Skip enrichment (\`enrich: false\`) for**: Abstract/internal concepts, relationship types, purely structural nodes, or fictional entities without Wikipedia pages.
+
 ## Editing vs. Expanding
 
 **CRITICAL**: Know the difference between ADDING and EDITING:
@@ -258,16 +271,28 @@ Engine defined with 7 components and 7 connections across cooling, lubrication, 
 
 ---
 
-### Example 6: Wikipedia Enrichment
+### Example 6: Auto-Enrichment During Graph Building
 
-User: [Has a graph about famous scientists]
-Pull Wikipedia images for all the scientists.
+User: Make me a graph about the Solar System.
 
-Agent: [calls enrichFromWikipedia nodeName="Albert Einstein"]
-[calls enrichFromWikipedia nodeName="Marie Curie"]
-[calls enrichFromWikipedia nodeName="Isaac Newton"]
+Agent: [calls createPopulatedGraph with name="Solar System", description="Our star system...", nodes=[...planets...], edges=[...], overwriteDescription: true]
 
-Pulling Wikipedia images and descriptions for Einstein, Curie, and Newton. Each node will get its Wikipedia photo, description, and a link to the article.
+Built Solar System with 8 planets. Wikipedia is pulling images and descriptions for each planet and the Solar System itself.
 
-**Pattern**: Use enrichFromWikipedia to pull images, descriptions, and links from Wikipedia for individual nodes. Call it once per node. It works best with nodes named after real-world entities (people, places, concepts) that have Wikipedia articles.
+**Pattern**: Graph-building tools auto-enrich by default. Set \`overwriteDescription: true\` if you want Wikipedia's authoritative descriptions instead of your own. For real-world concepts (people, places, science, history), enrichment adds Wikipedia images and descriptions automatically — including the defining node of the graph.
+
+---
+
+### Example 7: Explicit Enrichment for Existing Nodes
+
+User: [Has a graph about famous scientists, nodes were created earlier]
+Pull Wikipedia data for the scientists.
+
+Agent: [calls enrichFromWikipedia nodeName="Albert Einstein" overwriteDescription=true]
+[calls enrichFromWikipedia nodeName="Marie Curie" overwriteDescription=true]
+[calls enrichFromWikipedia nodeName="Isaac Newton" overwriteDescription=true]
+
+Enriching Einstein, Curie, and Newton with Wikipedia photos, descriptions, and links.
+
+**Pattern**: Use \`enrichFromWikipedia\` for existing nodes that need enrichment. Set \`overwriteDescription: true\` to replace placeholder descriptions with Wikipedia's.
 `;

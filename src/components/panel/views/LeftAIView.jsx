@@ -66,20 +66,26 @@ async function enrichNodeWithWikipedia(nodeName, _graphId, options = {}) {
   const { minConfidence = 0.40, overwriteDescription = false } = options;
 
   try {
-    console.log(`[Auto-Enrich] Starting Wikipedia enrichment for "${nodeName}" (via server)`);
+    console.log(`[Auto-Enrich] Starting Wikipedia enrichment for "${nodeName}" (via server, minConfidence=${minConfidence}, overwrite=${overwriteDescription})`);
 
     const resp = await bridgeFetch('/api/enrich', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ nodeName, minConfidence })
     });
-    if (!resp.ok) return null;
+    if (!resp.ok) {
+      console.warn(`[Auto-Enrich] Server returned ${resp.status} for "${nodeName}"`);
+      return null;
+    }
 
     const data = await resp.json();
-    if (!data.ok || !data.matches || data.matches.length === 0) return null;
+    if (!data.ok || !data.matches || data.matches.length === 0) {
+      console.warn(`[Auto-Enrich] No Wikipedia match for "${nodeName}" (ok=${data.ok}, matches=${data.matches?.length || 0})`);
+      return null;
+    }
 
     const { searchResult, confidence } = data.matches[0];
-    console.log(`[Auto-Enrich] ✅ Match for "${nodeName}": "${searchResult.page.title}" (${confidence.toFixed(2)})`);
+    console.log(`[Auto-Enrich] ✅ Match for "${nodeName}": "${searchResult.page.title}" (${confidence.toFixed(2)}), thumb=${!!searchResult.page.thumbnail}, desc=${(searchResult.page.description || '').length}ch`);
 
     // Find and update the node in the store
     const store = useGraphStore.getState();
@@ -91,12 +97,13 @@ async function enrichNodeWithWikipedia(nodeName, _graphId, options = {}) {
     }
 
     if (!targetNodeProtoId) {
-      console.warn(`[Auto-Enrich] Node "${nodeName}" not found in store`);
+      console.warn(`[Auto-Enrich] Node "${nodeName}" not found in store — available: ${Array.from(store.nodePrototypes.values()).slice(0, 10).map(p => p.name).join(', ')}`);
       return null;
     }
 
     const nodeProto = store.nodePrototypes.get(targetNodeProtoId);
     const updates = buildEnrichmentUpdates(nodeProto, searchResult, confidence, { overwriteDescription });
+    console.log(`[Auto-Enrich] Built updates for "${nodeName}": desc=${!!updates.description}, wikiUrl=${updates.semanticMetadata?.wikipediaUrl}, links=${updates.externalLinks?.length || 'unchanged'}`);
 
     // Store original image URL in metadata for lazy loading
     if (searchResult.page.originalImage) {
@@ -110,14 +117,18 @@ async function enrichNodeWithWikipedia(nodeName, _graphId, options = {}) {
     store.updateNodePrototype(targetNodeProtoId, (draft) => {
       Object.assign(draft, updates);
     });
+    console.log(`[Auto-Enrich] Applied metadata to prototype ${targetNodeProtoId}`);
 
     // Queue thumbnail fetch — creates blob URL for SVG <image> rendering
     const thumbUrl = searchResult.page.thumbnail;
-    if (thumbUrl && !nodeProto.thumbnailSrc) {
+    if (thumbUrl) {
       const tw = searchResult.page.thumbnailWidth;
       const th = searchResult.page.thumbnailHeight;
       const ratio = (tw && th) ? (th / tw) : 1;
+      console.log(`[Auto-Enrich] Queueing thumbnail for "${nodeName}": ${thumbUrl.substring(0, 80)}... (ratio=${ratio.toFixed(2)})`);
       queueThumbnailFetch(targetNodeProtoId, thumbUrl, ratio, nodeName);
+    } else {
+      console.log(`[Auto-Enrich] No thumbnail available for "${nodeName}"`);
     }
 
     console.log(`[Auto-Enrich] Successfully enriched "${nodeName}"`);
