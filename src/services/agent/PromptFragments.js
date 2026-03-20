@@ -12,7 +12,7 @@ export const REDSTRING_CONTEXT = `
 - Each Thing can have definition graphs describing what it is made of
 
 ## Core Tool Priority
-1. **planTask**: ONLY for graph construction or 3+ coordinated tool calls. Never for greetings, questions, or conversation. Update step statuses as you go.
+1. **planTask**: ONLY for graph construction or 3+ coordinated tool calls. Never for greetings, questions, or conversation. **Use substeps** to break steps into concrete actions (which nodes to create, which edges to add, which definitions to build). Update step and substep statuses as you go.
 2. **sketchGraph**: Call BEFORE building any graph with 5+ nodes. Validates structure and catches orphans cheaply.
 3. **createPopulatedGraph**: Use for all new workspaces. Only tool that triggers auto-layout. Always provide a thematic \`color\`.
 4. **populateDefinitionGraph**: Use for all internal definitions. Builds hierarchies without changing the user's view.
@@ -176,13 +176,21 @@ Only use askMultipleChoice when scope is genuinely unclear. If intent is obvious
 
 ---
 
-### Example 5: Iterative Building with Plan and Sketch (Recommended Pattern)
+### Example 5: Iterative Building with Plan, Substeps, and Sketch (Recommended Pattern)
 
 User: Define the Engine node.
 
 Agent: [calls planTask with steps:
-  { description: "Sketch Engine internals", status: "in_progress" },
-  { description: "Build definition graph from sketch", status: "pending" },
+  { description: "Sketch Engine internals", status: "in_progress", substeps: [
+    { description: "Identify mechanical components (Block, Pistons, Crankshaft, Camshaft, Valves)", status: "in_progress" },
+    { description: "Identify support systems (Oil Pump, Cooling System)", status: "pending" },
+    { description: "Map relationships between components", status: "pending" }
+  ]},
+  { description: "Build definition graph from sketch", status: "pending", substeps: [
+    { description: "Create all component nodes with descriptions", status: "pending" },
+    { description: "Add edges for mechanical drive chain", status: "pending" },
+    { description: "Add edges for support system connections", status: "pending" }
+  ]},
   { description: "Verify connectivity and fix issues", status: "pending" }
 ]
 
@@ -243,4 +251,37 @@ Agent: [calls enrichFromWikipedia nodeName="Albert Einstein" overwriteDescriptio
 Enriching Einstein, Curie, and Newton with Wikipedia photos, descriptions, and links.
 
 **Pattern**: Use \`enrichFromWikipedia\` for existing nodes that need enrichment. Set \`overwriteDescription: true\` to replace placeholder descriptions with Wikipedia's.
+
+---
+
+### Example 8: Multi-Definition Build with Substeps
+
+User: Make me a graph about a Computer and define all its major components.
+
+Agent: I'll build out a Computer with its major subsystems, then define each one internally.
+
+[calls planTask with steps:
+  { description: "Build top-level Computer graph", status: "in_progress", substeps: [
+    { description: "Create hardware nodes (CPU, RAM, GPU, Motherboard, Storage, PSU)", status: "in_progress" },
+    { description: "Create software/interface nodes (OS, BIOS)", status: "pending" },
+    { description: "Add edges and groups (Processing, Memory, I/O)", status: "pending" }
+  ]},
+  { description: "Define CPU internals", status: "pending", substeps: [
+    { description: "Sketch CPU components (ALU, Control Unit, Registers, Cache, Pipeline)", status: "pending" },
+    { description: "Build CPU definition graph", status: "pending" }
+  ]},
+  { description: "Define GPU internals", status: "pending", substeps: [
+    { description: "Sketch GPU components (Shader Cores, VRAM, Rasterizer)", status: "pending" },
+    { description: "Build GPU definition graph", status: "pending" }
+  ]},
+  { description: "Define Motherboard internals", status: "pending", substeps: [
+    { description: "Sketch Motherboard components (Chipset, PCIe Slots, VRM, BIOS Chip)", status: "pending" },
+    { description: "Build Motherboard definition graph", status: "pending" }
+  ]},
+  { description: "Verify all graphs for connectivity", status: "pending" }
+]
+
+[proceeds to build each step, marking substeps done as they complete]
+
+**Pattern**: When asked to build AND define multiple nodes, use substeps to track each definition as a distinct piece of work. This prevents losing track of which nodes still need definitions and gives the user visibility into progress.
 `;
