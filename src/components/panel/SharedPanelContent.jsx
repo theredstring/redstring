@@ -473,8 +473,10 @@ const getWikipediaSection = async (pageTitle, sectionId) => {
 };
 
 // Wikipedia Enrichment Component
-const WikipediaEnrichment = ({ nodeData, onUpdateNode }) => {
+const WikipediaEnrichment = ({ nodeData, onUpdateNode, triggerRef, onSearchingChange }) => {
   const theme = useTheme();
+  const accentColor = theme.darkMode ? '#C09191' : theme.accent.primary;
+  const accentBgLight = theme.darkMode ? 'rgba(192,145,145,0.1)' : 'rgba(139,0,0,0.05)';
   const [isSearching, setIsSearching] = useState(false);
   const [searchResult, setSearchResult] = useState(null);
   const [showDisambiguation, setShowDisambiguation] = useState(false);
@@ -660,6 +662,14 @@ const WikipediaEnrichment = ({ nodeData, onUpdateNode }) => {
   const showEnrichButton = !hasMeaningfulDescription && !hasWikipediaLink;
   const isAlreadyLinked = nodeData.semanticMetadata?.wikipediaUrl;
 
+  // Expose search trigger to parent via ref (must be before early return)
+  useEffect(() => {
+    if (triggerRef) triggerRef.current = handleWikipediaSearch;
+  });
+  useEffect(() => {
+    onSearchingChange?.(isSearching);
+  }, [isSearching]);
+
   if (!showEnrichButton && !showDisambiguation) return null;
 
   return (
@@ -673,10 +683,10 @@ const WikipediaEnrichment = ({ nodeData, onUpdateNode }) => {
             alignItems: 'center',
             gap: '6px',
             padding: '6px 10px',
-            border: `1px solid ${theme.accent.primary}`,
+            border: `1px solid ${accentColor}`,
             borderRadius: '6px',
             background: 'transparent',
-            color: theme.accent.primary,
+            color: accentColor,
             fontFamily: "'EmOne', sans-serif",
             fontSize: '11px',
             cursor: isSearching ? 'wait' : 'pointer',
@@ -695,13 +705,13 @@ const WikipediaEnrichment = ({ nodeData, onUpdateNode }) => {
         <div style={{
           marginTop: '8px',
           padding: '12px',
-          border: `1px solid ${theme.accent.primary}`,
+          border: `1px solid ${accentColor}`,
           borderRadius: '6px',
-          background: 'rgba(139,0,0,0.05)'
+          background: accentBgLight
         }}>
           <div style={{
             fontSize: '11px',
-            color: theme.accent.primary,
+            color: accentColor,
             fontFamily: "'EmOne', sans-serif",
             fontWeight: 'bold',
             marginBottom: '8px'
@@ -723,15 +733,15 @@ const WikipediaEnrichment = ({ nodeData, onUpdateNode }) => {
                   border: `1px solid ${theme.canvas.border}`,
                   borderRadius: '4px',
                   cursor: 'pointer',
-                  background: 'white',
+                  background: theme.canvas.bg,
                   fontSize: '10px',
                   fontFamily: "'EmOne', sans-serif",
                   transition: 'background 0.15s ease'
                 }}
-                onMouseEnter={(e) => e.currentTarget.style.background = 'rgba(139,0,0,0.05)'}
-                onMouseLeave={(e) => e.currentTarget.style.background = 'white'}
+                onMouseEnter={(e) => e.currentTarget.style.background = accentBgLight}
+                onMouseLeave={(e) => e.currentTarget.style.background = theme.canvas.bg}
               >
-                <div style={{ fontWeight: 'bold', color: theme.accent.primary, marginBottom: '2px' }}>
+                <div style={{ fontWeight: 'bold', color: accentColor, marginBottom: '2px' }}>
                   {option.title}
                 </div>
                 <div style={{ color: theme.canvas.textSecondary, lineHeight: '1.3' }}>
@@ -766,7 +776,7 @@ const WikipediaEnrichment = ({ nodeData, onUpdateNode }) => {
           gap: '6px',
           marginTop: '8px',
           fontSize: '10px',
-          color: theme.accent.primary,
+          color: accentColor,
           fontFamily: "'EmOne', sans-serif"
         }}>
           <BookOpen size={10} />
@@ -778,10 +788,10 @@ const WikipediaEnrichment = ({ nodeData, onUpdateNode }) => {
               alignItems: 'center',
               gap: '2px',
               padding: '2px 4px',
-              border: `1px solid ${theme.accent.primary}`,
+              border: `1px solid ${accentColor}`,
               borderRadius: '3px',
               background: 'transparent',
-              color: theme.accent.primary,
+              color: accentColor,
               fontSize: '8px',
               cursor: 'pointer',
               fontFamily: "'EmOne', sans-serif"
@@ -807,10 +817,10 @@ const WikipediaEnrichment = ({ nodeData, onUpdateNode }) => {
               alignItems: 'center',
               gap: '2px',
               padding: '2px 4px',
-              border: `1px solid ${theme.accent.primary}`,
+              border: `1px solid ${accentColor}`,
               borderRadius: '3px',
               background: 'transparent',
-              color: theme.accent.primary,
+              color: accentColor,
               fontSize: '8px',
               cursor: (nodeData.semanticMetadata?.wikipediaOriginalImage || nodeData.semanticMetadata?.wikipediaThumbnail) ? 'pointer' : 'not-allowed',
               fontFamily: "'EmOne', sans-serif"
@@ -872,13 +882,13 @@ const WikipediaEnrichment = ({ nodeData, onUpdateNode }) => {
         <div style={{
           marginTop: '8px',
           padding: '8px',
-          border: `1px solid ${theme.accent.primary}`,
+          border: `1px solid ${accentColor}`,
           borderRadius: '6px',
-          background: 'rgba(139,0,0,0.05)'
+          background: accentBgLight
         }}>
           <div style={{
             fontSize: '10px',
-            color: theme.accent.primary,
+            color: accentColor,
             fontFamily: "'EmOne', sans-serif",
             fontWeight: 'bold',
             marginBottom: '6px'
@@ -908,11 +918,11 @@ const WikipediaEnrichment = ({ nodeData, onUpdateNode }) => {
                   border: `1px solid ${theme.canvas.border}`,
                   borderRadius: '4px',
                   cursor: 'pointer',
-                  background: 'white',
+                  background: theme.canvas.bg,
                   transition: 'background 0.15s ease'
                 }}
-                onMouseEnter={(e) => e.currentTarget.style.background = 'rgba(139,0,0,0.05)'}
-                onMouseLeave={(e) => e.currentTarget.style.background = 'white'}
+                onMouseEnter={(e) => e.currentTarget.style.background = accentBgLight}
+                onMouseLeave={(e) => e.currentTarget.style.background = theme.canvas.bg}
               >
                 <img
                   src={nodeData.semanticMetadata?.wikipediaThumbnail || nodeData.semanticMetadata?.wikipediaOriginalImage}
@@ -927,7 +937,7 @@ const WikipediaEnrichment = ({ nodeData, onUpdateNode }) => {
                 <span style={{
                   fontSize: '9px',
                   fontFamily: "'EmOne', sans-serif",
-                  color: theme.accent.primary,
+                  color: accentColor,
                   fontWeight: 'bold'
                 }}>
                   Main image
@@ -950,11 +960,11 @@ const WikipediaEnrichment = ({ nodeData, onUpdateNode }) => {
                   border: `1px solid ${theme.canvas.border}`,
                   borderRadius: '4px',
                   cursor: 'pointer',
-                  background: 'white',
+                  background: theme.canvas.bg,
                   transition: 'background 0.15s ease'
                 }}
-                onMouseEnter={(e) => e.currentTarget.style.background = 'rgba(139,0,0,0.05)'}
-                onMouseLeave={(e) => e.currentTarget.style.background = 'white'}
+                onMouseEnter={(e) => e.currentTarget.style.background = accentBgLight}
+                onMouseLeave={(e) => e.currentTarget.style.background = theme.canvas.bg}
               >
                 <img
                   src={img.thumbnail || img.url}
@@ -1207,11 +1217,15 @@ const SharedPanelContent = ({
   isHomeTab = false
 }) => {
   const theme = useTheme();
+  const accentColor = theme.darkMode ? '#C09191' : theme.accent.primary;
+  const accentBgLight = theme.darkMode ? 'rgba(192,145,145,0.1)' : 'rgba(139,0,0,0.05)';
   const [isEditingBio, setIsEditingBio] = useState(false);
   const [tempBio, setTempBio] = useState('');
   const [isEditingTitle, setIsEditingTitle] = useState(false);
   const [tempTitle, setTempTitle] = useState('');
   const isSavingBioRef = useRef(false);
+  const wikiSearchRef = useRef(null);
+  const [wikiIsSearching, setWikiIsSearching] = useState(false);
 
   // Auto-enrich external links (but not bio descriptions) on mount if none exist
   useEffect(() => {
@@ -1422,7 +1436,7 @@ const SharedPanelContent = ({
         icon={Bookmark}
         filled={isSaved}
         fillColor={theme.canvas.textPrimary}
-        hoverFillColor="maroon"
+        hoverFillColor={accentColor}
         onClick={() => toggleSavedNode && nodeData?.id && toggleSavedNode(nodeData.id)}
         title={isSaved ? 'Remove from Saved Things' : 'Save to Saved Things'}
       />
@@ -1630,6 +1644,8 @@ const SharedPanelContent = ({
           <WikipediaEnrichment
             nodeData={nodeData}
             onUpdateNode={onNodeUpdate}
+            triggerRef={wikiSearchRef}
+            onSearchingChange={setWikiIsSearching}
           />
         </div>
       </CollapsibleSection>
@@ -1670,7 +1686,7 @@ const SharedPanelContent = ({
               <div style={{
                 marginBottom: '8px',
                 padding: '8px',
-                background: 'rgba(139,0,0,0.05)',
+                background: accentBgLight,
                 borderRadius: '4px',
                 fontSize: '10px',
                 lineHeight: '1.4'
@@ -1695,10 +1711,10 @@ const SharedPanelContent = ({
                   onClick={() => window.open(nodeData.semanticMetadata.originMetadata.originalUri, '_blank')}
                   style={{
                     padding: '4px 8px',
-                    border: `1px solid ${theme.accent.primary}`,
+                    border: `1px solid ${accentColor}`,
                     borderRadius: '3px',
                     background: 'transparent',
-                    color: theme.accent.primary,
+                    color: accentColor,
                     fontSize: '8px',
                     cursor: 'pointer',
                     fontFamily: "'EmOne', sans-serif"
@@ -1752,7 +1768,7 @@ const SharedPanelContent = ({
                             href={url}
                             target="_blank"
                             rel="noopener noreferrer"
-                            style={{ color: theme.accent.primary, marginLeft: '8px' }}
+                            style={{ color: accentColor, marginLeft: '8px' }}
                           >
                             View Article
                           </a>
@@ -1787,7 +1803,7 @@ const SharedPanelContent = ({
                             href={url}
                             target="_blank"
                             rel="noopener noreferrer"
-                            style={{ color: theme.accent.primary, marginLeft: '8px' }}
+                            style={{ color: accentColor, marginLeft: '8px' }}
                           >
                             View Data
                           </a>
@@ -1822,7 +1838,7 @@ const SharedPanelContent = ({
                             href={url}
                             target="_blank"
                             rel="noopener noreferrer"
-                            style={{ color: theme.accent.primary, marginLeft: '8px' }}
+                            style={{ color: accentColor, marginLeft: '8px' }}
                           >
                             View Resource
                           </a>
@@ -1877,10 +1893,10 @@ const SharedPanelContent = ({
                 gap: '6px',
                 marginTop: '12px',
                 padding: '6px 8px',
-                background: 'rgba(139, 0, 0, 0.05)',
+                background: accentBgLight,
                 borderRadius: '4px',
                 fontSize: '10px',
-                color: theme.accent.primary,
+                color: accentColor,
                 fontFamily: "'EmOne', sans-serif"
               }}>
                 <span>Auto-enriched from Wikipedia</span>
@@ -1894,60 +1910,103 @@ const SharedPanelContent = ({
       </CollapsibleSection>
 
       {/* Dividing line above Image section */}
-      {(nodeData.imageSrc || nodeData.semanticMetadata?.wikipediaOriginalImage || nodeData.semanticMetadata?.wikipediaThumbnail) && <StandardDivider margin="20px 0" />}
+      <StandardDivider margin="20px 0" />
 
-      {/* Image Section — uses imageSrc for user-uploaded images, falls back to Wikipedia URL for auto-enriched nodes */}
-      {(nodeData.imageSrc || nodeData.semanticMetadata?.wikipediaOriginalImage || nodeData.semanticMetadata?.wikipediaThumbnail) && (
-        <CollapsibleSection
-          title={(
-            <span style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-              <span>Image</span>
-            </span>
-          )}
-          rightAdornment={(
-            <button
-              onClick={handleImageDelete}
-              onMouseDown={(e) => e.stopPropagation()}
-              title="Delete image"
-              style={{
-                background: 'none',
-                border: 'none',
-                padding: '4px 8px',
-                cursor: 'pointer',
-                color: 'inherit',
-                display: 'flex',
-                alignItems: 'center',
-                marginRight: '0',
-                outline: 'none'
-              }}
-            >
-              <Trash2 size={14} />
-            </button>
-          )}
-          defaultExpanded={true}
-        >
-          <div style={{
-            width: '100%',
-            overflow: 'hidden',
-            borderRadius: '6px'
-          }}>
-            <img
-              src={nodeData.imageSrc || (nodeData.semanticMetadata?.wikipediaThumbnail
-                ? nodeData.semanticMetadata.wikipediaThumbnail.replace(/\/(\d+)px-/, '/1200px-')
-                : nodeData.semanticMetadata?.wikipediaOriginalImage)}
-              alt={nodeData.name}
-              loading="lazy"
-              style={{
-                display: 'block',
+      {/* Image Section — always visible; shows image or empty state */}
+      {(() => {
+        const hasImage = !!(nodeData.imageSrc || nodeData.semanticMetadata?.wikipediaOriginalImage || nodeData.semanticMetadata?.wikipediaThumbnail);
+        return (
+          <CollapsibleSection
+            title={(
+              <span style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                <span>Image</span>
+              </span>
+            )}
+            rightAdornment={hasImage ? (
+              <button
+                onClick={handleImageDelete}
+                onMouseDown={(e) => e.stopPropagation()}
+                title="Delete image"
+                style={{
+                  background: 'none',
+                  border: 'none',
+                  padding: '4px 8px',
+                  cursor: 'pointer',
+                  color: 'inherit',
+                  display: 'flex',
+                  alignItems: 'center',
+                  marginRight: '0',
+                  outline: 'none'
+                }}
+              >
+                <Trash2 size={14} />
+              </button>
+            ) : undefined}
+            defaultExpanded={true}
+          >
+            {hasImage && (
+              <div style={{
                 width: '100%',
-                height: 'auto',
-                objectFit: 'contain',
+                overflow: 'hidden',
                 borderRadius: '6px'
-              }}
-            />
-          </div>
-        </CollapsibleSection>
-      )}
+              }}>
+                <img
+                  src={nodeData.imageSrc || (nodeData.semanticMetadata?.wikipediaThumbnail
+                    ? nodeData.semanticMetadata.wikipediaThumbnail.replace(/\/(\d+)px-/, '/1200px-')
+                    : nodeData.semanticMetadata?.wikipediaOriginalImage)}
+                  alt={nodeData.name}
+                  loading="lazy"
+                  style={{
+                    display: 'block',
+                    width: '100%',
+                    height: 'auto',
+                    objectFit: 'contain',
+                    borderRadius: '6px'
+                  }}
+                />
+              </div>
+            )}
+            {!hasImage && (
+              <div style={{
+                marginRight: '15px',
+                color: theme.canvas.textSecondary,
+                fontSize: '0.9rem',
+                fontFamily: "'EmOne', sans-serif",
+                textAlign: 'left',
+                padding: '20px 0 20px 15px'
+              }}>
+                No image uploaded.<br />Upload or pull from Wikipedia.
+              </div>
+            )}
+            {!hasImage && (
+              <button
+                onClick={() => wikiSearchRef.current?.()}
+                disabled={wikiIsSearching}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                  padding: '6px 10px',
+                  border: `1px solid ${accentColor}`,
+                  borderRadius: '6px',
+                  background: 'transparent',
+                  color: accentColor,
+                  fontFamily: "'EmOne', sans-serif",
+                  fontSize: '11px',
+                  cursor: wikiIsSearching ? 'wait' : 'pointer',
+                  fontWeight: 'bold',
+                  textAlign: 'left',
+                  marginLeft: '15px',
+                  marginBottom: '10px'
+                }}
+              >
+                <BookOpen size={12} />
+                {wikiIsSearching ? 'Searching Wikipedia...' : 'Pull from Wikipedia'}
+              </button>
+            )}
+          </CollapsibleSection>
+        );
+      })()}
 
       {/* Dividing line above Components section */}
       <StandardDivider margin="20px 0" />
