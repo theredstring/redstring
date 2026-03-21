@@ -13,8 +13,7 @@ import { updateNode } from './updateNode.js';
 import { deleteNode } from './deleteNode.js';
 import { createEdge } from './createEdge.js';
 import { deleteEdge } from './deleteEdge.js';
-import { searchNodes } from './searchNodes.js';
-import { searchConnections } from './searchConnections.js';
+import { search } from './search.js';
 import { selectNode } from './selectNode.js';
 import { getNodeContext } from './getNodeContext.js';
 import { readGraph } from './readGraph.js';
@@ -22,28 +21,21 @@ import { createGraph } from './createGraph.js';
 import { expandGraph } from './expandGraph.js';
 import { createPopulatedGraph } from './createPopulatedGraph.js';
 import { createGroup } from './createGroup.js';
-import { listGroups } from './listGroups.js';
 import { updateGroup } from './updateGroup.js';
 import { deleteGroup } from './deleteGroup.js';
-import { convertToThingGroup } from './convertToThingGroup.js';
-import { combineThingGroup } from './combineThingGroup.js';
+import { thingGroup } from './thingGroup.js';
 import { updateEdge } from './updateEdge.js';
 import { replaceEdges } from './replaceEdges.js';
-import { listDefinitionGraphs } from './listDefinitionGraphs.js';
-import { addDefinitionGraph } from './addDefinitionGraph.js';
-import { removeDefinitionGraph } from './removeDefinitionGraph.js';
+import { manageDefinitions } from './manageDefinitions.js';
 import { switchToGraph } from './switchToGraph.js';
 import { condenseToNode } from './condenseToNode.js';
 import { decomposeNode } from './decomposeNode.js';
 import { askMultipleChoice } from './askMultipleChoice.js';
 import { setNodeType } from './setNodeType.js';
-import { readAbstractionChain } from './readAbstractionChain.js';
-import { editAbstractionChain } from './editAbstractionChain.js';
+import { abstractionChain } from './abstractionChain.js';
 import { populateDefinitionGraph } from './populateDefinitionGraph.js';
 
-import { getPrototype } from './getPrototype.js';
-import { getInstancesOfPrototype } from './getInstancesOfPrototype.js';
-import { getGraphInstances } from './getGraphInstances.js';
+import { inspectPrototype } from './inspectPrototype.js';
 import { inspectWorkspace } from './inspectWorkspace.js';
 import { themeGraph } from './themeGraph.js';
 import { enrichFromWikipedia } from './enrichFromWikipedia.js';
@@ -54,6 +46,9 @@ import { semanticSearch } from './semanticSearch.js';
 import { materializeSemanticEntities } from './materializeSemanticEntities.js';
 import { importKnowledgeCluster } from './importKnowledgeCluster.js';
 import { querySparql } from './querySparql.js';
+import { findDuplicates } from './findDuplicates.js';
+import { mergeNodes } from './mergeNodes.js';
+import { mergeGraphs } from './mergeGraphs.js';
 import { getToolDefinitions } from './schemas.js';
 
 const TOOLS = {
@@ -64,34 +59,26 @@ const TOOLS = {
   updateEdge,
   deleteEdge,
   readGraph,
-  searchNodes,
-  searchConnections,
+  search,
   selectNode,
   getNodeContext,
   createGraph,
   expandGraph,
   createPopulatedGraph,
   createGroup,
-  listGroups,
   updateGroup,
   deleteGroup,
-  convertToThingGroup,
-  combineThingGroup,
+  thingGroup,
   replaceEdges,
-  listDefinitionGraphs,
-  addDefinitionGraph,
-  removeDefinitionGraph,
+  manageDefinitions,
   switchToGraph,
   condenseToNode,
   decomposeNode,
   askMultipleChoice,
   setNodeType,
-  readAbstractionChain,
-  editAbstractionChain,
+  abstractionChain,
   populateDefinitionGraph,
-  getPrototype,
-  getInstancesOfPrototype,
-  getGraphInstances,
+  inspectPrototype,
   inspectWorkspace,
   themeGraph,
   enrichFromWikipedia,
@@ -101,7 +88,10 @@ const TOOLS = {
   semanticSearch,
   materializeSemanticEntities,
   importKnowledgeCluster,
-  querySparql
+  querySparql,
+  findDuplicates,
+  mergeNodes,
+  mergeGraphs
 };
 
 /**
@@ -137,5 +127,5 @@ export async function executeTool(name, args, graphState, cid, ensureSchedulerSt
  * Get tool definitions for LLM
  * @returns {Array} Tool definitions
  */
-export { getToolDefinitions, getLocalToolDefinitions } from './schemas.js';
+export { getToolDefinitions } from './schemas.js';
 

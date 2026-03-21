@@ -539,6 +539,67 @@ function updateGraphState(graphState, _toolName, _args, result) {
     graphState._currentPlan = result.steps;
     const done = result.steps.filter(s => s.status === 'done').length;
     console.error('[updateGraphState] planTask: updated plan', done + '/' + result.steps.length, 'complete');
+  } else if (result.action === 'mergeNodes') {
+    // Remove secondary prototype and remap its instances to primary
+    const primaryName = (result.primaryName || '').toLowerCase().trim();
+    const secondaryName = (result.secondaryName || '').toLowerCase().trim();
+    const protos = graphState.nodePrototypes || [];
+
+    // Find indices by name
+    let primaryProto = null;
+    let secondaryIdx = -1;
+    for (let i = 0; i < protos.length; i++) {
+      const pName = (protos[i].name || '').toLowerCase().trim();
+      if (pName === primaryName) primaryProto = protos[i];
+      if (pName === secondaryName) secondaryIdx = i;
+    }
+
+    if (secondaryIdx >= 0 && primaryProto) {
+      const secondaryProto = protos[secondaryIdx];
+      // Remap instances in all graphs
+      for (const graph of (graphState.graphs || [])) {
+        const instances = Array.isArray(graph.instances) ? graph.instances : [];
+        for (const inst of instances) {
+          if (inst.prototypeId === secondaryProto.id) {
+            inst.prototypeId = primaryProto.id;
+          }
+        }
+      }
+      // Remove secondary prototype
+      protos.splice(secondaryIdx, 1);
+      console.error('[updateGraphState] mergeNodes:', secondaryName, '→', primaryName);
+    }
+  } else if (result.action === 'mergeGraphs') {
+    // Merge each pair: remove secondary prototypes and remap instances
+    const pairs = result.pairs || [];
+    const protos = graphState.nodePrototypes || [];
+
+    for (const pair of pairs) {
+      const primaryName = (pair.primary?.name || '').toLowerCase().trim();
+      const secondaryName = (pair.secondary?.name || '').toLowerCase().trim();
+
+      let primaryProto = null;
+      let secondaryIdx = -1;
+      for (let i = 0; i < protos.length; i++) {
+        const pName = (protos[i].name || '').toLowerCase().trim();
+        if (pName === primaryName) primaryProto = protos[i];
+        if (pName === secondaryName) secondaryIdx = i;
+      }
+
+      if (secondaryIdx >= 0 && primaryProto) {
+        const secondaryProto = protos[secondaryIdx];
+        for (const graph of (graphState.graphs || [])) {
+          const instances = Array.isArray(graph.instances) ? graph.instances : [];
+          for (const inst of instances) {
+            if (inst.prototypeId === secondaryProto.id) {
+              inst.prototypeId = primaryProto.id;
+            }
+          }
+        }
+        protos.splice(secondaryIdx, 1);
+      }
+    }
+    console.error('[updateGraphState] mergeGraphs:', pairs.length, 'pairs merged');
   }
 }
 

@@ -47,7 +47,7 @@ describe('Tool Registry', () => {
         'deleteNode',
         'createEdge',
         'deleteEdge',
-        'searchNodes',
+        'search',
         'getNodeContext',
         'createGraph',
         'expandGraph',

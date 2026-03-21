@@ -41,6 +41,75 @@ function stripEmptyRequired(schema) {
 }
 
 /**
+ * Simplify schemas for Gemini — flatten nested objects/arrays inside array items
+ * to reduce constraint state space. Nested objects become JSON strings.
+ * This prevents the "too many states" API error from deeply nested schemas.
+ */
+function simplifyForGemini(schema) {
+  if (!schema?.properties) return;
+  for (const [key, prop] of Object.entries(schema.properties)) {
+    if (prop.type === 'array' && prop.items?.type === 'object' && prop.items.properties) {
+      // Found array of objects — check its items for nested objects/arrays
+      for (const [subKey, subProp] of Object.entries(prop.items.properties)) {
+        if (subProp.type === 'object' && subProp.properties) {
+          // Nested object inside array item — convert to JSON string
+          const fields = Object.keys(subProp.properties).join(', ');
+          prop.items.properties[subKey] = {
+            type: 'string',
+            description: `${subProp.description || ''} (JSON object with fields: ${fields})`.trim()
+          };
+          // Remove from required — JSON strings are harder for models to get right
+          if (Array.isArray(prop.items.required)) {
+            prop.items.required = prop.items.required.filter(r => r !== subKey);
+          }
+        } else if (subProp.type === 'array' && subProp.items?.type === 'object') {
+          // Nested array of objects inside array item — convert to JSON string
+          const fields = subProp.items.properties ? Object.keys(subProp.items.properties).join(', ') : '';
+          prop.items.properties[subKey] = {
+            type: 'string',
+            description: `${subProp.description || ''} (JSON array of objects with fields: ${fields})`.trim()
+          };
+          if (Array.isArray(prop.items.required)) {
+            prop.items.required = prop.items.required.filter(r => r !== subKey);
+          }
+        }
+      }
+    }
+    // Recurse into top-level objects (not inside arrays — those are handled above)
+    if (prop.type === 'object' && prop.properties) {
+      simplifyForGemini(prop);
+    }
+  }
+}
+
+/**
+ * Reconstruct nested objects from JSON strings in Gemini function call args.
+ * Gemini may return nested objects as JSON strings when schemas were simplified.
+ * Also handles plain strings for object fields (wraps as { name: value }).
+ */
+function deepParseJsonStrings(obj) {
+  if (typeof obj === 'string') {
+    const trimmed = obj.trim();
+    if ((trimmed.startsWith('{') && trimmed.endsWith('}')) ||
+        (trimmed.startsWith('[') && trimmed.endsWith(']'))) {
+      try { return JSON.parse(trimmed); } catch { return obj; }
+    }
+    return obj;
+  }
+  if (Array.isArray(obj)) {
+    return obj.map(deepParseJsonStrings);
+  }
+  if (obj && typeof obj === 'object') {
+    const result = {};
+    for (const [k, v] of Object.entries(obj)) {
+      result[k] = deepParseJsonStrings(v);
+    }
+    return result;
+  }
+  return obj;
+}
+
+/**
  * Condense tool schemas for all providers.
  * Moves enum constraints into descriptions to reduce token count
  * without changing the structural shape of the schema.
@@ -778,6 +847,7 @@ async function* streamGemini(messages, tools, { model, apiKey, temperature, maxT
         // Strip empty required arrays — Gemini may misinterpret required:[] as "all required"
         stripEmptyRequired(params);
         condenseSchema(params);
+        simplifyForGemini(params);
         return {
           name: t.function?.name || t.name,
           description: t.function?.description || t.description || '',
@@ -867,7 +937,7 @@ async function* streamGemini(messages, tools, { model, apiKey, temperature, maxT
               }
               console.error('[LLMClient:Gemini] ✓ Validated functionCall:', fnName);
 
-              const fnArgs = part.functionCall.args;
+              const fnArgs = deepParseJsonStrings(part.functionCall.args || {});
               if (!fnArgs || (typeof fnArgs === 'object' && Object.keys(fnArgs).length === 0)) {
                 console.error('[LLMClient:Gemini] Warning: functionCall "' + fnName + '" received with empty args');
               }

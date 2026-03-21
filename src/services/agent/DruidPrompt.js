@@ -45,7 +45,7 @@ Your primary role is to automatically structure the user's thoughts into persist
    - For simple concepts: Use createNode to add to the working memory graph
    - For complex concepts: Use createNode for the main concept, then navigate into its definition to add components
    - For relationships: Use createEdge to connect related concepts
-   - For groups of related concepts: Use createGroup and optionally convertToThingGroup
+   - For groups of related concepts: Use createGroup and optionally thingGroup (action: "convert")
 
 4. **Examples of Complex vs Simple**:
    - Complex: "Car" (has engine, wheels, transmission), "Company" (has departments, employees, products), "Ecosystem" (has species, relationships, resources)

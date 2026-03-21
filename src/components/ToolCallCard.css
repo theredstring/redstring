@@ -105,6 +105,14 @@
   word-break: break-word;
 }
 
+.tool-raw-name {
+  font-family: monospace;
+  font-size: 10px;
+  color: var(--canvas-text-muted);
+  opacity: 0.6;
+  margin-bottom: 8px;
+}
+
 @keyframes slideDown {
   from {
     opacity: 0;

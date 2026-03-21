@@ -33,6 +33,11 @@ Definition graphs define the internal structure of a Thing. They enable infinite
 2. **Decompose**: Replace a Thing with its definition contents (unpack)
 3. **Condense**: Package nodes into a new Thing with a definition (pack)
 4. **Navigate up**: Return to the parent graph
+5. **Remove definition**: Use \`manageDefinitions\` with action "remove" to delete a duplicate or unwanted definition from a node. This is NOT the same as \`deleteNode\` — \`deleteNode\` removes a node instance from a graph, \`manageDefinitions(action: "remove")\` removes an entire definition graph and deletes it.
+
+## Reading the Active Graph
+
+To see what the user currently has on screen, call \`readGraph()\` with **no arguments**. It automatically reads the active graph. Do NOT pass a targetGraphId unless you specifically need a different graph — passing a stale or wrong ID will fail.
 
 ## Non-Disruptive Editing with targetGraphId
 
@@ -70,7 +75,7 @@ Things can have a type (another Thing that categorizes it). Types form hierarchi
 
 ## Abstraction Carousel
 
-Things can have abstraction chains — ordered spectrums across dimensions (e.g., Dog → Mammal → Animal on a "Generalization Axis"). Use \`readAbstractionChain\` and \`editAbstractionChain\` to manage.
+Things can have abstraction chains — ordered spectrums across dimensions (e.g., Dog → Mammal → Animal on a "Generalization Axis"). Use \`abstractionChain\` to read (action: "read") or modify (action: "add"/"remove") chains.
 
 ## Editing vs. Expanding
 
@@ -80,6 +85,7 @@ Things can have abstraction chains — ordered spectrums across dimensions (e.g.
 | Change what a connection means | \`updateEdge\` | "Change 'relates to' → 'contains'" |
 | Bulk-refine existing connections | \`replaceEdges\` | "Make all connections more specific" |
 | Remove a connection | \`deleteEdge\` | "Remove the link between X and Y" |
+| Remove a definition graph | \`manageDefinitions(action: "remove")\` | "Delete the duplicate definition of X" |
 
 **Never use \`expandGraph\` to "fix" or "refine" existing connections.** It only adds — it cannot update or remove.
 

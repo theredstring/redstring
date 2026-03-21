@@ -98,29 +98,16 @@ export function getToolDefinitions() {
             }
         },
         {
-            name: 'searchNodes',
-            description: 'Search for nodes by keyword in active or target graph. Omit query to list all.',
+            name: 'search',
+            description: 'Search for nodes or connections by keyword. Omit query to list all.',
             parameters: {
                 type: 'object',
                 properties: {
-                    query: { type: 'string', description: 'Optional. Search keyword or name. Omit to return all nodes. Individual words work best for broad searches.' },
+                    query: { type: 'string', description: 'Optional. Search keyword or name. Omit to return all.' },
+                    searchType: { type: 'string', enum: ['nodes', 'connections'], description: '"nodes" (default) or "connections".' },
                     targetGraphId: { type: 'string', description: 'Graph to target (default: active).' },
                     limit: { type: 'number', description: 'Max results to return. Defaults to 100.' },
-                    offset: { type: 'number', description: 'Skips this many results for pagination. Use with hasMore=true responses.' }
-                },
-                required: []
-            }
-        },
-        {
-            name: 'searchConnections',
-            description: 'Search for connections by keyword in active or target graph. Omit query to list all.',
-            parameters: {
-                type: 'object',
-                properties: {
-                    query: { type: 'string', description: 'Optional. Search keyword - can be a connection type (e.g., "contains") or node name. Omit to return all connections.' },
-                    targetGraphId: { type: 'string', description: 'Graph to target (default: active).' },
-                    limit: { type: 'number', description: 'Max results to return. Defaults to 100.' },
-                    offset: { type: 'number', description: 'Skips this many results for pagination. Use with hasMore=true responses.' }
+                    offset: { type: 'number', description: 'Skips this many results for pagination.' }
                 },
                 required: []
             }
@@ -149,11 +136,11 @@ export function getToolDefinitions() {
         },
         {
             name: 'readGraph',
-            description: 'Read all nodes, edges, and groups from a graph.',
+            description: 'Read all nodes, edges, and groups from the active graph. Call with NO arguments to read what the user currently sees. Only pass targetGraphId if you need a specific non-active graph.',
             parameters: {
                 type: 'object',
                 properties: {
-                    targetGraphId: { type: 'string', description: 'Graph to target (default: active).' }
+                    targetGraphId: { type: 'string', description: 'Only needed for non-active graphs. Omit to read the active graph.' }
                 },
                 required: []
             }
@@ -366,15 +353,6 @@ export function getToolDefinitions() {
             }
         },
         {
-            name: 'listGroups',
-            description: 'List all groups in the active graph, showing which are regular Groups vs Thing-Groups',
-            parameters: {
-                type: 'object',
-                properties: {},
-                required: []
-            }
-        },
-        {
             name: 'updateGroup',
             description: 'Update a group - rename it, change color, or add/remove members',
             parameters: {
@@ -411,39 +389,30 @@ export function getToolDefinitions() {
             }
         },
         {
-            name: 'convertToThingGroup',
-            description: 'Convert a Group into a Thing-Group, creating a definition graph for that Thing.',
+            name: 'thingGroup',
+            description: 'Convert a Group into a Thing-Group, or collapse a Thing-Group back into a single node.',
             parameters: {
                 type: 'object',
                 properties: {
-                    groupName: { type: 'string', description: 'Name of the group to convert' },
-                    thingName: { type: 'string', description: 'Name for the Thing that defines this group (can be existing or new)' },
-                    createNewThing: { type: 'boolean', description: 'If true, creates a new Thing. If false, tries to find existing Thing by thingName.' },
-                    newThingColor: { type: 'string', description: 'Color for the new Thing if creating one' },
+                    groupName: { type: 'string', description: 'Name of the group' },
+                    action: { type: 'string', enum: ['convert', 'collapse'], description: '"convert" (default): make a Group into a Thing-Group. "collapse": collapse a Thing-Group into a single node.' },
+                    thingName: { type: 'string', description: 'For convert: name for the Thing that defines this group' },
+                    createNewThing: { type: 'boolean', description: 'For convert: if true, creates a new Thing. If false, finds existing.' },
+                    newThingColor: { type: 'string', description: 'For convert: color for the new Thing' },
                     targetGraphId: { type: 'string', description: 'Graph to target (default: active).' }
                 },
                 required: ['groupName']
             }
         },
         {
-            name: 'combineThingGroup',
-            description: 'Collapse a Thing-Group back into a single node.',
+            name: 'manageDefinitions',
+            description: 'List or remove definition graphs for a node.',
             parameters: {
                 type: 'object',
                 properties: {
-                    groupName: { type: 'string', description: 'Name of the Thing-Group to collapse' },
-                    targetGraphId: { type: 'string', description: 'Graph to target (default: active).' }
-                },
-                required: ['groupName']
-            }
-        },
-        {
-            name: 'listDefinitionGraphs',
-            description: 'List a node\'s definition graphs with their node/edge counts.',
-            parameters: {
-                type: 'object',
-                properties: {
-                    nodeName: { type: 'string', description: 'Name of the node whose definition graphs to inspect' }
+                    nodeName: { type: 'string', description: 'Name of the node' },
+                    action: { type: 'string', enum: ['list', 'remove'], description: '"list" (default): show definition graphs with node/edge counts. "remove": delete a definition graph.' },
+                    definitionIndex: { type: 'number', description: 'For remove: which definition graph to remove (0-based index). Default: 0.' }
                 },
                 required: ['nodeName']
             }
@@ -517,18 +486,6 @@ export function getToolDefinitions() {
                     overwriteDescription: { type: 'boolean', description: 'Overwrite description from Wikipedia (default: false).' }
                 },
                 required: ['nodeName', 'nodes', 'edges']
-            }
-        },
-        {
-            name: 'removeDefinitionGraph',
-            description: 'Remove a definition graph from a node.',
-            parameters: {
-                type: 'object',
-                properties: {
-                    nodeName: { type: 'string', description: 'Name of the node to remove definition graph from' },
-                    definitionIndex: { type: 'number', description: 'Which definition graph to remove (0-based index). Default: 0.' }
-                },
-                required: ['nodeName']
             }
         },
         {
@@ -608,63 +565,30 @@ export function getToolDefinitions() {
             }
         },
         {
-            name: 'readAbstractionChain',
-            description: 'Read a node\'s abstraction chains across all dimensions.',
+            name: 'abstractionChain',
+            description: 'Read, add to, or remove from a node\'s abstraction chains (carousel spectrums).',
             parameters: {
                 type: 'object',
                 properties: {
-                    nodeName: { type: 'string', description: 'Name of the node to read chains for' }
+                    nodeName: { type: 'string', description: 'Name of the node' },
+                    action: { type: 'string', enum: ['read', 'add', 'remove'], description: '"read" (default): view all chains. "add"/"remove": modify a chain.' },
+                    dimension: { type: 'string', description: 'For add/remove: dimension name, e.g., "Generalization Axis"' },
+                    targetNodeName: { type: 'string', description: 'For add/remove: name of the node to add or remove' },
+                    direction: { type: 'string', enum: ['above', 'below'], description: 'For add: "above" = more generic, "below" = more specific. Default: "above".' },
+                    relativeTo: { type: 'string', description: 'For add: name of a node already in the chain to insert relative to' }
                 },
                 required: ['nodeName']
             }
         },
         {
-            name: 'editAbstractionChain',
-            description: 'Add or remove nodes from an abstraction chain dimension.',
-            parameters: {
-                type: 'object',
-                properties: {
-                    nodeName: { type: 'string', description: 'Name of the chain owner node' },
-                    dimension: { type: 'string', description: 'Dimension name, e.g., "Generalization Axis"' },
-                    editAction: { type: 'string', enum: ['add', 'remove'], description: '"add" to insert a node, "remove" to take one out' },
-                    targetNodeName: { type: 'string', description: 'Name of the node to add or remove' },
-                    direction: { type: 'string', enum: ['above', 'below'], description: 'For "add": "above" inserts toward more generic, "below" inserts toward more specific. Defaults to "above".' },
-                    relativeTo: { type: 'string', description: 'Optional: Name of a node already in the chain to insert relative to' }
-                },
-                required: ['nodeName', 'dimension', 'editAction', 'targetNodeName']
-            }
-        },
-        {
-            name: 'getPrototype',
-            description: 'Get the detailed properties of a Node Prototype directly (name, description, color, type properties, definition graphs).',
+            name: 'inspectPrototype',
+            description: 'Get detailed properties of a node prototype and optionally find all its instances across the workspace.',
             parameters: {
                 type: 'object',
                 properties: {
                     prototypeId: { type: 'string', description: 'Exact ID of the prototype' },
-                    nodeName: { type: 'string', description: 'Fuzzy matched name of the node (if ID is unknown)' }
-                },
-                required: []
-            }
-        },
-        {
-            name: 'getInstancesOfPrototype',
-            description: 'Find all instances of a specific prototype across the entire workspace. Useful for seeing where a concept is used.',
-            parameters: {
-                type: 'object',
-                properties: {
-                    prototypeId: { type: 'string', description: 'Exact ID of the prototype' },
-                    nodeName: { type: 'string', description: 'Fuzzy matched name of the node (if ID is unknown)' }
-                },
-                required: []
-            }
-        },
-        {
-            name: 'getGraphInstances',
-            description: 'List all raw instances inside a specific graph, showing their instanceId and the prototypeId they refer to.',
-            parameters: {
-                type: 'object',
-                properties: {
-                    graphId: { type: 'string', description: 'Optional: ID of the graph to inspect, defaults to active graph if omitted' }
+                    nodeName: { type: 'string', description: 'Fuzzy matched name of the node (if ID is unknown)' },
+                    includeInstances: { type: 'boolean', description: 'If true, also returns all instances across the workspace. Default: false.' }
                 },
                 required: []
             }
@@ -873,39 +797,46 @@ export function getToolDefinitions() {
                 },
                 required: ['name', 'nodes', 'edges']
             }
+        },
+        {
+            name: 'findDuplicates',
+            description: 'Find potential duplicate nodes by name similarity. Returns groups of similar nodes with a recommendation for which to keep based on richness (connections, description length, semantic metadata, definition graphs). Use this before mergeNodes to make informed merge decisions.',
+            parameters: {
+                type: 'object',
+                properties: {
+                    threshold: { type: 'number', description: 'Name similarity threshold 0.0-1.0 (default: 0.8). Higher = stricter matching.' },
+                    targetGraphId: { type: 'string', description: 'Limit search to nodes in this graph. If omitted, searches all nodes.' }
+                },
+                required: []
+            }
+        },
+        {
+            name: 'mergeNodes',
+            description: 'Merge two nodes into one. The primary node survives; the secondary is absorbed (metadata, descriptions, connections, definition graphs combined) and deleted. Use findDuplicates first to identify which node to keep.',
+            parameters: {
+                type: 'object',
+                properties: {
+                    primaryNodeName: { type: 'string', description: 'Name of the node to keep' },
+                    secondaryNodeName: { type: 'string', description: 'Name of the node to merge into primary (will be deleted)' },
+                    targetGraphId: { type: 'string', description: 'Graph context for resolving nodes (default: active).' }
+                },
+                required: ['primaryNodeName', 'secondaryNodeName']
+            }
+        },
+        {
+            name: 'mergeGraphs',
+            description: 'Find and merge duplicate nodes between two graphs. Identifies nodes with similar names across both graphs and merges them, unifying references. Uses richness scoring to pick which node to keep. Set dryRun=true to preview without merging.',
+            parameters: {
+                type: 'object',
+                properties: {
+                    sourceGraphId: { type: 'string', description: 'First graph ID (or name) to compare' },
+                    targetGraphId: { type: 'string', description: 'Second graph ID (or name) to compare. Defaults to active graph.' },
+                    threshold: { type: 'number', description: 'Name similarity threshold 0-1 (default: 0.85)' },
+                    dryRun: { type: 'boolean', description: 'If true, only preview matches without merging (default: false)' }
+                },
+                required: ['sourceGraphId']
+            }
         }
     ];
 }
 
-/**
- * Tools that are too complex for small local LLMs (7B parameter models).
- * These tools cause infinite loops and misuse when exposed to models
- * that lack the reasoning ability to use them correctly.
- */
-const ADVANCED_TOOLS = new Set([
-    'condenseToNode',
-    'decomposeNode',
-    'convertToThingGroup',
-    'combineThingGroup',
-    'editAbstractionChain',
-    'readAbstractionChain',
-    'listNodeDefinitions',
-    'removeDefinitionGraph',
-    'switchToGraph',
-    'getNodeContext',
-    'searchConnections',
-    'updateEdge',
-    'updateGroup',
-    'listGroups',
-    'querySparql',
-    'importKnowledgeCluster',
-]);
-
-/**
- * Get filtered tool definitions for local/small LLMs.
- * Removes advanced composition and navigation tools that cause spiraling.
- * @returns {Array} Filtered tool definitions
- */
-export function getLocalToolDefinitions() {
-    return getToolDefinitions().filter(t => !ADVANCED_TOOLS.has(t.name));
-}

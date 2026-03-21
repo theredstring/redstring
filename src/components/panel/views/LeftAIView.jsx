@@ -1502,6 +1502,75 @@ function applyToolResultToStore(toolName, result, toolCallId) {
     }).catch(err => {
       console.error(`[Wizard] ❌ Wikipedia enrichment failed for "${nodeName}":`, err);
     });
+  } else if (result.action === 'mergeNodes') {
+    // Handle mergeNodes — resolve by name, merge definition graphs, then merge prototypes
+    const primaryName = (result.primaryName || '').toLowerCase().trim();
+    const secondaryName = (result.secondaryName || '').toLowerCase().trim();
+    console.log('[Wizard] Applying mergeNodes to store:', secondaryName, '→', primaryName);
+
+    if (!primaryName || !secondaryName) {
+      console.error('[Wizard] mergeNodes: Missing primaryName or secondaryName');
+      return;
+    }
+
+    // Resolve by name — take LAST match (old prototypes accumulate in Maps)
+    let primaryId = null;
+    let secondaryId = null;
+    for (const [pid, proto] of store.nodePrototypes) {
+      const pName = (proto.name || '').toLowerCase().trim();
+      if (pName === primaryName) { primaryId = pid; /* no break */ }
+      if (pName === secondaryName) { secondaryId = pid; /* no break */ }
+    }
+
+    if (!primaryId) {
+      console.error('[Wizard] mergeNodes: Could not find primary node:', primaryName);
+      return;
+    }
+    if (!secondaryId) {
+      console.error('[Wizard] mergeNodes: Could not find secondary node:', secondaryName);
+      return;
+    }
+    if (primaryId === secondaryId) {
+      console.error('[Wizard] mergeNodes: Primary and secondary resolved to the same node:', primaryId);
+      return;
+    }
+
+    store.mergeDefinitionGraphs(primaryId, secondaryId, { strategy: 'combine' });
+    store.mergeNodePrototypes(primaryId, secondaryId);
+    console.log('[Wizard] Successfully merged node:', secondaryName, '→', primaryName);
+    return;
+
+  } else if (result.action === 'mergeGraphs') {
+    // Handle mergeGraphs — merge each duplicate pair
+    const pairs = result.pairs || [];
+    console.log('[Wizard] Applying mergeGraphs to store:', pairs.length, 'pairs');
+
+    let mergedCount = 0;
+    for (const pair of pairs) {
+      const primaryName = (pair.primary?.name || '').toLowerCase().trim();
+      const secondaryName = (pair.secondary?.name || '').toLowerCase().trim();
+
+      // Resolve by name — take LAST match
+      let primaryId = null;
+      let secondaryId = null;
+      for (const [pid, proto] of store.nodePrototypes) {
+        const pName = (proto.name || '').toLowerCase().trim();
+        if (pName === primaryName) { primaryId = pid; }
+        if (pName === secondaryName) { secondaryId = pid; }
+      }
+
+      if (!primaryId || !secondaryId || primaryId === secondaryId) {
+        console.error('[Wizard] mergeGraphs: Skipping pair, could not resolve:', primaryName, secondaryName);
+        continue;
+      }
+
+      store.mergeDefinitionGraphs(primaryId, secondaryId, { strategy: 'combine' });
+      store.mergeNodePrototypes(primaryId, secondaryId);
+      mergedCount++;
+    }
+    console.log('[Wizard] Successfully merged', mergedCount, 'of', pairs.length, 'node pairs');
+    return;
+
   } else if (result.goalId || toolName === 'updateGroup' || toolName === 'deleteGroup') {
     // Other mutating tools that go through the goal queue
     // We trigger a re-fetch of the graph state to ensure the UI is in sync

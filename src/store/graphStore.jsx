@@ -2111,8 +2111,28 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
           console.log(`[applyBulkGraphUpdates] Pre-populated ${nodeIdMap.size} existing nodes into lookup map`);
         }
 
-        // 1. Add nodes (new nodes overwrite existing entries if names collide)
+        // 1. Add nodes (skip duplicates if a node with the same name already exists in this graph)
         nodes.forEach(node => {
+          const normalizedName = normalizeName(node.name);
+
+          // DUPLICATE PREVENTION: If a node with this name already exists in the graph, reuse it
+          const existingInstanceId = nodeIdMapNormalized.get(normalizedName);
+          if (existingInstanceId && graph.instances.has(existingInstanceId)) {
+            const existingInst = graph.instances.get(existingInstanceId);
+            const existingProto = draft.nodePrototypes.get(existingInst.prototypeId);
+            if (existingProto) {
+              // Update description/color if new values are provided
+              if (node.description && node.description.trim()) {
+                existingProto.description = node.description;
+              }
+              if (node.color) {
+                existingProto.color = node.color;
+              }
+            }
+            console.warn(`[applyBulkGraphUpdates] DUPLICATE PREVENTED: Node "${node.name}" already exists in graph, reusing instance ${existingInstanceId}`);
+            return; // skip — nodeIdMap already has the correct entry
+          }
+
           const protoId = node.prototypeId || uuidv4();
           const instanceId = node.instanceId || uuidv4();
 

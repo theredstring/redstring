@@ -631,7 +631,7 @@ const RedstringMenu = ({
                           style={{ cursor: 'pointer' }}
                         >
                           <LayoutGrid size={14} style={{ marginRight: '8px', minWidth: '14px', flexShrink: 0 }} />
-                          Auto Layout Graph
+                          Auto Layout Web
                         </div>
 
                         <div

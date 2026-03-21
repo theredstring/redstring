@@ -3,6 +3,67 @@ import { Undo2, Loader2, CheckCircle2, XCircle, Circle, ChevronDown, X } from 'l
 import ConfirmDialog from './shared/ConfirmDialog.jsx';
 import './ToolCallCard.css';
 
+const TOOL_DISPLAY_LABELS = {
+    // Thing (Node) management
+    createNode: 'Creating new thing',
+    updateNode: 'Updating thing',
+    deleteNode: 'Removing thing',
+    selectNode: 'Selecting thing',
+    getNodeContext: 'Inspecting thing',
+    getPrototype: 'Reading thing details',
+    // Connection (Edge) management
+    createEdge: 'Creating connection',
+    updateEdge: 'Updating connection',
+    deleteEdge: 'Removing connection',
+    replaceEdges: 'Replacing connections',
+    searchConnections: 'Searching connections',
+    // Search & discovery
+    searchNodes: 'Searching things',
+    getInstancesOfPrototype: 'Finding instances',
+    // Web (Graph) management
+    readGraph: 'Reading web',
+    createGraph: 'Creating new web',
+    expandGraph: 'Expanding web',
+    createPopulatedGraph: 'Building new web',
+    switchToGraph: 'Navigating to web',
+    getGraphInstances: 'Listing web contents',
+    // Group management
+    createGroup: 'Creating group',
+    listGroups: 'Listing groups',
+    updateGroup: 'Updating group',
+    deleteGroup: 'Removing group',
+    convertToThingGroup: 'Converting to thing-group',
+    combineThingGroup: 'Combining thing-group',
+    // Definition graphs
+    listDefinitionGraphs: 'Listing definitions',
+    populateDefinitionGraph: 'Building definition',
+    removeDefinitionGraph: 'Removing definition',
+    addDefinitionGraph: 'Adding definition',
+    // Abstraction & hierarchy
+    setNodeType: 'Setting type',
+    readAbstractionChain: 'Reading abstraction chain',
+    editAbstractionChain: 'Editing abstraction chain',
+    condenseToNode: 'Condensing into thing',
+    decomposeNode: 'Decomposing thing',
+    // User interaction
+    askMultipleChoice: 'Asking question',
+    // Workspace
+    inspectWorkspace: 'Inspecting workspace',
+    // Enrichment
+    enrichFromWikipedia: 'Enriching from Wikipedia',
+    themeGraph: 'Theming web',
+    // Planning
+    planTask: 'Planning task',
+    // Semantic web
+    discoverOrbit: 'Discovering connections',
+    semanticSearch: 'Searching semantic web',
+    materializeSemanticEntities: 'Materializing entities',
+    importKnowledgeCluster: 'Importing knowledge cluster',
+    querySparql: 'Querying semantic web',
+    // Sketching
+    sketchGraph: 'Sketching web',
+};
+
 const ToolCallCard = ({ toolCallId, toolName, status, args, result, error, timestamp, executionTime, isUndone, onUndo }) => {
     const [isExpanded, setIsExpanded] = useState(false);
     const [isUndoConfirmOpen, setIsUndoConfirmOpen] = useState(false);
@@ -87,7 +148,7 @@ const ToolCallCard = ({ toolCallId, toolName, status, args, result, error, times
             const count = result.results ? result.results.length : 0;
             const total = result.total ? ` (${result.total} total)` : '';
             const query = parsedArgs?.query ? ` for "${parsedArgs.query}"` : '';
-            return `Found ${count} matching node(s)${query}${total}`;
+            return `Found ${count} matching thing(s)${query}${total}`;
         }
         if (toolName === 'searchConnections') {
             const count = result.results ? result.results.length : 0;
@@ -97,18 +158,18 @@ const ToolCallCard = ({ toolCallId, toolName, status, args, result, error, times
         }
         if (toolName === 'readGraph') {
             if (result.error) return result.error;
-            return result.summary || `Read graph: ${result.nodeCount || 0} node(s), ${result.edgeCount || 0} connection(s)`;
+            return result.summary || `Read web: ${result.nodeCount || 0} thing(s), ${result.edgeCount || 0} connection(s)`;
         }
         if (toolName === 'selectNode') {
             if (result.found && result.node) {
                 return `Selected "${result.node.name}" on the canvas`;
             }
-            return result.error || `Could not find node "${parsedArgs?.name}"`;
+            return result.error || `Could not find thing "${parsedArgs?.name}"`;
         }
         if (toolName === 'getNodeContext') {
             const count = result.neighbors ? result.neighbors.length : 0;
             const node = parsedArgs?.nodeId ? ` for "${parsedArgs.nodeId}"` : '';
-            return `Retrieved node with ${count} neighbor(s)${node}`;
+            return `Retrieved thing with ${count} neighbor(s)${node}`;
         }
         if (toolName === 'listGroups') {
             const count = result.count || (result.groups ? result.groups.length : 0);
@@ -125,16 +186,16 @@ const ToolCallCard = ({ toolCallId, toolName, status, args, result, error, times
             return `Updated ${groupName}`;
         }
         if (toolName === 'createNode') {
-            const nodeName = result.name || parsedArgs?.name || 'node';
-            return `Created node "${nodeName}"`;
+            const nodeName = result.name || parsedArgs?.name || 'thing';
+            return `Created thing "${nodeName}"`;
         }
         if (toolName === 'updateNode') {
-            const nodeName = result.originalName || parsedArgs?.nodeName || parsedArgs?.name || 'node';
-            return `Updated node "${nodeName}"`;
+            const nodeName = result.originalName || parsedArgs?.nodeName || parsedArgs?.name || 'thing';
+            return `Updated thing "${nodeName}"`;
         }
         if (toolName === 'deleteNode') {
-            const nodeName = result.name || parsedArgs?.nodeName || parsedArgs?.name || 'node';
-            return `Deleted node "${nodeName}"`;
+            const nodeName = result.name || parsedArgs?.nodeName || parsedArgs?.name || 'thing';
+            return `Removed thing "${nodeName}"`;
         }
         if (toolName === 'createEdge') {
             const source = parsedArgs?.sourceName || parsedArgs?.sourceId || '?';
@@ -158,21 +219,21 @@ const ToolCallCard = ({ toolCallId, toolName, status, args, result, error, times
             return `Converted to Thing "${thingName}"`;
         }
         if (toolName === 'combineThingGroup') {
-            return 'Combined Thing-Group into single node';
+            return 'Combined thing-group into single thing';
         }
         if (toolName === 'createGraph') {
-            const graphName = result.graphName || parsedArgs?.name || 'graph';
-            return `Created empty graph "${graphName}"`;
+            const graphName = result.graphName || parsedArgs?.name || 'web';
+            return `Created empty web "${graphName}"`;
         }
         if (toolName === 'expandGraph' || toolName === 'createPopulatedGraph') {
             const nodeCount = result.nodeCount || (Array.isArray(result.nodesAdded) ? result.nodesAdded.length : (typeof result.nodesAdded === 'number' ? result.nodesAdded : 0));
             const edgeCount = result.edgeCount || (Array.isArray(result.edgesAdded) ? result.edgesAdded.length : (typeof result.edgesAdded === 'number' ? result.edgesAdded : 0));
             const groupCount = result.groupCount || (Array.isArray(result.groupsAdded) ? result.groupsAdded.length : 0);
             const parts = [];
-            if (nodeCount > 0) parts.push(`${nodeCount} node${nodeCount !== 1 ? 's' : ''}`);
+            if (nodeCount > 0) parts.push(`${nodeCount} thing${nodeCount !== 1 ? 's' : ''}`);
             if (edgeCount > 0) parts.push(`${edgeCount} connection${edgeCount !== 1 ? 's' : ''}`);
             if (groupCount > 0) parts.push(`${groupCount} group${groupCount !== 1 ? 's' : ''}`);
-            let summary = parts.length > 0 ? `Added ${parts.join(', ')}` : 'Expanded graph';
+            let summary = parts.length > 0 ? `Added ${parts.join(', ')}` : 'Expanded web';
             if (result.graphName) summary += ` to "${result.graphName}"`;
             return summary;
         }
@@ -182,7 +243,7 @@ const ToolCallCard = ({ toolCallId, toolName, status, args, result, error, times
         const edgeCount = result.edgeCount || (Array.isArray(result.edgesAdded) ? result.edgesAdded.length : 0);
         const groupCount = result.groupCount || (Array.isArray(result.groupsAdded) ? result.groupsAdded.length : 0);
 
-        if (nodeCount > 0) parts.push(`${nodeCount} node${nodeCount !== 1 ? 's' : ''}`);
+        if (nodeCount > 0) parts.push(`${nodeCount} thing${nodeCount !== 1 ? 's' : ''}`);
         if (edgeCount > 0) parts.push(`${edgeCount} connection${edgeCount !== 1 ? 's' : ''}`);
         if (groupCount > 0) parts.push(`${groupCount} group${groupCount !== 1 ? 's' : ''}`);
 
@@ -215,7 +276,7 @@ const ToolCallCard = ({ toolCallId, toolName, status, args, result, error, times
                 <div className="tool-icon">{getStatusIcon()}</div>
                 <div className="tool-header-content">
                     <div className="tool-header-row">
-                        <span className="tool-name">{formatToolName(toolName)}</span>
+                        <span className="tool-name">{TOOL_DISPLAY_LABELS[toolName] || formatToolName(toolName)}</span>
                         <span className="status-badge">{getStatusText()}</span>
 
                         {/* Undo Controls */}
@@ -267,9 +328,10 @@ const ToolCallCard = ({ toolCallId, toolName, status, args, result, error, times
 
             {isExpanded && (
                 <div className="tool-call-details">
+                    <div className="tool-raw-name">{toolName}</div>
                     {result && toolName === 'readGraph' && result.nodes && (
                         <div className="detail-section">
-                            <h4>Nodes ({result.nodeCount})</h4>
+                            <h4>Things ({result.nodeCount})</h4>
                             <ul className="node-list">
                                 {(result.nodes || []).slice(0, 15).map((n, idx) => (
                                     <li key={idx}>
@@ -315,7 +377,7 @@ const ToolCallCard = ({ toolCallId, toolName, status, args, result, error, times
                     {result && result.nodesAdded && result.nodesAdded.length > 0 && (
 
                         <div className="detail-section">
-                            <h4>Nodes Created</h4>
+                            <h4>Things Created</h4>
                             <ul className="node-list">
                                 {result.nodesAdded.map((node, idx) => (
                                     <li key={idx}>{node}</li>
@@ -345,8 +407,8 @@ const ToolCallCard = ({ toolCallId, toolName, status, args, result, error, times
 
                     {result && typeof result.edgesAdded === 'number' && result.edgesAdded > 0 && (
                         <div className="detail-section">
-                            <h4>Graph Expanded</h4>
-                            <p>Added {result.nodesAdded} nodes and {result.edgesAdded} connections. Check the main canvas to see the new entities!</p>
+                            <h4>Web Expanded</h4>
+                            <p>Added {result.nodesAdded} things and {result.edgesAdded} connections. Check the main canvas to see the new entities!</p>
                         </div>
                     )}
 
@@ -385,7 +447,7 @@ const ToolCallCard = ({ toolCallId, toolName, status, args, result, error, times
 
                     {result && result.results && result.results.length > 0 && toolName === 'searchNodes' && (
                         <div className="detail-section">
-                            <h4>Matching Nodes</h4>
+                            <h4>Matching Things</h4>
                             <ul className="node-list">
                                 {result.results.map((r, idx) => (
                                     <li key={idx}>
