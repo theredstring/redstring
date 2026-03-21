@@ -373,6 +373,19 @@ export function useForceSimulation({
       const edgeMinDistance = isCrossGroup
         ? Math.max(scaledMinLinkDistance, (params.minGroupDistance || 800) * 0.4)
         : scaledMinLinkDistance;
+
+      // Per-edge spring target: raise gently for edges with labels
+      // (don't touch edgeMinDistance — its aggressive repulsion causes oscillation)
+      let edgeLinkTarget = scaledLinkDistance;
+      if (edge.name) {
+        // 0.7 for bold text, plus stroke buffer
+        const labelWidth = edge.name.length * 24 * 1.1 + Math.max(2, 24 * 0.25) * 2;
+        const sourceRadius = getRadius(source);
+        const targetRadius = getRadius(target);
+        const labelMin = labelWidth + 60 + sourceRadius + targetRadius;
+        edgeLinkTarget = Math.max(edgeLinkTarget, labelMin);
+      }
+
       const crossGroupDamping = isCrossGroup ? 0.6 : 1.0;
       let force;
 
@@ -381,11 +394,11 @@ export function useForceSimulation({
         const deficit = edgeMinDistance - dist;
         const intensityMultiplier = 10 + (1 - ratio) * 20;
         force = -deficit * attractionStrength * intensityMultiplier * state.alpha;
-      } else if (dist < scaledLinkDistance) {
-        const displacement = dist - scaledLinkDistance;
+      } else if (dist < edgeLinkTarget) {
+        const displacement = dist - edgeLinkTarget;
         force = displacement * attractionStrength * state.alpha * crossGroupDamping;
       } else {
-        const displacement = dist - scaledLinkDistance;
+        const displacement = dist - edgeLinkTarget;
         force = displacement * attractionStrength * state.alpha * crossGroupDamping;
       }
 

@@ -2,6 +2,23 @@ import { useCallback, useEffect } from 'react';
 import { applyLayout, FORCE_LAYOUT_DEFAULTS } from '../services/graphLayoutService.js';
 import { getNodeDimensions } from '../utils'; // Assumed utility
 
+/**
+ * Resolve the displayed connection name for an edge.
+ * Mirrors the rendering logic in NodeCanvas.jsx.
+ */
+function resolveConnectionName(edge, nodePrototypesMap, edgePrototypesMap) {
+    if (edge.connectionName) return edge.connectionName;
+    if (edge.definitionNodeIds && edge.definitionNodeIds.length > 0) {
+        const defNode = nodePrototypesMap?.get(edge.definitionNodeIds[0]);
+        if (defNode?.name) return defNode.name;
+    }
+    if (edge.typeNodeId) {
+        const edgeProto = edgePrototypesMap?.get(edge.typeNodeId);
+        if (edgeProto?.name) return edgeProto.name;
+    }
+    return '';
+}
+
 export const useGraphLayout = ({
     activeGraphId,
     storeActions,
@@ -11,6 +28,9 @@ export const useGraphLayout = ({
     baseDimsById,
     canvasSize,
     resetConnectionLabelCache,
+    // Prototype maps for resolving edge connection names
+    nodePrototypesMap = null,
+    edgePrototypesMap = null,
     // Layout settings
     layoutScalePreset = 1.0,
     layoutScaleMultiplier = 1.0,
@@ -165,7 +185,8 @@ export const useGraphLayout = ({
             .filter(edge => edge && edge.sourceId && edge.destinationId)
             .map(edge => ({
                 sourceId: edge.sourceId,
-                destinationId: edge.destinationId
+                destinationId: edge.destinationId,
+                name: resolveConnectionName(edge, nodePrototypesMap, edgePrototypesMap)
             }));
 
         const layoutWidth = Math.max(2000, canvasSize?.width || 2000);

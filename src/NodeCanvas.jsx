@@ -1964,6 +1964,8 @@ function NodeCanvas() {
     baseDimsById,
     canvasSize,
     resetConnectionLabelCache,
+    nodePrototypesMap,
+    edgePrototypesMap,
     layoutScalePreset,
     layoutScaleMultiplier,
     layoutIterationPreset,
@@ -12868,7 +12870,18 @@ function NodeCanvas() {
             imageHeight: dims?.calculatedImageHeight ?? 0
           };
         })}
-        getEdges={() => edges.map(e => ({ sourceId: e.sourceId, destinationId: e.destinationId }))}
+        getEdges={() => edges.map(e => {
+          let connName = e.connectionName || '';
+          if (!connName && e.definitionNodeIds?.length > 0) {
+            const defNode = nodePrototypesMap.get(e.definitionNodeIds[0]);
+            if (defNode?.name) connName = defNode.name;
+          }
+          if (!connName && e.typeNodeId) {
+            const proto = edgePrototypesMap.get(e.typeNodeId);
+            if (proto?.name) connName = proto.name;
+          }
+          return { sourceId: e.sourceId, destinationId: e.destinationId, name: connName };
+        })}
         getGroups={() => {
           const graphData = activeGraphId ? graphsMap.get(activeGraphId) : null;
           return graphData?.groups ? Array.from(graphData.groups.values()) : [];

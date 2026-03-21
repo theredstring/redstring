@@ -47,7 +47,18 @@ function applyOffscreenLayout(graphId) {
   const layoutEdges = (graph.edgeIds || [])
     .map(eId => st.edges.get(eId))
     .filter(e => e && e.sourceId && e.destinationId)
-    .map(e => ({ sourceId: e.sourceId, destinationId: e.destinationId }));
+    .map(e => {
+      let connName = e.connectionName || '';
+      if (!connName && e.definitionNodeIds?.length > 0) {
+        const defNode = st.nodePrototypes.get(e.definitionNodeIds[0]);
+        if (defNode?.name) connName = defNode.name;
+      }
+      if (!connName && e.typeNodeId) {
+        const proto = (st.edgePrototypes || new Map()).get(e.typeNodeId);
+        if (proto?.name) connName = proto.name;
+      }
+      return { sourceId: e.sourceId, destinationId: e.destinationId, name: connName };
+    });
 
   // Pass groups if available
   const groups = Array.from(graph.groups?.values() || []);

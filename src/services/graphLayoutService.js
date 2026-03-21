@@ -341,6 +341,22 @@ function calculateSpring(pos1, pos2, targetDist, strength) {
 }
 
 /**
+ * Estimate the pixel width of an edge label string.
+ * Edge labels are rendered bold with a stroke outline, so we use a wider
+ * character width factor (0.7) than the normal-weight estimate (0.55).
+ * Adds a flat buffer for the stroke outline that extends beyond glyph bounds.
+ * fontSize defaults to 24 (the canvas default connectionFontSize).
+ */
+function estimateEdgeLabelWidth(text, fontSize = 24) {
+  if (!text) return 0;
+  // 0.7 accounts for fontWeight="bold" on edge labels
+  const avgCharWidth = fontSize * 0.7;
+  // stroke outline (strokeWidth = max(2, fontSize*0.25)) adds visual width
+  const strokeBuffer = Math.max(2, fontSize * 0.25) * 2;
+  return text.length * avgCharWidth + strokeBuffer;
+}
+
+/**
  * Calculate centering force toward canvas center
  */
 function calculateCentering(pos, centerX, centerY, strength) {
@@ -424,6 +440,7 @@ export const FORCE_LAYOUT_DEFAULTS = {
   labelAwareLinkDistance: true,
   labelAwareLinkPadding: 30,
   labelAwareLinkReduction: 1,
+  edgeLabelPadding: 60,           // total horizontal padding for edge label minimum (30px per side)
 
   // Advanced forces
   enableEdgeRepulsion: true, // Triplet repulsion
@@ -1186,6 +1203,16 @@ export function forceDirectedLayout(nodes, edges, options = {}) {
       // Edges must never be shorter than this.
       effectiveTarget = Math.max(effectiveTarget, finalMinNodeDistance);
 
+      // ── Edge label minimum: ensure edges are long enough for their label text ──
+      // effectiveTarget is center-to-center; visible gap = effectiveTarget - r1 - r2
+      // so we need: edgeLabelWidth + padding + r1 + r2
+      let edgeLabelMinDistance = 0;
+      if (edge.name) {
+        const edgeLabelWidth = estimateEdgeLabelWidth(edge.name);
+        edgeLabelMinDistance = edgeLabelWidth + (config.edgeLabelPadding || 60) + r1 + r2;
+        effectiveTarget = Math.max(effectiveTarget, edgeLabelMinDistance);
+      }
+
       // Detect cross-group edges
       const srcGroups = nodeGroupsMap.get(edge.sourceId);
       const dstGroups = nodeGroupsMap.get(edge.destinationId);
@@ -1206,15 +1233,20 @@ export function forceDirectedLayout(nodes, edges, options = {}) {
         ? attractionStrength * edgeSpringMult * alpha * 0.3
         : attractionStrength * springMult * alpha;
 
-      // ── Fix 2 (cont.): Skip attraction when already shorter than min ───
-      // Only repel (push apart) when edge is too short; never compress.
       const dx = p2.x - p1.x;
       const dy = p2.y - p1.y;
       const currentDist = Math.sqrt(dx * dx + dy * dy);
 
       let spring;
-      if (currentDist < effectiveTarget) {
-        // Edge is too short — only push apart (repulsive spring)
+      // ── Hard enforcement: when edge is shorter than its label, push apart aggressively ──
+      if (edgeLabelMinDistance > 0 && currentDist < edgeLabelMinDistance) {
+        const deficit = edgeLabelMinDistance - currentDist;
+        const ratio = currentDist / edgeLabelMinDistance;
+        // Scale boost: the deeper the violation, the harder the push (up to 8x)
+        const boost = 3 + (1 - ratio) * 5;
+        spring = calculateSpring(p1, p2, effectiveTarget, springStrength * boost);
+      } else if (currentDist < effectiveTarget) {
+        // Edge is too short but not violating label minimum — normal push apart
         spring = calculateSpring(p1, p2, effectiveTarget, springStrength);
       } else {
         // Edge is at or beyond target — normal spring
