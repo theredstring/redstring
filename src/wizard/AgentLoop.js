@@ -692,7 +692,10 @@ export async function* runAgent(userMessage, graphState, config = {}, ensureSche
   const conversationHistory = config.conversationHistory || [];
   const MAX_HISTORY_MESSAGES = 20;
   const historyMessages = conversationHistory
-    .filter(msg => (msg.content && msg.content.trim()) || (msg.role === 'assistant' && Array.isArray(msg.tool_calls) && msg.tool_calls.length > 0)) // Include non-empty messages OR tool calls
+    .filter(msg => {
+      const hasContent = Array.isArray(msg.content) ? msg.content.length > 0 : (msg.content && msg.content.trim());
+      return hasContent || (msg.role === 'assistant' && Array.isArray(msg.tool_calls) && msg.tool_calls.length > 0);
+    })
     .slice(-MAX_HISTORY_MESSAGES) // Keep only recent history
     .map(msg => ({
       role: msg.role === 'user' ? 'user' : 'assistant',

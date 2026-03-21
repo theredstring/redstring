@@ -57,7 +57,9 @@ const CanvasConfirmDialog = ({
       ? (variant === 'danger' ? theme.accent.secondary : theme.canvas.textPrimary)
       : 'transparent',
     color: isPrimary
-      ? (theme.darkMode ? theme.canvas.textPrimary : theme.canvas.bg)
+      ? (variant === 'danger'
+        ? (theme.darkMode ? theme.canvas.textPrimary : '#EFE8E5')
+        : theme.canvas.bg)
       : theme.canvas.textPrimary
   });
 
@@ -198,10 +200,16 @@ const CanvasConfirmDialog = ({
                 e.currentTarget.style.backgroundColor = '#5A0000';
               } else {
                 e.currentTarget.style.backgroundColor = '#1a0000';
+                if (theme.darkMode) {
+                  e.currentTarget.style.color = theme.canvas.textPrimary;
+                }
               }
             }}
             onMouseLeave={(e) => {
               e.currentTarget.style.backgroundColor = variant === 'danger' ? theme.accent.secondary : theme.canvas.textPrimary;
+              if (variant !== 'danger' && theme.darkMode) {
+                e.currentTarget.style.color = theme.canvas.bg;
+              }
             }}
           >
             {confirmLabel}

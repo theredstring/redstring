@@ -1727,7 +1727,7 @@ const WIZARD_LOADING_STRINGS = [
   "Skipping stones",
   "Breathing in noosphere",
   "Producing house music",
-  "Cultivating pipe-weed",
+  "Grinding pipe-weed",
   "Polishing crystal ball",
   "Weaving web of fate",
   "Opening portals",
@@ -1985,13 +1985,16 @@ const LeftAIView = ({ compact = false,
           }
         }
       }
-      // Estimate tokens for sent attachments (metadata only — rough estimates)
-      if (msg.attachments) {
-        for (const att of msg.attachments) {
+      // Estimate tokens for sent attachments
+      const attachments = msg.metadata?.attachments;
+      if (attachments) {
+        for (const att of attachments) {
           if (att.category === 'image') {
             conversationTokens += 1000; // ~1000 tokens per image for vision models
           } else if (att.category === 'document') {
-            conversationTokens += 500; // rough estimate for doc text we no longer have
+            conversationTokens += att.extractedTextLength
+              ? Math.ceil(att.extractedTextLength / 4)
+              : 500; // fallback for messages stored before this fix
           }
         }
       }
@@ -2906,10 +2909,25 @@ const LeftAIView = ({ compact = false,
         category: a.category,
         type: a.type,
         previewUrl: a.category === 'image' ? a.previewUrl : null,
+        extractedTextLength: a.extractedText ? a.extractedText.length : 0,
       }))
       : undefined;
 
-    addMessage('user', userMessage, attachmentMeta ? { attachments: attachmentMeta } : undefined);
+    // Build metadata: attachment info + content blocks for conversation history
+    const messageMetadata = {};
+    if (attachmentMeta) messageMetadata.attachments = attachmentMeta;
+    if (sentAttachments.length > 0 && Array.isArray(messagePayload)) {
+      // Store content blocks so follow-up messages retain PDF text in history.
+      // Cap document text to 100k chars (~25k tokens) to prevent memory bloat.
+      const MAX_DOC_CHARS = 100000;
+      messageMetadata.contentBlocksForHistory = messagePayload.map(block => {
+        if (block.type === 'document_text' && block.text && block.text.length > MAX_DOC_CHARS) {
+          return { ...block, text: block.text.slice(0, MAX_DOC_CHARS) + '\n\n[...document truncated for context history...]' };
+        }
+        return block;
+      });
+    }
+    addMessage('user', userMessage, Object.keys(messageMetadata).length > 0 ? messageMetadata : undefined);
     setCurrentInput('');
     setPendingAttachments([]);
     setIsProcessing(true);
@@ -3007,7 +3025,7 @@ const LeftAIView = ({ compact = false,
       // Send recent conversation history for context memory
       const recentMessages = messages.slice(-10).map(msg => ({
         role: msg.sender === 'user' ? 'user' : msg.sender === 'ai' ? 'assistant' : 'system',
-        content: msg.content
+        content: msg.metadata?.contentBlocksForHistory || msg.content
       }));
 
       // Build rich context with actual graph data (not just ID)

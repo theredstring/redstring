@@ -58,7 +58,18 @@ const ContextMenu = ({ x, y, options = [], onClose, onSelect }) => {
               onClose();
             }}
           >
-            {option.icon && <span>{option.icon}</span>}
+            {option.icon && (
+              <div style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                width: '24px',
+                height: '24px',
+                flexShrink: 0
+              }}>
+                {option.icon}
+              </div>
+            )}
             <span>{option.label}</span>
             {option.shortcut && (
               <span style={{

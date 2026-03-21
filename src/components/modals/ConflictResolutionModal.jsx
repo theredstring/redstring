@@ -54,7 +54,7 @@ const ConflictResolutionModal = ({
     gap: 6,
     border: `2px solid ${color}`,
     backgroundColor: isPrimary ? color : 'transparent',
-    color: isPrimary ? theme.canvas.bg : color
+    color: isPrimary ? (theme.darkMode ? '#EFE8E5' : theme.canvas.bg) : color
   });
 
   const headerTitle = requiresPrimarySelection ? 'Select Primary Storage' : 'Data Conflict Detected';

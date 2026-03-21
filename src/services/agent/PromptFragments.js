@@ -93,11 +93,11 @@ When a user attaches a PDF or asks you to adapt a document into a graph, **alway
 **Process:**
 1. **Analyze structure**: Read the document and identify its organizational skeleton — major sections, themes, key entities, arguments. Note which parts are hierarchical (chapters → sections → subsections) and which are relational (entity A influences entity B).
 2. **Plan the hierarchy with \`planTask\`**: Map document structure to Redstring composition. Each major section or theme becomes a top-level node. Sub-sections become definition graph content. Cross-cutting relationships become edges at the appropriate level.
-3. **Choose the right container for each cluster**:
-   - **Thing-Groups** (groups with \`definedBy\`): When a section contains named components that define a concept — e.g., "Chapter 3: The Three Branches" → a Thing-Group with Legislature, Executive, Judiciary inside.
-   - **Groups** (no \`definedBy\`): For loose visual categories within a graph — e.g., grouping "Pro" arguments vs "Con" arguments in a debate graph.
-   - **Definition graphs** (via \`populateDefinitionGraph\`): When a concept needs its own internal world — e.g., a "Methodology" node whose definition graph contains the steps, tools, and data sources.
-4. **Build in layers**: Top-level graph first, then populate definitions, then define sub-components. Each layer should be 8-12 nodes max.
+3. **Choose the right container for each cluster** (most documents need a MIX of these — don't default everything to definition graphs):
+   - **Groups** (no \`definedBy\`): DEFAULT for visual categories. Use when nodes share a theme but the category itself isn't a concept worth decomposing — e.g., "Pro" vs "Con" arguments, "Background" vs "Original Work" sections, "Internal" vs "External" factors. Most document sections map to Groups.
+   - **Thing-Groups** (groups with \`definedBy\`): When the cluster IS a named concept AND its members define that concept — e.g., "The Three Branches" with Legislature, Executive, Judiciary inside. The group and its backing node are one thing.
+   - **Definition graphs** (via \`populateDefinitionGraph\`): ONLY when a concept has rich internal structure worth navigating separately — e.g., a "Methodology" with 5+ steps, tools, and data sources. If a node can be fully described in a sentence, it doesn't need a definition graph.
+4. **Build in layers**: Top-level graph first with Groups and Thing-Groups in the same \`createPopulatedGraph\` call, then selectively populate definition graphs for nodes that truly need decomposition. Each layer should be 8-12 nodes max.
 5. **Preserve the document's relational structure**: Don't just decompose — connect. If Chapter 2 builds on Chapter 1's conclusions, that's an edge. If the same entity appears across multiple sections, reuse the node rather than duplicating it.
 
 **Anti-patterns:**
@@ -107,9 +107,9 @@ When a user attaches a PDF or asks you to adapt a document into a graph, **alway
 - Skipping groups when the document clearly clusters concepts
 
 **Good patterns:**
-- A research paper → top-level: Introduction, Literature Review, Methodology, Results, Discussion, Conclusion. Each gets a definition graph. Cross-section edges connect findings to methods.
-- A legal document → top-level: Parties, Terms, Obligations, Remedies. Thing-Groups for each party's obligations. Edges for dependencies between clauses.
-- A textbook chapter → top-level: key concepts as nodes. Definition graphs for each concept's explanation. Groups for related concept clusters. Edges for prerequisite relationships.
+- A research paper → top-level: Introduction, Literature Review, Methodology, Results, Discussion, Conclusion. Groups to cluster "Background" sections (Intro + Lit Review) vs "Original Work" (Methodology + Results). Definition graphs only for sections with rich internal structure (Methodology's steps, Results' datasets). Cross-section edges connect findings to methods.
+- A legal document → top-level: Parties, Terms, Obligations, Remedies. Thing-Groups for each party's obligations (the group IS that party's obligation set). Groups for visual clustering (e.g., "Financial Terms" vs "Performance Terms"). Definition graphs only for complex clauses needing decomposition.
+- A textbook chapter → top-level: key concepts as nodes. Groups for related concept clusters (prerequisite vs advanced). Thing-Groups when a cluster represents the "inside" of a named concept. Definition graphs sparingly — only for concepts that truly need multi-component decomposition.
 
 ## Types & Categorization
 
@@ -342,35 +342,49 @@ Agent: I'll build out a Computer with its major subsystems, then define each one
 User: [Attaches a 20-page research paper PDF about climate change mitigation strategies]
 Turn this into a graph.
 
-Agent: I'll read through this paper and map its structure into a navigable knowledge graph — major themes at the top level, with each strategy and its components defined in layers below.
+Agent: I'll read through this paper and map its structure into a navigable knowledge graph — major themes at the top level, organized by approach type, with complex strategies defined in depth below.
 
 [calls planTask with steps:
   { description: "Analyze paper structure and identify major themes", status: "in_progress", substeps: [
     { description: "Identify major sections: Policy Frameworks, Carbon Capture, Renewable Energy, Behavioral Change, Economic Instruments", status: "in_progress" },
     { description: "Identify cross-cutting relationships between sections", status: "pending" },
-    { description: "Map which clusters warrant Thing-Groups vs definition graphs", status: "pending" }
+    { description: "Decide container type per cluster: Groups for visual org, Thing-Groups for named clusters, definition graphs for complex internals", status: "pending" }
   ]},
-  { description: "Build top-level graph with major themes", status: "pending", substeps: [
-    { description: "Create theme nodes with descriptions from paper abstracts", status: "pending" },
-    { description: "Add cross-section edges (e.g., Policy Frameworks → Enables → Economic Instruments)", status: "pending" },
-    { description: "Create Thing-Groups for natural clusters (e.g., Technology-Based vs Society-Based strategies)", status: "pending" }
+  { description: "Build top-level graph with themes, groups, and edges", status: "pending", substeps: [
+    { description: "Create theme nodes with descriptions", status: "pending" },
+    { description: "Create Groups: 'Technology-Based' (Carbon Capture, Renewable Energy) and 'Society-Based' (Behavioral Change, Policy Frameworks)", status: "pending" },
+    { description: "Create Thing-Group: 'Economic Instruments' backed by its node (Carbon Tax, Cap-and-Trade, Green Bonds, Subsidies as members)", status: "pending" },
+    { description: "Add cross-section edges (Policy Frameworks → Enables → Economic Instruments)", status: "pending" }
   ]},
-  { description: "Define each major theme's internals", status: "pending", substeps: [
+  { description: "Define complex themes that need internal decomposition", status: "pending", substeps: [
     { description: "Populate Carbon Capture definition (DAC, BECCS, Ocean Alkalinity, Geological Storage)", status: "pending" },
-    { description: "Populate Renewable Energy definition (Solar, Wind, Hydro, Nuclear, Grid Integration)", status: "pending" },
-    { description: "Populate Economic Instruments definition (Carbon Tax, Cap-and-Trade, Green Bonds, Subsidies)", status: "pending" },
-    { description: "Populate remaining themes", status: "pending" }
-  ]},
-  { description: "Add third-level definitions for complex sub-topics", status: "pending", substeps: [
-    { description: "Define DAC internals (Solid Sorbent, Liquid Solvent, Energy Requirements, Cost Projections)", status: "pending" },
-    { description: "Define Cap-and-Trade internals (Allocation, Trading, Monitoring, EU ETS Case Study)", status: "pending" }
+    { description: "Populate Renewable Energy definition (Solar, Wind, Hydro, Nuclear, Grid Integration)", status: "pending" }
   ]},
   { description: "Verify connectivity across all levels", status: "pending" }
 ]
 
-[calls sketchGraph for top-level, then builds layer by layer]
+[calls sketchGraph for top-level]
 
-Mapped the paper across 3 layers of composition — 6 major themes at the top, each defined by 5-8 components, with deep dives into Carbon Capture and Economic Instruments.
+[calls createPopulatedGraph with:
+  nodes: [Carbon Capture, Renewable Energy, Policy Frameworks, Behavioral Change, Economic Instruments, Carbon Tax, Cap-and-Trade, Green Bonds, Subsidies],
+  edges: [...cross-section relationships...],
+  groups: [
+    { name: "Technology-Based", color: "green", memberNames: ["Carbon Capture", "Renewable Energy"] },
+    { name: "Society-Based", color: "blue", memberNames: ["Behavioral Change", "Policy Frameworks"] },
+    { name: "Economic Instruments", color: "orange", memberNames: ["Carbon Tax", "Cap-and-Trade", "Green Bonds", "Subsidies"], definedBy: { name: "Economic Instruments" } }
+  ]
+]
 
-**Pattern**: For PDFs and documents, always plan first. Analyze the document's own structure (sections, arguments, entities) and translate it into compositional depth — not a flat list. Use Thing-Groups for named clusters, definition graphs for concepts that need internal structure, and edges for cross-cutting relationships. Aim for 3+ layers of hierarchy for complex documents.
+[calls populateDefinitionGraph for Carbon Capture — it has rich internal structure worth decomposing]
+[calls populateDefinitionGraph for Renewable Energy — same reason]
+[Behavioral Change and Policy Frameworks stay as simple nodes with descriptions — they don't need internal graphs]
+
+Mapped the paper across 2 groups, 1 Thing-Group, and 2 definition graphs — 9 top-level nodes organized by approach type, with Carbon Capture and Renewable Energy defined in depth.
+
+**Pattern**: For PDFs and documents, always plan first. Use the RIGHT container for each cluster:
+- **Groups** for visual organization (Technology-Based vs Society-Based — loose categories, no internal structure)
+- **Thing-Groups** for named clusters that ARE a concept (Economic Instruments — the group and its node are one thing)
+- **Definition graphs** only for concepts that truly need multi-component decomposition (Carbon Capture has 4+ distinct sub-technologies)
+- **Simple nodes with descriptions** for concepts that are self-contained (Behavioral Change doesn't need a sub-graph)
+Not everything needs a definition graph. Most clusters are better served by Groups or Thing-Groups.
 `;
