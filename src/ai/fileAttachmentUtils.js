@@ -5,8 +5,8 @@
  */
 
 export const SUPPORTED_IMAGE_TYPES = ['image/jpeg', 'image/png', 'image/gif', 'image/webp'];
-export const SUPPORTED_DOC_TYPES = ['text/plain', 'text/markdown', 'text/csv', 'application/json'];
-export const MAX_FILE_SIZE = 5 * 1024 * 1024; // 5MB per file
+export const SUPPORTED_DOC_TYPES = ['text/plain', 'text/markdown', 'text/csv', 'application/json', 'application/pdf'];
+export const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB per file (PDFs can be larger)
 
 /**
  * Determine file category from MIME type or extension.
@@ -20,7 +20,7 @@ export function getFileCategory(file) {
   // Fallback: check extension for common types browsers may not MIME-type correctly
   const ext = file.name.split('.').pop()?.toLowerCase();
   if (['jpg', 'jpeg', 'png', 'gif', 'webp'].includes(ext)) return 'image';
-  if (['txt', 'md', 'markdown', 'csv', 'json'].includes(ext)) return 'document';
+  if (['txt', 'md', 'markdown', 'csv', 'json', 'pdf'].includes(ext)) return 'document';
 
   return 'unknown';
 }
@@ -51,6 +51,30 @@ export function readFileAsText(file) {
     reader.onerror = () => reject(new Error(`Failed to read ${file.name}`));
     reader.readAsText(file);
   });
+}
+
+/**
+ * Read a PDF file and extract text from all pages.
+ * Uses pdfjs-dist loaded lazily to avoid bundle bloat.
+ * @param {File} file
+ * @returns {Promise<string>} extracted text from all pages
+ */
+export async function readPdfAsText(file) {
+  const pdfjsLib = await import('pdfjs-dist');
+  pdfjsLib.GlobalWorkerOptions.workerSrc = new URL(
+    'pdfjs-dist/build/pdf.worker.min.mjs',
+    import.meta.url
+  ).toString();
+
+  const arrayBuffer = await file.arrayBuffer();
+  const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+  const pages = [];
+  for (let i = 1; i <= pdf.numPages; i++) {
+    const page = await pdf.getPage(i);
+    const textContent = await page.getTextContent();
+    pages.push(textContent.items.map(item => item.str).join(' '));
+  }
+  return pages.join('\n\n');
 }
 
 /**

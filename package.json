@@ -88,6 +88,7 @@
     "lethargy": "^1.0.9",
     "lucide-react": "^0.454.0",
     "node-fetch": "^3.3.2",
+    "pdfjs-dist": "^5.5.207",
     "rdflib": "^2.2.37",
     "react": "^18.3.1",
     "react-contenteditable": "^3.3.7",

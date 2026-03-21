@@ -19,7 +19,7 @@ import { getTextColor } from '../../../utils/colorUtils.js';
 import { useTheme } from '../../../hooks/useTheme.js';
 import { queueThumbnailFetch } from '../../../services/imageCache.js';
 import headSvg from '../../../assets/svg/wizard/head.svg';
-import { getFileCategory, readFileAsDataUrl, readFileAsText, buildContentBlocks, SUPPORTED_IMAGE_TYPES, SUPPORTED_DOC_TYPES, MAX_FILE_SIZE } from '../../../ai/fileAttachmentUtils.js';
+import { getFileCategory, readFileAsDataUrl, readFileAsText, readPdfAsText, buildContentBlocks, SUPPORTED_IMAGE_TYPES, SUPPORTED_DOC_TYPES, MAX_FILE_SIZE } from '../../../ai/fileAttachmentUtils.js';
 
 // Shared Components
 import PanelIconButton from '../../shared/PanelIconButton.jsx';
@@ -1926,16 +1926,36 @@ const LeftAIView = ({ compact = false,
           }
         }
       }
+      // Estimate tokens for sent attachments (metadata only — rough estimates)
+      if (msg.attachments) {
+        for (const att of msg.attachments) {
+          if (att.category === 'image') {
+            conversationTokens += 1000; // ~1000 tokens per image for vision models
+          } else if (att.category === 'document') {
+            conversationTokens += 500; // rough estimate for doc text we no longer have
+          }
+        }
+      }
+    }
+
+    // Estimate tokens for pending attachments (we have full data for these)
+    let pendingTokens = 0;
+    for (const att of pendingAttachments) {
+      if (att.category === 'image') {
+        pendingTokens += 1000;
+      } else if (att.category === 'document' && att.extractedText) {
+        pendingTokens += estimateTokens(att.extractedText);
+      }
     }
 
     // Graph context estimate
     const graphContextTokens = contextItems.some(i => i.type === 'activeGraph' && i.enabled) ? 3750 : 0;
 
-    const totalUsed = systemPromptTokens + conversationTokens + graphContextTokens;
+    const totalUsed = systemPromptTokens + conversationTokens + pendingTokens + graphContextTokens;
     const percent = Math.min(Math.round((totalUsed / contextWindow) * 100), 100);
 
     return { totalUsed, contextWindow, percent, conversationTokens };
-  }, [messages, apiKeyInfo?.model, contextItems]);
+  }, [messages, apiKeyInfo?.model, contextItems, pendingAttachments]);
 
   const [fileStatus, setFileStatus] = React.useState(null);
   React.useEffect(() => {
@@ -2708,7 +2728,10 @@ const LeftAIView = ({ compact = false,
 
       if (category === 'document') {
         try {
-          attachment.extractedText = await readFileAsText(file);
+          const isPdf = file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf');
+          attachment.extractedText = isPdf
+            ? await readPdfAsText(file)
+            : await readFileAsText(file);
         } catch (e) {
           addMessage('system', `Could not read ${file.name}: ${e.message}`);
           continue;
@@ -4141,23 +4164,23 @@ const LeftAIView = ({ compact = false,
           <div className="ai-context-bar">
             {/* Attach "+" button with upward dropdown */}
             <div ref={attachMenuRef} style={{ position: 'relative', display: 'inline-flex' }}>
-              <button
-                className="ai-context-chip active ai-attach-button"
+              <PanelIconButton
+                icon={Plus}
+                size={16}
                 onClick={() => setShowAttachMenu(!showAttachMenu)}
                 title="Add files or photos"
-              >
-                <Plus size={12} />
-              </button>
+                active={showAttachMenu}
+              />
               {showAttachMenu && (
                 <div className="ai-attach-menu" style={{
                   position: 'absolute',
                   bottom: '100%',
                   left: 0,
                   marginBottom: 4,
-                  backgroundColor: theme.canvas.bg,
-                  border: `1px solid ${theme.canvas.border}`,
-                  borderRadius: 6,
-                  boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
+                  background: '#DEDADA',
+                  border: '2px solid maroon',
+                  borderRadius: 8,
+                  boxShadow: '0 4px 12px rgba(0, 0, 0, 0.3)',
                   zIndex: 1000,
                   minWidth: 180,
                   overflow: 'hidden',
@@ -4167,16 +4190,17 @@ const LeftAIView = ({ compact = false,
                     onClick={() => { fileInputRef.current?.click(); setShowAttachMenu(false); }}
                     style={{
                       display: 'flex', alignItems: 'center', gap: 8,
-                      width: '100%', padding: '7px 12px',
+                      width: '100%', padding: '8px 12px',
                       background: 'none', border: 'none',
-                      color: theme.canvas.textPrimary,
-                      fontSize: 12, fontFamily: "'EmOne', sans-serif", fontWeight: 600,
+                      color: 'maroon',
+                      fontSize: '0.85rem', fontFamily: "'EmOne', sans-serif", fontWeight: 'bold',
                       cursor: 'pointer', textAlign: 'left',
+                      transition: 'background-color 0.1s ease',
                     }}
-                    onMouseEnter={(e) => { e.currentTarget.style.background = theme.canvas.hover; }}
-                    onMouseLeave={(e) => { e.currentTarget.style.background = 'none'; }}
+                    onMouseEnter={(e) => { e.currentTarget.style.backgroundColor = 'rgba(128, 0, 0, 0.1)'; }}
+                    onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = 'transparent'; }}
                   >
-                    <Paperclip size={14} /> Add Files or Photos
+                    <Paperclip size={14} color="maroon" /> Add Files or Photos
                   </button>
                 </div>
               )}
@@ -4187,7 +4211,7 @@ const LeftAIView = ({ compact = false,
               ref={fileInputRef}
               type="file"
               multiple
-              accept="image/jpeg,image/png,image/gif,image/webp,.txt,.md,.json,.csv"
+              accept="image/jpeg,image/png,image/gif,image/webp,.txt,.md,.json,.csv,.pdf,application/pdf"
               style={{ display: 'none' }}
               onChange={(e) => {
                 if (e.target.files?.length) handleFilesSelected(Array.from(e.target.files));
