@@ -6,7 +6,7 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { expandGraph } from './expandGraph.js';
 
 vi.mock('../../ai/palettes.js', () => ({
-  resolvePaletteColor: vi.fn((palette, color) => color || '#5B6CFF'),
+  resolvePaletteColor: vi.fn((palette, color) => color || '#8B0000'),
   getRandomPalette: vi.fn(() => 'test-palette')
 }));
 
@@ -65,7 +65,7 @@ describe('expandGraph', () => {
     });
     expect(result.spec.nodes[1]).toEqual({
       name: 'Node Two',
-      color: '#5B6CFF',
+      color: '#8B0000',
       description: '',
       type: null,
       typeColor: '#A0A0A0',

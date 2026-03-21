@@ -1372,7 +1372,7 @@ async function createConceptWithPosition(targetGraphId, concept, positionData) {
   // Use the existing addNodeToGraph logic
   const prototypeId = `prototype-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
 
-  await actions.addNodePrototype(prototypeId, concept.name, concept.description || '', '#4A90E2');
+  await actions.addNodePrototype(prototypeId, concept.name, concept.description || '', '#8B0000');
   await new Promise(resolve => setTimeout(resolve, 2500)); // Wait for prototype sync
 
   await actions.addNodeInstance(targetGraphId, prototypeId, position);
@@ -2252,7 +2252,7 @@ app.post('/api/bridge/actions/add-node-prototype', async (req, res) => {
       id: prototypeId,
       name: name || 'New Prototype',
       description: description || '',
-      color: color || '#3B82F6',
+      color: color || '#8B0000',
       typeNodeId: typeNodeId || null,
       definitionGraphIds: [],
       isSpecificityChainNode: false,

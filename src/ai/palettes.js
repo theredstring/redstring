@@ -1,3 +1,5 @@
+import { NODE_DEFAULT_COLOR } from '../constants.js';
+
 export const PALETTES = {
     "rainbow": {
         name: "Rainbow",
@@ -154,7 +156,7 @@ export const getRandomColorFromPalette = (paletteName) => {
 export const resolvePaletteColor = (paletteName, colorString) => {
     if (!colorString) {
         const pName = paletteName || getRandomPalette();
-        return getRandomColorFromPalette(pName) || '#5B6CFF'; // Default fallback
+        return getRandomColorFromPalette(pName) || NODE_DEFAULT_COLOR; // Default fallback
     }
 
     // Check if it's already a hex color, tolerating missing #
@@ -181,7 +183,7 @@ export const resolvePaletteColor = (paletteName, colorString) => {
 
     // Fallback: didn't match anything, pick random from palette or any random palette
     const pName = paletteName || getRandomPalette();
-    return getRandomColorFromPalette(pName) || '#5B6CFF';
+    return getRandomColorFromPalette(pName) || NODE_DEFAULT_COLOR;
 };
 
 /**

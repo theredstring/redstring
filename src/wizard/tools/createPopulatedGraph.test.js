@@ -15,7 +15,7 @@ vi.mock('../../services/queue/Queue.js', () => ({
 }));
 
 vi.mock('../../ai/palettes.js', () => ({
-  resolvePaletteColor: vi.fn((palette, color) => color || '#5B6CFF'),
+  resolvePaletteColor: vi.fn((palette, color) => color || '#8B0000'),
   getRandomPalette: vi.fn(() => 'test-palette')
 }));
 
@@ -84,7 +84,7 @@ describe('createPopulatedGraph', () => {
       mockEnsureSchedulerStarted
     );
 
-    expect(result.spec.nodes[0].color).toBe('#5B6CFF');
+    expect(result.spec.nodes[0].color).toBe('#8B0000');
   });
 
   it('uses empty description for nodes when not provided', async () => {

@@ -372,7 +372,7 @@ function applyToolResultToStore(toolName, result, toolCallId) {
     store.applyBulkGraphUpdates(graphId, {
       nodes: [{
         name: result.name,
-        color: result.color || '#5B6CFF',
+        color: result.color || NODE_DEFAULT_COLOR,
         description: result.description || '',
         x: Math.random() * 600 + 200,
         y: Math.random() * 500 + 200

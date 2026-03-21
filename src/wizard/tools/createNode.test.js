@@ -6,7 +6,7 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { createNode } from './createNode.js';
 
 vi.mock('../../ai/palettes.js', () => ({
-  resolvePaletteColor: vi.fn((palette, color) => color || '#5B6CFF'),
+  resolvePaletteColor: vi.fn((palette, color) => color || '#8B0000'),
   getRandomPalette: vi.fn(() => 'test-palette')
 }));
 
@@ -52,7 +52,7 @@ describe('createNode', () => {
       null
     );
 
-    expect(result.color).toBe('#5B6CFF');
+    expect(result.color).toBe('#8B0000');
   });
 
   it('uses empty description when not provided', async () => {

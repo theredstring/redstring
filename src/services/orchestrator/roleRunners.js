@@ -1,3 +1,4 @@
+import { NODE_DEFAULT_COLOR } from '../../constants.js';
 import queueManager from '../queue/Queue.js';
 // Avoid calling UI store from the daemon; generate ops directly here
 import toolValidator from '../toolValidator.js';
@@ -18,7 +19,7 @@ function toTitleCase(str) {
 
 // Generate a unique color for a connection type based on its name (deterministic hash)
 function generateConnectionColor(connectionName) {
-  if (!connectionName) return '#5B6CFF'; // Fallback blue
+  if (!connectionName) return NODE_DEFAULT_COLOR; // Fallback blue
 
   // Simple hash to get a consistent hue for the same name
   let hash = 0;
@@ -287,7 +288,7 @@ export async function runExecutorOnce() {
             id: prototypeId,
             name,
             description: description || '',
-            color: color || '#5B6CFF',
+            color: color || NODE_DEFAULT_COLOR,
             typeNodeId: null,
             definitionGraphIds: []
           }
@@ -312,7 +313,7 @@ export async function runExecutorOnce() {
           id: prototypeId,
           name: validation.sanitized.name,
           description: validation.sanitized.description || '',
-          color: validation.sanitized.color || '#5B6CFF',
+          color: validation.sanitized.color || NODE_DEFAULT_COLOR,
           typeNodeId: validation.sanitized.type_node_id || null,
           definitionGraphIds: []
         }
@@ -387,7 +388,7 @@ export async function runExecutorOnce() {
               id: prototypeId,
               name,
               description: node.description || '',
-              color: node.color || '#5B6CFF',
+              color: node.color || NODE_DEFAULT_COLOR,
               typeNodeId: null,
               definitionGraphIds: []
             }
@@ -861,7 +862,7 @@ export async function runExecutorOnce() {
               id: prototypeId,
               name: nodeName,
               description: node.description || '',
-              color: node.color || '#5B6CFF',
+              color: node.color || NODE_DEFAULT_COLOR,
               typeNodeId: null,
               definitionGraphIds: []
             }
@@ -1186,7 +1187,7 @@ export async function runExecutorOnce() {
               id: prototypeId,
               name,
               description: node.description || '',
-              color: node.color || '#5B6CFF',
+              color: node.color || NODE_DEFAULT_COLOR,
               typeNodeId: null,
               definitionGraphIds: []
             }

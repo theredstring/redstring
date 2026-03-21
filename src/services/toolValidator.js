@@ -5,6 +5,7 @@
 
 import { v4 as uuidv4 } from 'uuid';
 import { debugLogSync } from '../utils/debugLogger.js';
+import { NODE_DEFAULT_COLOR } from '../constants.js';
 
 class ToolValidator {
   constructor() {
@@ -274,7 +275,7 @@ class ToolValidator {
                 properties: {
                   name: { type: 'string', minLength: 1 },
                   description: { type: 'string', default: '' },
-                  color: { type: 'string', pattern: '^#[0-9A-Fa-f]{6}$', default: '#5B6CFF' }
+                  color: { type: 'string', pattern: '^#[0-9A-Fa-f]{6}$', default: NODE_DEFAULT_COLOR }
                 }
               },
               description: 'Array of nodes to create'
@@ -364,7 +365,7 @@ class ToolValidator {
                 properties: {
                   name: { type: 'string', minLength: 1 },
                   description: { type: 'string', default: '' },
-                  color: { type: 'string', pattern: '^#[0-9A-Fa-f]{6}$', default: '#5B6CFF' }
+                  color: { type: 'string', pattern: '^#[0-9A-Fa-f]{6}$', default: NODE_DEFAULT_COLOR }
                 }
               },
               description: 'Array of nodes to create'
@@ -436,7 +437,7 @@ class ToolValidator {
                 properties: {
                   name: { type: 'string', minLength: 1 },
                   description: { type: 'string', default: '' },
-                  color: { type: 'string', pattern: '^#[0-9A-Fa-f]{6}$', default: '#5B6CFF' }
+                  color: { type: 'string', pattern: '^#[0-9A-Fa-f]{6}$', default: NODE_DEFAULT_COLOR }
                 }
               },
               description: 'Array of nodes to create'
@@ -548,7 +549,7 @@ class ToolValidator {
         name: { type: 'string' },
         graph_id: { type: 'string' },
         description: { type: 'string', default: '' },
-        color: { type: 'string', default: '#5B6CFF' },
+        color: { type: 'string', default: NODE_DEFAULT_COLOR },
         x: { type: 'number', default: 0 },
         y: { type: 'number', default: 0 }
       }

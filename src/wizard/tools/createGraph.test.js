@@ -6,7 +6,7 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { createGraph } from './createGraph.js';
 
 vi.mock('../../ai/palettes.js', () => ({
-  resolvePaletteColor: vi.fn((palette, color) => color || '#5B6CFF'),
+  resolvePaletteColor: vi.fn((palette, color) => color || '#8B0000'),
   getRandomPalette: vi.fn(() => 'test-palette')
 }));
 

@@ -10,6 +10,7 @@ import { callLLM, streamLLM } from './LLMClient.js';
 import { buildContext, buildPersistentContextHeader, buildPlanContext } from './ContextBuilder.js';
 import { executeTool, getToolDefinitions } from './tools/index.js';
 import { WIZARD_SYSTEM_PROMPT } from '../services/agent/WizardPrompt.js';
+import { NODE_DEFAULT_COLOR } from '../constants.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -99,7 +100,7 @@ function applyBulkSpecToInternalState(graphState, targetGraph, spec) {
     graphState.nodePrototypes.push({
       id: protoId,
       name: n.name,
-      color: n.color || '#5B6CFF',
+      color: n.color || NODE_DEFAULT_COLOR,
       description: n.description || '',
       typeNodeId: n.type ? typeMap.get(n.type.toLowerCase().trim()) : null,
       definitionGraphIds: []

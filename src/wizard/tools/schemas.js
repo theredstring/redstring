@@ -1,3 +1,10 @@
+import { PALETTES } from '../../ai/palettes.js';
+
+// Build a compact palette listing for tool descriptions
+const PALETTE_LIST = Object.entries(PALETTES).map(([key, p]) => `"${key}" (${Object.keys(p.colors).join(', ')})`).join('; ');
+const PALETTE_DESC = `Palette name. Available: ${PALETTE_LIST}. If omitted, a random palette is chosen.`;
+const COLOR_DESC = 'Color name from the chosen palette (e.g., "red", "tan", "navy-blue"). No hex codes.';
+
 /**
  * Get tool definitions for LLM
  * @returns {Array} Tool definitions
@@ -10,11 +17,11 @@ export function getToolDefinitions() {
             parameters: {
                 type: 'object',
                 properties: {
-                    palette: { type: 'string', description: 'Palette name. If omitted, a random palette is chosen.' },
+                    palette: { type: 'string', description: PALETTE_DESC },
                     name: {
                         type: 'string', description: 'The node\'s display name'
                     },
-                    color: { type: 'string', description: 'Palette color (no hex).' },
+                    color: { type: 'string', description: COLOR_DESC },
                     description: { type: 'string', description: 'What this node represents' },
                     targetGraphId: { type: 'string', description: 'Graph to target (default: active).' },
                     typeNodeId: { type: 'string', description: 'Prototype ID of type node. Use setNodeType for name-based assignment.' },
@@ -164,7 +171,7 @@ export function getToolDefinitions() {
             parameters: {
                 type: 'object',
                 properties: {
-                    palette: { type: 'string', description: 'Palette name.' },
+                    palette: { type: 'string', description: PALETTE_DESC },
                     nodes: {
                         type: 'array',
                         description: 'Array of nodes to create',
@@ -172,7 +179,7 @@ export function getToolDefinitions() {
                             type: 'object',
                             properties: {
                                 name: { type: 'string' },
-                                color: { type: 'string', description: 'Palette color (no hex).' },
+                                color: { type: 'string', description: COLOR_DESC },
                                 description: { type: 'string' },
                                 type: { type: 'string', description: 'Optional: name of the category/type this node falls under (e.g., "Mammal" for a "Dog" node).' },
                                 typeColor: { type: 'string', description: 'Optional: color for the type node, supports palettes. Use muted colors.' },
@@ -258,9 +265,9 @@ export function getToolDefinitions() {
             parameters: {
                 type: 'object',
                 properties: {
-                    palette: { type: 'string', description: 'Palette name.' },
+                    palette: { type: 'string', description: PALETTE_DESC },
                     name: { type: 'string', description: 'Name for the new graph workspace.' },
-                    color: { type: 'string', description: 'Optional color for the node that defines this graph, from the chosen palette. DO NOT use hex codes.' },
+                    color: { type: 'string', description: COLOR_DESC + ' Applied to the defining node of this graph.' },
                     description: { type: 'string', description: 'High-level bio of this graph/concept — becomes the defining node\'s description visible in the parent graph. Required.' },
                     nodes: {
                         type: 'array',
@@ -269,7 +276,7 @@ export function getToolDefinitions() {
                             type: 'object',
                             properties: {
                                 name: { type: 'string', description: 'Node name - use Title Case (e.g., "Romeo Montague", not "romeo_montague")' },
-                                color: { type: 'string', description: 'Palette color (no hex).' },
+                                color: { type: 'string', description: COLOR_DESC },
                                 description: { type: 'string', description: 'Very brief summary of what this node represents' },
                                 type: { type: 'string', description: 'Highly recommended: name of the category/type this node falls under (e.g., "Character" or "Location").' },
                                 typeColor: { type: 'string', description: 'Optional: color for the type node, supports palettes. Use muted colors for types.' },
@@ -296,7 +303,7 @@ export function getToolDefinitions() {
                                     description: 'Defines the connection type. Use Title Case for name.',
                                     properties: {
                                         name: { type: 'string', description: 'Connection type name in Title Case (e.g., "Loves", "Parent Of", "Orbits")' },
-                                        color: { type: 'string', description: 'Palette color.' },
+                                        color: { type: 'string', description: COLOR_DESC },
                                         description: { type: 'string', description: 'What this connection means' }
                                     },
                                     required: ['name']
@@ -312,7 +319,7 @@ export function getToolDefinitions() {
                             type: 'object',
                             properties: {
                                 name: { type: 'string', description: 'Group name (e.g., "House Montague", "Engineering Team")' },
-                                color: { type: 'string', description: 'Palette color.' },
+                                color: { type: 'string', description: COLOR_DESC },
                                 memberNames: { type: 'array', items: { type: 'string' }, description: 'Names of nodes that belong to this group - must match names in the nodes array' },
                                 definedBy: {
                                     type: 'object',
@@ -346,7 +353,7 @@ export function getToolDefinitions() {
                         items: { type: 'string' },
                         description: 'Names of existing nodes to include in the group'
                     },
-                    color: { type: 'string', description: 'Palette color.' },
+                    color: { type: 'string', description: COLOR_DESC },
                     targetGraphId: { type: 'string', description: 'Graph to target (default: active).' }
                 },
                 required: ['name', 'memberNames']
@@ -424,7 +431,7 @@ export function getToolDefinitions() {
                 type: 'object',
                 properties: {
                     nodeName: { type: 'string', description: 'Name of the node to add a definition graph to' },
-                    palette: { type: 'string', description: 'Palette name.' },
+                    palette: { type: 'string', description: PALETTE_DESC },
                     nodes: {
                         type: 'array',
                         description: 'Array of nodes to create inside the definition graph',
@@ -432,7 +439,7 @@ export function getToolDefinitions() {
                             type: 'object',
                             properties: {
                                 name: { type: 'string' },
-                                color: { type: 'string', description: 'Palette color.' },
+                                color: { type: 'string', description: COLOR_DESC },
                                 description: { type: 'string', description: 'Very brief summary of what this node represents' },
                                 type: { type: 'string', description: 'Optional: name of the category/type this node falls under (e.g., "Mammal" for a "Dog" node).' },
                                 typeColor: { type: 'string', description: 'Optional: color for the type node, supports palettes. Use muted colors.' },
@@ -460,7 +467,7 @@ export function getToolDefinitions() {
                                     description: 'Defines what this connection type means.',
                                     properties: {
                                         name: { type: 'string', description: 'Connection type name in Title Case (e.g., "Loves", "Parent Of", "Orbits")' },
-                                        color: { type: 'string', description: 'Palette color.' },
+                                        color: { type: 'string', description: COLOR_DESC },
                                         description: { type: 'string', description: 'What this connection means' }
                                     },
                                     required: ['name']
@@ -476,7 +483,7 @@ export function getToolDefinitions() {
                             type: 'object',
                             properties: {
                                 name: { type: 'string', description: 'Group name (e.g., "Engineering Team")' },
-                                color: { type: 'string', description: 'Palette color.' },
+                                color: { type: 'string', description: COLOR_DESC },
                                 memberNames: { type: 'array', items: { type: 'string' }, description: 'Names of nodes that belong to this group - must EXACTLY match names in the nodes array' }
                             },
                             required: ['name', 'memberNames']
@@ -558,7 +565,7 @@ export function getToolDefinitions() {
                     },
                     typeColor: { type: 'string', description: 'Color for the type node if it needs to be created (palette name). Use a muted/neutral tone for category nodes.' },
                     typeDescription: { type: 'string', description: 'Description for the type node if it needs to be created.' },
-                    palette: { type: 'string', description: 'Palette name for typeColor resolution.' },
+                    palette: { type: 'string', description: PALETTE_DESC.replace(' If omitted, a random palette is chosen.', '') },
                     clearType: { type: 'boolean', description: 'If true, removes the type from the node. Omit typeName when clearing.' }
                 },
                 required: ['nodeName']
@@ -732,7 +739,7 @@ export function getToolDefinitions() {
                     },
                     targetGraphId: { type: 'string', description: 'Graph to target (default: active).' },
                     enrich: { type: 'boolean', description: 'Auto-enrich from Wikipedia (default: true).' },
-                    palette: { type: 'string', description: 'Palette name.' }
+                    palette: { type: 'string', description: PALETTE_DESC }
                 },
                 required: ['entities']
             }
@@ -753,7 +760,7 @@ export function getToolDefinitions() {
                     },
                     targetGraphId: { type: 'string', description: 'Graph to target (default: active).' },
                     enrich: { type: 'boolean', description: 'Auto-enrich from Wikipedia (default: true).' },
-                    palette: { type: 'string', description: 'Palette name.' }
+                    palette: { type: 'string', description: PALETTE_DESC }
                 },
                 required: ['seedEntity']
             }
@@ -778,7 +785,7 @@ export function getToolDefinitions() {
                 type: 'object',
                 properties: {
                     name: { type: 'string', description: 'Graph/node name this sketch is for' },
-                    palette: { type: 'string', description: 'Color palette to use for expansion' },
+                    palette: { type: 'string', description: PALETTE_DESC },
                     nodes: {
                         type: 'array',
                         description: 'Node names. Optionally add [Type] suffix: ["Engine Block", "Pistons [Component]"]',

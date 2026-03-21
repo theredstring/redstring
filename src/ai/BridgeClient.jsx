@@ -4,6 +4,7 @@ import { bridgeEventSource, bridgeFetch } from '../services/bridgeConfig.js';
 import { navigateOnGraphSwitch } from '../services/canvasNavigationService.js';
 import { applyLayout, FORCE_LAYOUT_DEFAULTS } from '../services/graphLayoutService.js';
 import { getNodeDimensions } from '../utils';
+import { NODE_DEFAULT_COLOR } from '../constants.js';
 
 const MAX_LAYOUT_NODES = 400;
 
@@ -845,7 +846,7 @@ const BridgeClient = () => {
                       id: prototypeId,
                       name: p.name,
                       description: p.description || '',
-                      color: p.color || '#3B82F6',
+                      color: p.color || NODE_DEFAULT_COLOR,
                       typeNodeId: p.typeNodeId || null,
                       definitionGraphIds: p.definitionGraphIds || []
                     });
@@ -869,7 +870,7 @@ const BridgeClient = () => {
                         id: op.prototypeData.id,
                         name: op.prototypeData.name || 'Unnamed',
                         description: op.prototypeData.description || '',
-                        color: op.prototypeData.color || '#5B6CFF',
+                        color: op.prototypeData.color || NODE_DEFAULT_COLOR,
                         typeNodeId: op.prototypeData.typeNodeId || null,
                         definitionGraphIds: op.prototypeData.definitionGraphIds || []
                       });
@@ -1336,7 +1337,7 @@ const BridgeClient = () => {
           nodePrototypes: Array.from(state.nodePrototypes.entries()).map(([id, prototype]) => ({
             id,
             name: prototype.name,
-            color: prototype.color || '#5B6CFF',
+            color: prototype.color || NODE_DEFAULT_COLOR,
             description: prototype.description || '',
             definitionGraphIds: Array.isArray(prototype.definitionGraphIds) ? [...prototype.definitionGraphIds] : [],
             typeNodeId: prototype.typeNodeId || null,
