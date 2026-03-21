@@ -7472,7 +7472,7 @@ function NodeCanvas() {
       alert('Active graph has no nodes to layout yet.');
       return;
     }
-    if (hydratedNodes.length > 50) {
+    if (hydratedNodes.length > 200) {
       console.log(`[AutoLayout] Skipping: graph too large (${hydratedNodes.length} nodes)`);
       return;
     }

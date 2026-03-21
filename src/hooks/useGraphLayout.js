@@ -144,8 +144,8 @@ export const useGraphLayout = ({
         }
 
         // Skip auto-layout for very large graphs to prevent UI freeze
-        if (nodes.length > 50) {
-            console.log(`[useGraphLayout] Skipping auto-layout: graph too large (${nodes.length} nodes, threshold is 50)`);
+        if (nodes.length > 200) {
+            console.log(`[useGraphLayout] Skipping auto-layout: graph too large (${nodes.length} nodes, threshold is 200)`);
             return;
         }
 

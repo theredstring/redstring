@@ -84,6 +84,7 @@ export function useForceSimulation({
   const animationRef = useRef(null);
   const simulationState = useRef({
     velocities: new Map(),
+    prevDirections: new Map(),
     alpha: 1.0,
     iteration: 0
   });
@@ -150,6 +151,7 @@ export function useForceSimulation({
     setIsRunning(false);
     simulationState.current.alpha = 1.0;
     simulationState.current.iteration = 0;
+    simulationState.current.prevDirections = new Map();
     const velocities = new Map();
     const nodes = getNodes();
     nodes.forEach(node => {
@@ -228,7 +230,7 @@ export function useForceSimulation({
           vy: (Math.random() - 0.5) * 2
         });
       });
-      simulationState.current = { velocities, alpha: 1.0, iteration: 0 };
+      simulationState.current = { velocities, prevDirections: new Map(), alpha: 1.0, iteration: 0 };
       lastDisplayUpdate.current = 0;
       setDisplayIteration(0);
       setDisplayAlpha(1.0);
@@ -379,7 +381,7 @@ export function useForceSimulation({
       let edgeLinkTarget = scaledLinkDistance;
       if (edge.name) {
         // 0.7 for bold text, plus stroke buffer
-        const labelWidth = edge.name.length * 24 * 1.1 + Math.max(2, 24 * 0.25) * 2;
+        const labelWidth = edge.name.length * 24 * 1 + Math.max(2, 24 * 0.25) * 2;
         const sourceRadius = getRadius(source);
         const targetRadius = getRadius(target);
         const labelMin = labelWidth + 60 + sourceRadius + targetRadius;
@@ -408,7 +410,7 @@ export function useForceSimulation({
       if (!targetIsDragged) { velTarget.vx -= fx; velTarget.vy -= fy; }
     });
 
-    // Edge avoidance force
+    // Edge avoidance force — coherent accumulation to prevent trapping
     if (edgeAvoidance > 0) {
       const nodesMap = new Map(nodes.map(n => [n.id, n]));
       nodes.forEach(node => {
@@ -416,6 +418,10 @@ export function useForceSimulation({
         const vel = velocities.get(node.id);
         if (!vel) return;
         const nodeRadius = getRadius(node);
+
+        // Accumulate forces from all edges before applying
+        let totalFx = 0, totalFy = 0;
+        let totalMagnitude = 0;
 
         edges.forEach(edge => {
           if (edge.sourceId === node.id || edge.destinationId === node.id) return;
@@ -442,10 +448,30 @@ export function useForceSimulation({
             const ratio = dist / avoidanceRadius;
             const intensity = Math.pow(1 - ratio, 2);
             const avoidForce = intensity * edgeAvoidance * state.alpha * 500;
-            vel.vx += (dx / dist) * avoidForce;
-            vel.vy += (dy / dist) * avoidForce;
+            totalFx += (dx / dist) * avoidForce;
+            totalFy += (dy / dist) * avoidForce;
+            totalMagnitude += avoidForce;
           }
         });
+
+        if (totalMagnitude > 0) {
+          const netMagnitude = Math.sqrt(totalFx * totalFx + totalFy * totalFy);
+          // Coherence: 1.0 = all edge forces aligned, ~0 = forces cancel (node trapped)
+          const coherence = netMagnitude / totalMagnitude;
+          // Reduce force when trapped (low coherence) to prevent oscillation
+          const coherenceFactor = 0.15 + 0.85 * coherence;
+          vel.vx += totalFx * coherenceFactor;
+          vel.vy += totalFy * coherenceFactor;
+
+          // When trapped (low coherence), add tangential nudge to help escape
+          if (coherence < 0.3 && netMagnitude > 0.01) {
+            const tangentScale = (1 - coherence) * totalMagnitude * 0.1;
+            const nx = totalFx / netMagnitude;
+            const ny = totalFy / netMagnitude;
+            vel.vx += -ny * tangentScale;
+            vel.vy += nx * tangentScale;
+          }
+        }
       });
     }
 
@@ -603,6 +629,42 @@ export function useForceSimulation({
         });
       });
     }
+
+    // Oscillation detection + velocity clamping
+    const maxVelocity = scaledLinkDistance * 0.25;
+    nodes.forEach(node => {
+      if (draggedIds.has(node.id)) return;
+      const vel = velocities.get(node.id);
+      if (!vel) return;
+
+      // Track velocity direction flips to detect oscillation
+      const signX = vel.vx >= 0 ? 1 : -1;
+      const signY = vel.vy >= 0 ? 1 : -1;
+      const prev = state.prevDirections.get(node.id);
+      if (prev) {
+        const flipped = (prev.signX !== signX) || (prev.signY !== signY);
+        prev.flipCount = flipped
+          ? Math.min(prev.flipCount + 1, 10)
+          : Math.max(prev.flipCount - 0.5, 0);
+        // Extra damping for oscillating nodes
+        if (prev.flipCount > 3) {
+          const dampFactor = Math.max(0.15, 1 - (prev.flipCount / 10) * 0.7);
+          vel.vx *= dampFactor;
+          vel.vy *= dampFactor;
+        }
+        prev.signX = signX;
+        prev.signY = signY;
+      } else {
+        state.prevDirections.set(node.id, { signX, signY, flipCount: 0 });
+      }
+
+      // Hard velocity clamp
+      const speed = Math.sqrt(vel.vx * vel.vx + vel.vy * vel.vy);
+      if (speed > maxVelocity) {
+        vel.vx = (vel.vx / speed) * maxVelocity;
+        vel.vy = (vel.vy / speed) * maxVelocity;
+      }
+    });
 
     // Update positions
     const updates = [];
