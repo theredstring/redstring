@@ -193,30 +193,6 @@ function EdgeRenderer({
         />
       )}
 
-      {/* Connection name text */}
-      {showConnectionNames && connectionName && (
-        <g>
-          <text
-            x={useCurve ? parallelPath.apexX : midX}
-            y={useCurve ? parallelPath.apexY : midY}
-            fill={getTextColor(edgeColor || '#800000', theme.darkMode)}
-            fontSize={connectionFontSize}
-            fontWeight="bold"
-            textAnchor="middle"
-            dominantBaseline="middle"
-            transform={`rotate(${angle > 90 || angle < -90 ? angle + 180 : angle}, ${useCurve ? parallelPath.apexX : midX}, ${useCurve ? parallelPath.apexY : midY})`}
-            stroke={getInvertedTextColor(edgeColor || '#800000', theme.darkMode)}
-            strokeWidth={Math.max(2, connectionFontSize * 0.25)}
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            paintOrder="stroke fill"
-            style={{ pointerEvents: 'none', fontFamily: "'EmOne', sans-serif" }}
-          >
-            {connectionName}
-          </text>
-        </g>
-      )}
-
       {/* Invisible click area for edge selection */}
       {enableAutoRouting && (routingStyle === 'manhattan' || routingStyle === 'clean') ? (
         <path
@@ -372,6 +348,30 @@ function EdgeRenderer({
             </g>
           )}
         </>
+      )}
+
+      {/* Connection name text — rendered last so it's on top of arrows */}
+      {showConnectionNames && connectionName && (
+        <g>
+          <text
+            x={useCurve ? parallelPath.apexX : midX}
+            y={useCurve ? parallelPath.apexY : midY}
+            fill={getTextColor(edgeColor || '#800000', theme.darkMode)}
+            fontSize={connectionFontSize}
+            fontWeight="bold"
+            textAnchor="middle"
+            dominantBaseline="middle"
+            transform={`rotate(${angle > 90 || angle < -90 ? angle + 180 : angle}, ${useCurve ? parallelPath.apexX : midX}, ${useCurve ? parallelPath.apexY : midY})`}
+            stroke={getInvertedTextColor(edgeColor || '#800000', theme.darkMode)}
+            strokeWidth={Math.max(2, connectionFontSize * 0.25)}
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            paintOrder="stroke fill"
+            style={{ pointerEvents: 'none', fontFamily: "'EmOne', sans-serif" }}
+          >
+            {connectionName}
+          </text>
+        </g>
       )}
     </g>
   );

@@ -9600,156 +9600,6 @@ function NodeCanvas() {
                               />
                             )}
 
-                            {/* Connection name text - only show when enabled */}
-                            {showConnectionNames && (() => {
-                              const connectionFontSize = 24 * (textSettings?.fontSize || 1);
-                              let midX;
-                              let midY;
-                              let angle;
-                              if (enableAutoRouting && routingStyle === 'manhattan') {
-                                const horizontalLen = Math.abs(endX - startX);
-                                const verticalLen = Math.abs(endY - startY);
-                                if (horizontalLen >= verticalLen) {
-                                  midX = (startX + endX) / 2;
-                                  midY = startY;
-                                  angle = 0;
-                                } else {
-                                  midX = endX;
-                                  midY = (startY + endY) / 2;
-                                  angle = 90;
-                                }
-                              } else {
-                                // Use utility-calculated apex for curves, midpoint for lines
-                                // Use labelPlacementPath (visible segment) for accurate centering
-                                midX = labelPlacementPath.apexX;
-                                midY = labelPlacementPath.apexY;
-                                angle = labelPlacementPath.labelAngle;
-                              }
-
-                              // Determine connection name to display
-                              let connectionName = 'Connection';
-                              if (edge.definitionNodeIds && edge.definitionNodeIds.length > 0) {
-                                const definitionNode = nodePrototypesMap.get(edge.definitionNodeIds[0]);
-                                if (definitionNode) {
-                                  connectionName = definitionNode.name || 'Connection';
-                                }
-                              } else if (edge.typeNodeId) {
-                                const edgePrototype = edgePrototypesMap.get(edge.typeNodeId);
-                                if (edgePrototype) {
-                                  connectionName = edgePrototype.name || 'Connection';
-                                }
-                              }
-
-                              // Smart label placement based on routing style
-                              if (enableAutoRouting && routingStyle === 'manhattan') {
-                                // Always try cached placement first to prevent flicker (except during dragging)
-                                const cached = placedLabelsRef.current.get(edge.id);
-                                if (cached && cached.position && !draggingNodeInfo) {
-                                  const stabilized = stabilizeLabelPosition(edge.id, cached.position.x, cached.position.y, cached.position.angle || 0);
-                                  midX = stabilized.x;
-                                  midY = stabilized.y;
-                                  angle = stabilized.angle || 0;
-                                } else {
-                                  const pathPoints = generateManhattanRoutingPath(edge, sourceNode, destNode, sNodeDims, eNodeDims, manhattanBends);
-                                  const placement = chooseLabelPlacement(pathPoints, connectionName, nodes, visibleNodeIds, baseDimsById, placedLabelsRef.current, connectionFontSize, edge.id, selectedInstanceIds);
-                                  if (placement) {
-                                    midX = placement.x;
-                                    midY = placement.y;
-                                    angle = placement.angle || 0;
-
-                                    // Register this label placement
-                                    const labelRect = {
-                                      minX: midX - estimateTextWidth(connectionName, connectionFontSize) / 2,
-                                      maxX: midX + estimateTextWidth(connectionName, connectionFontSize) / 2,
-                                      minY: midY - connectionFontSize * 1.1 / 2,
-                                      maxY: midY + connectionFontSize * 1.1 / 2,
-                                    };
-                                    const stabilized = stabilizeLabelPosition(edge.id, midX, midY, angle);
-                                    placedLabelsRef.current.set(edge.id, {
-                                      rect: labelRect,
-                                      position: { x: stabilized.x, y: stabilized.y, angle: stabilized.angle }
-                                    });
-                                  } else {
-                                    // Fallback to simple Manhattan logic
-                                    const horizontalLen = Math.abs(endX - startX);
-                                    const verticalLen = Math.abs(endY - startY);
-                                    if (horizontalLen >= verticalLen) {
-                                      midX = (startX + endX) / 2;
-                                      midY = startY;
-                                      angle = 0;
-                                    } else {
-                                      midX = endX;
-                                      midY = (startY + endY) / 2;
-                                      angle = 90;
-                                    }
-                                  }
-                                }
-                              } else if (enableAutoRouting && routingStyle === 'clean') {
-                                // Always try cached placement first to prevent flicker (except during dragging)
-                                const cached = placedLabelsRef.current.get(edge.id);
-                                if (cached && cached.position && !draggingNodeInfo) {
-                                  const stabilized = stabilizeLabelPosition(edge.id, cached.position.x, cached.position.y, cached.position.angle || 0);
-                                  midX = stabilized.x;
-                                  midY = stabilized.y;
-                                  angle = stabilized.angle || 0;
-                                } else {
-                                  const pathPoints = generateCleanRoutingPath(edge, sourceNode, destNode, sNodeDims, eNodeDims, cleanLaneOffsets, cleanLaneSpacing);
-                                  const placement = chooseLabelPlacement(pathPoints, connectionName, nodes, visibleNodeIds, baseDimsById, placedLabelsRef.current, connectionFontSize, edge.id, selectedInstanceIds);
-                                  if (placement) {
-                                    midX = placement.x;
-                                    midY = placement.y;
-                                    angle = placement.angle || 0;
-
-                                    // Register this label placement
-                                    const labelRect = {
-                                      minX: midX - estimateTextWidth(connectionName, connectionFontSize) / 2,
-                                      maxX: midX + estimateTextWidth(connectionName, connectionFontSize) / 2,
-                                      minY: midY - connectionFontSize * 1.1 / 2,
-                                      maxY: midY + connectionFontSize * 1.1 / 2,
-                                    };
-                                    const stabilized = stabilizeLabelPosition(edge.id, midX, midY, angle);
-                                    placedLabelsRef.current.set(edge.id, {
-                                      rect: labelRect,
-                                      position: { x: stabilized.x, y: stabilized.y, angle: stabilized.angle }
-                                    });
-                                  } else {
-                                    // Fallback to midpoint
-                                    midX = (x1 + x2) / 2;
-                                    midY = (y1 + y2) / 2;
-                                    angle = 0;
-                                  }
-                                }
-                              }
-                              // For straight/curved routing, midX/midY/angle are already set from parallelPath above
-
-                              // Adjust angle to keep text readable (never upside down)
-                              const adjustedAngle = (angle > 90 || angle < -90) ? angle + 180 : angle;
-
-                              return (
-                                <g>
-                                  {/* Canvas-colored text creating a "hole" effect in the connection */}
-                                  <text
-                                    x={midX}
-                                    y={midY}
-                                    fill={getTextColor(edgeColor, theme.darkMode)}
-                                    fontSize={connectionFontSize}
-                                    fontWeight="bold"
-                                    textAnchor="middle"
-                                    dominantBaseline="middle"
-                                    transform={`rotate(${adjustedAngle}, ${midX}, ${midY})`}
-                                    stroke={getInvertedTextColor(edgeColor, theme.darkMode)}
-                                    strokeWidth="6"
-                                    strokeLinecap="round"
-                                    strokeLinejoin="round"
-                                    paintOrder="stroke fill"
-                                    style={{ pointerEvents: 'none', fontFamily: "'EmOne', sans-serif" }}
-                                  >
-                                    {connectionName}
-                                  </text>
-                                </g>
-                              );
-                            })()}
-
                             {/* Invisible click area for edge selection - matches hover detection */}
                             {(enableAutoRouting && (routingStyle === 'manhattan' || routingStyle === 'clean')) ? (
                               <path
@@ -10416,6 +10266,156 @@ function NodeCanvas() {
                                 </>
                               );
                             })()}
+
+                            {/* Connection name text — rendered after arrows so labels appear on top */}
+                            {showConnectionNames && (() => {
+                              const connectionFontSize = 24 * (textSettings?.fontSize || 1);
+                              let midX;
+                              let midY;
+                              let angle;
+                              if (enableAutoRouting && routingStyle === 'manhattan') {
+                                const horizontalLen = Math.abs(endX - startX);
+                                const verticalLen = Math.abs(endY - startY);
+                                if (horizontalLen >= verticalLen) {
+                                  midX = (startX + endX) / 2;
+                                  midY = startY;
+                                  angle = 0;
+                                } else {
+                                  midX = endX;
+                                  midY = (startY + endY) / 2;
+                                  angle = 90;
+                                }
+                              } else {
+                                // Use utility-calculated apex for curves, midpoint for lines
+                                // Use labelPlacementPath (visible segment) for accurate centering
+                                midX = labelPlacementPath.apexX;
+                                midY = labelPlacementPath.apexY;
+                                angle = labelPlacementPath.labelAngle;
+                              }
+
+                              // Determine connection name to display
+                              let connectionName = 'Connection';
+                              if (edge.definitionNodeIds && edge.definitionNodeIds.length > 0) {
+                                const definitionNode = nodePrototypesMap.get(edge.definitionNodeIds[0]);
+                                if (definitionNode) {
+                                  connectionName = definitionNode.name || 'Connection';
+                                }
+                              } else if (edge.typeNodeId) {
+                                const edgePrototype = edgePrototypesMap.get(edge.typeNodeId);
+                                if (edgePrototype) {
+                                  connectionName = edgePrototype.name || 'Connection';
+                                }
+                              }
+
+                              // Smart label placement based on routing style
+                              if (enableAutoRouting && routingStyle === 'manhattan') {
+                                // Always try cached placement first to prevent flicker (except during dragging)
+                                const cached = placedLabelsRef.current.get(edge.id);
+                                if (cached && cached.position && !draggingNodeInfo) {
+                                  const stabilized = stabilizeLabelPosition(edge.id, cached.position.x, cached.position.y, cached.position.angle || 0);
+                                  midX = stabilized.x;
+                                  midY = stabilized.y;
+                                  angle = stabilized.angle || 0;
+                                } else {
+                                  const pathPoints = generateManhattanRoutingPath(edge, sourceNode, destNode, sNodeDims, eNodeDims, manhattanBends);
+                                  const placement = chooseLabelPlacement(pathPoints, connectionName, nodes, visibleNodeIds, baseDimsById, placedLabelsRef.current, connectionFontSize, edge.id, selectedInstanceIds);
+                                  if (placement) {
+                                    midX = placement.x;
+                                    midY = placement.y;
+                                    angle = placement.angle || 0;
+
+                                    // Register this label placement
+                                    const labelRect = {
+                                      minX: midX - estimateTextWidth(connectionName, connectionFontSize) / 2,
+                                      maxX: midX + estimateTextWidth(connectionName, connectionFontSize) / 2,
+                                      minY: midY - connectionFontSize * 1.1 / 2,
+                                      maxY: midY + connectionFontSize * 1.1 / 2,
+                                    };
+                                    const stabilized = stabilizeLabelPosition(edge.id, midX, midY, angle);
+                                    placedLabelsRef.current.set(edge.id, {
+                                      rect: labelRect,
+                                      position: { x: stabilized.x, y: stabilized.y, angle: stabilized.angle }
+                                    });
+                                  } else {
+                                    // Fallback to simple Manhattan logic
+                                    const horizontalLen = Math.abs(endX - startX);
+                                    const verticalLen = Math.abs(endY - startY);
+                                    if (horizontalLen >= verticalLen) {
+                                      midX = (startX + endX) / 2;
+                                      midY = startY;
+                                      angle = 0;
+                                    } else {
+                                      midX = endX;
+                                      midY = (startY + endY) / 2;
+                                      angle = 90;
+                                    }
+                                  }
+                                }
+                              } else if (enableAutoRouting && routingStyle === 'clean') {
+                                // Always try cached placement first to prevent flicker (except during dragging)
+                                const cached = placedLabelsRef.current.get(edge.id);
+                                if (cached && cached.position && !draggingNodeInfo) {
+                                  const stabilized = stabilizeLabelPosition(edge.id, cached.position.x, cached.position.y, cached.position.angle || 0);
+                                  midX = stabilized.x;
+                                  midY = stabilized.y;
+                                  angle = stabilized.angle || 0;
+                                } else {
+                                  const pathPoints = generateCleanRoutingPath(edge, sourceNode, destNode, sNodeDims, eNodeDims, cleanLaneOffsets, cleanLaneSpacing);
+                                  const placement = chooseLabelPlacement(pathPoints, connectionName, nodes, visibleNodeIds, baseDimsById, placedLabelsRef.current, connectionFontSize, edge.id, selectedInstanceIds);
+                                  if (placement) {
+                                    midX = placement.x;
+                                    midY = placement.y;
+                                    angle = placement.angle || 0;
+
+                                    // Register this label placement
+                                    const labelRect = {
+                                      minX: midX - estimateTextWidth(connectionName, connectionFontSize) / 2,
+                                      maxX: midX + estimateTextWidth(connectionName, connectionFontSize) / 2,
+                                      minY: midY - connectionFontSize * 1.1 / 2,
+                                      maxY: midY + connectionFontSize * 1.1 / 2,
+                                    };
+                                    const stabilized = stabilizeLabelPosition(edge.id, midX, midY, angle);
+                                    placedLabelsRef.current.set(edge.id, {
+                                      rect: labelRect,
+                                      position: { x: stabilized.x, y: stabilized.y, angle: stabilized.angle }
+                                    });
+                                  } else {
+                                    // Fallback to midpoint
+                                    midX = (x1 + x2) / 2;
+                                    midY = (y1 + y2) / 2;
+                                    angle = 0;
+                                  }
+                                }
+                              }
+                              // For straight/curved routing, midX/midY/angle are already set from parallelPath above
+
+                              // Adjust angle to keep text readable (never upside down)
+                              const adjustedAngle = (angle > 90 || angle < -90) ? angle + 180 : angle;
+
+                              return (
+                                <g>
+                                  {/* Canvas-colored text creating a "hole" effect in the connection */}
+                                  <text
+                                    x={midX}
+                                    y={midY}
+                                    fill={getTextColor(edgeColor, theme.darkMode)}
+                                    fontSize={connectionFontSize}
+                                    fontWeight="bold"
+                                    textAnchor="middle"
+                                    dominantBaseline="middle"
+                                    transform={`rotate(${adjustedAngle}, ${midX}, ${midY})`}
+                                    stroke={getInvertedTextColor(edgeColor, theme.darkMode)}
+                                    strokeWidth="6"
+                                    strokeLinecap="round"
+                                    strokeLinejoin="round"
+                                    paintOrder="stroke fill"
+                                    style={{ pointerEvents: 'none', fontFamily: "'EmOne', sans-serif" }}
+                                  >
+                                    {connectionName}
+                                  </text>
+                                </g>
+                              );
+                            })()}
                           </g>
                         );
                       })}
@@ -10883,156 +10883,6 @@ function NodeCanvas() {
                                 style={{ transition: 'stroke 0.2s ease' }}
                               />
                             )}
-
-                            {/* Connection name text - only show when enabled */}
-                            {showConnectionNames && (() => {
-                              const connectionFontSize = 24 * (textSettings?.fontSize || 1);
-                              let midX;
-                              let midY;
-                              let angle;
-                              if (enableAutoRouting && routingStyle === 'manhattan') {
-                                const horizontalLen = Math.abs(endX - startX);
-                                const verticalLen = Math.abs(endY - startY);
-                                if (horizontalLen >= verticalLen) {
-                                  midX = (startX + endX) / 2;
-                                  midY = startY;
-                                  angle = 0;
-                                } else {
-                                  midX = endX;
-                                  midY = (startY + endY) / 2;
-                                  angle = 90;
-                                }
-                              } else {
-                                // Use utility-calculated apex for curves, midpoint for lines
-                                // Use labelPlacementPath (visible segment) for accurate centering
-                                midX = labelPlacementPath.apexX;
-                                midY = labelPlacementPath.apexY;
-                                angle = labelPlacementPath.labelAngle;
-                              }
-
-                              // Determine connection name to display
-                              let connectionName = 'Connection';
-                              if (edge.definitionNodeIds && edge.definitionNodeIds.length > 0) {
-                                const definitionNode = nodePrototypesMap.get(edge.definitionNodeIds[0]);
-                                if (definitionNode) {
-                                  connectionName = definitionNode.name || 'Connection';
-                                }
-                              } else if (edge.typeNodeId) {
-                                const edgePrototype = edgePrototypesMap.get(edge.typeNodeId);
-                                if (edgePrototype) {
-                                  connectionName = edgePrototype.name || 'Connection';
-                                }
-                              }
-
-                              // Smart label placement based on routing style
-                              if (enableAutoRouting && routingStyle === 'manhattan') {
-                                // Always try cached placement first to prevent flicker (except during dragging)
-                                const cached = placedLabelsRef.current.get(edge.id);
-                                if (cached && cached.position && !draggingNodeInfo) {
-                                  const stabilized = stabilizeLabelPosition(edge.id, cached.position.x, cached.position.y, cached.position.angle || 0);
-                                  midX = stabilized.x;
-                                  midY = stabilized.y;
-                                  angle = stabilized.angle || 0;
-                                } else {
-                                  const pathPoints = generateManhattanRoutingPath(edge, sourceNode, destNode, sNodeDims, eNodeDims, manhattanBends);
-                                  const placement = chooseLabelPlacement(pathPoints, connectionName, nodes, visibleNodeIds, baseDimsById, placedLabelsRef.current, connectionFontSize, edge.id, selectedInstanceIds);
-                                  if (placement) {
-                                    midX = placement.x;
-                                    midY = placement.y;
-                                    angle = placement.angle || 0;
-
-                                    // Register this label placement
-                                    const labelRect = {
-                                      minX: midX - estimateTextWidth(connectionName, connectionFontSize) / 2,
-                                      maxX: midX + estimateTextWidth(connectionName, connectionFontSize) / 2,
-                                      minY: midY - connectionFontSize * 1.1 / 2,
-                                      maxY: midY + connectionFontSize * 1.1 / 2,
-                                    };
-                                    const stabilized = stabilizeLabelPosition(edge.id, midX, midY, angle);
-                                    placedLabelsRef.current.set(edge.id, {
-                                      rect: labelRect,
-                                      position: { x: stabilized.x, y: stabilized.y, angle: stabilized.angle }
-                                    });
-                                  } else {
-                                    // Fallback to simple Manhattan logic
-                                    const horizontalLen = Math.abs(endX - startX);
-                                    const verticalLen = Math.abs(endY - startY);
-                                    if (horizontalLen >= verticalLen) {
-                                      midX = (startX + endX) / 2;
-                                      midY = startY;
-                                      angle = 0;
-                                    } else {
-                                      midX = endX;
-                                      midY = (startY + endY) / 2;
-                                      angle = 90;
-                                    }
-                                  }
-                                }
-                              } else if (enableAutoRouting && routingStyle === 'clean') {
-                                // Always try cached placement first to prevent flicker (except during dragging)
-                                const cached = placedLabelsRef.current.get(edge.id);
-                                if (cached && cached.position && !draggingNodeInfo) {
-                                  const stabilized = stabilizeLabelPosition(edge.id, cached.position.x, cached.position.y, cached.position.angle || 0);
-                                  midX = stabilized.x;
-                                  midY = stabilized.y;
-                                  angle = stabilized.angle || 0;
-                                } else {
-                                  const pathPoints = generateCleanRoutingPath(edge, sourceNode, destNode, sNodeDims, eNodeDims, cleanLaneOffsets, cleanLaneSpacing);
-                                  const placement = chooseLabelPlacement(pathPoints, connectionName, nodes, visibleNodeIds, baseDimsById, placedLabelsRef.current, connectionFontSize, edge.id, selectedInstanceIds);
-                                  if (placement) {
-                                    midX = placement.x;
-                                    midY = placement.y;
-                                    angle = placement.angle || 0;
-
-                                    // Register this label placement
-                                    const labelRect = {
-                                      minX: midX - estimateTextWidth(connectionName, connectionFontSize) / 2,
-                                      maxX: midX + estimateTextWidth(connectionName, connectionFontSize) / 2,
-                                      minY: midY - connectionFontSize * 1.1 / 2,
-                                      maxY: midY + connectionFontSize * 1.1 / 2,
-                                    };
-                                    const stabilized = stabilizeLabelPosition(edge.id, midX, midY, angle);
-                                    placedLabelsRef.current.set(edge.id, {
-                                      rect: labelRect,
-                                      position: { x: stabilized.x, y: stabilized.y, angle: stabilized.angle }
-                                    });
-                                  } else {
-                                    // Fallback to midpoint
-                                    midX = (x1 + x2) / 2;
-                                    midY = (y1 + y2) / 2;
-                                    angle = 0;
-                                  }
-                                }
-                              }
-                              // For straight/curved routing, midX/midY/angle are already set from parallelPath above
-
-                              // Adjust angle to keep text readable (never upside down)
-                              const adjustedAngle = (angle > 90 || angle < -90) ? angle + 180 : angle;
-
-                              return (
-                                <g>
-                                  {/* Canvas-colored text creating a "hole" effect in the connection */}
-                                  <text
-                                    x={midX}
-                                    y={midY}
-                                    fill={getTextColor(edgeColor, theme.darkMode)}
-                                    fontSize={connectionFontSize}
-                                    fontWeight="bold"
-                                    textAnchor="middle"
-                                    dominantBaseline="middle"
-                                    transform={`rotate(${adjustedAngle}, ${midX}, ${midY})`}
-                                    stroke={getInvertedTextColor(edgeColor, theme.darkMode)}
-                                    strokeWidth="6"
-                                    strokeLinecap="round"
-                                    strokeLinejoin="round"
-                                    paintOrder="stroke fill"
-                                    style={{ pointerEvents: 'none', fontFamily: "'EmOne', sans-serif" }}
-                                  >
-                                    {connectionName}
-                                  </text>
-                                </g>
-                              );
-                            })()}
 
                             {/* Invisible click area for edge selection - matches hover detection */}
                             {(enableAutoRouting && (routingStyle === 'manhattan' || routingStyle === 'clean')) ? (
@@ -11563,6 +11413,156 @@ function NodeCanvas() {
                                     </>
                                   )}
                                 </>
+                              );
+                            })()}
+
+                            {/* Connection name text — rendered after arrows so labels appear on top */}
+                            {showConnectionNames && (() => {
+                              const connectionFontSize = 24 * (textSettings?.fontSize || 1);
+                              let midX;
+                              let midY;
+                              let angle;
+                              if (enableAutoRouting && routingStyle === 'manhattan') {
+                                const horizontalLen = Math.abs(endX - startX);
+                                const verticalLen = Math.abs(endY - startY);
+                                if (horizontalLen >= verticalLen) {
+                                  midX = (startX + endX) / 2;
+                                  midY = startY;
+                                  angle = 0;
+                                } else {
+                                  midX = endX;
+                                  midY = (startY + endY) / 2;
+                                  angle = 90;
+                                }
+                              } else {
+                                // Use utility-calculated apex for curves, midpoint for lines
+                                // Use labelPlacementPath (visible segment) for accurate centering
+                                midX = labelPlacementPath.apexX;
+                                midY = labelPlacementPath.apexY;
+                                angle = labelPlacementPath.labelAngle;
+                              }
+
+                              // Determine connection name to display
+                              let connectionName = 'Connection';
+                              if (edge.definitionNodeIds && edge.definitionNodeIds.length > 0) {
+                                const definitionNode = nodePrototypesMap.get(edge.definitionNodeIds[0]);
+                                if (definitionNode) {
+                                  connectionName = definitionNode.name || 'Connection';
+                                }
+                              } else if (edge.typeNodeId) {
+                                const edgePrototype = edgePrototypesMap.get(edge.typeNodeId);
+                                if (edgePrototype) {
+                                  connectionName = edgePrototype.name || 'Connection';
+                                }
+                              }
+
+                              // Smart label placement based on routing style
+                              if (enableAutoRouting && routingStyle === 'manhattan') {
+                                // Always try cached placement first to prevent flicker (except during dragging)
+                                const cached = placedLabelsRef.current.get(edge.id);
+                                if (cached && cached.position && !draggingNodeInfo) {
+                                  const stabilized = stabilizeLabelPosition(edge.id, cached.position.x, cached.position.y, cached.position.angle || 0);
+                                  midX = stabilized.x;
+                                  midY = stabilized.y;
+                                  angle = stabilized.angle || 0;
+                                } else {
+                                  const pathPoints = generateManhattanRoutingPath(edge, sourceNode, destNode, sNodeDims, eNodeDims, manhattanBends);
+                                  const placement = chooseLabelPlacement(pathPoints, connectionName, nodes, visibleNodeIds, baseDimsById, placedLabelsRef.current, connectionFontSize, edge.id, selectedInstanceIds);
+                                  if (placement) {
+                                    midX = placement.x;
+                                    midY = placement.y;
+                                    angle = placement.angle || 0;
+
+                                    // Register this label placement
+                                    const labelRect = {
+                                      minX: midX - estimateTextWidth(connectionName, connectionFontSize) / 2,
+                                      maxX: midX + estimateTextWidth(connectionName, connectionFontSize) / 2,
+                                      minY: midY - connectionFontSize * 1.1 / 2,
+                                      maxY: midY + connectionFontSize * 1.1 / 2,
+                                    };
+                                    const stabilized = stabilizeLabelPosition(edge.id, midX, midY, angle);
+                                    placedLabelsRef.current.set(edge.id, {
+                                      rect: labelRect,
+                                      position: { x: stabilized.x, y: stabilized.y, angle: stabilized.angle }
+                                    });
+                                  } else {
+                                    // Fallback to simple Manhattan logic
+                                    const horizontalLen = Math.abs(endX - startX);
+                                    const verticalLen = Math.abs(endY - startY);
+                                    if (horizontalLen >= verticalLen) {
+                                      midX = (startX + endX) / 2;
+                                      midY = startY;
+                                      angle = 0;
+                                    } else {
+                                      midX = endX;
+                                      midY = (startY + endY) / 2;
+                                      angle = 90;
+                                    }
+                                  }
+                                }
+                              } else if (enableAutoRouting && routingStyle === 'clean') {
+                                // Always try cached placement first to prevent flicker (except during dragging)
+                                const cached = placedLabelsRef.current.get(edge.id);
+                                if (cached && cached.position && !draggingNodeInfo) {
+                                  const stabilized = stabilizeLabelPosition(edge.id, cached.position.x, cached.position.y, cached.position.angle || 0);
+                                  midX = stabilized.x;
+                                  midY = stabilized.y;
+                                  angle = stabilized.angle || 0;
+                                } else {
+                                  const pathPoints = generateCleanRoutingPath(edge, sourceNode, destNode, sNodeDims, eNodeDims, cleanLaneOffsets, cleanLaneSpacing);
+                                  const placement = chooseLabelPlacement(pathPoints, connectionName, nodes, visibleNodeIds, baseDimsById, placedLabelsRef.current, connectionFontSize, edge.id, selectedInstanceIds);
+                                  if (placement) {
+                                    midX = placement.x;
+                                    midY = placement.y;
+                                    angle = placement.angle || 0;
+
+                                    // Register this label placement
+                                    const labelRect = {
+                                      minX: midX - estimateTextWidth(connectionName, connectionFontSize) / 2,
+                                      maxX: midX + estimateTextWidth(connectionName, connectionFontSize) / 2,
+                                      minY: midY - connectionFontSize * 1.1 / 2,
+                                      maxY: midY + connectionFontSize * 1.1 / 2,
+                                    };
+                                    const stabilized = stabilizeLabelPosition(edge.id, midX, midY, angle);
+                                    placedLabelsRef.current.set(edge.id, {
+                                      rect: labelRect,
+                                      position: { x: stabilized.x, y: stabilized.y, angle: stabilized.angle }
+                                    });
+                                  } else {
+                                    // Fallback to midpoint
+                                    midX = (x1 + x2) / 2;
+                                    midY = (y1 + y2) / 2;
+                                    angle = 0;
+                                  }
+                                }
+                              }
+                              // For straight/curved routing, midX/midY/angle are already set from parallelPath above
+
+                              // Adjust angle to keep text readable (never upside down)
+                              const adjustedAngle = (angle > 90 || angle < -90) ? angle + 180 : angle;
+
+                              return (
+                                <g>
+                                  {/* Canvas-colored text creating a "hole" effect in the connection */}
+                                  <text
+                                    x={midX}
+                                    y={midY}
+                                    fill={getTextColor(edgeColor, theme.darkMode)}
+                                    fontSize={connectionFontSize}
+                                    fontWeight="bold"
+                                    textAnchor="middle"
+                                    dominantBaseline="middle"
+                                    transform={`rotate(${adjustedAngle}, ${midX}, ${midY})`}
+                                    stroke={getInvertedTextColor(edgeColor, theme.darkMode)}
+                                    strokeWidth="6"
+                                    strokeLinecap="round"
+                                    strokeLinejoin="round"
+                                    paintOrder="stroke fill"
+                                    style={{ pointerEvents: 'none', fontFamily: "'EmOne', sans-serif" }}
+                                  >
+                                    {connectionName}
+                                  </text>
+                                </g>
                               );
                             })()}
                           </g>
