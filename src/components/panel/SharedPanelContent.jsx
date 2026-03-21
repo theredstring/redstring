@@ -1650,6 +1650,105 @@ const SharedPanelContent = ({
         </div>
       </CollapsibleSection>
 
+      {/* Dividing line above Image section */}
+      <StandardDivider margin="20px 0" />
+
+      {/* Image Section — always visible; shows image or empty state */}
+      {(() => {
+        const hasImage = !!(nodeData.imageSrc || nodeData.semanticMetadata?.wikipediaOriginalImage || nodeData.semanticMetadata?.wikipediaThumbnail);
+        return (
+          <CollapsibleSection
+            title={(
+              <span style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                <span>Image</span>
+              </span>
+            )}
+            rightAdornment={hasImage ? (
+              <button
+                onClick={handleImageDelete}
+                onMouseDown={(e) => e.stopPropagation()}
+                title="Delete image"
+                style={{
+                  background: 'none',
+                  border: 'none',
+                  padding: '4px 8px',
+                  cursor: 'pointer',
+                  color: 'inherit',
+                  display: 'flex',
+                  alignItems: 'center',
+                  marginRight: '0',
+                  outline: 'none'
+                }}
+              >
+                <Trash2 size={14} />
+              </button>
+            ) : undefined}
+            defaultExpanded={true}
+          >
+            {hasImage && (
+              <div style={{
+                width: '100%',
+                overflow: 'hidden',
+                borderRadius: '6px'
+              }}>
+                <img
+                  src={nodeData.imageSrc || (nodeData.semanticMetadata?.wikipediaThumbnail
+                    ? nodeData.semanticMetadata.wikipediaThumbnail.replace(/\/(\d+)px-/, '/1200px-')
+                    : nodeData.semanticMetadata?.wikipediaOriginalImage)}
+                  alt={nodeData.name}
+                  loading="lazy"
+                  style={{
+                    display: 'block',
+                    width: '100%',
+                    height: 'auto',
+                    objectFit: 'contain',
+                    borderRadius: '6px'
+                  }}
+                />
+              </div>
+            )}
+            {!hasImage && (
+              <div style={{
+                marginRight: '15px',
+                color: theme.canvas.textSecondary,
+                fontSize: '0.9rem',
+                fontFamily: "'EmOne', sans-serif",
+                textAlign: 'left',
+                padding: '20px 0 20px 15px'
+              }}>
+                No image uploaded.<br />Upload or pull from Wikipedia.
+              </div>
+            )}
+            {!hasImage && (
+              <button
+                onClick={() => wikiSearchRef.current?.()}
+                disabled={wikiIsSearching}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                  padding: '6px 10px',
+                  border: `1px solid ${accentColor}`,
+                  borderRadius: '6px',
+                  background: 'transparent',
+                  color: accentColor,
+                  fontFamily: "'EmOne', sans-serif",
+                  fontSize: '11px',
+                  cursor: wikiIsSearching ? 'wait' : 'pointer',
+                  fontWeight: 'bold',
+                  textAlign: 'left',
+                  marginLeft: '15px',
+                  marginBottom: '10px'
+                }}
+              >
+                <BookOpen size={12} />
+                {wikiIsSearching ? 'Searching Wikipedia...' : 'Pull from Wikipedia'}
+              </button>
+            )}
+          </CollapsibleSection>
+        );
+      })()}
+
       {/* Dividing line above Origin section */}
       <StandardDivider margin="20px 0" />
 
@@ -1908,105 +2007,6 @@ const SharedPanelContent = ({
           </div>
         )}
       </CollapsibleSection>
-
-      {/* Dividing line above Image section */}
-      <StandardDivider margin="20px 0" />
-
-      {/* Image Section — always visible; shows image or empty state */}
-      {(() => {
-        const hasImage = !!(nodeData.imageSrc || nodeData.semanticMetadata?.wikipediaOriginalImage || nodeData.semanticMetadata?.wikipediaThumbnail);
-        return (
-          <CollapsibleSection
-            title={(
-              <span style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                <span>Image</span>
-              </span>
-            )}
-            rightAdornment={hasImage ? (
-              <button
-                onClick={handleImageDelete}
-                onMouseDown={(e) => e.stopPropagation()}
-                title="Delete image"
-                style={{
-                  background: 'none',
-                  border: 'none',
-                  padding: '4px 8px',
-                  cursor: 'pointer',
-                  color: 'inherit',
-                  display: 'flex',
-                  alignItems: 'center',
-                  marginRight: '0',
-                  outline: 'none'
-                }}
-              >
-                <Trash2 size={14} />
-              </button>
-            ) : undefined}
-            defaultExpanded={true}
-          >
-            {hasImage && (
-              <div style={{
-                width: '100%',
-                overflow: 'hidden',
-                borderRadius: '6px'
-              }}>
-                <img
-                  src={nodeData.imageSrc || (nodeData.semanticMetadata?.wikipediaThumbnail
-                    ? nodeData.semanticMetadata.wikipediaThumbnail.replace(/\/(\d+)px-/, '/1200px-')
-                    : nodeData.semanticMetadata?.wikipediaOriginalImage)}
-                  alt={nodeData.name}
-                  loading="lazy"
-                  style={{
-                    display: 'block',
-                    width: '100%',
-                    height: 'auto',
-                    objectFit: 'contain',
-                    borderRadius: '6px'
-                  }}
-                />
-              </div>
-            )}
-            {!hasImage && (
-              <div style={{
-                marginRight: '15px',
-                color: theme.canvas.textSecondary,
-                fontSize: '0.9rem',
-                fontFamily: "'EmOne', sans-serif",
-                textAlign: 'left',
-                padding: '20px 0 20px 15px'
-              }}>
-                No image uploaded.<br />Upload or pull from Wikipedia.
-              </div>
-            )}
-            {!hasImage && (
-              <button
-                onClick={() => wikiSearchRef.current?.()}
-                disabled={wikiIsSearching}
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '6px',
-                  padding: '6px 10px',
-                  border: `1px solid ${accentColor}`,
-                  borderRadius: '6px',
-                  background: 'transparent',
-                  color: accentColor,
-                  fontFamily: "'EmOne', sans-serif",
-                  fontSize: '11px',
-                  cursor: wikiIsSearching ? 'wait' : 'pointer',
-                  fontWeight: 'bold',
-                  textAlign: 'left',
-                  marginLeft: '15px',
-                  marginBottom: '10px'
-                }}
-              >
-                <BookOpen size={12} />
-                {wikiIsSearching ? 'Searching Wikipedia...' : 'Pull from Wikipedia'}
-              </button>
-            )}
-          </CollapsibleSection>
-        );
-      })()}
 
       {/* Dividing line above Components section */}
       <StandardDivider margin="20px 0" />

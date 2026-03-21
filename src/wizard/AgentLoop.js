@@ -599,7 +599,12 @@ function updateGraphState(graphState, _toolName, _args, result) {
         protos.splice(secondaryIdx, 1);
       }
     }
-    console.error('[updateGraphState] mergeGraphs:', pairs.length, 'pairs merged');
+    // Remove source graph from predictive state (it gets deleted in the real store)
+    const sourceIdx = (graphState.graphs || []).findIndex(g => g.id === result.sourceGraphId);
+    if (sourceIdx >= 0) {
+      graphState.graphs.splice(sourceIdx, 1);
+    }
+    console.error('[updateGraphState] mergeGraphs:', pairs.length, 'pairs merged, source graph removed');
   }
 }
 

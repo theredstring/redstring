@@ -1541,16 +1541,23 @@ function applyToolResultToStore(toolName, result, toolCallId) {
     return;
 
   } else if (result.action === 'mergeGraphs') {
-    // Handle mergeGraphs — merge each duplicate pair
+    // Handle mergeGraphs — merge duplicate prototypes, move all content to target, delete source
     const pairs = result.pairs || [];
-    console.log('[Wizard] Applying mergeGraphs to store:', pairs.length, 'pairs');
+    const sourceGraphId = result.sourceGraphId;
+    const targetGraphId = result.targetGraphId;
+    console.log('[Wizard] Applying mergeGraphs to store:', pairs.length, 'pairs, source:', sourceGraphId, '→ target:', targetGraphId);
 
+    if (!sourceGraphId || !targetGraphId) {
+      console.error('[Wizard] mergeGraphs: Missing sourceGraphId or targetGraphId');
+      return;
+    }
+
+    // Step 1: Merge duplicate node prototypes
     let mergedCount = 0;
     for (const pair of pairs) {
       const primaryName = (pair.primary?.name || '').toLowerCase().trim();
       const secondaryName = (pair.secondary?.name || '').toLowerCase().trim();
 
-      // Resolve by name — take LAST match
       let primaryId = null;
       let secondaryId = null;
       for (const [pid, proto] of store.nodePrototypes) {
@@ -1568,7 +1575,54 @@ function applyToolResultToStore(toolName, result, toolCallId) {
       store.mergeNodePrototypes(primaryId, secondaryId);
       mergedCount++;
     }
-    console.log('[Wizard] Successfully merged', mergedCount, 'of', pairs.length, 'node pairs');
+    console.log('[Wizard] Merged', mergedCount, 'duplicate prototype pairs');
+
+    // Step 2: Move instances and edges from source to target via applyBulkGraphUpdates
+    // Re-read store after prototype merges (state may have changed)
+    const freshStore = useGraphStore.getState();
+    const sourceGraph = freshStore.graphs.get(sourceGraphId);
+    if (!sourceGraph) {
+      console.error('[Wizard] mergeGraphs: Source graph not found after merge:', sourceGraphId);
+      return;
+    }
+
+    const nodes = [];
+    const edges = [];
+    const instanceIdToName = new Map();
+
+    // Build nodes from source graph instances
+    for (const [instId, inst] of sourceGraph.instances) {
+      const proto = freshStore.nodePrototypes.get(inst.prototypeId);
+      if (!proto) continue;
+      instanceIdToName.set(instId, proto.name);
+      nodes.push({ name: proto.name, color: proto.color });
+    }
+
+    // Build edges from source graph
+    for (const edgeId of (sourceGraph.edgeIds || [])) {
+      const edge = freshStore.edges.get(edgeId);
+      if (!edge) continue;
+      const sourceName = instanceIdToName.get(edge.sourceId);
+      const targetName = instanceIdToName.get(edge.destinationId);
+      if (!sourceName || !targetName) continue;
+      edges.push({
+        source: sourceName,
+        target: targetName,
+        type: edge.name || edge.type || '',
+        directionality: edge.directionality?.arrowsToward?.has(edge.destinationId)
+          ? 'unidirectional' : 'none'
+      });
+    }
+
+    console.log('[Wizard] Moving', nodes.length, 'nodes and', edges.length, 'edges from source to target');
+
+    // Apply to target graph (applyBulkGraphUpdates deduplicates by name)
+    freshStore.applyBulkGraphUpdates(targetGraphId, { nodes, edges });
+
+    // Step 3: Delete source graph
+    freshStore.deleteGraph(sourceGraphId);
+
+    console.log('[Wizard] Successfully merged graphs. Source graph deleted.');
     return;
 
   } else if (result.goalId || toolName === 'updateGroup' || toolName === 'deleteGroup') {
