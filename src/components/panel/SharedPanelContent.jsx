@@ -13,6 +13,7 @@ import StandardDivider from '../StandardDivider.jsx';
 import PanelIconButton from '../shared/PanelIconButton.jsx';
 import { fastEnrichFromSemanticWeb } from '../../services/semanticWebQuery.js';
 import useGraphStore from "../../store/graphStore.jsx";
+import { useImageCache } from '../../services/imageCache.js';
 
 // Helper function to determine the correct article ("a" or "an")
 const getArticleFor = (word) => {
@@ -1367,6 +1368,11 @@ const SharedPanelContent = ({
     };
 
     onNodeUpdate(updates);
+
+    // Clear from image cache to update canvas immediately
+    if (nodeData?.id) {
+      useImageCache.getState().clearImage(nodeData.id);
+    }
   };
 
   if (!nodeData) {

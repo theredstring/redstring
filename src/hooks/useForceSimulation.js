@@ -82,13 +82,17 @@ export function useForceSimulation({
 
   // --- Refs ---
   const animationRef = useRef(null);
+  const nodesByIdRef = useRef(new Map());
   const simulationState = useRef({
     velocities: new Map(),
     prevDirections: new Map(),
     alpha: 1.0,
-    iteration: 0
+    iteration: 0,
+    frameCount: 0
   });
   const lastDisplayUpdate = useRef(0);
+  const lastJitterGraphRef = useRef(null);
+  const jitterAppliedRef = useRef(false);
 
   // --- Derived values ---
   const baseNodeSeparationMultiplier = FORCE_LAYOUT_DEFAULTS.nodeSeparationMultiplier || 1.25;
@@ -151,6 +155,7 @@ export function useForceSimulation({
     setIsRunning(false);
     simulationState.current.alpha = 1.0;
     simulationState.current.iteration = 0;
+    simulationState.current.frameCount = 0;
     simulationState.current.prevDirections = new Map();
     const velocities = new Map();
     const nodes = getNodes();
@@ -195,34 +200,46 @@ export function useForceSimulation({
   // --- Velocity initialization + jitter detection ---
   useEffect(() => {
     if (enabled) {
-      const nodes = getNodes();
-      let hasStackedNodes = false;
-      if (nodes.length > 1) {
-        for (let i = 0; i < nodes.length - 1; i++) {
-          for (let j = i + 1; j < nodes.length; j++) {
-            const dx = nodes[i].x - nodes[j].x;
-            const dy = nodes[i].y - nodes[j].y;
-            if (Math.sqrt(dx * dx + dy * dy) < 50) {
-              hasStackedNodes = true;
-              break;
+      // Check if we need to apply jitter (only once per graph activation)
+      const graphKey = `${graphId}-${enabled}`;
+      const needsJitter = lastJitterGraphRef.current !== graphKey;
+
+      if (needsJitter) {
+        const nodes = getNodes();
+        let hasStackedNodes = false;
+        if (nodes.length > 1) {
+          for (let i = 0; i < nodes.length - 1; i++) {
+            for (let j = i + 1; j < nodes.length; j++) {
+              const dx = nodes[i].x - nodes[j].x;
+              const dy = nodes[i].y - nodes[j].y;
+              if (Math.sqrt(dx * dx + dy * dy) < 50) {
+                hasStackedNodes = true;
+                break;
+              }
             }
+            if (hasStackedNodes) break;
           }
-          if (hasStackedNodes) break;
         }
+
+        if (hasStackedNodes) {
+          console.error('[ForceSim] Detected stacked nodes, applying jitter');
+          const jitterRadius = 100;
+          const updates = nodes.map(node => ({
+            instanceId: node.id,
+            x: node.x + (Math.random() - 0.5) * jitterRadius * 2,
+            y: node.y + (Math.random() - 0.5) * jitterRadius * 2
+          }));
+          storeActions.updateMultipleNodeInstancePositions(graphId, updates, { skipSave: true });
+          onPositionsUpdated?.();
+        }
+
+        // Mark jitter as applied for this graph activation
+        lastJitterGraphRef.current = graphKey;
+        jitterAppliedRef.current = true;
       }
 
-      if (hasStackedNodes) {
-        console.log('[ForceSim] Detected stacked nodes, applying jitter');
-        const jitterRadius = 100;
-        const updates = nodes.map(node => ({
-          instanceId: node.id,
-          x: node.x + (Math.random() - 0.5) * jitterRadius * 2,
-          y: node.y + (Math.random() - 0.5) * jitterRadius * 2
-        }));
-        storeActions.updateMultipleNodeInstancePositions(graphId, updates, { skipSave: true });
-        onPositionsUpdated?.();
-      }
-
+      // Initialize velocities
+      const nodes = getNodes();
       const velocities = new Map();
       nodes.forEach(node => {
         velocities.set(node.id, {
@@ -230,12 +247,21 @@ export function useForceSimulation({
           vy: (Math.random() - 0.5) * 2
         });
       });
-      simulationState.current = { velocities, prevDirections: new Map(), alpha: 1.0, iteration: 0 };
+      simulationState.current = {
+        velocities,
+        prevDirections: new Map(),
+        alpha: 1.0,
+        iteration: 0,
+        frameCount: 0
+      };
       lastDisplayUpdate.current = 0;
       setDisplayIteration(0);
       setDisplayAlpha(1.0);
+    } else {
+      // Reset jitter flag when disabled
+      jitterAppliedRef.current = false;
     }
-  }, [enabled, getNodes, graphId, storeActions]);
+  }, [enabled, graphId, storeActions, onPositionsUpdated]);
 
   // --- Sync external scale multiplier ---
   useEffect(() => {
@@ -277,9 +303,12 @@ export function useForceSimulation({
       onSimulationComplete?.();
       return;
     }
+    state.frameCount = (state.frameCount || 0) + 1;
 
     const nodes = getNodes();
-    const nodesById = new Map(nodes.map(node => [node.id, node]));
+    const nodesById = nodesByIdRef.current;
+    nodesById.clear();
+    nodes.forEach(node => nodesById.set(node.id, node));
     const draggedIds = getDraggedNodeIds();
     const nodeRadiusCache = new Map();
     const getRadius = (node) => {
@@ -320,7 +349,7 @@ export function useForceSimulation({
         const dy = nodeB.y - nodeA.y;
         const distSq = Math.max(dx * dx + dy * dy, 1);
         const dist = Math.sqrt(distSq) || 0.0001;
-        const maxRepulsionDist = scaledLinkDistance * 3;
+        const maxRepulsionDist = scaledLinkDistance * 2;
         if (dist > maxRepulsionDist) continue;
 
         const radiusA = getRadius(nodeA);
@@ -411,7 +440,8 @@ export function useForceSimulation({
     });
 
     // Edge avoidance force — coherent accumulation to prevent trapping
-    if (edgeAvoidance > 0) {
+    // Skip when alpha is low (settling phase) — expensive O(n×e) and adds jitter
+    if (edgeAvoidance > 0 && state.alpha > 0.3) {
       const nodesMap = new Map(nodes.map(n => [n.id, n]));
       nodes.forEach(node => {
         if (draggedIds.has(node.id)) return;
@@ -536,7 +566,8 @@ export function useForceSimulation({
         });
       });
 
-      // Inter-group repulsion
+      // Inter-group repulsion (skip every other frame — slow-moving forces)
+      if (state.frameCount % 2 === 0)
       for (let i = 0; i < nodes.length; i++) {
         for (let j = i + 1; j < nodes.length; j++) {
           const n1 = nodes[i];
@@ -736,8 +767,8 @@ export function useForceSimulation({
       }
     }
 
-    // Apply to store
-    if (updates.length > 0) {
+    // Apply to store (throttled to every 3rd frame for performance)
+    if (updates.length > 0 && state.frameCount % 3 === 0) {
       storeActions.updateMultipleNodeInstancePositions(graphId, updates, { skipSave: true });
       onPositionsUpdated?.();
     }
