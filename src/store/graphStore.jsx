@@ -1228,13 +1228,86 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
         }
       }
 
-      // Update all instances that reference the secondary prototype
+      // Update all instances that reference the secondary prototype, deduplicating per graph
       for (const graph of draft.graphs.values()) {
-        if (graph.instances) {
-          for (const instance of graph.instances.values()) {
-            if (instance.prototypeId === secondaryId) {
-              instance.prototypeId = primaryId;
+        if (!graph.instances) continue;
+
+        // Find instances of primary and secondary in this graph
+        let primaryInstId = null;
+        const secondaryInstIds = [];
+        for (const [instId, inst] of graph.instances.entries()) {
+          if (inst.prototypeId === primaryId && !primaryInstId) {
+            primaryInstId = instId;
+          }
+          if (inst.prototypeId === secondaryId) {
+            secondaryInstIds.push(instId);
+          }
+        }
+
+        if (secondaryInstIds.length === 0) continue;
+
+        if (primaryInstId) {
+          // Graph already has a primary instance — remap edges and remove secondary instances
+          for (const secInstId of secondaryInstIds) {
+            // Remap edges that reference the secondary instance to the primary instance
+            for (const edgeId of (graph.edgeIds || [])) {
+              const edge = draft.edges.get(edgeId);
+              if (!edge) continue;
+              if (edge.sourceId === secInstId) edge.sourceId = primaryInstId;
+              if (edge.destinationId === secInstId) edge.destinationId = primaryInstId;
+              // Remap directionality set
+              if (edge.directionality?.arrowsToward?.has(secInstId)) {
+                edge.directionality.arrowsToward.delete(secInstId);
+                edge.directionality.arrowsToward.add(primaryInstId);
+              }
             }
+            // Remove self-loop edges created by the remap
+            if (graph.edgeIds) {
+              const edgeIdsToRemove = [];
+              for (const edgeId of graph.edgeIds) {
+                const edge = draft.edges.get(edgeId);
+                if (edge && edge.sourceId === edge.destinationId) {
+                  edgeIdsToRemove.push(edgeId);
+                }
+              }
+              for (const edgeId of edgeIdsToRemove) {
+                graph.edgeIds = graph.edgeIds.filter(id => id !== edgeId);
+                draft.edges.delete(edgeId);
+              }
+            }
+            graph.instances.delete(secInstId);
+          }
+        } else {
+          // No primary instance exists — just remap the first secondary, remove the rest
+          const [keepInstId, ...extraInstIds] = secondaryInstIds;
+          graph.instances.get(keepInstId).prototypeId = primaryId;
+          for (const extraId of extraInstIds) {
+            // Remap edges from extra duplicates to the kept instance
+            for (const edgeId of (graph.edgeIds || [])) {
+              const edge = draft.edges.get(edgeId);
+              if (!edge) continue;
+              if (edge.sourceId === extraId) edge.sourceId = keepInstId;
+              if (edge.destinationId === extraId) edge.destinationId = keepInstId;
+              if (edge.directionality?.arrowsToward?.has(extraId)) {
+                edge.directionality.arrowsToward.delete(extraId);
+                edge.directionality.arrowsToward.add(keepInstId);
+              }
+            }
+            // Remove self-loop edges
+            if (graph.edgeIds) {
+              const edgeIdsToRemove = [];
+              for (const edgeId of graph.edgeIds) {
+                const edge = draft.edges.get(edgeId);
+                if (edge && edge.sourceId === edge.destinationId) {
+                  edgeIdsToRemove.push(edgeId);
+                }
+              }
+              for (const edgeId of edgeIdsToRemove) {
+                graph.edgeIds = graph.edgeIds.filter(id => id !== edgeId);
+                draft.edges.delete(edgeId);
+              }
+            }
+            graph.instances.delete(extraId);
           }
         }
       }
@@ -1266,14 +1339,24 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
         draft.activeDefinitionNodeId = primaryId;
       }
 
-      // Remap right panel tabs referencing the secondary prototype
+      // Remap right panel tabs referencing the secondary prototype, then deduplicate
       if (Array.isArray(draft.rightPanelTabs)) {
-        draft.rightPanelTabs.forEach(tab => {
-          if (tab && tab.type === 'node' && tab.nodeId === secondaryId) {
-            tab.nodeId = primaryId;
-            if (primary?.name) tab.title = primary.name;
-          }
-        });
+        // If a tab already exists for primaryId, just remove the secondary tab
+        const hasPrimaryTab = draft.rightPanelTabs.some(tab => tab && tab.type === 'node' && tab.nodeId === primaryId);
+        if (hasPrimaryTab) {
+          // Remove any tabs for the secondary node (primary tab already covers it)
+          const filtered = draft.rightPanelTabs.filter(tab => !(tab && tab.type === 'node' && tab.nodeId === secondaryId));
+          draft.rightPanelTabs.length = 0;
+          filtered.forEach(t => draft.rightPanelTabs.push(t));
+        } else {
+          // No primary tab exists — remap the secondary tab to the primary
+          draft.rightPanelTabs.forEach(tab => {
+            if (tab && tab.type === 'node' && tab.nodeId === secondaryId) {
+              tab.nodeId = primaryId;
+              if (primary?.name) tab.title = primary.name;
+            }
+          });
+        }
       }
 
       // Update type node references in other prototypes

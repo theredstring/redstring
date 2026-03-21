@@ -2068,7 +2068,7 @@ const SharedPanelContent = ({
           }}>
             {componentOfNodes.map((node) => (
               <DraggableNodeComponent
-                key={node.prototypeId || node.id}
+                key={node.id}
                 node={node}
                 onOpenNode={onOpenNode}
               />

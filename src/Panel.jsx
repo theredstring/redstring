@@ -2075,17 +2075,19 @@ const Panel = memo(forwardRef(
                         transition: 'background-color 0.2s ease'
                       }}
                     >
-                      {/* Map ONLY node tabs (index > 0) - get tabs non-reactively */}
-                      {rightPanelTabs.slice(1).map((tab, i) => { // Use different index variable like `i`
+                      {/* Map ONLY node tabs (index > 0) - deduplicate by nodeId to handle corrupted state */}
+                      {rightPanelTabs.slice(1).filter((tab, i, arr) =>
+                        arr.findIndex(t => t.nodeId === tab.nodeId) === i
+                      ).map((tab, i) => {
                         const nodeProto = nodePrototypesMap.get(tab.nodeId);
-                        const nodeCurrentName = nodeProto?.name || tab.title; // Get current name for display and drag
+                        const nodeCurrentName = nodeProto?.name || tab.title;
                         return (
                           <DraggableTab
-                            key={tab.nodeId} // Use nodeId as key
-                            tab={tab} // Pass tab data from store
-                            index={i + 1} // Pass absolute index (1..N) based on map index `i`
-                            displayTitle={nodeCurrentName} // Pass live name for display
-                            dragItemTitle={nodeCurrentName} // Pass live name for drag item
+                            key={tab.nodeId}
+                            tab={tab}
+                            index={i + 1}
+                            displayTitle={nodeCurrentName}
+                            dragItemTitle={nodeCurrentName}
                             moveTabAction={moveRightPanelTab}
                             activateTabAction={activateRightPanelTab}
                             closeTabAction={closeRightPanelTab}
