@@ -1541,18 +1541,21 @@ const WIZARD_LOADING_STRINGS = [
   "Asking spirits",
   "Casting spells",
   "Having fun",
+  "Skipping stones",
+  "Breathing in noosphere",
   "Producing house music",
+  "Cultivating pipe-weed",
   "Polishing crystal ball",
-  "Consulting the Great One",
   "Weaving web of fate",
   "Opening portals",
   "Shuffling tarot cards",
-  "Scrolling through scrolls",
+  "Accessing Akashic Records",
+  "Stirring the pot",
   "Building schemas",
   "Betting on jousting",
-  "Making mouse ears",
-  "Theorizing",
+  "Waxing and waning",
   "Taking deep breath",
+  "Picking mushrooms",
   "Hiding secrets",
   "Minimizing slop",
   "Performing divination",
@@ -3851,10 +3854,9 @@ const LeftAIView = ({ compact = false,
 
               // Show thinking dots:
               // - Chat/druid: when no streaming content yet (original behavior)
-              // - Wizard: when no running tool calls AND no text response streaming yet
-              const hasRunningToolCalls = streamingMsg?.contentBlocks?.some(b => b.type === 'tool_call' && b.status === 'running');
+              // - Wizard: hide only when text is actively streaming back (tool calls still show dots)
               const hasStreamingText = streamingMsg?.contentBlocks?.some(b => b.type === 'text' && b.content);
-              const showDots = viewMode === 'wizard' ? (!hasRunningToolCalls && !hasStreamingText) : !hasStreamingContent;
+              const showDots = viewMode === 'wizard' ? !hasStreamingText : !hasStreamingContent;
 
               if (viewMode === 'wizard') {
                 // Always render in wizard mode to keep WizardLoadingText mounted
