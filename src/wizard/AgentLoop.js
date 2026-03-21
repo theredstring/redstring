@@ -644,7 +644,25 @@ export async function* runAgent(userMessage, graphState, config = {}, ensureSche
   const contextItems = config.contextItems || [];
 
   // Build initial context (respects contextItems toggles from UI)
-  const initialContext = buildPersistentContextHeader(graphState, contextItems);
+  let initialContext = buildPersistentContextHeader(graphState, contextItems);
+
+  // Detect file attachments in content blocks and build a persistent context suffix
+  let attachmentContextSuffix = '';
+  if (Array.isArray(userMessage)) {
+    const attachments = userMessage.filter(b => b.type === 'document_text' || b.type === 'image');
+    if (attachments.length > 0) {
+      const fileList = attachments.map(b => {
+        if (b.type === 'document_text') {
+          const charCount = (b.text || '').length;
+          const approxPages = Math.max(1, Math.round(charCount / 2000));
+          return `- ${b.filename} (document, ~${approxPages} pages of extracted text)`;
+        }
+        return `- [image attachment] (${b.media_type || 'image'})`;
+      }).join('\n');
+      attachmentContextSuffix = `\n\n## Attached Files\nThe user's message includes file attachments:\n${fileList}\nRefer to the "Adapting Documents & PDFs" instructions for how to handle document attachments. You MUST plan first with planTask before building any graph from attached documents.`;
+      initialContext += attachmentContextSuffix;
+    }
+  }
 
   // Debug logging for graph context
   const activeGraph = graphState?.graphs?.find(g => g.id === graphState.activeGraphId);
@@ -700,7 +718,7 @@ export async function* runAgent(userMessage, graphState, config = {}, ensureSche
   for (let iteration = 0; iteration < maxIterations; iteration++) {
     // Rebuild context from (potentially mutated) graphState so LLM sees current state
     {
-      const freshContext = iteration > 0 ? buildPersistentContextHeader(graphState, contextItems) : initialContext;
+      const freshContext = iteration > 0 ? buildPersistentContextHeader(graphState, contextItems) + attachmentContextSuffix : initialContext;
       const planCtx = graphState._currentPlan ? buildPlanContext(graphState._currentPlan, iteration, maxIterations) : '';
       messages[0] = { role: 'system', content: systemPromptTemplate.replace('{context}', freshContext + planCtx) };
     }

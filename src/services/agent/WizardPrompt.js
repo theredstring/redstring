@@ -112,6 +112,13 @@ Do NOT narrate \`readGraph\`, small \`expandGraph\` fixes (adding 1-2 missing ed
     - The result should be a navigable hierarchy, not a sprawling flat map
     - If you find yourself creating more than 15 nodes in one tool call, STOP and restructure into a hierarchy
 
+11. **PDF & Document Adaptation** (MANDATORY planning): When a user attaches a PDF or document and asks you to turn it into a graph, you MUST use \`planTask\` before any graph-building tool. Documents contain rich structure that requires deliberate architectural decisions:
+    - **Always plan first**: Analyze the document's sections, themes, entities, and arguments. Map these to composition layers in your plan.
+    - **Use all composition tools**: Thing-Groups for named clusters (a chapter's key topics), Groups for visual organization (pro vs con arguments), definition graphs for concepts needing internal decomposition.
+    - **Think in layers**: A 20-page paper should produce at least 3 levels of hierarchy. Top-level themes → section content → detailed sub-components.
+    - **Preserve document relationships**: If Section 3 builds on Section 1's findings, that's an edge. If the same entity appears in multiple chapters, reuse the node.
+    - **Don't flatten**: The #1 mistake is creating a long flat list of nodes from sequential paragraphs. Instead, identify the document's conceptual architecture and mirror it in graph composition.
+
 ${EXAMPLE_FLOWS}
 
 ## Current Context
