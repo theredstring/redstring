@@ -977,6 +977,65 @@ function applyToolResultToStore(toolName, result, toolCallId) {
     return;
   }
 
+  // Handle condenseToNode — package nodes into a new concept with a definition graph
+  if (result.action === 'condenseToNode') {
+    const graphId = result.graphId || store.activeGraphId;
+    console.log('[Wizard] Applying condenseToNode:', result.nodeName, 'members:', result.memberNames);
+    if (!graphId) {
+      console.error('[Wizard] condenseToNode: No active graph ID');
+      return;
+    }
+    const graph = store.graphs.get(graphId);
+    if (!graph) {
+      console.error('[Wizard] condenseToNode: Graph not found:', graphId);
+      return;
+    }
+
+    // Step 1: Resolve member names to real instance IDs
+    const memberInstanceIds = [];
+    for (const memberName of (result.memberNames || [])) {
+      const nameLower = memberName.toLowerCase().trim();
+      for (const [instId, inst] of graph.instances) {
+        const proto = store.nodePrototypes.get(inst.prototypeId);
+        if ((proto?.name || '').toLowerCase().trim() === nameLower) {
+          memberInstanceIds.push(instId);
+          break;
+        }
+      }
+    }
+
+    if (memberInstanceIds.length === 0) {
+      console.error('[Wizard] condenseToNode: No members resolved from:', result.memberNames);
+      return;
+    }
+
+    // Step 2: Create a group from the resolved members
+    const groupId = store.createGroup(graphId, {
+      name: result.nodeName,
+      color: result.nodeColor || '#8B0000',
+      memberInstanceIds
+    });
+
+    // Step 3: Convert group to thing-group (creates prototype + definition graph from members)
+    store.convertGroupToNodeGroup(
+      graphId,
+      groupId,
+      null,
+      true,
+      result.nodeName,
+      result.nodeColor || '#8B0000'
+    );
+
+    // Step 4: If collapse requested, combine the thing-group into a single node
+    if (result.collapse) {
+      store.combineNodeGroup(graphId, groupId);
+      console.log('[Wizard] condenseToNode: Collapsed group into single node:', result.nodeName);
+    } else {
+      console.log('[Wizard] condenseToNode: Created thing-group:', result.nodeName);
+    }
+    return;
+  }
+
   // Handle addDefinitionGraph — create a definition graph for a node WITHOUT changing activeGraphId
   if (result.action === 'addDefinitionGraph') {
     const graphId = result.graphId;

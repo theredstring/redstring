@@ -779,6 +779,34 @@ html.dark-mode .ai-attachment-preview-file {
   color: rgba(222, 218, 218, 0.65);
 }
 
+/* Dark mode: context chips */
+html.dark-mode .ai-context-chip.active {
+  background: rgba(222, 218, 218, 0.10);
+  color: #DEDADA;
+  border-color: rgba(222, 218, 218, 0.25);
+}
+
+html.dark-mode .ai-context-chip.active:hover {
+  background: rgba(222, 218, 218, 0.16);
+  border-color: rgba(222, 218, 218, 0.35);
+}
+
+html.dark-mode .ai-context-chip.disabled {
+  background: rgba(222, 218, 218, 0.03);
+  color: rgba(222, 218, 218, 0.35);
+  border-color: rgba(222, 218, 218, 0.10);
+}
+
+html.dark-mode .ai-context-chip.disabled:hover {
+  background: rgba(222, 218, 218, 0.06);
+  color: rgba(222, 218, 218, 0.5);
+}
+
+/* Dark mode: attachment remove button */
+html.dark-mode .ai-attachment-remove {
+  color: #DEDADA;
+}
+
 /* Context Usage Indicator */
 .ai-context-usage {
   display: flex;

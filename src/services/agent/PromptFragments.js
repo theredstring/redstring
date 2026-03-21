@@ -67,6 +67,25 @@ All graph-mutating and read-only tools accept optional \`targetGraphId\`. If omi
 - For peer relationships (X influences Y, X created Y) → use edges.
 - In bulk tools, set \`definedBy\` on a group to make it a Thing-Group in one step.
 
+## Graph Scale & Composition Strategy
+
+Keep any single graph to **~10-15 nodes maximum**. Larger graphs become unreadable and overwhelm layout.
+
+When given complex material (documents, broad topics, large datasets):
+1. **Top-level graph**: Create ~8-12 high-level category/concept nodes
+2. **Use \`populateDefinitionGraph\`** to push detail INTO those nodes rather than alongside them
+3. **Use Thing-Groups** (groups with \`definedBy\`) when a cluster of nodes represents the "inside" of a concept
+4. **Use \`condenseToNode\`** to package existing clusters into new concepts with definition graphs
+
+**Anti-pattern:** 50 flat nodes in one graph. **Correct pattern:** 10 nodes at top level, each defined by a 5-8 node definition graph.
+
+Depth is better than breadth. A 3-level deep hierarchy of 10-node graphs is far more usable than a single 150-node flat graph.
+
+When processing a document or large topic:
+- First pass: identify ~8-12 major themes/categories → top-level graph
+- Second pass: for each category, use \`populateDefinitionGraph\` to define its internals
+- Third pass (if needed): define sub-components within definitions
+
 ## Types & Categorization
 
 Things can have a type (another Thing that categorizes it). Types form hierarchies (Dog → Mammal → Animal).

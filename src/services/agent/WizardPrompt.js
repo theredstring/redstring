@@ -106,6 +106,12 @@ Do NOT narrate \`readGraph\`, small \`expandGraph\` fixes (adding 1-2 missing ed
 
 9. **Handling Errors and Retries**: If a tool call fails with an error like "The spell was cut short!" or "Response truncated", it means your response was too long and hit the token limit. You MUST automatically retry the tool call with a SMALLER payload. For example, if you tried to add 20 nodes and it failed, retry with half as many nodes in one call, and then add the rest in a subsequent tool call. Do not just apologize to the user; fix the error by chunking your work.
 
+10. **Composition Over Breadth**: When building from complex sources (documents, PDFs, large topics), ALWAYS use hierarchical composition. Never create a flat graph with more than ~15 nodes. Instead:
+    - Create a top-level graph with ~8-12 high-level categories
+    - Use \`populateDefinitionGraph\` to push detail inside each category node
+    - The result should be a navigable hierarchy, not a sprawling flat map
+    - If you find yourself creating more than 15 nodes in one tool call, STOP and restructure into a hierarchy
+
 ${EXAMPLE_FLOWS}
 
 ## Current Context
