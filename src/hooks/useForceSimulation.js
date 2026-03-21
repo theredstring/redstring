@@ -446,8 +446,8 @@ export function useForceSimulation({
 
           if (dist < avoidanceRadius && dist > 1) {
             const ratio = dist / avoidanceRadius;
-            const intensity = Math.pow(1 - ratio, 2);
-            const avoidForce = intensity * edgeAvoidance * state.alpha * 500;
+            const intensity = Math.pow(1 - ratio, 1.5);
+            const avoidForce = intensity * edgeAvoidance * Math.max(state.alpha, 0.3) * 800;
             totalFx += (dx / dist) * avoidForce;
             totalFy += (dy / dist) * avoidForce;
             totalMagnitude += avoidForce;
@@ -465,7 +465,7 @@ export function useForceSimulation({
 
           // When trapped (low coherence), add tangential nudge to help escape
           if (coherence < 0.3 && netMagnitude > 0.01) {
-            const tangentScale = (1 - coherence) * totalMagnitude * 0.1;
+            const tangentScale = (1 - coherence) * totalMagnitude * 0.2;
             const nx = totalFx / netMagnitude;
             const ny = totalFy / netMagnitude;
             vel.vx += -ny * tangentScale;
@@ -631,7 +631,7 @@ export function useForceSimulation({
     }
 
     // Oscillation detection + velocity clamping
-    const maxVelocity = scaledLinkDistance * 0.25;
+    const maxVelocity = scaledLinkDistance * 0.8;
     nodes.forEach(node => {
       if (draggedIds.has(node.id)) return;
       const vel = velocities.get(node.id);
@@ -647,8 +647,8 @@ export function useForceSimulation({
           ? Math.min(prev.flipCount + 1, 10)
           : Math.max(prev.flipCount - 0.5, 0);
         // Extra damping for oscillating nodes
-        if (prev.flipCount > 3) {
-          const dampFactor = Math.max(0.15, 1 - (prev.flipCount / 10) * 0.7);
+        if (prev.flipCount > 5) {
+          const dampFactor = Math.max(0.3, 1 - (prev.flipCount / 10) * 0.5);
           vel.vx *= dampFactor;
           vel.vy *= dampFactor;
         }

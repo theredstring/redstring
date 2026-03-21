@@ -1611,6 +1611,34 @@ export function forceDirectedLayout(nodes, edges, options = {}) {
   // ── Fix 5: Edge crossing reduction ──────────────────────────────────
   reduceEdgeCrossings(positions, edges, nodes, nodeById, 3);
 
+  // ── Final label-aware edge correction ──────────────────────────────
+  // Hard clamp: ensure condensation + crossing reduction didn't compress
+  // labeled edges below their label width
+  edges.forEach(edge => {
+    if (!edge.name) return;
+    const p1 = positions.get(edge.sourceId);
+    const p2 = positions.get(edge.destinationId);
+    if (!p1 || !p2) return;
+    const n1 = nodeById.get(edge.sourceId);
+    const n2 = nodeById.get(edge.destinationId);
+    const r1 = getNodeRadius(n1);
+    const r2 = getNodeRadius(n2);
+    const labelWidth = estimateEdgeLabelWidth(edge.name);
+    const labelMin = labelWidth + 60 + r1 + r2;
+    const dx = p2.x - p1.x;
+    const dy = p2.y - p1.y;
+    const dist = Math.sqrt(dx * dx + dy * dy);
+    if (dist < labelMin && dist > 0.1) {
+      const correction = (labelMin - dist) * 0.5;
+      const ux = dx / dist;
+      const uy = dy / dist;
+      p1.x -= ux * correction;
+      p1.y -= uy * correction;
+      p2.x += ux * correction;
+      p2.y += uy * correction;
+    }
+  });
+
   // Final group separation enforcement (after condensation and edge crossing
   // adjustments may have moved nodes closer again)
   if (groups.length > 0) {
@@ -1661,6 +1689,13 @@ function enforceEdgeConstraints(positions, edges, nodeById, getRadius, targetDis
       // but MUST NOT overlap (radius + radius).
       const minSeparation = (r1 + r2) * 1.1; // 10% gap
       let effectiveTarget = Math.max(targetDistance, minSeparation);
+
+      // Respect edge label minimum — don't shrink edges below their label width
+      if (edge.name) {
+        const labelWidth = estimateEdgeLabelWidth(edge.name);
+        const labelMin = labelWidth + 60 + r1 + r2;
+        effectiveTarget = Math.max(effectiveTarget, labelMin);
+      }
 
       // Cross-group edges: larger target + weaker correction
       if (isCrossGroup && minGroupDistance > 0) {
