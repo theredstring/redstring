@@ -166,6 +166,67 @@ function normalizeTools(tools) {
  * @param {Object} config - Optional config override
  * @returns {AsyncGenerator} Yields chunks with type, content, toolCalls
  */
+/**
+ * Normalize multimodal user message content for a specific LLM provider.
+ * Input: string or array of { type: 'text'|'image'|'document_text', ... }
+ * Output: provider-specific content format.
+ */
+function normalizeUserContent(content, provider) {
+  if (typeof content === 'string') return content;
+  if (!Array.isArray(content)) return content;
+
+  const textParts = content.filter(b => b.type === 'text' || b.type === 'document_text');
+  const imageParts = content.filter(b => b.type === 'image');
+
+  // Combine text + document text into a single string
+  const combinedText = textParts.map(b => {
+    if (b.type === 'document_text') return `[File: ${b.filename}]\n${b.text}`;
+    return b.text;
+  }).join('\n\n');
+
+  if (imageParts.length === 0) {
+    return combinedText || '';
+  }
+
+  if (provider === 'anthropic') {
+    const blocks = [];
+    if (combinedText) blocks.push({ type: 'text', text: combinedText });
+    for (const img of imageParts) {
+      blocks.push({
+        type: 'image',
+        source: { type: 'base64', media_type: img.media_type, data: img.data }
+      });
+    }
+    return blocks;
+  }
+
+  if (provider === 'openai' || provider === 'openrouter' || provider === 'local') {
+    const blocks = [];
+    if (combinedText) blocks.push({ type: 'text', text: combinedText });
+    for (const img of imageParts) {
+      blocks.push({
+        type: 'image_url',
+        image_url: { url: `data:${img.media_type};base64,${img.data}` }
+      });
+    }
+    return blocks;
+  }
+
+  if (provider === 'google') {
+    // Gemini uses a different structure handled in streamGemini,
+    // but we normalize to a common format it can consume
+    const blocks = [];
+    if (combinedText) blocks.push({ type: 'text', text: combinedText });
+    for (const img of imageParts) {
+      blocks.push({ type: 'image', media_type: img.media_type, data: img.data });
+    }
+    return blocks;
+  }
+
+  // Unknown provider: degrade to text only
+  return combinedText || '';
+}
+
 export async function* streamLLM(messages, tools = [], config = {}, signal = null) {
   const defaults = getDefaultConfig();
   const provider = config.provider || defaults.provider;
@@ -179,14 +240,22 @@ export async function* streamLLM(messages, tools = [], config = {}, signal = nul
 
   const normalizedTools = normalizeTools(tools);
 
+  // Normalize multimodal content blocks for the target provider
+  const normalizedMessages = messages.map(msg => {
+    if (msg.role === 'user' && Array.isArray(msg.content)) {
+      return { ...msg, content: normalizeUserContent(msg.content, provider) };
+    }
+    return msg;
+  });
+
   if (provider === 'openrouter') {
-    yield* streamOpenRouter(messages, normalizedTools, { endpoint, model, apiKey, temperature, maxTokens }, signal);
+    yield* streamOpenRouter(normalizedMessages, normalizedTools, { endpoint, model, apiKey, temperature, maxTokens }, signal);
   } else if (provider === 'anthropic') {
-    yield* streamAnthropic(messages, normalizedTools, { endpoint, model, apiKey, temperature, maxTokens }, signal);
+    yield* streamAnthropic(normalizedMessages, normalizedTools, { endpoint, model, apiKey, temperature, maxTokens }, signal);
   } else if (provider === 'openai' || provider === 'local') {
-    yield* streamOpenAI(messages, normalizedTools, { endpoint, model, apiKey, temperature, maxTokens }, signal);
+    yield* streamOpenAI(normalizedMessages, normalizedTools, { endpoint, model, apiKey, temperature, maxTokens }, signal);
   } else if (provider === 'google') {
-    yield* streamGemini(messages, normalizedTools, { model, apiKey, temperature, maxTokens }, signal);
+    yield* streamGemini(normalizedMessages, normalizedTools, { model, apiKey, temperature, maxTokens }, signal);
   } else {
     throw new Error(`Unsupported provider: ${provider}`);
   }
@@ -823,11 +892,15 @@ async function* streamGemini(messages, tools, { model, apiKey, temperature, maxT
       });
 
     } else {
-      // User message (plain string or array)
+      // User message (plain string or array with text/image blocks)
       if (Array.isArray(msg.content)) {
         const parts = [];
         for (const item of msg.content) {
-          if (item.type === 'text') parts.push({ text: item.text || '' });
+          if (item.type === 'text') {
+            parts.push({ text: item.text || '' });
+          } else if (item.type === 'image' && item.data) {
+            parts.push({ inlineData: { mimeType: item.media_type || 'image/png', data: item.data } });
+          }
         }
         if (parts.length > 0) contents.push({ role: 'user', parts });
       } else {

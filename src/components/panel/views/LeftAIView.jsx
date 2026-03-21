@@ -1,5 +1,5 @@
 import React from 'react';
-import { Bot, Key, Settings, RotateCcw, Undo2, Send, User, Square, Copy, Brain, Wrench, Plus, X, ChevronDown } from 'lucide-react';
+import { Bot, Key, Settings, RotateCcw, Undo2, Send, User, Square, Copy, Brain, Wrench, Plus, X, ChevronDown, Paperclip, FileText } from 'lucide-react';
 import * as fileStorage from '../../../store/fileStorage.js';
 import mcpClient from '../../../services/mcpClient.js';
 import apiKeyManager from '../../../services/apiKeyManager.js';
@@ -19,6 +19,7 @@ import { getTextColor } from '../../../utils/colorUtils.js';
 import { useTheme } from '../../../hooks/useTheme.js';
 import { queueThumbnailFetch } from '../../../services/imageCache.js';
 import headSvg from '../../../assets/svg/wizard/head.svg';
+import { getFileCategory, readFileAsDataUrl, readFileAsText, buildContentBlocks, SUPPORTED_IMAGE_TYPES, SUPPORTED_DOC_TYPES, MAX_FILE_SIZE } from '../../../ai/fileAttachmentUtils.js';
 
 // Shared Components
 import PanelIconButton from '../../shared/PanelIconButton.jsx';
@@ -1866,6 +1867,24 @@ const LeftAIView = ({ compact = false,
   const [chatUndoMessageId, setChatUndoMessageId] = React.useState(null);
   const [isChatUndoOpen, setIsChatUndoOpen] = React.useState(false);
 
+  // File/image attachment state (per-message, never in Zustand)
+  const [pendingAttachments, setPendingAttachments] = React.useState([]);
+  const [showAttachMenu, setShowAttachMenu] = React.useState(false);
+  const attachMenuRef = React.useRef(null);
+  const fileInputRef = React.useRef(null);
+
+  // Close attach menu when clicking outside
+  React.useEffect(() => {
+    if (!showAttachMenu) return;
+    const handleClickOutside = (event) => {
+      if (attachMenuRef.current && !attachMenuRef.current.contains(event.target)) {
+        setShowAttachMenu(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [showAttachMenu]);
+
   // Persistent context items (Cursor-style @ chips)
   const [contextItems, setContextItems] = React.useState([
     { type: 'activeGraph', id: null, label: 'Active Graph', enabled: true }
@@ -1949,7 +1968,7 @@ const LeftAIView = ({ compact = false,
         return {
           ...item,
           id: activeGraphId || null,
-          label: graph ? `Web: ${graph.name || 'Unnamed'}` : 'No Active Web',
+          label: graph ? `${graph.name || 'Unnamed'} (Web)` : 'No Active Web',
           color: graph ? chipColor : null
         };
       }
@@ -2654,9 +2673,55 @@ const LeftAIView = ({ compact = false,
     }
   };
 
+  // Handle files selected from the attach menu file picker
+  const handleFilesSelected = async (files) => {
+    setShowAttachMenu(false);
+    for (const file of files) {
+      const category = getFileCategory(file);
+      if (category === 'unknown') {
+        addMessage('system', `Unsupported file type: ${file.name}`);
+        continue;
+      }
+      if (file.size > MAX_FILE_SIZE) {
+        addMessage('system', `File too large: ${file.name} (max 5MB)`);
+        continue;
+      }
+
+      const attachment = {
+        id: `attach-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+        file,
+        name: file.name,
+        type: file.type,
+        size: file.size,
+        category,
+      };
+
+      if (category === 'image') {
+        try {
+          attachment.dataUrl = await readFileAsDataUrl(file);
+          attachment.previewUrl = attachment.dataUrl;
+        } catch (e) {
+          addMessage('system', `Could not read image ${file.name}: ${e.message}`);
+          continue;
+        }
+      }
+
+      if (category === 'document') {
+        try {
+          attachment.extractedText = await readFileAsText(file);
+        } catch (e) {
+          addMessage('system', `Could not read ${file.name}: ${e.message}`);
+          continue;
+        }
+      }
+
+      setPendingAttachments(prev => [...prev, attachment]);
+    }
+  };
+
   const handleSendMessage = async (overrideInput) => {
     const inputToUse = typeof overrideInput === 'string' ? overrideInput : currentInput;
-    if (!inputToUse.trim() || isProcessing) return;
+    if ((!inputToUse.trim() && pendingAttachments.length === 0) || isProcessing) return;
 
     // Trigger active mode for faster polling
     if (window.redstringStoreActions && window.redstringStoreActions._markActive) {
@@ -2746,15 +2811,32 @@ const LeftAIView = ({ compact = false,
       ));
     }
 
-    addMessage('user', userMessage);
+    // Capture attachments before clearing (they're per-message)
+    const sentAttachments = [...pendingAttachments];
+    const messagePayload = sentAttachments.length > 0
+      ? buildContentBlocks(userMessage, sentAttachments)
+      : userMessage;
+
+    // Store attachment metadata for chat display (no base64 data — just name/type/preview)
+    const attachmentMeta = sentAttachments.length > 0
+      ? sentAttachments.map(a => ({
+        name: a.name,
+        category: a.category,
+        type: a.type,
+        previewUrl: a.category === 'image' ? a.previewUrl : null,
+      }))
+      : undefined;
+
+    addMessage('user', userMessage, attachmentMeta ? { attachments: attachmentMeta } : undefined);
     setCurrentInput('');
+    setPendingAttachments([]);
     setIsProcessing(true);
 
     // Druid Mode (Placeholder for full switch)
     if (viewMode === 'druid') {
       try {
         // Reuse the autonomous agent handler but with Druid prompt
-        await handleAutonomousAgent(userMessage, 'druid');
+        await handleAutonomousAgent(messagePayload, 'druid');
       } catch (error) {
         console.error('Druid error:', error);
         addMessage('system', `Druid error: ${error.message}`);
@@ -2775,9 +2857,9 @@ const LeftAIView = ({ compact = false,
       if (!mcpClient.isConnected) { await initializeConnection(); if (!mcpClient.isConnected) { setIsProcessing(false); return; } }
 
       if (viewMode === 'wizard') {
-        await handleAutonomousAgent(userMessage);
+        await handleAutonomousAgent(messagePayload);
       } else {
-        await handleQuestion(userMessage);
+        await handleQuestion(messagePayload);
       }
     } catch (error) {
       console.error('[AI Collaboration] Error processing message:', error);
@@ -3894,6 +3976,20 @@ const LeftAIView = ({ compact = false,
                     {message.sender === 'user' ? <User size={24} /> : message.sender === 'system' ? null : <img src={headSvg} alt="Wizard" style={{ width: 40, height: 40 }} />}
                   </div>
                   <div className="ai-message-content">
+                    {/* Render attachment previews (images/files) */}
+                    {message.metadata?.attachments?.length > 0 && (
+                      <div className="ai-attachment-preview">
+                        {message.metadata.attachments.map((att, i) => (
+                          att.category === 'image' && att.previewUrl ? (
+                            <img key={i} src={att.previewUrl} alt={att.name} />
+                          ) : (
+                            <div key={i} className="ai-attachment-preview-file">
+                              <FileText size={14} /> {att.name}
+                            </div>
+                          )
+                        ))}
+                      </div>
+                    )}
                     {/* Render content blocks in chronological order */}
                     {message.contentBlocks && message.contentBlocks.length > 0 ? (
                       message.contentBlocks.map((block, i) => {
@@ -4043,6 +4139,81 @@ const LeftAIView = ({ compact = false,
 
           {/* Persistent context chips (node-style) */}
           <div className="ai-context-bar">
+            {/* Attach "+" button with upward dropdown */}
+            <div ref={attachMenuRef} style={{ position: 'relative', display: 'inline-flex' }}>
+              <button
+                className="ai-context-chip active ai-attach-button"
+                onClick={() => setShowAttachMenu(!showAttachMenu)}
+                title="Add files or photos"
+              >
+                <Plus size={12} />
+              </button>
+              {showAttachMenu && (
+                <div className="ai-attach-menu" style={{
+                  position: 'absolute',
+                  bottom: '100%',
+                  left: 0,
+                  marginBottom: 4,
+                  backgroundColor: theme.canvas.bg,
+                  border: `1px solid ${theme.canvas.border}`,
+                  borderRadius: 6,
+                  boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
+                  zIndex: 1000,
+                  minWidth: 180,
+                  overflow: 'hidden',
+                }}>
+                  <button
+                    className="ai-attach-menu-item"
+                    onClick={() => { fileInputRef.current?.click(); setShowAttachMenu(false); }}
+                    style={{
+                      display: 'flex', alignItems: 'center', gap: 8,
+                      width: '100%', padding: '7px 12px',
+                      background: 'none', border: 'none',
+                      color: theme.canvas.textPrimary,
+                      fontSize: 12, fontFamily: "'EmOne', sans-serif", fontWeight: 600,
+                      cursor: 'pointer', textAlign: 'left',
+                    }}
+                    onMouseEnter={(e) => { e.currentTarget.style.background = theme.canvas.hover; }}
+                    onMouseLeave={(e) => { e.currentTarget.style.background = 'none'; }}
+                  >
+                    <Paperclip size={14} /> Add Files or Photos
+                  </button>
+                </div>
+              )}
+            </div>
+
+            {/* Hidden file input */}
+            <input
+              ref={fileInputRef}
+              type="file"
+              multiple
+              accept="image/jpeg,image/png,image/gif,image/webp,.txt,.md,.json,.csv"
+              style={{ display: 'none' }}
+              onChange={(e) => {
+                if (e.target.files?.length) handleFilesSelected(Array.from(e.target.files));
+                e.target.value = '';
+              }}
+            />
+
+            {/* Pending attachment chips (per-message, stick out to the right of +) */}
+            {pendingAttachments.map(att => (
+              <span key={att.id} className="ai-context-chip active ai-attachment-chip">
+                {att.category === 'image' && att.previewUrl && (
+                  <img src={att.previewUrl} alt="" className="ai-attachment-thumb" />
+                )}
+                {att.category === 'document' && <FileText size={12} />}
+                <span className="ai-attachment-name">{att.name} ({att.category === 'image' ? 'Image' : 'File'})</span>
+                <button
+                  className="ai-attachment-remove"
+                  onClick={() => setPendingAttachments(prev => prev.filter(a => a.id !== att.id))}
+                  title={`Remove ${att.name}`}
+                >
+                  <X size={10} />
+                </button>
+              </span>
+            ))}
+
+            {/* Existing context chips */}
             {contextItems.map((item, idx) => (
               <button
                 key={item.type + idx}
@@ -4085,7 +4256,7 @@ const LeftAIView = ({ compact = false,
             {isProcessing && currentAgentRequest ? (
               <button onClick={handleStopAgent} className="ai-stop-button" title="Stop Agent"><Square fill={theme.canvas.textPrimary} color={theme.canvas.textPrimary} /></button>
             ) : (
-              <button onClick={handleSendMessage} disabled={!currentInput.trim() || isProcessing} className="ai-send-button"><Send /></button>
+              <button onClick={handleSendMessage} disabled={(!currentInput.trim() && pendingAttachments.length === 0) || isProcessing} className="ai-send-button"><Send /></button>
             )}
           </div>
         </div>

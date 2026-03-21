@@ -688,6 +688,97 @@ html.dark-mode .ai-message-ai .ai-message-avatar img {
   opacity: 1;
 }
 
+/* Attach "+" button */
+.ai-attach-button {
+  padding: 3px 6px !important;
+  min-width: unset !important;
+}
+
+/* Attach dropdown menu (upward) */
+.ai-attach-menu-item:hover {
+  background: var(--canvas-hover, rgba(38, 0, 0, 0.06));
+}
+
+/* Attachment chip styling */
+.ai-attachment-chip {
+  display: inline-flex !important;
+  align-items: center !important;
+  gap: 4px !important;
+  max-width: 170px;
+  overflow: hidden;
+  padding-right: 6px !important;
+}
+
+.ai-attachment-thumb {
+  width: 16px;
+  height: 16px;
+  border-radius: 2px;
+  object-fit: cover;
+  flex-shrink: 0;
+}
+
+.ai-attachment-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 11px;
+}
+
+.ai-attachment-remove {
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  opacity: 0.5;
+  transition: opacity 0.15s ease;
+  color: inherit;
+  flex-shrink: 0;
+}
+
+.ai-attachment-remove:hover {
+  opacity: 1;
+}
+
+/* Attachment previews in chat messages */
+.ai-attachment-preview {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 6px;
+}
+
+.ai-attachment-preview img {
+  max-width: 200px;
+  max-height: 150px;
+  border-radius: 8px;
+  object-fit: cover;
+  border: 1px solid rgba(38, 0, 0, 0.15);
+}
+
+.ai-attachment-preview-file {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 8px;
+  border-radius: 6px;
+  background: rgba(38, 0, 0, 0.06);
+  font-size: 11px;
+  font-family: 'EmOne', sans-serif;
+  font-weight: 600;
+  color: rgba(38, 0, 0, 0.65);
+}
+
+html.dark-mode .ai-attachment-preview img {
+  border-color: rgba(255, 255, 255, 0.15);
+}
+
+html.dark-mode .ai-attachment-preview-file {
+  background: rgba(255, 255, 255, 0.08);
+  color: rgba(222, 218, 218, 0.65);
+}
+
 /* Context Usage Indicator */
 .ai-context-usage {
   display: flex;

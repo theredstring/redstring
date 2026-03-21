@@ -51,7 +51,7 @@ async function getPort() {
 
 // Middleware
 app.use(cors());
-app.use(express.json({ limit: '10mb' }));
+app.use(express.json({ limit: '20mb' }));
 
 // Request logging
 app.use((req, res, next) => {
@@ -154,8 +154,11 @@ app.post('/api/wizard', async (req, res) => {
       contextItems: req.body.contextItems || []
     };
 
+    const messagePreview = typeof message === 'string'
+      ? message.substring(0, 50)
+      : `[multimodal: ${message.length} blocks]`;
     console.log('[Wizard] Request:', {
-      messagePreview: message.substring(0, 50),
+      messagePreview,
       historyLength: conversationHistory?.length || 0,
       activeGraph: graphState?.activeGraphId,
       model: llmConfig.model
