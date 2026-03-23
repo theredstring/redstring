@@ -360,14 +360,33 @@ const AISection = () => {
             </div>
           </div>
 
+          <div className="settings-row">
+            <div className="settings-row-label">Test Connection</div>
+            <button className="ai-action-btn ai-btn-primary" onClick={handleTestKey} disabled={isValidating} style={{ minWidth: '100px' }}>
+              {isValidating ? 'Testing...' : 'Test API Key'}
+            </button>
+          </div>
+
+          {/* Test result messages */}
+          {error && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '10px', backgroundColor: theme.alert.error.bg, color: theme.alert.error.text, border: `1px solid ${theme.alert.error.border}`, borderRadius: '6px', fontSize: '0.8rem', margin: '0 0 12px 0' }}>
+              <AlertCircle size={16} style={{ flexShrink: 0 }} />
+              {error}
+            </div>
+          )}
+
+          {success && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '10px', backgroundColor: theme.alert.success.bg, color: theme.alert.success.text, border: `1px solid ${theme.alert.success.border}`, borderRadius: '6px', fontSize: '0.8rem', margin: '0 0 12px 0' }}>
+              <CheckCircle size={16} style={{ flexShrink: 0 }} />
+              {success}
+            </div>
+          )}
+
           <div className="settings-row" style={{ borderBottom: 'none', paddingBottom: '0' }}>
             <div className="settings-row-label">Actions</div>
             <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
-              <button className="ai-action-btn ai-btn-primary" onClick={beginEditConfiguration}>
+              <button className="ai-action-btn ai-btn-secondary" onClick={beginEditConfiguration}>
                 Update
-              </button>
-              <button className="ai-action-btn ai-btn-secondary" onClick={handleTestKey} disabled={isValidating}>
-                {isValidating ? 'Testing...' : 'Test'}
               </button>
               <button className="ai-action-btn ai-btn-danger" onClick={handleRemoveKey} disabled={isLoading}>
                 Remove

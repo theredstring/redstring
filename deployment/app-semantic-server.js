@@ -236,6 +236,42 @@ const BRIDGE_INTERNAL_URL = process.env.BRIDGE_INTERNAL_URL || 'http://localhost
 
 logger.info(`[App] Setting up AI agent proxy to ${BRIDGE_INTERNAL_URL}`);
 
+// Proxy The Wizard endpoint (SSE streaming) to bridge daemon
+app.post('/api/wizard', async (req, res) => {
+  try {
+    const response = await fetch(`${BRIDGE_INTERNAL_URL}/api/wizard`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...(req.headers.authorization && { 'Authorization': req.headers.authorization })
+      },
+      body: JSON.stringify(req.body)
+    });
+
+    // Forward status and headers (SSE streams need to be piped, not buffered)
+    res.status(response.status);
+    for (const [key, value] of response.headers.entries()) {
+      // Forward content-type, cache-control, etc. but skip transfer-encoding
+      if (key.toLowerCase() !== 'transfer-encoding') {
+        res.setHeader(key, value);
+      }
+    }
+
+    // Pipe the SSE stream directly to the client
+    response.body.pipe(res);
+
+    // Clean up if client disconnects
+    req.on('close', () => {
+      if (response.body && typeof response.body.destroy === 'function') {
+        response.body.destroy();
+      }
+    });
+  } catch (error) {
+    logger.error('[Wizard Proxy] Error:', error);
+    res.status(503).json({ error: 'Wizard service unavailable', details: error.message });
+  }
+});
+
 // Proxy AI agent endpoints to bridge daemon
 app.post('/api/ai/agent', async (req, res) => {
   try {
@@ -288,6 +324,24 @@ app.post('/api/ai/agent/audit', async (req, res) => {
   } catch (error) {
     logger.error('[AI Agent Proxy] Error:', error);
     res.status(503).json({ error: 'AI agent audit service unavailable', details: error.message });
+  }
+});
+
+// Proxy Wikipedia enrichment endpoint to bridge daemon
+app.post('/api/enrich', async (req, res) => {
+  try {
+    const response = await fetch(`${BRIDGE_INTERNAL_URL}/api/enrich`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify(req.body)
+    });
+    const data = await response.json();
+    res.status(response.status).json(data);
+  } catch (error) {
+    logger.error('[Enrich Proxy] Error:', error);
+    res.status(503).json({ error: 'Enrichment service unavailable', details: error.message });
   }
 });
 
