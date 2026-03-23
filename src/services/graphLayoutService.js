@@ -1103,7 +1103,7 @@ export function forceDirectedLayout(nodes, edges, options = {}) {
         }
       });
 
-      const edgeRepulsionStrength = repulsionStrength * 0.8;
+      const edgeRepulsionStrength = repulsionStrength * 0.5;
       const minDist = finalMinNodeDistance;
 
       // Iterate all nodes against all edges
@@ -1156,6 +1156,32 @@ export function forceDirectedLayout(nodes, edges, options = {}) {
           if (fNode) {
             fNode.fx += fx;
             fNode.fy += fy;
+
+            // Rotational routing: swing the node in an arc around the nearest
+            // edge endpoint instead of just pushing it away. This lets nodes
+            // orbit around blocking edges to reach their spring targets.
+            const pivotX = t < 0.5 ? seg.x1 : seg.x2;
+            const pivotY = t < 0.5 ? seg.y1 : seg.y2;
+            const toPivotX = nPos.x - pivotX;
+            const toPivotY = nPos.y - pivotY;
+            const pivotDist = Math.sqrt(toPivotX * toPivotX + toPivotY * toPivotY);
+            if (pivotDist > 1) {
+              // Perpendicular to the node→pivot vector = rotation direction
+              // Choose rotation direction that moves node away from edge midpoint
+              const edgeMidX = (seg.x1 + seg.x2) / 2;
+              const edgeMidY = (seg.y1 + seg.y2) / 2;
+              // Two perpendicular options: (+perpY, -perpX) or (-perpY, +perpX)
+              const perpAx = -toPivotY / pivotDist;
+              const perpAy = toPivotX / pivotDist;
+              // Pick the one that moves away from edge midpoint
+              const toMidX = edgeMidX - nPos.x;
+              const toMidY = edgeMidY - nPos.y;
+              const dotA = perpAx * toMidX + perpAy * toMidY;
+              const sign = dotA < 0 ? 1 : -1;
+              const rotMag = forceMag * 1.2;
+              fNode.fx += sign * perpAx * rotMag;
+              fNode.fy += sign * perpAy * rotMag;
+            }
           }
 
           // Apply equal and opposite reaction to edge endpoints
@@ -1609,7 +1635,7 @@ export function forceDirectedLayout(nodes, edges, options = {}) {
   condenseClusters(positions, clusters, centerX, centerY, config, nodeGroupsMap);
 
   // ── Fix 5: Edge crossing reduction ──────────────────────────────────
-  reduceEdgeCrossings(positions, edges, nodes, nodeById, 3);
+  reduceEdgeCrossings(positions, edges, nodes, nodeById, 5);
 
   // ── Final label-aware edge correction ──────────────────────────────
   // Hard clamp: ensure condensation + crossing reduction didn't compress
@@ -1923,24 +1949,52 @@ function segmentsCross(a1x, a1y, a2x, a2y, b1x, b1y, b2x, b2y) {
 
 /**
  * Post-simulation edge crossing reduction.
- * For each pair of crossing edges, nudge the midpoints of their endpoints
- * apart perpendicular to the crossing point.  This untangles many common
- * crossings without altering the overall graph structure.
- *
- * Limited to `maxPasses` iterations to prevent infinite loops.
+ * Two-phase strategy per crossing:
+ *   Phase 1: Try swapping endpoint positions — accept only if total crossings decrease.
+ *   Phase 2: Adaptive nudge fallback — scale nudge to edge length instead of fixed 20px.
  */
-function reduceEdgeCrossings(positions, edges, nodes, nodeById, maxPasses = 3) {
+function reduceEdgeCrossings(positions, edges, nodes, nodeById, maxPasses = 5) {
   if (edges.length < 2) return;
 
+  // Pre-build adjacency: nodeId → list of edges involving that node
+  const nodeEdgeMap = new Map();
+  edges.forEach(edge => {
+    if (!nodeEdgeMap.has(edge.sourceId)) nodeEdgeMap.set(edge.sourceId, []);
+    if (!nodeEdgeMap.has(edge.destinationId)) nodeEdgeMap.set(edge.destinationId, []);
+    nodeEdgeMap.get(edge.sourceId).push(edge);
+    nodeEdgeMap.get(edge.destinationId).push(edge);
+  });
+
+  // Count crossings involving edges of a specific node
+  function countNodeCrossings(nodeId) {
+    let count = 0;
+    const nodeEdges = nodeEdgeMap.get(nodeId);
+    if (!nodeEdges) return 0;
+    for (const ne of nodeEdges) {
+      for (let k = 0; k < edges.length; k++) {
+        const oe = edges[k];
+        // Skip same edge or edges sharing an endpoint
+        if (ne === oe) continue;
+        if (ne.sourceId === oe.sourceId || ne.sourceId === oe.destinationId ||
+            ne.destinationId === oe.sourceId || ne.destinationId === oe.destinationId) continue;
+        const p1a = positions.get(ne.sourceId), p1b = positions.get(ne.destinationId);
+        const p2a = positions.get(oe.sourceId), p2b = positions.get(oe.destinationId);
+        if (!p1a || !p1b || !p2a || !p2b) continue;
+        if (segmentsCross(p1a.x, p1a.y, p1b.x, p1b.y, p2a.x, p2a.y, p2b.x, p2b.y)) count++;
+      }
+    }
+    return count;
+  }
+
   for (let pass = 0; pass < maxPasses; pass++) {
-    let crossingsFixed = 0;
+    let improved = false;
 
     for (let i = 0; i < edges.length; i++) {
       for (let j = i + 1; j < edges.length; j++) {
         const e1 = edges[i];
         const e2 = edges[j];
 
-        // Skip if edges share an endpoint (they always "cross" at the shared node)
+        // Skip if edges share an endpoint
         if (e1.sourceId === e2.sourceId || e1.sourceId === e2.destinationId ||
           e1.destinationId === e2.sourceId || e1.destinationId === e2.destinationId) {
           continue;
@@ -1952,46 +2006,73 @@ function reduceEdgeCrossings(positions, edges, nodes, nodeById, maxPasses = 3) {
         const p2b = positions.get(e2.destinationId);
         if (!p1a || !p1b || !p2a || !p2b) continue;
 
-        if (segmentsCross(p1a.x, p1a.y, p1b.x, p1b.y, p2a.x, p2a.y, p2b.x, p2b.y)) {
-          // Compute crossing point (approximate midpoints of segments)
-          const mid1x = (p1a.x + p1b.x) / 2;
-          const mid1y = (p1a.y + p1b.y) / 2;
-          const mid2x = (p2a.x + p2b.x) / 2;
-          const mid2y = (p2a.y + p2b.y) / 2;
+        if (!segmentsCross(p1a.x, p1a.y, p1b.x, p1b.y, p2a.x, p2a.y, p2b.x, p2b.y)) continue;
 
-          // Direction between midpoints
-          const dx = mid2x - mid1x;
-          const dy = mid2y - mid1y;
+        // Phase 1: Try swapping endpoint positions — pick the best swap
+        const candidates = [
+          { a: e1.sourceId, b: e2.sourceId },
+          { a: e1.sourceId, b: e2.destinationId },
+          { a: e1.destinationId, b: e2.sourceId },
+          { a: e1.destinationId, b: e2.destinationId },
+        ];
+
+        let bestSwap = null;
+        let bestReduction = 0;
+
+        for (const { a, b } of candidates) {
+          const pa = positions.get(a), pb = positions.get(b);
+          const beforeA = countNodeCrossings(a);
+          const beforeB = countNodeCrossings(b);
+
+          // Swap positions
+          const tmpX = pa.x, tmpY = pa.y;
+          pa.x = pb.x; pa.y = pb.y;
+          pb.x = tmpX; pb.y = tmpY;
+
+          const afterA = countNodeCrossings(a);
+          const afterB = countNodeCrossings(b);
+          const reduction = (beforeA + beforeB) - (afterA + afterB);
+
+          // Undo swap
+          pb.x = pa.x; pb.y = pa.y;
+          pa.x = tmpX; pa.y = tmpY;
+
+          if (reduction > bestReduction) {
+            bestReduction = reduction;
+            bestSwap = { a, b };
+          }
+        }
+
+        if (bestSwap) {
+          // Apply best swap
+          const pa = positions.get(bestSwap.a), pb = positions.get(bestSwap.b);
+          const tmpX = pa.x, tmpY = pa.y;
+          pa.x = pb.x; pa.y = pb.y;
+          pb.x = tmpX; pb.y = tmpY;
+          improved = true;
+        } else {
+          // Phase 2: Adaptive nudge fallback — scale to 8% of shorter edge length
+          const len1 = Math.sqrt((p1b.x - p1a.x) ** 2 + (p1b.y - p1a.y) ** 2);
+          const len2 = Math.sqrt((p2b.x - p2a.x) ** 2 + (p2b.y - p2a.y) ** 2);
+          const nudge = Math.max(30, Math.min(len1, len2) * 0.08);
+
+          const mid1x = (p1a.x + p1b.x) / 2, mid1y = (p1a.y + p1b.y) / 2;
+          const mid2x = (p2a.x + p2b.x) / 2, mid2y = (p2a.y + p2b.y) / 2;
+          const dx = mid2x - mid1x, dy = mid2y - mid1y;
           const dist = Math.sqrt(dx * dx + dy * dy);
           if (dist < 0.1) continue;
 
-          // Perpendicular nudge: push edge midpoints apart
-          // Use perpendicular to the crossing direction for cleaner separation
-          const perpX = -dy / dist;
-          const perpY = dx / dist;
-
-          // Gentle nudge (20px per pass) — enough to untangle without disrupting layout
-          const nudge = 20;
-
-          // Move endpoints of edge 1 in +perp direction
-          p1a.x += perpX * nudge * 0.5;
-          p1a.y += perpY * nudge * 0.5;
-          p1b.x += perpX * nudge * 0.5;
-          p1b.y += perpY * nudge * 0.5;
-
-          // Move endpoints of edge 2 in -perp direction
-          p2a.x -= perpX * nudge * 0.5;
-          p2a.y -= perpY * nudge * 0.5;
-          p2b.x -= perpX * nudge * 0.5;
-          p2b.y -= perpY * nudge * 0.5;
-
-          crossingsFixed++;
+          const perpX = -dy / dist, perpY = dx / dist;
+          p1a.x += perpX * nudge * 0.5; p1a.y += perpY * nudge * 0.5;
+          p1b.x += perpX * nudge * 0.5; p1b.y += perpY * nudge * 0.5;
+          p2a.x -= perpX * nudge * 0.5; p2a.y -= perpY * nudge * 0.5;
+          p2b.x -= perpX * nudge * 0.5; p2b.y -= perpY * nudge * 0.5;
+          improved = true;
         }
       }
     }
 
-    // Stop early if no crossings remain
-    if (crossingsFixed === 0) break;
+    if (!improved) break;
   }
 }
 

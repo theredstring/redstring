@@ -481,6 +481,28 @@ export function useForceSimulation({
             totalFx += (dx / dist) * avoidForce;
             totalFy += (dy / dist) * avoidForce;
             totalMagnitude += avoidForce;
+
+            // Rotational routing: swing node in arc around nearest edge endpoint
+            const pivotX = t < 0.5 ? source.x : target.x;
+            const pivotY = t < 0.5 ? source.y : target.y;
+            const toPivotX = node.x - pivotX;
+            const toPivotY = node.y - pivotY;
+            const pivotDist = Math.sqrt(toPivotX * toPivotX + toPivotY * toPivotY);
+            if (pivotDist > 1) {
+              const perpAx = -toPivotY / pivotDist;
+              const perpAy = toPivotX / pivotDist;
+              // Rotate away from edge midpoint
+              const edgeMidX = (source.x + target.x) / 2;
+              const edgeMidY = (source.y + target.y) / 2;
+              const toMidX = edgeMidX - node.x;
+              const toMidY = edgeMidY - node.y;
+              const dotA = perpAx * toMidX + perpAy * toMidY;
+              const sign = dotA < 0 ? 1 : -1;
+              const rotForce = avoidForce * 1.2;
+              totalFx += sign * perpAx * rotForce;
+              totalFy += sign * perpAy * rotForce;
+              totalMagnitude += rotForce;
+            }
           }
         });
 
