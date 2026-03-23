@@ -4862,7 +4862,7 @@ const UniverseManager = ({ variant = 'panel', onRequestClose }) => {
           existingOption={conflictDialog.existing}
           incomingOption={conflictDialog.incoming}
           onChooseExisting={() => handleResolveLocalConflict('existing')}
-          onChooseIncoming={() => handleResolveLocalConflict('incoming')}
+          onOverwrite={() => handleResolveLocalConflict('incoming')}
           onCancel={handleCancelLocalConflict}
         />
       )}

@@ -39,7 +39,7 @@ class DebugConfig {
         debugMode: false,
         forceGitOnly: false,
         logLevel: 'info',
-        enableWizard: false,
+        enableWizard: true,
         showNodeHitboxes: false
       };
       this.isInitialized = true;
@@ -53,7 +53,7 @@ class DebugConfig {
         debugMode: this.getBooleanSetting(DEBUG_STORAGE_KEYS.DEBUG_MODE, false),
         forceGitOnly: this.getBooleanSetting(DEBUG_STORAGE_KEYS.FORCE_GIT_ONLY, false),
         logLevel: this.getStringSetting(DEBUG_STORAGE_KEYS.LOG_LEVEL, 'info'),
-        enableWizard: this.getBooleanSetting(DEBUG_STORAGE_KEYS.ENABLE_WIZARD, false),
+        enableWizard: this.getBooleanSetting(DEBUG_STORAGE_KEYS.ENABLE_WIZARD, true),
         showNodeHitboxes: this.getBooleanSetting(DEBUG_STORAGE_KEYS.SHOW_NODE_HITBOXES, false)
       };
 
