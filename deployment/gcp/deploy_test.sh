@@ -151,7 +151,7 @@ echo ""
 
 # Build Docker image locally
 echo -e "${YELLOW}🏗️  Building Docker image locally...${NC}"
-docker build --platform linux/amd64 -f deployment/docker/Dockerfile -t gcr.io/${PROJECT_ID}/redstring-test:latest .
+docker build --platform linux/amd64 -f deployment/docker/Dockerfile.test -t gcr.io/${PROJECT_ID}/redstring-test:latest .
 
 if [ $? -eq 0 ]; then
     echo -e "${GREEN}✅ Docker image built successfully${NC}"

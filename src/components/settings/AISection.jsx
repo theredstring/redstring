@@ -369,16 +369,16 @@ const AISection = () => {
 
           {/* Test result messages */}
           {error && (
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '10px', backgroundColor: theme.alert.error.bg, color: theme.alert.error.text, border: `1px solid ${theme.alert.error.border}`, borderRadius: '6px', fontSize: '0.8rem', margin: '0 0 12px 0' }}>
-              <AlertCircle size={16} style={{ flexShrink: 0 }} />
-              {error}
+            <div style={{ display: 'flex', alignItems: 'flex-start', gap: '8px', padding: '10px', backgroundColor: theme.alert.error.bg, color: theme.alert.error.text, border: `1px solid ${theme.alert.error.border}`, borderRadius: '6px', fontSize: '0.8rem', margin: '0 0 12px 0', overflow: 'hidden' }}>
+              <AlertCircle size={16} style={{ flexShrink: 0, marginTop: '2px' }} />
+              <span style={{ wordBreak: 'break-word', overflowWrap: 'anywhere', minWidth: 0 }}>{error}</span>
             </div>
           )}
 
           {success && (
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '10px', backgroundColor: theme.alert.success.bg, color: theme.alert.success.text, border: `1px solid ${theme.alert.success.border}`, borderRadius: '6px', fontSize: '0.8rem', margin: '0 0 12px 0' }}>
-              <CheckCircle size={16} style={{ flexShrink: 0 }} />
-              {success}
+            <div style={{ display: 'flex', alignItems: 'flex-start', gap: '8px', padding: '10px', backgroundColor: theme.alert.success.bg, color: theme.alert.success.text, border: `1px solid ${theme.alert.success.border}`, borderRadius: '6px', fontSize: '0.8rem', margin: '0 0 12px 0', overflow: 'hidden' }}>
+              <CheckCircle size={16} style={{ flexShrink: 0, marginTop: '2px' }} />
+              <span style={{ wordBreak: 'break-word', overflowWrap: 'anywhere', minWidth: 0 }}>{success}</span>
             </div>
           )}
 
@@ -761,16 +761,16 @@ const AISection = () => {
 
           {/* Error/Success Messages */}
           {error && (
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '10px', backgroundColor: theme.alert.error.bg, color: theme.alert.error.text, border: `1px solid ${theme.alert.error.border}`, borderRadius: '6px', fontSize: '0.8rem', margin: '12px 0' }}>
-              <AlertCircle size={16} />
-              {error}
+            <div style={{ display: 'flex', alignItems: 'flex-start', gap: '8px', padding: '10px', backgroundColor: theme.alert.error.bg, color: theme.alert.error.text, border: `1px solid ${theme.alert.error.border}`, borderRadius: '6px', fontSize: '0.8rem', margin: '12px 0', overflow: 'hidden' }}>
+              <AlertCircle size={16} style={{ flexShrink: 0, marginTop: '2px' }} />
+              <span style={{ wordBreak: 'break-word', overflowWrap: 'anywhere', minWidth: 0 }}>{error}</span>
             </div>
           )}
 
           {success && (
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '10px', backgroundColor: theme.alert.success.bg, color: theme.alert.success.text, border: `1px solid ${theme.alert.success.border}`, borderRadius: '6px', fontSize: '0.8rem', margin: '12px 0' }}>
-              <CheckCircle size={16} />
-              {success}
+            <div style={{ display: 'flex', alignItems: 'flex-start', gap: '8px', padding: '10px', backgroundColor: theme.alert.success.bg, color: theme.alert.success.text, border: `1px solid ${theme.alert.success.border}`, borderRadius: '6px', fontSize: '0.8rem', margin: '12px 0', overflow: 'hidden' }}>
+              <CheckCircle size={16} style={{ flexShrink: 0, marginTop: '2px' }} />
+              <span style={{ wordBreak: 'break-word', overflowWrap: 'anywhere', minWidth: 0 }}>{success}</span>
             </div>
           )}
 
