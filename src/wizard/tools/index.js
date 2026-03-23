@@ -49,6 +49,8 @@ import { querySparql } from './querySparql.js';
 import { findDuplicates } from './findDuplicates.js';
 import { mergeNodes } from './mergeNodes.js';
 import { mergeGraphs } from './mergeGraphs.js';
+import { analyzeTabularData } from './analyzeTabularData.js';
+import { importTabularAsGraph } from './importTabularAsGraph.js';
 import { getToolDefinitions } from './schemas.js';
 
 const TOOLS = {
@@ -91,7 +93,9 @@ const TOOLS = {
   querySparql,
   findDuplicates,
   mergeNodes,
-  mergeGraphs
+  mergeGraphs,
+  analyzeTabularData,
+  importTabularAsGraph
 };
 
 /**

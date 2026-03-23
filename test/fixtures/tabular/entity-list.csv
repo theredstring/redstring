@@ -1,0 +1,6 @@
+name,department,role,reports_to
+Alice,Engineering,Manager,
+Bob,Engineering,Developer,Alice
+Carol,Marketing,Manager,
+Dave,Marketing,Designer,Carol
+Eve,Engineering,Developer,Alice

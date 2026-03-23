@@ -1,0 +1,6 @@
+entity,Alice,Bob,Carol,Dave,Eve
+Alice,0,1,1,0,1
+Bob,1,0,0,0,1
+Carol,1,0,0,1,0
+Dave,0,0,1,0,0
+Eve,1,1,0,0,0

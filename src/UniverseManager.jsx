@@ -3132,6 +3132,19 @@ const UniverseManager = ({ variant = 'panel', onRequestClose }) => {
     }
   };
 
+  const handleWorkspacePermissionGranted = async () => {
+    try {
+      setLoading(true);
+      await refreshState();
+      setSyncStatus({ type: 'success', message: 'Workspace folder access restored.' });
+    } catch (error) {
+      umError('[UniverseManager] Workspace permission refresh failed:', error);
+      setError(`Failed to refresh after workspace permission grant: ${error.message}`);
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const handleGrantLocalPermission = async (slug) => {
     try {
       setLoading(true);
@@ -4244,6 +4257,7 @@ const UniverseManager = ({ variant = 'panel', onRequestClose }) => {
         onLoadFromLocal={handleLoadFromLocal}
         onLoadFromRepo={handleLoadFromRepo}
         onGrantLocalPermission={handleGrantLocalPermission}
+        onWorkspacePermissionGranted={handleWorkspacePermissionGranted}
         isSlim={isSlim}
       />
 

@@ -88,6 +88,7 @@ REQUIRED_SECRETS=(
     "github-client-secret-test"
     "github-app-id-test"
     "github-app-private-key-test"
+    "github-app-slug-test"
 )
 
 for secret in "${REQUIRED_SECRETS[@]}"; do
@@ -182,8 +183,8 @@ gcloud run deploy ${SERVICE_NAME} \
     --cpu 1 \
     --concurrency 25 \
     --max-instances 3 \
-    --set-env-vars "NODE_ENV=production,OAUTH_PORT=3002,GITHUB_APP_SLUG_DEV=redstring-semantic-sync-test" \
-    --set-secrets "GITHUB_CLIENT_ID_DEV=github-client-id-test:latest,GITHUB_CLIENT_SECRET_DEV=github-client-secret-test:latest,GITHUB_APP_ID_DEV=github-app-id-test:latest,GITHUB_APP_PRIVATE_KEY_DEV=github-app-private-key-test:latest"
+    --set-env-vars "NODE_ENV=production,OAUTH_PORT=3002" \
+    --set-secrets "GITHUB_CLIENT_ID_DEV=github-client-id-test:latest,GITHUB_CLIENT_SECRET_DEV=github-client-secret-test:latest,GITHUB_APP_ID_DEV=github-app-id-test:latest,GITHUB_APP_PRIVATE_KEY_DEV=github-app-private-key-test:latest,GITHUB_APP_SLUG_DEV=github-app-slug-test:latest"
 
 if [ $? -eq 0 ]; then
     echo -e "${GREEN}✅ Cloud Run deployment successful${NC}"

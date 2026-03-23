@@ -1,0 +1,6 @@
+source,target,relationship
+Alice,Bob,manages
+Alice,Eve,manages
+Carol,Dave,manages
+Bob,Eve,collaborates with
+Alice,Carol,peers with

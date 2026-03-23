@@ -121,10 +121,16 @@ app.get('/health', (req, res) => {
 
 app.post('/api/wizard', async (req, res) => {
   try {
-    const { message, graphState, conversationHistory, config } = req.body || {};
+    const { message, graphState, conversationHistory, tabularData, config } = req.body || {};
 
     if (!message) {
       return res.status(400).json({ error: 'Message is required' });
+    }
+
+    // Inject tabular data into graphState so tools can access it via graphState._tabularData
+    if (tabularData && Array.isArray(tabularData) && tabularData.length > 0) {
+      if (graphState) graphState._tabularData = tabularData;
+      console.log(`[Wizard] Tabular data attached: ${tabularData.length} file(s), first: ${tabularData[0]?.filename}`);
     }
 
     const apiKey = req.headers.authorization?.replace(/^Bearer\s+/i, '') || '';

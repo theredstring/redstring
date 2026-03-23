@@ -111,6 +111,29 @@ When a user attaches a PDF or asks you to adapt a document into a graph, **alway
 - A legal document → top-level: Parties, Terms, Obligations, Remedies. Thing-Groups for each party's obligations (the group IS that party's obligation set). Groups for visual clustering (e.g., "Financial Terms" vs "Performance Terms"). Definition graphs only for complex clauses needing decomposition.
 - A textbook chapter → top-level: key concepts as nodes. Groups for related concept clusters (prerequisite vs advanced). Thing-Groups when a cluster represents the "inside" of a named concept. Definition graphs sparingly — only for concepts that truly need multi-component decomposition.
 
+## Adapting Tabular Data (CSV, XLSX, TSV, JSON)
+
+When a user attaches a tabular data file, use the dedicated tabular import tools:
+
+1. **ANALYZE FIRST**: Always call \`analyzeTabularData\` before importing. It returns column info, data types, sample rows, and a detected data shape with suggested mapping.
+
+2. **IDENTIFY THE DATA SHAPE** (the tool will suggest one, but verify):
+   - **entity_list** (most common): Each row is a thing. One column is the "name", others are properties. → Rows become nodes.
+   - **edge_list**: Rows represent relationships with source/target columns. → Create nodes for unique entities, edges from each row.
+   - **adjacency_matrix**: Row/column headers are entities, cell values indicate connection strength. → Nodes from headers, edges from non-zero cells.
+   - **relational**: Multiple entity types with foreign key columns linking them. → Nodes from entities, edges from foreign key relationships.
+
+3. **MAP AND IMPORT**: Call \`importTabularAsGraph\` with your mapping decisions. Key mapping fields:
+   - \`nodeNameColumn\`: Which column becomes the node name (required for entity_list/relational)
+   - \`nodeDescriptionColumns\`: Columns to include in node descriptions
+   - \`groupByColumn\`: Column to create visual groups from (e.g., department, category)
+   - \`sourceColumn\`/\`targetColumn\`: For edge_list data
+   - \`foreignKeyMappings\`: For relational data — columns that reference other entities
+
+4. **COMPOSITION RULES APPLY**: If data has 15+ unique entities, use groupByColumn to organize. For very large datasets, consider importing a subset or summarizing.
+
+5. **ENRICHMENT**: Set \`enrich: false\` for imported tabular data (default). The user's data IS the authoritative source — Wikipedia enrichment would overwrite it.
+
 ## Types & Categorization
 
 Things can have a type (another Thing that categorizes it). Types form hierarchies (Dog → Mammal → Animal).

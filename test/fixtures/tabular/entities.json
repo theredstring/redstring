@@ -1,0 +1,7 @@
+[
+  {"name": "Alice", "department": "Engineering", "role": "Manager"},
+  {"name": "Bob", "department": "Engineering", "role": "Developer"},
+  {"name": "Carol", "department": "Marketing", "role": "Manager"},
+  {"name": "Dave", "department": "Marketing", "role": "Designer"},
+  {"name": "Eve", "department": "Engineering", "role": "Developer"}
+]

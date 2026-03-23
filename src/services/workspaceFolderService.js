@@ -78,6 +78,48 @@ export async function getWorkspaceHandle() {
 }
 
 /**
+ * Checks whether the stored workspace directory handle has granted readwrite permission.
+ * Does NOT request permission (no user gesture needed).
+ * @returns {Promise<'granted'|'prompt'|'denied'|null>} Permission state, or null if no handle
+ */
+export async function checkWorkspacePermission() {
+    const handle = await getWorkspaceHandle();
+    if (!handle) return null;
+
+    if (typeof handle.queryPermission !== 'function') {
+        return 'granted';
+    }
+
+    try {
+        return await handle.queryPermission({ mode: 'readwrite' });
+    } catch (error) {
+        console.warn('[WorkspaceFolderService] Failed to query workspace permission:', error);
+        return 'denied';
+    }
+}
+
+/**
+ * Requests readwrite permission on the stored workspace directory handle.
+ * MUST be called from a user gesture context (click handler).
+ * @returns {Promise<'granted'|'denied'|null>} Permission state after request, or null if no handle
+ */
+export async function requestWorkspacePermission() {
+    const handle = await getWorkspaceHandle();
+    if (!handle) return null;
+
+    if (typeof handle.requestPermission !== 'function') {
+        return 'granted';
+    }
+
+    try {
+        return await handle.requestPermission({ mode: 'readwrite' });
+    } catch (error) {
+        console.warn('[WorkspaceFolderService] Failed to request workspace permission:', error);
+        return 'denied';
+    }
+}
+
+/**
  * Clears the stored directory handle
  */
 export async function clearWorkspaceHandle() {

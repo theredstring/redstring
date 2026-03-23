@@ -19,7 +19,8 @@ import { getTextColor } from '../../../utils/colorUtils.js';
 import { useTheme } from '../../../hooks/useTheme.js';
 import { queueThumbnailFetch } from '../../../services/imageCache.js';
 import headSvg from '../../../assets/svg/wizard/head.svg';
-import { getFileCategory, readFileAsDataUrl, readFileAsText, readPdfAsText, buildContentBlocks, SUPPORTED_IMAGE_TYPES, SUPPORTED_DOC_TYPES, MAX_FILE_SIZE } from '../../../ai/fileAttachmentUtils.js';
+import { getFileCategory, isTabularFile, readFileAsDataUrl, readFileAsText, readPdfAsText, readTabularFile, buildContentBlocks, SUPPORTED_IMAGE_TYPES, SUPPORTED_DOC_TYPES, MAX_FILE_SIZE } from '../../../ai/fileAttachmentUtils.js';
+import { getAllTabularData, clearTabularData } from '../../../services/tabularDataStore.js';
 
 // Shared Components
 import PanelIconButton from '../../shared/PanelIconButton.jsx';
@@ -1352,6 +1353,98 @@ function applyToolResultToStore(toolName, result, toolCallId) {
         });
       }, 1000);
     }
+  } else if (result.action === 'importTabularAsGraph' && result.spec) {
+    // Handle importTabularAsGraph — same pattern as createPopulatedGraph
+    console.log('[Wizard] Applying importTabularAsGraph to store:', result.graphName);
+    console.log('[Wizard] Nodes count:', result.spec.nodes?.length || 0);
+    console.log('[Wizard] Edges count:', result.spec.edges?.length || 0);
+    console.log('[Wizard] Groups count:', result.spec.groups?.length || 0);
+
+    // 1. Create the graph if it doesn't exist
+    let graphId = result.graphId || result.targetGraphId;
+    if (!graphId || !store.graphs.has(graphId)) {
+      graphId = store.createNewGraph({
+        id: result.graphId,
+        name: result.graphName || 'Imported Data',
+        description: result.description || '',
+      });
+    }
+
+    // 2. Resolve or create type prototypes (same as createPopulatedGraph)
+    const typeMap = new Map();
+    (result.spec.nodes || []).forEach(n => {
+      if (n.type) {
+        const tLower = n.type.toLowerCase().trim();
+        if (!typeMap.has(tLower)) {
+          let existingProtoId = null;
+          for (const [pid, proto] of store.nodePrototypes) {
+            if ((proto.name || '').toLowerCase().trim() === tLower) {
+              existingProtoId = pid;
+              break;
+            }
+          }
+          if (existingProtoId) {
+            typeMap.set(tLower, existingProtoId);
+          } else {
+            const newProtoId = `proto-auto-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+            typeMap.set(tLower, newProtoId);
+            store.addNodePrototype({
+              id: newProtoId,
+              name: n.type,
+              color: n.typeColor || '#A0A0A0',
+              description: n.typeDescription || '',
+              typeNodeId: null,
+              definitionGraphIds: []
+            });
+          }
+        }
+      }
+    });
+
+    // 3. Prepare bulk updates
+    const bulkData = {
+      nodes: result.spec.nodes.map((n, idx) => ({
+        name: n.name,
+        color: n.color,
+        description: n.description,
+        typeNodeId: n.type ? typeMap.get(n.type.toLowerCase().trim()) : null,
+        prototypeId: `proto-${Date.now()}-${idx}-${Math.random().toString(36).slice(2, 8)}`,
+        instanceId: `inst-${Date.now()}-${idx}-${Math.random().toString(36).slice(2, 8)}`,
+        x: Math.random() * 600 + 200,
+        y: Math.random() * 500 + 200
+      })),
+      edges: (result.spec.edges || []).map(e => ({
+        source: e.source,
+        target: e.target,
+        type: e.type || 'relates to',
+        directionality: e.directionality || 'unidirectional',
+      })),
+      groups: result.spec.groups || []
+    };
+
+    store.applyBulkGraphUpdates(graphId, bulkData);
+    console.log('[Wizard] Successfully imported tabular data to graph:', graphId);
+
+    // 4. Auto-layout
+    try { applyOffscreenLayout(graphId); } catch (e) { console.warn('[Wizard] Offscreen layout failed:', e); }
+    setTimeout(() => {
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('rs-trigger-auto-layout', { detail: { graphId } }));
+      }
+    }, 600);
+
+    // 5. Enrichment only if explicitly requested (default false for tabular imports)
+    if (result.enrich === true) {
+      const nodeNames = result.spec.nodes.map(n => n.name);
+      setTimeout(() => {
+        enrichMultipleNodes(nodeNames, graphId, { overwriteDescription: false }).catch(err => {
+          console.warn('[Auto-Enrich] Batch enrichment failed:', err);
+        });
+      }, 1000);
+    }
+
+    // Clear tabular data store after successful import
+    clearTabularData();
   } else if (result.action === 'expandGraph' && result.spec) {
     // Handle expandGraph — apply nodes and edges to the ACTIVE graph
     console.log('[Wizard] Applying expandGraph to active graph:', result.graphId);
@@ -2802,9 +2895,16 @@ const LeftAIView = ({ compact = false,
       if (category === 'document') {
         try {
           const isPdf = file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf');
-          attachment.extractedText = isPdf
-            ? await readPdfAsText(file)
-            : await readFileAsText(file);
+          if (isTabularFile(file)) {
+            // Parse tabular files into structured data; store full data for tool access
+            const { extractedText } = await readTabularFile(file, attachment.id);
+            attachment.extractedText = extractedText;
+            attachment.isTabular = true;
+          } else if (isPdf) {
+            attachment.extractedText = await readPdfAsText(file);
+          } else {
+            attachment.extractedText = await readFileAsText(file);
+          }
         } catch (e) {
           addMessage('system', `Could not read ${file.name}: ${e.message}`);
           continue;
@@ -3186,6 +3286,12 @@ const LeftAIView = ({ compact = false,
         effectiveProvider = 'openai';
       }
 
+      // Collect any tabular data from attachments for tool access
+      const tabularEntries = getAllTabularData();
+      const tabularData = tabularEntries.length > 0
+        ? tabularEntries.map(e => ({ attachId: e.attachId, ...e.data, profile: e.data.profile }))
+        : undefined;
+
       // Use new Wizard endpoint with SSE streaming
       const response = await bridgeFetch('/api/wizard', {
         method: 'POST',
@@ -3195,6 +3301,7 @@ const LeftAIView = ({ compact = false,
           graphState,
           contextItems: contextItems.filter(item => item.enabled),
           conversationHistory: recentMessages, // Include conversation history for context
+          tabularData, // Parsed tabular data for tool access
           config: {
             cid: `wizard-${Date.now()}`,
             systemPrompt: persona === 'druid' ? DRUID_SYSTEM_PROMPT : undefined,
@@ -4299,7 +4406,7 @@ const LeftAIView = ({ compact = false,
               ref={fileInputRef}
               type="file"
               multiple
-              accept="image/jpeg,image/png,image/gif,image/webp,.txt,.md,.json,.csv,.pdf,application/pdf"
+              accept="image/jpeg,image/png,image/gif,image/webp,.txt,.md,.json,.csv,.tsv,.xlsx,.xls,.pdf,application/pdf"
               style={{ display: 'none' }}
               onChange={(e) => {
                 if (e.target.files?.length) handleFilesSelected(Array.from(e.target.files));

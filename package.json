@@ -88,6 +88,7 @@
     "lethargy": "^1.0.9",
     "lucide-react": "^0.454.0",
     "node-fetch": "^3.3.2",
+    "papaparse": "^5.5.3",
     "pdfjs-dist": "^5.5.207",
     "rdflib": "^2.2.37",
     "react": "^18.3.1",
@@ -101,6 +102,7 @@
     "sparql-http-client": "^3.0.1",
     "use-debounce": "^10.0.5",
     "uuid": "^11.1.0",
+    "xlsx": "^0.18.5",
     "zod": "^3.25.76",
     "zustand": "^5.0.3"
   },

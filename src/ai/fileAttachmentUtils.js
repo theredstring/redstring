@@ -4,9 +4,20 @@
  * for multi-provider multimodal message support.
  */
 
+import { parseTabularFile, buildLLMSummary } from '../services/tabularParser.js';
+import { storeTabularData } from '../services/tabularDataStore.js';
+
 export const SUPPORTED_IMAGE_TYPES = ['image/jpeg', 'image/png', 'image/gif', 'image/webp'];
-export const SUPPORTED_DOC_TYPES = ['text/plain', 'text/markdown', 'text/csv', 'application/json', 'application/pdf'];
+export const SUPPORTED_DOC_TYPES = [
+  'text/plain', 'text/markdown', 'text/csv', 'text/tab-separated-values',
+  'application/json', 'application/pdf',
+  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', // .xlsx
+  'application/vnd.ms-excel', // .xls
+];
 export const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB per file (PDFs can be larger)
+
+/** Extensions recognized as tabular data */
+const TABULAR_EXTENSIONS = ['csv', 'tsv', 'xlsx', 'xls', 'json'];
 
 /**
  * Determine file category from MIME type or extension.
@@ -20,9 +31,19 @@ export function getFileCategory(file) {
   // Fallback: check extension for common types browsers may not MIME-type correctly
   const ext = file.name.split('.').pop()?.toLowerCase();
   if (['jpg', 'jpeg', 'png', 'gif', 'webp'].includes(ext)) return 'image';
-  if (['txt', 'md', 'markdown', 'csv', 'json', 'pdf'].includes(ext)) return 'document';
+  if (['txt', 'md', 'markdown', 'csv', 'tsv', 'json', 'pdf', 'xlsx', 'xls'].includes(ext)) return 'document';
 
   return 'unknown';
+}
+
+/**
+ * Check if a file is a tabular data format (CSV, TSV, XLSX, JSON).
+ * @param {File} file
+ * @returns {boolean}
+ */
+export function isTabularFile(file) {
+  const ext = file.name.split('.').pop()?.toLowerCase();
+  return TABULAR_EXTENSIONS.includes(ext);
 }
 
 /**
@@ -75,6 +96,26 @@ export async function readPdfAsText(file) {
     pages.push(textContent.items.map(item => item.str).join(' '));
   }
   return pages.join('\n\n');
+}
+
+/**
+ * Read a tabular file (CSV, TSV, XLSX, JSON), parse it, and store the full
+ * parsed data for tool access. Returns a structured LLM summary as extractedText.
+ *
+ * @param {File} file
+ * @param {string} attachId - Unique attachment ID for data store keying
+ * @returns {Promise<{ extractedText: string, parsedData: Object }>}
+ */
+export async function readTabularFile(file, attachId) {
+  const parsedData = await parseTabularFile(file);
+
+  // Store the full parsed data so wizard tools can access it
+  storeTabularData(attachId, parsedData);
+
+  // Build a structured summary for the LLM context (not raw text)
+  const extractedText = buildLLMSummary(parsedData);
+
+  return { extractedText, parsedData };
 }
 
 /**

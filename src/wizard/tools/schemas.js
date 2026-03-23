@@ -843,6 +843,64 @@ export function getToolDefinitions() {
                 },
                 required: ['sourceGraphId']
             }
+        },
+        {
+            name: 'analyzeTabularData',
+            description: 'Analyze an attached tabular data file (CSV, TSV, XLSX, JSON). Returns column info, data types, sample rows, detected data shape, and suggested mapping. Call this BEFORE importTabularAsGraph to understand the data structure.',
+            parameters: {
+                type: 'object',
+                properties: {
+                    fileIndex: { type: 'number', description: 'Index of the tabular file in attachments (0-based). Default: 0 (first tabular file).' },
+                    sheetName: { type: 'string', description: 'For XLSX files with multiple sheets, specify which sheet to analyze.' }
+                },
+                required: []
+            }
+        },
+        {
+            name: 'importTabularAsGraph',
+            description: 'Import tabular data as a graph. Creates nodes from rows, edges from relationships, and groups from categories. Call analyzeTabularData first. Supports entity_list, edge_list, adjacency_matrix, and relational data shapes.',
+            parameters: {
+                type: 'object',
+                properties: {
+                    graphName: { type: 'string', description: 'Name for the new graph.' },
+                    description: { type: 'string', description: 'Description for the graph.' },
+                    dataShape: { type: 'string', enum: ['entity_list', 'edge_list', 'adjacency_matrix', 'relational'], description: 'How to interpret the data.' },
+                    mapping: {
+                        type: 'object',
+                        description: 'Column-to-graph mapping. For entity_list: nodeNameColumn (required), nodeDescriptionColumns, nodeTypeColumn, groupByColumn. For edge_list: sourceColumn, targetColumn, edgeLabelColumn. For relational: nodeNameColumn + foreignKeyMappings array.',
+                        properties: {
+                            nodeNameColumn: { type: 'string', description: 'Column to use as node names.' },
+                            nodeDescriptionColumns: { type: 'array', items: { type: 'string' }, description: 'Columns to include in node description.' },
+                            nodeTypeColumn: { type: 'string', description: 'Column for node type/category.' },
+                            nodeColorColumn: { type: 'string', description: 'Column for color grouping.' },
+                            groupByColumn: { type: 'string', description: 'Column to create groups from unique values.' },
+                            sourceColumn: { type: 'string', description: 'For edge_list: source entity column.' },
+                            targetColumn: { type: 'string', description: 'For edge_list: target entity column.' },
+                            edgeLabelColumn: { type: 'string', description: 'For edge_list: relationship type column.' },
+                            edgeWeightColumn: { type: 'string', description: 'For edge_list: numeric weight column.' },
+                            foreignKeyMappings: {
+                                type: 'array',
+                                items: {
+                                    type: 'object',
+                                    properties: {
+                                        column: { type: 'string', description: 'Column containing references to other entities.' },
+                                        edgeLabel: { type: 'string', description: 'Label for the edge.' },
+                                        directionality: { type: 'string', enum: ['unidirectional', 'bidirectional'], description: 'Edge direction.' }
+                                    },
+                                    required: ['column', 'edgeLabel']
+                                },
+                                description: 'For relational: columns that reference other entities.'
+                            }
+                        }
+                    },
+                    maxNodes: { type: 'number', description: 'Maximum nodes to create (default: 200). Use composition for larger datasets.' },
+                    enrich: { type: 'boolean', description: 'Auto-enrich from Wikipedia (default: false for imported data).' },
+                    fileIndex: { type: 'number', description: 'Index of the tabular file (default: 0).' },
+                    sheetName: { type: 'string', description: 'Sheet to import (XLSX only).' },
+                    targetGraphId: { type: 'string', description: 'Existing graph to import into (default: creates new graph).' }
+                },
+                required: ['graphName', 'description', 'dataShape', 'mapping']
+            }
         }
     ];
 }

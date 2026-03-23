@@ -249,6 +249,23 @@ function updateGraphState(graphState, _toolName, _args, result) {
     const counts = applyBulkSpecToInternalState(graphState, targetGraph, result.spec);
 
     console.error('[updateGraphState] createPopulatedGraph: added', counts.nodesAdded, 'nodes +', counts.edgesAdded, 'edges to new graph', result.graphId);
+  } else if (result.action === 'importTabularAsGraph' && result.spec) {
+    // Tabular data import — same pattern as createPopulatedGraph
+    graphState.activeGraphId = result.graphId;
+    graphState.graphs = graphState.graphs || [];
+
+    graphState.graphs.push({
+      id: result.graphId,
+      name: result.graphName,
+      instances: [],
+      edgeIds: [],
+      groups: [],
+      definingNodeIds: []
+    });
+    const targetGraph = graphState.graphs[graphState.graphs.length - 1];
+    const counts = applyBulkSpecToInternalState(graphState, targetGraph, result.spec);
+
+    console.error('[updateGraphState] importTabularAsGraph: added', counts.nodesAdded, 'nodes +', counts.edgesAdded, 'edges to new graph', result.graphId);
   } else if (result.action === 'expandGraph' && result.spec) {
     // Nodes + edges added to target graph
     const targetGraphId = result.graphId || graphState.activeGraphId;
@@ -660,6 +677,16 @@ export async function* runAgent(userMessage, graphState, config = {}, ensureSche
         return `- [image attachment] (${b.media_type || 'image'})`;
       }).join('\n');
       attachmentContextSuffix = `\n\n## Attached Files\nThe user's message includes file attachments:\n${fileList}\nRefer to the "Adapting Documents & PDFs" instructions for how to handle document attachments. You MUST plan first with planTask before building any graph from attached documents.`;
+
+      // Detect tabular files specifically for targeted instructions
+      const tabularAttachments = attachments.filter(b =>
+        b.type === 'document_text' &&
+        /\.(csv|tsv|xlsx|xls|json)$/i.test(b.filename || '')
+      );
+      if (tabularAttachments.length > 0) {
+        attachmentContextSuffix += '\n\nIMPORTANT: The user attached tabular data file(s) (' + tabularAttachments.map(b => b.filename).join(', ') + '). You MUST call `analyzeTabularData` first to understand the data structure, then use `importTabularAsGraph` with an appropriate mapping to convert it to a graph. Do NOT try to parse the data yourself from the raw text — the tools have access to the full parsed data.';
+      }
+
       initialContext += attachmentContextSuffix;
     }
   }

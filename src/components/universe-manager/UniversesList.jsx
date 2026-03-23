@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Plus, ChevronDown, Github, Upload, Download, X, Edit, Star, Save, Activity, Link, FileText, ArrowRightLeft, FolderOpen, Folder } from 'lucide-react';
+import { Plus, ChevronDown, Github, Upload, Download, X, Edit, Star, Save, Activity, Link, FileText, ArrowRightLeft, FolderOpen, Folder, RotateCcw, Key } from 'lucide-react';
 import { useTheme } from '../../hooks/useTheme.js';
 
 import SectionCard from './shared/SectionCard.jsx';
@@ -27,7 +27,7 @@ function formatWhen(timestamp) {
   }
 }
 
-import { saveWorkspaceHandle, getWorkspaceHandle, clearWorkspaceHandle } from '../../services/workspaceFolderService.js';
+import { saveWorkspaceHandle, getWorkspaceHandle, clearWorkspaceHandle, checkWorkspacePermission, requestWorkspacePermission } from '../../services/workspaceFolderService.js';
 
 const UniversesList = ({
   universes = [],
@@ -53,6 +53,7 @@ const UniversesList = ({
   onLoadFromRepo,
   onGrantLocalPermission,
   onSwapLocalFile,
+  onWorkspacePermissionGranted,
   isSlim = false
 }) => {
   const theme = useTheme();
@@ -71,6 +72,7 @@ const UniversesList = ({
     }
   });
   const [workspaceFolderHandle, setWorkspaceFolderHandle] = useState(null);
+  const [workspaceNeedsPermission, setWorkspaceNeedsPermission] = useState(false);
   const loadMenuRef = useRef(null);
   const newMenuRef = useRef(null);
   const localFileMenuRef = useRef(null);
@@ -84,6 +86,12 @@ const UniversesList = ({
         if (handle) {
           setWorkspaceFolderHandle(handle);
           setWorkspaceFolder(handle.name);
+
+          // Check if permission was lost after page refresh
+          const permState = await checkWorkspacePermission();
+          if (permState && permState !== 'granted') {
+            setWorkspaceNeedsPermission(true);
+          }
         }
       } catch (e) {
         console.warn('[UniversesList] Failed to restore workspace folder handle:', e);
@@ -138,6 +146,7 @@ const UniversesList = ({
       const handle = await window.showDirectoryPicker({ mode: 'readwrite' });
       setWorkspaceFolderHandle(handle);
       setWorkspaceFolder(handle.name);
+      setWorkspaceNeedsPermission(false);
       await saveWorkspaceHandle(handle);
     } catch (e) {
       if (e.name !== 'AbortError') {
@@ -149,7 +158,20 @@ const UniversesList = ({
   const handleClearWorkspaceFolder = async () => {
     setWorkspaceFolderHandle(null);
     setWorkspaceFolder(null);
+    setWorkspaceNeedsPermission(false);
     await clearWorkspaceHandle();
+  };
+
+  const handleRegrantWorkspacePermission = async () => {
+    try {
+      const result = await requestWorkspacePermission();
+      if (result === 'granted') {
+        setWorkspaceNeedsPermission(false);
+        onWorkspacePermissionGranted?.();
+      }
+    } catch (e) {
+      console.error('[UniversesList] Failed to re-grant workspace permission:', e);
+    }
   };
 
   const triggerLocalFilePicker = () => {
@@ -419,6 +441,38 @@ const UniversesList = ({
               )}
             </div>
           </div>
+
+          {workspaceFolder && workspaceNeedsPermission && (
+            <div style={{
+              padding: isVerySlim ? '6px 10px' : '8px 12px',
+              backgroundColor: theme.alert.warning.bg,
+              borderRadius: 6,
+              border: `1px solid ${theme.alert.warning.border}`,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              gap: 8,
+              fontSize: isVerySlim ? '0.62rem' : '0.68rem',
+              color: theme.alert.warning.text
+            }}>
+              <span>Workspace folder access was lost on reload. Click to re-authorize.</span>
+              <PanelIconButton
+                icon={Key}
+                label="Re-grant Access"
+                variant="outline"
+                size={isVerySlim ? 12 : 14}
+                style={{
+                  fontSize: '0.62rem',
+                  padding: '2px 10px',
+                  borderColor: theme.alert.warning.text,
+                  color: theme.alert.warning.text,
+                  flexShrink: 0
+                }}
+                onClick={handleRegrantWorkspacePermission}
+                title="Re-grant workspace folder access permission"
+              />
+            </div>
+          )}
 
           {isLoading ? (
             <div style={{
