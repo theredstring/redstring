@@ -2020,13 +2020,45 @@ const LeftAIView = ({ compact = false,
   const [currentAgentRequest, setCurrentAgentRequest] = React.useState(null);
   const [wizardStage, setWizardStage] = React.useState(null); // Track current wizard stage
   const [druidInstance, setDruidInstance] = React.useState(null); // Druid cognitive state manager
-  const [conversations, setConversations] = React.useState([
-    { id: 'default', title: 'New Chat', messages: [], timestamp: new Date().toISOString() }
-  ]);
-  const [activeConversationId, setActiveConversationId] = React.useState('default');
+  // Synchronously hydrate conversations from localStorage to avoid async race conditions.
+  // On web, localStorage is the only persistence layer so this gives us the full picture immediately.
+  // On Electron, this provides a fast initial load; the mount effect below may override with workspace data.
+  const [conversationInit] = React.useState(() => {
+    try {
+      const manifestStr = localStorage.getItem('rs.aiChat.manifest');
+      if (manifestStr) {
+        const manifest = JSON.parse(manifestStr);
+        if (manifest && manifest.conversations && manifest.conversations.length > 0) {
+          const hydrated = manifest.conversations.map(c => {
+            try {
+              const localData = localStorage.getItem(`rs.aiChat.messages.${c.id}`);
+              if (localData) {
+                const data = JSON.parse(localData);
+                return { ...c, messages: data.messages || [] };
+              }
+            } catch { }
+            return { ...c, messages: [] };
+          });
+          return {
+            conversations: hydrated,
+            activeId: manifest.activeConversationId || hydrated[0].id
+          };
+        }
+      }
+    } catch { }
+    return null;
+  });
+  const [conversations, setConversations] = React.useState(
+    conversationInit?.conversations || [{ id: 'default', title: 'New Chat', messages: [], timestamp: new Date().toISOString() }]
+  );
+  const [activeConversationId, setActiveConversationId] = React.useState(
+    conversationInit?.activeId || 'default'
+  );
   const [editingTabId, setEditingTabId] = React.useState(null);
   const [editingTabTitle, setEditingTabTitle] = React.useState('');
-  const [isHydrated, setIsHydrated] = React.useState(false);
+  // On web, localStorage init above is sufficient — mark as hydrated immediately.
+  // On Electron, the mount effect below may load from workspace files asynchronously.
+  const [isHydrated, setIsHydrated] = React.useState(!fileStorage.isElectron());
   const [chatUndoMessageId, setChatUndoMessageId] = React.useState(null);
   const [isChatUndoOpen, setIsChatUndoOpen] = React.useState(false);
 
@@ -2162,34 +2194,33 @@ const LeftAIView = ({ compact = false,
     }));
   }, [activeGraphId, graphsMap, nodePrototypesMap]);
 
-  // Load conversations from workspace on mount
+  // Load conversations from workspace on mount (Electron only).
+  // On web, conversations are already hydrated synchronously from localStorage in the useState initializer above.
   React.useEffect(() => {
+    if (!fileStorage.isElectron()) return; // Web is already hydrated synchronously
+
     const loadConversations = async () => {
       try {
         let manifest = null;
-
-        // Try workspace manifest first (Electron only — on web, readFile(string) throws)
-        if (fileStorage.isElectron()) {
-          try {
-            const projectDir = await fileStorage.getProjectDirectory();
-            if (projectDir) {
-              const convDir = `${projectDir}/conversations`;
-              const manifestPath = `${convDir}/manifest.json`;
-              const manifestRes = await fileStorage.readFile(manifestPath);
-              if (manifestRes) {
-                const content = typeof manifestRes === 'string' ? manifestRes : manifestRes.content;
-                if (content) {
-                  manifest = JSON.parse(content);
-                  console.log('[AI Collaboration] Loaded manifest from workspace');
-                }
+        try {
+          const projectDir = await fileStorage.getProjectDirectory();
+          if (projectDir) {
+            const convDir = `${projectDir}/conversations`;
+            const manifestPath = `${convDir}/manifest.json`;
+            const manifestRes = await fileStorage.readFile(manifestPath);
+            if (manifestRes) {
+              const content = typeof manifestRes === 'string' ? manifestRes : manifestRes.content;
+              if (content) {
+                manifest = JSON.parse(content);
+                console.log('[AI Collaboration] Loaded manifest from workspace');
               }
             }
-          } catch (e) {
-            console.log('[AI Collaboration] No workspace manifest found, trying localStorage');
           }
+        } catch (e) {
+          console.log('[AI Collaboration] No workspace manifest found, trying localStorage');
         }
 
-        // Fallback (or primary on web) to localStorage
+        // Fallback to localStorage on Electron if no workspace manifest
         if (!manifest) {
           const manifestStr = localStorage.getItem('rs.aiChat.manifest');
           if (manifestStr) {
@@ -2198,25 +2229,21 @@ const LeftAIView = ({ compact = false,
         }
 
         if (manifest && manifest.conversations) {
-          // Hydrate conversations with their messages from files
           const hydratedConversations = await Promise.all(manifest.conversations.map(async (c) => {
             try {
-              // Try workspace file (Electron only)
-              if (fileStorage.isElectron()) {
-                const projectDir = await fileStorage.getProjectDirectory();
-                if (projectDir) {
-                  const filePath = `${projectDir}/conversations/${c.id}.json`;
-                  const fileRes = await fileStorage.readFile(filePath);
-                  if (fileRes) {
-                    const content = typeof fileRes === 'string' ? fileRes : fileRes.content;
-                    if (content) {
-                      const data = JSON.parse(content);
-                      return { ...c, messages: data.messages || [] };
-                    }
+              const projectDir = await fileStorage.getProjectDirectory();
+              if (projectDir) {
+                const filePath = `${projectDir}/conversations/${c.id}.json`;
+                const fileRes = await fileStorage.readFile(filePath);
+                if (fileRes) {
+                  const content = typeof fileRes === 'string' ? fileRes : fileRes.content;
+                  if (content) {
+                    const data = JSON.parse(content);
+                    return { ...c, messages: data.messages || [] };
                   }
                 }
               }
-              // Fallback (or primary on web) to localStorage
+              // Fallback to localStorage
               const localData = localStorage.getItem(`rs.aiChat.messages.${c.id}`);
               if (localData) {
                 const data = JSON.parse(localData);
@@ -2224,7 +2251,6 @@ const LeftAIView = ({ compact = false,
               }
             } catch (e) {
               console.warn(`[AI Collaboration] Failed to hydrate conversation ${c.id}:`, e);
-              // Final fallback to localStorage even on parse/FS error
               try {
                 const localData = localStorage.getItem(`rs.aiChat.messages.${c.id}`);
                 if (localData) {
@@ -2246,7 +2272,7 @@ const LeftAIView = ({ compact = false,
       }
     };
     loadConversations();
-  }, []); // Load once on mount; component remounts on file switch
+  }, []); // Electron only; component remounts on file switch
 
   // Sync messages with active conversation
   const lastActiveIdRef = React.useRef(activeConversationId);
