@@ -75,9 +75,25 @@ function simplifyForGemini(schema) {
         }
       }
     }
-    // Recurse into top-level objects (not inside arrays — those are handled above)
+    // Flatten top-level object properties that contain nested arrays of objects.
+    // e.g. importTabularAsGraph.mapping has foreignKeyMappings (array of objects)
+    // which adds too many constraint states. Convert the entire object to a JSON string.
     if (prop.type === 'object' && prop.properties) {
-      simplifyForGemini(prop);
+      const hasDeepNesting = Object.values(prop.properties).some(
+        sub => (sub.type === 'array' && sub.items?.type === 'object') ||
+               (sub.type === 'object' && sub.properties)
+      );
+      if (hasDeepNesting) {
+        const fields = Object.entries(prop.properties)
+          .map(([k, v]) => `${k} (${v.type})`)
+          .join(', ');
+        schema.properties[key] = {
+          type: 'string',
+          description: `${prop.description || ''} (JSON object with fields: ${fields})`.trim()
+        };
+      } else {
+        simplifyForGemini(prop);
+      }
     }
   }
 }

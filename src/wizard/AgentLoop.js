@@ -707,7 +707,8 @@ export async function* runAgent(userMessage, graphState, config = {}, ensureSche
 
   const baseSystemPrompt = config.systemPrompt || SYSTEM_PROMPT || 'You are The Wizard, a helpful assistant for building knowledge graphs.';
 
-  const tools = getToolDefinitions();
+  const hasTabularData = Array.isArray(graphState?._tabularData) && graphState._tabularData.length > 0;
+  const tools = getToolDefinitions({ hasTabularData });
   const maxIterations = config.maxIterations || DEFAULT_MAX_ITERATIONS;
 
   // Build static system prompt template (context will be appended fresh each iteration)

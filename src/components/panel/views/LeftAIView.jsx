@@ -2166,26 +2166,30 @@ const LeftAIView = ({ compact = false,
   React.useEffect(() => {
     const loadConversations = async () => {
       try {
-        const projectDir = await fileStorage.getProjectDirectory();
-
         let manifest = null;
 
-        // Try workspace manifest first (if projectDir exists)
-        if (projectDir) {
+        // Try workspace manifest first (Electron only — on web, readFile(string) throws)
+        if (fileStorage.isElectron()) {
           try {
-            const convDir = await fileStorage.isElectron() ? `${projectDir}/conversations` : 'conversations';
-            const manifestPath = await fileStorage.isElectron() ? `${convDir}/manifest.json` : 'conversations/manifest.json';
-            const manifestRes = await fileStorage.readFile(manifestPath);
-            if (manifestRes && manifestRes.content) {
-              manifest = JSON.parse(manifestRes.content);
-              console.log('[AI Collaboration] Loaded manifest from workspace');
+            const projectDir = await fileStorage.getProjectDirectory();
+            if (projectDir) {
+              const convDir = `${projectDir}/conversations`;
+              const manifestPath = `${convDir}/manifest.json`;
+              const manifestRes = await fileStorage.readFile(manifestPath);
+              if (manifestRes) {
+                const content = typeof manifestRes === 'string' ? manifestRes : manifestRes.content;
+                if (content) {
+                  manifest = JSON.parse(content);
+                  console.log('[AI Collaboration] Loaded manifest from workspace');
+                }
+              }
             }
           } catch (e) {
             console.log('[AI Collaboration] No workspace manifest found, trying localStorage');
           }
         }
 
-        // Fallback to localStorage
+        // Fallback (or primary on web) to localStorage
         if (!manifest) {
           const manifestStr = localStorage.getItem('rs.aiChat.manifest');
           if (manifestStr) {
@@ -2197,16 +2201,22 @@ const LeftAIView = ({ compact = false,
           // Hydrate conversations with their messages from files
           const hydratedConversations = await Promise.all(manifest.conversations.map(async (c) => {
             try {
-              if (projectDir) {
-                const convDir = await fileStorage.isElectron() ? `${projectDir}/conversations` : 'conversations';
-                const filePath = await fileStorage.isElectron() ? `${convDir}/${c.id}.json` : `conversations/${c.id}.json`;
-                const fileRes = await fileStorage.readFile(filePath);
-                if (fileRes && fileRes.content) {
-                  const data = JSON.parse(fileRes.content);
-                  return { ...c, messages: data.messages || [] };
+              // Try workspace file (Electron only)
+              if (fileStorage.isElectron()) {
+                const projectDir = await fileStorage.getProjectDirectory();
+                if (projectDir) {
+                  const filePath = `${projectDir}/conversations/${c.id}.json`;
+                  const fileRes = await fileStorage.readFile(filePath);
+                  if (fileRes) {
+                    const content = typeof fileRes === 'string' ? fileRes : fileRes.content;
+                    if (content) {
+                      const data = JSON.parse(content);
+                      return { ...c, messages: data.messages || [] };
+                    }
+                  }
                 }
               }
-              // Fallback to localStorage if workspace file missing or projectDir missing
+              // Fallback (or primary on web) to localStorage
               const localData = localStorage.getItem(`rs.aiChat.messages.${c.id}`);
               if (localData) {
                 const data = JSON.parse(localData);
@@ -2236,7 +2246,7 @@ const LeftAIView = ({ compact = false,
       }
     };
     loadConversations();
-  }, [fileStatus?.fileHandle]); // Only re-run if the project file handle actually changes
+  }, []); // Load once on mount; component remounts on file switch
 
   // Sync messages with active conversation
   const lastActiveIdRef = React.useRef(activeConversationId);
@@ -2281,17 +2291,16 @@ const LeftAIView = ({ compact = false,
       };
       localStorage.setItem('rs.aiChat.manifest', JSON.stringify(manifest));
 
-      // Also save manifest to workspace if possible
+      // Also save manifest to workspace if possible (Electron only — web uses localStorage above)
       const saveManifestToWorkspace = async () => {
+        if (!fileStorage.isElectron()) return;
         try {
           const projectDir = await fileStorage.getProjectDirectory();
           if (!projectDir) return;
-          const convDir = await fileStorage.isElectron() ? `${projectDir}/conversations` : 'conversations';
-          if (await fileStorage.isElectron()) {
-            const exists = await window.electron.fileSystem.folderExists(convDir);
-            if (!exists) await fileStorage.mkdir(convDir);
-          }
-          const manifestPath = await fileStorage.isElectron() ? `${convDir}/manifest.json` : 'conversations/manifest.json';
+          const convDir = `${projectDir}/conversations`;
+          const exists = await window.electron.fileSystem.folderExists(convDir);
+          if (!exists) await fileStorage.mkdir(convDir);
+          const manifestPath = `${convDir}/manifest.json`;
           console.log('[AI Collaboration] Saving manifest to:', manifestPath);
           await fileStorage.writeFile(manifestPath, JSON.stringify(manifest, null, 2));
         } catch (err) {
@@ -3582,29 +3591,23 @@ const LeftAIView = ({ compact = false,
   const typeListMode = useGraphStore(state => state.typeListMode);
   const toggleClearance = typeListMode === 'closed' ? HEADER_HEIGHT + 10 : 0;
 
-  // Save active conversation messages to file
+  // Save active conversation messages to file (Electron only — web uses localStorage via the messages sync effect above)
   React.useEffect(() => {
     const saveToFile = async () => {
       if (messages.length === 0) return;
+      if (!fileStorage.isElectron()) return; // Web uses localStorage only (handled by messages sync effect)
       try {
         const projectDir = await fileStorage.getProjectDirectory();
-        if (!projectDir) {
-          console.warn('[AI Collaboration] No project directory available for saving.');
-          return;
+        if (!projectDir) return;
+
+        const convDir = `${projectDir}/conversations`;
+        const exists = await window.electron.fileSystem.folderExists(convDir);
+        if (!exists) {
+          console.log('[AI Collaboration] Creating conversations directory:', convDir);
+          await fileStorage.mkdir(convDir);
         }
 
-        const convDir = await fileStorage.isElectron() ? `${projectDir}/conversations` : 'conversations';
-
-        // Ensure directory exists
-        if (await fileStorage.isElectron()) {
-          const exists = await window.electron.fileSystem.folderExists(convDir);
-          if (!exists) {
-            console.log('[AI Collaboration] Creating conversations directory:', convDir);
-            await fileStorage.mkdir(convDir);
-          }
-        }
-
-        const filePath = await fileStorage.isElectron() ? `${convDir}/${activeConversationId}.json` : `conversations/${activeConversationId}.json`;
+        const filePath = `${convDir}/${activeConversationId}.json`;
         console.log('[AI Collaboration] Saving conversation to:', filePath);
 
         const convData = {

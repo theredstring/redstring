@@ -9,8 +9,9 @@ const COLOR_DESC = 'Color name from the chosen palette (e.g., "red", "tan", "nav
  * Get tool definitions for LLM
  * @returns {Array} Tool definitions
  */
-export function getToolDefinitions() {
-    return [
+export function getToolDefinitions(options = {}) {
+    const { hasTabularData = false } = options;
+    const allTools = [
         {
             name: 'createNode',
             description: 'Create a single node in the active or target graph.',
@@ -675,7 +676,7 @@ export function getToolDefinitions() {
         // ── Semantic Web Tools ──────────────────────────────────────────
         {
             name: 'discoverOrbit',
-            description: 'Discover semantic web connections for an entity. Returns ranked relationships in 4 quality rings from Wikidata/DBpedia. Use before materializeSemanticEntities.',
+            description: 'SEMANTIC WEB TOOL: Discover linked-data connections for an entity from Wikidata/DBpedia. Returns ranked relationships in 4 quality rings. Only use when user explicitly wants semantic web exploration — not for general graph building. Use before materializeSemanticEntities.',
             parameters: {
                 type: 'object',
                 properties: {
@@ -693,7 +694,7 @@ export function getToolDefinitions() {
         },
         {
             name: 'semanticSearch',
-            description: 'Search the semantic web. "enrich" mode: entity lookup with descriptions/links. "related" mode: find related concepts via SPARQL.',
+            description: 'SEMANTIC WEB TOOL: Search Wikidata/DBpedia for entity data. "enrich" mode: entity lookup with descriptions/links. "related" mode: find related concepts via SPARQL. Only use when user explicitly wants semantic web data — not for general graph building.',
             parameters: {
                 type: 'object',
                 properties: {
@@ -706,7 +707,7 @@ export function getToolDefinitions() {
         },
         {
             name: 'materializeSemanticEntities',
-            description: 'Turn semantic web discoveries into Redstring nodes and edges. Use after discoverOrbit/semanticSearch. Connections become typed edges.',
+            description: 'SEMANTIC WEB TOOL: Turn semantic web discoveries into Redstring nodes and edges. Use after discoverOrbit/semanticSearch — not for general graph building.',
             parameters: {
                 type: 'object',
                 properties: {
@@ -746,7 +747,7 @@ export function getToolDefinitions() {
         },
         {
             name: 'importKnowledgeCluster',
-            description: 'BFS import of a knowledge cluster around a seed entity from the semantic web. Creates a neighborhood of related entities with relationships.',
+            description: 'SPECIALIZED: BFS crawl of Wikidata/DBpedia linked data around a seed entity. Only use when the user explicitly asks to explore or import from the semantic web. Do NOT use this for general "build a graph about X" requests — use createPopulatedGraph with your own knowledge instead. This tool returns whatever relationships happen to exist in linked data, which are often shallow and arbitrary compared to a curated graph you build yourself.',
             parameters: {
                 type: 'object',
                 properties: {
@@ -767,7 +768,7 @@ export function getToolDefinitions() {
         },
         {
             name: 'querySparql',
-            description: 'Execute a raw SPARQL SELECT query against Wikidata, DBpedia, or Schema.org. Advanced tool for precise semantic web queries. Returns flattened result bindings.',
+            description: 'SEMANTIC WEB TOOL: Execute a raw SPARQL SELECT query against Wikidata, DBpedia, or Schema.org. Advanced tool for precise semantic web queries. Only use when user explicitly wants semantic web data.',
             parameters: {
                 type: 'object',
                 properties: {
@@ -903,5 +904,15 @@ export function getToolDefinitions() {
             }
         }
     ];
+
+    // Conditionally exclude tabular tools when no tabular data is attached.
+    // These tools add significant schema complexity that can push Gemini over
+    // its constraint state limit.
+    if (!hasTabularData) {
+        const tabularToolNames = new Set(['analyzeTabularData', 'importTabularAsGraph']);
+        return allTools.filter(t => !tabularToolNames.has(t.name));
+    }
+
+    return allTools;
 }
 
