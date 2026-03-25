@@ -642,21 +642,40 @@ const UniversesList = ({
                                   </span>
                                   {/* Source-of-truth badge removed; button below handles status */}
                                 </div>
-                                <PanelIconButton
-                                  icon={X}
-                                  size={isVerySlim ? 14 : (isSlim ? 16 : 18)}
-                                  style={isVerySlim ? { padding: '5px' } : {}}
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    if (onRemoveRepoSource && universe.raw.gitRepo?.linkedRepo) {
-                                      onRemoveRepoSource(universe.slug, {
-                                        user: universe.raw.gitRepo.linkedRepo.user,
-                                        repo: universe.raw.gitRepo.linkedRepo.repo
-                                      });
-                                    }
-                                  }}
-                                  title="Remove repository"
-                                />
+                                <div style={{
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  gap: isVerySlim ? 1 : (isSlim ? 2 : 4),
+                                  flexShrink: 0
+                                }}>
+                                  {onDownloadRepoFile && (
+                                    <PanelIconButton
+                                      icon={Download}
+                                      size={isVerySlim ? 14 : (isSlim ? 16 : 18)}
+                                      style={isVerySlim ? { padding: '5px' } : {}}
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        onDownloadRepoFile(universe.slug);
+                                      }}
+                                      title="Download latest from Git repository"
+                                    />
+                                  )}
+                                  <PanelIconButton
+                                    icon={X}
+                                    size={isVerySlim ? 14 : (isSlim ? 16 : 18)}
+                                    style={isVerySlim ? { padding: '5px' } : {}}
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      if (onRemoveRepoSource && universe.raw.gitRepo?.linkedRepo) {
+                                        onRemoveRepoSource(universe.slug, {
+                                          user: universe.raw.gitRepo.linkedRepo.user,
+                                          repo: universe.raw.gitRepo.linkedRepo.repo
+                                        });
+                                      }
+                                    }}
+                                    title="Remove repository"
+                                  />
+                                </div>
                               </div>
 
                               {/* Git Status Information */}
@@ -713,97 +732,6 @@ const UniversesList = ({
                                 );
                               })()}
 
-                              {/* Load / Save Universe pill buttons */}
-                              <div style={{
-                                display: 'flex',
-                                flexDirection: isVerySlim ? 'column' : 'row',
-                                gap: 6,
-                                flexWrap: 'wrap'
-                              }}>
-                                {onDownloadRepoFile && (
-                                  <button
-                                    onClick={(e) => {
-                                      e.stopPropagation();
-                                      onDownloadRepoFile(universe.slug);
-                                    }}
-                                    onMouseEnter={(e) => {
-                                      e.currentTarget.style.backgroundColor = '#D0CACA';
-                                      e.currentTarget.style.transform = 'scale(1.05)';
-                                      e.currentTarget.style.boxShadow = '0 4px 12px rgba(0, 0, 0, 0.18)';
-                                    }}
-                                    onMouseLeave={(e) => {
-                                      e.currentTarget.style.backgroundColor = '#DEDADA';
-                                      e.currentTarget.style.transform = 'scale(1)';
-                                      e.currentTarget.style.boxShadow = '0 2px 8px rgba(0, 0, 0, 0.12)';
-                                    }}
-                                    style={{
-                                      display: 'flex',
-                                      alignItems: 'center',
-                                      justifyContent: 'center',
-                                      gap: 6,
-                                      padding: isVerySlim ? '6px 12px' : '8px 16px',
-                                      backgroundColor: '#DEDADA',
-                                      border: `2px solid ${theme.canvas.brand}`,
-                                      borderRadius: 20,
-                                      boxShadow: '0 2px 8px rgba(0, 0, 0, 0.12)',
-                                      cursor: 'pointer',
-                                      transition: 'all 0.2s ease',
-                                      fontFamily: "'EmOne', sans-serif",
-                                      fontSize: isVerySlim ? '0.68rem' : '0.75rem',
-                                      fontWeight: 700,
-                                      color: theme.canvas.brand,
-                                      flex: isVerySlim ? undefined : 1,
-                                      whiteSpace: 'nowrap'
-                                    }}
-                                    title="Load latest from Git repository into this universe"
-                                  >
-                                    <Download size={isVerySlim ? 14 : 16} />
-                                    Load from Universe
-                                  </button>
-                                )}
-                                {onSaveRepoSource && (
-                                  <button
-                                    onClick={(e) => {
-                                      e.stopPropagation();
-                                      onSaveRepoSource(universe.slug);
-                                    }}
-                                    onMouseEnter={(e) => {
-                                      e.currentTarget.style.backgroundColor = '#D0CACA';
-                                      e.currentTarget.style.transform = 'scale(1.05)';
-                                      e.currentTarget.style.boxShadow = '0 4px 12px rgba(0, 0, 0, 0.18)';
-                                    }}
-                                    onMouseLeave={(e) => {
-                                      e.currentTarget.style.backgroundColor = '#DEDADA';
-                                      e.currentTarget.style.transform = 'scale(1)';
-                                      e.currentTarget.style.boxShadow = '0 2px 8px rgba(0, 0, 0, 0.12)';
-                                    }}
-                                    style={{
-                                      display: 'flex',
-                                      alignItems: 'center',
-                                      justifyContent: 'center',
-                                      gap: 6,
-                                      padding: isVerySlim ? '6px 12px' : '8px 16px',
-                                      backgroundColor: '#DEDADA',
-                                      border: `2px solid ${theme.canvas.brand}`,
-                                      borderRadius: 20,
-                                      boxShadow: '0 2px 8px rgba(0, 0, 0, 0.12)',
-                                      cursor: 'pointer',
-                                      transition: 'all 0.2s ease',
-                                      fontFamily: "'EmOne', sans-serif",
-                                      fontSize: isVerySlim ? '0.68rem' : '0.75rem',
-                                      fontWeight: 700,
-                                      color: theme.canvas.brand,
-                                      flex: isVerySlim ? undefined : 1,
-                                      whiteSpace: 'nowrap'
-                                    }}
-                                    title="Save current state to Git repository"
-                                  >
-                                    <Upload size={isVerySlim ? 14 : 16} />
-                                    Save to Universe
-                                  </button>
-                                )}
-                              </div>
-
                               <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
                                 {(() => {
                                   const isSourceOfTruth = resolvedSource === 'git';
@@ -832,15 +760,36 @@ const UniversesList = ({
                                         border: `1px solid ${theme.canvas.brand}`,
                                         backgroundColor: isSourceOfTruth ? theme.canvas.brand : 'transparent',
                                         color: isSourceOfTruth ? '#DEDADA' : theme.canvas.brand,
+
                                         opacity: canToggle ? 1 : 0.85
                                       }}
                                       title={!canToggle ? 'Only storage option (must remain source of truth)' : isSourceOfTruth ? 'Currently source of truth' : 'Click to make source of truth'}
                                     >
                                       <Star size={10} fill={isSourceOfTruth ? '#DEDADA' : 'none'} />
+
                                       {isSourceOfTruth ? 'Source of Truth' : 'Not Source of Truth'}
                                     </button>
                                   );
                                 })()}
+                                {onSaveRepoSource && (
+                                  <PanelIconButton
+                                    icon={Save}
+                                    label="Save"
+                                    variant="outline"
+                                    size={10}
+                                    style={{
+                                      fontSize: '0.65rem',
+                                      padding: '2px 8px',
+                                      color: theme.canvas.brand,
+                                      borderColor: theme.canvas.brand
+                                    }}
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      onSaveRepoSource(universe.slug);
+                                    }}
+                                    title="Save to repository file"
+                                  />
+                                )}
                               </div>
                             </div>
                           ) : (

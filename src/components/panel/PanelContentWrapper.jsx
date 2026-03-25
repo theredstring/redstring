@@ -463,14 +463,14 @@ const PanelContentWrapper = memo(({
     let errorMessage = '';
     if (tabType === 'home') {
       if (!activeGraphId) {
-        errorMessage = 'No active graph selected...';
+        errorMessage = 'No web open...';
       } else if (!graphs || !graphs.has(activeGraphId)) {
-        errorMessage = 'Active graph not found in store...';
+        errorMessage = 'Web not found in store...';
       } else {
-        errorMessage = 'Graph data is incomplete...';
+        errorMessage = 'Web data is incomplete...';
       }
     } else {
-      errorMessage = 'Node data not found...';
+      errorMessage = 'Thing data not found...';
     }
 
     return (

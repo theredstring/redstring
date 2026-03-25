@@ -1652,6 +1652,39 @@ const UniverseManager = ({ variant = 'panel', onRequestClose }) => {
     }
   };
 
+  const handleLoadFromRepositoryFileWithConfirm = async (file) => {
+    // Get target universe metadata
+    const targetSlug = repositoryTargetSlug;
+    const targetUniverse = serviceState.universes.find(u => u.slug === targetSlug);
+    const hasLocalData = targetUniverse && (targetUniverse.nodeCount > 0 || targetUniverse.connectionCount > 0);
+
+    // Determine what will be overwritten
+    const targetFile = targetUniverse?.localFile?.displayPath ||
+                       targetUniverse?.localFile?.lastFilePath ||
+                       'current local state';
+
+    const fileName = file.name || file.slug || 'Repository file';
+    const repoFileHasData = (file.nodeCount && file.nodeCount > 0) || (file.connectionCount && file.connectionCount > 0);
+
+    setConfirmDialog({
+      title: 'Load from Repository',
+      message: hasLocalData
+        ? `This will overwrite your local file: ${targetFile}`
+        : `Load data from repository file: ${fileName}`,
+      details: hasLocalData
+        ? `Any unsaved changes to "${targetUniverse.name}" will be lost. Current state has ${targetUniverse.nodeCount || 0} nodes and ${targetUniverse.connectionCount || 0} connections.${repoFileHasData ? ` Repository file has ${file.nodeCount || 0} nodes and ${file.connectionCount || 0} connections.` : ''}`
+        : repoFileHasData
+          ? `Repository file has ${file.nodeCount || 0} nodes and ${file.connectionCount || 0} connections.`
+          : 'Repository file appears to be empty or metadata unavailable.',
+      variant: hasLocalData ? 'warning' : 'info',
+      confirmLabel: 'Load from Repository',
+      cancelLabel: 'Cancel',
+      onConfirm: () => {
+        handleLoadFromRepositoryFile(file);
+      }
+    });
+  };
+
   const handleUniverseFileSelection = async (selectedFile) => {
     if (!pendingRepoAttachment) return;
 
@@ -4760,19 +4793,77 @@ const UniverseManager = ({ variant = 'panel', onRequestClose }) => {
                             )}
                           </div>
                         </div>
-                        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
-                          <PanelIconButton
-                            icon={CloudDownload}
-                            size={24}
-                            title="Load from Repo"
-                            onClick={() => handleLoadFromRepositoryFile(file)}
-                          />
-                          <PanelIconButton
-                            icon={CloudUpload}
-                            size={24}
-                            title="Save to Repo"
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                          <button
+                            onClick={() => handleLoadFromRepositoryFileWithConfirm(file)}
+                            onMouseEnter={(e) => {
+                              e.currentTarget.style.backgroundColor = '#D0CACA';
+                              e.currentTarget.style.transform = 'scale(1.05)';
+                              e.currentTarget.style.boxShadow = '0 4px 12px rgba(0, 0, 0, 0.18)';
+                            }}
+                            onMouseLeave={(e) => {
+                              e.currentTarget.style.backgroundColor = '#DEDADA';
+                              e.currentTarget.style.transform = 'scale(1)';
+                              e.currentTarget.style.boxShadow = '0 2px 8px rgba(0, 0, 0, 0.12)';
+                            }}
+                            style={{
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                              gap: 6,
+                              padding: '8px 16px',
+                              backgroundColor: '#DEDADA',
+                              border: '2px solid #7A0000',
+                              borderRadius: 20,
+                              boxShadow: '0 2px 8px rgba(0, 0, 0, 0.12)',
+                              cursor: 'pointer',
+                              transition: 'all 0.2s ease',
+                              fontFamily: "'EmOne', sans-serif",
+                              fontSize: '0.75rem',
+                              fontWeight: 700,
+                              color: '#7A0000',
+                              whiteSpace: 'nowrap'
+                            }}
+                            title="Load this file from the repository"
+                          >
+                            <CloudDownload size={16} />
+                            Load from Repository
+                          </button>
+                          <button
                             onClick={() => handleSaveToSelectedRepositoryFile(file)}
-                          />
+                            onMouseEnter={(e) => {
+                              e.currentTarget.style.backgroundColor = '#D0CACA';
+                              e.currentTarget.style.transform = 'scale(1.05)';
+                              e.currentTarget.style.boxShadow = '0 4px 12px rgba(0, 0, 0, 0.18)';
+                            }}
+                            onMouseLeave={(e) => {
+                              e.currentTarget.style.backgroundColor = '#DEDADA';
+                              e.currentTarget.style.transform = 'scale(1)';
+                              e.currentTarget.style.boxShadow = '0 2px 8px rgba(0, 0, 0, 0.12)';
+                            }}
+                            style={{
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                              gap: 6,
+                              padding: '8px 16px',
+                              backgroundColor: '#DEDADA',
+                              border: '2px solid #7A0000',
+                              borderRadius: 20,
+                              boxShadow: '0 2px 8px rgba(0, 0, 0, 0.12)',
+                              cursor: 'pointer',
+                              transition: 'all 0.2s ease',
+                              fontFamily: "'EmOne', sans-serif",
+                              fontSize: '0.75rem',
+                              fontWeight: 700,
+                              color: '#7A0000',
+                              whiteSpace: 'nowrap'
+                            }}
+                            title="Save current state to this file in the repository"
+                          >
+                            <CloudUpload size={16} />
+                            Save to Repository
+                          </button>
                         </div>
                       </div>
                     ))}

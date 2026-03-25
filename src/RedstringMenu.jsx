@@ -637,14 +637,14 @@ const RedstringMenu = ({
                         <div
                           className="submenu-item"
                           onClick={() => {
-                            console.log('[View] Condense Nodes clicked');
+                            console.log('[View] Condense Things clicked');
                             closeAllMenus();
                             if (onCondenseNodes) onCondenseNodes();
                           }}
                           style={{ cursor: 'pointer' }}
                         >
                           <RefreshCw size={14} style={{ marginRight: '8px', minWidth: '14px', flexShrink: 0 }} />
-                          Condense Nodes
+                          Condense Things
                         </div>
 
                         {/* Keyboard Submenu */}
