@@ -22,6 +22,21 @@ export const RENDERER_PRESETS = {
     alignNodesHorizontally: true
   },
 
+  // For connection browser list items (compact triplets in right panel)
+  CONNECTION_BROWSER: {
+    containerHeight: 100,
+    scaleMode: 'fit',
+    minNodeSize: 20,
+    maxNodeSize: 40,
+    backgroundColor: 'transparent',
+    routingStyle: 'smart',
+    padding: 10,
+    interactive: false,
+    showHoverEffects: false,
+    showConnectionDots: false,
+    alignNodesHorizontally: true
+  },
+
   // For small previews in lists/cards
   THUMBNAIL: {
     containerWidth: 200,

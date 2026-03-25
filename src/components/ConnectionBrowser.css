@@ -84,65 +84,18 @@
   color: #aaa;
 }
 
-/* RDF Triplet Component */
-.rdf-triplet {
+/* Connection Triplet (UniversalNodeRenderer wrapper) */
+.connection-triplet {
   transition: all 0.2s ease;
   border-radius: 8px;
-  padding: 12px 16px;
+  padding: 4px 8px;
   border: 1px solid transparent;
 }
 
 /* Only semantic web connections get hover effects */
-.rdf-triplet[style*="pointer"]:hover {
+.connection-triplet[style*="pointer"]:hover {
   background-color: rgba(255, 255, 255, 0.05);
   border-color: rgba(139, 0, 0, 0.3);
-}
-
-.triplet-flow {
-  display: flex;
-  align-items: center;
-  gap: 0px;
-  position: relative;
-}
-
-/* Triplet Nodes */
-.triplet-node {
-  border-radius: 10px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  text-align: center;
-  flex-shrink: 0;
-  border: 2px solid rgba(255, 255, 255, 0.2);
-  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
-}
-
-.node-label {
-  font-family: 'EmOne', sans-serif;
-  color: #EFE8E5;
-  font-weight: bold;
-  line-height: 1.2;
-  word-break: break-word;
-  hyphens: auto;
-  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.3);
-}
-
-/* Connection Arrow and Predicate */
-.triplet-connection {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  flex: 1;
-  position: relative;
-  padding: 0;
-  margin: 0 -1px; /* Slight overlap to ensure visual connection */
-  min-width: 240px; /* Increased minimum width to ensure line extends beyond label */
-}
-
-.connection-svg {
-  flex-shrink: 0;
-  width: 100%;
-  max-width: none;
 }
 
 /* Empty State */

@@ -4,31 +4,30 @@ import useGraphStore from '../store/graphStore.jsx';
 import { discoverConnections } from '../services/semanticDiscovery.js';
 import { fastEnrichFromSemanticWeb } from '../services/semanticWebQuery.js';
 import Dropdown from './Dropdown.jsx';
-import { getTextColor } from '../utils/colorUtils.js';
 import { useTheme } from '../hooks/useTheme.js';
+import UniversalNodeRenderer from '../UniversalNodeRenderer';
+import { RENDERER_PRESETS } from '../UniversalNodeRenderer.presets';
 import './ConnectionBrowser.css';
 
 /**
- * Improved RDF Triplet Visual Component
- * Displays subject -> predicate -> object relationships as connected nodes
- * Styled to match NodeCanvas connections exactly with proper arrows and directionality
- * Supports ultra-slim panels with responsive design
+ * Connection Triplet Component
+ * Renders subject -> predicate -> object using UniversalNodeRenderer
+ * for visual consistency with the canvas, hover view, and control panel.
  */
-const RDFTriplet = ({
+const ConnectionTriplet = ({
   subject,
   predicate,
   object,
   subjectColor,
   objectColor,
   onMaterialize,
-  connection, // Full connection object for access to directionality info
+  connection,
   isUltraSlim = false,
   containerWidth = 400
 }) => {
-  const defaultColor = '#8B0000'; // Default maroon for semantic connections
-  const canvasColor = '#bdb5b5'; // Canvas background color for text fill - matches NodeCanvas exactly
+  const defaultColor = '#8B0000';
 
-  // Show confidence badge for semantic connections
+  // Confidence badge for semantic connections
   const showConfidence = connection?.type === 'semantic' && connection?.confidence;
   const confidencePercent = showConfidence ? Math.round(connection.confidence * 100) : null;
   const confidenceColor = confidencePercent >= 80 ? '#4CAF50' :
@@ -44,61 +43,59 @@ const RDFTriplet = ({
   const source = connection?.source?.toLowerCase() || '';
   const sourceBadge = sourceInfo[source] || { label: 'S', color: '#666', title: 'Semantic' };
 
-  // Determine connection directionality
-  const isNondirectional = connection?.type === 'native' && connection?.directionality === 'nondirectional';
-  const isBidirectional = connection?.type === 'native' && connection?.directionality === 'bidirectional';
-  const isDirected = connection?.type === 'native' && !isNondirectional && !isBidirectional;
-  const isSemantic = connection?.type === 'semantic';
-
-  // Get connection color
+  // Connection color
   const connectionColor = connection?.connectionColor || subjectColor || defaultColor;
 
-  // Responsive sizing based on panel width
-  const getSizing = () => {
-    const baseHeight = isUltraSlim ? 48 : 80;
-    const baseLineThickness = isUltraSlim ? 6 : 12;
-    const baseTextSize = isUltraSlim ? 14 : 18;
-    const baseNodeSize = isUltraSlim ? 16 : 20;
+  // Build nodes for UniversalNodeRenderer
+  const subjectName = typeof subject === 'string' ? subject : JSON.stringify(subject);
+  const objectName = typeof object === 'string' ? object : JSON.stringify(object);
+  const predicateName = typeof predicate === 'string' ? predicate : JSON.stringify(predicate);
 
-    const scaleFactor = Math.max(0.6, Math.min(1, containerWidth / 400));
+  const nodes = [
+    { id: 'subject', name: subjectName, color: subjectColor || defaultColor },
+    { id: 'object', name: objectName, color: objectColor || defaultColor }
+  ];
 
-    return {
-      nodePadding: isUltraSlim ? '8px 12px' : '12px 16px',
-      nodeFontSize: `${baseNodeSize * scaleFactor}px`,
-      lineThickness: Math.max(4, baseLineThickness * scaleFactor),
-      textFontSize: baseTextSize * scaleFactor,
-      arrowSize: 16,
-      arrowStrokeWidth: isUltraSlim ? 3 : 4,
-      nodeMinWidth: isUltraSlim ? '70px' : '100px',
-      nodeMaxWidth: isUltraSlim ? '120px' : '180px',
-      connectionHeight: Math.max(40, baseHeight * scaleFactor)
-    };
-  };
+  // Map directionality to arrowsToward Set with synthetic node IDs
+  const arrowsToward = new Set();
+  const dirType = connection?.directionality;
+  const connType = connection?.type;
 
-  const sizing = getSizing();
-
-  const textLength = typeof predicate === 'string' ? predicate.length : 1;
-  const scaleFactor = Math.max(0.5, Math.min(1, containerWidth / (textLength * 12)));
-  const scaledFontSize = sizing.textFontSize * scaleFactor;
-
-  const baseFontSize = sizing.textFontSize;
-  const minFontSize = Math.max(6, baseFontSize * 0.3);
-  const maxFontSize = baseFontSize;
-
-  let dynamicScaleFactor;
-  if (containerWidth < 150) {
-    dynamicScaleFactor = Math.max(0.3, containerWidth / 200);
-  } else if (containerWidth < 300) {
-    dynamicScaleFactor = Math.max(0.4, containerWidth / 400);
+  if (connType === 'semantic') {
+    arrowsToward.add('object');
+  } else if (typeof dirType === 'string') {
+    if (dirType === 'directed') {
+      arrowsToward.add('object');
+    } else if (dirType === 'bidirectional') {
+      arrowsToward.add('subject');
+      arrowsToward.add('object');
+    }
+    // 'nondirectional': empty set
+  } else if (dirType && typeof dirType === 'object' && dirType.arrowsToward instanceof Set) {
+    if (dirType.arrowsToward.has(connection.sourceInstanceId)) {
+      arrowsToward.add('subject');
+    }
+    if (dirType.arrowsToward.has(connection.destinationInstanceId)) {
+      arrowsToward.add('object');
+    }
   } else {
-    dynamicScaleFactor = Math.min(1, containerWidth / 500);
+    arrowsToward.add('object');
   }
 
-  const dynamicFontSize = Math.max(minFontSize, Math.min(maxFontSize, baseFontSize * dynamicScaleFactor));
+  const connections = [{
+    id: 'conn',
+    sourceId: 'subject',
+    destinationId: 'object',
+    connectionName: predicateName,
+    color: connectionColor,
+    directionality: { arrowsToward }
+  }];
+
+  const height = isUltraSlim ? 70 : 100;
 
   return (
     <div
-      className="rdf-triplet"
+      className="connection-triplet"
       onClick={() => {
         if (connection?.type === 'semantic' && onMaterialize) {
           onMaterialize({ subject, predicate, object });
@@ -110,7 +107,7 @@ const RDFTriplet = ({
       }}
       title={connection?.description || `${subject} → ${predicate} → ${object}`}
     >
-      {/* Top-right badges */}
+      {/* Badges overlay */}
       <div style={{
         position: 'absolute',
         top: '-8px',
@@ -151,134 +148,15 @@ const RDFTriplet = ({
           </div>
         )}
       </div>
-      <div className="triplet-flow">
-        {/* Subject Node */}
-        <div
-          className="triplet-node subject-node"
-          style={{
-            backgroundColor: subjectColor || defaultColor,
-            minWidth: sizing.nodeMinWidth,
-            maxWidth: sizing.nodeMaxWidth,
-            padding: sizing.nodePadding
-          }}
-        >
-          <span className="node-label" style={{ fontSize: sizing.nodeFontSize }}>
-            {typeof subject === 'string' ? subject : JSON.stringify(subject)}
-          </span>
-        </div>
 
-        {/* Connection - RESPONSIVE FLEX APPROACH */}
-        <div className="triplet-connection" style={{
-          flex: 1,
-          minWidth: `${Math.max(100, sizing.connectionHeight * 1.5)}px`,
-          height: sizing.connectionHeight,
-          display: 'flex',
-          alignItems: 'center'
-        }}>
-          {/* Start Arrow (bidirectional only) */}
-          {isBidirectional && (
-            <div className="arrow-container" style={{ width: `${Math.max(15, sizing.connectionHeight * 0.6)}px`, height: '100%' }}>
-              <svg width="100%" height="100%" viewBox={`0 0 ${Math.max(15, sizing.connectionHeight * 0.6)} ${sizing.connectionHeight}`} preserveAspectRatio="xMidYMid meet">
-                <g transform={`translate(${Math.max(15, sizing.connectionHeight * 0.6) / 2}, ${sizing.connectionHeight / 2}) rotate(270)`}>
-                  <polygon
-                    points={`-${sizing.arrowSize},${sizing.arrowSize * 1.25} ${sizing.arrowSize},${sizing.arrowSize * 1.25} 0,-${sizing.arrowSize * 1.25}`}
-                    fill={connectionColor}
-                  />
-                </g>
-              </svg>
-            </div>
-          )}
-
-          {/* Line and Centered Text */}
-          <div className="line-container" style={{ flex: 1, height: '100%', position: 'relative', minWidth: `${Math.max(80, sizing.connectionHeight * 1.2)}px` }}>
-            <svg width="100%" height="100%" preserveAspectRatio="none">
-              <line
-                x1="0" y1="50%" x2="100%" y2="50%"
-                stroke={connectionColor}
-                strokeWidth={sizing.lineThickness}
-                strokeLinecap="round"
-              />
-            </svg>
-            <div style={{
-              position: 'absolute',
-              top: 0,
-              left: '50%',
-              transform: 'translateX(-50%)',
-              width: '100%',
-              height: '100%',
-              display: 'flex',
-              justifyContent: 'center',
-              alignItems: 'center',
-              pointerEvents: 'none',
-              overflow: 'hidden'
-            }}>
-              <svg width="100%" height={sizing.connectionHeight} style={{ overflow: 'hidden' }}>
-                <text
-                  x="50%" y="50%"
-                  dominantBaseline="middle"
-                  textAnchor="middle"
-                  fill={getTextColor(connectionColor)}
-                  fontSize={dynamicFontSize}
-                  fontWeight="bold"
-                  stroke={connectionColor}
-                  strokeWidth={Math.max(3, dynamicFontSize * 0.25)}
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  paintOrder="stroke fill"
-                  style={{
-                    fontFamily: "'EmOne', sans-serif",
-                    userSelect: 'none',
-                    textOverflow: isUltraSlim ? 'clip' : 'ellipsis',
-                    overflow: isUltraSlim ? 'hidden' : 'visible'
-                  }}
-                >
-                  {(() => {
-                    if (dynamicFontSize < 8) return '';
-                    let displayText = typeof predicate === 'string' ? predicate : JSON.stringify(predicate);
-                    const estimatedTextWidth = displayText.length * (dynamicFontSize * 0.6);
-                    const padding = 16;
-                    const availableSpace = Math.max(60, containerWidth - 80 - padding * 2);
-                    if (estimatedTextWidth > availableSpace && displayText.length > 8) {
-                      const maxChars = Math.max(6, Math.floor(availableSpace / (dynamicFontSize * 0.6)));
-                      displayText = displayText.substring(0, maxChars - 3) + '...';
-                    }
-                    return displayText;
-                  })()}
-                </text>
-              </svg>
-            </div>
-          </div>
-
-          {/* End Arrow (directed, bidirectional, or semantic) */}
-          {(isDirected || isBidirectional || isSemantic) && (
-            <div className="arrow-container" style={{ width: `${Math.max(15, sizing.connectionHeight * 0.6)}px`, height: '100%' }}>
-              <svg width="100%" height="100%" viewBox={`0 0 ${Math.max(15, sizing.connectionHeight * 0.6)} ${sizing.connectionHeight}`} preserveAspectRatio="xMidYMid meet">
-                <g transform={`translate(${Math.max(15, sizing.connectionHeight * 0.6) / 2}, ${sizing.connectionHeight / 2}) rotate(90)`}>
-                  <polygon
-                    points={`-${sizing.arrowSize},${sizing.arrowSize * 1.25} ${sizing.arrowSize},${sizing.arrowSize * 1.25} 0,-${sizing.arrowSize * 1.25}`}
-                    fill={connectionColor}
-                  />
-                </g>
-              </svg>
-            </div>
-          )}
-        </div>
-
-        {/* Object Node */}
-        <div
-          className="triplet-node object-node"
-          style={{
-            backgroundColor: objectColor || defaultColor,
-            minWidth: sizing.nodeMinWidth,
-            maxWidth: sizing.nodeMaxWidth,
-            padding: sizing.nodePadding
-          }}
-        >
-          <span className="node-label" style={{ fontSize: sizing.nodeFontSize }}>
-            {typeof object === 'string' ? object : JSON.stringify(object)}
-          </span>
-        </div>
-      </div>
+      <UniversalNodeRenderer
+        {...RENDERER_PRESETS.CONNECTION_BROWSER}
+        nodes={nodes}
+        connections={connections}
+        containerWidth={containerWidth}
+        containerHeight={height}
+        minHorizontalSpacing={Math.max(80, Math.min(containerWidth * 0.35, 200))}
+      />
     </div>
   );
 };
@@ -804,7 +682,7 @@ const ConnectionBrowser = ({ nodeData, onMaterializeConnection, isUltraSlim = fa
           </div>
         ) : (
           filteredConnections.map((connection) => (
-            <RDFTriplet
+            <ConnectionTriplet
               key={connection.id}
               subject={connection.subject}
               predicate={connection.predicate}

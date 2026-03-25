@@ -1317,6 +1317,7 @@ const SharedPanelContent = ({
   };
 
   const handleBioKeyPress = (e) => {
+    e.stopPropagation();
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
       handleBioSave();
@@ -1340,6 +1341,7 @@ const SharedPanelContent = ({
   };
 
   const handleTitleKeyPress = (e) => {
+    e.stopPropagation();
     if (e.key === 'Enter') {
       handleTitleSave();
     } else if (e.key === 'Escape') {
