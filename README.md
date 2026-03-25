@@ -1,4 +1,4 @@
-# Redstring - Semantic Knowledge Graph ![App Version](https://img.shields.io/badge/version-v0.2.0-blue)
+# Redstring - Semantic Knowledge Graph ![App Version](https://img.shields.io/badge/version-v0.2.0-blue) [![GitHub Sponsors](https://img.shields.io/github/sponsors/theredstring?logo=github&label=Sponsor)](https://github.com/sponsors/theredstring)
 
 A semantic knowledge graph application that bridges human cognition and machine intelligence through visual node-based interface, W3C semantic web standards, and AI-powered knowledge discovery.
 
@@ -655,6 +655,7 @@ MIT License - See `LICENSE` file for details.
 - **Documentation**: See `docs/` directory
 - **Issues**: [GitHub Issues](https://github.com/theredstring/redstring/issues)
 - **Discussions**: [GitHub Discussions](https://github.com/theredstring/redstring/discussions)
+- **Sponsor**: [Support development on GitHub Sponsors](https://github.com/sponsors/theredstring)
 
 ## Credits
 
