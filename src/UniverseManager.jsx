@@ -19,7 +19,9 @@ import {
   Clock,
   ChevronDown,
   ChevronRight,
-  Loader2
+  Loader2,
+  Download,
+  Upload
 } from 'lucide-react';
 
 import universeManagerService, { STORAGE_TYPES } from './services/universeManagerService.js';
@@ -39,7 +41,6 @@ import { oauthFetch } from './services/bridgeConfig.js';
 import universeBackend from './services/universeBackend.js';
 import universeBackendBridge from './services/universeBackendBridge.js';
 import PanelIconButton from './components/shared/PanelIconButton.jsx';
-import RepositorySelectionModal from './components/modals/RepositorySelectionModal.jsx';
 import UniverseLinkingModal from './components/modals/UniverseLinkingModal.jsx';
 import ConflictResolutionModal from './components/modals/ConflictResolutionModal.jsx';
 import Modal from './components/shared/Modal.jsx';
@@ -267,6 +268,11 @@ const UniverseManager = ({ variant = 'panel', onRequestClose }) => {
   const [repositoryIntent, setRepositoryIntent] = useState(null);
   const [confirmDialog, setConfirmDialog] = useState(null);
   const [conflictDialog, setConflictDialog] = useState(null);
+
+  // Inline repository browser state (Phase 3A)
+  const [inlineRepoSearchQuery, setInlineRepoSearchQuery] = useState('');
+  const [inlineExpandedRepos, setInlineExpandedRepos] = useState(new Set());
+  const [inlineDiscoveredUniverses, setInlineDiscoveredUniverses] = useState({});
   const [slotConflict, setSlotConflict] = useState(null);
   const [authExpiredDialog, setAuthExpiredDialog] = useState(null);
 
@@ -277,6 +283,38 @@ const UniverseManager = ({ variant = 'panel', onRequestClose }) => {
 
   const deviceInfo = useMemo(() => detectDeviceInfo(), []);
   const autosaveRef = useRef({ cooldownUntil: 0, triggerAt: 0 });
+
+  // Filtered and sorted managed repositories (Phase 3E + 4D)
+  const filteredManagedRepositories = useMemo(() => {
+    let filtered = managedRepositories;
+
+    // Apply search filter if query exists
+    if (inlineRepoSearchQuery.trim()) {
+      const query = inlineRepoSearchQuery.toLowerCase();
+      filtered = managedRepositories.filter(repo => {
+        const name = repo.name?.toLowerCase() || '';
+        const owner = repo.owner?.login?.toLowerCase() || repo.owner?.toLowerCase() || '';
+        const description = repo.description?.toLowerCase() || '';
+
+        return name.includes(query) || owner.includes(query) || description.includes(query);
+      });
+    }
+
+    // Sort: Redstring repos first, then by last updated
+    return filtered.sort((a, b) => {
+      const aHasRedstring = inlineDiscoveredUniverses[a.id]?.length > 0;
+      const bHasRedstring = inlineDiscoveredUniverses[b.id]?.length > 0;
+
+      // Primary sort: Redstring repos first
+      if (aHasRedstring && !bHasRedstring) return -1;
+      if (!aHasRedstring && bHasRedstring) return 1;
+
+      // Secondary sort: Most recently updated first
+      const aDate = new Date(a.updated_at || a.pushed_at || 0);
+      const bDate = new Date(b.updated_at || b.pushed_at || 0);
+      return bDate - aDate;
+    });
+  }, [managedRepositories, inlineRepoSearchQuery, inlineDiscoveredUniverses]);
 
   const loadGraphStore = useCallback(async () => {
     if (!graphStoreModuleRef.current) {
@@ -2404,6 +2442,53 @@ const UniverseManager = ({ variant = 'panel', onRequestClose }) => {
     }
   };
 
+  // Phase 3B: Toggle inline repository expansion with universe discovery
+  const toggleInlineRepoExpansion = async (repoId) => {
+    const newExpanded = new Set(inlineExpandedRepos);
+
+    if (newExpanded.has(repoId)) {
+      // Collapse
+      newExpanded.delete(repoId);
+      setInlineExpandedRepos(newExpanded);
+    } else {
+      // Expand
+      newExpanded.add(repoId);
+      setInlineExpandedRepos(newExpanded);
+
+      // Discover universes if not already cached
+      if (!inlineDiscoveredUniverses[repoId]) {
+        try {
+          const repo = managedRepositories.find(r => r.id === repoId);
+          if (repo?.owner?.login && repo?.name) {
+            const universes = await universeManagerService.discoverUniverses({
+              user: repo.owner.login,
+              repo: repo.name,
+              authMethod: 'oauth'
+            });
+
+            setInlineDiscoveredUniverses(prev => ({
+              ...prev,
+              [repoId]: universes || []
+            }));
+          }
+        } catch (err) {
+          console.error('Failed to discover universes:', err);
+          setInlineDiscoveredUniverses(prev => ({
+            ...prev,
+            [repoId]: [] // Empty array indicates discovery failed/completed with no results
+          }));
+        }
+      }
+    }
+  };
+
+  // Phase 3C: Handle creating new universe in repository
+  const handleCreateNewUniverseInRepo = async (repo) => {
+    // Delegate to existing "Push Local Data to New File" flow
+    // This will create a new .redstring file in the repo's universes/ folder
+    await handlePushToNewRepositoryFile(repo);
+  };
+
 
   const handleSetMainRepository = (repo) => {
     const repoKey = `${repo.owner?.login || repo.owner}/${repo.name}`;
@@ -4493,21 +4578,6 @@ const UniverseManager = ({ variant = 'panel', onRequestClose }) => {
         </div>
       )}
 
-      <RepositorySelectionModal
-        isOpen={showRepositoryManager}
-        onClose={() => {
-          setShowRepositoryManager(false);
-          setRepositoryTargetSlug(null);
-          setRepositoryIntent(null);
-        }}
-        onSelectRepository={handleRepositorySelect}
-        onAddToManagedList={handleAddToManagedList}
-        managedRepositories={managedRepositories}
-        intent={repositoryIntent}
-        onImportDiscovered={(universe, repoInfo) => handleImportDiscovered(universe, repoInfo)}
-        onSyncDiscovered={(universe, repoInfo) => handleLinkDiscovered(universe, repoInfo)}
-      />
-
       {/* Universe Linking Modal */}
       <UniverseLinkingModal
         isOpen={showUniverseLinking}
@@ -4705,6 +4775,329 @@ const UniverseManager = ({ variant = 'panel', onRequestClose }) => {
             </div>
           ) : (
             <>
+              {/* Phase 3D: Inline Repository Browser */}
+              {managedRepositories.length > 0 && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 16, marginBottom: 16 }}>
+                  {/* Header */}
+                  <div style={{
+                    fontSize: '0.9rem',
+                    fontWeight: 600,
+                    color: theme.canvas.textPrimary
+                  }}>
+                    Browse Your Repositories
+                  </div>
+
+                  {/* Search */}
+                  <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                    <input
+                      type="text"
+                      placeholder="Search repositories..."
+                      value={inlineRepoSearchQuery}
+                      onChange={(e) => setInlineRepoSearchQuery(e.target.value)}
+                      style={{
+                        flex: 1,
+                        padding: '8px 12px',
+                        border: '2px solid #260000',
+                        borderRadius: 8,
+                        fontSize: '0.75rem',
+                        fontFamily: "'EmOne', sans-serif"
+                      }}
+                    />
+                  </div>
+
+                  {/* Repository List */}
+                  <div style={{
+                    maxHeight: '400px',
+                    overflowY: 'auto',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: 8
+                  }}>
+                    {filteredManagedRepositories.map(repo => {
+                      const repoId = repo.id;
+                      const isExpanded = inlineExpandedRepos.has(repoId);
+                      const universes = inlineDiscoveredUniverses[repoId];
+                      const hasRedstringFiles = universes && universes.length > 0;
+
+                      return (
+                        <div key={repoId} style={{
+                          border: '2px solid #260000',
+                          borderRadius: 12,
+                          overflow: 'hidden',
+                          backgroundColor: theme.canvas.bg
+                        }}>
+                          {/* Repo Header (clickable to expand) */}
+                          <div
+                            onClick={() => toggleInlineRepoExpansion(repoId)}
+                            style={{
+                              padding: '10px 12px',
+                              cursor: 'pointer',
+                              display: 'flex',
+                              justifyContent: 'space-between',
+                              alignItems: 'center',
+                              transition: 'background-color 0.2s ease'
+                            }}
+                            onMouseEnter={(e) => e.currentTarget.style.backgroundColor = theme.canvas.hover}
+                            onMouseLeave={(e) => e.currentTarget.style.backgroundColor = theme.canvas.bg}
+                          >
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                              <Github size={14} />
+                              <span style={{ fontWeight: 600, fontSize: '0.85rem' }}>
+                                {repo.name}
+                              </span>
+
+                              {/* Redstring Badge (automatic detection - Phase 4B) */}
+                              {hasRedstringFiles && (
+                                <span style={{
+                                  fontSize: '0.65rem',
+                                  backgroundColor: '#7A0000',
+                                  color: '#FFF',
+                                  padding: '2px 6px',
+                                  borderRadius: 10,
+                                  fontWeight: 600,
+                                  fontFamily: "'EmOne', sans-serif"
+                                }}>
+                                  Redstring
+                                </span>
+                              )}
+                            </div>
+
+                            <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                              {isExpanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+                            </div>
+                          </div>
+
+                          {/* Expanded Section: Discovered Universes */}
+                          {isExpanded && (
+                            <div style={{
+                              backgroundColor: '#979090',
+                              borderTop: '1px solid #808080',
+                              padding: '12px',
+                              display: 'flex',
+                              flexDirection: 'column',
+                              gap: 10
+                            }}>
+                              {/* Loading State */}
+                              {universes === undefined && (
+                                <div style={{
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  gap: 6,
+                                  fontSize: '0.7rem',
+                                  color: '#666'
+                                }}>
+                                  <RefreshCw size={10} className="spin-animation" />
+                                  Scanning for .redstring files...
+                                </div>
+                              )}
+
+                              {/* Empty State (Phase 4C) */}
+                              {universes !== undefined && universes.length === 0 && (
+                                <div style={{
+                                  fontSize: '0.7rem',
+                                  color: '#666',
+                                  fontStyle: 'italic',
+                                  textAlign: 'center',
+                                  padding: '8px'
+                                }}>
+                                  No .redstring files found in universes/ folder
+                                </div>
+                              )}
+
+                              {/* New Universe Button (always shown when expanded) */}
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleCreateNewUniverseInRepo(repo);
+                                }}
+                                onMouseEnter={(e) => {
+                                  e.currentTarget.style.backgroundColor = '#D0CACA';
+                                  e.currentTarget.style.transform = 'scale(1.05)';
+                                  e.currentTarget.style.boxShadow = '0 4px 12px rgba(0, 0, 0, 0.18)';
+                                }}
+                                onMouseLeave={(e) => {
+                                  e.currentTarget.style.backgroundColor = '#DEDADA';
+                                  e.currentTarget.style.transform = 'scale(1)';
+                                  e.currentTarget.style.boxShadow = '0 2px 8px rgba(0, 0, 0, 0.12)';
+                                }}
+                                style={{
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  justifyContent: 'center',
+                                  gap: 6,
+                                  padding: '8px 16px',
+                                  backgroundColor: '#DEDADA',
+                                  border: '2px solid #7A0000',
+                                  borderRadius: 20,
+                                  boxShadow: '0 2px 8px rgba(0, 0, 0, 0.12)',
+                                  cursor: 'pointer',
+                                  transition: 'all 0.2s ease',
+                                  fontFamily: "'EmOne', sans-serif",
+                                  fontSize: '0.75rem',
+                                  fontWeight: 700,
+                                  color: '#7A0000'
+                                }}
+                              >
+                                <Plus size={16} />
+                                New Universe
+                              </button>
+
+                              {/* Discovered Universe Files */}
+                              {universes && universes.length > 0 && (
+                                <>
+                                  <div style={{
+                                    fontSize: '0.7rem',
+                                    fontWeight: 600,
+                                    color: '#260000',
+                                    marginTop: 6
+                                  }}>
+                                    Found {universes.length} file{universes.length === 1 ? '' : 's'}:
+                                  </div>
+
+                                  {universes.map((universe, idx) => {
+                                    const displayName = universe.name || universe.slug || universe.fileName || `Universe ${idx + 1}`;
+
+                                    return (
+                                      <div
+                                        key={`${repoId}-${universe.path || universe.slug || idx}`}
+                                        style={{
+                                          border: '1px solid #260000',
+                                          borderRadius: 12,
+                                          padding: '10px 12px',
+                                          backgroundColor: theme.canvas.bg,
+                                          display: 'flex',
+                                          flexDirection: 'column',
+                                          gap: 8,
+                                          boxShadow: '0 2px 6px rgba(38, 0, 0, 0.08)'
+                                        }}
+                                      >
+                                        {/* Universe Name */}
+                                        <div style={{
+                                          fontWeight: 600,
+                                          fontSize: '0.72rem',
+                                          color: '#260000'
+                                        }}>
+                                          {displayName}
+                                        </div>
+
+                                        {/* Path */}
+                                        {universe.path && (
+                                          <div style={{ fontSize: '0.65rem', color: '#555' }}>
+                                            {universe.path}
+                                          </div>
+                                        )}
+
+                                        {/* Stats */}
+                                        <div style={{
+                                          fontSize: '0.62rem',
+                                          color: '#7A0000',
+                                          display: 'flex',
+                                          gap: 10
+                                        }}>
+                                          {universe.nodeCount !== undefined && (
+                                            <span>{universe.nodeCount} nodes</span>
+                                          )}
+                                          {universe.connectionCount !== undefined && (
+                                            <span>{universe.connectionCount} connections</span>
+                                          )}
+                                        </div>
+
+                                        {/* Action Buttons */}
+                                        <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                                          {/* Load Button */}
+                                          <button
+                                            onClick={(e) => {
+                                              e.stopPropagation();
+                                              handleLoadFromRepositoryFileWithConfirm(universe);
+                                            }}
+                                            onMouseEnter={(e) => {
+                                              e.currentTarget.style.backgroundColor = '#D0CACA';
+                                              e.currentTarget.style.transform = 'scale(1.05)';
+                                              e.currentTarget.style.boxShadow = '0 4px 12px rgba(0, 0, 0, 0.18)';
+                                            }}
+                                            onMouseLeave={(e) => {
+                                              e.currentTarget.style.backgroundColor = '#DEDADA';
+                                              e.currentTarget.style.transform = 'scale(1)';
+                                              e.currentTarget.style.boxShadow = '0 2px 8px rgba(0, 0, 0, 0.12)';
+                                            }}
+                                            style={{
+                                              display: 'flex',
+                                              alignItems: 'center',
+                                              justifyContent: 'center',
+                                              gap: 6,
+                                              padding: '8px 16px',
+                                              backgroundColor: '#DEDADA',
+                                              border: '2px solid #7A0000',
+                                              borderRadius: 20,
+                                              boxShadow: '0 2px 8px rgba(0, 0, 0, 0.12)',
+                                              cursor: 'pointer',
+                                              transition: 'all 0.2s ease',
+                                              fontFamily: "'EmOne', sans-serif",
+                                              fontSize: '0.75rem',
+                                              fontWeight: 700,
+                                              color: '#7A0000',
+                                              whiteSpace: 'nowrap'
+                                            }}
+                                            title="Load this file from the repository"
+                                          >
+                                            <Download size={16} />
+                                            Load from Repository
+                                          </button>
+
+                                          {/* Save Button */}
+                                          <button
+                                            onClick={(e) => {
+                                              e.stopPropagation();
+                                              handleSaveToSelectedRepositoryFileWithConfirm(universe);
+                                            }}
+                                            onMouseEnter={(e) => {
+                                              e.currentTarget.style.backgroundColor = '#D0CACA';
+                                              e.currentTarget.style.transform = 'scale(1.05)';
+                                              e.currentTarget.style.boxShadow = '0 4px 12px rgba(0, 0, 0, 0.18)';
+                                            }}
+                                            onMouseLeave={(e) => {
+                                              e.currentTarget.style.backgroundColor = '#DEDADA';
+                                              e.currentTarget.style.transform = 'scale(1)';
+                                              e.currentTarget.style.boxShadow = '0 2px 8px rgba(0, 0, 0, 0.12)';
+                                            }}
+                                            style={{
+                                              display: 'flex',
+                                              alignItems: 'center',
+                                              justifyContent: 'center',
+                                              gap: 6,
+                                              padding: '8px 16px',
+                                              backgroundColor: '#DEDADA',
+                                              border: '2px solid #7A0000',
+                                              borderRadius: 20,
+                                              boxShadow: '0 2px 8px rgba(0, 0, 0, 0.12)',
+                                              cursor: 'pointer',
+                                              transition: 'all 0.2s ease',
+                                              fontFamily: "'EmOne', sans-serif",
+                                              fontSize: '0.75rem',
+                                              fontWeight: 700,
+                                              color: '#7A0000',
+                                              whiteSpace: 'nowrap'
+                                            }}
+                                            title="Save current state to this file in the repository"
+                                          >
+                                            <Upload size={16} />
+                                            Save to Repository
+                                          </button>
+                                        </div>
+                                      </div>
+                                    );
+                                  })}
+                                </>
+                              )}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+
               <button
                 onClick={() => handleUniverseFileSelection('CREATE_NEW')}
                 style={{
@@ -4899,6 +5292,9 @@ const UniverseManager = ({ variant = 'panel', onRequestClose }) => {
             @keyframes spin {
               0% { transform: rotate(0deg); }
               100% { transform: rotate(360deg); }
+            }
+            .spin-animation {
+              animation: spin 1s linear infinite;
             }
           `}
           </style>
