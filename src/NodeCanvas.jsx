@@ -5316,8 +5316,13 @@ function NodeCanvas() {
             // 2) Quick drag while still inside the node (desktop-friendly)
             if (leftNodeArea || startedOnNode.current) {
               clearTimeout(longPressTimeout.current);
+              clearTimeout(groupLongPressTimeout.current); // Cancel group drag if connection drawing starts
               mouseInsideNode.current = false;
-              const startNodeDims = getNodeDimensions(longPressNodeData, previewingNodeId === longPressNodeData.id, null);
+              // For anchor nodes (thing group titles), use title dimensions from anchorPositionUpdatesRef
+              const anchorInfo = longPressNodeData.isGroupAnchor ? anchorPositionUpdatesRef.current.get(longPressNodeData.id) : null;
+              const startNodeDims = anchorInfo
+                ? { currentWidth: anchorInfo.width, currentHeight: anchorInfo.height }
+                : getNodeDimensions(longPressNodeData, previewingNodeId === longPressNodeData.id, null);
               const startPt = { x: longPressNodeData.x + startNodeDims.currentWidth / 2, y: longPressNodeData.y + startNodeDims.currentHeight / 2 };
 
               // Validate mouse coordinates before calculating canvas position
@@ -8930,10 +8935,25 @@ function NodeCanvas() {
                                 // Skip drag setup if editing
                                 if (editingGroupId === group.id) return;
 
+                                // For thing groups with anchors: enable quick-drag connection drawing
+                                // Same pattern as node mouseDown — set longPressingInstanceId so canvas
+                                // mouseMove detects movement and starts drawingConnectionFrom
+                                if (isNodeGroup && group.anchorInstanceId) {
+                                  isMouseDown.current = true;
+                                  mouseDownPosition.current = { x: e.clientX, y: e.clientY };
+                                  mouseMoved.current = false;
+                                  mouseInsideNode.current = true;
+                                  startedOnNode.current = true;
+                                  setLongPressingInstanceId(group.anchorInstanceId);
+                                }
+
                                 // Long-press to start drag, just like nodes
                                 clearTimeout(groupLongPressTimeout.current);
                                 const downX = e.clientX; const downY = e.clientY;
                                 groupLongPressTimeout.current = setTimeout(() => {
+                                  // If connection drawing already started, don't also start drag
+                                  if (drawingConnectionFrom) return;
+                                  setLongPressingInstanceId(null); // Cancel connection intent
                                   const rect = containerRef.current.getBoundingClientRect();
                                   const mouseCanvasX = (downX - rect.left - panOffset.x) / zoomLevel + canvasSize.offsetX;
                                   const mouseCanvasY = (downY - rect.top - panOffset.y) / zoomLevel + canvasSize.offsetY;
@@ -8949,8 +8969,17 @@ function NodeCanvas() {
                                   triggerDragZoomOut(downX, downY);
                                 }, LONG_PRESS_DURATION);
                               }}
-                              onMouseUp={() => { clearTimeout(groupLongPressTimeout.current); }}
-                              onMouseLeave={() => { clearTimeout(groupLongPressTimeout.current); }}
+                              onMouseUp={() => {
+                                clearTimeout(groupLongPressTimeout.current);
+                                if (isNodeGroup && group.anchorInstanceId) {
+                                  setLongPressingInstanceId(null);
+                                }
+                              }}
+                              onMouseLeave={() => {
+                                clearTimeout(groupLongPressTimeout.current);
+                                // Don't clear longPressingInstanceId on leave — the mouse is now
+                                // over the canvas and should continue the connection drawing flow
+                              }}
                             >
                               <rect x={labelX} y={labelY} width={labelWidth} height={labelHeight} rx={20} ry={20}
                                 fill={isNodeGroup ? "none" : theme.canvas.bg}
