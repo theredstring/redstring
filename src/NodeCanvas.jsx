@@ -1525,7 +1525,7 @@ function NodeCanvas() {
       return;
     }
 
-    // Single node drag
+    // Single node drag — update directly (already inside RAF from mouse move handler)
     const { instanceId, offset } = draggingInfo;
     const node = nodeById.get(instanceId);
     if (node) {
@@ -1540,8 +1540,7 @@ function NodeCanvas() {
         newX = mouseCanvasX - offset.x;
         newY = mouseCanvasY - offset.y;
       }
-      // Use RAF-based batching for smooth framerate-aligned updates
-      schedulePositionUpdate(instanceId, newX, newY);
+      storeActions.updateMultipleNodeInstancePositions(activeGraphId, [{ instanceId, x: newX, y: newY }], { isDragging: true, phase: 'move' });
     }
   }, [activeGraphId, nodeById, gridMode, gridSize, schedulePositionUpdate]);
 
@@ -2098,8 +2097,9 @@ function NodeCanvas() {
 
 
   // Flush anchor position updates from group rendering to the store
-  // Uses requestAnimationFrame to batch and avoid render loops
+  // Skip during active drag to avoid double-renders per frame (positions sync when drag ends)
   useEffect(() => {
+    if (draggingNodeInfo) return; // Don't trigger store updates during drag — use ref positions for rendering
     const updates = anchorPositionUpdatesRef.current;
     if (updates.size === 0) return;
 
@@ -8728,17 +8728,21 @@ function NodeCanvas() {
 
                   groups.forEach(group => {
                     // Compute bounding box of member nodes with margin
-                    const members = hydratedNodes.filter(n => group.memberInstanceIds.includes(n.id));
+                    const memberIdSet = new Set(group.memberInstanceIds);
+                    const members = hydratedNodes.filter(n => memberIdSet.has(n.id));
                     if (!members.length) return;
-                    const dims = members.map(n => getNodeDimensions(n, false, null));
-                    const xs = members.map((n, i) => n.x);
-                    const ys = members.map((n, i) => n.y);
-                    const rights = members.map((n, i) => n.x + dims[i].currentWidth);
-                    const bottoms = members.map((n, i) => n.y + dims[i].currentHeight);
-                    const minX = Math.min(...xs);
-                    const minY = Math.min(...ys);
-                    const maxX = Math.max(...rights);
-                    const maxY = Math.max(...bottoms);
+                    // Single pass to compute bounding box (avoids multiple .map + Math.min/max spread)
+                    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+                    for (let i = 0; i < members.length; i++) {
+                      const n = members[i];
+                      const d = baseDimsById.get(n.id) || getNodeDimensions(n, false, null);
+                      if (n.x < minX) minX = n.x;
+                      if (n.y < minY) minY = n.y;
+                      const r = n.x + d.currentWidth;
+                      const b = n.y + d.currentHeight;
+                      if (r > maxX) maxX = r;
+                      if (b > maxY) maxY = b;
+                    }
 
                     // GROUP LAYOUT CONSTANTS - consolidated for easier adjustment
                     const GROUP_SPACING = {
@@ -9168,16 +9172,19 @@ function NodeCanvas() {
                   return (
                     <>
                       {/* Edges below thing-group backgrounds: normal edges + anchor-connected edges */}
-                      {[...edgesBelowNodeGroups, ...edgesToAnchors].map((edge, idx) => {
-                        const sourceNode = nodes.find(n => n.id === edge.sourceId);
-                        const destNode = nodes.find(n => n.id === edge.destinationId);
+                      {edgesBelowNodeGroups.concat(edgesToAnchors).map((edge, idx) => {
+                        let sourceNode = nodeById.get(edge.sourceId);
+                        let destNode = nodeById.get(edge.destinationId);
 
                         if (!sourceNode || !destNode) {
                           return null;
                         }
-                        // For anchor nodes, use the group title dimensions instead of node dimensions
+                        // For anchor nodes, use current-frame ref positions (not stale store positions)
+                        // and title dimensions instead of node dimensions
                         const sAnchorInfo = sourceNode.isGroupAnchor ? anchorPositionUpdatesRef.current.get(sourceNode.id) : null;
                         const eAnchorInfo = destNode.isGroupAnchor ? anchorPositionUpdatesRef.current.get(destNode.id) : null;
+                        if (sAnchorInfo) sourceNode = { ...sourceNode, x: sAnchorInfo.x, y: sAnchorInfo.y };
+                        if (eAnchorInfo) destNode = { ...destNode, x: eAnchorInfo.x, y: eAnchorInfo.y };
                         const sNodeDims = sAnchorInfo
                           ? { currentWidth: sAnchorInfo.width, currentHeight: sAnchorInfo.height }
                           : (baseDimsById.get(sourceNode.id) || getNodeDimensions(sourceNode, false, null));
@@ -10461,17 +10468,19 @@ function NodeCanvas() {
                       })}
                       {/* Groups Phase 2: Thing-group backgrounds (above normal edges, below thing-group edges) */}
                       {nodeGroupBackgroundsRef.current}
-                      {/* Edges above node-groups: connect to thing-group members/anchors */}
+                      {/* Edges above node-groups: connect to thing-group members (non-anchor) */}
                       {edgesAboveNodeGroups.map((edge, idx) => {
-                        const sourceNode = nodes.find(n => n.id === edge.sourceId);
-                        const destNode = nodes.find(n => n.id === edge.destinationId);
+                        let sourceNode = nodeById.get(edge.sourceId);
+                        let destNode = nodeById.get(edge.destinationId);
 
                         if (!sourceNode || !destNode) {
                           return null;
                         }
-                        // For anchor nodes, use the group title dimensions instead of node dimensions
+                        // For anchor nodes, use current-frame ref positions and title dimensions
                         const sAnchorInfo = sourceNode.isGroupAnchor ? anchorPositionUpdatesRef.current.get(sourceNode.id) : null;
                         const eAnchorInfo = destNode.isGroupAnchor ? anchorPositionUpdatesRef.current.get(destNode.id) : null;
+                        if (sAnchorInfo) sourceNode = { ...sourceNode, x: sAnchorInfo.x, y: sAnchorInfo.y };
+                        if (eAnchorInfo) destNode = { ...destNode, x: eAnchorInfo.x, y: eAnchorInfo.y };
                         const sNodeDims = sAnchorInfo
                           ? { currentWidth: sAnchorInfo.width, currentHeight: sAnchorInfo.height }
                           : (baseDimsById.get(sourceNode.id) || getNodeDimensions(sourceNode, false, null));
