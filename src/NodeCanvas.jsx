@@ -262,6 +262,12 @@ function NodeCanvas() {
   const dragStartXRef = useRef(0);
   const startWidthRef = useRef(0);
   const groupLongPressTimeout = useRef(null);
+  // Split group rendering across z-layers: Phase 1 computes layouts and stores
+  // JSX for later phases, so thing-group backgrounds/titles render at the right z-level
+  const nodeGroupBackgroundsRef = useRef([]);
+  const nodeGroupTitlesRef = useRef([]);
+  const thingGroupMemberIdsRef = useRef(new Set());
+  const anchorInstanceIdsRef = useRef(new Set());
 
   // NOTE: touchState and docTouchListenersRef removed (moved to useCanvasTouch)
 
@@ -8700,395 +8706,318 @@ function NodeCanvas() {
                   );
                 })()}
 
-                {/* Groups layer - render group rectangles behind nodes */}
+                {/* Groups Phase 1: Compute all group layouts, render regular group outlines.
+                    Thing-group backgrounds and titles are stored in refs for rendering at higher z-levels. */}
                 {(() => {
                   const graphData = activeGraphId ? graphsMap.get(activeGraphId) : null;
                   const groups = graphData?.groups ? Array.from(graphData.groups.values()) : [];
-                  if (!groups.length) return null;
-                  return (
-                    <g className="groups-layer">
-                      {groups.map(group => {
-                        // Compute bounding box of member nodes with margin
-                        const members = hydratedNodes.filter(n => group.memberInstanceIds.includes(n.id));
-                        if (!members.length) return null;
-                        const dims = members.map(n => getNodeDimensions(n, false, null));
-                        const xs = members.map((n, i) => n.x);
-                        const ys = members.map((n, i) => n.y);
-                        const rights = members.map((n, i) => n.x + dims[i].currentWidth);
-                        const bottoms = members.map((n, i) => n.y + dims[i].currentHeight);
-                        const minX = Math.min(...xs);
-                        const minY = Math.min(...ys);
-                        const maxX = Math.max(...rights);
-                        const maxY = Math.max(...bottoms);
+                  const ngBackgrounds = [];
+                  const ngTitles = [];
+                  const tgMemberIds = new Set();
+                  const anchorIds = new Set();
 
-                        // GROUP LAYOUT CONSTANTS - consolidated for easier adjustment
-                        const GROUP_SPACING = {
-                          memberBoundaryPadding: Math.max(24, Math.round(gridSize * 0.2)), // Space between members and member boundary
-                          innerCanvasBorder: 32,        // Width of colored border around inner canvas (for node-groups)
-                          titleToCanvasGap: 24,         // Vertical gap between title bottom and inner canvas top
-                          titlePaddingVertical: 12,     // Top/bottom padding inside title bar
-                          titlePaddingHorizontal: 32,   // Left/right padding inside title bar
-                          titleTopMargin: 24,           // Space above title within colored background (for node-groups)
-                          titleBottomMargin: 24,        // Space below title within colored background (for node-groups)
-                          cornerRadius: 12,             // Corner radius for regular groups
-                          nodeGroupCornerRadius: 24,    // Corner radius for node-groups (more rounded)
-                          strokeWidth: 2,               // Stroke width for group borders
-                          fontSize: 36,                 // Title text size
-                        };
+                  if (!groups.length) {
+                    nodeGroupBackgroundsRef.current = ngBackgrounds;
+                    nodeGroupTitlesRef.current = ngTitles;
+                    thingGroupMemberIdsRef.current = tgMemberIds;
+                    anchorInstanceIdsRef.current = anchorIds;
+                    return null;
+                  }
 
-                        const margin = GROUP_SPACING.memberBoundaryPadding + GROUP_SPACING.innerCanvasBorder;
-                        const rectX = minX - margin;
-                        const rectY = minY - margin;
-                        const rectW = (maxX - minX) + margin * 2;
-                        const rectH = (maxY - minY) + margin * 2;
-                        const cornerR = GROUP_SPACING.cornerRadius;
-                        const nodeGroupCornerR = GROUP_SPACING.nodeGroupCornerRadius;
-                        const strokeColor = group.color || '#8B0000';
-                        const fontSize = GROUP_SPACING.fontSize;
-                        const labelPaddingVertical = GROUP_SPACING.titlePaddingVertical;
-                        const labelPaddingHorizontal = GROUP_SPACING.titlePaddingHorizontal;
-                        const strokeWidth = GROUP_SPACING.strokeWidth;
+                  const regularGroupElements = [];
 
-                        // Calculate dynamic label size using accurate text measurement
-                        const currentText = editingGroupId === group.id ? tempGroupName : (group.name || 'Group');
-                        const measuredTextWidth = getTextWidth(currentText, `bold ${fontSize}px "EmOne", sans-serif`);
-                        // Scale label width strictly by text content, not group width
-                        const labelWidth = Math.min(1000, Math.max(100, measuredTextWidth + (labelPaddingHorizontal * 2) + (strokeWidth * 2)));
-                        const labelHeight = Math.max(80, fontSize * 1.4 + (labelPaddingVertical * 2)); // Balanced vertical padding
-                        const labelX = rectX + (rectW - labelWidth) / 2; // Center horizontally on group
-                        const labelY = rectY - labelHeight - GROUP_SPACING.titleToCanvasGap; // Space above group for nametag effect
-                        const labelText = group.name || 'Group';
-                        const isGroupSelected = !!(selectedGroup && selectedGroup.id === group.id);
-                        const isGroupDragging = draggingNodeInfo?.groupId === group.id;
+                  groups.forEach(group => {
+                    // Compute bounding box of member nodes with margin
+                    const members = hydratedNodes.filter(n => group.memberInstanceIds.includes(n.id));
+                    if (!members.length) return;
+                    const dims = members.map(n => getNodeDimensions(n, false, null));
+                    const xs = members.map((n, i) => n.x);
+                    const ys = members.map((n, i) => n.y);
+                    const rights = members.map((n, i) => n.x + dims[i].currentWidth);
+                    const bottoms = members.map((n, i) => n.y + dims[i].currentHeight);
+                    const minX = Math.min(...xs);
+                    const minY = Math.min(...ys);
+                    const maxX = Math.max(...rights);
+                    const maxY = Math.max(...bottoms);
 
-                        // Check if this is a node-group
-                        const isNodeGroup = !!group.linkedNodePrototypeId;
-                        const nodeGroupPrototype = isNodeGroup ? nodePrototypesMap.get(group.linkedNodePrototypeId) : null;
-                        const nodeGroupColor = nodeGroupPrototype?.color || strokeColor;
+                    // GROUP LAYOUT CONSTANTS - consolidated for easier adjustment
+                    const GROUP_SPACING = {
+                      memberBoundaryPadding: Math.max(24, Math.round(gridSize * 0.2)),
+                      innerCanvasBorder: 32,
+                      titleToCanvasGap: 24,
+                      titlePaddingVertical: 12,
+                      titlePaddingHorizontal: 32,
+                      titleTopMargin: 24,
+                      titleBottomMargin: 24,
+                      cornerRadius: 12,
+                      nodeGroupCornerRadius: 24,
+                      strokeWidth: 2,
+                      fontSize: 36,
+                    };
 
-                        // For node-groups, extend rectangle to cover the name tag area
-                        const nodeGroupTopMargin = GROUP_SPACING.titleTopMargin;
-                        const nodeGroupBottomMargin = GROUP_SPACING.titleBottomMargin;
-                        const nodeGroupRectY = isNodeGroup ? labelY - nodeGroupTopMargin : rectY;
-                        const nodeGroupRectH = isNodeGroup ? (rectY + rectH) - (labelY - nodeGroupTopMargin) : rectH;
+                    const margin = GROUP_SPACING.memberBoundaryPadding + GROUP_SPACING.innerCanvasBorder;
+                    const rectX = minX - margin;
+                    const rectY = minY - margin;
+                    const rectW = (maxX - minX) + margin * 2;
+                    const rectH = (maxY - minY) + margin * 2;
+                    const nodeGroupCornerR = GROUP_SPACING.nodeGroupCornerRadius;
+                    const strokeColor = group.color || '#8B0000';
+                    const fontSize = GROUP_SPACING.fontSize;
+                    const labelPaddingVertical = GROUP_SPACING.titlePaddingVertical;
+                    const labelPaddingHorizontal = GROUP_SPACING.titlePaddingHorizontal;
+                    const strokeWidth = GROUP_SPACING.strokeWidth;
 
-                        // Calculate inner canvas position for node-groups
-                        // For node-groups: start titleBottomMargin below the label
-                        // For regular groups: use normal innerCanvasBorder inset
-                        const innerCanvasY = isNodeGroup ? (labelY + labelHeight + nodeGroupBottomMargin) : (rectY + GROUP_SPACING.innerCanvasBorder);
+                    const currentText = editingGroupId === group.id ? tempGroupName : (group.name || 'Group');
+                    const measuredTextWidth = getTextWidth(currentText, `bold ${fontSize}px "EmOne", sans-serif`);
+                    const labelWidth = Math.min(1000, Math.max(100, measuredTextWidth + (labelPaddingHorizontal * 2) + (strokeWidth * 2)));
+                    const labelHeight = Math.max(80, fontSize * 1.4 + (labelPaddingVertical * 2));
+                    const labelX = rectX + (rectW - labelWidth) / 2;
+                    const labelY = rectY - labelHeight - GROUP_SPACING.titleToCanvasGap;
+                    const labelText = group.name || 'Group';
+                    const isGroupDragging = draggingNodeInfo?.groupId === group.id;
 
-                        // Calculate scale and transform for dragging animation
-                        const groupScale = isGroupDragging ? 1.05 : 1;
-                        const centerX = rectX + rectW / 2;
-                        const centerY = rectY + rectH / 2;
-                        const groupTransform = isGroupDragging
-                          ? `translate(${centerX}, ${centerY}) scale(${groupScale}) translate(${-centerX}, ${-centerY})`
-                          : '';
+                    const isNodeGroup = !!group.linkedNodePrototypeId;
+                    const nodeGroupPrototype = isNodeGroup ? nodePrototypesMap.get(group.linkedNodePrototypeId) : null;
+                    const nodeGroupColor = nodeGroupPrototype?.color || strokeColor;
 
-                        // Sync anchor instance position to group title center
-                        if (isNodeGroup && group.anchorInstanceId) {
-                          const titleCenterX = labelX;
-                          const titleCenterY = labelY;
-                          anchorPositionUpdatesRef.current.set(group.anchorInstanceId, {
-                            x: titleCenterX,
-                            y: titleCenterY,
-                            width: labelWidth,
-                            height: labelHeight,
-                            groupId: group.id
-                          });
-                        }
+                    const nodeGroupTopMargin = GROUP_SPACING.titleTopMargin;
+                    const nodeGroupBottomMargin = GROUP_SPACING.titleBottomMargin;
+                    const nodeGroupRectY = isNodeGroup ? labelY - nodeGroupTopMargin : rectY;
+                    const nodeGroupRectH = isNodeGroup ? (rectY + rectH) - (labelY - nodeGroupTopMargin) : rectH;
+                    const innerCanvasY = isNodeGroup ? (labelY + labelHeight + nodeGroupBottomMargin) : (rectY + GROUP_SPACING.innerCanvasBorder);
 
-                        return (
-                          <g key={group.id} className={isNodeGroup ? "node-group" : "group"} data-group-id={group.id}
-                            style={{
-                              transform: groupTransform,
-                              transformOrigin: `${centerX}px ${centerY}px`,
-                              transition: isGroupDragging ? 'none' : 'transform 0.2s ease-out',
-                              filter: isGroupDragging ? 'drop-shadow(0px 8px 16px rgba(0,0,0,0.3))' : 'none'
-                            }}
-                          >
-                            {isNodeGroup ? (
-                              <>
-                                {/* NODE-GROUP RENDERING */}
-                                {/* 1. Outer colored background rectangle (extends up to cover title) */}
-                                <rect
-                                  x={rectX}
-                                  y={nodeGroupRectY}
-                                  width={rectW}
-                                  height={nodeGroupRectH}
-                                  rx={nodeGroupCornerR}
-                                  ry={nodeGroupCornerR}
-                                  fill={nodeGroupColor}
-                                  stroke="none"
-                                />
-                                {/* 2. Inner canvas-colored rectangle (the actual canvas area) */}
-                                <rect
-                                  x={rectX + GROUP_SPACING.innerCanvasBorder}
-                                  y={innerCanvasY}
-                                  width={rectW - (GROUP_SPACING.innerCanvasBorder * 2)}
-                                  height={(rectY + rectH) - innerCanvasY - GROUP_SPACING.innerCanvasBorder}
-                                  rx={12}
-                                  ry={12}
-                                  fill={theme.canvas.bg}
+                    const groupScale = isGroupDragging ? 1.05 : 1;
+                    const centerX = rectX + rectW / 2;
+                    const centerY = rectY + rectH / 2;
+                    const groupTransform = isGroupDragging
+                      ? `translate(${centerX}, ${centerY}) scale(${groupScale}) translate(${-centerX}, ${-centerY})`
+                      : '';
 
-                                  stroke="none"
-                                  style={{ cursor: 'default', pointerEvents: 'auto' }}
-                                  onClick={(e) => {
-                                    // Stop propagation to prevent group selection/drag
-                                    e.stopPropagation();
+                    // Sync anchor instance position to group title center
+                    if (isNodeGroup && group.anchorInstanceId) {
+                      anchorPositionUpdatesRef.current.set(group.anchorInstanceId, {
+                        x: labelX, y: labelY,
+                        width: labelWidth, height: labelHeight,
+                        groupId: group.id
+                      });
+                    }
 
-                                    // Ignore if various conditions are active
-                                    if (isPaused || draggingNodeInfo || drawingConnectionFrom || mouseMoved.current || recentlyPanned || nodeNamePrompt.visible || !activeGraphId) {
-                                      return;
-                                    }
+                    const groupStyle = {
+                      transform: groupTransform,
+                      transformOrigin: `${centerX}px ${centerY}px`,
+                      transition: isGroupDragging ? 'none' : 'transform 0.2s ease-out',
+                      filter: isGroupDragging ? 'drop-shadow(0px 8px 16px rgba(0,0,0,0.3))' : 'none'
+                    };
 
-                                    // Close Group panel on click-off like other panels
-                                    if (groupControlPanelShouldShow || groupControlPanelVisible || selectedGroup) {
-                                      if (groupControlPanelShouldShow || groupControlPanelVisible) {
-                                        setGroupControlPanelVisible(false);
+                    // Collect thing-group member IDs (including anchor) for edge/node z-splitting
+                    if (isNodeGroup) {
+                      group.memberInstanceIds.forEach(id => tgMemberIds.add(id));
+                      if (group.anchorInstanceId) {
+                        tgMemberIds.add(group.anchorInstanceId);
+                        anchorIds.add(group.anchorInstanceId);
+                      }
+                    }
+
+                    // --- Build JSX for the title label (shared between regular and thing groups) ---
+                    const titleLabel = (
+                      <g className="group-label" style={{ cursor: 'pointer' }}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          if (wasDraggingRef.current || mouseMoved.current) return;
+                          if (e.detail === 2) {
+                            setEditingGroupId(group.id);
+                            setTempGroupName(group.name || 'Group');
+                          } else {
+                            setSelectedGroup(group);
+                            setGroupControlPanelShouldShow(true);
+                            setNodeControlPanelShouldShow(false);
+                            setAbstractionControlPanelVisible(false);
+                            setAbstractionControlPanelShouldShow(false);
+                            setConnectionControlPanelVisible(false);
+                            setConnectionControlPanelShouldShow(false);
+                          }
+                        }}
+                        onMouseDown={(e) => {
+                          e.stopPropagation();
+                          if (editingGroupId === group.id) return;
+                          if (isNodeGroup && group.anchorInstanceId) {
+                            isMouseDown.current = true;
+                            mouseDownPosition.current = { x: e.clientX, y: e.clientY };
+                            mouseMoved.current = false;
+                            mouseInsideNode.current = true;
+                            startedOnNode.current = true;
+                            setLongPressingInstanceId(group.anchorInstanceId);
+                          }
+                          clearTimeout(groupLongPressTimeout.current);
+                          const downX = e.clientX; const downY = e.clientY;
+                          groupLongPressTimeout.current = setTimeout(() => {
+                            if (drawingConnectionFrom) return;
+                            setLongPressingInstanceId(null);
+                            const rect = containerRef.current.getBoundingClientRect();
+                            const mouseCanvasX = (downX - rect.left - panOffset.x) / zoomLevel + canvasSize.offsetX;
+                            const mouseCanvasY = (downY - rect.top - panOffset.y) / zoomLevel + canvasSize.offsetY;
+                            const offsets = members.map(m => ({ id: m.id, dx: mouseCanvasX - m.x, dy: mouseCanvasY - m.y }));
+                            if (group.anchorInstanceId) {
+                              const anchorNode = nodes.find(n => n.id === group.anchorInstanceId);
+                              if (anchorNode) {
+                                offsets.push({ id: anchorNode.id, dx: mouseCanvasX - anchorNode.x, dy: mouseCanvasY - anchorNode.y });
+                              }
+                            }
+                            setDraggingNodeInfo({ groupId: group.id, memberOffsets: offsets });
+                            triggerDragZoomOut(downX, downY);
+                          }, LONG_PRESS_DURATION);
+                        }}
+                        onMouseUp={() => {
+                          clearTimeout(groupLongPressTimeout.current);
+                          if (isNodeGroup && group.anchorInstanceId) setLongPressingInstanceId(null);
+                        }}
+                        onMouseLeave={() => {
+                          clearTimeout(groupLongPressTimeout.current);
+                        }}
+                      >
+                        <rect x={labelX} y={labelY} width={labelWidth} height={labelHeight} rx={20} ry={20}
+                          fill={isNodeGroup ? "none" : theme.canvas.bg}
+                          stroke={isNodeGroup ? "none" : strokeColor}
+                          strokeWidth={isNodeGroup ? 0 : 6}
+                          vectorEffect="non-scaling-stroke"
+                          style={{
+                            transform: isGroupDragging ? `scale(1.08)` : 'scale(1)',
+                            transformOrigin: `${labelX + labelWidth / 2}px ${labelY + labelHeight / 2}px`,
+                            filter: isGroupDragging ? 'drop-shadow(0px 5px 10px rgba(0,0,0,0.3))' : 'none'
+                          }}
+                        />
+                        {editingGroupId === group.id ? (
+                          <foreignObject x={labelX} y={labelY} width={labelWidth} height={labelHeight}
+                            style={{ pointerEvents: 'auto' }}>
+                            <div style={{
+                              width: '100%', height: '100%',
+                              display: 'flex', alignItems: 'center', justifyContent: 'center',
+                              boxSizing: 'border-box'
+                            }}>
+                              <input
+                                type="text"
+                                value={tempGroupName}
+                                onChange={(e) => { setTempGroupName(e.target.value); }}
+                                onKeyDown={(e) => {
+                                  e.stopPropagation();
+                                  if (e.key === 'Enter') {
+                                    const newName = tempGroupName.trim();
+                                    if (newName && activeGraphId) {
+                                      storeActions.updateGroup(activeGraphId, group.id, (draft) => { draft.name = newName; });
+                                      if (selectedGroup?.id === group.id) {
+                                        setSelectedGroup(prev => prev ? { ...prev, name: newName } : null);
                                       }
-                                      if (selectedGroup) {
-                                        setSelectedGroup(null);
-                                      }
-                                      return;
                                     }
-
-                                    // Close carousel if visible
-                                    if (abstractionCarouselVisible && !selectedNodeIdForPieMenu) {
-                                      setAbstractionCarouselVisible(false);
-                                      setAbstractionCarouselNode(null);
-                                      setCarouselAnimationState('hidden');
-                                      setCarouselPieMenuStage(1);
-                                      setCarouselFocusedNode(null);
-                                      setCarouselFocusedNodeDimensions(null);
-                                      return;
-                                    }
-
-                                    // If carousel is visible and exiting, don't handle clicks
-                                    if (abstractionCarouselVisible && carouselAnimationState === 'exiting') {
-                                      return;
-                                    }
-
-                                    // Deselect nodes if any are selected
-                                    if (selectedInstanceIds.size > 0) {
-                                      // Don't clear selection if we just completed a carousel exit
-                                      if (justCompletedCarouselExit || carouselExitInProgressRef.current) {
-                                        return;
-                                      }
-                                      setSelectedInstanceIds(new Set());
-                                      return;
-                                    }
-
-                                    // Deselect edges if any are selected
-                                    if ((selectedEdgeId || selectedEdgeIds.size > 0) && !hoveredEdgeInfo) {
-                                      storeActions.setSelectedEdgeId(null);
-                                      storeActions.clearSelectedEdgeIds();
-                                      return;
-                                    }
-                                  }}
-                                />
-                              </>
-                            ) : (
-                              // REGULAR GROUP RENDERING - dashed outline only
-                              <rect
-                                x={rectX}
-                                y={rectY}
-                                width={rectW}
-                                height={rectH}
-                                rx={nodeGroupCornerR}
-                                ry={nodeGroupCornerR}
-                                fill="none"
-                                stroke={strokeColor}
-                                strokeWidth={12}
-                                strokeDasharray="16 12"
-                                vectorEffect="non-scaling-stroke"
-                              />
-                            )}
-                            {/* Draggable label behaving like a node handle with inline editing */}
-                            <g className="group-label" style={{ cursor: 'pointer' }}
-                              onClick={(e) => {
-                                e.stopPropagation();
-
-                                // Prevent click if we were dragging (checked via ref set in mouseUp)
-                                if (wasDraggingRef.current || mouseMoved.current) {
-                                  return;
-                                }
-
-                                // Double-click to edit, single click to select
-                                if (e.detail === 2) {
-                                  setEditingGroupId(group.id);
-                                  setTempGroupName(group.name || 'Group');
-                                } else {
-                                  // Select group and show control panel
-                                  setSelectedGroup(group);
-                                  setGroupControlPanelShouldShow(true);
-                                  // Hide ALL other control panels
-                                  setNodeControlPanelShouldShow(false);
-                                  setAbstractionControlPanelVisible(false);
-                                  setAbstractionControlPanelShouldShow(false);
-                                  setConnectionControlPanelVisible(false);
-                                  setConnectionControlPanelShouldShow(false);
-                                }
-                              }}
-                              onMouseDown={(e) => {
-                                e.stopPropagation();
-                                // Skip drag setup if editing
-                                if (editingGroupId === group.id) return;
-
-                                // For thing groups with anchors: enable quick-drag connection drawing
-                                // Same pattern as node mouseDown — set longPressingInstanceId so canvas
-                                // mouseMove detects movement and starts drawingConnectionFrom
-                                if (isNodeGroup && group.anchorInstanceId) {
-                                  isMouseDown.current = true;
-                                  mouseDownPosition.current = { x: e.clientX, y: e.clientY };
-                                  mouseMoved.current = false;
-                                  mouseInsideNode.current = true;
-                                  startedOnNode.current = true;
-                                  setLongPressingInstanceId(group.anchorInstanceId);
-                                }
-
-                                // Long-press to start drag, just like nodes
-                                clearTimeout(groupLongPressTimeout.current);
-                                const downX = e.clientX; const downY = e.clientY;
-                                groupLongPressTimeout.current = setTimeout(() => {
-                                  // If connection drawing already started, don't also start drag
-                                  if (drawingConnectionFrom) return;
-                                  setLongPressingInstanceId(null); // Cancel connection intent
-                                  const rect = containerRef.current.getBoundingClientRect();
-                                  const mouseCanvasX = (downX - rect.left - panOffset.x) / zoomLevel + canvasSize.offsetX;
-                                  const mouseCanvasY = (downY - rect.top - panOffset.y) / zoomLevel + canvasSize.offsetY;
-                                  const offsets = members.map(m => ({ id: m.id, dx: mouseCanvasX - m.x, dy: mouseCanvasY - m.y }));
-                                  // Include anchor instance in the drag set so it moves with the group
-                                  if (group.anchorInstanceId) {
-                                    const anchorNode = nodes.find(n => n.id === group.anchorInstanceId);
-                                    if (anchorNode) {
-                                      offsets.push({ id: anchorNode.id, dx: mouseCanvasX - anchorNode.x, dy: mouseCanvasY - anchorNode.y });
+                                    setEditingGroupId(null);
+                                  } else if (e.key === 'Escape') {
+                                    setEditingGroupId(null);
+                                    setTempGroupName('');
+                                  }
+                                }}
+                                onBlur={() => {
+                                  const newName = tempGroupName.trim();
+                                  if (newName && activeGraphId && newName !== group.name) {
+                                    storeActions.updateGroup(activeGraphId, group.id, (draft) => { draft.name = newName; });
+                                    if (selectedGroup?.id === group.id) {
+                                      setSelectedGroup(prev => prev ? { ...prev, name: newName } : null);
                                     }
                                   }
-                                  setDraggingNodeInfo({ groupId: group.id, memberOffsets: offsets });
-                                  triggerDragZoomOut(downX, downY);
-                                }, LONG_PRESS_DURATION);
-                              }}
-                              onMouseUp={() => {
-                                clearTimeout(groupLongPressTimeout.current);
-                                if (isNodeGroup && group.anchorInstanceId) {
-                                  setLongPressingInstanceId(null);
-                                }
-                              }}
-                              onMouseLeave={() => {
-                                clearTimeout(groupLongPressTimeout.current);
-                                // Don't clear longPressingInstanceId on leave — the mouse is now
-                                // over the canvas and should continue the connection drawing flow
-                              }}
-                            >
-                              <rect x={labelX} y={labelY} width={labelWidth} height={labelHeight} rx={20} ry={20}
-                                fill={isNodeGroup ? "none" : theme.canvas.bg}
-
-                                stroke={isNodeGroup ? "none" : strokeColor}
-                                strokeWidth={isNodeGroup ? 0 : 6}
-                                vectorEffect="non-scaling-stroke"
+                                  setEditingGroupId(null);
+                                }}
+                                autoFocus
                                 style={{
-                                  transform: draggingNodeInfo?.groupId === group.id ? `scale(1.08)` : 'scale(1)',
-                                  transformOrigin: `${labelX + labelWidth / 2}px ${labelY + labelHeight / 2}px`,
-                                  filter: draggingNodeInfo?.groupId === group.id ? 'drop-shadow(0px 5px 10px rgba(0,0,0,0.3))' : 'none'
+                                  width: `calc(100% - ${labelPaddingHorizontal * 2}px)`,
+                                  height: `calc(100% - ${labelPaddingVertical * 2}px)`,
+                                  margin: `${labelPaddingVertical}px ${labelPaddingHorizontal}px`,
+                                  fontSize: `${fontSize}px`,
+                                  fontFamily: 'EmOne, sans-serif',
+                                  fontWeight: 'bold',
+                                  color: isNodeGroup ? getTextColor(nodeGroupColor, theme.darkMode) : getTextColor(theme.canvas.bg, theme.darkMode),
+                                  backgroundColor: 'transparent',
+                                  border: 'none', outline: 'none',
+                                  textAlign: 'center', boxSizing: 'border-box'
                                 }}
                               />
+                            </div>
+                          </foreignObject>
+                        ) : (
+                          <text x={labelX + labelWidth / 2} y={labelY + labelHeight * 0.7 - 2} fontFamily="EmOne, sans-serif" fontSize={fontSize}
+                            fill={isNodeGroup ? getTextColor(nodeGroupColor, theme.darkMode) : getTextColor(theme.canvas.bg, theme.darkMode)}
+                            fontWeight="bold" stroke="none" strokeWidth={0}
+                            paintOrder="stroke fill" textAnchor="middle"
+                          >
+                            {labelText}
+                          </text>
+                        )}
+                      </g>
+                    );
 
-                              {editingGroupId === group.id ? (
-                                <foreignObject x={labelX} y={labelY} width={labelWidth} height={labelHeight}
-                                  style={{ pointerEvents: 'auto' }}>
-                                  <div style={{
-                                    width: '100%',
-                                    height: '100%',
-                                    display: 'flex',
-                                    alignItems: 'center',
-                                    justifyContent: 'center',
-                                    boxSizing: 'border-box'
-                                  }}>
-                                    <input
-                                      type="text"
-                                      value={tempGroupName}
-                                      onChange={(e) => {
-                                        setTempGroupName(e.target.value);
-                                        // Force re-render to update label dimensions
-                                        // The component will re-calculate labelWidth based on tempGroupName
-                                      }}
-                                      onKeyDown={(e) => {
-                                        e.stopPropagation();
-                                        if (e.key === 'Enter') {
-                                          const newName = tempGroupName.trim();
-                                          if (newName && activeGraphId) {
-                                            storeActions.updateGroup(activeGraphId, group.id, (draft) => {
-                                              draft.name = newName;
-                                            });
-                                            // Update selected group state if this group is selected
-                                            if (selectedGroup?.id === group.id) {
-                                              setSelectedGroup(prev => prev ? { ...prev, name: newName } : null);
-                                            }
-                                          }
-                                          setEditingGroupId(null);
-                                        } else if (e.key === 'Escape') {
-                                          setEditingGroupId(null);
-                                          setTempGroupName('');
-                                        }
-                                      }}
-                                      onBlur={() => {
-                                        const newName = tempGroupName.trim();
-                                        if (newName && activeGraphId && newName !== group.name) {
-                                          storeActions.updateGroup(activeGraphId, group.id, (draft) => {
-                                            draft.name = newName;
-                                          });
-                                          // Update selected group state if this group is selected
-                                          if (selectedGroup?.id === group.id) {
-                                            setSelectedGroup(prev => prev ? { ...prev, name: newName } : null);
-                                          }
-                                        }
-                                        setEditingGroupId(null);
-                                      }}
-                                      autoFocus
-                                      style={{
-                                        width: `calc(100% - ${labelPaddingHorizontal * 2}px)`,
-                                        height: `calc(100% - ${labelPaddingVertical * 2}px)`,
-                                        margin: `${labelPaddingVertical}px ${labelPaddingHorizontal}px`,
-                                        fontSize: `${fontSize}px`,
-                                        fontFamily: 'EmOne, sans-serif',
-                                        fontWeight: 'bold',
-                                        color: isNodeGroup ? getTextColor(nodeGroupColor, theme.darkMode) : getTextColor(theme.canvas.bg, theme.darkMode),
-                                        backgroundColor: 'transparent',
-                                        border: 'none',
-                                        outline: 'none',
-                                        textAlign: 'center',
-                                        boxSizing: 'border-box'
-                                      }}
-                                    />
-                                  </div>
-                                </foreignObject>
-                              ) : (
-                                <text x={labelX + labelWidth / 2} y={labelY + labelHeight * 0.7 - 2} fontFamily="EmOne, sans-serif" fontSize={fontSize}
-                                  fill={(() => {
-                                    const colorToUse = isNodeGroup ? nodeGroupColor : strokeColor;
-                                    // Thing groups use dynamic text color, regular groups use dark text
-                                    if (isNodeGroup) {
-                                      return getTextColor(colorToUse, theme.darkMode);
-                                    } else {
-                                      return getTextColor(theme.canvas.bg, theme.darkMode);
-                                    }
-                                  })()}
-                                  fontWeight="bold"
-                                  stroke="none"
-                                  strokeWidth={0}
-                                  paintOrder="stroke fill"
-                                  textAnchor="middle"
-                                >
-                                  {labelText}
-                                </text>
-                              )}
-                            </g>
-                          </g>
-                        );
-                      })}
-                    </g>
-                  );
+                    if (isNodeGroup) {
+                      // Thing-group backgrounds → Phase 2 (rendered after normal edges)
+                      ngBackgrounds.push(
+                        <g key={`bg-${group.id}`} className="node-group-bg" data-group-id={group.id} style={groupStyle}>
+                          <rect x={rectX} y={nodeGroupRectY} width={rectW} height={nodeGroupRectH}
+                            rx={nodeGroupCornerR} ry={nodeGroupCornerR} fill={nodeGroupColor} stroke="none" />
+                          <rect
+                            x={rectX + GROUP_SPACING.innerCanvasBorder} y={innerCanvasY}
+                            width={rectW - (GROUP_SPACING.innerCanvasBorder * 2)}
+                            height={(rectY + rectH) - innerCanvasY - GROUP_SPACING.innerCanvasBorder}
+                            rx={12} ry={12} fill={theme.canvas.bg} stroke="none"
+                            style={{ cursor: 'default', pointerEvents: 'auto' }}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              if (isPaused || draggingNodeInfo || drawingConnectionFrom || mouseMoved.current || recentlyPanned || nodeNamePrompt.visible || !activeGraphId) return;
+                              if (groupControlPanelShouldShow || groupControlPanelVisible || selectedGroup) {
+                                if (groupControlPanelShouldShow || groupControlPanelVisible) setGroupControlPanelVisible(false);
+                                if (selectedGroup) setSelectedGroup(null);
+                                return;
+                              }
+                              if (abstractionCarouselVisible && !selectedNodeIdForPieMenu) {
+                                setAbstractionCarouselVisible(false); setAbstractionCarouselNode(null);
+                                setCarouselAnimationState('hidden'); setCarouselPieMenuStage(1);
+                                setCarouselFocusedNode(null); setCarouselFocusedNodeDimensions(null);
+                                return;
+                              }
+                              if (abstractionCarouselVisible && carouselAnimationState === 'exiting') return;
+                              if (selectedInstanceIds.size > 0) {
+                                if (justCompletedCarouselExit || carouselExitInProgressRef.current) return;
+                                setSelectedInstanceIds(new Set()); return;
+                              }
+                              if ((selectedEdgeId || selectedEdgeIds.size > 0) && !hoveredEdgeInfo) {
+                                storeActions.setSelectedEdgeId(null); storeActions.clearSelectedEdgeIds(); return;
+                              }
+                            }}
+                          />
+                        </g>
+                      );
+                      // Thing-group titles → Phase 3 (rendered after member nodes)
+                      ngTitles.push(
+                        <g key={`title-${group.id}`} className="node-group-title" data-group-id={group.id} style={groupStyle}>
+                          {titleLabel}
+                        </g>
+                      );
+                    } else {
+                      // Regular groups: outline + title together at the bottom z-level
+                      regularGroupElements.push(
+                        <g key={group.id} className="group" data-group-id={group.id} style={groupStyle}>
+                          <rect x={rectX} y={rectY} width={rectW} height={rectH}
+                            rx={nodeGroupCornerR} ry={nodeGroupCornerR}
+                            fill="none" stroke={strokeColor} strokeWidth={12}
+                            strokeDasharray="16 12" vectorEffect="non-scaling-stroke" />
+                          {titleLabel}
+                        </g>
+                      );
+                    }
+                  });
+
+                  nodeGroupBackgroundsRef.current = ngBackgrounds;
+                  nodeGroupTitlesRef.current = ngTitles;
+                  thingGroupMemberIdsRef.current = tgMemberIds;
+                  anchorInstanceIdsRef.current = anchorIds;
+
+                  return regularGroupElements.length > 0 ? (
+                    <g className="regular-groups-layer">{regularGroupElements}</g>
+                  ) : null;
                 })()}
                 {/* Grid overlay (optimized) */}
                 {(gridMode === 'always' || (gridMode === 'hover' && !!draggingNodeInfo)) && (
@@ -9201,23 +9130,23 @@ function NodeCanvas() {
                 })}
 
                 {isViewReady && (() => {
-                  // Determine which node instances are members of node-groups
-                  const nodeGroupMemberIds = new Set();
-                  const graphData = activeGraphId ? graphsMap.get(activeGraphId) : null;
-                  if (graphData?.groups) {
-                    graphData.groups.forEach(group => {
-                      if (group.linkedNodePrototypeId) {
-                        group.memberInstanceIds.forEach(id => nodeGroupMemberIds.add(id));
-                      }
-                    });
-                  }
+                  // Use thing-group member IDs computed in Phase 1 (includes anchors)
+                  const nodeGroupMemberIds = thingGroupMemberIdsRef.current;
+                  const anchorIds = anchorInstanceIdsRef.current;
 
-                  // Split edges based on whether they connect to node-group members
+                  // Split edges into three z-layers:
+                  // 1. Normal edges: neither endpoint is a thing-group member
+                  // 2. Anchor edges: at least one endpoint is an anchor → below backgrounds
+                  // 3. Internal member edges: between non-anchor members → above backgrounds
                   const edgesBelowNodeGroups = visibleEdges.filter(e =>
                     !nodeGroupMemberIds.has(e.sourceId) && !nodeGroupMemberIds.has(e.destinationId)
                   );
+                  const edgesToAnchors = visibleEdges.filter(e =>
+                    anchorIds.has(e.sourceId) || anchorIds.has(e.destinationId)
+                  );
                   const edgesAboveNodeGroups = visibleEdges.filter(e =>
-                    nodeGroupMemberIds.has(e.sourceId) || nodeGroupMemberIds.has(e.destinationId)
+                    (nodeGroupMemberIds.has(e.sourceId) || nodeGroupMemberIds.has(e.destinationId)) &&
+                    !anchorIds.has(e.sourceId) && !anchorIds.has(e.destinationId)
                   );
 
                   // edgeCurveInfo is computed via useMemo and available in scope
@@ -9238,8 +9167,8 @@ function NodeCanvas() {
 
                   return (
                     <>
-                      {/* Edges below node-groups: don't connect to any node-group members */}
-                      {edgesBelowNodeGroups.map((edge, idx) => {
+                      {/* Edges below thing-group backgrounds: normal edges + anchor-connected edges */}
+                      {[...edgesBelowNodeGroups, ...edgesToAnchors].map((edge, idx) => {
                         const sourceNode = nodes.find(n => n.id === edge.sourceId);
                         const destNode = nodes.find(n => n.id === edge.destinationId);
 
@@ -10530,6 +10459,9 @@ function NodeCanvas() {
                           </g>
                         );
                       })}
+                      {/* Groups Phase 2: Thing-group backgrounds (above normal edges, below thing-group edges) */}
+                      {nodeGroupBackgroundsRef.current}
+                      {/* Edges above node-groups: connect to thing-group members/anchors */}
                       {edgesAboveNodeGroups.map((edge, idx) => {
                         const sourceNode = nodes.find(n => n.id === edge.sourceId);
                         const destNode = nodes.find(n => n.id === edge.destinationId);
@@ -11690,16 +11622,7 @@ function NodeCanvas() {
                   );
                 })()}
 
-                {drawingConnectionFrom && (
-                  <line
-                    x1={drawingConnectionFrom.startX}
-                    y1={drawingConnectionFrom.startY}
-                    x2={drawingConnectionFrom.currentX}
-                    y2={drawingConnectionFrom.currentY}
-                    stroke="black"
-                    strokeWidth="8"
-                  />
-                )}
+                {/* Drawing connection line moved to after thing-group titles for correct z-ordering */}
                 {(() => {
                   const draggingNodeId = draggingNodeInfo?.primaryId || draggingNodeInfo?.instanceId;
 
@@ -11719,12 +11642,15 @@ function NodeCanvas() {
                     nodeIdToKeepActiveForStacking = null; // Dragging node is handled separately
                   }
 
-                  const otherNodes = nodes.filter(node =>
+                  const allOtherNodes = nodes.filter(node =>
                     node.id !== nodeIdToKeepActiveForStacking &&
                     node.id !== draggingNodeId &&
                     visibleNodeIds.has(node.id) &&
                     !node.isGroupAnchor
                   );
+                  // Split into normal nodes and thing-group member nodes for z-ordering
+                  const otherNodes = allOtherNodes.filter(n => !thingGroupMemberIdsRef.current.has(n.id));
+                  const thingGroupMemberNodes = allOtherNodes.filter(n => thingGroupMemberIdsRef.current.has(n.id));
 
                   const activeNodeToRender = nodeIdToKeepActiveForStacking
                     ? nodes.find(n => n.id === nodeIdToKeepActiveForStacking)
@@ -11734,99 +11660,107 @@ function NodeCanvas() {
                     ? nodes.find(n => n.id === draggingNodeId)
                     : null;
 
+                  // Helper to render a Node component with all its props (avoids duplication)
+                  const renderNodeElement = (node) => {
+                    const isPreviewing = previewingNodeId === node.id;
+                    const baseDimensions = baseDimsById.get(node.id);
+                    const descriptionContent = isPreviewing ? getNodeDescriptionContent(node, true) : null;
+                    const dimensions = isPreviewing
+                      ? getNodeDimensions(node, true, descriptionContent)
+                      : baseDimensions || getNodeDimensions(node, false, null);
+                    if (abstractionCarouselVisible && abstractionCarouselNode?.id === node.id) return null;
+                    return (
+                      <Node
+                        key={node.id}
+                        node={node}
+                        currentWidth={dimensions.currentWidth}
+                        currentHeight={dimensions.currentHeight}
+                        textAreaHeight={dimensions.textAreaHeight}
+                        imageWidth={dimensions.imageWidth}
+                        imageHeight={dimensions.calculatedImageHeight}
+                        innerNetworkWidth={dimensions.innerNetworkWidth}
+                        innerNetworkHeight={dimensions.innerNetworkHeight}
+                        descriptionAreaHeight={dimensions.descriptionAreaHeight}
+                        isSelected={selectedInstanceIds.has(node.id)}
+                        isDragging={false}
+                        onMouseDown={(e) => handleNodeMouseDown(node, e)}
+                        onPointerDown={(e) => touch.handleNodePointerDown(node, e)}
+                        onPointerMove={(e) => touch.handleNodePointerMove(node, e)}
+                        onPointerUp={(e) => touch.handleNodePointerUp(node, e)}
+                        onPointerCancel={(e) => touch.handleNodePointerCancel(node, e)}
+                        onTouchStart={(e) => touch.handleNodeTouchStart(node, e)}
+                        onTouchEnd={(e) => touch.handleNodeTouchEnd(node, e)}
+                        onContextMenu={(e) => {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          showContextMenu(e.clientX, e.clientY, getContextMenuOptions(node.id));
+                        }}
+                        isPreviewing={isPreviewing}
+                        isEditingOnCanvas={node.id === editingNodeIdOnCanvas}
+                        onCommitCanvasEdit={(instanceId, newName, isRealTime = false) => {
+                          storeActions.updateNodePrototype(node.prototypeId, draft => { draft.name = newName; });
+                          if (!isRealTime) setEditingNodeIdOnCanvas(null);
+                        }}
+                        onCancelCanvasEdit={() => setEditingNodeIdOnCanvas(null)}
+                        onCreateDefinition={(prototypeId) => {
+                          if (mouseMoved.current) return;
+                          storeActions.createAndAssignGraphDefinition(prototypeId);
+                        }}
+                        onAddNodeToDefinition={(prototypeId) => {
+                          storeActions.createAndAssignGraphDefinitionWithoutActivation(prototypeId);
+                        }}
+                        onDeleteDefinition={(prototypeId, graphId) => {
+                          storeActions.removeDefinitionFromNode(prototypeId, graphId);
+                        }}
+                        onExpandDefinition={(instanceId, prototypeId, graphId) => {
+                          if (graphId) {
+                            startHurtleAnimation(instanceId, graphId, prototypeId);
+                          } else {
+                            const sourceGraphId = activeGraphId;
+                            storeActions.createAndAssignGraphDefinitionWithoutActivation(prototypeId);
+                            setTimeout(() => {
+                              const currentState = useGraphStore.getState();
+                              const updatedNodeData = currentState.nodePrototypes.get(prototypeId);
+                              if (updatedNodeData?.definitionGraphIds?.length > 0) {
+                                const newGraphId = updatedNodeData.definitionGraphIds[updatedNodeData.definitionGraphIds.length - 1];
+                                startHurtleAnimation(instanceId, newGraphId, prototypeId, sourceGraphId);
+                              }
+                            }, 50);
+                          }
+                        }}
+                        onConvertToNodeGroup={handleNodeConvertToNodeGroup}
+                        storeActions={storeActions}
+                        currentDefinitionIndex={nodeDefinitionIndices.get(`${node.prototypeId}-${activeGraphId}`) || 0}
+                        onNavigateDefinition={(prototypeId, newIndex) => {
+                          const contextKey = `${prototypeId}-${activeGraphId}`;
+                          setNodeDefinitionIndices(prev => new Map(prev.set(contextKey, newIndex)));
+                        }}
+                      />
+                    );
+                  };
+
                   return (
                     <>
-                      {/* Render "Other" Nodes first */}
-                      {otherNodes.map((node) => {
-                        const isPreviewing = previewingNodeId === node.id; // Should be false or irrelevant for these nodes
-                        const baseDimensions = baseDimsById.get(node.id);
-                        const descriptionContent = isPreviewing ? getNodeDescriptionContent(node, true) : null;
-                        const dimensions = isPreviewing
-                          ? getNodeDimensions(node, true, descriptionContent)
-                          : baseDimensions || getNodeDimensions(node, false, null);
+                      {/* Normal nodes (not thing-group members) */}
+                      {otherNodes.map(renderNodeElement)}
 
-                        // Do not render the node that the abstraction carousel is open for
-                        if (abstractionCarouselVisible && abstractionCarouselNode?.id === node.id) {
-                          return null;
-                        }
+                      {/* Thing-group member nodes (above normal nodes) */}
+                      {thingGroupMemberNodes.map(renderNodeElement)}
 
-                        return (
-                          <Node
-                            key={node.id}
-                            node={node}
-                            currentWidth={dimensions.currentWidth}
-                            currentHeight={dimensions.currentHeight}
-                            textAreaHeight={dimensions.textAreaHeight}
-                            imageWidth={dimensions.imageWidth}
-                            imageHeight={dimensions.calculatedImageHeight}
-                            innerNetworkWidth={dimensions.innerNetworkWidth}
-                            innerNetworkHeight={dimensions.innerNetworkHeight}
-                            descriptionAreaHeight={dimensions.descriptionAreaHeight}
-                            isSelected={selectedInstanceIds.has(node.id)}
-                            isDragging={false} // These are explicitly not the dragging node
-                            onMouseDown={(e) => handleNodeMouseDown(node, e)}
-                            onPointerDown={(e) => touch.handleNodePointerDown(node, e)}
-                            onPointerMove={(e) => touch.handleNodePointerMove(node, e)}
-                            onPointerUp={(e) => touch.handleNodePointerUp(node, e)}
-                            onPointerCancel={(e) => touch.handleNodePointerCancel(node, e)}
-                            onTouchStart={(e) => touch.handleNodeTouchStart(node, e)}
-                            onTouchEnd={(e) => touch.handleNodeTouchEnd(node, e)}
-                            onContextMenu={(e) => {
-                              e.preventDefault();
-                              e.stopPropagation();
-                              showContextMenu(e.clientX, e.clientY, getContextMenuOptions(node.id));
-                            }}
-                            isPreviewing={isPreviewing}
-                            isEditingOnCanvas={node.id === editingNodeIdOnCanvas}
-                            onCommitCanvasEdit={(instanceId, newName, isRealTime = false) => {
-                              storeActions.updateNodePrototype(node.prototypeId, draft => { draft.name = newName; });
-                              if (!isRealTime) setEditingNodeIdOnCanvas(null);
-                            }}
-                            onCancelCanvasEdit={() => setEditingNodeIdOnCanvas(null)}
-                            onCreateDefinition={(prototypeId) => {
-                              if (mouseMoved.current) return;
-                              storeActions.createAndAssignGraphDefinition(prototypeId);
-                            }}
-                            onAddNodeToDefinition={(prototypeId) => {
-                              // Create a new alternative definition for the node without activating/opening it
-                              storeActions.createAndAssignGraphDefinitionWithoutActivation(prototypeId);
-                            }}
-                            onDeleteDefinition={(prototypeId, graphId) => {
-                              // Delete the specific definition graph from the node
-                              storeActions.removeDefinitionFromNode(prototypeId, graphId);
-                            }}
-                            onExpandDefinition={(instanceId, prototypeId, graphId) => {
-                              if (graphId) {
-                                // Node has an existing definition to expand
-                                startHurtleAnimation(instanceId, graphId, prototypeId);
-                              } else {
-                                // Node has no definitions - create one, then animate
-                                const sourceGraphId = activeGraphId; // Capture current graph before it changes
-                                storeActions.createAndAssignGraphDefinitionWithoutActivation(prototypeId);
+                      {/* Groups Phase 3: Thing-group titles (above member nodes, below active/dragging) */}
+                      {nodeGroupTitlesRef.current}
 
-                                setTimeout(() => {
-                                  const currentState = useGraphStore.getState();
-                                  const updatedNodeData = currentState.nodePrototypes.get(prototypeId);
-                                  if (updatedNodeData?.definitionGraphIds?.length > 0) {
-                                    const newGraphId = updatedNodeData.definitionGraphIds[updatedNodeData.definitionGraphIds.length - 1];
-                                    startHurtleAnimation(instanceId, newGraphId, prototypeId, sourceGraphId);
-                                  } else {
-
-                                  }
-                                }, 50);
-                              }
-                            }}
-                            onConvertToNodeGroup={handleNodeConvertToNodeGroup}
-                            storeActions={storeActions}
-                            currentDefinitionIndex={nodeDefinitionIndices.get(`${node.prototypeId}-${activeGraphId}`) || 0}
-                            onNavigateDefinition={(prototypeId, newIndex) => {
-                              const contextKey = `${prototypeId}-${activeGraphId}`;
-                              setNodeDefinitionIndices(prev => new Map(prev.set(contextKey, newIndex)));
-                            }}
-
-                          />
-                        );
-                      })}
+                      {/* Drawing connection line (above titles) */}
+                      {drawingConnectionFrom && (
+                        <line
+                          x1={drawingConnectionFrom.startX}
+                          y1={drawingConnectionFrom.startY}
+                          x2={drawingConnectionFrom.currentX}
+                          y2={drawingConnectionFrom.currentY}
+                          stroke="black"
+                          strokeWidth="8"
+                        />
+                      )}
 
                       {/* Render The PieMenu next (it will be visually under the active node) */}
                       {isPieMenuRendered && currentPieMenuData && (

@@ -20,8 +20,6 @@ import {
   ChevronDown,
   ChevronRight,
   Loader2,
-  Download,
-  Upload
 } from 'lucide-react';
 
 import universeManagerService, { STORAGE_TYPES } from './services/universeManagerService.js';
@@ -259,7 +257,8 @@ const UniverseManager = ({ variant = 'panel', onRequestClose }) => {
   const [syncTelemetry, setSyncTelemetry] = useState({});
   const [managedRepositories, setManagedRepositories] = useState(() => {
     try {
-      const stored = localStorage.getItem(getStorageKey('redstring_managed_repos'));
+      const stored = localStorage.getItem(getStorageKey('redstring-managed-repositories'))
+        || localStorage.getItem(getStorageKey('redstring_managed_repos'));
       return stored ? JSON.parse(stored) : [];
     } catch {
       return [];
@@ -324,9 +323,11 @@ const UniverseManager = ({ variant = 'panel', onRequestClose }) => {
   // Pre-discover universes for all managed repos when repository browser modal opens
   useEffect(() => {
     if (!showRepositoryManager || !managedRepositories || managedRepositories.length === 0) return;
+    let cancelled = false;
 
     const discoverAll = async () => {
       for (const repo of managedRepositories) {
+        if (cancelled) break;
         const key = getRepoKey(repo);
         if (inlineDiscoveredUniverses[key] !== undefined) continue;
 
@@ -339,22 +340,33 @@ const UniverseManager = ({ variant = 'panel', onRequestClose }) => {
               repo: name,
               authMethod: 'oauth'
             });
-            setInlineDiscoveredUniverses(prev => ({
-              ...prev,
-              [key]: universes || []
-            }));
+            if (!cancelled) {
+              setInlineDiscoveredUniverses(prev => ({
+                ...prev,
+                [key]: universes || []
+              }));
+            }
           }
         } catch (err) {
-          console.error(`Failed to pre-discover universes for ${repo.name}:`, err);
-          setInlineDiscoveredUniverses(prev => ({
-            ...prev,
-            [key]: []
-          }));
+          const isAuthError = err?.message?.includes('401') || err?.message?.toLowerCase()?.includes('unauthorized') || err?.message?.toLowerCase()?.includes('authentication');
+          if (isAuthError) {
+            console.warn(`[RepoModal] Auth error discovering ${repo.name} — token may be expired`);
+            // Leave as undefined so UI shows loading, not "no files found"
+          } else {
+            console.error(`Failed to pre-discover universes for ${repo.name}:`, err);
+            if (!cancelled) {
+              setInlineDiscoveredUniverses(prev => ({
+                ...prev,
+                [key]: []
+              }));
+            }
+          }
         }
       }
     };
 
     discoverAll();
+    return () => { cancelled = true; };
   }, [showRepositoryManager, managedRepositories]);
 
   const loadGraphStore = useCallback(async () => {
@@ -2476,7 +2488,7 @@ const UniverseManager = ({ variant = 'panel', onRequestClose }) => {
     const newList = [...managedRepositories, repo];
     setManagedRepositories(newList);
     try {
-      localStorage.setItem(getStorageKey('redstring_managed_repos'), JSON.stringify(newList));
+      localStorage.setItem(getStorageKey('redstring-managed-repositories'), JSON.stringify(newList));
       setSyncStatus({ type: 'success', message: `Added ${repoKey} to your repositories` });
     } catch (err) {
       umError('[UniverseManager] Failed to save managed repos:', err);
@@ -2516,20 +2528,32 @@ const UniverseManager = ({ variant = 'panel', onRequestClose }) => {
           }
         } catch (err) {
           console.error('Failed to discover universes:', err);
-          setInlineDiscoveredUniverses(prev => ({
-            ...prev,
-            [repoId]: [] // Empty array indicates discovery failed/completed with no results
-          }));
+          const isAuthError = err?.message?.includes('401') || err?.message?.toLowerCase()?.includes('unauthorized');
+          if (!isAuthError) {
+            setInlineDiscoveredUniverses(prev => ({
+              ...prev,
+              [repoId]: []
+            }));
+          }
+          // Auth errors: leave as undefined so spinner shows and user can retry
         }
       }
     }
   };
 
-  // Phase 3C: Handle creating new universe in repository
-  const handleCreateNewUniverseInRepo = async (repo) => {
-    // Delegate to existing "Push Local Data to New File" flow
-    // This will create a new .redstring file in the repo's universes/ folder
-    await handlePushToNewRepositoryFile(repo);
+  // Handle creating new universe in repository — sets up file selector for the chosen repo
+  const handleCreateNewUniverseInRepo = (repo) => {
+    const owner = repo.owner?.login || repo.owner;
+    const repoName = repo.name;
+    setShowRepositoryManager(false);
+    setPendingRepoAttachment({
+      repo,
+      owner,
+      repoName,
+      mode: 'attach'
+    });
+    setDiscoveredUniverseFiles([]);
+    setShowUniverseFileSelector(true);
   };
 
 
@@ -2717,7 +2741,7 @@ const UniverseManager = ({ variant = 'panel', onRequestClose }) => {
 
       setManagedRepositories(newList);
       try {
-        localStorage.setItem(getStorageKey('redstring_managed_repos'), JSON.stringify(newList));
+        localStorage.setItem(getStorageKey('redstring-managed-repositories'), JSON.stringify(newList));
         setSyncStatus({
           type: 'success',
           message: linkedUniverses.length > 0 ?
