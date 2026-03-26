@@ -284,7 +284,12 @@ const UniverseManager = ({ variant = 'panel', onRequestClose }) => {
   const deviceInfo = useMemo(() => detectDeviceInfo(), []);
   const autosaveRef = useRef({ cooldownUntil: 0, triggerAt: 0 });
 
-  // Filtered and sorted managed repositories (Phase 3E + 4D)
+  // Stable unique key for repos (GitHub API id, with owner/name fallback)
+  const getRepoKey = useCallback((repo) => {
+    return repo.id != null ? String(repo.id) : `${repo.owner?.login || repo.owner}/${repo.name}`;
+  }, []);
+
+  // Filtered and sorted managed repositories
   const filteredManagedRepositories = useMemo(() => {
     let filtered = managedRepositories;
 
@@ -302,8 +307,8 @@ const UniverseManager = ({ variant = 'panel', onRequestClose }) => {
 
     // Sort: Redstring repos first, then by last updated
     return filtered.sort((a, b) => {
-      const aHasRedstring = inlineDiscoveredUniverses[a.id]?.length > 0;
-      const bHasRedstring = inlineDiscoveredUniverses[b.id]?.length > 0;
+      const aHasRedstring = inlineDiscoveredUniverses[getRepoKey(a)]?.length > 0;
+      const bHasRedstring = inlineDiscoveredUniverses[getRepoKey(b)]?.length > 0;
 
       // Primary sort: Redstring repos first
       if (aHasRedstring && !bHasRedstring) return -1;
@@ -314,7 +319,43 @@ const UniverseManager = ({ variant = 'panel', onRequestClose }) => {
       const bDate = new Date(b.updated_at || b.pushed_at || 0);
       return bDate - aDate;
     });
-  }, [managedRepositories, inlineRepoSearchQuery, inlineDiscoveredUniverses]);
+  }, [managedRepositories, inlineRepoSearchQuery, inlineDiscoveredUniverses, getRepoKey]);
+
+  // Pre-discover universes for all managed repos when repository browser modal opens
+  useEffect(() => {
+    if (!showRepositoryManager || !managedRepositories || managedRepositories.length === 0) return;
+
+    const discoverAll = async () => {
+      for (const repo of managedRepositories) {
+        const key = getRepoKey(repo);
+        if (inlineDiscoveredUniverses[key] !== undefined) continue;
+
+        try {
+          const owner = repo.owner?.login || repo.owner;
+          const name = repo.name;
+          if (owner && name) {
+            const universes = await universeManagerService.discoverUniverses({
+              user: owner,
+              repo: name,
+              authMethod: 'oauth'
+            });
+            setInlineDiscoveredUniverses(prev => ({
+              ...prev,
+              [key]: universes || []
+            }));
+          }
+        } catch (err) {
+          console.error(`Failed to pre-discover universes for ${repo.name}:`, err);
+          setInlineDiscoveredUniverses(prev => ({
+            ...prev,
+            [key]: []
+          }));
+        }
+      }
+    };
+
+    discoverAll();
+  }, [showRepositoryManager, managedRepositories]);
 
   const loadGraphStore = useCallback(async () => {
     if (!graphStoreModuleRef.current) {
@@ -2458,11 +2499,13 @@ const UniverseManager = ({ variant = 'panel', onRequestClose }) => {
       // Discover universes if not already cached
       if (!inlineDiscoveredUniverses[repoId]) {
         try {
-          const repo = managedRepositories.find(r => r.id === repoId);
-          if (repo?.owner?.login && repo?.name) {
+          const repo = managedRepositories.find(r => getRepoKey(r) === repoId);
+          const owner = repo?.owner?.login || repo?.owner;
+          const name = repo?.name;
+          if (owner && name) {
             const universes = await universeManagerService.discoverUniverses({
-              user: repo.owner.login,
-              repo: repo.name,
+              user: owner,
+              repo: name,
               authMethod: 'oauth'
             });
 
@@ -4585,6 +4628,9 @@ const UniverseManager = ({ variant = 'panel', onRequestClose }) => {
           setShowRepositoryManager(false);
           setRepositoryTargetSlug(null);
           setRepositoryIntent(null);
+          setInlineDiscoveredUniverses({});
+          setInlineExpandedRepos(new Set());
+          setInlineRepoSearchQuery('');
         }}
         title={repositoryIntent === 'import' ? 'Import From Repository' : repositoryIntent === 'attach' ? 'Attach Repository' : 'Browse Repositories'}
         size="medium"
@@ -4639,7 +4685,7 @@ const UniverseManager = ({ variant = 'panel', onRequestClose }) => {
             )}
 
             {filteredManagedRepositories.map(repo => {
-              const repoId = repo.id;
+              const repoId = getRepoKey(repo);
               const isExpanded = inlineExpandedRepos.has(repoId);
               const universes = inlineDiscoveredUniverses[repoId];
               const hasRedstringFiles = universes && universes.length > 0;
@@ -4849,7 +4895,7 @@ const UniverseManager = ({ variant = 'panel', onRequestClose }) => {
                                       }}
                                       title="Load this file from the repository"
                                     >
-                                      <Download size={16} />
+                                      <CloudDownload size={16} />
                                       Load from Repository
                                     </button>
                                   )}
@@ -4891,7 +4937,7 @@ const UniverseManager = ({ variant = 'panel', onRequestClose }) => {
                                       }}
                                       title="Save current state to this file in the repository"
                                     >
-                                      <Upload size={16} />
+                                      <CloudUpload size={16} />
                                       Save to Repository
                                     </button>
                                   )}

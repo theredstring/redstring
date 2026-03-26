@@ -9,11 +9,28 @@ import cors from 'cors';
 import fetch from 'node-fetch';
 import dotenv from 'dotenv';
 import jwt from 'jsonwebtoken';
+import { existsSync, readFileSync } from 'fs';
 import tokenVault from './src/services/server/tokenVault.js';
 import userAnalytics from './src/services/UserAnalytics.js';
 
 // Load environment variables
 dotenv.config();
+
+// Load GitHub App credentials from github.env.local if present (local dev only)
+if (existsSync('github.env.local')) {
+  dotenv.config({ path: 'github.env.local', override: false });
+}
+
+// If GITHUB_APP_PRIVATE_KEY is not set but PRIVATE_KEY_PATH is, read the PEM file
+if (!process.env.GITHUB_APP_PRIVATE_KEY && process.env.PRIVATE_KEY_PATH) {
+  const pemPath = process.env.PRIVATE_KEY_PATH;
+  if (existsSync(pemPath)) {
+    process.env.GITHUB_APP_PRIVATE_KEY = readFileSync(pemPath, 'utf8');
+    console.log(`[OAuth] Loaded GitHub App private key from ${pemPath}`);
+  } else {
+    console.warn(`[OAuth] PRIVATE_KEY_PATH set to "${pemPath}" but file not found`);
+  }
+}
 
 // STATELESS MODE: User data stays in browser localStorage, not server
 // Server only facilitates OAuth exchange, does NOT persist tokens
@@ -2211,9 +2228,16 @@ app.listen(PORT, () => {
     logger.info('✅ GitHub App configured');
     logger.debug(`📋 App ID: ${appId}`);
     logger.debug(`📋 Private Key length: ${privateKey.length}`);
+    if (process.env.PRIVATE_KEY_PATH) {
+      logger.info(`  Key loaded from file: ${process.env.PRIVATE_KEY_PATH}`);
+    }
   } else {
     logger.warn('⚠️  GitHub App not configured - set GITHUB_APP_ID and GITHUB_APP_PRIVATE_KEY');
     logger.warn('🔍 Check Secret Manager permissions for Cloud Run service account');
+  }
+
+  if (existsSync('github.env.local')) {
+    logger.info('  Loaded supplementary env from github.env.local');
   }
 });
 

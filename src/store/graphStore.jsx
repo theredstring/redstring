@@ -741,6 +741,29 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
       return set(produce((draft) => {
         const graph = draft.graphs.get(graphId);
         if (!graph?.groups) return;
+        const group = graph.groups.get(groupId);
+        if (!group) return;
+
+        // Clean up anchor instance and its edges (thing groups only)
+        if (group.anchorInstanceId && graph.instances?.has(group.anchorInstanceId)) {
+          const anchorId = group.anchorInstanceId;
+          // Remove edges connected to the anchor
+          const edgesToRemove = [];
+          draft.edges.forEach((edge, edgeId) => {
+            if (edge.sourceId === anchorId || edge.destinationId === anchorId) {
+              edgesToRemove.push(edgeId);
+            }
+          });
+          edgesToRemove.forEach(edgeId => {
+            draft.edges.delete(edgeId);
+            if (graph.edgeIds) {
+              const idx = graph.edgeIds.indexOf(edgeId);
+              if (idx > -1) graph.edgeIds.splice(idx, 1);
+            }
+          });
+          graph.instances.delete(anchorId);
+        }
+
         graph.groups.delete(groupId);
       }));
     },
@@ -895,7 +918,31 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
         group.hasCustomLayout = false; // Start with default syncing
         group.color = prototype.color; // Sync color with prototype
 
-        console.log(`[convertGroupToNodeGroup] Converted group ${groupId} to node-group linked to prototype ${prototypeId}, definition ${definitionIndex}`);
+        // Create an anchor instance for this thing-group (connection target)
+        const anchorId = uuidv4();
+        // Position at member centroid
+        let anchorX = 0, anchorY = 0;
+        if (memberInstances.length > 0) {
+          const totals = memberInstances.reduce((acc, { instance }) => {
+            acc.x += instance.x ?? 0;
+            acc.y += instance.y ?? 0;
+            return acc;
+          }, { x: 0, y: 0 });
+          anchorX = totals.x / memberInstances.length;
+          anchorY = totals.y / memberInstances.length;
+        }
+        graph.instances.set(anchorId, {
+          id: anchorId,
+          prototypeId: prototypeId,
+          x: anchorX,
+          y: anchorY,
+          scale: 1,
+          isGroupAnchor: true,
+          anchorForGroupId: groupId
+        });
+        group.anchorInstanceId = anchorId;
+
+        console.log(`[convertGroupToNodeGroup] Converted group ${groupId} to node-group linked to prototype ${prototypeId}, definition ${definitionIndex}, anchor=${anchorId}`);
       }));
     },
 
@@ -951,27 +998,41 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
             y: totals.y / memberInstances.length
           };
         } else {
-          // If no members, try to reuse group's stored centroid if available
           position = {
             x: group.position?.x ?? 0,
             y: group.position?.y ?? 0
           };
         }
 
-        const newInstanceId = uuidv4();
-        createdInstanceId = newInstanceId;
+        // If the group has an anchor instance, reuse it as the surviving node
+        const anchorId = group.anchorInstanceId;
+        const anchorInstance = anchorId ? graph.instances?.get(anchorId) : null;
+        let survivingInstanceId;
 
-        if (!graph.instances) {
-          graph.instances = new Map();
+        if (anchorInstance) {
+          // Reuse anchor: clear anchor flags, reposition to centroid
+          survivingInstanceId = anchorId;
+          delete anchorInstance.isGroupAnchor;
+          delete anchorInstance.anchorForGroupId;
+          anchorInstance.x = position.x;
+          anchorInstance.y = position.y;
+          createdInstanceId = anchorId;
+        } else {
+          // No anchor — create a new instance (legacy behavior)
+          const newInstanceId = uuidv4();
+          survivingInstanceId = newInstanceId;
+          createdInstanceId = newInstanceId;
+          if (!graph.instances) graph.instances = new Map();
+          graph.instances.set(newInstanceId, {
+            id: newInstanceId,
+            prototypeId: group.linkedNodePrototypeId,
+            x: position.x,
+            y: position.y,
+            scale: 1
+          });
         }
-        graph.instances.set(newInstanceId, {
-          id: newInstanceId,
-          prototypeId: group.linkedNodePrototypeId,
-          x: position.x,
-          y: position.y,
-          scale: 1
-        });
 
+        // Transfer edges from members to the surviving instance
         const memberIdSet = new Set(memberIds);
         const edgesToRemove = [];
 
@@ -993,19 +1054,19 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
 
           if (sourceInGroup) {
             const oldSource = edge.sourceId;
-            edge.sourceId = newInstanceId;
+            edge.sourceId = survivingInstanceId;
             if (arrowsToward.has(oldSource)) {
               arrowsToward.delete(oldSource);
-              arrowsToward.add(newInstanceId);
+              arrowsToward.add(survivingInstanceId);
             }
           }
 
           if (destInGroup) {
             const oldDest = edge.destinationId;
-            edge.destinationId = newInstanceId;
+            edge.destinationId = survivingInstanceId;
             if (arrowsToward.has(oldDest)) {
               arrowsToward.delete(oldDest);
-              arrowsToward.add(newInstanceId);
+              arrowsToward.add(survivingInstanceId);
             }
           }
 
@@ -1037,6 +1098,160 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
       }));
 
       return createdInstanceId;
+    },
+
+    // Decompose a node into a thing-group, keeping the original instance as the group's anchor.
+    // All edges to/from the original instance are preserved automatically.
+    decomposeNodeToGroup: (graphId, prototypeId, definitionIndex = 0, contextOptions = {}) => {
+      api.setChangeContext({ type: 'group_decompose', target: 'group', ...contextOptions });
+      let createdGroupId = null;
+      set(produce((draft) => {
+        const graph = draft.graphs.get(graphId);
+        if (!graph) {
+          console.warn(`[decomposeNodeToGroup] Graph ${graphId} not found.`);
+          return;
+        }
+
+        const prototype = draft.nodePrototypes.get(prototypeId);
+        if (!prototype) {
+          console.warn(`[decomposeNodeToGroup] Prototype ${prototypeId} not found.`);
+          return;
+        }
+
+        const definitionGraphIds = Array.isArray(prototype.definitionGraphIds) ? prototype.definitionGraphIds : [];
+        if (definitionIndex < 0 || definitionIndex >= definitionGraphIds.length) {
+          console.warn(`[decomposeNodeToGroup] Definition index ${definitionIndex} out of range for prototype ${prototypeId}.`);
+          return;
+        }
+
+        const defGraphId = definitionGraphIds[definitionIndex];
+        const defGraph = draft.graphs.get(defGraphId);
+        if (!defGraph) {
+          console.warn(`[decomposeNodeToGroup] Definition graph ${defGraphId} not found.`);
+          return;
+        }
+
+        // Find the instance of this prototype in the target graph
+        let originalInstanceId = null;
+        for (const [instId, inst] of graph.instances.entries()) {
+          if (inst.prototypeId === prototypeId) {
+            originalInstanceId = instId;
+            break;
+          }
+        }
+        if (!originalInstanceId) {
+          console.warn(`[decomposeNodeToGroup] No instance of prototype ${prototypeId} found in graph ${graphId}.`);
+          return;
+        }
+
+        // Copy definition graph instances into the active graph as new member instances
+        const instanceIdMap = new Map(); // defInstId -> newInstId
+        const memberInstanceIds = [];
+        let sumX = 0, sumY = 0, memberCount = 0;
+
+        if (defGraph.instances) {
+          for (const [defInstId, defInst] of defGraph.instances.entries()) {
+            const newInstId = uuidv4();
+            instanceIdMap.set(defInstId, newInstId);
+            memberInstanceIds.push(newInstId);
+            graph.instances.set(newInstId, {
+              id: newInstId,
+              prototypeId: defInst.prototypeId,
+              x: defInst.x ?? 0,
+              y: defInst.y ?? 0,
+              scale: defInst.scale ?? 1
+            });
+            sumX += defInst.x ?? 0;
+            sumY += defInst.y ?? 0;
+            memberCount++;
+          }
+        }
+
+        if (memberInstanceIds.length === 0) {
+          console.warn(`[decomposeNodeToGroup] Definition graph ${defGraphId} is empty. Aborting decompose.`);
+          return;
+        }
+
+        // Copy edges between definition members into the active graph
+        if (defGraph.edgeIds) {
+          for (const edgeId of defGraph.edgeIds) {
+            const edge = draft.edges.get(edgeId);
+            if (!edge) continue;
+
+            const newSourceId = instanceIdMap.get(edge.sourceId);
+            const newDestId = instanceIdMap.get(edge.destinationId);
+            if (newSourceId && newDestId) {
+              const newEdgeId = uuidv4();
+              const normalized = normalizeEdgeDirectionality(edge.directionality);
+              const newArrowsToward = new Set(normalized.arrowsToward || []);
+
+              if (newArrowsToward.has(edge.sourceId)) {
+                newArrowsToward.delete(edge.sourceId);
+                newArrowsToward.add(newSourceId);
+              }
+              if (newArrowsToward.has(edge.destinationId)) {
+                newArrowsToward.delete(edge.destinationId);
+                newArrowsToward.add(newDestId);
+              }
+
+              const newEdgeData = {
+                ...edge,
+                id: newEdgeId,
+                sourceId: newSourceId,
+                destinationId: newDestId,
+                directionality: { ...normalized, arrowsToward: newArrowsToward }
+              };
+              if (Array.isArray(edge.definitionNodeIds)) {
+                newEdgeData.definitionNodeIds = [...edge.definitionNodeIds];
+              }
+
+              draft.edges.set(newEdgeId, newEdgeData);
+              if (!graph.edgeIds) graph.edgeIds = [];
+              graph.edgeIds.push(newEdgeId);
+            }
+          }
+        }
+
+        // Mark the original instance as the group anchor (do NOT delete it)
+        const groupId = uuidv4();
+        const originalInstance = graph.instances.get(originalInstanceId);
+        originalInstance.isGroupAnchor = true;
+        originalInstance.anchorForGroupId = groupId;
+
+        // Position the anchor at the member centroid initially
+        if (memberCount > 0) {
+          originalInstance.x = sumX / memberCount;
+          originalInstance.y = sumY / memberCount;
+        }
+
+        // Create the thing-group
+        if (!graph.groups) graph.groups = new Map();
+        graph.groups.set(groupId, {
+          id: groupId,
+          name: prototype.name || 'Untitled',
+          color: prototype.color || '#8B0000',
+          memberInstanceIds,
+          linkedNodePrototypeId: prototypeId,
+          linkedDefinitionIndex: definitionIndex,
+          hasCustomLayout: false,
+          anchorInstanceId: originalInstanceId,
+          semanticMetadata: {
+            type: 'Group',
+            relationships: memberInstanceIds.map(memberId => ({
+              predicate: 'memberOf',
+              subject: memberId,
+              object: groupId,
+              source: 'redstring-grouping'
+            })),
+            createdAt: new Date().toISOString(),
+            lastModified: new Date().toISOString()
+          }
+        });
+
+        createdGroupId = groupId;
+        console.log(`[decomposeNodeToGroup] Decomposed "${prototype.name}" → thing-group ${groupId} with ${memberInstanceIds.length} members, anchor=${originalInstanceId}`);
+      }));
+      return createdGroupId;
     },
 
     // Adds a NEW plain prototype data to the global pool.
@@ -1578,6 +1793,13 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
         if (!graph || !graph.instances?.has(instanceId)) {
           console.warn(`[removeNodeInstance] Instance ${instanceId} not found in graph ${graphId}.`);
           return;
+        }
+
+        // If this instance is a group anchor, also delete its associated group
+        const inst = graph.instances.get(instanceId);
+        if (inst?.isGroupAnchor && inst.anchorForGroupId && graph.groups?.has(inst.anchorForGroupId)) {
+          console.log(`[removeNodeInstance] Instance ${instanceId} is anchor for group ${inst.anchorForGroupId}, deleting group too.`);
+          graph.groups.delete(inst.anchorForGroupId);
         }
 
         // Delete connected edges first
@@ -3771,6 +3993,38 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
           }
         }
       });
+
+      // Clean up orphaned anchor instances whose group no longer exists
+      for (const [graphId, graph] of draft.graphs.entries()) {
+        if (!graph.instances) continue;
+        const orphanedAnchors = [];
+        for (const [instId, inst] of graph.instances.entries()) {
+          if (inst.isGroupAnchor && inst.anchorForGroupId) {
+            if (!graph.groups?.has(inst.anchorForGroupId)) {
+              orphanedAnchors.push(instId);
+            }
+          }
+        }
+        orphanedAnchors.forEach(instId => {
+          // Remove edges connected to orphaned anchor
+          const edgesToRemove = [];
+          draft.edges.forEach((edge, edgeId) => {
+            if (edge.sourceId === instId || edge.destinationId === instId) {
+              edgesToRemove.push(edgeId);
+            }
+          });
+          edgesToRemove.forEach(edgeId => {
+            draft.edges.delete(edgeId);
+            if (graph.edgeIds) {
+              const idx = graph.edgeIds.indexOf(edgeId);
+              if (idx > -1) graph.edgeIds.splice(idx, 1);
+            }
+          });
+          const anchorGroupId = graph.instances.get(instId)?.anchorForGroupId;
+          graph.instances.delete(instId);
+          console.log(`[Store cleanupOrphanedData] Removed orphaned anchor instance ${instId} (group ${anchorGroupId} no longer exists)`);
+        });
+      }
 
       console.log(`[Store cleanupOrphanedData] Cleanup complete. Removed ${orphanedPrototypes.length} prototypes, ${orphanedGraphs.length} graphs, ${orphanedEdges.length} edges.`);
     })),

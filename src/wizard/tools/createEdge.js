@@ -36,6 +36,21 @@ function resolveNodeByName(name, nodePrototypes, graphs, graphId) {
     }
   }
 
+  // Check thing group names — resolve to anchor instance if available
+  const groups = Array.isArray(targetGraph.groups)
+    ? targetGraph.groups
+    : targetGraph.groups instanceof Map
+      ? Array.from(targetGraph.groups.values())
+      : Object.values(targetGraph.groups || {});
+
+  for (const group of groups) {
+    if (!group.linkedNodePrototypeId || !group.anchorInstanceId) continue;
+    const groupName = (group.name || '').toLowerCase().trim();
+    if (groupName === queryLower) {
+      return { instanceId: group.anchorInstanceId, prototypeId: group.linkedNodePrototypeId, name: group.name };
+    }
+  }
+
   return null;
 }
 

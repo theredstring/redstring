@@ -163,6 +163,7 @@ function NodeCanvas() {
   const semanticOrbitActiveRef = useRef(false);
   const wasDraggingRef = useRef(false); // Track if a drag just occurred to prevent click events
   const dragHistoryRecordedRef = useRef(false); // Guard against double recording of drag events
+  const anchorPositionUpdatesRef = useRef(new Map()); // Collects anchor position updates during render
 
   // Helper to measure text width accurately for the group labels
   // We use a cached canvas context to avoid creating it repeatedly
@@ -2089,6 +2090,31 @@ function NodeCanvas() {
 
 
 
+
+  // Flush anchor position updates from group rendering to the store
+  // Uses requestAnimationFrame to batch and avoid render loops
+  useEffect(() => {
+    const updates = anchorPositionUpdatesRef.current;
+    if (updates.size === 0) return;
+
+    const rafId = requestAnimationFrame(() => {
+      const st = useGraphStore.getState();
+      const graph = st.graphs.get(activeGraphId);
+      if (!graph?.instances) return;
+
+      const positionUpdates = [];
+      for (const [anchorId, pos] of updates.entries()) {
+        const inst = graph.instances.get(anchorId);
+        if (inst && (Math.abs((inst.x ?? 0) - pos.x) > 1 || Math.abs((inst.y ?? 0) - pos.y) > 1)) {
+          positionUpdates.push({ instanceId: anchorId, x: pos.x, y: pos.y });
+        }
+      }
+      if (positionUpdates.length > 0) {
+        storeActions.updateMultipleNodeInstancePositions(activeGraphId, positionUpdates, { isDragging: true, phase: 'silent' });
+      }
+    });
+    return () => cancelAnimationFrame(rafId);
+  });
 
   // Port-based routing with intelligent edge distribution - inspired by circuit board routing
   const cleanLaneOffsets = useMemo(() => {
@@ -4117,6 +4143,24 @@ function NodeCanvas() {
     return GeometryUtils.isInsideNode(nodeData, clientX, clientY, rect, panOffset, zoomLevel, canvasSize, previewingNodeId);
   };
 
+  // Check if a client-space point hits a thing group's title area, returns the group or null
+  const findGroupTitleAtPoint = (clientX, clientY) => {
+    if (!containerRef.current) return null;
+    const rect = containerRef.current.getBoundingClientRect();
+    // Convert client to canvas coordinates
+    const canvasX = (clientX - rect.left - panOffset.x) / zoomLevel + (canvasSize?.offsetX || 0);
+    const canvasY = (clientY - rect.top - panOffset.y) / zoomLevel + (canvasSize?.offsetY || 0);
+
+    for (const [anchorId, info] of anchorPositionUpdatesRef.current.entries()) {
+      // info: { x: labelX, y: labelY, width: labelWidth, height: labelHeight, groupId }
+      if (canvasX >= info.x && canvasX <= info.x + info.width &&
+          canvasY >= info.y && canvasY <= info.y + info.height) {
+        return { anchorInstanceId: anchorId, groupId: info.groupId };
+      }
+    }
+    return null;
+  };
+
   // Helper function to check if a point is near a line (for edge hover detection)
   const isNearEdge = (x1, y1, x2, y2, pointX, pointY, threshold = 20) => {
     // Calculate distance from point to line segment
@@ -5009,7 +5053,7 @@ function NodeCanvas() {
           }
 
           const hoveredNode = nodeList.find(
-            (node) => visibleNodeIds.has(node.id) && isInsideNode(node, mouseEvent.clientX, mouseEvent.clientY)
+            (node) => visibleNodeIds.has(node.id) && !node.isGroupAnchor && isInsideNode(node, mouseEvent.clientX, mouseEvent.clientY)
           );
 
           if (hoveredNode) {
@@ -5230,6 +5274,7 @@ function NodeCanvas() {
         setSelectionRect(selectionRes);
         const currentIds = new Set();
         nodes.forEach(nd => {
+          if (nd.isGroupAnchor) return; // Skip anchor instances from selection
           if (!(selectionRes.x > nd.x + getNodeDimensions(nd, previewingNodeId === nd.id, null).currentWidth ||
             selectionRes.x + selectionRes.width < nd.x ||
             selectionRes.y > nd.y + getNodeDimensions(nd, previewingNodeId === nd.id, null).currentHeight ||
@@ -5525,22 +5570,32 @@ function NodeCanvas() {
     if (drawingConnectionFrom && !connectionCreationInProgressRef.current) {
       connectionCreationInProgressRef.current = true; // Guard against bubbled duplicate calls
       wasDrawingConnection.current = true; // Prevent PlusSign from appearing
-      const targetNodeData = nodes.find(n => isInsideNode(n, e.clientX, e.clientY));
+      // Check nodes first, then fall back to group title areas
+      let targetNodeData = nodes.find(n => !n.isGroupAnchor && isInsideNode(n, e.clientX, e.clientY));
+      let targetId = targetNodeData?.id;
+
+      // If no node hit, check group title areas for thing groups
+      if (!targetId) {
+        const hitGroup = findGroupTitleAtPoint(e.clientX, e.clientY);
+        if (hitGroup) {
+          targetId = hitGroup.anchorInstanceId;
+        }
+      }
+
       console.log('Connection end:', {
         clientX: e.clientX,
         clientY: e.clientY,
-        targetNodeData: targetNodeData?.id,
+        targetId,
         sourceId: drawingConnectionFrom.sourceInstanceId
       });
 
-      if (targetNodeData && targetNodeData.id !== drawingConnectionFrom.sourceInstanceId) {
+      if (targetId && targetId !== drawingConnectionFrom.sourceInstanceId) {
         const sourceId = drawingConnectionFrom.sourceInstanceId;
-        const destId = targetNodeData.id;
 
         // Allow multiple parallel edges between the same nodes
         // The curve offset rendering will display them properly
         const newEdgeId = uuidv4();
-        const newEdgeData = { id: newEdgeId, sourceId, destinationId: destId };
+        const newEdgeData = { id: newEdgeId, sourceId, destinationId: targetId };
         storeActions.addEdge(activeGraphId, newEdgeData);
       }
       setDrawingConnectionFrom(null);
@@ -8725,6 +8780,19 @@ function NodeCanvas() {
                           ? `translate(${centerX}, ${centerY}) scale(${groupScale}) translate(${-centerX}, ${-centerY})`
                           : '';
 
+                        // Sync anchor instance position to group title center
+                        if (isNodeGroup && group.anchorInstanceId) {
+                          const titleCenterX = labelX;
+                          const titleCenterY = labelY;
+                          anchorPositionUpdatesRef.current.set(group.anchorInstanceId, {
+                            x: titleCenterX,
+                            y: titleCenterY,
+                            width: labelWidth,
+                            height: labelHeight,
+                            groupId: group.id
+                          });
+                        }
+
                         return (
                           <g key={group.id} className={isNodeGroup ? "node-group" : "group"} data-group-id={group.id}
                             style={{
@@ -8870,6 +8938,13 @@ function NodeCanvas() {
                                   const mouseCanvasX = (downX - rect.left - panOffset.x) / zoomLevel + canvasSize.offsetX;
                                   const mouseCanvasY = (downY - rect.top - panOffset.y) / zoomLevel + canvasSize.offsetY;
                                   const offsets = members.map(m => ({ id: m.id, dx: mouseCanvasX - m.x, dy: mouseCanvasY - m.y }));
+                                  // Include anchor instance in the drag set so it moves with the group
+                                  if (group.anchorInstanceId) {
+                                    const anchorNode = nodes.find(n => n.id === group.anchorInstanceId);
+                                    if (anchorNode) {
+                                      offsets.push({ id: anchorNode.id, dx: mouseCanvasX - anchorNode.x, dy: mouseCanvasY - anchorNode.y });
+                                    }
+                                  }
                                   setDraggingNodeInfo({ groupId: group.id, memberOffsets: offsets });
                                   triggerDragZoomOut(downX, downY);
                                 }, LONG_PRESS_DURATION);
@@ -9142,8 +9217,15 @@ function NodeCanvas() {
                         if (!sourceNode || !destNode) {
                           return null;
                         }
-                        const sNodeDims = baseDimsById.get(sourceNode.id) || getNodeDimensions(sourceNode, false, null);
-                        const eNodeDims = baseDimsById.get(destNode.id) || getNodeDimensions(destNode, false, null);
+                        // For anchor nodes, use the group title dimensions instead of node dimensions
+                        const sAnchorInfo = sourceNode.isGroupAnchor ? anchorPositionUpdatesRef.current.get(sourceNode.id) : null;
+                        const eAnchorInfo = destNode.isGroupAnchor ? anchorPositionUpdatesRef.current.get(destNode.id) : null;
+                        const sNodeDims = sAnchorInfo
+                          ? { currentWidth: sAnchorInfo.width, currentHeight: sAnchorInfo.height }
+                          : (baseDimsById.get(sourceNode.id) || getNodeDimensions(sourceNode, false, null));
+                        const eNodeDims = eAnchorInfo
+                          ? { currentWidth: eAnchorInfo.width, currentHeight: eAnchorInfo.height }
+                          : (baseDimsById.get(destNode.id) || getNodeDimensions(destNode, false, null));
                         const isSNodePreviewing = previewingNodeId === sourceNode.id;
                         const isENodePreviewing = previewingNodeId === destNode.id;
 
@@ -10426,8 +10508,15 @@ function NodeCanvas() {
                         if (!sourceNode || !destNode) {
                           return null;
                         }
-                        const sNodeDims = baseDimsById.get(sourceNode.id) || getNodeDimensions(sourceNode, false, null);
-                        const eNodeDims = baseDimsById.get(destNode.id) || getNodeDimensions(destNode, false, null);
+                        // For anchor nodes, use the group title dimensions instead of node dimensions
+                        const sAnchorInfo = sourceNode.isGroupAnchor ? anchorPositionUpdatesRef.current.get(sourceNode.id) : null;
+                        const eAnchorInfo = destNode.isGroupAnchor ? anchorPositionUpdatesRef.current.get(destNode.id) : null;
+                        const sNodeDims = sAnchorInfo
+                          ? { currentWidth: sAnchorInfo.width, currentHeight: sAnchorInfo.height }
+                          : (baseDimsById.get(sourceNode.id) || getNodeDimensions(sourceNode, false, null));
+                        const eNodeDims = eAnchorInfo
+                          ? { currentWidth: eAnchorInfo.width, currentHeight: eAnchorInfo.height }
+                          : (baseDimsById.get(destNode.id) || getNodeDimensions(destNode, false, null));
                         const isSNodePreviewing = previewingNodeId === sourceNode.id;
                         const isENodePreviewing = previewingNodeId === destNode.id;
 
@@ -11604,7 +11693,8 @@ function NodeCanvas() {
                   const otherNodes = nodes.filter(node =>
                     node.id !== nodeIdToKeepActiveForStacking &&
                     node.id !== draggingNodeId &&
-                    visibleNodeIds.has(node.id)
+                    visibleNodeIds.has(node.id) &&
+                    !node.isGroupAnchor
                   );
 
                   const activeNodeToRender = nodeIdToKeepActiveForStacking

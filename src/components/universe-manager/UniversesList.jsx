@@ -85,9 +85,13 @@ const UniversesList = ({
         const handle = await getWorkspaceHandle();
         if (handle) {
           setWorkspaceFolderHandle(handle);
-          setWorkspaceFolder(handle.name);
+          // Extract name safely: string path (Electron) vs DirectoryHandle (web)
+          const name = typeof handle === 'string'
+            ? handle.split(/[/\\]/).pop()
+            : handle.name;
+          if (name) setWorkspaceFolder(name);
 
-          // Check if permission was lost after page refresh
+          // Check if permission was lost after page refresh (web only — Electron always returns 'granted')
           const permState = await checkWorkspacePermission();
           if (permState && permState !== 'granted') {
             setWorkspaceNeedsPermission(true);
@@ -138,11 +142,24 @@ const UniversesList = ({
 
   // Workspace folder picker
   const handlePickWorkspaceFolder = async () => {
-    if (!('showDirectoryPicker' in window)) {
-      alert('Directory picker is not supported in this browser.');
-      return;
-    }
     try {
+      // Electron: use native IPC folder picker (returns a path string)
+      if (window.electron?.fileSystem?.pickFolder) {
+        const folderPath = await window.electron.fileSystem.pickFolder();
+        if (!folderPath) return; // user cancelled
+        const folderName = folderPath.split(/[/\\]/).pop();
+        setWorkspaceFolderHandle(folderPath);
+        setWorkspaceFolder(folderName);
+        setWorkspaceNeedsPermission(false);
+        await saveWorkspaceHandle(folderPath);
+        return;
+      }
+
+      // Web: use File System Access API
+      if (!('showDirectoryPicker' in window)) {
+        alert('Directory picker is not supported in this browser.');
+        return;
+      }
       const handle = await window.showDirectoryPicker({ mode: 'readwrite' });
       setWorkspaceFolderHandle(handle);
       setWorkspaceFolder(handle.name);

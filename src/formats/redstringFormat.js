@@ -586,7 +586,11 @@ export const exportToRedstring = (storeState, userDomain = null) => {
           },
           
           // Preserve original prototype reference for internal use
-          "redstring:prototypeId": instance.prototypeId
+          "redstring:prototypeId": instance.prototypeId,
+
+          // Group anchor properties (for thing-group connection routing)
+          "redstring:isGroupAnchor": instance.isGroupAnchor || false,
+          "redstring:anchorForGroupId": instance.anchorForGroupId || null
         };
       });
     }
@@ -625,6 +629,7 @@ export const exportToRedstring = (storeState, userDomain = null) => {
               "redstring:linkedNodePrototypeId": group.linkedNodePrototypeId,
               "redstring:linkedDefinitionIndex": group.linkedDefinitionIndex,
               "redstring:hasCustomLayout": group.hasCustomLayout,
+              "redstring:anchorInstanceId": group.anchorInstanceId,
               // RDF-style membership relationships
               "rdfs:member": (group.memberInstanceIds || []).map(memberId => ({
                 "@id": `instance:${memberId}`
@@ -1063,7 +1068,8 @@ export const importFromRedstring = (redstringData, storeActions) => {
                 // Preserve node-group properties
                 linkedNodePrototypeId: group['redstring:linkedNodePrototypeId'] || group.linkedNodePrototypeId,
                 linkedDefinitionIndex: group['redstring:linkedDefinitionIndex'] ?? group.linkedDefinitionIndex,
-                hasCustomLayout: group['redstring:hasCustomLayout'] ?? group.hasCustomLayout
+                hasCustomLayout: group['redstring:hasCustomLayout'] ?? group.hasCustomLayout,
+                anchorInstanceId: group['redstring:anchorInstanceId'] || group.anchorInstanceId
               };
             } else {
               // Legacy format
@@ -1082,7 +1088,8 @@ export const importFromRedstring = (redstringData, storeActions) => {
                 // Preserve node-group properties
                 linkedNodePrototypeId: group.linkedNodePrototypeId,
                 linkedDefinitionIndex: group.linkedDefinitionIndex,
-                hasCustomLayout: group.hasCustomLayout
+                hasCustomLayout: group.hasCustomLayout,
+                anchorInstanceId: group.anchorInstanceId
               };
             }
             
@@ -1138,6 +1145,14 @@ export const importFromRedstring = (redstringData, storeActions) => {
               convertedInstance.visible = visibleValue;
             } else if (instance.visible !== undefined) {
               convertedInstance.visible = instance.visible;
+            }
+
+            // Group anchor properties
+            if (instance['redstring:isGroupAnchor']) {
+              convertedInstance.isGroupAnchor = true;
+            }
+            if (instance['redstring:anchorForGroupId']) {
+              convertedInstance.anchorForGroupId = instance['redstring:anchorForGroupId'];
             }
           } else {
             // Legacy format - retain original structure

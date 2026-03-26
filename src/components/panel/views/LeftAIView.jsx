@@ -989,6 +989,28 @@ function applyToolResultToStore(toolName, result, toolCallId) {
     return;
   }
 
+  // Handle decomposeNode — expand a node into a thing-group, keeping original as anchor
+  if (result.action === 'decomposeNode') {
+    const graphId = result.graphId || store.activeGraphId;
+    console.log('[Wizard] Applying decomposeNode:', result.nodeName, 'prototypeId:', result.prototypeId);
+    if (!graphId) {
+      console.warn('[Wizard] decomposeNode: no graphId');
+      return;
+    }
+
+    // Resolve the prototype by name (predictive IDs may not match real store)
+    let realProtoId = result.prototypeId;
+    for (const [pid, proto] of store.nodePrototypes) {
+      if (proto.name?.toLowerCase() === result.nodeName?.toLowerCase()) {
+        realProtoId = pid; // take LAST match (most recent)
+      }
+    }
+
+    const createdGroupId = store.decomposeNodeToGroup(graphId, realProtoId, result.definitionIndex ?? 0);
+    console.log('[Wizard] decomposeNode result: groupId=', createdGroupId);
+    return;
+  }
+
   // Handle condenseToNode — package nodes into a new concept with a definition graph
   if (result.action === 'condenseToNode') {
     const graphId = result.graphId || store.activeGraphId;

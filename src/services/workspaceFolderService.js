@@ -1,10 +1,13 @@
 
+import { isElectron } from '../utils/fileAccessAdapter.js';
+
 const WORKSPACE_DB_NAME = 'redstring-workspace';
 const WORKSPACE_STORE_NAME = 'folder-handles';
+const ELECTRON_STORE = 'workspace';
 
 let _cachedHandle = null;
 
-// Opens the IndexedDB instance
+// Opens the IndexedDB instance (web only)
 function openWorkspaceDB() {
     return new Promise((resolve, reject) => {
         const request = indexedDB.open(WORKSPACE_DB_NAME, 1);
@@ -20,22 +23,39 @@ function openWorkspaceDB() {
 }
 
 /**
- * Saves a directory handle to IndexedDB
- * @param {FileSystemDirectoryHandle} handle 
+ * Saves a directory handle (web) or folder path (Electron) for the workspace
+ * @param {FileSystemDirectoryHandle|string} handleOrPath
  */
-export async function saveWorkspaceHandle(handle) {
-    _cachedHandle = handle;
+export async function saveWorkspaceHandle(handleOrPath) {
+    _cachedHandle = handleOrPath;
+
+    if (isElectron()) {
+        // Electron: store path string in persistent file-based storage
+        try {
+            await window.electron.storage.setItem(ELECTRON_STORE, 'folderPath', handleOrPath);
+            const folderName = typeof handleOrPath === 'string'
+                ? handleOrPath.split(/[/\\]/).pop()
+                : handleOrPath;
+            localStorage.setItem('redstring_workspace_folder_name', folderName);
+        } catch (error) {
+            console.warn('[WorkspaceFolderService] Failed to save workspace path (Electron):', error);
+            throw error;
+        }
+        return;
+    }
+
+    // Web: store FileSystemDirectoryHandle in IndexedDB
     try {
         const db = await openWorkspaceDB();
         await new Promise((resolve, reject) => {
             const tx = db.transaction(WORKSPACE_STORE_NAME, 'readwrite');
             const store = tx.objectStore(WORKSPACE_STORE_NAME);
-            store.put({ id: 'workspace', handle });
+            store.put({ id: 'workspace', handle: handleOrPath });
             tx.oncomplete = () => resolve();
             tx.onerror = () => reject(tx.error);
         });
         // Also update localStorage for simple name checking
-        localStorage.setItem('redstring_workspace_folder_name', handle.name);
+        localStorage.setItem('redstring_workspace_folder_name', handleOrPath.name);
     } catch (error) {
         console.warn('[WorkspaceFolderService] Failed to save handle:', error);
         throw error;
@@ -43,12 +63,26 @@ export async function saveWorkspaceHandle(handle) {
 }
 
 /**
- * Retrieves the stored directory handle
- * @returns {Promise<FileSystemDirectoryHandle|null>}
+ * Retrieves the stored directory handle (web) or folder path string (Electron)
+ * @returns {Promise<FileSystemDirectoryHandle|string|null>}
  */
 export async function getWorkspaceHandle() {
     if (_cachedHandle) return _cachedHandle;
 
+    if (isElectron()) {
+        try {
+            const folderPath = await window.electron.storage.getItem(ELECTRON_STORE, 'folderPath');
+            if (folderPath) {
+                _cachedHandle = folderPath;
+                return folderPath;
+            }
+        } catch (error) {
+            console.warn('[WorkspaceFolderService] Failed to get workspace path (Electron):', error);
+        }
+        return null;
+    }
+
+    // Web: read FileSystemDirectoryHandle from IndexedDB
     try {
         const db = await openWorkspaceDB();
         const handle = await new Promise((resolve, reject) => {
@@ -125,6 +159,17 @@ export async function requestWorkspacePermission() {
 export async function clearWorkspaceHandle() {
     _cachedHandle = null;
     localStorage.removeItem('redstring_workspace_folder_name');
+
+    if (isElectron()) {
+        try {
+            await window.electron.storage.removeItem(ELECTRON_STORE, 'folderPath');
+        } catch (error) {
+            console.warn('[WorkspaceFolderService] Failed to clear workspace path (Electron):', error);
+        }
+        return;
+    }
+
+    // Web: clear from IndexedDB
     try {
         const db = await openWorkspaceDB();
         await new Promise((resolve, reject) => {
@@ -175,18 +220,59 @@ async function findUniqueFileName(dirHandle, fileName) {
 }
 
 /**
+ * Electron version of findUniqueFileName using IPC file existence checks
+ */
+async function findUniqueFileNameElectron(folderPath, fileName) {
+    const dotIndex = fileName.lastIndexOf('.');
+    const baseName = dotIndex > 0 ? fileName.slice(0, dotIndex) : fileName;
+    const ext = dotIndex > 0 ? fileName.slice(dotIndex) : '';
+
+    let candidate = fileName;
+    let counter = 0;
+    const MAX_ATTEMPTS = 100;
+
+    while (counter < MAX_ATTEMPTS) {
+        const fullPath = folderPath.replace(/[/\\]$/, '') + '/' + candidate;
+        const exists = await window.electron.fileSystem.fileExists(fullPath);
+        if (!exists) return candidate;
+        counter++;
+        candidate = `${baseName} (${counter})${ext}`;
+    }
+
+    return candidate;
+}
+
+/**
  * Creates a file in the workspace folder if available
  * @param {string} fileName
  * @param {string} content
  * @param {object} options - Options for creation
  * @param {boolean} [options.overwrite=true] - Whether to overwrite existing files
- * @returns {Promise<FileSystemFileHandle|null>} The created file handle, or null if no workspace folder
+ * @returns {Promise<FileSystemFileHandle|string|null>} The created file handle/path, or null if no workspace folder
  */
 export async function createFileInWorkspace(fileName, content, options = {}) {
     const { overwrite = true } = options;
     const dirHandle = await getWorkspaceHandle();
     if (!dirHandle) return null;
 
+    if (isElectron() && typeof dirHandle === 'string') {
+        // Electron: dirHandle is a folder path string
+        try {
+            let targetFileName = fileName;
+            if (!overwrite) {
+                targetFileName = await findUniqueFileNameElectron(dirHandle, fileName);
+            }
+
+            const fullPath = dirHandle.replace(/[/\\]$/, '') + '/' + targetFileName;
+            await window.electron.fileSystem.writeFile(fullPath, content);
+            return fullPath;
+        } catch (error) {
+            console.error('[WorkspaceFolderService] Failed to create file in workspace (Electron):', error);
+            return null;
+        }
+    }
+
+    // Web: use FileSystemDirectoryHandle
     try {
         // Check permission first
         if (dirHandle.requestPermission) {
@@ -214,29 +300,35 @@ export async function createFileInWorkspace(fileName, content, options = {}) {
 }
 
 /**
- * Gets a file handle for a file within the workspace folder
+ * Gets a file handle/path for a file within the workspace folder
  * @param {string} fileName - The filename to open
- * @returns {Promise<FileSystemFileHandle|null>}
+ * @returns {Promise<FileSystemFileHandle|string|null>}
  */
 export async function getFileFromWorkspace(fileName) {
     const dirHandle = await getWorkspaceHandle();
     if (!dirHandle) return null;
 
+    if (isElectron() && typeof dirHandle === 'string') {
+        // Electron: dirHandle is a folder path string
+        try {
+            const fullPath = dirHandle.replace(/[/\\]$/, '') + '/' + fileName;
+            const exists = await window.electron.fileSystem.fileExists(fullPath);
+            return exists ? fullPath : null;
+        } catch (error) {
+            return null;
+        }
+    }
+
+    // Web: use FileSystemDirectoryHandle
     try {
         // Check permission if needed
         if (dirHandle.requestPermission) {
-            // We can't always request permission without user gesture, but if we already have it from
-            // opening the directory, queryPermission might return 'granted'.
-            // If it returns 'prompt', we might need to handle that upstream or rely on a user gesture wrapper.
-            // For now, let's assume if we have the directory handle, we might have access or get it via prompt.
             const status = await dirHandle.queryPermission({ mode: 'readwrite' });
             if (status !== 'granted') {
-                // Try requesting (might fail without user gesture context, but worth a try if supported)
                 try {
                     const reqStatus = await dirHandle.requestPermission({ mode: 'readwrite' });
                     if (reqStatus !== 'granted') return null;
                 } catch (e) {
-                    // Start fresh if permission check fails
                     return null;
                 }
             }
@@ -252,7 +344,7 @@ export async function getFileFromWorkspace(fileName) {
 
 /**
  * Checks if a filename exists in the workspace folder
- * @param {string} fileName 
+ * @param {string} fileName
  * @returns {Promise<boolean>}
  */
 export async function fileExistsInWorkspace(fileName) {

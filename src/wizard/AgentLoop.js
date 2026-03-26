@@ -463,21 +463,16 @@ function updateGraphState(graphState, _toolName, _args, result) {
       }
     }
   } else if (result.action === 'decomposeNode') {
-    // Remove original instance, add decomposed instances from definition graph, add group
+    // Keep original instance as group anchor, add decomposed instances from definition graph, add group
     const targetGraphId = result.graphId || graphState.activeGraphId;
     const targetGraph = (graphState.graphs || []).find(g => g.id === targetGraphId);
     if (targetGraph) {
-      // Remove the original instance
-      if (result.originalInstanceId) {
-        const beforeCount = (targetGraph.instances || []).length;
-        targetGraph.instances = (targetGraph.instances || []).filter(i => i.id !== result.originalInstanceId);
-        console.error('[updateGraphState] decomposeNode: Removed original instance', result.originalInstanceId, '| before:', beforeCount, '→ after:', targetGraph.instances.length);
-      }
-
       // Add decomposed instances from definition graph
       targetGraph.instances = targetGraph.instances || [];
+      const memberInstIds = [];
       for (const defInst of result.definitionInstances || []) {
         const newInstId = `inst-decomp-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+        memberInstIds.push(newInstId);
         targetGraph.instances.push({
           id: newInstId,
           prototypeId: defInst.prototypeId,
@@ -488,21 +483,29 @@ function updateGraphState(graphState, _toolName, _args, result) {
         });
       }
 
-      // Add thing-group
+      // Mark original instance as group anchor (do NOT remove it)
+      const groupId = `group-decomp-${Date.now()}`;
+      if (result.originalInstanceId) {
+        const originalInst = targetGraph.instances.find(i => i.id === result.originalInstanceId);
+        if (originalInst) {
+          originalInst.isGroupAnchor = true;
+          originalInst.anchorForGroupId = groupId;
+        }
+      }
+
+      // Add thing-group with anchor
       targetGraph.groups = targetGraph.groups || [];
-      const decomposedInstIds = (result.definitionInstances || []).map(() =>
-        `inst-decomp-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
-      );
       targetGraph.groups.push({
-        id: `group-decomp-${Date.now()}`,
+        id: groupId,
         name: result.nodeName,
         color: '#8B0000',
-        memberInstanceIds: decomposedInstIds,
+        memberInstanceIds: memberInstIds,
         linkedNodePrototypeId: result.prototypeId,
+        anchorInstanceId: result.originalInstanceId,
         isThingGroup: true
       });
 
-      console.error('[updateGraphState] decomposeNode:', result.nodeName, '→ added', (result.definitionInstances || []).length, 'instances');
+      console.error('[updateGraphState] decomposeNode:', result.nodeName, '→ added', (result.definitionInstances || []).length, 'instances, anchor=', result.originalInstanceId);
     }
   } else if (result.action === 'setNodeType') {
     // Update prototype's typeNodeId in predictive state
