@@ -28,6 +28,7 @@ import { startOAuthFlow } from './utils/oauthAdapter.js';
 import { HEADER_HEIGHT } from './constants.js';
 import useGraphStore from './store/graphStore.jsx';
 import { getStorageKey } from './utils/storageUtils.js';
+import { buildUniqueUniverseName } from './utils/universeNaming.js';
 import { useTheme } from './hooks/useTheme.js';
 
 const { log: __umNativeLog, warn: __umNativeWarn, error: __umNativeError } = console;
@@ -966,6 +967,7 @@ const UniverseManager = ({ variant = 'panel', onRequestClose }) => {
 
       setConfirmDialog({
         title: conflict.requiresPrimarySelection ? 'Select Primary Storage' : 'Data Conflict Detected',
+        titleColor: theme.accent.secondary,
         message: conflict.requiresPrimarySelection
           ? `Both local file and Git repository are available for "${conflict.universeName}". Choose which should be the source of truth.`
           : `The local file and Git repository for "${conflict.universeName}" have different data. Choose which version to keep.`,
@@ -1323,18 +1325,34 @@ const UniverseManager = ({ variant = 'panel', onRequestClose }) => {
   };
 
   const handleDeleteUniverse = async (slug, name) => {
+    const universe = serviceState.universes.find(u => u.slug === slug);
+    const hasLocalFile = universe?.raw?.localFile?.enabled && universe?.raw?.localFile?.path;
+    const localFilePath = hasLocalFile ? universe.raw.localFile.path : null;
+
     setConfirmDialog({
       title: 'Delete Universe',
-      message: `Delete universe "${name}"?`,
-      details: 'This action cannot be undone. All data in this universe will be permanently removed.',
+      titleColor: theme.accent.secondary,
+      message: hasLocalFile
+        ? `Delete universe "${name}"?\n\nLinked file: ${localFilePath}`
+        : `Delete universe "${name}"?`,
+      details: hasLocalFile
+        ? 'Choose whether to also delete the linked .redstring file from disk.'
+        : 'This action cannot be undone.',
       variant: 'danger',
-      confirmLabel: 'Delete Universe',
-      cancelLabel: 'Cancel',
+      confirmLabel: hasLocalFile ? 'Delete Universe & File' : 'Delete Universe',
+      cancelLabel: hasLocalFile ? 'Remove Entry Only' : 'Cancel',
       onConfirm: async () => {
         try {
           setLoading(true);
+          if (hasLocalFile) {
+            try {
+              await universeBackend.deleteLinkedFile(slug);
+              umLog(`[UniverseManager] Deleted linked file for universe "${name}"`);
+            } catch (fileErr) {
+              umWarn('[UniverseManager] Failed to delete linked file:', fileErr);
+            }
+          }
           await universeManagerService.deleteUniverse(slug);
-          setSyncStatus({ type: 'info', message: `Universe "${name}" deleted` });
           await refreshState();
         } catch (err) {
           umError('[UniverseManager] Delete failed:', err);
@@ -1342,7 +1360,20 @@ const UniverseManager = ({ variant = 'panel', onRequestClose }) => {
         } finally {
           setLoading(false);
         }
-      }
+      },
+      onCancel: hasLocalFile ? async () => {
+        // "Remove Entry Only" — delete universe but keep the file on disk
+        try {
+          setLoading(true);
+          await universeManagerService.deleteUniverse(slug);
+          await refreshState();
+        } catch (err) {
+          umError('[UniverseManager] Delete failed:', err);
+          setError(`Failed to delete universe: ${err.message}`);
+        } finally {
+          setLoading(false);
+        }
+      } : null
     });
   };
 
@@ -2365,51 +2396,81 @@ const UniverseManager = ({ variant = 'panel', onRequestClose }) => {
 
   const handleImportDiscovered = async (discovered, repo) => {
     const repoKey = `${repo.user}/${repo.repo}`;
-    const activeSlug = serviceState.activeUniverseSlug;
 
     try {
       setLoading(true);
       setRepositoryIntent(null);
       setShowRepositoryManager(false);
 
-      if (activeSlug) {
-        // Load into the active universe using the existing import flow
-        // switchToImportFlow handles: attach repo, load data, set source of truth, refresh
-        await switchToImportFlow(activeSlug, discovered, repo, repoKey);
-      } else {
-        // No active universe — create one, then switch to it
-        // linkDiscoveredUniverse already sets full git config (sourceOfTruth:'git',
-        // gitRepo.enabled, linkedRepo, universeFolder, universeFile)
-        await universeManagerService.linkDiscoveredUniverse(discovered, {
-          user: repo.user,
-          repo: repo.repo,
-          authMethod: dataAuthMethod || 'oauth'
-        });
-        const importedSlug = discovered.slug || discovered.name;
+      // Always create a NEW universe — never overwrite the active one
+      // Derive name from the discovered file name, with (2), (3) dedup
+      const baseName = (discovered.fileName || discovered.name || 'Universe')
+        .replace(/\.redstring$/i, '');
+      const uniqueName = buildUniqueUniverseName(baseName, serviceState.universes);
 
-        if (importedSlug) {
-          // Add repo to managed list
-          const alreadyManaged = managedRepositories.some(r =>
-            `${r.owner?.login || r.owner}/${r.name}` === repoKey
-          );
-          if (!alreadyManaged) {
-            const repoObject = {
-              name: repo.repo,
-              owner: { login: repo.user },
-              full_name: repoKey,
-              html_url: `https://github.com/${repo.user}/${repo.repo}`,
-              id: `discovered-${repo.user}-${repo.repo}`
-            };
-            const newList = [...managedRepositories, repoObject];
-            setManagedRepositories(newList);
-            localStorage.setItem(getStorageKey('redstring-managed-repositories'), JSON.stringify(newList));
-          }
+      // Create a fresh universe with Git-only config (no local slot → no conflict detection)
+      const creationResult = await universeManagerService.createUniverse(uniqueName, {
+        enableGit: true,
+        enableLocal: false,
+        sourceOfTruth: 'git'
+      });
 
-          // switchUniverse → switchActiveUniverse sets active slug + loads data from Git
-          await universeManagerService.switchUniverse(importedSlug);
-        }
-        await refreshState();
+      const createdSlug = creationResult?.createdUniverse?.slug
+        || creationResult?.slug
+        || (creationResult?.universes || []).find(u => u.name === uniqueName)?.slug;
+
+      if (!createdSlug) {
+        throw new Error('Unable to determine universe slug after creation');
       }
+
+      // Resolve git path parts from discovered universe
+      const resolvePathParts = (universePath, fileName) => {
+        const parts = (universePath || '').split('/').filter(Boolean);
+        if (parts.length >= 3) {
+          return { folder: parts[parts.length - 2], file: parts[parts.length - 1] };
+        }
+        if (fileName) {
+          return {
+            folder: (parts[parts.length - 1] || '').replace(/\.redstring$/i, '') || createdSlug,
+            file: fileName
+          };
+        }
+        return { folder: createdSlug, file: `${createdSlug}.redstring` };
+      };
+
+      const inferredPath = discovered.path || (discovered.location && discovered.fileName ? `${discovered.location}/${discovered.fileName}` : null);
+      const inferredFile = discovered.fileName || (inferredPath ? inferredPath.split('/').pop() : null);
+      const { folder: resolvedFolder, file: resolvedFile } = resolvePathParts(inferredPath, inferredFile);
+
+      // Attach git repo config (folder, file, linkedRepo)
+      await universeManagerService.attachGitRepository(createdSlug, {
+        user: repo.user,
+        repo: repo.repo,
+        authMethod: dataAuthMethod || 'oauth',
+        universeFolder: resolvedFolder || createdSlug,
+        universeFile: resolvedFile || `${createdSlug}.redstring`
+      });
+
+      // Add repo to managed list
+      const alreadyManaged = managedRepositories.some(r =>
+        `${r.owner?.login || r.owner}/${r.name}` === repoKey
+      );
+      if (!alreadyManaged) {
+        const repoObject = {
+          name: repo.repo,
+          owner: { login: repo.user },
+          full_name: repoKey,
+          html_url: `https://github.com/${repo.user}/${repo.repo}`,
+          id: `discovered-${repo.user}-${repo.repo}`
+        };
+        const newList = [...managedRepositories, repoObject];
+        setManagedRepositories(newList);
+        localStorage.setItem(getStorageKey('redstring-managed-repositories'), JSON.stringify(newList));
+      }
+
+      // Switch to new universe → loads data from Git into store
+      await universeManagerService.switchUniverse(createdSlug);
+      await refreshState();
     } catch (err) {
       umError('[UniverseManager] Import discovered failed:', err);
       setError(`Failed to import universe: ${err.message}`);

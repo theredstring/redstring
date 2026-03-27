@@ -11,6 +11,7 @@ contextBridge.exposeInMainWorld('electron', {
     saveAs: (options) => ipcRenderer.invoke('file:saveAs', options),
     readFile: (filePath) => ipcRenderer.invoke('file:read', filePath),
     writeFile: (filePath, content) => ipcRenderer.invoke('file:write', filePath, content),
+    deleteFile: (filePath) => ipcRenderer.invoke('file:delete', filePath),
     fileExists: (filePath) => ipcRenderer.invoke('file:exists', filePath),
     folderExists: (folderPath) => ipcRenderer.invoke('file:folderExists', folderPath),
     getPathParent: (filePath) => ipcRenderer.invoke('file:getPathParent', filePath),

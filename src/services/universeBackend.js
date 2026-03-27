@@ -3909,6 +3909,41 @@ class UniverseBackend {
   }
 
   /**
+   * Delete linked local file for a universe (before deleting the universe entry)
+   */
+  async deleteLinkedFile(slug) {
+    const resolved = this.resolveUniverseEntry(slug);
+    if (!resolved) {
+      umWarn('[UniverseBackend] deleteLinkedFile: universe not found:', slug);
+      return;
+    }
+    const { key, universe } = resolved;
+
+    // Try to get the file handle (absolute path in Electron)
+    const fileHandle = this.fileHandles.get(key);
+    const localPath = universe.localFile?.path;
+    const filePath = fileHandle || localPath;
+
+    if (!filePath || typeof filePath !== 'string') {
+      umWarn('[UniverseBackend] deleteLinkedFile: no file path available for', key);
+      return;
+    }
+
+    // Electron: use IPC to delete file
+    if (typeof window !== 'undefined' && window.electron?.fileSystem?.deleteFile) {
+      try {
+        await window.electron.fileSystem.deleteFile(filePath);
+        umLog(`[UniverseBackend] Deleted linked file: ${filePath}`);
+      } catch (err) {
+        umWarn(`[UniverseBackend] Failed to delete file ${filePath}:`, err);
+        throw err;
+      }
+    } else {
+      umWarn('[UniverseBackend] File deletion not available in this environment (browser)');
+    }
+  }
+
+  /**
    * Delete universe
    */
   async deleteUniverse(slug) {

@@ -14,7 +14,8 @@ const ConfirmDialog = ({
   cancelLabel = 'Cancel',
   variant = 'default', // 'default', 'danger', 'warning', 'info'
   showIcon = true,
-  inputField = null // { placeholder: string, defaultValue: string, label: string }
+  inputField = null, // { placeholder: string, defaultValue: string, label: string }
+  titleColor = null // Optional: override title text color (e.g. theme.accent.secondary)
 }) => {
   const theme = useTheme();
   const [inputValue, setInputValue] = useState('');
@@ -111,7 +112,7 @@ const ConfirmDialog = ({
               margin: 0,
               fontSize: '1.2rem',
               fontWeight: 700,
-              color: theme.canvas.textPrimary
+              color: titleColor || theme.canvas.textPrimary
             }}
           >
             {title}

@@ -409,6 +409,16 @@ ipcMain.handle('file:write', async (event, filePath, content) => {
   }
 });
 
+ipcMain.handle('file:delete', async (event, filePath) => {
+  try {
+    await fs.unlink(filePath);
+    return true;
+  } catch (err) {
+    console.error('[file:delete] Failed to delete file:', filePath, err);
+    throw err;
+  }
+});
+
 ipcMain.handle('file:exists', async (event, filePath) => {
   try {
     await fs.access(filePath, fsSync.constants.F_OK);
