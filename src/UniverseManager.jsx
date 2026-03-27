@@ -2365,65 +2365,33 @@ const UniverseManager = ({ variant = 'panel', onRequestClose }) => {
 
   const handleImportDiscovered = async (discovered, repo) => {
     const repoKey = `${repo.user}/${repo.repo}`;
+    const activeSlug = serviceState.activeUniverseSlug;
 
     try {
       setLoading(true);
       setRepositoryIntent(null);
       setShowRepositoryManager(false);
 
-      const alreadyManaged = managedRepositories.some(r =>
-        `${r.owner?.login || r.owner}/${r.name}` === repoKey
-      );
+      if (activeSlug) {
+        // Load into the active universe using the existing import flow
+        // switchToImportFlow handles: attach repo, load data, set source of truth, refresh
+        await switchToImportFlow(activeSlug, discovered, repo, repoKey);
+      } else {
+        // No active universe — create one first, then load data into it
+        const resultState = await universeManagerService.linkDiscoveredUniverse(discovered, {
+          user: repo.user,
+          repo: repo.repo,
+          authMethod: dataAuthMethod || 'oauth'
+        });
 
-      if (!alreadyManaged) {
-        const repoObject = {
-          name: repo.repo,
-          owner: { login: repo.user },
-          full_name: `${repo.user}/${repo.repo}`,
-          html_url: `https://github.com/${repo.user}/${repo.repo}`,
-          id: `discovered-${repo.user}-${repo.repo}`
-        };
-
-        const newList = [...managedRepositories, repoObject];
-        setManagedRepositories(newList);
-        localStorage.setItem(getStorageKey('redstring-managed-repositories'), JSON.stringify(newList));
-        umLog(`[UniverseManager] Auto-added ${repoKey} to managed repositories for import`);
-      }
-
-      const resultState = await universeManagerService.linkDiscoveredUniverse(discovered, {
-        user: repo.user,
-        repo: repo.repo,
-        authMethod: dataAuthMethod || 'oauth'
-      });
-
-      const importedName = discovered.name || discovered.slug || 'Imported universe';
-      const importedSlug = resultState?.activeUniverseSlug || discovered.slug || discovered.name;
-
-      if (importedSlug) {
-        try {
-          await universeBackendBridge.reloadUniverse(importedSlug);
-        } catch (err) {
-          umWarn('[UniverseManager] Initial reload after import failed:', err);
-        }
-
-        // Set Git as the source of truth for the imported universe
-        try {
-          await universeManagerService.setPrimaryStorage(importedSlug, STORAGE_TYPES.GIT);
-          umLog(`[UniverseManager] Set Git as source of truth for imported universe: ${importedSlug}`);
-        } catch (err) {
-          umWarn('[UniverseManager] Failed to set Git as source of truth:', err);
-        }
-
-        // Ensure UI switches to the imported universe
-        try {
+        const importedSlug = resultState?.activeUniverseSlug || discovered.slug || discovered.name;
+        if (importedSlug) {
+          // switchToImportFlow attaches repo config, loads data from Git, sets source of truth
+          await switchToImportFlow(importedSlug, discovered, repo, repoKey);
           await universeManagerService.switchUniverse(importedSlug);
-        } catch (switchErr) {
-          umWarn('[UniverseManager] Failed to switch to imported universe:', switchErr);
         }
+        await refreshState();
       }
-
-      setSyncStatus({ type: 'success', message: `Imported universe "${importedName}" from repository` });
-      await refreshState();
     } catch (err) {
       umError('[UniverseManager] Import discovered failed:', err);
       setError(`Failed to import universe: ${err.message}`);
