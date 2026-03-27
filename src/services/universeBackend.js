@@ -199,6 +199,11 @@ const discoverUniversesWithStats = async (provider) => {
       }
 
       if (item.type === 'dir') {
+        // Skip backup/archive directories
+        const dirName = (item.name || '').toLowerCase();
+        if (/^(\.?backups?|\.?archive|\.?old|\.?bak)$/.test(dirName)) {
+          continue;
+        }
         const nextDirPath = normalizePathValue(item.path) || joinPaths(safeDirPath, item.name);
         if (!nextDirPath) {
           continue;
@@ -234,8 +239,11 @@ const discoverUniversesWithStats = async (provider) => {
     }
   };
 
-  // Prefer standard location first
-  await collectFromDir('universes').catch(() => { });
+  // Prefer standard location first (GitHub API is case-sensitive, try common variants)
+  for (const folder of ['universes', 'Universe', 'Universes']) {
+    await collectFromDir(folder).catch(() => { });
+    if (universes.length > 0) break;
+  }
 
   // If nothing found under universes/, do a shallow root scan as a fallback
   if (universes.length === 0) {
@@ -265,7 +273,17 @@ const discoverUniversesWithStats = async (provider) => {
     }
   }
 
-  return { universes, stats };
+  // Deduplicate by slug (keep first occurrence = shallowest path)
+  const seen = new Set();
+  const deduped = [];
+  for (const u of universes) {
+    if (!seen.has(u.slug)) {
+      seen.add(u.slug);
+      deduped.push(u);
+    }
+  }
+
+  return { universes: deduped, stats };
 };
 
 const LOCAL_FILE_ERROR = {
@@ -2173,6 +2191,7 @@ class UniverseBackend {
           }
         };
         this.universes.set(key, this.safeNormalizeUniverse(updated));
+        this.saveToStorage();
         this.notifyStatus('info', `Updated universe link: ${universeConfig.name}`);
 
         // Remove old engine and create new one with updated config
@@ -3105,7 +3124,7 @@ class UniverseBackend {
 
     // 2. Git Load (Medium Priority - Network bound)
     // Only fetch if Git is explicitly enabled AND has a linked repository
-    const hasLinkedGitRepo = universe.gitRepo?.enabled && universe.gitRepo?.linkedRepo && universe.gitRepo?.repo;
+    const hasLinkedGitRepo = universe.gitRepo?.enabled && universe.gitRepo?.linkedRepo;
 
     if (hasLinkedGitRepo) {
       const gitPromise = this.loadFromGit(universe)

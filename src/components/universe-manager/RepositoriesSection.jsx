@@ -7,7 +7,9 @@ import {
   Trash2,
   Star,
   GitBranch,
-  AlertCircle
+  AlertCircle,
+  Download,
+  Upload
 } from 'lucide-react';
 import { useTheme } from '../../hooks/useTheme.js';
 import SectionCard from './shared/SectionCard.jsx';
@@ -234,39 +236,79 @@ const RepositoriesSection = ({
                                 <div style={{ fontSize: '0.68rem', color: '#555' }}>{itemPath}</div>
                               )}
                               <div style={{ fontSize: '0.65rem', color: theme.canvas.brand, display: 'flex', gap: 10, marginTop: 4 }}>
-                                {item.nodeCount !== undefined && (
-                                  <span>{item.nodeCount} nodes</span>
+                                {(item.metadata?.nodeCount ?? item.nodeCount) !== undefined && (
+                                  <span>{item.metadata?.nodeCount ?? item.nodeCount} nodes</span>
                                 )}
-                                {item.connectionCount !== undefined && (
-                                  <span>{item.connectionCount} connections</span>
+                                {(item.metadata?.connectionCount ?? item.connectionCount) !== undefined && (
+                                  <span>{item.metadata?.connectionCount ?? item.connectionCount} connections</span>
                                 )}
                               </div>
                             </div>
                           </div>
 
-                          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                            <PanelIconButton
-                              icon={Link}
-                              label="Import Copy"
-                              variant="outline"
-                              size={12}
-                              style={{
-                                fontSize: '0.7rem',
-                                padding: '4px 8px'
-                              }}
+                          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                            <button
                               onClick={() => onImportUniverse && onImportUniverse(item, repoInfo)}
-                            />
-                            <PanelIconButton
-                              icon={RefreshCw}
-                              label="Attach to Universe"
-                              variant="outline"
-                              size={12}
-                              style={{
-                                fontSize: '0.7rem',
-                                padding: '4px 8px'
+                              onMouseEnter={(e) => {
+                                e.currentTarget.style.backgroundColor = '#D0CACA';
+                                e.currentTarget.style.transform = 'scale(1.02)';
                               }}
-                              onClick={() => onAttach(item, repo)}
-                            />
+                              onMouseLeave={(e) => {
+                                e.currentTarget.style.backgroundColor = '#DEDADA';
+                                e.currentTarget.style.transform = 'scale(1)';
+                              }}
+                              style={{
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: 5,
+                                padding: '6px 12px',
+                                backgroundColor: '#DEDADA',
+                                border: '2px solid #7A0000',
+                                borderRadius: 20,
+                                cursor: 'pointer',
+                                transition: 'all 0.2s ease',
+                                fontFamily: "'EmOne', sans-serif",
+                                fontSize: '0.7rem',
+                                fontWeight: 700,
+                                color: '#7A0000',
+                                whiteSpace: 'nowrap'
+                              }}
+                              title="Load this file from the repository"
+                            >
+                              <Download size={14} />
+                              Load from Repo
+                            </button>
+                            <button
+                              onClick={() => onSyncUniverse && onSyncUniverse(item, repoInfo)}
+                              onMouseEnter={(e) => {
+                                e.currentTarget.style.backgroundColor = '#D0CACA';
+                                e.currentTarget.style.transform = 'scale(1.02)';
+                              }}
+                              onMouseLeave={(e) => {
+                                e.currentTarget.style.backgroundColor = '#DEDADA';
+                                e.currentTarget.style.transform = 'scale(1)';
+                              }}
+                              style={{
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: 5,
+                                padding: '6px 12px',
+                                backgroundColor: '#DEDADA',
+                                border: '2px solid #7A0000',
+                                borderRadius: 20,
+                                cursor: 'pointer',
+                                transition: 'all 0.2s ease',
+                                fontFamily: "'EmOne', sans-serif",
+                                fontSize: '0.7rem',
+                                fontWeight: 700,
+                                color: '#7A0000',
+                                whiteSpace: 'nowrap'
+                              }}
+                              title="Save current state to this file in the repository"
+                            >
+                              <Upload size={14} />
+                              Save to Repo
+                            </button>
                           </div>
                         </div>
                       );

@@ -69,13 +69,7 @@ const RepositorySelectionModal = ({
       ? 'Add & Attach'
       : 'Add';
 
-  const intentMessage = intent === 'import'
-    ? 'Pick a repository to import an existing universe. Only files inside the universes/ folder will be listed.'
-    : intent === 'attach'
-      ? 'Choose the repository you want to sync with this universe. Only files inside the universes/ folder will be listed.'
-      : intent === 'create'
-        ? 'Create a repository or choose an existing one. When attaching, make sure your universe lives in the universes/ folder.'
-        : null;
+  const intentMessage = null;
 
   // Listen for auth state changes
   useEffect(() => {
@@ -402,7 +396,7 @@ const RepositorySelectionModal = ({
   }
 
   return (
-    <Modal isOpen={isOpen} onClose={onClose} title={modalTitle} size="slim">
+    <Modal isOpen={isOpen} onClose={onClose} title={modalTitle} size="medium">
       <div style={{ display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0 }}>
       {/* Compact search */}
       <div style={{
@@ -943,14 +937,14 @@ const RepositorySelectionModal = ({
                               <div style={{ fontSize: '0.65rem', color: '#555' }}>{universe.path}</div>
                             )}
                             <div style={{ fontSize: '0.62rem', color: '#7A0000', display: 'flex', gap: 10 }}>
-                              {universe.nodeCount !== undefined && (
-                                <span>{universe.nodeCount} nodes</span>
+                              {(universe.metadata?.nodeCount ?? universe.nodeCount) !== undefined && (
+                                <span>{universe.metadata?.nodeCount ?? universe.nodeCount} nodes</span>
                               )}
-                              {universe.connectionCount !== undefined && (
-                                <span>{universe.connectionCount} connections</span>
+                              {(universe.metadata?.connectionCount ?? universe.connectionCount) !== undefined && (
+                                <span>{universe.metadata?.connectionCount ?? universe.connectionCount} connections</span>
                               )}
                             </div>
-                            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                            <div style={{ display: 'flex', flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
                               {(onImportDiscovered && (intent === 'import' || intent === null)) && (
                                 <button
                                   onClick={(e) => {
@@ -959,7 +953,7 @@ const RepositorySelectionModal = ({
                                   }}
                                   onMouseEnter={(e) => {
                                     e.currentTarget.style.backgroundColor = '#D0CACA';
-                                    e.currentTarget.style.transform = 'scale(1.05)';
+                                    e.currentTarget.style.transform = 'scale(1.02)';
                                     e.currentTarget.style.boxShadow = '0 4px 12px rgba(0, 0, 0, 0.18)';
                                   }}
                                   onMouseLeave={(e) => {
@@ -971,8 +965,8 @@ const RepositorySelectionModal = ({
                                     display: 'flex',
                                     alignItems: 'center',
                                     justifyContent: 'center',
-                                    gap: 6,
-                                    padding: '8px 16px',
+                                    gap: 5,
+                                    padding: '6px 12px',
                                     backgroundColor: '#DEDADA',
                                     border: '2px solid #7A0000',
                                     borderRadius: 20,
@@ -980,15 +974,15 @@ const RepositorySelectionModal = ({
                                     cursor: 'pointer',
                                     transition: 'all 0.2s ease',
                                     fontFamily: "'EmOne', sans-serif",
-                                    fontSize: '0.75rem',
+                                    fontSize: '0.7rem',
                                     fontWeight: 700,
                                     color: '#7A0000',
                                     whiteSpace: 'nowrap'
                                   }}
                                   title="Load this file from the repository"
                                 >
-                                  <Download size={16} />
-                                  Load from Repository
+                                  <Download size={14} />
+                                  Load from Repo
                                 </button>
                               )}
                               {(onSyncDiscovered && (intent === 'attach' || intent === null)) && (
@@ -999,7 +993,7 @@ const RepositorySelectionModal = ({
                                   }}
                                   onMouseEnter={(e) => {
                                     e.currentTarget.style.backgroundColor = '#D0CACA';
-                                    e.currentTarget.style.transform = 'scale(1.05)';
+                                    e.currentTarget.style.transform = 'scale(1.02)';
                                     e.currentTarget.style.boxShadow = '0 4px 12px rgba(0, 0, 0, 0.18)';
                                   }}
                                   onMouseLeave={(e) => {
@@ -1011,8 +1005,8 @@ const RepositorySelectionModal = ({
                                     display: 'flex',
                                     alignItems: 'center',
                                     justifyContent: 'center',
-                                    gap: 6,
-                                    padding: '8px 16px',
+                                    gap: 5,
+                                    padding: '6px 12px',
                                     backgroundColor: '#DEDADA',
                                     border: '2px solid #7A0000',
                                     borderRadius: 20,
@@ -1020,15 +1014,15 @@ const RepositorySelectionModal = ({
                                     cursor: 'pointer',
                                     transition: 'all 0.2s ease',
                                     fontFamily: "'EmOne', sans-serif",
-                                    fontSize: '0.75rem',
+                                    fontSize: '0.7rem',
                                     fontWeight: 700,
                                     color: '#7A0000',
                                     whiteSpace: 'nowrap'
                                   }}
                                   title="Save current state to this file in the repository"
                                 >
-                                  <Upload size={16} />
-                                  Save to Repository
+                                  <Upload size={14} />
+                                  Save to Repo
                                 </button>
                               )}
                             </div>

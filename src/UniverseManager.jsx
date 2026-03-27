@@ -40,8 +40,8 @@ import universeBackend from './services/universeBackend.js';
 import universeBackendBridge from './services/universeBackendBridge.js';
 import PanelIconButton from './components/shared/PanelIconButton.jsx';
 import UniverseLinkingModal from './components/modals/UniverseLinkingModal.jsx';
-import ConflictResolutionModal from './components/modals/ConflictResolutionModal.jsx';
 import Modal from './components/shared/Modal.jsx';
+import RepositorySelectionModal from './components/modals/RepositorySelectionModal.jsx';
 import ConfirmDialog from './components/shared/ConfirmDialog.jsx';
 import LocalFileConflictDialog from './components/shared/LocalFileConflictDialog.jsx';
 import ConnectionStats from './components/universe-manager/ConnectionStats.jsx';
@@ -268,11 +268,6 @@ const UniverseManager = ({ variant = 'panel', onRequestClose }) => {
   const [confirmDialog, setConfirmDialog] = useState(null);
   const [conflictDialog, setConflictDialog] = useState(null);
 
-  // Inline repository browser state (Phase 3A)
-  const [inlineRepoSearchQuery, setInlineRepoSearchQuery] = useState('');
-  const [inlineExpandedRepos, setInlineExpandedRepos] = useState(new Set());
-  const [inlineDiscoveredUniverses, setInlineDiscoveredUniverses] = useState({});
-  const [slotConflict, setSlotConflict] = useState(null);
   const [authExpiredDialog, setAuthExpiredDialog] = useState(null);
 
   const containerRef = useRef(null);
@@ -283,91 +278,6 @@ const UniverseManager = ({ variant = 'panel', onRequestClose }) => {
   const deviceInfo = useMemo(() => detectDeviceInfo(), []);
   const autosaveRef = useRef({ cooldownUntil: 0, triggerAt: 0 });
 
-  // Stable unique key for repos (GitHub API id, with owner/name fallback)
-  const getRepoKey = useCallback((repo) => {
-    return repo.id != null ? String(repo.id) : `${repo.owner?.login || repo.owner}/${repo.name}`;
-  }, []);
-
-  // Filtered and sorted managed repositories
-  const filteredManagedRepositories = useMemo(() => {
-    let filtered = managedRepositories;
-
-    // Apply search filter if query exists
-    if (inlineRepoSearchQuery.trim()) {
-      const query = inlineRepoSearchQuery.toLowerCase();
-      filtered = managedRepositories.filter(repo => {
-        const name = repo.name?.toLowerCase() || '';
-        const owner = repo.owner?.login?.toLowerCase() || repo.owner?.toLowerCase() || '';
-        const description = repo.description?.toLowerCase() || '';
-
-        return name.includes(query) || owner.includes(query) || description.includes(query);
-      });
-    }
-
-    // Sort: Redstring repos first, then by last updated
-    return filtered.sort((a, b) => {
-      const aHasRedstring = inlineDiscoveredUniverses[getRepoKey(a)]?.length > 0;
-      const bHasRedstring = inlineDiscoveredUniverses[getRepoKey(b)]?.length > 0;
-
-      // Primary sort: Redstring repos first
-      if (aHasRedstring && !bHasRedstring) return -1;
-      if (!aHasRedstring && bHasRedstring) return 1;
-
-      // Secondary sort: Most recently updated first
-      const aDate = new Date(a.updated_at || a.pushed_at || 0);
-      const bDate = new Date(b.updated_at || b.pushed_at || 0);
-      return bDate - aDate;
-    });
-  }, [managedRepositories, inlineRepoSearchQuery, inlineDiscoveredUniverses, getRepoKey]);
-
-  // Pre-discover universes for all managed repos when repository browser modal opens
-  useEffect(() => {
-    if (!showRepositoryManager || !managedRepositories || managedRepositories.length === 0) return;
-    let cancelled = false;
-
-    const discoverAll = async () => {
-      for (const repo of managedRepositories) {
-        if (cancelled) break;
-        const key = getRepoKey(repo);
-        if (inlineDiscoveredUniverses[key] !== undefined) continue;
-
-        try {
-          const owner = repo.owner?.login || repo.owner;
-          const name = repo.name;
-          if (owner && name) {
-            const universes = await universeManagerService.discoverUniverses({
-              user: owner,
-              repo: name,
-              authMethod: 'oauth'
-            });
-            if (!cancelled) {
-              setInlineDiscoveredUniverses(prev => ({
-                ...prev,
-                [key]: universes || []
-              }));
-            }
-          }
-        } catch (err) {
-          const isAuthError = err?.message?.includes('401') || err?.message?.toLowerCase()?.includes('unauthorized') || err?.message?.toLowerCase()?.includes('authentication');
-          if (isAuthError) {
-            console.warn(`[RepoModal] Auth error discovering ${repo.name} — token may be expired`);
-            // Leave as undefined so UI shows loading, not "no files found"
-          } else {
-            console.error(`Failed to pre-discover universes for ${repo.name}:`, err);
-            if (!cancelled) {
-              setInlineDiscoveredUniverses(prev => ({
-                ...prev,
-                [key]: []
-              }));
-            }
-          }
-        }
-      }
-    };
-
-    discoverAll();
-    return () => { cancelled = true; };
-  }, [showRepositoryManager, managedRepositories]);
 
   const loadGraphStore = useCallback(async () => {
     if (!graphStoreModuleRef.current) {
@@ -567,6 +477,8 @@ const UniverseManager = ({ variant = 'panel', onRequestClose }) => {
     const currentPrimary = u.sourceOfTruth || u.storage?.primary?.type || null;
 
     if (hasLocal && hasRepo && (currentPrimary !== 'git' && currentPrimary !== 'local')) {
+      // Don't overwrite an existing dialog (e.g. slot-conflict handler already showing one)
+      if (confirmDialog) return;
       setConfirmDialog({
         title: 'Choose Source of Truth',
         message: 'Both Git and Local are linked. Choose the primary source for saves and loads.',
@@ -1036,20 +948,61 @@ const UniverseManager = ({ variant = 'panel', onRequestClose }) => {
     });
   }, [activeUniverse?.raw?.sources]);
 
-  // Listen for slot conflict events from universeBackend
+  // Listen for slot conflict events from universeBackend — show ConfirmDialog
   useEffect(() => {
     if (typeof window === 'undefined') return undefined;
 
     const handleSlotConflict = (event) => {
-      umLog('[UniverseManager] Slot conflict detected:', event.detail);
-      setSlotConflict(event.detail);
+      const conflict = event.detail;
+      umLog('[UniverseManager] Slot conflict detected:', conflict);
+
+      const detailParts = [];
+      if (conflict.localData) {
+        detailParts.push(`Local: ${conflict.localData.nodeCount ?? '?'} nodes, ${conflict.localData.graphCount ?? '?'} graphs`);
+      }
+      if (conflict.gitData) {
+        detailParts.push(`Git: ${conflict.gitData.nodeCount ?? '?'} nodes, ${conflict.gitData.graphCount ?? '?'} graphs`);
+      }
+
+      setConfirmDialog({
+        title: conflict.requiresPrimarySelection ? 'Select Primary Storage' : 'Data Conflict Detected',
+        message: conflict.requiresPrimarySelection
+          ? `Both local file and Git repository are available for "${conflict.universeName}". Choose which should be the source of truth.`
+          : `The local file and Git repository for "${conflict.universeName}" have different data. Choose which version to keep.`,
+        details: detailParts.length > 0 ? detailParts.join('\n') : undefined,
+        variant: 'warning',
+        confirmLabel: conflict.requiresPrimarySelection ? 'Make Git Primary' : 'Use Git Version',
+        cancelLabel: conflict.requiresPrimarySelection ? 'Make Local Primary' : 'Use Local File',
+        onConfirm: async () => {
+          try {
+            setSyncStatus({ type: 'info', message: 'Applying Git version...' });
+            await universeBackend.resolveConflict(conflict.universeSlug, 'git');
+            setSyncStatus({ type: 'success', message: 'Applied Git version' });
+            await refreshState();
+          } catch (e) {
+            umError('[UniverseManager] Failed to resolve conflict:', e);
+            setSyncStatus({ type: 'error', message: `Failed: ${e.message}` });
+          }
+        },
+        onCancel: async () => {
+          try {
+            setSyncStatus({ type: 'info', message: 'Applying local version...' });
+            await universeBackend.resolveConflict(conflict.universeSlug, 'local');
+            setSyncStatus({ type: 'success', message: 'Applied local version' });
+            await refreshState();
+          } catch (e) {
+            umError('[UniverseManager] Failed to resolve conflict:', e);
+            setSyncStatus({ type: 'error', message: `Failed: ${e.message}` });
+          }
+        }
+      });
     };
 
     window.addEventListener('redstring:slot-conflict', handleSlotConflict);
     return () => {
       window.removeEventListener('redstring:slot-conflict', handleSlotConflict);
     };
-  }, []);
+  }, [refreshState]);
 
   useEffect(() => {
     if (typeof window === 'undefined') return undefined;
@@ -1413,8 +1366,6 @@ const UniverseManager = ({ variant = 'panel', onRequestClose }) => {
   };
 
   const handleAttachRepo = (slug) => {
-    setRepositoryIntent('attach');
-    setRepositoryTargetSlug(slug);
     setShowRepositoryManager(true);
   };
 
@@ -2037,7 +1988,17 @@ const UniverseManager = ({ variant = 'panel', onRequestClose }) => {
   };
 
   const handleLinkDiscovered = async (discovered, repo) => {
-    // Show universe linking modal to let user choose existing universe or create new one
+    const repoKey = `${repo.user}/${repo.repo}`;
+
+    // If we already know the target universe (user clicked "Attach Repo" on a specific universe),
+    // skip the universe selection modal and go directly to the attach flow
+    if (repositoryTargetSlug) {
+      setShowRepositoryManager(false);
+      await continueAttachFlow(repositoryTargetSlug, discovered, repo, repoKey);
+      return;
+    }
+
+    // Otherwise, show universe linking modal to let user choose existing universe or create new one
     setPendingUniverseLink({ discovered, repo });
     setShowUniverseLinking(true);
     setShowRepositoryManager(false);
@@ -2494,68 +2455,6 @@ const UniverseManager = ({ variant = 'panel', onRequestClose }) => {
       umError('[UniverseManager] Failed to save managed repos:', err);
     }
   };
-
-  // Phase 3B: Toggle inline repository expansion with universe discovery
-  const toggleInlineRepoExpansion = async (repoId) => {
-    const newExpanded = new Set(inlineExpandedRepos);
-
-    if (newExpanded.has(repoId)) {
-      // Collapse
-      newExpanded.delete(repoId);
-      setInlineExpandedRepos(newExpanded);
-    } else {
-      // Expand
-      newExpanded.add(repoId);
-      setInlineExpandedRepos(newExpanded);
-
-      // Discover universes if not already cached
-      if (!inlineDiscoveredUniverses[repoId]) {
-        try {
-          const repo = managedRepositories.find(r => getRepoKey(r) === repoId);
-          const owner = repo?.owner?.login || repo?.owner;
-          const name = repo?.name;
-          if (owner && name) {
-            const universes = await universeManagerService.discoverUniverses({
-              user: owner,
-              repo: name,
-              authMethod: 'oauth'
-            });
-
-            setInlineDiscoveredUniverses(prev => ({
-              ...prev,
-              [repoId]: universes || []
-            }));
-          }
-        } catch (err) {
-          console.error('Failed to discover universes:', err);
-          const isAuthError = err?.message?.includes('401') || err?.message?.toLowerCase()?.includes('unauthorized');
-          if (!isAuthError) {
-            setInlineDiscoveredUniverses(prev => ({
-              ...prev,
-              [repoId]: []
-            }));
-          }
-          // Auth errors: leave as undefined so spinner shows and user can retry
-        }
-      }
-    }
-  };
-
-  // Handle creating new universe in repository — sets up file selector for the chosen repo
-  const handleCreateNewUniverseInRepo = (repo) => {
-    const owner = repo.owner?.login || repo.owner;
-    const repoName = repo.name;
-    setShowRepositoryManager(false);
-    setPendingRepoAttachment({
-      repo,
-      owner,
-      repoName,
-      mode: 'attach'
-    });
-    setDiscoveredUniverseFiles([]);
-    setShowUniverseFileSelector(true);
-  };
-
 
   const handleSetMainRepository = (repo) => {
     const repoKey = `${repo.owner?.login || repo.owner}/${repo.name}`;
@@ -3017,38 +2916,6 @@ const UniverseManager = ({ variant = 'panel', onRequestClose }) => {
     pendingLocalLinkRef.current = null;
     setConflictDialog(null);
     setSyncStatus({ type: 'info', message: 'Local file link cancelled' });
-  };
-
-  const handleResolveSlotConflict = async (choice) => {
-    if (!slotConflict) return;
-
-    try {
-      umLog(`[UniverseManager] Resolving slot conflict with choice: ${choice}`);
-      setSyncStatus({ type: 'info', message: `Applying ${choice} version...` });
-
-      await universeBackend.resolveConflict(slotConflict.universeSlug, choice);
-
-      setSlotConflict(null);
-      setSyncStatus({
-        type: 'success',
-        message: `Successfully applied ${choice} version`
-      });
-
-      // Refresh state to show updated universe
-      await refreshState();
-    } catch (error) {
-      umError('[UniverseManager] Failed to resolve slot conflict:', error);
-      setSyncStatus({
-        type: 'error',
-        message: `Failed to apply ${choice} version: ${error.message}`
-      });
-    }
-  };
-
-  const handleCancelSlotConflict = () => {
-    umLog('[UniverseManager] Slot conflict resolution cancelled');
-    setSlotConflict(null);
-    setSyncStatus({ type: 'info', message: 'Conflict resolution cancelled' });
   };
 
   const handleLinkLocalFile = async (slug) => {
@@ -4645,340 +4512,20 @@ const UniverseManager = ({ variant = 'panel', onRequestClose }) => {
         </div>
       )}
 
-      {/* Repository Browser Modal (replaces RepositorySelectionModal) */}
-      <Modal
+      <RepositorySelectionModal
         isOpen={showRepositoryManager}
         onClose={() => {
           setShowRepositoryManager(false);
           setRepositoryTargetSlug(null);
           setRepositoryIntent(null);
-          setInlineDiscoveredUniverses({});
-          setInlineExpandedRepos(new Set());
-          setInlineRepoSearchQuery('');
         }}
-        title={repositoryIntent === 'import' ? 'Import From Repository' : repositoryIntent === 'attach' ? 'Attach Repository' : 'Browse Repositories'}
-        size="medium"
-      >
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-          <p style={{ margin: 0, fontSize: '0.85rem', color: '#666', fontFamily: "'EmOne', sans-serif" }}>
-            {repositoryIntent === 'import'
-              ? 'Pick a repository and select a universe file to import.'
-              : repositoryIntent === 'attach'
-                ? 'Choose a repository to sync with this universe.'
-                : 'Browse your managed repositories.'}
-          </p>
-
-          {/* Search */}
-          <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-            <input
-              type="text"
-              placeholder="Search repositories..."
-              value={inlineRepoSearchQuery}
-              onChange={(e) => setInlineRepoSearchQuery(e.target.value)}
-              style={{
-                flex: 1,
-                padding: '8px 12px',
-                border: '2px solid #260000',
-                borderRadius: 8,
-                fontSize: '0.75rem',
-                fontFamily: "'EmOne', sans-serif"
-              }}
-            />
-          </div>
-
-          {/* Repository List */}
-          <div style={{
-            maxHeight: '400px',
-            overflowY: 'auto',
-            display: 'flex',
-            flexDirection: 'column',
-            gap: 8
-          }}>
-            {filteredManagedRepositories.length === 0 && (
-              <div style={{
-                fontSize: '0.8rem',
-                color: '#666',
-                fontStyle: 'italic',
-                textAlign: 'center',
-                padding: '20px'
-              }}>
-                {managedRepositories.length === 0
-                  ? 'No repositories added yet. Add a repository from the main panel first.'
-                  : 'No repositories match your search.'}
-              </div>
-            )}
-
-            {filteredManagedRepositories.map(repo => {
-              const repoId = getRepoKey(repo);
-              const isExpanded = inlineExpandedRepos.has(repoId);
-              const universes = inlineDiscoveredUniverses[repoId];
-              const hasRedstringFiles = universes && universes.length > 0;
-
-              return (
-                <div key={repoId} style={{
-                  border: '2px solid #260000',
-                  borderRadius: 12,
-                  overflow: 'hidden',
-                  backgroundColor: theme.canvas.bg
-                }}>
-                  {/* Repo Header (clickable to expand) */}
-                  <div
-                    onClick={() => toggleInlineRepoExpansion(repoId)}
-                    style={{
-                      padding: '10px 12px',
-                      cursor: 'pointer',
-                      display: 'flex',
-                      justifyContent: 'space-between',
-                      alignItems: 'center',
-                      transition: 'background-color 0.2s ease'
-                    }}
-                    onMouseEnter={(e) => e.currentTarget.style.backgroundColor = theme.canvas.hover}
-                    onMouseLeave={(e) => e.currentTarget.style.backgroundColor = theme.canvas.bg}
-                  >
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                      <Github size={14} />
-                      <span style={{ fontWeight: 600, fontSize: '0.85rem' }}>
-                        {repo.name}
-                      </span>
-                      {hasRedstringFiles && (
-                        <span style={{
-                          fontSize: '0.65rem',
-                          backgroundColor: '#7A0000',
-                          color: '#FFF',
-                          padding: '2px 6px',
-                          borderRadius: 10,
-                          fontWeight: 600,
-                          fontFamily: "'EmOne', sans-serif"
-                        }}>
-                          Redstring
-                        </span>
-                      )}
-                    </div>
-                    <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-                      {isExpanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
-                    </div>
-                  </div>
-
-                  {/* Expanded Section: Discovered Universes */}
-                  {isExpanded && (
-                    <div style={{
-                      backgroundColor: '#979090',
-                      borderTop: '1px solid #808080',
-                      padding: '12px',
-                      display: 'flex',
-                      flexDirection: 'column',
-                      gap: 10
-                    }}>
-                      {/* Loading State */}
-                      {universes === undefined && (
-                        <div style={{
-                          display: 'flex',
-                          alignItems: 'center',
-                          gap: 6,
-                          fontSize: '0.7rem',
-                          color: '#666'
-                        }}>
-                          <RefreshCw size={10} className="spin-animation" />
-                          Scanning for .redstring files...
-                        </div>
-                      )}
-
-                      {/* Empty State */}
-                      {universes !== undefined && universes.length === 0 && (
-                        <div style={{
-                          fontSize: '0.7rem',
-                          color: '#666',
-                          fontStyle: 'italic',
-                          textAlign: 'center',
-                          padding: '8px'
-                        }}>
-                          No .redstring files found in universes/ folder
-                        </div>
-                      )}
-
-                      {/* New Universe Button */}
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          handleCreateNewUniverseInRepo(repo);
-                        }}
-                        onMouseEnter={(e) => {
-                          e.currentTarget.style.backgroundColor = '#D0CACA';
-                          e.currentTarget.style.transform = 'scale(1.05)';
-                          e.currentTarget.style.boxShadow = '0 4px 12px rgba(0, 0, 0, 0.18)';
-                        }}
-                        onMouseLeave={(e) => {
-                          e.currentTarget.style.backgroundColor = '#DEDADA';
-                          e.currentTarget.style.transform = 'scale(1)';
-                          e.currentTarget.style.boxShadow = '0 2px 8px rgba(0, 0, 0, 0.12)';
-                        }}
-                        style={{
-                          display: 'flex',
-                          alignItems: 'center',
-                          justifyContent: 'center',
-                          gap: 6,
-                          padding: '8px 16px',
-                          backgroundColor: '#DEDADA',
-                          border: '2px solid #7A0000',
-                          borderRadius: 20,
-                          boxShadow: '0 2px 8px rgba(0, 0, 0, 0.12)',
-                          cursor: 'pointer',
-                          transition: 'all 0.2s ease',
-                          fontFamily: "'EmOne', sans-serif",
-                          fontSize: '0.75rem',
-                          fontWeight: 700,
-                          color: '#7A0000'
-                        }}
-                      >
-                        <Plus size={16} />
-                        New Universe
-                      </button>
-
-                      {/* Discovered Universe Files */}
-                      {universes && universes.length > 0 && (
-                        <>
-                          <div style={{
-                            fontSize: '0.7rem',
-                            fontWeight: 600,
-                            color: '#260000',
-                            marginTop: 6
-                          }}>
-                            Found {universes.length} file{universes.length === 1 ? '' : 's'}:
-                          </div>
-
-                          {universes.map((universe, idx) => {
-                            const displayName = universe.name || universe.slug || universe.fileName || `Universe ${idx + 1}`;
-                            const repoInfo = {
-                              user: repo.owner?.login || repo.owner,
-                              repo: repo.name
-                            };
-
-                            return (
-                              <div
-                                key={`${repoId}-${universe.path || universe.slug || idx}`}
-                                style={{
-                                  border: '1px solid #260000',
-                                  borderRadius: 12,
-                                  padding: '10px 12px',
-                                  backgroundColor: theme.canvas.bg,
-                                  display: 'flex',
-                                  flexDirection: 'column',
-                                  gap: 8,
-                                  boxShadow: '0 2px 6px rgba(38, 0, 0, 0.08)'
-                                }}
-                              >
-                                <div style={{ fontWeight: 600, fontSize: '0.72rem', color: '#260000' }}>
-                                  {displayName}
-                                </div>
-                                {universe.path && (
-                                  <div style={{ fontSize: '0.65rem', color: '#555' }}>
-                                    {universe.path}
-                                  </div>
-                                )}
-                                <div style={{ fontSize: '0.62rem', color: '#7A0000', display: 'flex', gap: 10 }}>
-                                  {universe.nodeCount !== undefined && <span>{universe.nodeCount} nodes</span>}
-                                  {universe.connectionCount !== undefined && <span>{universe.connectionCount} connections</span>}
-                                </div>
-
-                                {/* Action Buttons */}
-                                <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                                  {/* Load Button - shown for import or null intent */}
-                                  {(repositoryIntent === 'import' || repositoryIntent === null) && (
-                                    <button
-                                      onClick={(e) => {
-                                        e.stopPropagation();
-                                        handleImportDiscovered(universe, repoInfo);
-                                      }}
-                                      onMouseEnter={(e) => {
-                                        e.currentTarget.style.backgroundColor = '#D0CACA';
-                                        e.currentTarget.style.transform = 'scale(1.05)';
-                                        e.currentTarget.style.boxShadow = '0 4px 12px rgba(0, 0, 0, 0.18)';
-                                      }}
-                                      onMouseLeave={(e) => {
-                                        e.currentTarget.style.backgroundColor = '#DEDADA';
-                                        e.currentTarget.style.transform = 'scale(1)';
-                                        e.currentTarget.style.boxShadow = '0 2px 8px rgba(0, 0, 0, 0.12)';
-                                      }}
-                                      style={{
-                                        display: 'flex',
-                                        alignItems: 'center',
-                                        justifyContent: 'center',
-                                        gap: 6,
-                                        padding: '8px 16px',
-                                        backgroundColor: '#DEDADA',
-                                        border: '2px solid #7A0000',
-                                        borderRadius: 20,
-                                        boxShadow: '0 2px 8px rgba(0, 0, 0, 0.12)',
-                                        cursor: 'pointer',
-                                        transition: 'all 0.2s ease',
-                                        fontFamily: "'EmOne', sans-serif",
-                                        fontSize: '0.75rem',
-                                        fontWeight: 700,
-                                        color: '#7A0000',
-                                        whiteSpace: 'nowrap'
-                                      }}
-                                      title="Load this file from the repository"
-                                    >
-                                      <CloudDownload size={16} />
-                                      Load from Repository
-                                    </button>
-                                  )}
-
-                                  {/* Save/Sync Button - shown for attach or null intent */}
-                                  {(repositoryIntent === 'attach' || repositoryIntent === null) && (
-                                    <button
-                                      onClick={(e) => {
-                                        e.stopPropagation();
-                                        handleLinkDiscovered(universe, repoInfo);
-                                      }}
-                                      onMouseEnter={(e) => {
-                                        e.currentTarget.style.backgroundColor = '#D0CACA';
-                                        e.currentTarget.style.transform = 'scale(1.05)';
-                                        e.currentTarget.style.boxShadow = '0 4px 12px rgba(0, 0, 0, 0.18)';
-                                      }}
-                                      onMouseLeave={(e) => {
-                                        e.currentTarget.style.backgroundColor = '#DEDADA';
-                                        e.currentTarget.style.transform = 'scale(1)';
-                                        e.currentTarget.style.boxShadow = '0 2px 8px rgba(0, 0, 0, 0.12)';
-                                      }}
-                                      style={{
-                                        display: 'flex',
-                                        alignItems: 'center',
-                                        justifyContent: 'center',
-                                        gap: 6,
-                                        padding: '8px 16px',
-                                        backgroundColor: '#DEDADA',
-                                        border: '2px solid #7A0000',
-                                        borderRadius: 20,
-                                        boxShadow: '0 2px 8px rgba(0, 0, 0, 0.12)',
-                                        cursor: 'pointer',
-                                        transition: 'all 0.2s ease',
-                                        fontFamily: "'EmOne', sans-serif",
-                                        fontSize: '0.75rem',
-                                        fontWeight: 700,
-                                        color: '#7A0000',
-                                        whiteSpace: 'nowrap'
-                                      }}
-                                      title="Save current state to this file in the repository"
-                                    >
-                                      <CloudUpload size={16} />
-                                      Save to Repository
-                                    </button>
-                                  )}
-                                </div>
-                              </div>
-                            );
-                          })}
-                        </>
-                      )}
-                    </div>
-                  )}
-                </div>
-              );
-            })}
-          </div>
-        </div>
-      </Modal>
+        onSelectRepository={handleRepositorySelect}
+        onAddToManagedList={handleAddToManagedList}
+        managedRepositories={managedRepositories}
+        intent={repositoryIntent}
+        onImportDiscovered={handleImportDiscovered}
+        onSyncDiscovered={handleLinkDiscovered}
+      />
 
       {/* Universe Linking Modal */}
       <UniverseLinkingModal
@@ -5434,19 +4981,6 @@ const UniverseManager = ({ variant = 'panel', onRequestClose }) => {
           onCancel={handleCancelLocalConflict}
         />
       )}
-      {slotConflict && (
-        <ConflictResolutionModal
-          isOpen={true}
-          onClose={handleCancelSlotConflict}
-          onSelectLocal={() => handleResolveSlotConflict('local')}
-          onSelectGit={() => handleResolveSlotConflict('git')}
-          localData={slotConflict.localData}
-          gitData={slotConflict.gitData}
-          universeName={slotConflict.universeName}
-          requiresPrimarySelection={slotConflict.requiresPrimarySelection}
-        />
-      )}
-
       {/* Auth Expired Dialog */}
       {authExpiredDialog && (
         <ConfirmDialog
