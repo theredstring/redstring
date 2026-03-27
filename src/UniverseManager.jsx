@@ -2377,17 +2377,35 @@ const UniverseManager = ({ variant = 'panel', onRequestClose }) => {
         // switchToImportFlow handles: attach repo, load data, set source of truth, refresh
         await switchToImportFlow(activeSlug, discovered, repo, repoKey);
       } else {
-        // No active universe — create one first, then load data into it
-        const resultState = await universeManagerService.linkDiscoveredUniverse(discovered, {
+        // No active universe — create one, then switch to it
+        // linkDiscoveredUniverse already sets full git config (sourceOfTruth:'git',
+        // gitRepo.enabled, linkedRepo, universeFolder, universeFile)
+        await universeManagerService.linkDiscoveredUniverse(discovered, {
           user: repo.user,
           repo: repo.repo,
           authMethod: dataAuthMethod || 'oauth'
         });
+        const importedSlug = discovered.slug || discovered.name;
 
-        const importedSlug = resultState?.activeUniverseSlug || discovered.slug || discovered.name;
         if (importedSlug) {
-          // switchToImportFlow attaches repo config, loads data from Git, sets source of truth
-          await switchToImportFlow(importedSlug, discovered, repo, repoKey);
+          // Add repo to managed list
+          const alreadyManaged = managedRepositories.some(r =>
+            `${r.owner?.login || r.owner}/${r.name}` === repoKey
+          );
+          if (!alreadyManaged) {
+            const repoObject = {
+              name: repo.repo,
+              owner: { login: repo.user },
+              full_name: repoKey,
+              html_url: `https://github.com/${repo.user}/${repo.repo}`,
+              id: `discovered-${repo.user}-${repo.repo}`
+            };
+            const newList = [...managedRepositories, repoObject];
+            setManagedRepositories(newList);
+            localStorage.setItem(getStorageKey('redstring-managed-repositories'), JSON.stringify(newList));
+          }
+
+          // switchUniverse → switchActiveUniverse sets active slug + loads data from Git
           await universeManagerService.switchUniverse(importedSlug);
         }
         await refreshState();
@@ -4204,7 +4222,7 @@ const UniverseManager = ({ variant = 'panel', onRequestClose }) => {
         </div>
       )}
 
-      {syncStatus && (
+      {syncStatus && syncStatus.type === 'error' && (
         <div
           style={{
             borderRadius: 6,

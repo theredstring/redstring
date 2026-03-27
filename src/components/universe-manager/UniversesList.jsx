@@ -698,7 +698,9 @@ const UniversesList = ({
                               {/* Git Status Information */}
                               {(() => {
                                 const syncStatus = syncStatusMap[universe.slug];
-                                const fileName = `universes/${universe.slug}/${universe.slug}.redstring`;
+                                const gitFolder = universe.raw?.gitRepo?.universeFolder || universe.slug;
+                                const gitFile = universe.raw?.gitRepo?.universeFile || `${universe.slug}.redstring`;
+                                const fileName = `${gitFolder}/${gitFile}`;
                                 const statusText = syncStatus?.status || 'unknown';
                                 const lastSync = syncStatus?.lastSync ? formatWhen(syncStatus.lastSync) : 'Never';
                                 const hasError = syncStatus?.error;
