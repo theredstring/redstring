@@ -2900,13 +2900,6 @@ class UniverseBackend {
       this.notifyStatus('success', `Linked local file: ${displayLabel}`);
     }
 
-    // Signal update to UI components
-    if (typeof window !== 'undefined') {
-      try {
-        window.dispatchEvent(new CustomEvent('redstring:universe-updated', { detail: { slug, action: 'link-file' } }));
-      } catch (_) { }
-    }
-
     return { success: true, fileName, displayPath, metadataStored };
   }
 
@@ -4055,6 +4048,15 @@ class UniverseBackend {
     // If sources were updated, notify about the change
     if (updates.sources) {
       this.notifyStatus('info', `Data sources updated for universe: ${updatedUniverse?.name || slug}`);
+    }
+
+    // Signal update to UI components (e.g. SaveStatusDisplay)
+    if (typeof window !== 'undefined') {
+      try {
+        window.dispatchEvent(new CustomEvent('redstring:universe-updated', {
+          detail: { slug, action: 'update' }
+        }));
+      } catch (_) { }
     }
 
     return result;
