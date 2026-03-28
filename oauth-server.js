@@ -32,6 +32,17 @@ if (!process.env.GITHUB_APP_PRIVATE_KEY && process.env.PRIVATE_KEY_PATH) {
   }
 }
 
+// Load dev private key from PRIVATE_KEY_PATH_DEV (for Electron dev with a separate GitHub App)
+if (!process.env.GITHUB_APP_PRIVATE_KEY_DEV && process.env.PRIVATE_KEY_PATH_DEV) {
+  const devPemPath = process.env.PRIVATE_KEY_PATH_DEV;
+  if (existsSync(devPemPath)) {
+    process.env.GITHUB_APP_PRIVATE_KEY_DEV = readFileSync(devPemPath, 'utf8');
+    console.log(`[OAuth] Loaded dev GitHub App private key from ${devPemPath}`);
+  } else {
+    console.warn(`[OAuth] PRIVATE_KEY_PATH_DEV set to "${devPemPath}" but file not found`);
+  }
+}
+
 // STATELESS MODE: User data stays in browser localStorage, not server
 // Server only facilitates OAuth exchange, does NOT persist tokens
 const ENABLE_SERVER_PERSISTENCE = process.env.ENABLE_SERVER_PERSISTENCE === 'true' || false;

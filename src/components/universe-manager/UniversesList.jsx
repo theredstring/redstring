@@ -776,15 +776,19 @@ const UniversesList = ({
                                         display: 'flex',
                                         alignItems: 'center',
                                         gap: 4,
-                                        border: `1px solid ${theme.canvas.brand}`,
-                                        backgroundColor: isSourceOfTruth ? theme.canvas.brand : 'transparent',
-                                        color: isSourceOfTruth ? '#DEDADA' : theme.canvas.brand,
+                                        border: `1px solid ${theme.darkMode ? '#CCAAA8' : theme.canvas.brand}`,
+                                        backgroundColor: isSourceOfTruth
+                                          ? (theme.darkMode ? '#CCAAA8' : theme.canvas.brand)
+                                          : 'transparent',
+                                        color: isSourceOfTruth
+                                          ? (theme.darkMode ? '#260000' : '#DEDADA')
+                                          : (theme.darkMode ? '#CCAAA8' : theme.canvas.brand),
 
                                         opacity: canToggle ? 1 : 0.85
                                       }}
                                       title={!canToggle ? 'Only storage option (must remain source of truth)' : isSourceOfTruth ? 'Currently source of truth' : 'Click to make source of truth'}
                                     >
-                                      <Star size={10} fill={isSourceOfTruth ? '#DEDADA' : 'none'} />
+                                      <Star size={10} fill={isSourceOfTruth ? (theme.darkMode ? '#260000' : '#DEDADA') : 'none'} />
 
                                       {isSourceOfTruth ? 'Source of Truth' : 'Not Source of Truth'}
                                     </button>
@@ -1095,7 +1099,7 @@ const UniversesList = ({
                                             }}
                                             title={!canToggle ? 'Only storage option (must remain source of truth)' : isSourceOfTruth ? 'Currently source of truth' : 'Click to make source of truth'}
                                           >
-                                            <Star size={10} fill={isSourceOfTruth ? '#DEDADA' : 'none'} />
+                                            <Star size={10} fill={isSourceOfTruth ? (theme.darkMode ? '#260000' : '#DEDADA') : 'none'} />
 
                                             {isSourceOfTruth ? 'Source of Truth' : 'Not Source of Truth'}
                                           </button>

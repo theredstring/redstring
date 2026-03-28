@@ -2369,14 +2369,14 @@ class UniverseBackend {
       this.notifyStatus('info', `Switched to empty universe: ${slug}`);
     }
 
-    // Ensure engine is set up for the new active universe if Git is enabled (but don't block on it)
+    // Ensure engine is set up for the new active universe if Git is enabled
     const switchedUniverse = this.getUniverse(slug);
     if (switchedUniverse?.gitRepo?.enabled && switchedUniverse?.gitRepo?.linkedRepo) {
-      setTimeout(() => {
-        this.ensureGitSyncEngine(slug).catch(error => {
-          umWarn(`[UniverseBackend] Failed to setup engine after universe switch:`, error);
-        });
-      }, 100);
+      try {
+        await this.ensureGitSyncEngine(slug);
+      } catch (error) {
+        umWarn(`[UniverseBackend] Failed to setup engine after universe switch:`, error);
+      }
     }
 
     return result;
@@ -3896,12 +3896,12 @@ class UniverseBackend {
 
     // Auto-setup engine if Git is enabled
     if (universe.gitRepo?.enabled && universe.gitRepo?.linkedRepo) {
-      umLog('[UniverseBackend] Scheduling async Git sync engine setup...');
-      setTimeout(() => {
-        this.ensureGitSyncEngine(universe.slug).catch(error => {
-          umWarn(`[UniverseBackend] Failed to auto-setup engine for new universe:`, error);
-        });
-      }, 100);
+      umLog('[UniverseBackend] Setting up Git sync engine for new universe...');
+      try {
+        await this.ensureGitSyncEngine(universe.slug);
+      } catch (error) {
+        umWarn(`[UniverseBackend] Failed to auto-setup engine for new universe:`, error);
+      }
     }
 
     umLog('[UniverseBackend] createUniverse completed successfully, returning universe');

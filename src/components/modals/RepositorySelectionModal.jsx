@@ -6,19 +6,17 @@ import {
   RefreshCw,
   Book,
   Lock,
-  Unlock,
   ExternalLink,
-  Calendar,
-  Users,
-  ArrowUpDown,
-  CheckCircle,
+  Bookmark,
   ChevronDown,
   ChevronRight,
   FileText,
+  FilePlus,
   Download,
   Upload
 } from 'lucide-react';
 import Modal from '../shared/Modal.jsx';
+import PanelIconButton from '../shared/PanelIconButton.jsx';
 import { useTheme } from '../../hooks/useTheme.js';
 import { persistentAuth } from '../../services/persistentAuth.js';
 
@@ -27,12 +25,13 @@ import { universeManagerService } from '../../services/universeManagerService.js
 const RepositorySelectionModal = ({
   isOpen,
   onClose,
-  onSelectRepository,
   onAddToManagedList,
+  onRemoveFromManagedList,
   managedRepositories = [],
   intent = null,
   onImportDiscovered,
-  onSyncDiscovered
+  onSyncDiscovered,
+  onCreateUniverseFile
 }) => {
   const theme = useTheme();
   const [repositories, setRepositories] = useState([]);
@@ -56,18 +55,6 @@ const RepositorySelectionModal = ({
     : intent === 'attach'
       ? 'Attach Repository'
       : 'Add Repositories';
-
-  const selectLabel = intent === 'import'
-    ? 'Import'
-    : intent === 'attach'
-      ? 'Attach'
-      : 'Select';
-
-  const addLabel = intent === 'import'
-    ? 'Add & Import'
-    : intent === 'attach'
-      ? 'Add & Attach'
-      : 'Add';
 
   const intentMessage = null;
 
@@ -716,9 +703,6 @@ const RepositorySelectionModal = ({
                     {repo.name}
                   </span>
                   {repo.private && <Lock size={10} style={{ opacity: 0.6 }} />}
-                  {isAlreadyManaged(repo) && (
-                    <CheckCircle size={10} style={{ color: '#2e7d32' }} />
-                  )}
 
                   {/* Universe count indicator */}
                   {isExpanded && universes.length > 0 && (
@@ -774,62 +758,23 @@ const RepositorySelectionModal = ({
                     </a>
                   )}
 
-                  {isAlreadyManaged(repo) && onSelectRepository && (
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        onSelectRepository(repo);
-                      }}
-                      style={{
-                        background: theme.canvas.text,
-                        border: 'none',
-                        color: theme.canvas.bg,
-                        cursor: 'pointer',
-                        padding: '4px 8px',
-                        borderRadius: '4px',
-                        fontSize: '0.7rem',
-                        fontWeight: 600,
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: '2px',
-                        fontFamily: "'EmOne', sans-serif"
-                      }}
-                      title="Select repository"
-                    >
-                      {selectLabel}
-                    </button>
-                  )}
-
-                  {onAddToManagedList && !isAlreadyManaged(repo) && (
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        onAddToManagedList(repo);
-                        if (onSelectRepository) {
-                          onSelectRepository(repo);
+                  <div onClick={(e) => e.stopPropagation()}>
+                    <PanelIconButton
+                      icon={Bookmark}
+                      size={14}
+                      filled={isAlreadyManaged(repo)}
+                      fillColor={theme.accent.primary}
+                      hoverFillColor={theme.accent.secondary}
+                      onClick={() => {
+                        if (isAlreadyManaged(repo)) {
+                          onRemoveFromManagedList?.(repo);
+                        } else {
+                          onAddToManagedList?.(repo);
                         }
                       }}
-                      style={{
-                        background: '#260000',
-                        border: 'none',
-                        color: theme.canvas.bg,
-
-                        cursor: 'pointer',
-                        padding: '4px 8px',
-                        borderRadius: '4px',
-                        fontSize: '0.7rem',
-                        fontWeight: 600,
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: '2px',
-                        fontFamily: "'EmOne', sans-serif"
-                      }}
-                      title="Add to your repository list"
-                    >
-                      <Plus size={10} />
-                      {addLabel}
-                    </button>
-                  )}
+                      title={isAlreadyManaged(repo) ? 'Remove from your repositories' : 'Add to your repositories'}
+                    />
+                  </div>
                 </div>
               </div>
 
@@ -879,23 +824,26 @@ const RepositorySelectionModal = ({
                       <RefreshCw size={10} style={{ animation: 'spin 1s linear infinite' }} />
                       Scanning for universes...
                     </div>
-                  ) : universes.length === 0 ? (
-                    <div style={{
-                      fontSize: '0.7rem',
-                      color: '#666',
-                      fontStyle: 'italic'
-                    }}>
-                      No universes found in this repository
-                    </div>
                   ) : (
                     <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                      <div style={{
-                        fontSize: '0.7rem',
-                        fontWeight: 600,
-                        color: '#260000'
-                      }}>
-                        Found {universes.length} universe{universes.length === 1 ? '' : 's'}:
-                      </div>
+                      {universes.length > 0 && (
+                        <div style={{
+                          fontSize: '0.7rem',
+                          fontWeight: 600,
+                          color: '#260000'
+                        }}>
+                          Found {universes.length} universe{universes.length === 1 ? '' : 's'}:
+                        </div>
+                      )}
+                      {universes.length === 0 && (
+                        <div style={{
+                          fontSize: '0.7rem',
+                          color: '#666',
+                          fontStyle: 'italic'
+                        }}>
+                          No universes found in this repository
+                        </div>
+                      )}
                       {universes.map((universe, index) => {
                         const displayName = universe.name || universe.slug || universe.fileName || `Universe ${index + 1}`;
                         const repoInfo = {
@@ -1029,6 +977,43 @@ const RepositorySelectionModal = ({
                           </div>
                         );
                       })}
+                      {onCreateUniverseFile && (
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            onCreateUniverseFile(repo);
+                          }}
+                          onMouseEnter={(e) => {
+                            e.currentTarget.style.backgroundColor = '#D0CACA';
+                            e.currentTarget.style.transform = 'scale(1.02)';
+                          }}
+                          onMouseLeave={(e) => {
+                            e.currentTarget.style.backgroundColor = '#DEDADA';
+                            e.currentTarget.style.transform = 'scale(1)';
+                          }}
+                          style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: 5,
+                            padding: '6px 12px',
+                            backgroundColor: '#DEDADA',
+                            border: '2px solid #7A0000',
+                            borderRadius: 20,
+                            cursor: 'pointer',
+                            transition: 'all 0.2s ease',
+                            fontFamily: "'EmOne', sans-serif",
+                            fontSize: '0.7rem',
+                            fontWeight: 700,
+                            color: '#7A0000',
+                            whiteSpace: 'nowrap',
+                            alignSelf: 'flex-start'
+                          }}
+                          title="Create a new .redstring file in this repository"
+                        >
+                          <FilePlus size={14} />
+                          New Universe File
+                        </button>
+                      )}
                     </div>
                   )}
                 </div>

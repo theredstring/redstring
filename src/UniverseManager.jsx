@@ -221,6 +221,7 @@ const UniverseManager = ({ variant = 'panel', onRequestClose }) => {
   const [syncStatus, setSyncStatus] = useState(null);
   const [error, setError] = useState(null);
   const [isConnecting, setIsConnecting] = useState(false);
+  const [connectingMessage, setConnectingMessage] = useState(null);
   const [allowOAuthBackup, setAllowOAuthBackup] = useState(() => {
     try {
       return localStorage.getItem(getStorageKey('allow_oauth_backup')) !== 'false';
@@ -2405,6 +2406,8 @@ const UniverseManager = ({ variant = 'panel', onRequestClose }) => {
 
     try {
       setLoading(true);
+      setConnectingMessage('Loading from repository...');
+      setIsConnecting(true);
       setRepositoryIntent(null);
       setShowRepositoryManager(false);
 
@@ -2482,6 +2485,8 @@ const UniverseManager = ({ variant = 'panel', onRequestClose }) => {
       setError(`Failed to import universe: ${err.message}`);
     } finally {
       setLoading(false);
+      setIsConnecting(false);
+      setConnectingMessage(null);
       setPendingRepoAttachment(null);
       setDiscoveredUniverseFiles([]);
       setShowUniverseFileSelector(false);
@@ -2507,6 +2512,88 @@ const UniverseManager = ({ variant = 'panel', onRequestClose }) => {
     } catch (err) {
       umError('[UniverseManager] Failed to save managed repos:', err);
     }
+  };
+
+  const handleCreateNewUniverseFile = async (repo) => {
+    const owner = repo.owner?.login || repo.owner?.name || repo.owner;
+    const repoName = repo.name;
+
+    if (!owner || !repoName) {
+      setError('Repository is missing owner/name metadata.');
+      return;
+    }
+
+    setShowRepositoryManager(false);
+
+    // Auto-add to managed list if not already there
+    const repoKey = `${owner}/${repoName}`;
+    const alreadyManaged = managedRepositories.some(r =>
+      `${r.owner?.login || r.owner}/${r.name}` === repoKey
+    );
+    if (!alreadyManaged) {
+      const newList = [...managedRepositories, repo];
+      setManagedRepositories(newList);
+      localStorage.setItem(getStorageKey('redstring-managed-repositories'), JSON.stringify(newList));
+    }
+
+    setConfirmDialog({
+      title: 'Create New Universe File',
+      message: `Create a new .redstring universe file in ${owner}/${repoName}.`,
+      variant: 'default',
+      confirmLabel: 'Create Universe File',
+      cancelLabel: 'Cancel',
+      titleColor: theme.accent.secondary,
+      inputField: {
+        placeholder: 'Universe name',
+        defaultValue: 'My Universe',
+        label: 'Universe Name'
+      },
+      onConfirm: async (universeName) => {
+        try {
+          setLoading(true);
+          setIsConnecting(true);
+          setConnectingMessage('Creating universe file...');
+
+          const creation = await universeManagerService.createUniverse(universeName, {
+            enableGit: true,
+            enableLocal: !deviceInfo.gitOnlyMode
+          });
+          const createdSlug = creation?.createdUniverse?.slug;
+          const slug = createdSlug || (creation?.universes || []).find(u => u.name === (creation?.createdUniverse?.name || universeName))?.slug;
+          if (!slug) throw new Error('Could not determine newly created universe slug');
+
+          await universeManagerService.attachGitRepository(slug, {
+            user: owner,
+            repo: repoName,
+            authMethod: dataAuthMethod || 'oauth',
+            universeFolder: slug,
+            universeFile: `${slug}.redstring`
+          });
+
+          try {
+            await universeManagerService.forceSave(slug, (hasOAuth || hasApp) ? undefined : { skipGit: true });
+          } catch (e) {
+            umWarn('[UniverseManager] Initial save after creating repo file failed:', e);
+          }
+
+          try {
+            await universeManagerService.setPrimaryStorage(slug, STORAGE_TYPES.GIT);
+          } catch (e) {
+            umWarn('[UniverseManager] Failed to set Git as primary after creating repo file:', e);
+          }
+
+          setSyncStatus({ type: 'success', message: `Created universe in @${owner}/${repoName}` });
+          await refreshState();
+        } catch (createErr) {
+          umError('[UniverseManager] Create universe file in repo failed:', createErr);
+          setError(`Failed to create universe in repo: ${createErr.message}`);
+        } finally {
+          setLoading(false);
+          setIsConnecting(false);
+          setConnectingMessage(null);
+        }
+      }
+    });
   };
 
   const handleSetMainRepository = (repo) => {
@@ -4572,12 +4659,13 @@ const UniverseManager = ({ variant = 'panel', onRequestClose }) => {
           setRepositoryTargetSlug(null);
           setRepositoryIntent(null);
         }}
-        onSelectRepository={handleRepositorySelect}
         onAddToManagedList={handleAddToManagedList}
+        onRemoveFromManagedList={handleRemoveFromManagedList}
         managedRepositories={managedRepositories}
         intent={repositoryIntent}
         onImportDiscovered={handleImportDiscovered}
         onSyncDiscovered={handleLinkDiscovered}
+        onCreateUniverseFile={handleCreateNewUniverseFile}
       />
 
       {/* Universe Linking Modal */}
@@ -5009,7 +5097,7 @@ const UniverseManager = ({ variant = 'panel', onRequestClose }) => {
                 color="#8B0000"
                 style={{ animation: 'spin 1s linear infinite', flexShrink: 0 }}
               />
-              <span>Connecting...</span>
+              <span>{connectingMessage || 'Connecting...'}</span>
             </div>
           </div>
         </>

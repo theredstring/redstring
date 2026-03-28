@@ -79,11 +79,9 @@ export class GitHubAppAuth {
    * Get GitHub App installation URL for user installation
    */
   getInstallationUrl(repositoryIds = null) {
-    if (!this.clientId) {
-      throw new Error('GitHub App client ID is required');
-    }
+    const slug = this.getAppSlug();
 
-    const baseUrl = `https://github.com/apps/${this.getAppSlug()}/installations/new`;
+    const baseUrl = `https://github.com/apps/${slug}/installations/new`;
     const params = new URLSearchParams({
       state: Math.random().toString(36).substring(7) // Random state for security
     });
@@ -96,11 +94,29 @@ export class GitHubAppAuth {
   }
 
   /**
-   * Get app slug from client ID (simplified approach)
-   * In production, this should be configurable
+   * Get app slug, fetched from the oauth-server which selects dev/prod based on environment
    */
   getAppSlug() {
-    return 'redstring-semantic-sync'; // This should match your actual GitHub App slug
+    return this._appSlug || 'redstring-semantic-sync';
+  }
+
+  /**
+   * Fetch the correct app slug from the oauth-server (dev vs prod aware)
+   */
+  async fetchAppSlug() {
+    try {
+      const response = await this.serverRequest('/api/github/app/info', { method: 'GET' });
+      if (response.ok) {
+        const data = await response.json();
+        if (data.name) {
+          this._appSlug = data.name;
+          return data.name;
+        }
+      }
+    } catch (error) {
+      console.warn('[GitHubApp] Failed to fetch app slug, using default:', error.message);
+    }
+    return this.getAppSlug();
   }
 
   /**
