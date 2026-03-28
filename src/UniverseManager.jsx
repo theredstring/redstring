@@ -1083,7 +1083,6 @@ const UniverseManager = ({ variant = 'panel', onRequestClose }) => {
   };
 
   const handleCreateUniverseFromLocalFile = async () => {
-    const activeUniverse = serviceState.universes.find(u => u.slug === serviceState.activeUniverseSlug);
     setConfirmDialog({
       title: 'Create Universe from New File',
       message: 'Choose a name for your new universe. A fresh .redstring file will be created for it.',
@@ -1092,7 +1091,7 @@ const UniverseManager = ({ variant = 'panel', onRequestClose }) => {
       cancelLabel: 'Cancel',
       inputField: {
         placeholder: 'My Universe',
-        defaultValue: activeUniverse?.name || '',
+        defaultValue: '',
         label: 'Universe Name'
       },
       onConfirm: async (rawName) => {
@@ -1406,6 +1405,8 @@ const UniverseManager = ({ variant = 'panel', onRequestClose }) => {
   };
 
   const handleAttachRepo = (slug) => {
+    setRepositoryIntent('attach');
+    setRepositoryTargetSlug(slug);
     setShowRepositoryManager(true);
   };
 
@@ -2538,6 +2539,8 @@ const UniverseManager = ({ variant = 'panel', onRequestClose }) => {
       localStorage.setItem(getStorageKey('redstring-managed-repositories'), JSON.stringify(newList));
     }
 
+    const activeUniverse = serviceState.universes.find(u => u.slug === serviceState.activeUniverseSlug);
+
     setConfirmDialog({
       title: 'Create New Universe File',
       message: `Create a new .redstring universe file in ${owner}/${repoName}.`,
@@ -2547,7 +2550,7 @@ const UniverseManager = ({ variant = 'panel', onRequestClose }) => {
       titleColor: theme.accent.secondary,
       inputField: {
         placeholder: 'Universe name',
-        defaultValue: 'My Universe',
+        defaultValue: activeUniverse?.name || 'My Universe',
         label: 'Universe Name'
       },
       onConfirm: async (universeName) => {

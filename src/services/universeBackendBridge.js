@@ -408,6 +408,8 @@ class UniverseBackendBridge {
         return backend.deleteUniverse(payload.slug);
       case 'updateUniverse':
         return backend.updateUniverse(payload.slug, payload.updates);
+      case 'setSourceOfTruth':
+        return backend.setSourceOfTruth(payload.slug, payload.sourceType);
       case 'discoverUniversesInRepository':
         return backend.discoverUniversesInRepository(payload.repoConfig);
       case 'linkToDiscoveredUniverse':
@@ -494,6 +496,10 @@ class UniverseBackendBridge {
     return this.sendCommand('updateUniverse', { slug, updates });
   }
 
+  setSourceOfTruth(slug, sourceType) {
+    return this.sendCommand('setSourceOfTruth', { slug, sourceType });
+  }
+
   discoverUniversesInRepository(repoConfig) {
     return this.sendCommand('discoverUniversesInRepository', { repoConfig });
   }
@@ -554,6 +560,7 @@ const universeBackendBridge = {
   createUniverse: (name, options) => bridgeInstance.createUniverse(name, options),
   deleteUniverse: (slug) => bridgeInstance.deleteUniverse(slug),
   updateUniverse: (slug, updates) => bridgeInstance.updateUniverse(slug, updates),
+  setSourceOfTruth: (slug, sourceType) => bridgeInstance.setSourceOfTruth(slug, sourceType),
   discoverUniversesInRepository: (repoConfig) => bridgeInstance.discoverUniversesInRepository(repoConfig),
   linkToDiscoveredUniverse: (discoveredUniverse, repoConfig) => bridgeInstance.linkToDiscoveredUniverse(discoveredUniverse, repoConfig),
   forceSave: (universeSlug, storeState, options) => bridgeInstance.forceSave(universeSlug, storeState, options),
