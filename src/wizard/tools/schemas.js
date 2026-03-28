@@ -820,15 +820,17 @@ export function getToolDefinitions(options = {}) {
         },
         {
             name: 'mergeNodes',
-            description: 'Merge two nodes into one. The primary node survives; the secondary is absorbed (metadata, descriptions, connections, definition graphs combined) and deleted. Use findDuplicates first to identify which node to keep.',
+            description: 'Merge two nodes into one. The primary node survives; the secondary is absorbed (metadata, descriptions, connections, definition graphs combined) and deleted. Use findDuplicates first to identify which node to keep. Accepts prototypeId (preferred for disambiguation when names collide) or name.',
             parameters: {
                 type: 'object',
                 properties: {
-                    primaryNodeName: { type: 'string', description: 'Name of the node to keep' },
-                    secondaryNodeName: { type: 'string', description: 'Name of the node to merge into primary (will be deleted)' },
+                    primaryNodeName: { type: 'string', description: 'Name of the node to keep (used if primaryPrototypeId is not provided)' },
+                    secondaryNodeName: { type: 'string', description: 'Name of the node to merge into primary (used if secondaryPrototypeId is not provided)' },
+                    primaryPrototypeId: { type: 'string', description: 'Prototype ID of the node to keep (preferred, avoids name ambiguity)' },
+                    secondaryPrototypeId: { type: 'string', description: 'Prototype ID of the node to merge into primary (preferred, avoids name ambiguity)' },
                     targetGraphId: { type: 'string', description: 'Graph context for resolving nodes (default: active).' }
                 },
-                required: ['primaryNodeName', 'secondaryNodeName']
+                required: []
             }
         },
         {

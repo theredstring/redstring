@@ -566,13 +566,24 @@ function updateGraphState(graphState, _toolName, _args, result) {
     const secondaryName = (result.secondaryName || '').toLowerCase().trim();
     const protos = graphState.nodePrototypes || [];
 
-    // Find indices by name
+    // Prefer ID-based resolution, fall back to name
     let primaryProto = null;
     let secondaryIdx = -1;
-    for (let i = 0; i < protos.length; i++) {
-      const pName = (protos[i].name || '').toLowerCase().trim();
-      if (pName === primaryName) primaryProto = protos[i];
-      if (pName === secondaryName) secondaryIdx = i;
+
+    if (result.primaryProtoId) {
+      primaryProto = protos.find(p => p.id === result.primaryProtoId) || null;
+    }
+    if (result.secondaryProtoId) {
+      secondaryIdx = protos.findIndex(p => p.id === result.secondaryProtoId);
+    }
+
+    // Fall back to name resolution if IDs didn't resolve
+    if (!primaryProto || secondaryIdx < 0) {
+      for (let i = 0; i < protos.length; i++) {
+        const pName = (protos[i].name || '').toLowerCase().trim();
+        if (!primaryProto && pName === primaryName) primaryProto = protos[i];
+        if (secondaryIdx < 0 && pName === secondaryName) secondaryIdx = i;
+      }
     }
 
     if (secondaryIdx >= 0 && primaryProto) {
@@ -588,7 +599,7 @@ function updateGraphState(graphState, _toolName, _args, result) {
       }
       // Remove secondary prototype
       protos.splice(secondaryIdx, 1);
-      console.error('[updateGraphState] mergeNodes:', secondaryName, '→', primaryName);
+      console.error('[updateGraphState] mergeNodes:', secondaryName || result.secondaryProtoId, '→', primaryName || result.primaryProtoId);
     }
   } else if (result.action === 'mergeGraphs') {
     // Merge each pair: remove secondary prototypes and remap instances

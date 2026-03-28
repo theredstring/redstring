@@ -26,37 +26,56 @@ function resolveNodeByName(name, nodePrototypes, graphs, graphId) {
   return null;
 }
 
+function resolveNodeById(id, nodePrototypes) {
+  if (!id) return null;
+  const proto = nodePrototypes.find(p => p.id === id);
+  if (!proto) return null;
+  return { protoId: proto.id, name: proto.name };
+}
+
 /**
- * @param {Object} args - { primaryNodeName, secondaryNodeName, targetGraphId? }
+ * @param {Object} args - { primaryNodeName?, secondaryNodeName?, primaryPrototypeId?, secondaryPrototypeId?, targetGraphId? }
  * @param {Object} graphState - Current graph state
  * @returns {Promise<Object>} Merge action spec for UI application
  */
 export async function mergeNodes(args, graphState) {
-  const { primaryNodeName, secondaryNodeName, targetGraphId } = args;
+  const {
+    primaryNodeName, secondaryNodeName,
+    primaryPrototypeId, secondaryPrototypeId,
+    targetGraphId
+  } = args;
 
-  if (!primaryNodeName) {
-    throw new Error('primaryNodeName is required');
+  // Validate: at least one identifier per node
+  if (!primaryPrototypeId && !primaryNodeName) {
+    throw new Error('Either primaryPrototypeId or primaryNodeName is required');
   }
-  if (!secondaryNodeName) {
-    throw new Error('secondaryNodeName is required');
+  if (!secondaryPrototypeId && !secondaryNodeName) {
+    throw new Error('Either secondaryPrototypeId or secondaryNodeName is required');
   }
 
   const { nodePrototypes = [], graphs = [], activeGraphId } = graphState;
   const graphId = targetGraphId || activeGraphId;
 
-  const resolvedPrimary = resolveNodeByName(primaryNodeName, nodePrototypes, graphs, graphId);
-  const resolvedSecondary = resolveNodeByName(secondaryNodeName, nodePrototypes, graphs, graphId);
+  // Resolve primary: prefer ID, fall back to name
+  const resolvedPrimary = primaryPrototypeId
+    ? resolveNodeById(primaryPrototypeId, nodePrototypes)
+    : resolveNodeByName(primaryNodeName, nodePrototypes, graphs, graphId);
+
+  // Resolve secondary: prefer ID, fall back to name
+  const resolvedSecondary = secondaryPrototypeId
+    ? resolveNodeById(secondaryPrototypeId, nodePrototypes)
+    : resolveNodeByName(secondaryNodeName, nodePrototypes, graphs, graphId);
 
   if (resolvedPrimary) {
-    console.error('[mergeNodes] Resolved primary:', primaryNodeName, '→', resolvedPrimary.protoId);
+    console.error('[mergeNodes] Resolved primary:', primaryPrototypeId || primaryNodeName, '→', resolvedPrimary.protoId);
   } else {
-    console.error('[mergeNodes] Primary not found in graphState, delegating to client:', primaryNodeName);
+    console.error('[mergeNodes] Primary not found in graphState, delegating to client:', primaryPrototypeId || primaryNodeName);
   }
 
   if (resolvedSecondary) {
-    console.error('[mergeNodes] Resolved secondary:', secondaryNodeName, '→', resolvedSecondary.protoId);
+    console.error('[mergeNodes] Resolved secondary:', secondaryPrototypeId || secondaryNodeName, '→', resolvedSecondary.protoId);
   } else {
-    console.error('[mergeNodes] Secondary not found in graphState, delegating to client:', secondaryNodeName);
+    console.error('[mergeNodes] Secondary not found in graphState, delegating to client:', secondaryPrototypeId || secondaryNodeName);
   }
 
   return {
@@ -64,8 +83,8 @@ export async function mergeNodes(args, graphState) {
     graphId,
     primaryName: resolvedPrimary?.name || primaryNodeName,
     secondaryName: resolvedSecondary?.name || secondaryNodeName,
-    primaryProtoId: resolvedPrimary?.protoId || null,
-    secondaryProtoId: resolvedSecondary?.protoId || null,
+    primaryProtoId: resolvedPrimary?.protoId || primaryPrototypeId || null,
+    secondaryProtoId: resolvedSecondary?.protoId || secondaryPrototypeId || null,
     merged: true
   };
 }
