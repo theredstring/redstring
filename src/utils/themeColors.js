@@ -49,13 +49,13 @@ export const LIGHT_THEME = {
 // Dark mode theme
 export const DARK_THEME = {
   canvas: {
-    bg: '#3F3A3A',      // Main canvas/panel background
+    bg: '#2E2A2A',      // Main canvas/panel background
     textPrimary: '#DEDADA',   // Primary text color (light on dark)
     textSecondary: '#BDB5B5', // Secondary light text
     border: '#6a6464',   // Borders and dividers (lightened for contrast)
     hover: '#4a4545',    // Hover states
     active: '#3F3A3A',   // Active tab/button states
-    inactive: '#2e2a2a', // Inactive tab/button states
+    inactive: '#3F3A3A', // Inactive tab/button states
     brand: '#7A0000',    // Brand/accent color
   },
   accent: {
@@ -96,5 +96,5 @@ export function getTheme(isDark) {
 }
 
 // Backwards compatibility - keep existing exports
-export const DARK_MODE_BG_COLOR = DARK_THEME.canvas.bg;
+export const DARK_MODE_BG_COLOR = DARK_THEME.canvas.bg; // #2E2A2A
 export const LIGHT_MODE_BG_COLOR = LIGHT_THEME.canvas.bg;

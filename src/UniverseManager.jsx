@@ -45,6 +45,7 @@ import Modal from './components/shared/Modal.jsx';
 import RepositorySelectionModal from './components/modals/RepositorySelectionModal.jsx';
 import ConfirmDialog from './components/shared/ConfirmDialog.jsx';
 import LocalFileConflictDialog from './components/shared/LocalFileConflictDialog.jsx';
+import SlotConflictDialog from './components/shared/SlotConflictDialog.jsx';
 import ConnectionStats from './components/universe-manager/ConnectionStats.jsx';
 import AuthSection from './components/universe-manager/AuthSection.jsx';
 import UniversesList from './components/universe-manager/UniversesList.jsx';
@@ -268,6 +269,7 @@ const UniverseManager = ({ variant = 'panel', onRequestClose }) => {
   const [repositoryIntent, setRepositoryIntent] = useState(null);
   const [confirmDialog, setConfirmDialog] = useState(null);
   const [conflictDialog, setConflictDialog] = useState(null);
+  const [slotConflictData, setSlotConflictData] = useState(null);
 
   const [authExpiredDialog, setAuthExpiredDialog] = useState(null);
 
@@ -957,40 +959,44 @@ const UniverseManager = ({ variant = 'panel', onRequestClose }) => {
       const conflict = event.detail;
       umLog('[UniverseManager] Slot conflict detected:', conflict);
 
-      const detailParts = [];
-      if (conflict.localData) {
-        detailParts.push(`Local: ${conflict.localData.nodeCount ?? '?'} nodes, ${conflict.localData.graphCount ?? '?'} graphs`);
-      }
-      if (conflict.gitData) {
-        detailParts.push(`Git: ${conflict.gitData.nodeCount ?? '?'} nodes, ${conflict.gitData.graphCount ?? '?'} graphs`);
-      }
+      const universe = serviceState.universes.find(u => u.slug === conflict.universeSlug);
+      const localPath = universe?.raw?.localFile?.displayPath || universe?.raw?.localFile?.path || 'Local file';
+      const gitUser = universe?.raw?.gitRepo?.linkedRepo?.user;
+      const gitRepoName = universe?.raw?.gitRepo?.linkedRepo?.repo;
+      const gitFile = universe?.raw?.gitRepo?.universeFile;
+      const gitFolder = universe?.raw?.gitRepo?.universeFolder;
 
-      setConfirmDialog({
-        title: conflict.requiresPrimarySelection ? 'Select Primary Storage' : 'Data Conflict Detected',
-        titleColor: theme.accent.secondary,
-        message: conflict.requiresPrimarySelection
-          ? `Both local file and Git repository are available for "${conflict.universeName}". Choose which should be the source of truth.`
-          : `The local file and Git repository for "${conflict.universeName}" have different data. Choose which version to keep.`,
-        details: detailParts.length > 0 ? detailParts.join('\n') : undefined,
-        variant: 'warning',
-        confirmLabel: conflict.requiresPrimarySelection ? 'Make Git Primary' : 'Use Git Version',
-        cancelLabel: conflict.requiresPrimarySelection ? 'Make Local Primary' : 'Use Local File',
-        onConfirm: async () => {
+      setSlotConflictData({
+        universeName: conflict.universeName,
+        localSlot: {
+          nodeCount: conflict.localData?.nodeCount,
+          graphCount: conflict.localData?.graphCount,
+          timestamp: conflict.localData?.timestamp,
+          path: localPath
+        },
+        gitSlot: {
+          nodeCount: conflict.gitData?.nodeCount,
+          graphCount: conflict.gitData?.graphCount,
+          timestamp: conflict.gitData?.timestamp,
+          repoLabel: gitUser && gitRepoName ? `@${gitUser}/${gitRepoName}` : 'Git Repository',
+          path: gitFolder && gitFile ? `${gitFolder}/${gitFile}` : gitFile || 'Remote file'
+        },
+        onChooseLocal: async () => {
           try {
-            setSyncStatus({ type: 'info', message: 'Applying Git version...' });
-            await universeBackend.resolveConflict(conflict.universeSlug, 'git');
-            setSyncStatus({ type: 'success', message: 'Applied Git version' });
+            setSyncStatus({ type: 'info', message: 'Applying local version...' });
+            await universeBackend.resolveConflict(conflict.universeSlug, 'local');
+            setSyncStatus({ type: 'success', message: 'Applied local version' });
             await refreshState();
           } catch (e) {
             umError('[UniverseManager] Failed to resolve conflict:', e);
             setSyncStatus({ type: 'error', message: `Failed: ${e.message}` });
           }
         },
-        onCancel: async () => {
+        onChooseGit: async () => {
           try {
-            setSyncStatus({ type: 'info', message: 'Applying local version...' });
-            await universeBackend.resolveConflict(conflict.universeSlug, 'local');
-            setSyncStatus({ type: 'success', message: 'Applied local version' });
+            setSyncStatus({ type: 'info', message: 'Applying Git version...' });
+            await universeBackend.resolveConflict(conflict.universeSlug, 'git');
+            setSyncStatus({ type: 'success', message: 'Applied Git version' });
             await refreshState();
           } catch (e) {
             umError('[UniverseManager] Failed to resolve conflict:', e);
@@ -1330,17 +1336,17 @@ const UniverseManager = ({ variant = 'panel', onRequestClose }) => {
     const localFilePath = hasLocalFile ? universe.raw.localFile.path : null;
 
     setConfirmDialog({
-      title: 'Delete Universe',
+      title: 'Disconnect Universe',
       titleColor: theme.accent.secondary,
       message: hasLocalFile
-        ? `Delete universe "${name}"?\n\nLinked file: ${localFilePath}`
-        : `Delete universe "${name}"?`,
+        ? `Disconnect universe "${name}"?\n\nLinked file: ${localFilePath}`
+        : `Disconnect universe "${name}"?`,
       details: hasLocalFile
         ? 'Choose whether to also delete the linked .redstring file from disk.'
-        : 'This action cannot be undone.',
+        : 'This will remove the universe from your list.',
       variant: 'danger',
-      confirmLabel: hasLocalFile ? 'Delete Universe & File' : 'Delete Universe',
-      cancelLabel: hasLocalFile ? 'Remove Entry Only' : 'Cancel',
+      confirmLabel: hasLocalFile ? 'Disconnect & Delete File' : 'Disconnect',
+      cancelLabel: hasLocalFile ? 'Disconnect Only' : 'Cancel',
       onConfirm: async () => {
         try {
           setLoading(true);
@@ -1356,20 +1362,20 @@ const UniverseManager = ({ variant = 'panel', onRequestClose }) => {
           await refreshState();
         } catch (err) {
           umError('[UniverseManager] Delete failed:', err);
-          setError(`Failed to delete universe: ${err.message}`);
+          setError(`Failed to disconnect universe: ${err.message}`);
         } finally {
           setLoading(false);
         }
       },
       onCancel: hasLocalFile ? async () => {
-        // "Remove Entry Only" — delete universe but keep the file on disk
+        // "Disconnect Only" — remove universe entry but keep the file on disk
         try {
           setLoading(true);
           await universeManagerService.deleteUniverse(slug);
           await refreshState();
         } catch (err) {
           umError('[UniverseManager] Delete failed:', err);
-          setError(`Failed to delete universe: ${err.message}`);
+          setError(`Failed to disconnect universe: ${err.message}`);
         } finally {
           setLoading(false);
         }
@@ -5026,6 +5032,17 @@ const UniverseManager = ({ variant = 'panel', onRequestClose }) => {
           onChooseExisting={() => handleResolveLocalConflict('existing')}
           onOverwrite={() => handleResolveLocalConflict('incoming')}
           onCancel={handleCancelLocalConflict}
+        />
+      )}
+      {slotConflictData && (
+        <SlotConflictDialog
+          isOpen={true}
+          universeName={slotConflictData.universeName}
+          localSlot={slotConflictData.localSlot}
+          gitSlot={slotConflictData.gitSlot}
+          onChooseLocal={() => { slotConflictData.onChooseLocal(); setSlotConflictData(null); }}
+          onChooseGit={() => { slotConflictData.onChooseGit(); setSlotConflictData(null); }}
+          onCancel={() => setSlotConflictData(null)}
         />
       )}
       {/* Auth Expired Dialog */}
