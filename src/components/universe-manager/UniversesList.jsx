@@ -635,214 +635,25 @@ const UniversesList = ({
                         </div>
 
                         <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                          {/* Repository Slot */}
-                          {universe.raw?.gitRepo?.linkedRepo ? (
-                            <div
+                          {/* Save to Repository */}
+                          {onSaveRepoSource && (
+                            <PanelIconButton
+                              icon={Save}
+                              label={isVerySlim ? null : "Save"}
+                              variant="outline"
+                              size={isVerySlim ? 14 : (isSlim ? 16 : 18)}
                               style={{
-                                padding: 8,
-                                backgroundColor: theme.canvas.bg,
-                                borderRadius: 6,
-                                border: `2px solid ${resolvedSource === 'git' ? theme.canvas.brand : theme.canvas.border}`,
-
-                                display: 'flex',
-                                flexDirection: 'column',
-                                gap: 6,
-                                maxWidth: '100%',
-                                overflow: 'hidden'
+                                fontSize: '0.7rem',
+                                color: theme.canvas.textSecondary,
+                                borderColor: theme.canvas.border,
+                                ...(isVerySlim && { padding: '5px' })
                               }}
-                            >
-                              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                                  <Github size={14} />
-                                  <span style={{ fontSize: '0.72rem', fontWeight: 600, color: theme.canvas.textPrimary }}>
-                                    @{universe.raw.gitRepo.linkedRepo.user}/{universe.raw.gitRepo.linkedRepo.repo}
-                                  </span>
-                                  {/* Source-of-truth badge removed; button below handles status */}
-                                </div>
-                                <div style={{
-                                  display: 'flex',
-                                  alignItems: 'center',
-                                  gap: isVerySlim ? 1 : (isSlim ? 2 : 4),
-                                  flexShrink: 0
-                                }}>
-                                  {onDownloadRepoFile && (
-                                    <PanelIconButton
-                                      icon={Download}
-                                      size={isVerySlim ? 14 : (isSlim ? 16 : 18)}
-                                      style={isVerySlim ? { padding: '5px' } : {}}
-                                      onClick={(e) => {
-                                        e.stopPropagation();
-                                        onDownloadRepoFile(universe.slug);
-                                      }}
-                                      title="Download latest from Git repository"
-                                    />
-                                  )}
-                                  <PanelIconButton
-                                    icon={X}
-                                    size={isVerySlim ? 14 : (isSlim ? 16 : 18)}
-                                    style={isVerySlim ? { padding: '5px' } : {}}
-                                    onClick={(e) => {
-                                      e.stopPropagation();
-                                      if (onRemoveRepoSource && universe.raw.gitRepo?.linkedRepo) {
-                                        onRemoveRepoSource(universe.slug, {
-                                          user: universe.raw.gitRepo.linkedRepo.user,
-                                          repo: universe.raw.gitRepo.linkedRepo.repo
-                                        });
-                                      }
-                                    }}
-                                    title="Remove repository"
-                                  />
-                                </div>
-                              </div>
-
-                              {/* Git Status Information */}
-                              {(() => {
-                                const syncStatus = syncStatusMap[universe.slug];
-                                const gitFolder = universe.raw?.gitRepo?.universeFolder || universe.slug;
-                                const gitFile = universe.raw?.gitRepo?.universeFile || `${universe.slug}.redstring`;
-                                const fileName = `${gitFolder}/${gitFile}`;
-                                const statusText = syncStatus?.status || 'unknown';
-                                const lastSync = syncStatus?.lastSync ? formatWhen(syncStatus.lastSync) : 'Never';
-                                const hasError = syncStatus?.error;
-                                const isLoading = syncStatus?.isLoading || syncStatus?.isSyncing;
-
-                                return (
-                                  <div style={{
-                                    fontSize: '0.65rem',
-                                    color: theme.canvas.textSecondary,
-                                    marginTop: '4px',
-                                    display: 'flex',
-                                    flexDirection: 'column',
-                                    gap: 2
-                                  }}>
-                                    <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-                                      <span style={{ fontWeight: 600, color: theme.canvas.textPrimary }}>File:</span>
-                                      <span style={{ wordBreak: 'break-word' }}>
-                                        {fileName}
-                                      </span>
-                                    </div>
-                                    <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-                                      <span style={{ fontWeight: 600, color: theme.canvas.textPrimary }}>Status:</span>
-                                      <span style={{
-                                        color: hasError ? theme.alert.error.text : isLoading ? theme.alert.warning.text : statusText === 'synced' ? theme.canvas.brand : theme.canvas.textSecondary,
-                                        fontWeight: 500
-                                      }}>
-                                        {isLoading ? '⟳ Loading...' : hasError ? '⚠ Error' : statusText}
-                                      </span>
-                                    </div>
-                                    <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-                                      <span style={{ fontWeight: 600, color: theme.canvas.textPrimary }}>Last saved:</span>
-                                      <span style={{ color: theme.canvas.textSecondary }}>{lastSync}</span>
-                                    </div>
-                                    {hasError && (
-                                      <div style={{
-                                        marginTop: 4,
-                                        padding: '3px 6px',
-                                        backgroundColor: theme.alert.error.bg,
-                                        borderRadius: 3,
-                                        border: `1px solid ${theme.alert.error.border}`
-                                      }}>
-                                        <span style={{ color: theme.alert.error.text, fontSize: '0.6rem' }}>
-                                          {syncStatus.error}
-                                        </span>
-                                      </div>
-                                    )}
-                                  </div>
-                                );
-                              })()}
-
-                              <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
-                                {(() => {
-                                  const isSourceOfTruth = resolvedSource === 'git';
-                                  const hasOtherStorage = !!(universe.raw?.localFile?.enabled);
-                                  const canToggle = hasOtherStorage;
-
-                                  return onSetPrimarySource && (
-                                    <button
-                                      onClick={(e) => {
-                                        e.stopPropagation();
-                                        if (canToggle) {
-                                          onSetPrimarySource(universe.slug, 'git');
-                                        }
-                                      }}
-                                      onMouseEnter={(e) => { if (canToggle) e.currentTarget.style.transform = 'scale(1.04)'; }}
-                                      onMouseLeave={(e) => { e.currentTarget.style.transform = 'scale(1)'; }}
-                                      style={{
-                                        fontSize: '0.65rem',
-                                        padding: '2px 6px',
-                                        borderRadius: 6,
-                                        cursor: canToggle ? 'pointer' : 'default',
-                                        fontWeight: 600,
-                                        display: 'flex',
-                                        alignItems: 'center',
-                                        gap: 4,
-                                        border: `1px solid ${theme.darkMode ? '#CCAAA8' : theme.canvas.brand}`,
-                                        backgroundColor: isSourceOfTruth
-                                          ? (theme.darkMode ? '#CCAAA8' : theme.canvas.brand)
-                                          : 'transparent',
-                                        color: isSourceOfTruth
-                                          ? (theme.darkMode ? '#260000' : '#DEDADA')
-                                          : (theme.darkMode ? '#CCAAA8' : theme.canvas.brand),
-
-                                        opacity: canToggle ? 1 : 0.85
-                                      }}
-                                      title={!canToggle ? 'Only storage option (must remain source of truth)' : isSourceOfTruth ? 'Currently source of truth' : 'Click to make source of truth'}
-                                    >
-                                      <Star size={10} fill={isSourceOfTruth ? (theme.darkMode ? '#260000' : '#DEDADA') : 'none'} />
-
-                                      {isSourceOfTruth ? 'Source of Truth' : 'Not Source of Truth'}
-                                    </button>
-                                  );
-                                })()}
-                                {onSaveRepoSource && (
-                                  <PanelIconButton
-                                    icon={Save}
-                                    label="Save"
-                                    variant="outline"
-                                    size={10}
-                                    style={{
-                                      fontSize: '0.65rem',
-                                      padding: '2px 8px',
-                                      color: theme.canvas.brand,
-                                      borderColor: theme.canvas.brand
-                                    }}
-                                    onClick={(e) => {
-                                      e.stopPropagation();
-                                      onSaveRepoSource(universe.slug);
-                                    }}
-                                    title="Save to repository file"
-                                  />
-                                )}
-                              </div>
-                            </div>
-                          ) : (
-                            <div style={{
-                              padding: 12,
-                              backgroundColor: 'transparent',
-                              borderRadius: 6,
-                              border: `2px dashed ${theme.canvas.border}`,
-                              display: 'flex',
-                              alignItems: 'center',
-                              justifyContent: 'center'
-                            }}>
-                                <PanelIconButton
-                                  icon={Plus}
-                                  label={isVerySlim ? null : "Add Repository"}
-                                  variant="outline"
-                                  size={isVerySlim ? 14 : 12}
-                                  strokeWidth={2}
-                                  hoverStrokeWidth={4}
-                                  hoverTextColor={theme.accent.primary}
-                                  style={{
-                                    fontSize: '0.7rem',
-                                    color: theme.canvas.textSecondary,
-                                    borderColor: theme.canvas.border,
-                                    ...(isVerySlim && { padding: '5px' })
-                                  }}
-                                  onClick={() => onLinkRepo && onLinkRepo(universe.slug)}
-                                  title={isVerySlim ? "Add Repository" : undefined}
-                                />
-                            </div>
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                onSaveRepoSource(universe.slug);
+                              }}
+                              title="Save to repository"
+                            />
                           )}
 
                           {/* Local File Slot */}

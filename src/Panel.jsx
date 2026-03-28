@@ -1717,16 +1717,6 @@ const Panel = memo(forwardRef(
             onLoadWikidataCatalog={handleLoadWikidataCatalog}
           />
         );
-      } else if (enableWizard && leftViewActive === 'ai') {
-        panelContent = (
-          <LeftAIView
-            compact={panelWidth < 300}
-            activeGraphId={activeGraphId}
-            graphsMap={graphsMap}
-            edgesMap={edgesMap}
-            nodePrototypesMap={nodePrototypesMap}
-          />
-        );
       } else if (leftViewActive === 'history') {
         panelContent = <LeftHistoryView />;
       }
@@ -2144,6 +2134,18 @@ const Panel = memo(forwardRef(
             onMouseLeave={handleScrollbarMouseLeave}
           >
             {panelContent}
+            {/* LeftAIView stays mounted (hidden when not active) to preserve wizard sessions */}
+            {enableWizard && side === 'left' && (
+              <div style={{ display: leftViewActive === 'ai' ? 'contents' : 'none' }}>
+                <LeftAIView
+                  compact={panelWidth < 300}
+                  activeGraphId={activeGraphId}
+                  graphsMap={graphsMap}
+                  edgesMap={edgesMap}
+                  nodePrototypesMap={nodePrototypesMap}
+                />
+              </div>
+            )}
           </div>
         </div>
 

@@ -2574,6 +2574,15 @@ const LeftAIView = ({ compact = false,
     };
   }, []);
 
+  // Defensive cleanup: abort active agent request if component ever unmounts
+  React.useEffect(() => {
+    return () => {
+      if (currentAgentRequest) {
+        currentAgentRequest.abort();
+      }
+    };
+  }, [currentAgentRequest]);
+
   // Set up event listeners for direct UI control (e.g., from MCP server or Bridge)
   React.useEffect(() => {
     // These need to re-bind when state changes so they have access to latest state
