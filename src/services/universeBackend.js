@@ -3294,6 +3294,15 @@ class UniverseBackend {
     const localInfo = this.analyzeStoreData(localData);
     const gitInfo = this.analyzeStoreData(gitData);
 
+    // If one side has no nodes, it's effectively empty — no real conflict.
+    // The non-empty side should just be used without prompting.
+    if (localInfo.nodeCount === 0 || gitInfo.nodeCount === 0) {
+      umLog('[UniverseBackend] No conflict - one side is effectively empty', {
+        localNodes: localInfo.nodeCount, gitNodes: gitInfo.nodeCount
+      });
+      return null;
+    }
+
     // Check if data is significantly different
     const isDifferent = (
       localInfo.nodeCount !== gitInfo.nodeCount ||
