@@ -1949,9 +1949,12 @@ function WizardLoadingText() {
     };
 
     const scrambleTo = (target) => {
-      const len = Math.max(currentRef.current.length, target.length);
+      const source = currentRef.current;
       let ticks = 0;
-      const maxTicks = 13; // ~400ms at 30ms interval
+      const maxTicks = 18;
+      const corruptEnd = 7;  // ticks 1-7: corrupt source text
+      const corrupted = new Array(source.length).fill(false);
+      const randGlyph = () => ARCANE_GLYPHS[Math.floor(Math.random() * ARCANE_GLYPHS.length)];
 
       scrambleInterval = setInterval(() => {
         ticks++;
@@ -1962,19 +1965,51 @@ function WizardLoadingText() {
           setDisplayText(target);
           return;
         }
-        // Progressive reveal: resolve characters left-to-right as ticks progress
-        const revealCount = Math.floor((ticks / maxTicks) * target.length);
-        let scrambled = '';
-        for (let i = 0; i < len; i++) {
-          if (i < revealCount) {
-            scrambled += target[i] || '';
-          } else if (target[i] === ' ') {
-            scrambled += ' ';
-          } else {
-            scrambled += ARCANE_GLYPHS[Math.floor(Math.random() * ARCANE_GLYPHS.length)];
+
+        // Length morphs smoothly across the ENTIRE animation
+        const lenProgress = ticks / (maxTicks - 1);
+        const curLen = Math.round(source.length + (target.length - source.length) * lenProgress);
+
+        if (ticks <= corruptEnd) {
+          // Phase 1: Corrupt source characters randomly
+          const realPositions = [];
+          for (let i = 0; i < source.length; i++) {
+            if (!corrupted[i] && source[i] !== ' ') realPositions.push(i);
           }
+          const toCorrupt = Math.ceil(realPositions.length / (corruptEnd - ticks + 1));
+          for (let n = 0; n < toCorrupt && realPositions.length > 0; n++) {
+            const pick = Math.floor(Math.random() * realPositions.length);
+            corrupted[realPositions[pick]] = true;
+            realPositions.splice(pick, 1);
+          }
+
+          let scrambled = '';
+          for (let i = 0; i < curLen; i++) {
+            if (i < source.length && source[i] === ' ') {
+              scrambled += ' ';
+            } else if (i < source.length && !corrupted[i]) {
+              scrambled += source[i];
+            } else {
+              scrambled += randGlyph();
+            }
+          }
+          setDisplayText(scrambled);
+        } else {
+          // Phase 2: Reveal target left-to-right, length still morphing
+          const revealProgress = (ticks - corruptEnd) / (maxTicks - corruptEnd - 1);
+          const revealCount = Math.floor(revealProgress * target.length);
+          let scrambled = '';
+          for (let i = 0; i < curLen; i++) {
+            if (i < revealCount) {
+              scrambled += target[i] || '';
+            } else if (i < target.length && target[i] === ' ') {
+              scrambled += ' ';
+            } else {
+              scrambled += randGlyph();
+            }
+          }
+          setDisplayText(scrambled);
         }
-        setDisplayText(scrambled);
       }, 30);
     };
 
