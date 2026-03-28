@@ -968,6 +968,7 @@ const UniverseManager = ({ variant = 'panel', onRequestClose }) => {
       const gitFolder = universe?.raw?.gitRepo?.universeFolder;
 
       setSlotConflictData({
+        universeSlug: conflict.universeSlug,
         universeName: conflict.universeName,
         localSlot: {
           nodeCount: conflict.localData?.nodeCount,
@@ -5130,7 +5131,13 @@ const UniverseManager = ({ variant = 'panel', onRequestClose }) => {
           gitSlot={slotConflictData.gitSlot}
           onChooseLocal={() => { slotConflictData.onChooseLocal(); setSlotConflictData(null); }}
           onChooseGit={() => { slotConflictData.onChooseGit(); setSlotConflictData(null); }}
-          onCancel={() => setSlotConflictData(null)}
+          onCancel={() => {
+            // Clear pending conflict on backend to re-enable saves
+            if (slotConflictData?.universeSlug) {
+              universeBackend.cancelPendingConflict(slotConflictData.universeSlug);
+            }
+            setSlotConflictData(null);
+          }}
         />
       )}
       {/* Auth Expired Dialog */}

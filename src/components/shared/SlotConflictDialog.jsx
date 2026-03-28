@@ -10,7 +10,7 @@ const formatCount = (value) => {
 };
 
 const formatTimestamp = (timestamp) => {
-  if (!timestamp) return 'Unknown';
+  if (!timestamp) return null;
   try {
     return new Date(timestamp).toLocaleString();
   } catch {
@@ -22,67 +22,59 @@ const SlotCard = ({ icon, role, path, nodeCount, graphCount, timestamp, actionLa
   const theme = useTheme();
   const accentColor = tone === 'accent' ? theme.accent.secondary : theme.canvas.textPrimary;
 
-  const metadataRows = [
-    { label: 'Nodes', value: formatCount(nodeCount) },
-    { label: 'Graphs', value: formatCount(graphCount) }
-  ];
-  if (timestamp) {
-    metadataRows.push({ label: 'Last saved', value: formatTimestamp(timestamp) });
-  }
+  const stats = [
+    `${formatCount(nodeCount)} nodes`,
+    `${formatCount(graphCount)} graphs`
+  ].join(' · ');
+
+  const ts = formatTimestamp(timestamp);
 
   return (
     <div
       style={{
         border: `2px solid ${accentColor}`,
-        borderRadius: 12,
+        borderRadius: 10,
         backgroundColor: theme.canvas.bg,
-        padding: 14,
+        padding: '10px 12px',
         display: 'flex',
         flexDirection: 'column',
-        gap: 12,
-        minHeight: 0
+        gap: 6,
+        minWidth: 0,
+        overflow: 'hidden'
       }}
     >
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 6, color: accentColor, fontSize: '0.75rem', fontWeight: 700, letterSpacing: '0.04em' }}>
-          {icon}
-          <span>{role}</span>
-        </div>
-        {path && (
-          <div style={{ fontSize: '0.8rem', color: theme.canvas.textSecondary, wordBreak: 'break-word' }}>
-            {path}
-          </div>
-        )}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+        <div style={{ color: accentColor, display: 'flex', alignItems: 'center' }}>{icon}</div>
+        <span style={{ fontSize: '0.75rem', fontWeight: 700, color: accentColor, letterSpacing: '0.04em' }}>{role}</span>
       </div>
 
-      <div
-        style={{
-          display: 'grid',
-          gridTemplateColumns: 'minmax(100px, 120px) 1fr',
-          gap: '6px 10px',
-          fontSize: '0.8rem',
-          color: theme.canvas.textPrimary
-        }}
-      >
-        {metadataRows.map((row) => (
-          <React.Fragment key={row.label}>
-            <div style={{ fontWeight: 600, opacity: 0.8 }}>{row.label}</div>
-            <div>{row.value}</div>
-          </React.Fragment>
-        ))}
+      {path && (
+        <div style={{ fontSize: '0.8rem', color: theme.canvas.textSecondary, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+          {path}
+        </div>
+      )}
+
+      <div style={{ fontSize: '0.78rem', color: theme.canvas.textPrimary, display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+        <span style={{ fontWeight: 600 }}>{stats}</span>
+        {ts && (
+          <>
+            <span style={{ opacity: 0.4 }}>·</span>
+            <span style={{ opacity: 0.7 }}>{ts}</span>
+          </>
+        )}
       </div>
 
       <button
         onClick={onSelect}
         style={{
-          marginTop: 'auto',
-          padding: '8px 14px',
-          borderRadius: 8,
+          marginTop: 2,
+          padding: '6px 12px',
+          borderRadius: 7,
           border: `2px solid ${accentColor}`,
           backgroundColor: tone === 'accent' ? accentColor : 'transparent',
           color: tone === 'accent' ? (theme.darkMode ? theme.canvas.textPrimary : theme.canvas.bg) : theme.canvas.textPrimary,
           fontWeight: 700,
-          fontSize: '0.85rem',
+          fontSize: '0.8rem',
           cursor: 'pointer',
           fontFamily: "'EmOne', sans-serif",
           transition: 'all 0.2s'
@@ -128,7 +120,7 @@ const SlotConflictDialog = ({
     >
       <div
         style={{
-          width: 'min(95vw, 720px)',
+          width: 'min(95vw, 520px)',
           backgroundColor: theme.canvas.bg,
           border: `3px solid ${theme.canvas.textPrimary}`,
           borderRadius: 14,
@@ -147,7 +139,7 @@ const SlotConflictDialog = ({
             display: 'flex',
             alignItems: 'center',
             gap: 12,
-            padding: '14px min(20px, 3vw)',
+            padding: '12px 16px',
             borderBottom: `2px solid ${theme.canvas.textPrimary}`,
             backgroundColor: theme.canvas.border
           }}
@@ -168,15 +160,15 @@ const SlotConflictDialog = ({
         {/* Slot cards */}
         <div
           style={{
-            padding: 'min(18px, 3vw)',
-            display: 'grid',
-            gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))',
-            gap: 16,
+            padding: '12px 16px',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: 10,
             overflowY: 'auto'
           }}
         >
           <SlotCard
-            icon={<Save size={16} />}
+            icon={<Save size={14} />}
             role="Local File"
             path={localSlot?.path}
             nodeCount={localSlot?.nodeCount}
@@ -187,7 +179,7 @@ const SlotConflictDialog = ({
             tone="neutral"
           />
           <SlotCard
-            icon={<Github size={16} />}
+            icon={<Github size={14} />}
             role={gitSlot?.repoLabel || 'Git Repository'}
             path={gitSlot?.path}
             nodeCount={gitSlot?.nodeCount}

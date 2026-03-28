@@ -1,24 +1,12 @@
 import React from 'react';
 import { AlertTriangle, HardDrive, FileCode } from 'lucide-react';
 import { useTheme } from '../../hooks/useTheme.js';
-import Modal from './Modal.jsx';
 
 const formatCount = (value) => {
   if (typeof value === 'number' && !Number.isNaN(value)) {
     return value.toLocaleString();
   }
-  return 'Unknown';
-};
-
-const formatSize = (bytes) => {
-  if (typeof bytes !== 'number' || Number.isNaN(bytes)) {
-    return 'Unknown';
-  }
-  if (bytes === 0) return '0 B';
-  const units = ['B', 'KB', 'MB', 'GB', 'TB'];
-  const exponent = Math.min(Math.floor(Math.log(bytes) / Math.log(1024)), units.length - 1);
-  const value = bytes / Math.pow(1024, exponent);
-  return `${value.toFixed(value >= 10 || exponent === 0 ? 0 : 1)} ${units[exponent]}`;
+  return '?';
 };
 
 const formatTimestamp = (timestamp) => {
@@ -34,78 +22,64 @@ const OptionCard = ({ option, actionLabel, onSelect, tone = 'neutral' }) => {
   const theme = useTheme();
   const accentColor = tone === 'accent' ? theme.accent.secondary : theme.canvas.textPrimary;
   const baseBorder = tone === 'accent' ? theme.accent.secondary : theme.canvas.textPrimary;
-  const metadataRows = [];
-  const headerIcon = tone === 'accent' ? <FileCode size={16} /> : <HardDrive size={16} />;
-
+  const headerIcon = tone === 'accent' ? <FileCode size={14} /> : <HardDrive size={14} />;
   const displayValue = option.displayPath || option.fileName || 'Unknown';
-  metadataRows.push({ label: 'File', value: displayValue });
-  metadataRows.push({ label: 'Nodes', value: formatCount(option.nodeCount) });
-  metadataRows.push({ label: 'Edges', value: formatCount(option.edgeCount) });
-  metadataRows.push({ label: 'File size', value: formatSize(option.fileSize) });
 
-  if (option.lastSaved) {
-    metadataRows.push({ label: 'Last autosave', value: formatTimestamp(option.lastSaved) });
-  }
+  const stats = [
+    `${formatCount(option.nodeCount)} nodes`,
+    `${formatCount(option.edgeCount)} edges`
+  ].join(' · ');
 
-  if (option.fileModified && option.fileModified !== option.lastSaved) {
-    metadataRows.push({ label: 'File modified', value: formatTimestamp(option.fileModified) });
-  }
+  const timestamp = option.lastSaved
+    ? formatTimestamp(option.lastSaved)
+    : option.fileModified
+      ? formatTimestamp(option.fileModified)
+      : null;
 
   return (
     <div
       style={{
-        flex: '1 1 280px',
         border: `2px solid ${baseBorder}`,
-        borderRadius: 12,
+        borderRadius: 10,
         backgroundColor: theme.canvas.bg,
-        padding: '14px',
+        padding: '10px 12px',
         display: 'flex',
         flexDirection: 'column',
-        gap: 12,
-        minHeight: 0
+        gap: 6,
+        minWidth: 0,
+        overflow: 'hidden'
       }}
     >
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 6, color: accentColor, fontSize: '0.75rem', fontWeight: 700, letterSpacing: '0.04em' }}>
-          {headerIcon}
-          <span>{option.role}</span>
-        </div>
-        <div style={{ fontSize: '0.95rem', fontWeight: 700, color: theme.canvas.textPrimary }}>
-          {option.label}
-        </div>
-        <div style={{ fontSize: '0.8rem', color: theme.canvas.textSecondary, wordBreak: 'break-word' }}>
-          {displayValue}
-        </div>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+        <div style={{ color: accentColor, display: 'flex', alignItems: 'center' }}>{headerIcon}</div>
+        <span style={{ fontSize: '0.75rem', fontWeight: 700, color: accentColor, letterSpacing: '0.04em' }}>{option.role}</span>
       </div>
 
-      <div
-        style={{
-          display: 'grid',
-          gridTemplateColumns: 'minmax(120px, 140px) 1fr',
-          gap: '6px 10px',
-          fontSize: '0.8rem',
-          color: theme.canvas.textPrimary
-        }}
-      >
-        {metadataRows.map((row) => (
-          <React.Fragment key={`${row.label}-${row.value}`}>
-            <div style={{ fontWeight: 600, opacity: 0.8 }}>{row.label}</div>
-            <div>{row.value}</div>
-          </React.Fragment>
-        ))}
+      <div style={{ fontSize: '0.8rem', color: theme.canvas.textSecondary, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+        {displayValue}
+      </div>
+
+      <div style={{ fontSize: '0.78rem', color: theme.canvas.textPrimary, display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+        <span style={{ fontWeight: 600 }}>{stats}</span>
+        {timestamp && (
+          <>
+            <span style={{ opacity: 0.4 }}>·</span>
+            <span style={{ opacity: 0.7 }}>{timestamp}</span>
+          </>
+        )}
       </div>
 
       <button
         onClick={onSelect}
         style={{
-          marginTop: 'auto',
-          padding: '8px 14px',
-          borderRadius: 8,
+          marginTop: 2,
+          padding: '6px 12px',
+          borderRadius: 7,
           border: `2px solid ${accentColor}`,
           backgroundColor: tone === 'accent' ? accentColor : 'transparent',
           color: tone === 'accent' ? (theme.darkMode ? theme.canvas.textPrimary : theme.canvas.bg) : theme.canvas.textPrimary,
           fontWeight: 700,
-          fontSize: '0.85rem',
+          fontSize: '0.8rem',
           cursor: 'pointer',
           fontFamily: "'EmOne', sans-serif",
           transition: 'all 0.2s'
@@ -151,7 +125,7 @@ const LocalFileConflictDialog = ({
     >
       <div
         style={{
-          width: 'min(95vw, 760px)',
+          width: 'min(95vw, 520px)',
           backgroundColor: theme.canvas.bg,
           border: `3px solid ${theme.canvas.textPrimary}`,
           borderRadius: 14,
@@ -170,7 +144,7 @@ const LocalFileConflictDialog = ({
             display: 'flex',
             alignItems: 'center',
             gap: 12,
-            padding: '16px 20px',
+            padding: '12px 16px',
             borderBottom: `2px solid ${theme.canvas.textPrimary}`,
             backgroundColor: theme.canvas.border
           }}
@@ -190,18 +164,18 @@ const LocalFileConflictDialog = ({
 
         <div
           style={{
-            padding: '18px',
+            padding: '12px 16px',
             display: 'flex',
             flexDirection: 'column',
-            gap: 16,
+            gap: 10,
             overflowY: 'auto'
           }}
         >
           <div
             style={{
               display: 'flex',
-              flexWrap: 'wrap',
-              gap: 16
+              flexDirection: 'column',
+              gap: 10
             }}
           >
             <OptionCard
@@ -223,7 +197,7 @@ const LocalFileConflictDialog = ({
           style={{
             display: 'flex',
             justifyContent: 'flex-end',
-            padding: '12px 18px',
+            padding: '10px 16px',
             borderTop: `2px solid ${theme.canvas.textPrimary}`,
             backgroundColor: theme.canvas.border
           }}

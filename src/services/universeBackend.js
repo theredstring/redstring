@@ -2414,6 +2414,15 @@ class UniverseBackend {
       throw new Error('No active universe to save');
     }
 
+    // Don't auto-save while a slot conflict is pending user resolution.
+    // The store may contain temporary safe-fallback data that should not
+    // be persisted until the user resolves the conflict.
+    // Allow explicit conflict resolution saves via isConflictResolution flag.
+    if (this.pendingConflict?.universeSlug === universe.slug && !options.isConflictResolution) {
+      umLog('[UniverseBackend] Save suppressed: slot conflict pending for', universe.slug);
+      return { results: [], errors: ['Save suppressed: conflict pending'] };
+    }
+
     // Get store state if not provided
     if (!storeState) {
       if (this.storeOperations?.getState) {
@@ -3027,8 +3036,17 @@ class UniverseBackend {
           forcePrompt: !primaryDefined
         });
         if (conflict) {
-          // Only auto-resolve when data are identical. Never auto-overwrite non-identical data.
-          const canAutoResolve = primaryDefined && conflict.areIdentical === true && conflict.riskOverwriteEmptyPrimary !== true;
+          // Auto-resolve when source of truth is defined AND has data.
+          // Only show conflict dialog when:
+          //   - No source of truth defined, OR
+          //   - Source of truth slot is empty but the other slot has data
+          const primaryHasData = sourceOfTruth === SOURCE_OF_TRUTH.GIT
+            ? conflict.gitData.nodeCount > 0
+            : conflict.localData.nodeCount > 0;
+
+          const canAutoResolve = primaryDefined && !conflict.riskOverwriteEmptyPrimary && (
+            conflict.areIdentical === true || primaryHasData
+          );
           if (canAutoResolve) {
             const primaryState = sourceOfTruth === SOURCE_OF_TRUTH.GIT
               ? conflict.gitData?.storeState
@@ -3036,7 +3054,12 @@ class UniverseBackend {
 
             if (primaryState) {
               try {
-                umLog('[UniverseBackend] Auto-resolving slot conflict using source of truth');
+                umLog('[UniverseBackend] Auto-resolving slot conflict using source of truth', {
+                  sourceOfTruth,
+                  areIdentical: conflict.areIdentical,
+                  primaryNodeCount: sourceOfTruth === SOURCE_OF_TRUTH.GIT ? conflict.gitData.nodeCount : conflict.localData.nodeCount,
+                  secondaryNodeCount: sourceOfTruth === SOURCE_OF_TRUTH.GIT ? conflict.localData.nodeCount : conflict.gitData.nodeCount
+                });
                 await this.syncSecondaryStorage(universe, primaryState, {
                   source: sourceOfTruth,
                   force: true,
@@ -3088,7 +3111,18 @@ class UniverseBackend {
             }
           }
 
-          // Return the primary source data (conflict will be resolved by user)
+          // Return safe data while conflict dialog is pending.
+          // If primary is empty but secondary has data, use the non-empty
+          // slot to prevent loading empty state (which auto-save could propagate).
+          if (conflict.riskOverwriteEmptyPrimary) {
+            const safeData = sourceOfTruth === SOURCE_OF_TRUTH.GIT
+              ? conflict.localData.storeState
+              : conflict.gitData.storeState;
+            if (safeData) {
+              umLog('[UniverseBackend] Returning non-empty secondary data as safe temporary state during conflict');
+              return safeData;
+            }
+          }
           return conflict.primaryData;
         }
       } catch (error) {
@@ -3190,6 +3224,11 @@ class UniverseBackend {
     if (localRes?.data) {
       umLog('[UniverseBackend] Using Local fallback (Primary unavailable)');
       this.notifyStatus('warning', 'Primary storage unavailable. Loaded from local backup.');
+      // If dual-connected but no source of truth set, adopt this source
+      if (!primaryDefined && hasLocal && hasGit) {
+        umLog('[UniverseBackend] Auto-setting source of truth to local (loaded from local fallback)');
+        await this.updateUniverse(universe.slug, { sourceOfTruth: SOURCE_OF_TRUTH.LOCAL });
+      }
       return this.syncAndReturn(universe, localRes.data, {
         source: SOURCE_OF_TRUTH.LOCAL,
         allowPermissionPrompt
@@ -3201,6 +3240,11 @@ class UniverseBackend {
     if (gitRes?.data) {
       umLog('[UniverseBackend] Using Git fallback (Primary unavailable)');
       this.notifyStatus('warning', 'Primary storage unavailable. Loaded from Git backup.');
+      // If dual-connected but no source of truth set, adopt this source
+      if (!primaryDefined && hasLocal && hasGit) {
+        umLog('[UniverseBackend] Auto-setting source of truth to git (loaded from git fallback)');
+        await this.updateUniverse(universe.slug, { sourceOfTruth: SOURCE_OF_TRUTH.GIT });
+      }
       return this.syncAndReturn(universe, gitRes.data, {
         source: SOURCE_OF_TRUTH.GIT,
         allowPermissionPrompt
@@ -3362,6 +3406,12 @@ class UniverseBackend {
     if (!universe || !storeState) return;
 
     const slug = universe.slug;
+
+    // Don't sync secondary storage while a slot conflict is pending resolution
+    if (this.pendingConflict?.universeSlug === slug) {
+      umLog('[UniverseBackend] Secondary sync suppressed: conflict pending for', slug);
+      return;
+    }
     const now = Date.now();
     const {
       force = false,
@@ -3494,21 +3544,20 @@ class UniverseBackend {
       ? conflict.localData.storeState
       : conflict.gitData.storeState;
 
-    // Update source of truth if user chose the backup slot
-    if (chosenSource !== universe.sourceOfTruth) {
-      umLog('[UniverseBackend] Updating source of truth to:', chosenSource);
-      await this.updateUniverse(universeSlug, {
-        sourceOfTruth: chosenSource
-      });
-    }
+    // Always set source of truth to the user's explicit choice
+    umLog('[UniverseBackend] Setting source of truth to:', chosenSource);
+    await this.updateUniverse(universeSlug, {
+      sourceOfTruth: chosenSource
+    });
 
     // Load chosen data into store
     if (this.storeOperations?.loadUniverseFromFile) {
       this.storeOperations.loadUniverseFromFile(chosenData);
     }
 
-    // Save to both slots to sync them
-    await this.saveActiveUniverse();
+    // Save to both slots to sync them.
+    // Pass isConflictResolution to bypass the pending-conflict save guard.
+    await this.saveActiveUniverse(null, { isConflictResolution: true });
 
     // Clear pending conflict
     if (this.pendingConflict?.universeSlug === universeSlug) {
@@ -3519,6 +3568,18 @@ class UniverseBackend {
     this.notifyStatus('success', `Conflict resolved using ${chosenSource} data`);
 
     return chosenData;
+  }
+
+  /**
+   * Cancel a pending conflict without choosing a side.
+   * Re-enables saves that were suppressed while the conflict dialog was open.
+   */
+  cancelPendingConflict(universeSlug) {
+    if (this.pendingConflict?.universeSlug === universeSlug) {
+      this.pendingConflict = null;
+      umLog('[UniverseBackend] Pending conflict cancelled for', universeSlug);
+    }
+    this.pendingPrimarySelection.delete(universeSlug);
   }
 
   /**
