@@ -432,9 +432,9 @@ const UniverseManagementPanel = ({
       setSyncStatus({ type: 'info', status: `Linking @${owner}/${repoName}...` });
       // Step 1: Link the git repo config (preserves local file state & current sourceOfTruth)
       await bridge.updateUniverse(universe.slug, updates);
-      // Step 2: Switch source of truth to git — this triggers pre-swap migration
-      // which pushes current data (from local file) into the new git repo
-      await bridge.setSourceOfTruth(universe.slug, 'git');
+      // Step 2: Push current data to the new git slot WITHOUT changing sourceOfTruth.
+      // The existing source stays primary — the user can switch later if they want.
+      await bridge.forceSave(universe.slug);
       await loadUniverseData();
       setSyncStatus({ type: 'success', status: `Linked repository @${owner}/${repoName}` });
     } catch (linkError) {
