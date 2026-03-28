@@ -54,7 +54,7 @@ export const DARK_THEME = {
     textSecondary: '#BDB5B5', // Secondary light text
     border: '#6a6464',   // Borders and dividers (lightened for contrast)
     hover: '#4a4545',    // Hover states
-    active: '#3F3A3A',   // Active tab/button states
+    active: '#2E2A2A',   // Active tab/button states
     inactive: '#3F3A3A', // Inactive tab/button states
     brand: '#7A0000',    // Brand/accent color
   },
