@@ -33,7 +33,6 @@ const SlotCard = ({ icon, role, path, nodeCount, graphCount, timestamp, actionLa
   return (
     <div
       style={{
-        flex: '1 1 280px',
         border: `2px solid ${accentColor}`,
         borderRadius: 12,
         backgroundColor: theme.canvas.bg,
@@ -148,7 +147,7 @@ const SlotConflictDialog = ({
             display: 'flex',
             alignItems: 'center',
             gap: 12,
-            padding: '16px 20px',
+            padding: '14px min(20px, 3vw)',
             borderBottom: `2px solid ${theme.canvas.textPrimary}`,
             backgroundColor: theme.canvas.border
           }}
@@ -169,9 +168,9 @@ const SlotConflictDialog = ({
         {/* Slot cards */}
         <div
           style={{
-            padding: 18,
-            display: 'flex',
-            flexWrap: 'wrap',
+            padding: 'min(18px, 3vw)',
+            display: 'grid',
+            gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))',
             gap: 16,
             overflowY: 'auto'
           }}

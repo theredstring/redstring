@@ -3383,9 +3383,10 @@ class UniverseBackend {
 
     const shouldSync = (last) => force || throttleMs <= 0 || !last || (now - last) >= throttleMs;
 
-    // Never propagate an empty state to secondary slots implicitly
+    // Never propagate an empty/near-empty state to secondary slots implicitly.
+    // A state with graphs but no nodes is effectively empty from the user's perspective.
     const { nodeCount: srcNodeCount, graphCount: srcGraphCount } = this.analyzeStoreData(storeState);
-    const isSourceEmpty = (srcNodeCount === 0 && srcGraphCount === 0);
+    const isSourceEmpty = (srcNodeCount === 0);
 
     const handle = this.fileHandles.get(slug);
 
@@ -4905,6 +4906,47 @@ class UniverseBackend {
     const localConfig = universe.raw?.localFile || universe.localFile || {};
     if (sourceType === 'local' && !localConfig.enabled) {
       throw new Error('Cannot set local as source of truth - local storage slot is disabled');
+    }
+
+    // ── Pre-swap migration: save current data TO the new source before flipping ──
+    // This prevents data loss when the new source is empty (e.g. newly linked Git repo).
+    const oldSource = universe.sourceOfTruth || universe.raw?.sourceOfTruth;
+    if (oldSource && oldSource !== sourceType && this.storeOperations?.getState) {
+      const currentState = this.storeOperations.getState();
+      const { nodeCount, graphCount } = this.analyzeStoreData(currentState);
+      const hasData = nodeCount > 0 || graphCount > 0;
+
+      if (hasData) {
+        umLog('[UniverseBackend] Pre-swap migration: saving current data to new source before switching', {
+          from: oldSource, to: sourceType, nodeCount, graphCount
+        });
+
+        try {
+          if (sourceType === 'git') {
+            // Switching local → git: push current data to Git first
+            let engine = this.gitSyncEngines.get(universeSlug) || null;
+            if (!engine) {
+              engine = await this.ensureGitSyncEngine(universeSlug);
+            }
+            if (engine) {
+              await engine.forceCommit(currentState);
+              umLog('[UniverseBackend] Pre-swap migration: successfully saved current data to Git');
+            } else {
+              umWarn('[UniverseBackend] Pre-swap migration: no Git engine available, skipping Git save');
+            }
+          } else if (sourceType === 'local') {
+            // Switching git → local: save current data to local file first
+            await this.saveToLinkedLocalFile(universeSlug, currentState, { suppressNotification: true });
+            umLog('[UniverseBackend] Pre-swap migration: successfully saved current data to local file');
+          }
+        } catch (migrationErr) {
+          umWarn('[UniverseBackend] Pre-swap migration failed (proceeding with swap anyway):', migrationErr);
+          // Don't block the swap — the user explicitly chose to switch.
+          // But the data is preserved in the old source still.
+        }
+      } else {
+        umLog('[UniverseBackend] Pre-swap migration: current state is empty, no migration needed');
+      }
     }
 
     // Update the universe configuration

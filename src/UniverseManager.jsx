@@ -2716,9 +2716,9 @@ const UniverseManager = ({ variant = 'panel', onRequestClose }) => {
       }
 
       const confirmDetails = isGitTarget
-        ? 'The current universe state will be overwritten by the latest Git data during the next sync.'
+        ? 'Your current data will be saved to the Git repository before switching. Future saves and loads will use Git.'
         : hasLocalHandle
-          ? 'Future saves will target your linked local file. Unsaved Git changes will remain as backups.'
+          ? 'Your current data will be saved to the local file before switching. Future saves will target your linked local file.'
           : 'Future saves will target the in-memory local slot. Link a persistent file to enable auto-save.';
 
       const nextLabel = isGitTarget ? 'Git repository' : 'Local file';

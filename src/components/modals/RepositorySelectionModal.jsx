@@ -763,8 +763,7 @@ const RepositorySelectionModal = ({
                       icon={Bookmark}
                       size={14}
                       filled={isAlreadyManaged(repo)}
-                      fillColor={theme.accent.primary}
-                      hoverFillColor={theme.accent.secondary}
+                      fillColor={theme.canvas.textPrimary}
                       onClick={() => {
                         if (isAlreadyManaged(repo)) {
                           onRemoveFromManagedList?.(repo);
@@ -842,6 +841,48 @@ const RepositorySelectionModal = ({
                           fontStyle: 'italic'
                         }}>
                           No universes found in this repository
+                        </div>
+                      )}
+                      {onCreateUniverseFile && (
+                        <div style={{ display: 'flex', justifyContent: 'center' }}>
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              onCreateUniverseFile(repo);
+                            }}
+                            onMouseEnter={(e) => {
+                              e.currentTarget.style.backgroundColor = '#D0CACA';
+                              e.currentTarget.style.transform = 'scale(1.02)';
+                              e.currentTarget.style.boxShadow = '0 4px 12px rgba(0, 0, 0, 0.18)';
+                            }}
+                            onMouseLeave={(e) => {
+                              e.currentTarget.style.backgroundColor = '#DEDADA';
+                              e.currentTarget.style.transform = 'scale(1)';
+                              e.currentTarget.style.boxShadow = '0 2px 8px rgba(0, 0, 0, 0.12)';
+                            }}
+                            style={{
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                              gap: 5,
+                              padding: '6px 12px',
+                              backgroundColor: '#DEDADA',
+                              border: '2px solid #7A0000',
+                              borderRadius: 20,
+                              boxShadow: '0 2px 8px rgba(0, 0, 0, 0.12)',
+                              cursor: 'pointer',
+                              transition: 'all 0.2s ease',
+                              fontFamily: "'EmOne', sans-serif",
+                              fontSize: '0.7rem',
+                              fontWeight: 700,
+                              color: '#7A0000',
+                              whiteSpace: 'nowrap'
+                            }}
+                            title="Create a new .redstring file in this repository"
+                          >
+                            <FilePlus size={14} />
+                            New Universe File
+                          </button>
                         </div>
                       )}
                       {universes.map((universe, index) => {
@@ -977,43 +1018,6 @@ const RepositorySelectionModal = ({
                           </div>
                         );
                       })}
-                      {onCreateUniverseFile && (
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            onCreateUniverseFile(repo);
-                          }}
-                          onMouseEnter={(e) => {
-                            e.currentTarget.style.backgroundColor = '#D0CACA';
-                            e.currentTarget.style.transform = 'scale(1.02)';
-                          }}
-                          onMouseLeave={(e) => {
-                            e.currentTarget.style.backgroundColor = '#DEDADA';
-                            e.currentTarget.style.transform = 'scale(1)';
-                          }}
-                          style={{
-                            display: 'flex',
-                            alignItems: 'center',
-                            gap: 5,
-                            padding: '6px 12px',
-                            backgroundColor: '#DEDADA',
-                            border: '2px solid #7A0000',
-                            borderRadius: 20,
-                            cursor: 'pointer',
-                            transition: 'all 0.2s ease',
-                            fontFamily: "'EmOne', sans-serif",
-                            fontSize: '0.7rem',
-                            fontWeight: 700,
-                            color: '#7A0000',
-                            whiteSpace: 'nowrap',
-                            alignSelf: 'flex-start'
-                          }}
-                          title="Create a new .redstring file in this repository"
-                        >
-                          <FilePlus size={14} />
-                          New Universe File
-                        </button>
-                      )}
                     </div>
                   )}
                 </div>
