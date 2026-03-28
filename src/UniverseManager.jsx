@@ -1083,6 +1083,7 @@ const UniverseManager = ({ variant = 'panel', onRequestClose }) => {
   };
 
   const handleCreateUniverseFromLocalFile = async () => {
+    const activeUniverse = serviceState.universes.find(u => u.slug === serviceState.activeUniverseSlug);
     setConfirmDialog({
       title: 'Create Universe from New File',
       message: 'Choose a name for your new universe. A fresh .redstring file will be created for it.',
@@ -1091,7 +1092,7 @@ const UniverseManager = ({ variant = 'panel', onRequestClose }) => {
       cancelLabel: 'Cancel',
       inputField: {
         placeholder: 'My Universe',
-        defaultValue: '',
+        defaultValue: activeUniverse?.name || '',
         label: 'Universe Name'
       },
       onConfirm: async (rawName) => {
