@@ -1928,7 +1928,7 @@ const WIZARD_LOADING_STRINGS = [
   "Binding with enchantment",
 ];
 
-const ARCANE_GLYPHS = '◈◇△▽☽★⚡✧⊕∴∞⌘☾◬⟁⊛⊜⊝※⌬⍟⎔⏣⏥⏦';
+const ARCANE_GLYPHS = '◈◇△▽✧⊕∴⌘◬⟁⊛⊜⊝※⌬⍟⎔⏣⏥⏦⊶⊷⋈⋉⋊⟐⟟⟠';
 
 function WizardLoadingText() {
   const [displayText, setDisplayText] = React.useState(() =>

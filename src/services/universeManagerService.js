@@ -600,10 +600,13 @@ export const universeManagerService = {
     };
 
     // CRITICAL: Respect existing sourceOfTruth to support 2-slot system
-    // Only default to 'git' if there's no existing sourceOfTruth preference
-    // This allows local-file-only universes to add Git as backup without losing local data
-    const preservedSourceOfTruth = universe.raw.sourceOfTruth ||
-      (universe.raw.localFile?.enabled ? 'local' : 'git');
+    // Only preserve 'local' or 'git' values — any other value (e.g. 'browser', undefined)
+    // falls through to a sensible default based on which slots are enabled.
+    // This prevents the audit useEffect from showing a redundant "Choose Source of Truth" dialog.
+    const existingSource = universe.raw.sourceOfTruth;
+    const preservedSourceOfTruth = (existingSource === 'local' || existingSource === 'git')
+      ? existingSource
+      : (universe.raw.localFile?.enabled ? 'local' : 'git');
 
     await universeBackendBridge.updateUniverse(slug, {
       gitRepo: {

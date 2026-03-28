@@ -1651,7 +1651,10 @@ const UniverseManager = ({ variant = 'panel', onRequestClose }) => {
         });
       }
 
-      // If coming from onboarding/git-only flow, default primary to Git now that a repo is linked
+      // If coming from onboarding/git-only flow, default primary to Git now that a repo is linked.
+      // Otherwise, keep the existing sourceOfTruth (preserved as 'local' by attachGitRepository).
+      // No "Choose Source of Truth" dialog is needed — local stays primary, git becomes backup.
+      // The user can change this later from the universe settings.
       try {
         const resume = (() => { try { return sessionStorage.getItem('redstring_onboarding_resume') === 'true'; } catch { return false; } })();
         if (resume || deviceInfo.gitOnlyMode) {
@@ -1660,31 +1663,9 @@ const UniverseManager = ({ variant = 'panel', onRequestClose }) => {
             sessionStorage.removeItem('redstring_onboarding_resume');
             sessionStorage.removeItem('redstring_onboarding_step');
           } catch { }
-        } else {
-          // Otherwise, if both slots are enabled, prompt the user to choose Source of Truth
-          const state = await universeManagerService.refreshUniverses();
-          const u = state.universes.find((x) => x.slug === targetSlug);
-          const raw = u?.raw || {};
-          const hasLocal = !!raw.localFile?.enabled;
-          const hasRepo = !!(raw.gitRepo?.enabled && raw.gitRepo?.linkedRepo);
-          if (hasLocal && hasRepo) {
-            setConfirmDialog({
-              title: 'Choose Source of Truth',
-              message: 'Select the primary storage for this universe. You can change this later.',
-              confirmLabel: 'Use Git as Primary',
-              cancelLabel: 'Use Local File as Primary',
-              variant: 'default',
-              onConfirm: async () => {
-                try { await universeManagerService.setPrimaryStorage(targetSlug, STORAGE_TYPES.GIT); await refreshState(); } catch (e) { umWarn('Failed to set git as primary', e); }
-              },
-              onCancel: async () => {
-                try { await universeManagerService.setPrimaryStorage(targetSlug, STORAGE_TYPES.LOCAL); await refreshState(); } catch (e) { umWarn('Failed to set local as primary', e); }
-              }
-            });
-          }
         }
       } catch (e) {
-        umWarn('[UniverseManager] Failed to set or prompt Source of Truth after linking:', e);
+        umWarn('[UniverseManager] Failed to set Source of Truth after linking:', e);
       }
 
       setDiscoveryMap((prev) => {
