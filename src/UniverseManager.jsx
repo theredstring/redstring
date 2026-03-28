@@ -2526,6 +2526,25 @@ const UniverseManager = ({ variant = 'panel', onRequestClose }) => {
       return;
     }
 
+    // If we're in 'attach' mode (user clicked "Add Repository" on an existing universe),
+    // delegate to handleAttachRepoCreateNew which attaches the repo to the EXISTING universe
+    // instead of creating a brand new one (which would clear the store and disconnect local files).
+    if (repositoryIntent === 'attach' && repositoryTargetSlug) {
+      setShowRepositoryManager(false);
+      // Auto-add to managed list
+      const repoKey = `${owner}/${repoName}`;
+      const alreadyManaged = managedRepositories.some(r =>
+        `${r.owner?.login || r.owner}/${r.name}` === repoKey
+      );
+      if (!alreadyManaged) {
+        const newList = [...managedRepositories, repo];
+        setManagedRepositories(newList);
+        localStorage.setItem(getStorageKey('redstring-managed-repositories'), JSON.stringify(newList));
+      }
+      await handleAttachRepoCreateNew(owner, repoName, repo, repositoryTargetSlug);
+      return;
+    }
+
     setShowRepositoryManager(false);
 
     // Auto-add to managed list if not already there
