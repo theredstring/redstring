@@ -887,7 +887,7 @@ html.dark-mode .ai-input-container {
   resize: none;
   outline: none;
   transition: all 0.2s ease;
-  min-height: 20px;
+  min-height: 42px;
   max-height: 200px;
   overflow-y: auto;
 }
