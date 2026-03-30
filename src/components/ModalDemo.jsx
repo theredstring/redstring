@@ -1,9 +1,7 @@
 import React, { useState } from 'react';
 import { useTheme } from '../hooks/useTheme.js';
 import CanvasModal from './CanvasModal';
-import PanelModal from './PanelModal';
-import AlphaOnboardingModal from './AlphaOnboardingModal';
-import './ModalComponents.css';
+import BetaOnboardingModal from './BetaOnboardingModal';
 import { getStorageKey } from '../utils/storageUtils.js';
 
 /**
@@ -13,9 +11,7 @@ import { getStorageKey } from '../utils/storageUtils.js';
 const ModalDemo = () => {
   const theme = useTheme();
   const [canvasModalVisible, setCanvasModalVisible] = useState(false);
-  const [panelModalVisible, setPanelModalVisible] = useState(false);
-  const [alphaModalVisible, setAlphaModalVisible] = useState(false);
-  const [canvasPosition, setCanvasPosition] = useState('center');
+  const [betaModalVisible, setBetaModalVisible] = useState(false);
   const [panelSide, setPanelSide] = useState('right');
 
   const demoCanvasContent = (
@@ -202,7 +198,7 @@ const ModalDemo = () => {
         </button>
 
         <button
-          onClick={() => setAlphaModalVisible(true)}
+          onClick={() => setBetaModalVisible(true)}
           style={{
             padding: '12px 20px',
             border: '2px solid #8B0000',
@@ -215,7 +211,7 @@ const ModalDemo = () => {
             fontWeight: 'bold'
           }}
         >
-          Show Alpha Welcome
+          Show Beta Welcome
         </button>
 
         <button
@@ -259,9 +255,9 @@ const ModalDemo = () => {
           🧪 Testing Features
         </h4>
         <ul style={{ margin: 0, paddingLeft: '20px', fontSize: '0.85rem', color: '#666' }}>
-          <li><strong>Alpha Modal:</strong> Shows welcome message for Redstring's open alpha</li>
+          <li><strong>Beta Modal:</strong> Shows welcome message for Redstring's open beta</li>
           <li><strong>Reset Button:</strong> Clears localStorage to test first-time experience</li>
-          <li><strong>Keyboard Shortcut:</strong> <code>Ctrl+W</code> to show alpha modal anywhere in the app</li>
+          <li><strong>Keyboard Shortcut:</strong> <code>Ctrl+W</code> to show beta modal anywhere in the app</li>
           <li><strong>Auto-show:</strong> Appears automatically on first app launch</li>
         </ul>
       </div>
@@ -291,11 +287,11 @@ const ModalDemo = () => {
         {demoPanelContent}
       </PanelModal>
 
-      {/* Alpha Onboarding Modal */}
-      <AlphaOnboardingModal
-        isVisible={alphaModalVisible}
-        onClose={() => setAlphaModalVisible(false)}
-        onDontShowAgain={() => console.log('User chose not to show alpha welcome again')}
+      {/* Beta Onboarding Modal */}
+      <BetaOnboardingModal
+        isVisible={betaModalVisible}
+        onClose={() => setBetaModalVisible(false)}
+        onDontShowAgain={() => console.log('User chose not to show beta welcome again')}
         width={520}
         height={720}
         margin={20}

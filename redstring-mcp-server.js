@@ -58,7 +58,7 @@ const toolQueue = new ToolQueue();
 // Create MCP server instance
 const server = new McpServer({
   name: "redstring",
-  version: "0.2.0",
+  version: "0.3.0",
   capabilities: {
     resources: {},
     tools: {},

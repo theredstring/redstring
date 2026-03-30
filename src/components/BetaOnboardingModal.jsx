@@ -3,13 +3,14 @@ import CanvasModal from './CanvasModal';
 import { getStorageKey } from '../utils/storageUtils.js';
 import useViewportBounds from '../hooks/useViewportBounds.js';
 import useGraphStore from '../store/graphStore.jsx';
+import { useTheme } from '../hooks/useTheme.js';
 
 /**
- * Alpha Onboarding Modal
- * A specialized CanvasModal that welcomes users to Redstring's open alpha
- * Inherits all CanvasModal functionality while providing alpha-specific content
+ * Beta Onboarding Modal
+ * A specialized CanvasModal that welcomes users to Redstring's open beta
+ * Inherits all CanvasModal functionality while providing beta-specific content
  */
-const AlphaOnboardingModal = ({
+const BetaOnboardingModal = ({
   isVisible,
   onClose,
   onGetStarted = null,
@@ -20,6 +21,7 @@ const AlphaOnboardingModal = ({
 
   // Connect to store for panel state
   const { leftPanelExpanded, rightPanelExpanded, typeListMode } = useGraphStore();
+  const theme = useTheme();
 
   // Use the shared hook to get accurate available space
   const viewportBounds = useViewportBounds(
@@ -45,7 +47,7 @@ const AlphaOnboardingModal = ({
 
   const handleClose = () => {
     if (typeof window !== 'undefined') {
-      const key = getStorageKey('redstring-alpha-welcome-seen');
+      const key = getStorageKey('redstring-welcome-seen');
       localStorage.setItem(key, 'true');
     }
     onClose();
@@ -80,7 +82,8 @@ const AlphaOnboardingModal = ({
           right: isCompactLayout ? '12px' : '16px',
           background: 'none',
           border: 'none',
-          color: '#666',
+          color: theme.canvas.textPrimary,
+          opacity: 0.6,
           cursor: 'pointer',
           padding: '6px',
           borderRadius: '4px',
@@ -88,10 +91,11 @@ const AlphaOnboardingModal = ({
           fontWeight: 'bold',
           fontFamily: "'EmOne', sans-serif",
           zIndex: 10,
-          touchAction: 'manipulation'
+          touchAction: 'manipulation',
+          transition: 'opacity 0.2s'
         }}
-        onMouseEnter={(e) => e.currentTarget.style.color = '#260000'}
-        onMouseLeave={(e) => e.currentTarget.style.color = '#666'}
+        onMouseEnter={(e) => e.currentTarget.style.opacity = '1'}
+        onMouseLeave={(e) => e.currentTarget.style.opacity = '0.6'}
       >
         ✕
       </button>
@@ -100,7 +104,7 @@ const AlphaOnboardingModal = ({
       <div style={{ textAlign: 'center', marginBottom: isCompactLayout ? '12px' : '16px', flexShrink: 0 }}>
         <h2 style={{
           margin: '0 0 8px 0',
-          color: '#260000',
+          color: theme.canvas.textPrimary,
           fontSize: isCompactLayout ? '1.1rem' : '1.4rem',
           fontWeight: 'bold',
           fontFamily: "'EmOne', sans-serif"
@@ -110,11 +114,12 @@ const AlphaOnboardingModal = ({
         <div style={{
           margin: '0 0 6px 0',
           fontSize: isCompactLayout ? '0.85rem' : '0.9rem',
-          color: '#716C6C',
+          color: theme.canvas.textPrimary,
+          opacity: 0.7,
           fontFamily: "'EmOne', sans-serif",
           fontWeight: '600'
         }}>
-          v0.2.0
+          v0.3.0
         </div>
       </div>
 
@@ -146,7 +151,8 @@ const AlphaOnboardingModal = ({
         <p style={{
           margin: '0 0 24px 0',
           fontSize: isCompactLayout ? '0.85rem' : '0.95rem',
-          color: '#333',
+          color: theme.canvas.textPrimary,
+          opacity: 0.9,
           fontFamily: "'EmOne', sans-serif",
           textAlign: 'center'
         }}>
@@ -154,13 +160,13 @@ const AlphaOnboardingModal = ({
         </p>
 
         <div style={{
-          backgroundColor: '#260000',
+          backgroundColor: theme.darkMode ? 'rgba(255,255,255,0.05)' : 'rgba(139, 0, 0, 0.05)',
           borderRadius: '8px',
           padding: isCompactLayout ? '10px' : '12px',
           marginBottom: '24px',
           fontSize: isCompactLayout ? '0.8rem' : '0.85rem',
-          color: '#EFE8E5',
-          border: '1px solid #260000'
+          color: theme.canvas.textPrimary,
+          border: `1px solid ${theme.canvas.border}`
         }}>
           <strong style={{ fontSize: isCompactLayout ? '0.9rem' : '1rem' }}>Basic Controls:</strong><br />
           • Click and hold to move a Thing<br />
@@ -178,8 +184,8 @@ const AlphaOnboardingModal = ({
             onClick={handleGetStarted}
             style={{
               padding: isCompactLayout ? '12px' : '14px 20px',
-              backgroundColor: '#8B0000',
-              color: '#EFE8E5',
+              backgroundColor: theme.darkMode ? '#EFE8E5' : '#8B0000',
+              color: theme.darkMode ? '#260000' : '#EFE8E5',
               border: 'none',
               borderRadius: '6px',
               cursor: 'pointer',
@@ -197,8 +203,8 @@ const AlphaOnboardingModal = ({
             style={{
               padding: isCompactLayout ? '10px 12px' : '12px 16px',
               backgroundColor: 'transparent',
-              color: '#666',
-              border: '2px solid #ddd',
+              color: theme.canvas.textPrimary,
+              border: `2px solid ${theme.canvas.border}`,
               borderRadius: '6px',
               cursor: 'pointer',
               fontSize: isCompactLayout ? '0.85rem' : '0.9rem',
@@ -243,4 +249,4 @@ const AlphaOnboardingModal = ({
   );
 };
 
-export default AlphaOnboardingModal;
+export default BetaOnboardingModal;

@@ -75,3 +75,16 @@ body {
     filter: drop-shadow(0px 2px 4px rgba(0, 0, 0, 0.3));
   }
 }
+
+/* Force pointer cursor on nodes and connections */
+.node, .node:active, .node.dragging {
+  cursor: pointer !important;
+}
+.node * {
+  cursor: inherit !important; /* Allow inner elements to use the pointer cursor */
+}
+
+/* Force pointer cursor on edges */
+.edge-interact, .edge-interact:hover, .edge-interact:active {
+  cursor: pointer !important;
+}

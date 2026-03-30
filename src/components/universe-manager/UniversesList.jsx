@@ -1143,7 +1143,8 @@ const UniversesList = ({
                                 <div style={{
                                   position: 'absolute',
                                   top: '100%',
-                                  left: 0,
+                                  left: '50%',
+                                  transform: 'translateX(-50%)',
                                   marginTop: 4,
                                   backgroundColor: theme.canvas.bg,
                                   borderRadius: 6,

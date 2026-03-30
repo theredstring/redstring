@@ -203,7 +203,7 @@ function EdgeRenderer({
           fill="none"
           stroke="transparent"
           strokeWidth="40"
-          style={{ cursor: 'pointer' }}
+          className="edge-interact"
           onPointerDown={onEdgePointerDown}
           onTouchStart={onEdgeTouchStart}
           onClick={onEdgeClick}
@@ -215,7 +215,7 @@ function EdgeRenderer({
           fill="none"
           stroke="transparent"
           strokeWidth="40"
-          style={{ cursor: 'pointer' }}
+          className="edge-interact"
           onPointerDown={onEdgePointerDown}
           onTouchStart={onEdgeTouchStart}
           onClick={onEdgeClick}
@@ -229,7 +229,7 @@ function EdgeRenderer({
           y2={y2}
           stroke="transparent"
           strokeWidth="40"
-          style={{ cursor: 'pointer' }}
+          className="edge-interact"
           onPointerDown={onEdgePointerDown}
           onTouchStart={onEdgeTouchStart}
           onClick={onEdgeClick}

@@ -943,7 +943,7 @@ const RedstringMenu = ({
                           onClick={async () => {
                             try {
                               // Clear onboarding flag
-                              localStorage.removeItem(getStorageKey('redstring-alpha-welcome-seen'));
+                              localStorage.removeItem(getStorageKey('redstring-welcome-seen'));
 
                               // Clear folder storage
                               localStorage.removeItem(getStorageKey('redstring_workspace_folder_path'));

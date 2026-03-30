@@ -135,9 +135,9 @@ Both modals use Redstring's design system:
 
 ## Specialized Modals
 
-### AlphaOnboardingModal
+### BetaOnboardingModal
 
-A specialized welcome modal for Redstring's open alpha phase that inherits from CanvasModal.
+A specialized welcome modal for Redstring's open beta phase that inherits from CanvasModal.
 
 **Features:**
 - Welcome message for Redstring
@@ -147,13 +147,13 @@ A specialized welcome modal for Redstring's open alpha phase that inherits from 
 
 **Usage:**
 ```jsx
-import AlphaOnboardingModal from './components/AlphaOnboardingModal';
+import BetaOnboardingModal from './components/BetaOnboardingModal';
 
 const MyComponent = () => {
   const [showWelcome, setShowWelcome] = useState(true);
 
   return (
-    <AlphaOnboardingModal
+    <BetaOnboardingModal
       isVisible={showWelcome}
       onClose={() => setShowWelcome(false)}
       onDontShowAgain={() => {
@@ -177,4 +177,4 @@ const MyComponent = () => {
 
 ## Demo
 
-See `ModalDemo.jsx` for a complete example showing all modals (CanvasModal, PanelModal, and AlphaOnboardingModal) with interactive positioning controls.
+See `ModalDemo.jsx` for a complete example showing all modals (CanvasModal, PanelModal, and BetaOnboardingModal) with interactive positioning controls.

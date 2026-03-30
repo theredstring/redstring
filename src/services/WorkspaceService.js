@@ -12,7 +12,7 @@ import { getStorageKey } from '../utils/storageUtils.js';
 import * as folderPersistence from './folderPersistence.js';
 
 const CONFIG_FILENAME = 'redstring.config.json';
-const WELCOME_SEEN_KEY = getStorageKey('redstring-alpha-welcome-seen');
+const WELCOME_SEEN_KEY = getStorageKey('redstring-welcome-seen');
 
 class WorkspaceService {
     constructor() {

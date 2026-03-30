@@ -128,8 +128,8 @@ const StorageSetupModal = ({
         {/* Option A: Choose a Folder */}
         <div
           style={{
-            backgroundColor: '#DEDADA',
-            border: '2px solid #260000',
+            backgroundColor: theme.darkMode ? 'rgba(255,255,255,0.05)' : '#DEDADA',
+            border: `2px solid ${theme.canvas.border}`,
             borderRadius: '8px',
             padding: isCompactLayout ? '16px' : '20px',
             marginBottom: '16px',
@@ -138,12 +138,12 @@ const StorageSetupModal = ({
           }}
           onClick={handleFolderChoice}
           onMouseEnter={(e) => {
-            e.currentTarget.style.backgroundColor = '#fff';
-            e.currentTarget.style.borderColor = '#260000';
+            e.currentTarget.style.backgroundColor = theme.darkMode ? 'rgba(255,255,255,0.1)' : '#fff';
+            e.currentTarget.style.borderColor = theme.canvas.border;
           }}
           onMouseLeave={(e) => {
-            e.currentTarget.style.backgroundColor = '#DEDADA';
-            e.currentTarget.style.borderColor = '#260000';
+            e.currentTarget.style.backgroundColor = theme.darkMode ? 'rgba(255,255,255,0.05)' : '#DEDADA';
+            e.currentTarget.style.borderColor = theme.canvas.border;
           }}
         >
           <div style={{
@@ -189,8 +189,8 @@ const StorageSetupModal = ({
             style={{
               width: '100%',
               padding: isCompactLayout ? '10px' : '12px',
-              backgroundColor: '#260000',
-              color: '#EFE8E5',
+              backgroundColor: theme.darkMode ? '#EFE8E5' : '#260000',
+              color: theme.darkMode ? '#260000' : '#EFE8E5',
               border: 'none',
               borderRadius: '6px',
               cursor: 'pointer',
@@ -207,8 +207,8 @@ const StorageSetupModal = ({
         {showBrowserStorageOption && (
           <div
             style={{
-              backgroundColor: '#DEDADA',
-              border: '2px solid #260000',
+              backgroundColor: theme.darkMode ? 'rgba(255,255,255,0.05)' : '#DEDADA',
+              border: `2px solid ${theme.canvas.border}`,
               borderRadius: '8px',
               padding: isCompactLayout ? '16px' : '20px',
               cursor: 'pointer',
@@ -216,12 +216,12 @@ const StorageSetupModal = ({
             }}
             onClick={handleBrowserStorageChoice}
             onMouseEnter={(e) => {
-              e.currentTarget.style.backgroundColor = '#fff';
-              e.currentTarget.style.borderColor = '#260000';
+              e.currentTarget.style.backgroundColor = theme.darkMode ? 'rgba(255,255,255,0.1)' : '#fff';
+              e.currentTarget.style.borderColor = theme.canvas.border;
             }}
             onMouseLeave={(e) => {
-              e.currentTarget.style.backgroundColor = '#DEDADA';
-              e.currentTarget.style.borderColor = '#260000';
+              e.currentTarget.style.backgroundColor = theme.darkMode ? 'rgba(255,255,255,0.05)' : '#DEDADA';
+              e.currentTarget.style.borderColor = theme.canvas.border;
             }}
           >
             <div style={{
@@ -269,7 +269,7 @@ const StorageSetupModal = ({
                 padding: isCompactLayout ? '10px' : '12px',
                 backgroundColor: 'transparent',
                 color: theme.canvas.textPrimary,
-                border: '2px solid #260000',
+                border: `2px solid ${theme.canvas.border}`,
                 borderRadius: '6px',
                 cursor: 'pointer',
                 fontSize: isCompactLayout ? '0.9rem' : '1rem',
@@ -297,7 +297,7 @@ const StorageSetupModal = ({
         }}>
           Name Your Universe
         </h2>
-        <p style={{ color: '#260000', margin: 0, fontSize: '0.95rem' }}>
+        <p style={{ color: theme.canvas.textPrimary, opacity: 0.8, margin: 0, fontSize: '0.95rem' }}>
           This will be the name of your first .redstring file.
         </p>
       </div>
@@ -326,8 +326,8 @@ const StorageSetupModal = ({
             padding: '12px 16px',
             fontSize: '1.1rem',
             borderRadius: '8px',
-            border: '2px solid #260000',
-            backgroundColor: '#DEDADA',
+            border: `2px solid ${theme.canvas.border}`,
+            backgroundColor: theme.darkMode ? 'rgba(255,255,255,0.05)' : '#DEDADA',
             color: theme.canvas.textPrimary,
             boxSizing: 'border-box',
             fontFamily: "'EmOne', sans-serif",
@@ -347,8 +347,8 @@ const StorageSetupModal = ({
           style={{
             width: '100%',
             padding: '14px',
-            backgroundColor: universeName.trim() ? '#260000' : '#ccc',
-            color: '#EFE8E5',
+            backgroundColor: universeName.trim() ? (theme.darkMode ? '#EFE8E5' : '#260000') : (theme.darkMode ? 'rgba(255,255,255,0.1)' : '#ccc'),
+            color: universeName.trim() && theme.darkMode ? '#260000' : '#EFE8E5',
             border: 'none',
             borderRadius: '8px',
             cursor: universeName.trim() ? 'pointer' : 'not-allowed',
@@ -399,17 +399,19 @@ const StorageSetupModal = ({
             right: isCompactLayout ? '12px' : '16px',
             background: 'none',
             border: 'none',
-            color: '#666',
+            color: theme.canvas.textPrimary,
+            opacity: 0.6,
             cursor: 'pointer',
             padding: '6px',
             borderRadius: '4px',
             fontSize: '16px',
             fontWeight: 'bold',
             fontFamily: "'EmOne', sans-serif",
-            zIndex: 10
+            zIndex: 10,
+            transition: 'opacity 0.2s'
           }}
-          onMouseEnter={(e) => e.currentTarget.style.color = '#260000'}
-          onMouseLeave={(e) => e.currentTarget.style.color = '#260000'}
+          onMouseEnter={(e) => e.currentTarget.style.opacity = '1'}
+          onMouseLeave={(e) => e.currentTarget.style.opacity = '0.6'}
         >
           ✕
         </button>

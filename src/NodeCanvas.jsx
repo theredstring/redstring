@@ -1127,11 +1127,16 @@ function NodeCanvas() {
           storeActions.setUniverseConnected(true);
           storeActions.setUniverseLoaded(true, false);
           storeActions.setLeftPanelExpanded(true);
+          setShowStorageSetupModal(false); // Close setup modal if it was accidentally opened
+          
+          if (typeof window !== 'undefined') {
+            localStorage.setItem(getStorageKey('redstring-welcome-seen'), 'true');
+          }
           setTimeout(() => { if (leftPanelRef.current) leftPanelRef.current.setActiveView('federation'); }, 100);
         }
         // If NEEDS_ONBOARDING, check if user has skipped setup before
         else if (result.status === 'NEEDS_ONBOARDING') {
-          const welcomeSeen = typeof window !== 'undefined' && localStorage.getItem(getStorageKey('redstring-alpha-welcome-seen')) === 'true';
+          const welcomeSeen = typeof window !== 'undefined' && localStorage.getItem(getStorageKey('redstring-welcome-seen')) === 'true';
 
           if (welcomeSeen) {
             console.log('[NodeCanvas] Onboarding seen but no workspace config. Falling back to browser/auto-connect...');
@@ -1177,7 +1182,9 @@ function NodeCanvas() {
     let hasCompletedOnboarding = false;
     try {
       if (typeof window !== 'undefined') {
-        hasCompletedOnboarding = localStorage.getItem(getStorageKey('redstring-alpha-welcome-seen')) === 'true';
+        const welcomeSeenVar = localStorage.getItem(getStorageKey('redstring-welcome-seen')) === 'true';
+        const fp = localStorage.getItem(getStorageKey('redstring_workspace_folder_path'));
+        hasCompletedOnboarding = welcomeSeenVar || !!fp;
       }
     } catch { }
 
@@ -12801,7 +12808,7 @@ function NodeCanvas() {
 
               // 7. Mark onboarding as complete
               if (typeof window !== 'undefined') {
-                localStorage.setItem(getStorageKey('redstring-alpha-welcome-seen'), 'true');
+                localStorage.setItem(getStorageKey('redstring-welcome-seen'), 'true');
               }
 
               // 8. Close modal and open Panel
@@ -12835,7 +12842,7 @@ function NodeCanvas() {
 
             // Mark onboarding as complete
             if (typeof window !== 'undefined') {
-              localStorage.setItem(getStorageKey('redstring-alpha-welcome-seen'), 'true');
+              localStorage.setItem(getStorageKey('redstring-welcome-seen'), 'true');
             }
 
             // Close storage setup modal

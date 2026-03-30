@@ -4767,7 +4767,7 @@ const UniverseManager = ({ variant = 'panel', onRequestClose }) => {
         </div>
       </Modal>
 
-      {/* Welcome modal removed in favor of existing AlphaOnboardingModal */}
+      {/* Welcome modal removed in favor of existing BetaOnboardingModal */}
 
       {/* Universe File Selection Modal */}
       <Modal
