@@ -22,6 +22,7 @@
     "wizard:start": "node wizard-server.js",
     "oauth": "node oauth-server.js",
     "oauth:start": "node oauth-server.js",
+    "bump-version": "node scripts/bump-version.js",
     "dev": "vite",
     "electron:dev": "concurrently -k \"npm run oauth\" \"npm run dev\" \"wait-on http://localhost:4001 && cross-env NODE_ENV=development electron .\"",
     "electron:build": "npm run build && electron-builder",

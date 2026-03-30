@@ -119,7 +119,7 @@ const BetaOnboardingModal = ({
           fontFamily: "'EmOne', sans-serif",
           fontWeight: '600'
         }}>
-          v0.3.0
+          v{import.meta.env.VITE_APP_VERSION}
         </div>
       </div>
 

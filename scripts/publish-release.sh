@@ -42,6 +42,11 @@ read -p "Are you sure you want to proceed? (y/N) " -n 1 -r
 echo ""
 
 if [[ $REPLY =~ ^[Yy]$ ]]; then
+    echo "Bumping version strings in text files..."
+    npm run bump-version
+    git add README.md package.json package-lock.json || true
+    git commit -m "chore: bump version strings to v$VERSION" || true
+
     echo "Creating tag..."
     git tag "$TAG"
     

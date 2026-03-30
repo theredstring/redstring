@@ -55,10 +55,12 @@ class ToolQueue {
 
 const toolQueue = new ToolQueue();
 
+const packageJson = JSON.parse(fs.readFileSync(new URL('./package.json', import.meta.url), 'utf-8'));
+
 // Create MCP server instance
 const server = new McpServer({
   name: "redstring",
-  version: "0.3.0",
+  version: packageJson.version,
   capabilities: {
     resources: {},
     tools: {},
