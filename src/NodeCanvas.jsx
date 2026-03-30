@@ -941,24 +941,55 @@ function NodeCanvas() {
     return graphsMap.get(activeGraphId)?.edgeIds;
   }, [activeGraphId, graphsMap]);
   // Derive nodes and edges using useMemo for stable references
+  // PERF: Reuse previous node objects when content+position unchanged to preserve
+  // referential identity — combined with Node's custom memo comparator, this ensures
+  // only the dragged node(s) re-render during drag, not all visible nodes.
+  const prevNodesRef = useRef(new Map()); // id → previous node object
   const nodes = useMemo(() => {
     if (!instances || !nodePrototypesMap) return [];
-    return Array.from(instances.values()).map(instance => {
+    const prevMap = prevNodesRef.current;
+    const newMap = new Map();
+    const result = [];
+
+    for (const [id, instance] of instances) {
       const prototype = nodePrototypesMap.get(instance.prototypeId);
-      if (!prototype) return null;
-      // Merge in cached thumbnail for auto-enriched nodes (not in main store)
+      if (!prototype) continue;
+
       const cached = imageCacheMap[instance.prototypeId];
-      const imageOverrides = (cached && !prototype.thumbnailSrc)
-        ? { thumbnailSrc: cached.thumbnailSrc, imageAspectRatio: cached.imageAspectRatio }
-        : {};
-      return {
-        ...prototype,
-        ...imageOverrides,
-        ...instance,
-        // Always use prototype name
-        name: prototype.name,
-      };
-    }).filter(Boolean);
+      const effectiveThumb = (cached && !prototype.thumbnailSrc)
+        ? cached.thumbnailSrc
+        : (prototype.thumbnailSrc || null);
+
+      const prev = prevMap.get(id);
+      // Reuse old reference if nothing meaningful changed
+      if (prev &&
+          prev.x === instance.x && prev.y === instance.y &&
+          prev.scale === instance.scale &&
+          prev.prototypeId === instance.prototypeId &&
+          prev.name === prototype.name &&
+          prev.color === prototype.color &&
+          prev.thumbnailSrc === effectiveThumb &&
+          prev.description === prototype.description &&
+          prev.definitionGraphIds === prototype.definitionGraphIds) {
+        result.push(prev);
+        newMap.set(id, prev);
+      } else {
+        const imageOverrides = (cached && !prototype.thumbnailSrc)
+          ? { thumbnailSrc: cached.thumbnailSrc, imageAspectRatio: cached.imageAspectRatio }
+          : {};
+        const node = {
+          ...prototype,
+          ...imageOverrides,
+          ...instance,
+          name: prototype.name,
+        };
+        result.push(node);
+        newMap.set(id, node);
+      }
+    }
+
+    prevNodesRef.current = newMap;
+    return result;
   }, [instances, nodePrototypesMap, imageCacheMap]);
 
   const edges = useMemo(() => {
@@ -2027,6 +2058,12 @@ function NodeCanvas() {
     // Guard until basic view state is present
     if (!viewportSize || !canvasSize) return;
 
+    // PERF: Skip visibility recalculation during drag movement — visibility barely changes
+    // when moving a node, and this avoids a second setState/re-render cycle per frame.
+    // But DO allow visibility updates during zoom animations (drag zoom-out) so nodes
+    // appear/disappear correctly as the viewport changes.
+    if (draggingNodeInfo && !isAnimatingZoomRef.current) return;
+
     // Skip expensive culling during pinch zoom animation to prevent jitter
     if (pinchSmoothingRef.current.isAnimating) {
       return;
@@ -2090,7 +2127,7 @@ function NodeCanvas() {
 
     rafId = requestAnimationFrame(compute);
     return () => { if (rafId) cancelAnimationFrame(rafId); };
-  }, [panOffset, zoomLevel, viewportSize, canvasSize, nodes, edges, baseDimsById, nodeById]);
+  }, [panOffset, zoomLevel, viewportSize, canvasSize, nodes, edges, baseDimsById, nodeById, draggingNodeInfo]);
 
 
 
@@ -2123,8 +2160,11 @@ function NodeCanvas() {
   });
 
   // Port-based routing with intelligent edge distribution - inspired by circuit board routing
+  const prevCleanLaneOffsetsRef = useRef(new Map());
   const cleanLaneOffsets = useMemo(() => {
     const portAssignments = new Map(); // edgeId -> { sourcePort, destPort }
+    // PERF: Skip expensive port assignment during drag — reuse cached result
+    if (draggingNodeInfo) return prevCleanLaneOffsetsRef.current || portAssignments;
     if (!enableAutoRouting || routingStyle !== 'clean' || !visibleEdges?.length) return portAssignments;
 
     try {
@@ -2196,12 +2236,13 @@ function NodeCanvas() {
         });
       }
 
+      prevCleanLaneOffsetsRef.current = portAssignments;
       return portAssignments;
     } catch (error) {
 
       return new Map();
     }
-  }, [enableAutoRouting, routingStyle, visibleEdges, nodeById, baseDimsById, nodes]);
+  }, [enableAutoRouting, routingStyle, visibleEdges, nodeById, baseDimsById, nodes, draggingNodeInfo]);
 
   // Memoize edgeCurveInfo for parallel edge detection (used by both rendering and hover detection)
   const edgeCurveInfo = useMemo(() => {
@@ -4336,6 +4377,12 @@ function NodeCanvas() {
     triggerDragZoomOut
   ]);
 
+  // PERF: Ref to ensure long-press timeout always calls the latest startDragForNode.
+  // With node object stabilization, React.memo may prevent Node re-renders after pan/zoom
+  // changes, leaving stale onMouseDown closures. The ref bypasses this.
+  const startDragForNodeRef = useRef(startDragForNode);
+  useEffect(() => { startDragForNodeRef.current = startDragForNode; }, [startDragForNode]);
+
   const handleNodeMouseDown = (nodeData, e) => { // nodeData is now a hydrated node (instance + prototype)
     e.stopPropagation();
     if (suppressNextMouseDownRef.current) {
@@ -4415,7 +4462,7 @@ function NodeCanvas() {
         potentialClickNodeRef.current = null;
 
         if (mouseInsideNode.current && (!mouseMoved.current || isTouchDeviceRef.current)) {
-          startDragForNode(nodeData, e.clientX, e.clientY);
+          startDragForNodeRef.current(nodeData, e.clientX, e.clientY);
         }
         setLongPressingInstanceId(null);
       }, LONG_PRESS_DURATION);

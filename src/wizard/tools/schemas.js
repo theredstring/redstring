@@ -907,14 +907,101 @@ export function getToolDefinitions(options = {}) {
         }
     ];
 
-    // Conditionally exclude tabular tools when no tabular data is attached.
-    // These tools add significant schema complexity that can push Gemini over
-    // its constraint state limit.
-    if (!hasTabularData) {
-        const tabularToolNames = new Set(['analyzeTabularData', 'importTabularAsGraph']);
-        return allTools.filter(t => !tabularToolNames.has(t.name));
-    }
+    // listTools: self-referential catalog tool
+    allTools.push({
+        name: 'listTools',
+        description: 'List ALL available tools with descriptions, organized by Things/Webs/Connections. Calling this unlocks every tool for the rest of this turn.',
+        parameters: {
+            type: 'object',
+            properties: {},
+            required: []
+        }
+    });
 
     return allTools;
+}
+
+/**
+ * Tool selection tiers for dynamic per-turn filtering.
+ * - 1: Always included (core tools every LLM needs)
+ * - string: Tier 2, included when the named context flag is true
+ * - string[]: Tier 3, included when user message contains any keyword
+ */
+const TOOL_TIERS = {
+    // Tier 1: Always included (~15 core tools)
+    createNode: 1, updateNode: 1, deleteNode: 1,
+    createEdge: 1, updateEdge: 1, deleteEdge: 1,
+    readGraph: 1, search: 1, selectNode: 1,
+    createGraph: 1, createPopulatedGraph: 1, expandGraph: 1,
+    sketchGraph: 1, planTask: 1, askMultipleChoice: 1, listTools: 1,
+    populateDefinitionGraph: 1, switchToGraph: 1, inspectWorkspace: 1,
+
+    // Tier 2: Context-triggered (included when graph has relevant content)
+    createGroup: 'has3PlusNodes', updateGroup: 'hasGroups',
+    deleteGroup: 'hasGroups', thingGroup: 'hasGroups',
+    replaceEdges: 'hasEdges',
+    manageDefinitions: 'hasDefinitions', decomposeNode: 'hasDefinitions',
+    condenseToNode: 'has3PlusNodes', themeGraph: 'has3PlusNodes',
+    setNodeType: 'hasNodes', abstractionChain: 'hasNodes',
+    inspectPrototype: 'hasNodes',
+    getNodeContext: 'hasNodes', enrichFromWikipedia: 'hasNodes',
+    findDuplicates: 'has5PlusNodes', mergeNodes: 'has5PlusNodes',
+    mergeGraphs: 'multipleGraphs',
+
+    // Tier 3: Keyword-triggered (semantic web, tabular data)
+    discoverOrbit: ['semantic', 'wikidata', 'dbpedia', 'discover', 'orbit'],
+    semanticSearch: ['semantic', 'wikidata', 'dbpedia', 'linked data'],
+    materializeSemanticEntities: ['semantic', 'materialize', 'wikidata'],
+    importKnowledgeCluster: ['import', 'cluster', 'wikidata', 'crawl'],
+    querySparql: ['sparql', 'wikidata', 'dbpedia'],
+    analyzeTabularData: 'hasTabularData',
+    importTabularAsGraph: 'hasTabularData',
+};
+
+/**
+ * Select relevant tools for a given turn based on graph state and user message.
+ * Tier 1 tools are always included. Tier 2 tools are included when the graph
+ * has relevant content. Tier 3 tools are included when the user's message
+ * contains relevant keywords. This reduces tool count from ~42 to ~15-25,
+ * improving accuracy for small models and staying within Gemini's state limit.
+ */
+export function selectToolsForTurn({ graphState, userMessage, hasTabularData = false }) {
+    const allTools = getToolDefinitions();
+
+    // If listTools was called, all tools are unlocked for the rest of this turn
+    if (graphState?._unlockAllTools) {
+        return allTools;
+    }
+
+    const activeGraph = (graphState?.graphs || []).find(g => g.id === graphState?.activeGraphId);
+    const nodeCount = activeGraph?.instances?.length || 0;
+    const edgeCount = activeGraph?.edgeIds?.length || 0;
+    const groupCount = (activeGraph?.groups || []).length;
+    const graphCount = (graphState?.graphs || []).length;
+    const hasDefinitions = (graphState?.nodePrototypes || []).some(
+        p => Array.isArray(p.definitionGraphIds) && p.definitionGraphIds.length > 0
+    );
+
+    const flags = {
+        hasNodes: nodeCount > 0,
+        has3PlusNodes: nodeCount >= 3,
+        has5PlusNodes: nodeCount >= 5,
+        hasEdges: edgeCount > 0,
+        hasGroups: groupCount > 0,
+        multipleGraphs: graphCount > 1,
+        hasDefinitions,
+        hasTabularData,
+    };
+
+    const msgLower = (typeof userMessage === 'string' ? userMessage : '').toLowerCase();
+
+    return allTools.filter(tool => {
+        const tier = TOOL_TIERS[tool.name];
+        if (tier === undefined) return false;
+        if (tier === 1) return true;
+        if (typeof tier === 'string') return flags[tier] === true;
+        if (Array.isArray(tier)) return tier.some(kw => msgLower.includes(kw));
+        return false;
+    });
 }
 

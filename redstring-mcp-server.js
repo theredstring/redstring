@@ -601,14 +601,9 @@ async function registerWizardTools() {
       );
     };
 
-    // Register original name
+    // Register with camelCase name only — snake_case duplicates double the tool
+    // count and push Gemini (and other constrained LLMs) over schema limits.
     registerWith(def.name);
-
-    // Register snake_case alias if different
-    const snakeName = def.name.replace(/[A-Z]/g, letter => `_${letter.toLowerCase()}`);
-    if (snakeName !== def.name) {
-      registerWith(snakeName);
-    }
   }
 }
 

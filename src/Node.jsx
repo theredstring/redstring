@@ -151,10 +151,13 @@ const Node = ({
   const hasMultipleDefinitions = definitionGraphIds.length > 1;
   const hasAnyDefinitions = definitionGraphIds.length > 0;
   // Access store state before any memoizations that depend on it
-  const graphsMap = useGraphStore((state) => state.graphs);
-  const edgesMap = useGraphStore((state) => state.edges);
+  // PERF: Only subscribe to broad Maps when previewing — these are only needed for the
+  // mini-graph preview rendering. Non-previewing nodes return null, avoiding re-renders
+  // when the store changes (e.g. during drag position updates).
+  const graphsMap = useGraphStore((state) => isPreviewing ? state.graphs : null);
+  const edgesMap = useGraphStore((state) => isPreviewing ? state.edges : null);
   const textSettings = useGraphStore((state) => state.textSettings);
-  const nodePrototypesMap = useGraphStore((state) => state.nodePrototypes);
+  const nodePrototypesMap = useGraphStore((state) => isPreviewing ? state.nodePrototypes : null);
 
   // Determine display title: prefer current graph title in preview, else node name
   const currentGraphName = useMemo(() => {
@@ -1076,4 +1079,22 @@ const Node = ({
   );
 };
 
-export default memo(Node);
+// Custom comparator: skip function props (always new refs but functionally identical)
+// This prevents re-rendering all nodes when only one node's position changes during drag
+export default memo(Node, (prev, next) => {
+  return prev.node === next.node &&
+    prev.isSelected === next.isSelected &&
+    prev.isDragging === next.isDragging &&
+    prev.currentWidth === next.currentWidth &&
+    prev.currentHeight === next.currentHeight &&
+    prev.textAreaHeight === next.textAreaHeight &&
+    prev.imageWidth === next.imageWidth &&
+    prev.imageHeight === next.imageHeight &&
+    prev.isPreviewing === next.isPreviewing &&
+    prev.isEditingOnCanvas === next.isEditingOnCanvas &&
+    prev.currentDefinitionIndex === next.currentDefinitionIndex &&
+    prev.innerNetworkWidth === next.innerNetworkWidth &&
+    prev.innerNetworkHeight === next.innerNetworkHeight &&
+    prev.descriptionAreaHeight === next.descriptionAreaHeight &&
+    prev.idPrefix === next.idPrefix;
+});

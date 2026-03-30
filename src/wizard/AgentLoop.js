@@ -9,6 +9,7 @@ import { fileURLToPath } from 'url';
 import { callLLM, streamLLM } from './LLMClient.js';
 import { buildContext, buildPersistentContextHeader, buildPlanContext } from './ContextBuilder.js';
 import { executeTool, getToolDefinitions } from './tools/index.js';
+import { selectToolsForTurn } from './tools/schemas.js';
 import { WIZARD_SYSTEM_PROMPT } from '../services/agent/WizardPrompt.js';
 import { NODE_DEFAULT_COLOR } from '../constants.js';
 
@@ -722,7 +723,6 @@ export async function* runAgent(userMessage, graphState, config = {}, ensureSche
   const baseSystemPrompt = config.systemPrompt || SYSTEM_PROMPT || 'You are The Wizard, a helpful assistant for building knowledge graphs.';
 
   const hasTabularData = Array.isArray(graphState?._tabularData) && graphState._tabularData.length > 0;
-  const tools = getToolDefinitions({ hasTabularData });
   const maxIterations = config.maxIterations || DEFAULT_MAX_ITERATIONS;
 
   // Build static system prompt template (context will be appended fresh each iteration)
@@ -775,6 +775,12 @@ export async function* runAgent(userMessage, graphState, config = {}, ensureSche
     try {
       let iterationContent = '';
       let iterationToolCalls = [];
+
+      // Re-evaluate tool selection each iteration (graphState changes after tool execution)
+      const userMessageText = typeof userMessage === 'string'
+        ? userMessage
+        : (Array.isArray(userMessage) ? userMessage.filter(b => b.type === 'text').map(b => b.text).join(' ') : '');
+      const tools = selectToolsForTurn({ graphState, userMessage: userMessageText, hasTabularData });
 
       // Stream LLM response for this iteration
       // Track what we've yielded to prevent duplicates

@@ -346,7 +346,7 @@ const SettingsModal = ({ isVisible, onClose }) => {
                 borderRadius: '6px',
                 cursor: 'pointer',
                 backgroundColor: activeSection === key ? (theme.darkMode ? 'rgba(139, 0, 0, 0.25)' : 'rgba(139, 0, 0, 0.1)') : 'transparent',
-                color: activeSection === key ? theme.accent.primary : theme.canvas.textSecondary,
+                color: activeSection === key ? (theme.darkMode ? '#ff9a9a' : theme.accent.primary) : theme.canvas.textSecondary,
                 fontWeight: activeSection === key ? 'bold' : 'normal',
                 fontSize: '0.85rem',
                 display: 'flex',

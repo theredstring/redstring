@@ -365,12 +365,12 @@ const RepositorySelectionModal = ({
           justifyContent: 'center',
           flexDirection: 'column',
           gap: '16px',
-          color: '#666',
+          color: theme.canvas.textSecondary,
           padding: '40px'
         }}>
           <Github size={48} style={{ opacity: 0.3 }} />
           <div style={{ textAlign: 'center' }}>
-            <div style={{ fontSize: '1.1rem', fontWeight: 600, marginBottom: '8px' }}>
+            <div style={{ fontSize: '1.1rem', fontWeight: 600, marginBottom: '8px', color: theme.canvas.textPrimary }}>
               GitHub Authentication Required
             </div>
             <div style={{ fontSize: '0.9rem' }}>
@@ -388,7 +388,7 @@ const RepositorySelectionModal = ({
       {/* Compact search */}
       <div style={{
          padding: '12px',
-         borderBottom: '1px solid #979090',
+         borderBottom: `1px solid ${theme.canvas.border}`,
          backgroundColor: theme.canvas.bg,
          flexShrink: 0
       }}>
@@ -401,7 +401,7 @@ const RepositorySelectionModal = ({
               top: '50%',
               transform: 'translateY(-50%)',
               opacity: 0.6,
-              color: '#260000'
+              color: theme.canvas.textPrimary
             }}
           />
           <input
@@ -412,11 +412,11 @@ const RepositorySelectionModal = ({
             style={{
               width: '100%',
               padding: '8px 8px 8px 28px',
-              border: '1px solid #979090',
+              border: `1px solid ${theme.canvas.border}`,
               borderRadius: '4px',
               fontSize: '0.8rem',
-              backgroundColor: '#979090',
-              color: '#260000',
+              backgroundColor: theme.canvas.border,
+              color: theme.canvas.textPrimary,
               boxSizing: 'border-box',
               fontFamily: "'EmOne', sans-serif"
             }}
@@ -439,9 +439,9 @@ const RepositorySelectionModal = ({
                 key={key}
                  onClick={() => handleSort(key)}
                  style={{
-                   background: sortBy === key ? theme.canvas.text : 'none',
-                   color: sortBy === key ? theme.canvas.bg : '#666',
-                   border: `1px solid ${theme.canvas.text}`,
+                   background: sortBy === key ? theme.canvas.textPrimary : 'none',
+                   color: sortBy === key ? theme.canvas.bg : theme.canvas.textSecondary,
+                   border: `1px solid ${theme.canvas.textPrimary}`,
                    padding: '2px 6px',
                   borderRadius: '3px',
                   cursor: 'pointer',
@@ -455,7 +455,7 @@ const RepositorySelectionModal = ({
           </div>
 
           <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-            <span style={{ color: '#444' }}>
+            <span style={{ color: theme.canvas.textSecondary }}>
               {filteredAndSortedRepos.length}
             </span>
             <button
@@ -464,7 +464,7 @@ const RepositorySelectionModal = ({
               style={{
                 background: 'none',
                 border: 'none',
-                color: '#260000',
+                color: theme.canvas.textPrimary,
                 cursor: loading ? 'not-allowed' : 'pointer',
                 padding: '2px',
                 opacity: loading ? 0.6 : 0.8
@@ -480,9 +480,9 @@ const RepositorySelectionModal = ({
                 setCreateRepoError(null);
               }}
               style={{
-                 background: '#7A0000',
-                 border: '1px solid #7A0000',
-                 color: theme.canvas.bg,
+                 background: theme.canvas.brand,
+                 border: `1px solid ${theme.canvas.brand}`,
+                 color: '#fff',
                  padding: '4px 8px',
                 borderRadius: '4px',
                 cursor: 'pointer',
@@ -503,15 +503,15 @@ const RepositorySelectionModal = ({
           <div style={{
             marginTop: '10px',
             padding: '10px',
-            border: '1px solid #979090',
+            border: `1px solid ${theme.canvas.border}`,
             borderRadius: '6px',
-            backgroundColor: '#cfc6c6',
+            backgroundColor: theme.canvas.hover,
             display: 'flex',
             flexDirection: 'column',
             gap: '8px'
           }}>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-              <label style={{ fontSize: '0.7rem', fontWeight: 600, color: '#260000' }}>
+              <label style={{ fontSize: '0.7rem', fontWeight: 600, color: theme.canvas.textPrimary }}>
                 Repository Name
               </label>
               <input
@@ -521,11 +521,11 @@ const RepositorySelectionModal = ({
                 placeholder="my-new-repo"
                 style={{
                   padding: '6px 8px',
-                  border: '1px solid #979090',
+                  border: `1px solid ${theme.canvas.border}`,
                    borderRadius: '4px',
                    fontSize: '0.75rem',
                    backgroundColor: theme.canvas.bg,
-                   color: '#260000'
+                   color: theme.canvas.textPrimary
                 }}
               />
             </div>
@@ -535,7 +535,7 @@ const RepositorySelectionModal = ({
               alignItems: 'center',
               gap: '6px',
               fontSize: '0.7rem',
-              color: '#260000'
+              color: theme.canvas.textPrimary
             }}>
               <input
                 type="checkbox"
@@ -548,8 +548,8 @@ const RepositorySelectionModal = ({
             {createRepoError && (
               <div style={{
                 fontSize: '0.7rem',
-                color: '#7A0000',
-                backgroundColor: 'rgba(122,0,0,0.1)',
+                color: theme.alert.error.text,
+                backgroundColor: theme.alert.error.bg,
                 padding: '6px 8px',
                 borderRadius: '4px'
               }}>
@@ -562,9 +562,9 @@ const RepositorySelectionModal = ({
                  onClick={handleCreateRepository}
                  disabled={creatingRepo || !newRepoName.trim()}
                  style={{
-                   background: '#7A0000',
-                   color: theme.canvas.bg,
-                   border: '1px solid #7A0000',
+                   background: theme.canvas.brand,
+                   color: '#fff',
+                   border: `1px solid ${theme.canvas.brand}`,
                    padding: '6px 12px',
                   borderRadius: '4px',
                   fontSize: '0.75rem',
@@ -584,9 +584,9 @@ const RepositorySelectionModal = ({
         <div
           style={{
             padding: '10px 12px',
-            backgroundColor: intent === 'import' ? 'rgba(21,101,192,0.12)' : 'rgba(38,0,0,0.08)',
-            borderBottom: '1px solid #979090',
-            color: '#260000',
+            backgroundColor: intent === 'import' ? theme.alert.info.bg : (theme.darkMode ? 'rgba(222,218,218,0.08)' : 'rgba(38,0,0,0.08)'),
+            borderBottom: `1px solid ${theme.canvas.border}`,
+            color: theme.canvas.textPrimary,
             fontSize: '0.78rem',
             lineHeight: 1.4
           }}
@@ -599,9 +599,9 @@ const RepositorySelectionModal = ({
       {error && (
         <div style={{
           padding: '8px 12px',
-          backgroundColor: '#ffebee',
-          borderBottom: '1px solid #f44336',
-          color: '#d32f2f',
+          backgroundColor: theme.alert.error.bg,
+          borderBottom: `1px solid ${theme.alert.error.border}`,
+          color: theme.alert.error.text,
           fontSize: '0.75rem'
         }}>
           {error}
@@ -616,7 +616,7 @@ const RepositorySelectionModal = ({
             alignItems: 'center',
             justifyContent: 'center',
             padding: '60px',
-            color: '#666'
+            color: theme.canvas.textSecondary
           }}>
             <RefreshCw size={24} style={{ animation: 'spin 1s linear infinite', marginRight: '12px' }} />
             Loading repositories...
@@ -628,7 +628,7 @@ const RepositorySelectionModal = ({
             justifyContent: 'center',
             flexDirection: 'column',
             padding: '60px',
-            color: '#666',
+            color: theme.canvas.textSecondary,
             gap: '12px'
           }}>
             {repositories.length === 0 ? (
@@ -653,7 +653,7 @@ const RepositorySelectionModal = ({
             <div
               key={repo.id}
                style={{
-                 borderBottom: '1px solid #979090',
+                 borderBottom: `1px solid ${theme.canvas.border}`,
                  backgroundColor: theme.canvas.bg
                }}
             >
@@ -665,7 +665,7 @@ const RepositorySelectionModal = ({
                   transition: 'background-color 0.2s'
                 }}
                 onMouseEnter={(e) => {
-                  e.currentTarget.style.backgroundColor = '#979090';
+                  e.currentTarget.style.backgroundColor = theme.canvas.border;
                 }}
                 onMouseLeave={(e) => {
                   e.currentTarget.style.backgroundColor = 'transparent';
@@ -708,8 +708,8 @@ const RepositorySelectionModal = ({
                   {isExpanded && universes.length > 0 && (
                     <span style={{
                       fontSize: '0.7rem',
-                      color: '#666',
-                      backgroundColor: '#979090',
+                      color: theme.canvas.textSecondary,
+                      backgroundColor: theme.canvas.border,
                       padding: '1px 4px',
                       borderRadius: '2px'
                     }}>
@@ -728,7 +728,7 @@ const RepositorySelectionModal = ({
                     style={{
                       background: 'none',
                       border: 'none',
-                      color: '#260000',
+                      color: theme.canvas.textPrimary,
                       cursor: 'pointer',
                       padding: '2px',
                       opacity: 0.6,
@@ -747,7 +747,7 @@ const RepositorySelectionModal = ({
                       rel="noopener noreferrer"
                       onClick={(e) => e.stopPropagation()}
                       style={{
-                        color: '#260000',
+                        color: theme.canvas.textPrimary,
                         opacity: 0.6,
                         textDecoration: 'none',
                         padding: '2px'
@@ -781,7 +781,7 @@ const RepositorySelectionModal = ({
               {repo.description && (
                 <div style={{
                   fontSize: '0.7rem',
-                  color: '#444',
+                  color: theme.canvas.textSecondary,
                   marginBottom: '6px',
                   lineHeight: 1.3,
                   overflow: 'hidden',
@@ -798,7 +798,7 @@ const RepositorySelectionModal = ({
                 alignItems: 'center',
                 justifyContent: 'space-between',
                 fontSize: '0.65rem',
-                color: '#666'
+                color: theme.canvas.textSecondary
               }}>
                 <span>Updated {formatDate(repo.updated_at)}</span>
                 <span>{repo.owner?.login}</span>
@@ -808,8 +808,8 @@ const RepositorySelectionModal = ({
               {/* Expandable universe section */}
               {isExpanded && (
                 <div style={{
-                  backgroundColor: '#979090',
-                  borderTop: '1px solid #808080',
+                  backgroundColor: theme.canvas.border,
+                  borderTop: `1px solid ${theme.darkMode ? '#555' : '#808080'}`,
                   padding: '8px 12px'
                 }}>
                   {discoveredUniverses[repo.id] === undefined ? (
@@ -818,7 +818,7 @@ const RepositorySelectionModal = ({
                       alignItems: 'center',
                       gap: '6px',
                       fontSize: '0.7rem',
-                      color: '#666'
+                      color: theme.canvas.textSecondary
                     }}>
                       <RefreshCw size={10} style={{ animation: 'spin 1s linear infinite' }} />
                       Scanning for universes...
@@ -829,7 +829,7 @@ const RepositorySelectionModal = ({
                         <div style={{
                           fontSize: '0.7rem',
                           fontWeight: 600,
-                          color: '#260000'
+                          color: theme.canvas.textPrimary
                         }}>
                           Found {universes.length} universe{universes.length === 1 ? '' : 's'}:
                         </div>
@@ -837,7 +837,7 @@ const RepositorySelectionModal = ({
                       {universes.length === 0 && (
                         <div style={{
                           fontSize: '0.7rem',
-                          color: '#666',
+                          color: theme.canvas.textSecondary,
                           fontStyle: 'italic'
                         }}>
                           No universes found in this repository
@@ -896,7 +896,7 @@ const RepositorySelectionModal = ({
                           <div
                             key={`${repo.id}-${universe.path || universe.slug || index}`}
                             style={{
-                              border: '1px solid #260000',
+                              border: `1px solid ${theme.canvas.textPrimary}`,
                               borderRadius: 12,
                               padding: '10px 12px',
                               backgroundColor: theme.canvas.bg,
@@ -904,7 +904,7 @@ const RepositorySelectionModal = ({
                               display: 'flex',
                               flexDirection: 'column',
                               gap: 6,
-                              boxShadow: '0 2px 6px rgba(38, 0, 0, 0.08)'
+                              boxShadow: theme.darkMode ? '0 2px 6px rgba(0, 0, 0, 0.2)' : '0 2px 6px rgba(38, 0, 0, 0.08)'
                             }}
                           >
                             <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
@@ -913,7 +913,7 @@ const RepositorySelectionModal = ({
                                 style={{
                                   fontWeight: 600,
                                   fontSize: '0.72rem',
-                                  color: '#260000',
+                                  color: theme.canvas.textPrimary,
                                   overflow: 'hidden',
                                   textOverflow: 'ellipsis',
                                   whiteSpace: 'nowrap'
@@ -923,9 +923,9 @@ const RepositorySelectionModal = ({
                               </div>
                             </div>
                             {universe.path && (
-                              <div style={{ fontSize: '0.65rem', color: '#555' }}>{universe.path}</div>
+                              <div style={{ fontSize: '0.65rem', color: theme.canvas.textSecondary }}>{universe.path}</div>
                             )}
-                            <div style={{ fontSize: '0.62rem', color: '#7A0000', display: 'flex', gap: 10 }}>
+                            <div style={{ fontSize: '0.62rem', color: theme.darkMode ? theme.alert.error.text : theme.canvas.brand, display: 'flex', gap: 10 }}>
                               {(universe.metadata?.nodeCount ?? universe.nodeCount) !== undefined && (
                                 <span>{universe.metadata?.nodeCount ?? universe.nodeCount} nodes</span>
                               )}

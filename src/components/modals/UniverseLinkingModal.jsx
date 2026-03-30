@@ -53,9 +53,9 @@ const UniverseLinkingModal = ({
         {/* Info banner */}
         <div style={{
           padding: '12px',
-          backgroundColor: 'rgba(122,0,0,0.08)',
-          borderBottom: '1px solid #979090',
-          color: '#260000',
+          backgroundColor: theme.darkMode ? 'rgba(122,0,0,0.15)' : 'rgba(122,0,0,0.08)',
+          borderBottom: `1px solid ${theme.canvas.border}`,
+          color: theme.canvas.textPrimary,
           fontSize: '0.78rem',
           lineHeight: 1.4,
           flexShrink: 0
@@ -68,7 +68,7 @@ const UniverseLinkingModal = ({
           display: 'flex',
           gap: '8px',
           padding: '12px',
-          borderBottom: '1px solid #979090',
+          borderBottom: `1px solid ${theme.canvas.border}`,
           backgroundColor: theme.canvas.bg,
           flexShrink: 0
         }}>
@@ -77,10 +77,10 @@ const UniverseLinkingModal = ({
             style={{
               flex: 1,
               padding: '8px 12px',
-              border: `1px solid ${theme.canvas.text}`,
+              border: `1px solid ${theme.canvas.textPrimary}`,
               borderRadius: '4px',
-              backgroundColor: mode === 'select' ? theme.canvas.text : 'transparent',
-              color: mode === 'select' ? theme.canvas.bg : theme.canvas.text,
+              backgroundColor: mode === 'select' ? theme.canvas.textPrimary : 'transparent',
+              color: mode === 'select' ? theme.canvas.bg : theme.canvas.textPrimary,
               cursor: 'pointer',
               fontSize: '0.8rem',
               fontWeight: 600,
@@ -95,10 +95,10 @@ const UniverseLinkingModal = ({
             style={{
               flex: 1,
               padding: '8px 12px',
-              border: `1px solid ${theme.canvas.text}`,
+              border: `1px solid ${theme.canvas.textPrimary}`,
               borderRadius: '4px',
-              backgroundColor: mode === 'create' ? theme.canvas.text : 'transparent',
-              color: mode === 'create' ? theme.canvas.bg : theme.canvas.text,
+              backgroundColor: mode === 'create' ? theme.canvas.textPrimary : 'transparent',
+              color: mode === 'create' ? theme.canvas.bg : theme.canvas.textPrimary,
               cursor: 'pointer',
               fontSize: '0.8rem',
               fontWeight: 600,
@@ -123,7 +123,7 @@ const UniverseLinkingModal = ({
                 <div style={{
                   padding: '40px',
                   textAlign: 'center',
-                  color: '#666',
+                  color: theme.canvas.textSecondary,
                   fontSize: '0.85rem'
                 }}>
                   No existing universes found. Create a new one instead.
@@ -135,9 +135,9 @@ const UniverseLinkingModal = ({
                     onClick={() => setSelectedSlug(universe.slug)}
                     style={{
                       padding: '12px',
-                      border: `2px solid ${selectedSlug === universe.slug ? theme.canvas.text : '#979090'}`,
+                      border: `2px solid ${selectedSlug === universe.slug ? theme.canvas.textPrimary : theme.canvas.border}`,
                       borderRadius: '6px',
-                      backgroundColor: selectedSlug === universe.slug ? '#cfc6c6' : theme.canvas.bg,
+                      backgroundColor: selectedSlug === universe.slug ? theme.canvas.hover : theme.canvas.bg,
                       cursor: 'pointer',
                       textAlign: 'left',
                       display: 'flex',
@@ -148,7 +148,7 @@ const UniverseLinkingModal = ({
                     }}
                     onMouseEnter={(e) => {
                       if (selectedSlug !== universe.slug) {
-                        e.currentTarget.style.backgroundColor = '#979090';
+                        e.currentTarget.style.backgroundColor = theme.canvas.border;
                       }
                     }}
                     onMouseLeave={(e) => {
@@ -161,7 +161,7 @@ const UniverseLinkingModal = ({
                       <div style={{
                         fontWeight: 600,
                         fontSize: '0.85rem',
-                        color: '#260000',
+                        color: theme.canvas.textPrimary,
                         marginBottom: '4px'
                       }}>
                         {universe.name}
@@ -169,7 +169,7 @@ const UniverseLinkingModal = ({
                       {universe.nodeCount !== undefined && (
                         <div style={{
                           fontSize: '0.7rem',
-                          color: '#666'
+                          color: theme.canvas.textSecondary
                         }}>
                           {universe.nodeCount} nodes
                           {universe.storage?.primary?.type && ` • ${universe.storage.primary.type}`}
@@ -177,7 +177,7 @@ const UniverseLinkingModal = ({
                       )}
                     </div>
                     {selectedSlug === universe.slug && (
-                      <Check size={20} style={{ color: '#260000', flexShrink: 0 }} />
+                      <Check size={20} style={{ color: theme.canvas.textPrimary, flexShrink: 0 }} />
                     )}
                   </button>
                 ))
@@ -190,7 +190,7 @@ const UniverseLinkingModal = ({
                   display: 'block',
                   fontSize: '0.75rem',
                   fontWeight: 600,
-                  color: '#260000',
+                  color: theme.canvas.textPrimary,
                   marginBottom: '6px'
                 }}>
                   Universe Name
@@ -204,11 +204,11 @@ const UniverseLinkingModal = ({
                   style={{
                     width: '100%',
                     padding: '10px',
-                    border: '1px solid #979090',
+                    border: `1px solid ${theme.canvas.border}`,
                     borderRadius: '4px',
                     fontSize: '0.85rem',
                     backgroundColor: theme.canvas.bg,
-                    color: theme.canvas.text,
+                    color: theme.canvas.textPrimary,
                     fontFamily: "'EmOne', sans-serif",
                     boxSizing: 'border-box'
                   }}
@@ -216,10 +216,10 @@ const UniverseLinkingModal = ({
               </div>
               <div style={{
                 padding: '10px',
-                backgroundColor: 'rgba(122,0,0,0.05)',
+                backgroundColor: theme.darkMode ? 'rgba(122,0,0,0.1)' : 'rgba(122,0,0,0.05)',
                 borderRadius: '4px',
                 fontSize: '0.72rem',
-                color: '#666',
+                color: theme.canvas.textSecondary,
                 lineHeight: 1.4
               }}>
                 A new universe will be created and linked to this repository.
@@ -234,7 +234,7 @@ const UniverseLinkingModal = ({
           display: 'flex',
           gap: '8px',
           padding: '12px',
-          borderTop: '1px solid #979090',
+          borderTop: `1px solid ${theme.canvas.border}`,
           backgroundColor: theme.canvas.bg,
           justifyContent: 'flex-end',
           flexShrink: 0
@@ -243,10 +243,10 @@ const UniverseLinkingModal = ({
             onClick={onClose}
             style={{
               padding: '8px 16px',
-              border: '1px solid #979090',
+              border: `1px solid ${theme.canvas.border}`,
               borderRadius: '4px',
               backgroundColor: 'transparent',
-              color: '#260000',
+              color: theme.canvas.textPrimary,
               cursor: 'pointer',
               fontSize: '0.8rem',
               fontWeight: 600,
@@ -260,9 +260,9 @@ const UniverseLinkingModal = ({
             disabled={!canConfirm}
             style={{
               padding: '8px 16px',
-              border: '1px solid #7A0000',
+              border: `1px solid ${theme.canvas.brand}`,
               borderRadius: '4px',
-              backgroundColor: canConfirm ? '#7A0000' : '#979090',
+              backgroundColor: canConfirm ? theme.canvas.brand : theme.canvas.border,
               color: '#fff',
               cursor: canConfirm ? 'pointer' : 'not-allowed',
               fontSize: '0.8rem',

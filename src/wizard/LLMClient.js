@@ -41,43 +41,25 @@ function stripEmptyRequired(schema) {
 }
 
 /**
- * Simplify schemas for Gemini — flatten nested objects/arrays inside array items
- * to reduce constraint state space. Nested objects become JSON strings.
- * This prevents the "too many states" API error from deeply nested schemas.
+ * Flatten deeply nested object properties (objects containing arrays-of-objects
+ * or nested objects) to JSON strings. This reduces structural complexity for
+ * all LLM providers.
  */
-function simplifyForGemini(schema) {
+function flattenDeepNesting(schema) {
   if (!schema?.properties) return;
   for (const [key, prop] of Object.entries(schema.properties)) {
+    // Flatten arrays-of-objects → JSON string
     if (prop.type === 'array' && prop.items?.type === 'object' && prop.items.properties) {
-      // Found array of objects — check its items for nested objects/arrays
-      for (const [subKey, subProp] of Object.entries(prop.items.properties)) {
-        if (subProp.type === 'object' && subProp.properties) {
-          // Nested object inside array item — convert to JSON string
-          const fields = Object.keys(subProp.properties).join(', ');
-          prop.items.properties[subKey] = {
-            type: 'string',
-            description: `${subProp.description || ''} (JSON object with fields: ${fields})`.trim()
-          };
-          // Remove from required — JSON strings are harder for models to get right
-          if (Array.isArray(prop.items.required)) {
-            prop.items.required = prop.items.required.filter(r => r !== subKey);
-          }
-        } else if (subProp.type === 'array' && subProp.items?.type === 'object') {
-          // Nested array of objects inside array item — convert to JSON string
-          const fields = subProp.items.properties ? Object.keys(subProp.items.properties).join(', ') : '';
-          prop.items.properties[subKey] = {
-            type: 'string',
-            description: `${subProp.description || ''} (JSON array of objects with fields: ${fields})`.trim()
-          };
-          if (Array.isArray(prop.items.required)) {
-            prop.items.required = prop.items.required.filter(r => r !== subKey);
-          }
-        }
-      }
+      const fields = Object.entries(prop.items.properties)
+        .map(([k, v]) => `${k} (${v.type})`)
+        .join(', ');
+      schema.properties[key] = {
+        type: 'string',
+        description: `${prop.description || ''} (JSON array of objects with: ${fields})`.trim()
+      };
+      continue;
     }
-    // Flatten top-level object properties that contain nested arrays of objects.
-    // e.g. importTabularAsGraph.mapping has foreignKeyMappings (array of objects)
-    // which adds too many constraint states. Convert the entire object to a JSON string.
+    // Flatten objects containing deep nesting
     if (prop.type === 'object' && prop.properties) {
       const hasDeepNesting = Object.values(prop.properties).some(
         sub => (sub.type === 'array' && sub.items?.type === 'object') ||
@@ -92,10 +74,49 @@ function simplifyForGemini(schema) {
           description: `${prop.description || ''} (JSON object with fields: ${fields})`.trim()
         };
       } else {
-        simplifyForGemini(prop);
+        flattenDeepNesting(prop);
       }
     }
   }
+}
+
+/**
+ * Make all properties required, marking previously-optional ones with
+ * "(optional)" in their description. This gives every property exactly
+ * 1 state (eliminating 2^N branching from optionals/nullables) while
+ * clearly communicating which params are truly needed vs nice-to-have.
+ */
+function makeAllRequired(schema) {
+  if (!schema?.properties) return;
+  const originalRequired = new Set(schema.required || []);
+
+  for (const [key, prop] of Object.entries(schema.properties)) {
+    if (!originalRequired.has(key)) {
+      prop.description = ((prop.description || '') + ' (optional)').trim();
+    }
+    if (prop.type === 'object' && prop.properties) {
+      makeAllRequired(prop);
+    }
+    if (prop.type === 'array' && prop.items?.type === 'object' && prop.items.properties) {
+      makeAllRequired(prop.items);
+    }
+  }
+
+  schema.required = Object.keys(schema.properties);
+}
+
+/**
+ * Strip null values from tool call arguments.
+ * Nullable schema properties let LLMs pass null for unused params;
+ * this removes them before the args reach tool functions.
+ */
+function stripNulls(obj) {
+  if (!obj || typeof obj !== 'object' || Array.isArray(obj)) return obj;
+  const result = {};
+  for (const [k, v] of Object.entries(obj)) {
+    if (v !== null) result[k] = v;
+  }
+  return result;
 }
 
 /**
@@ -163,7 +184,10 @@ function normalizeTools(tools) {
 
   return tools.map(tool => {
     const params = JSON.parse(JSON.stringify(tool.parameters || {}));
+    stripEmptyRequired(params);
     condenseSchema(params);
+    flattenDeepNesting(params);
+    makeAllRequired(params);
     return {
       type: 'function',
       function: {
@@ -362,7 +386,7 @@ async function* streamOpenRouter(messages, tools, { endpoint, model, apiKey, tem
 
                       let parsedArgs = {};
                       try {
-                        parsedArgs = JSON.parse(currentToolCall.function?.arguments || '{}');
+                        parsedArgs = deepParseJsonStrings(JSON.parse(currentToolCall.function?.arguments || '{}'));
                       } catch (e) {
                         console.warn('[LLMClient:OpenRouter] Failed to parse transition tool args:', e);
                         parsedArgs = { error: 'The spell was cut short! (Response truncated)' };
@@ -371,7 +395,7 @@ async function* streamOpenRouter(messages, tools, { endpoint, model, apiKey, tem
                       yield {
                         type: 'tool_call',
                         name: tcName,
-                        args: parsedArgs,
+                        args: stripNulls(parsedArgs),
                         id: currentToolCall.id
                       };
                     }
@@ -425,7 +449,7 @@ async function* streamOpenRouter(messages, tools, { endpoint, model, apiKey, tem
 
                 let parsedArgs = {};
                 try {
-                  parsedArgs = JSON.parse(currentToolCall.function?.arguments || '{}');
+                  parsedArgs = deepParseJsonStrings(JSON.parse(currentToolCall.function?.arguments || '{}'));
                 } catch (e) {
                   console.warn('[LLMClient:OpenRouter] Failed to parse finished tool args:', e);
                   parsedArgs = { error: 'The spell was cut short! (Response truncated)' };
@@ -434,7 +458,7 @@ async function* streamOpenRouter(messages, tools, { endpoint, model, apiKey, tem
                 yield {
                   type: 'tool_call',
                   name: tcName,
-                  args: parsedArgs,
+                  args: stripNulls(parsedArgs),
                   id: currentToolCall.id
                 };
               }
@@ -462,7 +486,7 @@ async function* streamOpenRouter(messages, tools, { endpoint, model, apiKey, tem
 
         let parsedArgs = {};
         try {
-          parsedArgs = JSON.parse(currentToolCall.function?.arguments || '{}');
+          parsedArgs = deepParseJsonStrings(JSON.parse(currentToolCall.function?.arguments || '{}'));
         } catch (e) {
           console.warn('[LLMClient:OpenRouter] Failed to parse flushed tool args (likely truncated):', e);
           parsedArgs = { error: 'The spell was cut short! (Response truncated)' };
@@ -471,7 +495,7 @@ async function* streamOpenRouter(messages, tools, { endpoint, model, apiKey, tem
         yield {
           type: 'tool_call',
           name: tcName,
-          args: parsedArgs,
+          args: stripNulls(parsedArgs),
           id: currentToolCall.id
         };
       }
@@ -623,7 +647,7 @@ async function* streamAnthropic(messages, tools, { endpoint, model, apiKey, temp
               } else {
                 let parsedArgs = {};
                 try {
-                  parsedArgs = JSON.parse(toolArgsBuffer || '{}');
+                  parsedArgs = deepParseJsonStrings(JSON.parse(toolArgsBuffer || '{}'));
                 } catch (e) {
                   console.warn('[LLMClient:Anthropic] Partial/invalid JSON for tool args:', toolArgsBuffer);
                   parsedArgs = { error: 'Truncated tool arguments' };
@@ -631,7 +655,7 @@ async function* streamAnthropic(messages, tools, { endpoint, model, apiKey, temp
                 yield {
                   type: 'tool_call',
                   name: tcName,
-                  args: parsedArgs,
+                  args: stripNulls(parsedArgs),
                   id: currentToolCall.id
                 };
               }
@@ -655,7 +679,7 @@ async function* streamAnthropic(messages, tools, { endpoint, model, apiKey, temp
         console.error('[LLMClient:Anthropic] Flushing pending tool_call at stream end:', tcName);
         let parsedArgs = {};
         try {
-          parsedArgs = JSON.parse(toolArgsBuffer || '{}');
+          parsedArgs = deepParseJsonStrings(JSON.parse(toolArgsBuffer || '{}'));
         } catch (e) {
           console.warn('[LLMClient:Anthropic] Partial/invalid JSON for flushed tool args:', toolArgsBuffer);
           parsedArgs = { error: 'Truncated tool arguments' };
@@ -663,7 +687,7 @@ async function* streamAnthropic(messages, tools, { endpoint, model, apiKey, temp
         yield {
           type: 'tool_call',
           name: tcName,
-          args: parsedArgs,
+          args: stripNulls(parsedArgs),
           id: currentToolCall.id
         };
       }
@@ -752,7 +776,7 @@ async function* streamOpenAI(messages, tools, { endpoint, model, apiKey, tempera
                     } else {
                       let parsedArgs = {};
                       try {
-                        parsedArgs = JSON.parse(currentToolCall.function?.arguments || '{}');
+                        parsedArgs = deepParseJsonStrings(JSON.parse(currentToolCall.function?.arguments || '{}'));
                       } catch (e) {
                         console.warn('[LLMClient:OpenAI] Failed to parse transition tool args:', e);
                         parsedArgs = { error: 'The spell was cut short! (Response truncated)' };
@@ -761,7 +785,7 @@ async function* streamOpenAI(messages, tools, { endpoint, model, apiKey, tempera
                       yield {
                         type: 'tool_call',
                         name: tcName,
-                        args: parsedArgs,
+                        args: stripNulls(parsedArgs),
                         id: currentToolCall.id
                       };
                     }
@@ -812,7 +836,7 @@ async function* streamOpenAI(messages, tools, { endpoint, model, apiKey, tempera
               } else {
                 let parsedArgs = {};
                 try {
-                  parsedArgs = JSON.parse(currentToolCall.function?.arguments || '{}');
+                  parsedArgs = deepParseJsonStrings(JSON.parse(currentToolCall.function?.arguments || '{}'));
                 } catch (e) {
                   console.warn('[LLMClient:OpenAI] Failed to parse finished tool args:', e);
                   parsedArgs = { error: 'The spell was cut short! (Response truncated)' };
@@ -821,7 +845,7 @@ async function* streamOpenAI(messages, tools, { endpoint, model, apiKey, tempera
                 yield {
                   type: 'tool_call',
                   name: tcName,
-                  args: parsedArgs,
+                  args: stripNulls(parsedArgs),
                   id: currentToolCall.id
                 };
               }
@@ -843,7 +867,7 @@ async function* streamOpenAI(messages, tools, { endpoint, model, apiKey, tempera
       } else {
         let parsedArgs = {};
         try {
-          parsedArgs = JSON.parse(currentToolCall.function?.arguments || '{}');
+          parsedArgs = deepParseJsonStrings(JSON.parse(currentToolCall.function?.arguments || '{}'));
         } catch (e) {
           console.warn('[LLMClient:OpenAI] Failed to parse flushed tool args:', e);
           parsedArgs = { error: 'The spell was cut short! (Response truncated)' };
@@ -852,7 +876,7 @@ async function* streamOpenAI(messages, tools, { endpoint, model, apiKey, tempera
         yield {
           type: 'tool_call',
           name: tcName,
-          args: parsedArgs,
+          args: stripNulls(parsedArgs),
           id: currentToolCall.id
         };
       }
@@ -926,23 +950,15 @@ async function* streamGemini(messages, tools, { model, apiKey, temperature, maxT
   }
 
   // Convert tool definitions to Gemini functionDeclarations format
+  // Schemas are already fully prepared by normalizeTools() — just reformat
   let geminiTools = undefined;
   if (tools && tools.length > 0) {
     geminiTools = [{
-      functionDeclarations: tools.map(t => {
-        const params = JSON.parse(JSON.stringify(
-          t.function?.parameters || t.parameters || { type: 'object', properties: {} }
-        ));
-        // Strip empty required arrays — Gemini may misinterpret required:[] as "all required"
-        stripEmptyRequired(params);
-        condenseSchema(params);
-        simplifyForGemini(params);
-        return {
-          name: t.function?.name || t.name,
-          description: t.function?.description || t.description || '',
-          parameters: params
-        };
-      })
+      functionDeclarations: tools.map(t => ({
+        name: t.function?.name || t.name,
+        description: t.function?.description || t.description || '',
+        parameters: t.function?.parameters || t.parameters || { type: 'object', properties: {} }
+      }))
     }];
     console.error('[LLMClient:Gemini] Sending', geminiTools[0].functionDeclarations.length, 'tools to Gemini:', geminiTools[0].functionDeclarations.map(t => t.name).join(', '));
   }
@@ -1026,7 +1042,7 @@ async function* streamGemini(messages, tools, { model, apiKey, temperature, maxT
               }
               console.error('[LLMClient:Gemini] ✓ Validated functionCall:', fnName);
 
-              const fnArgs = deepParseJsonStrings(part.functionCall.args || {});
+              const fnArgs = stripNulls(deepParseJsonStrings(part.functionCall.args || {}));
               if (!fnArgs || (typeof fnArgs === 'object' && Object.keys(fnArgs).length === 0)) {
                 console.error('[LLMClient:Gemini] Warning: functionCall "' + fnName + '" received with empty args');
               }
@@ -1120,4 +1136,7 @@ export async function callLLM(messages, tools = [], config = {}, signal = null) 
 
   return { content, toolCalls };
 }
+
+// Exported for testing
+export { makeAllRequired as _makeAllRequired, flattenDeepNesting as _flattenDeepNesting, stripNulls as _stripNulls, deepParseJsonStrings as _deepParseJsonStrings, condenseSchema as _condenseSchema, stripEmptyRequired as _stripEmptyRequired };
 

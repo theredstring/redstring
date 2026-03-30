@@ -51,6 +51,7 @@ import { mergeNodes } from './mergeNodes.js';
 import { mergeGraphs } from './mergeGraphs.js';
 import { analyzeTabularData } from './analyzeTabularData.js';
 import { importTabularAsGraph } from './importTabularAsGraph.js';
+import { listTools } from './listTools.js';
 import { getToolDefinitions } from './schemas.js';
 
 const TOOLS = {
@@ -95,7 +96,8 @@ const TOOLS = {
   mergeNodes,
   mergeGraphs,
   analyzeTabularData,
-  importTabularAsGraph
+  importTabularAsGraph,
+  listTools
 };
 
 /**

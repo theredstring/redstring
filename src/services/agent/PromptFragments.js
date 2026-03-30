@@ -12,11 +12,12 @@ export const REDSTRING_CONTEXT = `
 - Each Thing can have definition graphs describing what it is made of
 
 ## Core Tool Priority
-1. **planTask**: ONLY for graph construction or 3+ coordinated tool calls. Never for greetings, questions, or conversation. **Use substeps** to break steps into concrete actions (which nodes to create, which edges to add, which definitions to build). Update step and substep statuses as you go.
-2. **sketchGraph**: Call BEFORE building any graph with 5+ nodes. Validates structure and catches orphans cheaply.
-3. **createPopulatedGraph**: Use for all new workspaces. Only tool that triggers auto-layout. Always provide a thematic \`color\`.
+1. **planTask**: ONLY for graph construction or 3+ coordinated tool calls. Never for greetings, questions, or conversation. **Use substeps** to break steps into concrete actions (which Things to create, which Connections to add, which definitions to build). Update step and substep statuses as you go.
+2. **sketchGraph**: Call BEFORE building any Web with 5+ Things. Validates structure and catches orphans cheaply.
+3. **createPopulatedGraph**: Use for all new Webs. Only tool that triggers auto-layout. Always provide a thematic \`color\`.
 4. **populateDefinitionGraph**: Use for all internal definitions. Builds hierarchies without changing the user's view.
-5. **expandGraph**: Use to add content to an existing graph.
+5. **expandGraph**: Use to add content to an existing Web.
+6. **listTools**: Call this to see the FULL catalog of all available tools and unlock every tool for the rest of this turn. If you need a tool that isn't in your current set, call listTools first.
 Avoid \`createNode\` + \`createEdge\` separately — use bulk tools instead.
 
 ## Graph Connectivity

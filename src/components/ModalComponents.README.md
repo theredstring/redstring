@@ -140,7 +140,7 @@ Both modals use Redstring's design system:
 A specialized welcome modal for Redstring's open alpha phase that inherits from CanvasModal.
 
 **Features:**
-- Welcome message for Redstring alpha
+- Welcome message for Redstring
 - Information about current limitations (especially mobile)
 - "Don't show again" functionality with localStorage persistence
 - Matches Redstring's copy style and design system
