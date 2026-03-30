@@ -1519,13 +1519,11 @@ function NodeCanvas() {
     // Multi-node drag
     if (draggingInfo.relativeOffsets) {
       const primaryInstanceId = draggingInfo.primaryId;
-      // Calculate new primary position based on mouse position and initial offset
-      // Note: We must use the current pan/zoom to reconstruct the initial canvas position relative to current view
-      const initialMouseCanvasX = (draggingInfo.initialMouse.x - rect.left - currentPan.x) / currentZoom + canvasSizeRef.current.offsetX;
-      const initialMouseCanvasY = (draggingInfo.initialMouse.y - rect.top - currentPan.y) / currentZoom + canvasSizeRef.current.offsetY;
-
-      const dx = mouseCanvasX - initialMouseCanvasX;
-      const dy = mouseCanvasY - initialMouseCanvasY;
+      // Use pre-computed canvas coordinates from drag start (pan-independent).
+      // Previously this reconstructed canvas coords from viewport coords + current pan,
+      // which broke during edge panning because the pan changes but initialMouse doesn't.
+      const dx = mouseCanvasX - draggingInfo.initialMouseCanvas.x;
+      const dy = mouseCanvasY - draggingInfo.initialMouseCanvas.y;
       let newPrimaryX = draggingInfo.initialPrimaryPos.x + dx;
       let newPrimaryY = draggingInfo.initialPrimaryPos.y + dy;
 
