@@ -9,6 +9,7 @@
 import { resolvePaletteColor, getRandomPalette } from '../../ai/palettes.js';
 import { validateEdges } from './edgeValidator.js';
 import { analyzeGraphQuality } from './graphQuality.js';
+import { resolveGraphId } from './resolveGraphId.js';
 
 /**
  * Convert string to Title Case
@@ -48,7 +49,7 @@ export async function expandGraph(args, graphState, cid, ensureSchedulerStarted)
   }
 
   const { activeGraphId } = graphState;
-  const graphId = targetGraphId || activeGraphId;
+  const graphId = resolveGraphId(targetGraphId, graphState.graphs || []) || activeGraphId;
 
   if (!graphId) {
     throw new Error('No target graph specified and no active graph available.');

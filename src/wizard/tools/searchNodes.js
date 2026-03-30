@@ -1,6 +1,8 @@
+import { resolveGraphId } from './resolveGraphId.js';
+
 /**
  * searchNodes - Find nodes by general search query
- * 
+ *
  * Supports natural language queries by splitting into words and
  * matching against node names, descriptions, and colors.
  * Returns results ranked by relevance (number of matching words).
@@ -11,7 +13,7 @@ export async function searchNodes(args, graphState, cid, ensureSchedulerStarted)
 
   const { nodePrototypes = [], graphs = [], activeGraphId } = graphState;
 
-  const targetGraphId = args.targetGraphId || activeGraphId;
+  const targetGraphId = resolveGraphId(args.targetGraphId, graphs) || activeGraphId;
 
   // Build a combined node list from prototypes + active graph instances
   // This ensures we find nodes even if prototypes list is incomplete

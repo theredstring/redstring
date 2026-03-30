@@ -1,3 +1,5 @@
+import { resolveGraphId } from './resolveGraphId.js';
+
 /**
  * createGroup - Create a visual group containing specified nodes
  */
@@ -48,8 +50,8 @@ function findInstanceIdsByNames(names, graphState, graphId) {
 export async function createGroup(args, graphState, cid, ensureSchedulerStarted) {
   const { name = 'Group', memberNames = [], memberInstanceIds = [], color, targetGraphId } = args;
 
-  const { activeGraphId } = graphState;
-  const graphId = targetGraphId || activeGraphId;
+  const { activeGraphId, graphs = [] } = graphState;
+  const graphId = resolveGraphId(targetGraphId, graphs) || activeGraphId;
 
   if (!graphId) {
     throw new Error('No target graph specified and no active graph available.');

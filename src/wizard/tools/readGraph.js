@@ -1,3 +1,5 @@
+import { resolveGraphId } from './resolveGraphId.js';
+
 /**
  * readGraph - Return the full active graph as a clean LLM-readable snapshot.
  *
@@ -9,24 +11,13 @@
 export async function readGraph(args, graphState) {
     const { nodePrototypes = [], graphs = [], edges = [], activeGraphId } = graphState;
 
-    let targetGraphId = args.targetGraphId || activeGraphId;
+    let targetGraphId = resolveGraphId(args.targetGraphId, graphs) || activeGraphId;
 
     if (!targetGraphId) {
         return { error: 'No graph specified. Create or open a graph first.' };
     }
 
-    // Try ID match first, then fall back to name-based lookup
-    let activeGraph = graphs.find(g => g.id === targetGraphId);
-    if (!activeGraph) {
-        const nameLower = String(targetGraphId).toLowerCase().trim();
-        activeGraph = graphs.find(g =>
-            String(g.name || '').toLowerCase().trim() === nameLower ||
-            String(g.name || '').toLowerCase().trim().includes(nameLower)
-        );
-        if (activeGraph) {
-            targetGraphId = activeGraph.id;
-        }
-    }
+    const activeGraph = graphs.find(g => g.id === targetGraphId);
     if (!activeGraph) {
         return { error: `Graph "${targetGraphId}" not found in state.` };
     }

@@ -1,3 +1,5 @@
+import { resolveGraphId } from './resolveGraphId.js';
+
 /**
  * deleteGroup - Delete a group (keeps member nodes)
  */
@@ -35,8 +37,8 @@ function findGroupByName(name, graphState, graphId) {
 export async function deleteGroup(args, graphState, cid, ensureSchedulerStarted) {
   const { groupId, groupName, targetGraphId } = args;
 
-  const { activeGraphId } = graphState;
-  const graphId = targetGraphId || activeGraphId;
+  const { activeGraphId, graphs = [] } = graphState;
+  const graphId = resolveGraphId(targetGraphId, graphs) || activeGraphId;
 
   if (!graphId) {
     throw new Error('No target graph specified and no active graph available.');

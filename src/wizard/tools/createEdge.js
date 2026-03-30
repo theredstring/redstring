@@ -1,3 +1,5 @@
+import { resolveGraphId } from './resolveGraphId.js';
+
 /**
  * createEdge - Connect two nodes by name
  */
@@ -69,7 +71,7 @@ export async function createEdge(args, graphState, cid, ensureSchedulerStarted) 
   }
 
   const { nodePrototypes = [], graphs = [], activeGraphId } = graphState;
-  const graphId = targetGraphId || activeGraphId;
+  const graphId = resolveGraphId(targetGraphId, graphs) || activeGraphId;
 
   if (!graphId) {
     throw new Error('No target graph specified and no active graph available.');

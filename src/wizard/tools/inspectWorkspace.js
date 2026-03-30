@@ -1,6 +1,8 @@
+import { resolveGraphId } from './resolveGraphId.js';
+
 /**
  * inspectWorkspace - Quick comprehensive overview of workspace contents with IDs
- * 
+ *
  * Returns a structured summary of all objects (nodes, edges, groups, graphs)
  * organized by type, with their important IDs included.
  */
@@ -13,8 +15,8 @@
 export async function inspectWorkspace(args, graphState) {
   const { graphId, includeAllGraphs } = args || {};
 
-  const targetGraphId = graphId || graphState.activeGraphId;
   const { graphs = [], nodePrototypes = [], edges = [], activeGraphId } = graphState;
+  const targetGraphId = resolveGraphId(graphId, graphs) || activeGraphId;
 
   // Build prototype lookup
   const protoMap = new Map();

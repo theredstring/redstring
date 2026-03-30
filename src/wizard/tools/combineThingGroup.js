@@ -1,3 +1,5 @@
+import { resolveGraphId } from './resolveGraphId.js';
+
 /**
  * combineThingGroup - Collapse a Thing-Group back into a single node
  * This replaces all group members with a single instance of the linked Thing.
@@ -36,8 +38,8 @@ function findGroupByName(name, graphState, graphId) {
 export async function combineThingGroup(args, graphState, cid, ensureSchedulerStarted) {
   const { groupId, groupName, targetGraphId } = args;
 
-  const { activeGraphId } = graphState;
-  const graphId = targetGraphId || activeGraphId;
+  const { activeGraphId, graphs = [] } = graphState;
+  const graphId = resolveGraphId(targetGraphId, graphs) || activeGraphId;
 
   if (!graphId) {
     throw new Error('No target graph specified and no active graph available.');

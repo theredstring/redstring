@@ -1,6 +1,8 @@
+import { resolveGraphId } from './resolveGraphId.js';
+
 /**
  * searchConnections - Find connections/edges by type, node names, or general query
- * 
+ *
  * Searches through all edges in the active graph, matching against
  * connection types, source/target node names, and descriptions.
  * Returns results ranked by relevance.
@@ -11,7 +13,7 @@ export async function searchConnections(args, graphState, cid, ensureSchedulerSt
 
     const { edges = [], nodePrototypes = [], graphs = [], activeGraphId } = graphState;
 
-    const targetGraphId = args.targetGraphId || activeGraphId;
+    const targetGraphId = resolveGraphId(args.targetGraphId, graphs) || activeGraphId;
 
     // Build a node name lookup (by ID) for resolving edge endpoints
     const nodeNameById = new Map();

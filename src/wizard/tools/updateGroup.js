@@ -1,3 +1,5 @@
+import { resolveGraphId } from './resolveGraphId.js';
+
 /**
  * updateGroup - Update a group's name, color, or members
  */
@@ -35,8 +37,8 @@ function findGroupByName(name, graphState, graphId) {
 export async function updateGroup(args, graphState, cid, ensureSchedulerStarted) {
   const { groupId, groupName, newName, newColor, addMembers = [], removeMembers = [], targetGraphId } = args;
 
-  const { activeGraphId } = graphState;
-  const graphId = targetGraphId || activeGraphId;
+  const { activeGraphId, graphs = [] } = graphState;
+  const graphId = resolveGraphId(targetGraphId, graphs) || activeGraphId;
 
   if (!graphId) {
     throw new Error('No target graph specified and no active graph available.');

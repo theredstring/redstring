@@ -1,3 +1,5 @@
+import { resolveGraphId } from './resolveGraphId.js';
+
 /**
  * mergeNodes - Merge two node prototypes into one
  * The primary survives; the secondary is absorbed and deleted.
@@ -54,7 +56,7 @@ export async function mergeNodes(args, graphState) {
   }
 
   const { nodePrototypes = [], graphs = [], activeGraphId } = graphState;
-  const graphId = targetGraphId || activeGraphId;
+  const graphId = resolveGraphId(targetGraphId, graphs) || activeGraphId;
 
   // Resolve primary: prefer ID, fall back to name
   const resolvedPrimary = primaryPrototypeId

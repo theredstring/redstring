@@ -1,3 +1,5 @@
+import { resolveGraphId } from './resolveGraphId.js';
+
 /**
  * convertToThingGroup - Convert a Group into a Thing-Group (backed by a node prototype)
  * This creates a definitional graph for the Thing, making the group members its decomposition.
@@ -43,8 +45,8 @@ export async function convertToThingGroup(args, graphState, cid, ensureScheduler
     targetGraphId
   } = args;
 
-  const { activeGraphId } = graphState;
-  const graphId = targetGraphId || activeGraphId;
+  const { activeGraphId, graphs = [] } = graphState;
+  const graphId = resolveGraphId(targetGraphId, graphs) || activeGraphId;
 
   if (!graphId) {
     throw new Error('No target graph specified and no active graph available.');

@@ -1,3 +1,5 @@
+import { resolveGraphId } from './resolveGraphId.js';
+
 /**
  * getGraphInstances - List all raw instances inside a specific graph
  */
@@ -10,14 +12,13 @@
 export async function getGraphInstances(args, graphState) {
   const { graphId } = args;
   
-  const targetGraphId = graphId || graphState.activeGraphId;
+  const { graphs = [], nodePrototypes = [] } = graphState;
+  const targetGraphId = resolveGraphId(graphId, graphs) || graphState.activeGraphId;
 
   if (!targetGraphId) {
     throw new Error('No target graph specified, and no active graph available.');
   }
 
-  const { graphs = [], nodePrototypes = [] } = graphState;
-  
   const graph = graphs.find(g => g.id === targetGraphId);
   if (!graph) {
     return `Graph with ID ${targetGraphId} not found.`;

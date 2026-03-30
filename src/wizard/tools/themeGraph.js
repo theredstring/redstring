@@ -1,4 +1,5 @@
 import { resolvePaletteColor, getRandomPalette, PALETTES } from '../../ai/palettes.js';
+import { resolveGraphId } from './resolveGraphId.js';
 
 function stringToColor(str, paletteName, baseHex) {
     if (baseHex && !paletteName) {
@@ -23,7 +24,7 @@ export async function themeGraph(args, graphState, cid, ensureSchedulerStarted) 
   const { palette, baseColor, targetGraphId } = args;
   
   const { activeGraphId, graphs, nodePrototypes, edges = [] } = graphState;
-  const graphId = targetGraphId || activeGraphId;
+  const graphId = resolveGraphId(targetGraphId, graphs) || activeGraphId;
 
   if (!graphId) {
     throw new Error('No target graph specified and no active graph available.');
