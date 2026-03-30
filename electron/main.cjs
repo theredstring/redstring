@@ -599,6 +599,15 @@ app.whenReady().then(async () => {
   app.on('activate', function () {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
   });
+
+  // Check for updates if not in dev mode
+  if (!isDev) {
+    try {
+      autoUpdater.checkForUpdatesAndNotify();
+    } catch (error) {
+      console.error('[Electron] Auto-updater error:', error);
+    }
+  }
 });
 
 app.on('window-all-closed', function () {

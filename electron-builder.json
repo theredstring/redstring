@@ -5,6 +5,7 @@
   "directories": {
     "output": "dist-electron"
   },
+  "publish": ["github"],
   "files": [
     "dist/**/*",
     "electron/**/*",
