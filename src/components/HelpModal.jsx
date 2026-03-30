@@ -1,12 +1,14 @@
 import React, { useState } from 'react';
 import CanvasModal from './CanvasModal';
 import { ChevronRight } from 'lucide-react';
+import { useTheme } from '../hooks/useTheme.js';
 
 /**
  * Help Modal
  * Comprehensive guide for using Redstring
  */
 const HelpModal = ({ isVisible, onClose }) => {
+  const theme = useTheme();
   const [activeSection, setActiveSection] = useState('basics');
   const [viewportSize, setViewportSize] = useState(() => ({
     width: typeof window !== 'undefined' ? window.innerWidth : 1200,
@@ -32,12 +34,14 @@ const HelpModal = ({ isVisible, onClose }) => {
     ? Math.min(Math.max(viewportSize.height * 0.85, 400), 600)
     : 600;
 
+  const headingColor = theme.darkMode ? '#ff9a9a' : '#8B0000';
+
   const sections = {
     basics: {
       title: 'Basic Controls',
       content: (
         <div>
-          <h3 style={{ color: '#8B0000', marginTop: 0 }}>Working with Things</h3>
+          <h3 style={{ color: headingColor, marginTop: 0 }}>Working with Things</h3>
           <ul style={{ lineHeight: '1.8' }}>
             <li><strong>Move a Thing:</strong> Click and hold, then drag to reposition</li>
             <li><strong>Create a Connection:</strong> Click and drag from one Thing to another</li>
@@ -47,7 +51,7 @@ const HelpModal = ({ isVisible, onClose }) => {
             <li><strong>Access Thing options:</strong> Click on a Thing to see the pie menu with all options</li>
           </ul>
 
-          <h3 style={{ color: '#8B0000' }}>Pie Menu Options</h3>
+          <h3 style={{ color: headingColor }}>Pie Menu Options</h3>
           <ul style={{ lineHeight: '1.8' }}>
             <li><strong>Decompose (package icon):</strong> Break down a Thing into its components. In decomposed view, click the "Open Package" button to convert the Thing into a Thing-Group</li>
             <li><strong>Abstraction (stack icon):</strong> Change the level of specificity (more general ↔ more specific)</li>
@@ -56,7 +60,7 @@ const HelpModal = ({ isVisible, onClose }) => {
             <li><strong>Add to Group:</strong> Organize Things into collections</li>
           </ul>
 
-          <h3 style={{ color: '#8B0000' }}>Keyboard Controls</h3>
+          <h3 style={{ color: headingColor }}>Keyboard Controls</h3>
           <ul style={{ lineHeight: '1.8' }}>
             <li><strong>WASD:</strong> Pan the canvas (up/left/down/right)</li>
             <li><strong>Shift:</strong> Zoom in</li>
@@ -74,7 +78,7 @@ const HelpModal = ({ isVisible, onClose }) => {
       title: 'Navigation',
       content: (
         <div>
-          <h3 style={{ color: '#8B0000', marginTop: 0 }}>Moving Around the Canvas</h3>
+          <h3 style={{ color: headingColor, marginTop: 0 }}>Moving Around the Canvas</h3>
           <ul style={{ lineHeight: '1.8' }}>
             <li><strong>Pan (Mouse):</strong> Click and drag on empty space to move around</li>
             <li><strong>Pan (Trackpad):</strong> Two-finger drag to pan smoothly</li>
@@ -83,7 +87,7 @@ const HelpModal = ({ isVisible, onClose }) => {
             <li><strong>Go back:</strong> Use the breadcrumb navigation at the top to return to parent Webs</li>
           </ul>
 
-          <h3 style={{ color: '#8B0000' }}>Keyboard Navigation</h3>
+          <h3 style={{ color: headingColor }}>Keyboard Navigation</h3>
           <ul style={{ lineHeight: '1.8' }}>
             <li><strong>WASD:</strong> Pan the canvas (up/left/down/right)</li>
             <li><strong>Shift:</strong> Zoom in</li>
@@ -95,7 +99,7 @@ const HelpModal = ({ isVisible, onClose }) => {
             <li><strong>3:</strong> Toggle bottom bar</li>
           </ul>
 
-          <h3 style={{ color: '#8B0000' }}>Interface Panels</h3>
+          <h3 style={{ color: headingColor }}>Interface Panels</h3>
           <ul style={{ lineHeight: '1.8' }}>
             <li><strong>Left Panel (Globe icon):</strong> Universe management and GitHub sync</li>
             <li><strong>Right Panel:</strong> Thing details, properties, and editing. Opens when you double-click a Thing</li>
@@ -109,20 +113,20 @@ const HelpModal = ({ isVisible, onClose }) => {
       title: 'Universes',
       content: (
         <div>
-          <h3 style={{ color: '#8B0000', marginTop: 0 }}>What are Universes?</h3>
+          <h3 style={{ color: headingColor, marginTop: 0 }}>What are Universes?</h3>
           <p>
             <strong>Universes</strong> are complete workspaces that contain all your Things and Webs.
             Think of them as different projects or knowledge domains.
           </p>
 
-          <h3 style={{ color: '#8B0000' }}>Storage Options</h3>
+          <h3 style={{ color: headingColor }}>Storage Options</h3>
           <ul style={{ lineHeight: '1.8' }}>
             <li><strong>GitHub (Recommended):</strong> Cloud sync, version history, collaboration</li>
             <li><strong>Local Files:</strong> Store .redstring files on your device</li>
             <li><strong>Browser Cache:</strong> Temporary storage (not persistent)</li>
           </ul>
 
-          <h3 style={{ color: '#8B0000' }}>Managing Universes</h3>
+          <h3 style={{ color: headingColor }}>Managing Universes</h3>
           <p>
             Click the <strong>Globe icon</strong> in the left panel to:
           </p>
@@ -140,7 +144,7 @@ const HelpModal = ({ isVisible, onClose }) => {
       title: 'Key Concepts',
       content: (
         <div>
-          <h3 style={{ color: '#8B0000', marginTop: 0 }}>Things (aka "Nodes")</h3>
+          <h3 style={{ color: headingColor, marginTop: 0 }}>Things (aka "Nodes")</h3>
           <p>
             <strong>Things</strong> are individual concepts, entities, or ideas. Each Thing can:
           </p>
@@ -151,7 +155,7 @@ const HelpModal = ({ isVisible, onClose }) => {
             <li>Appear in multiple Webs</li>
           </ul>
 
-          <h3 style={{ color: '#8B0000' }}>Webs (aka "Networks")</h3>
+          <h3 style={{ color: headingColor }}>Webs (aka "Networks")</h3>
           <p>
             <strong>Webs</strong> are collections of Things and their connections. They represent:
           </p>
@@ -162,7 +166,7 @@ const HelpModal = ({ isVisible, onClose }) => {
             <li>Hierarchical structures</li>
           </ul>
 
-          <h3 style={{ color: '#8B0000' }}>Recursive Structure</h3>
+          <h3 style={{ color: headingColor }}>Recursive Structure</h3>
           <p>
             Things can contain Webs, and those Webs can contain Things that themselves contain Webs.
             This allows you to organize knowledge at any level of detail.
@@ -174,7 +178,7 @@ const HelpModal = ({ isVisible, onClose }) => {
       title: 'Advanced Features',
       content: (
         <div>
-          <h3 style={{ color: '#8B0000', marginTop: 0 }}>GitHub Integration</h3>
+          <h3 style={{ color: headingColor, marginTop: 0 }}>GitHub Integration</h3>
           <p>Connect your GitHub account for:</p>
           <ul style={{ lineHeight: '1.8' }}>
             <li><strong>Automatic cloud backup</strong> of your Universes</li>
@@ -183,7 +187,7 @@ const HelpModal = ({ isVisible, onClose }) => {
             <li><strong>Repository management</strong> directly in Redstring</li>
           </ul>
 
-          <h3 style={{ color: '#8B0000' }}>Semantic Web Integration</h3>
+          <h3 style={{ color: headingColor }}>Semantic Web Integration</h3>
           <p>Import knowledge from external sources like:</p>
           <ul style={{ lineHeight: '1.8' }}>
             <li>Wikidata</li>
@@ -191,7 +195,7 @@ const HelpModal = ({ isVisible, onClose }) => {
             <li>Other SPARQL endpoints</li>
           </ul>
 
-          <h3 style={{ color: '#8B0000' }}>Connection Routing</h3>
+          <h3 style={{ color: headingColor }}>Connection Routing</h3>
           <p>Customize how connections are displayed:</p>
           <ul style={{ lineHeight: '1.8' }}>
             <li><strong>Straight:</strong> Direct lines between Things</li>
@@ -206,7 +210,7 @@ const HelpModal = ({ isVisible, onClose }) => {
       title: 'Troubleshooting',
       content: (
         <div>
-          <h3 style={{ color: '#8B0000', marginTop: 0 }}>Common Issues</h3>
+          <h3 style={{ color: headingColor, marginTop: 0 }}>Common Issues</h3>
 
           <h4>Canvas not responding</h4>
           <ul style={{ lineHeight: '1.8' }}>
@@ -217,7 +221,7 @@ const HelpModal = ({ isVisible, onClose }) => {
 
           <h4>Changes not saving</h4>
           <ul style={{ lineHeight: '1.8' }}>
-            <li>Check your GitHub connection status (🌐 icon)</li>
+            <li>Check your GitHub connection status (globe icon)</li>
             <li>Ensure you have write permissions to the repository</li>
             <li>Try a manual save (Ctrl/Cmd + S)</li>
             <li>Check browser console for errors</li>
@@ -233,11 +237,11 @@ const HelpModal = ({ isVisible, onClose }) => {
 
           <h4>Mobile/Tablet Notice</h4>
           <p style={{
-            backgroundColor: '#fff3cd',
+            backgroundColor: theme.alert.warning.bg,
             padding: '12px',
             borderRadius: '6px',
-            border: '1px solid #ffc107',
-            color: '#856404'
+            border: `1px solid ${theme.alert.warning.border}`,
+            color: theme.alert.warning.text
           }}>
             <strong>Note:</strong> Redstring is currently optimized for desktop browsers.
             Mobile and tablet support is incomplete in this version.
@@ -247,6 +251,64 @@ const HelpModal = ({ isVisible, onClose }) => {
     }
   };
 
+  const scrollbarLight = `
+    .help-modal-sidebar::-webkit-scrollbar,
+    .help-modal-content::-webkit-scrollbar {
+      width: 20px;
+    }
+    .help-modal-sidebar::-webkit-scrollbar-track,
+    .help-modal-content::-webkit-scrollbar-track {
+      background: rgba(38, 0, 0, 0.05);
+      border-radius: 4px;
+    }
+    .help-modal-sidebar::-webkit-scrollbar-thumb,
+    .help-modal-content::-webkit-scrollbar-thumb {
+      background-color: rgba(38, 0, 0, 0.1);
+      border-radius: 4px;
+      border: 6px solid transparent;
+      background-clip: padding-box;
+    }
+    .help-modal-sidebar:hover::-webkit-scrollbar-thumb,
+    .help-modal-content:hover::-webkit-scrollbar-thumb {
+      background-color: #260000;
+      border-width: 4px;
+    }
+    .help-modal-sidebar,
+    .help-modal-content {
+      scrollbar-width: thin;
+      scrollbar-color: rgba(38, 0, 0, 0.1) rgba(38, 0, 0, 0.05);
+    }
+  `;
+
+  const scrollbarDark = `
+    .help-modal-sidebar::-webkit-scrollbar,
+    .help-modal-content::-webkit-scrollbar {
+      width: 20px;
+    }
+    .help-modal-sidebar::-webkit-scrollbar-track,
+    .help-modal-content::-webkit-scrollbar-track {
+      background: rgba(222, 218, 218, 0.05);
+      border-radius: 4px;
+    }
+    .help-modal-sidebar::-webkit-scrollbar-thumb,
+    .help-modal-content::-webkit-scrollbar-thumb {
+      background-color: rgba(222, 218, 218, 0.15);
+      border-radius: 4px;
+      border: 6px solid transparent;
+      background-clip: padding-box;
+    }
+    .help-modal-sidebar:hover::-webkit-scrollbar-thumb,
+    .help-modal-content:hover::-webkit-scrollbar-thumb {
+      background-color: rgba(222, 218, 218, 0.4);
+      border-width: 4px;
+    }
+    .help-modal-sidebar,
+    .help-modal-content {
+      scrollbar-width: thin;
+      scrollbar-color: rgba(222, 218, 218, 0.15) rgba(222, 218, 218, 0.05);
+    }
+  `;
+
   const modalContent = (
     <div style={{
       display: 'flex',
@@ -254,53 +316,7 @@ const HelpModal = ({ isVisible, onClose }) => {
       fontFamily: "'EmOne', sans-serif",
       fontSize: isCompactLayout ? '0.85rem' : '0.9rem'
     }}>
-      <style>
-        {`
-          .help-modal-sidebar::-webkit-scrollbar {
-            width: 20px;
-          }
-          .help-modal-sidebar::-webkit-scrollbar-track {
-            background: rgba(38, 0, 0, 0.05);
-            border-radius: 4px;
-          }
-          .help-modal-sidebar::-webkit-scrollbar-thumb {
-            background-color: rgba(38, 0, 0, 0.1);
-            border-radius: 4px;
-            border: 6px solid transparent;
-            background-clip: padding-box;
-          }
-          .help-modal-sidebar:hover::-webkit-scrollbar-thumb {
-            background-color: #260000;
-            border-width: 4px;
-          }
-          .help-modal-sidebar {
-            scrollbar-width: thin;
-            scrollbar-color: rgba(38, 0, 0, 0.1) rgba(38, 0, 0, 0.05);
-          }
-
-          .help-modal-content::-webkit-scrollbar {
-            width: 20px;
-          }
-          .help-modal-content::-webkit-scrollbar-track {
-            background: rgba(38, 0, 0, 0.05);
-            border-radius: 4px;
-          }
-          .help-modal-content::-webkit-scrollbar-thumb {
-            background-color: rgba(38, 0, 0, 0.1);
-            border-radius: 4px;
-            border: 6px solid transparent;
-            background-clip: padding-box;
-          }
-          .help-modal-content:hover::-webkit-scrollbar-thumb {
-            background-color: #260000;
-            border-width: 4px;
-          }
-          .help-modal-content {
-            scrollbar-width: thin;
-            scrollbar-color: rgba(38, 0, 0, 0.1) rgba(38, 0, 0, 0.05);
-          }
-        `}
-      </style>
+      <style>{theme.darkMode ? scrollbarDark : scrollbarLight}</style>
 
       {/* Close button */}
       <button
@@ -316,7 +332,7 @@ const HelpModal = ({ isVisible, onClose }) => {
           right: isCompactLayout ? '32px' : '40px',
           background: 'none',
           border: 'none',
-          color: '#666',
+          color: theme.canvas.textSecondary,
           cursor: 'pointer',
           padding: '6px',
           borderRadius: '4px',
@@ -326,8 +342,8 @@ const HelpModal = ({ isVisible, onClose }) => {
           zIndex: 10,
           touchAction: 'manipulation'
         }}
-        onMouseEnter={(e) => e.currentTarget.style.color = '#260000'}
-        onMouseLeave={(e) => e.currentTarget.style.color = '#666'}
+        onMouseEnter={(e) => e.currentTarget.style.color = theme.canvas.textPrimary}
+        onMouseLeave={(e) => e.currentTarget.style.color = theme.canvas.textSecondary}
       >
         ✕
       </button>
@@ -338,7 +354,7 @@ const HelpModal = ({ isVisible, onClose }) => {
           className="help-modal-sidebar"
           style={{
             width: '160px',
-            borderRight: '1px solid #260000',
+            borderRight: `1px solid ${theme.canvas.border}`,
             padding: '20px 12px',
             overflowY: 'auto',
             flexShrink: 0
@@ -347,7 +363,7 @@ const HelpModal = ({ isVisible, onClose }) => {
           <h3 style={{
             margin: '0 0 16px 0',
             fontSize: '1.1rem',
-            color: '#260000'
+            color: theme.canvas.textPrimary
           }}>
             Topics
           </h3>
@@ -360,8 +376,8 @@ const HelpModal = ({ isVisible, onClose }) => {
                 marginBottom: '4px',
                 borderRadius: '6px',
                 cursor: 'pointer',
-                backgroundColor: activeSection === key ? 'rgba(139, 0, 0, 0.1)' : 'transparent',
-                color: activeSection === key ? '#8B0000' : '#333',
+                backgroundColor: activeSection === key ? (theme.darkMode ? 'rgba(139, 0, 0, 0.25)' : 'rgba(139, 0, 0, 0.1)') : 'transparent',
+                color: activeSection === key ? headingColor : theme.canvas.textSecondary,
                 fontWeight: activeSection === key ? 'bold' : 'normal',
                 fontSize: '0.85rem',
                 display: 'flex',
@@ -371,7 +387,7 @@ const HelpModal = ({ isVisible, onClose }) => {
               }}
               onMouseEnter={(e) => {
                 if (activeSection !== key) {
-                  e.currentTarget.style.backgroundColor = 'rgba(139, 0, 0, 0.05)';
+                  e.currentTarget.style.backgroundColor = theme.darkMode ? 'rgba(139, 0, 0, 0.12)' : 'rgba(139, 0, 0, 0.05)';
                 }
               }}
               onMouseLeave={(e) => {
@@ -407,11 +423,11 @@ const HelpModal = ({ isVisible, onClose }) => {
                 width: '100%',
                 padding: '10px',
                 borderRadius: '6px',
-                border: '1px solid #ddd',
-                backgroundColor: 'white',
+                border: `1px solid ${theme.canvas.border}`,
+                backgroundColor: theme.darkMode ? theme.canvas.hover : 'white',
                 fontSize: '0.9rem',
                 fontFamily: "'EmOne', sans-serif",
-                color: '#333'
+                color: theme.canvas.textPrimary
               }}
             >
               {Object.keys(sections).map((key) => (
@@ -425,7 +441,7 @@ const HelpModal = ({ isVisible, onClose }) => {
 
         <h2 style={{
           margin: '0 0 20px 0',
-          color: '#260000',
+          color: theme.canvas.textPrimary,
           fontSize: isCompactLayout ? '1.3rem' : '1.5rem'
         }}>
           {sections[activeSection].title}
@@ -433,7 +449,7 @@ const HelpModal = ({ isVisible, onClose }) => {
 
         <div style={{
           lineHeight: '1.6',
-          color: '#333'
+          color: theme.canvas.textSecondary
         }}>
           {sections[activeSection].content}
         </div>
@@ -457,4 +473,3 @@ const HelpModal = ({ isVisible, onClose }) => {
 };
 
 export default HelpModal;
-
