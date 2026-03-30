@@ -37,6 +37,7 @@
     "prod:docker": "docker build -f deployment/docker/Dockerfile -t redstring . && docker run -p 4000:4000 -p 3002:3002 redstring",
     "prod:compose": "cd deployment/docker && docker-compose up -d",
     "deploy:gcp:prod": "./deployment/gcp/deploy_prod.sh",
+    "deploy:gcp:prod:local": "./deployment/gcp/deploy_prod_local.sh",
     "deploy:gcp:test": "./deployment/gcp/deploy_test.sh",
     "deploy:gcp:oauth:prod": "./deployment/gcp/deploy_oauth_prod.sh",
     "deploy:gcp:oauth:test": "./deployment/gcp/deploy_oauth_test.sh",

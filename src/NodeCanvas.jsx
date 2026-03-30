@@ -4336,8 +4336,15 @@ function NodeCanvas() {
         }
       });
 
+      // Convert viewport mouse coordinates to canvas coordinates at drag start.
+      // Storing canvas coords (not viewport coords) ensures edge panning works correctly —
+      // viewport coords + changing pan values produce wrong canvas coordinates.
+      const rect = containerRef.current?.getBoundingClientRect();
+      const initMouseCanvasX = rect ? (clientX - rect.left - panOffset.x) / zoomLevel + canvasSize.offsetX : 0;
+      const initMouseCanvasY = rect ? (clientY - rect.top - panOffset.y) / zoomLevel + canvasSize.offsetY : 0;
+
       setDraggingNodeInfo({
-        initialMouse: { x: clientX, y: clientY },
+        initialMouseCanvas: { x: initMouseCanvasX, y: initMouseCanvasY },
         initialPrimaryPos,
         relativeOffsets: initialPositions,
         primaryId: instanceId
