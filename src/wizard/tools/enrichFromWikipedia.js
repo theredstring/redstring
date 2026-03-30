@@ -22,7 +22,7 @@ export async function enrichFromWikipedia(args, graphState) {
   const graphId = targetGraphId || activeGraphId;
 
   // Try to find the node in predictive state
-  const queryLower = nodeName.toLowerCase().trim();
+  const queryLower = String(nodeName || '').toLowerCase().trim();
   let resolvedProto = null;
   for (const proto of nodePrototypes) {
     if ((proto.name || '').toLowerCase().trim() === queryLower) {

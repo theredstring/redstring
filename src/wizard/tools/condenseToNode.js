@@ -32,7 +32,7 @@ function resolveNodeNames(memberNames, activeGraph, nodePrototypes) {
 
   // Resolve each member name
   for (const memberName of memberNames) {
-    const nameLower = memberName.toLowerCase().trim();
+    const nameLower = String(memberName || '').toLowerCase().trim();
     const instId = nameToInstId.get(nameLower);
     if (instId) {
       resolvedIds.push(instId);

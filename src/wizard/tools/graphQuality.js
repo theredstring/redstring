@@ -25,7 +25,7 @@ export function analyzeGraphQuality(nodes, edges) {
     };
   }
 
-  const nodeNames = nodes.map(n => n.name.toLowerCase().trim());
+  const nodeNames = nodes.map(n => String(n.name || '').toLowerCase().trim());
   const nameSet = new Set(nodeNames);
 
   // Build adjacency list (case-insensitive)

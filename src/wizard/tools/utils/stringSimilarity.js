@@ -5,8 +5,8 @@
 export function calculateStringSimilarity(str1, str2) {
   if (!str1 || !str2) return 0;
 
-  const s1 = str1.toLowerCase().trim();
-  const s2 = str2.toLowerCase().trim();
+  const s1 = String(str1).toLowerCase().trim();
+  const s2 = String(str2).toLowerCase().trim();
 
   if (s1 === s2) return 1.0;
 

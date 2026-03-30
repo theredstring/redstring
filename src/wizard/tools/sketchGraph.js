@@ -19,10 +19,27 @@ import { resolvePaletteColor, getRandomPalette, PALETTES } from '../../ai/palett
 import { analyzeGraphQuality } from './graphQuality.js';
 
 /**
+ * Coerce an LLM-provided value to a string.
+ * LLMs sometimes send objects ({name: "X"}) instead of plain strings.
+ */
+function coerceToString(val) {
+  if (typeof val === 'string') return val;
+  if (val && typeof val === 'object') {
+    if (typeof val.name === 'string') return val.name;
+    if (typeof val.source === 'string' && typeof val.target === 'string') {
+      const relation = typeof val.relation === 'string' ? val.relation : 'Connected To';
+      return `${val.source} -> ${relation} -> ${val.target}`;
+    }
+    return JSON.stringify(val);
+  }
+  return String(val || '');
+}
+
+/**
  * Parse a node string like "Pistons [Component]" into { name, type }
  */
 function parseNodeString(str) {
-  const trimmed = (str || '').trim();
+  const trimmed = coerceToString(str).trim();
   const typeMatch = trimmed.match(/^(.+?)\s*\[([^\]]+)\]\s*$/);
   if (typeMatch) {
     return { name: typeMatch[1].trim(), type: typeMatch[2].trim() };
@@ -34,7 +51,7 @@ function parseNodeString(str) {
  * Parse an edge string like "Pistons -> Housed In -> Engine Block" into { source, relation, target }
  */
 function parseEdgeString(str) {
-  const trimmed = (str || '').trim();
+  const trimmed = coerceToString(str).trim();
   const parts = trimmed.split('->').map(p => p.trim());
 
   if (parts.length === 3) {
@@ -50,7 +67,7 @@ function parseEdgeString(str) {
  * Parse a group string like "Core Components: Engine Block, Pistons, Crankshaft"
  */
 function parseGroupString(str) {
-  const trimmed = (str || '').trim();
+  const trimmed = coerceToString(str).trim();
   const colonIdx = trimmed.indexOf(':');
   if (colonIdx < 0) return null;
 

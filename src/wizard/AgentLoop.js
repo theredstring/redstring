@@ -45,7 +45,7 @@ function applyBulkSpecToInternalState(graphState, targetGraph, spec) {
   const typeMap = new Map();
   nodeSpecs.forEach(n => {
     if (n.type) {
-      const tLower = n.type.toLowerCase().trim();
+      const tLower = String(n.type || '').toLowerCase().trim();
       if (!typeMap.has(tLower)) {
         let existingProtoId = null;
         for (const proto of graphState.nodePrototypes) {
@@ -80,11 +80,11 @@ function applyBulkSpecToInternalState(graphState, targetGraph, spec) {
     const proto = graphState.nodePrototypes.find(p => p.id === inst.prototypeId);
     if (proto?.name) {
       nameToInstId.set(proto.name, inst.id);
-      nameToInstId.set(proto.name.toLowerCase().trim(), inst.id);
+      nameToInstId.set(String(proto.name).toLowerCase().trim(), inst.id);
     }
     if (inst.name) {
       nameToInstId.set(inst.name, inst.id);
-      nameToInstId.set(inst.name.toLowerCase().trim(), inst.id);
+      nameToInstId.set(String(inst.name).toLowerCase().trim(), inst.id);
     }
   }
 
@@ -103,7 +103,7 @@ function applyBulkSpecToInternalState(graphState, targetGraph, spec) {
       name: n.name,
       color: n.color || NODE_DEFAULT_COLOR,
       description: n.description || '',
-      typeNodeId: n.type ? typeMap.get(n.type.toLowerCase().trim()) : null,
+      typeNodeId: n.type ? typeMap.get(String(n.type).toLowerCase().trim()) : null,
       definitionGraphIds: []
     });
 
@@ -124,7 +124,7 @@ function applyBulkSpecToInternalState(graphState, targetGraph, spec) {
       let definitionNodeIds = [];
       const typeName = e.definitionNode?.name || e.type;
       if (typeName) {
-        const tLower = typeName.toLowerCase().trim();
+        const tLower = String(typeName || '').toLowerCase().trim();
         for (const proto of graphState.nodePrototypes) {
           if ((proto.name || '').toLowerCase().trim() === tLower) {
             definitionNodeIds = [proto.id];
@@ -225,7 +225,7 @@ function updateGraphState(graphState, _toolName, _args, result) {
         targetGraph.instances = targetGraph.instances.filter(i => i.id !== result.instanceId);
       } else if (result.name) {
         // Fallback: remove by name when instanceId wasn't resolved
-        const nameLower = result.name.toLowerCase().trim();
+        const nameLower = String(result.name || '').toLowerCase().trim();
         targetGraph.instances = targetGraph.instances.filter(i => {
           const instName = (i.name || '').toLowerCase().trim();
           return instName !== nameLower;

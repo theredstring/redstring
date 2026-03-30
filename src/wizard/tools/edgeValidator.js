@@ -20,10 +20,10 @@ export function validateEdges(nodeSpecs, edges, existingNodeNames = []) {
   // Build case-insensitive set of all known node names
   const knownNames = new Set();
   for (const spec of nodeSpecs) {
-    if (spec.name) knownNames.add(spec.name.toLowerCase().trim());
+    if (spec.name) knownNames.add(String(spec.name).toLowerCase().trim());
   }
   for (const name of existingNodeNames) {
-    if (name) knownNames.add(name.toLowerCase().trim());
+    if (name) knownNames.add(String(name).toLowerCase().trim());
   }
 
   const validEdges = [];
