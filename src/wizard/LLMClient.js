@@ -41,6 +41,35 @@ function stripEmptyRequired(schema) {
 }
 
 /**
+ * Build a concise field summary that preserves descriptions (which contain
+ * condensed enum info from condenseSchema) and recursively summarizes
+ * nested objects and arrays-of-objects.
+ */
+function summarizeFields(properties) {
+  return Object.entries(properties)
+    .map(([k, v]) => {
+      // Nested object with its own properties — show inner fields
+      if (v.type === 'object' && v.properties) {
+        const inner = Object.entries(v.properties)
+          .map(([ik, iv]) => iv.description ? `${ik}: ${iv.description}` : `${ik} (${iv.type})`)
+          .join('; ');
+        return `${k}: object with {${inner}}`;
+      }
+      // Nested array-of-objects — show inner item fields
+      if (v.type === 'array' && v.items?.type === 'object' && v.items.properties) {
+        const inner = Object.entries(v.items.properties)
+          .map(([ik, iv]) => iv.description ? `${ik}: ${iv.description}` : `${ik} (${iv.type})`)
+          .join('; ');
+        return `${k}: array of {${inner}}`;
+      }
+      // Use description (includes condensed enum info) when available
+      if (v.description) return `${k}: ${v.description}`;
+      return `${k} (${v.type})`;
+    })
+    .join('; ');
+}
+
+/**
  * Flatten deeply nested object properties (objects containing arrays-of-objects
  * or nested objects) to JSON strings. This reduces structural complexity for
  * all LLM providers.
@@ -50,9 +79,7 @@ function flattenDeepNesting(schema) {
   for (const [key, prop] of Object.entries(schema.properties)) {
     // Flatten arrays-of-objects → JSON string
     if (prop.type === 'array' && prop.items?.type === 'object' && prop.items.properties) {
-      const fields = Object.entries(prop.items.properties)
-        .map(([k, v]) => `${k} (${v.type})`)
-        .join(', ');
+      const fields = summarizeFields(prop.items.properties);
       schema.properties[key] = {
         type: 'string',
         description: `${prop.description || ''} (JSON array of objects with: ${fields})`.trim()
@@ -66,9 +93,7 @@ function flattenDeepNesting(schema) {
                (sub.type === 'object' && sub.properties)
       );
       if (hasDeepNesting) {
-        const fields = Object.entries(prop.properties)
-          .map(([k, v]) => `${k} (${v.type})`)
-          .join(', ');
+        const fields = summarizeFields(prop.properties);
         schema.properties[key] = {
           type: 'string',
           description: `${prop.description || ''} (JSON object with fields: ${fields})`.trim()
@@ -111,10 +136,11 @@ function makeAllRequired(schema) {
  * this removes them before the args reach tool functions.
  */
 function stripNulls(obj) {
-  if (!obj || typeof obj !== 'object' || Array.isArray(obj)) return obj;
+  if (!obj || typeof obj !== 'object') return obj;
+  if (Array.isArray(obj)) return obj.map(stripNulls);
   const result = {};
   for (const [k, v] of Object.entries(obj)) {
-    if (v !== null) result[k] = v;
+    if (v !== null) result[k] = (typeof v === 'object') ? stripNulls(v) : v;
   }
   return result;
 }
@@ -169,6 +195,8 @@ function condenseSchema(schema) {
           delete iv.enum;
         }
       }
+      // Recurse into nested structures within array items (e.g. substeps inside steps)
+      condenseSchema(prop.items);
     }
     if (prop.type === 'object' && prop.properties) {
       condenseSchema(prop);

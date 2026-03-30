@@ -2752,6 +2752,16 @@ const LeftAIView = ({ compact = false,
     // <hr> can cause layout collapse between consecutive dividers in flex/pre-wrap contexts.
     html = html.replace(/^---$/gim, `<div style="border-top:1px solid ${theme.canvas.border};margin:10px 0;height:0;line-height:0;font-size:0;"></div>`);
 
+    // Normalize * bullet lines to - bullet lines when 2+ consecutive are found.
+    // Runs BEFORE emphasis processing so leading * isn't consumed by *italic* regex.
+    // Splits around <pre> blocks to avoid corrupting code examples.
+    html = html.split(/(<pre[\s\S]*?<\/pre>)/i).map(part => {
+      if (part.startsWith('<pre')) return part;
+      return part.replace(/((?:^[ \t]*\* .+$\n?){2,})/gm, (block) =>
+        block.replace(/^([ \t]*)\* /gm, '$1- ')
+      );
+    }).join('');
+
     // ***bold+italic***
     html = html.replace(/\*\*\*(.+?)\*\*\*/g, '<strong><em>$1</em></strong>');
     // **bold**

@@ -510,6 +510,120 @@ describe('normalizeTools schema pipeline', () => {
       }
     }
   });
+
+  it('preserves condensed enum info in flattened array-of-objects descriptions', () => {
+    const schema = {
+      type: 'object',
+      properties: {
+        steps: {
+          type: 'array',
+          description: 'Array of plan steps',
+          items: {
+            type: 'object',
+            properties: {
+              description: { type: 'string', description: 'What this step does' },
+              status: { type: 'string', description: 'Step status. One of: pending, in_progress, done' },
+            },
+            required: ['description', 'status'],
+          },
+        },
+      },
+    };
+
+    flattenDeepNesting(schema);
+
+    expect(schema.properties.steps.type).toBe('string');
+    expect(schema.properties.steps.description).toContain('One of: pending, in_progress, done');
+    expect(schema.properties.steps.description).toContain('What this step does');
+  });
+
+  it('includes nested object field details in flattened description', () => {
+    const schema = {
+      type: 'object',
+      properties: {
+        edges: {
+          type: 'array',
+          description: 'Array of edges',
+          items: {
+            type: 'object',
+            properties: {
+              source: { type: 'string', description: 'Source node' },
+              definitionNode: {
+                type: 'object',
+                description: 'Connection type definition',
+                properties: {
+                  name: { type: 'string', description: 'Connection name' },
+                  color: { type: 'string', description: 'Color hex' },
+                },
+              },
+            },
+          },
+        },
+      },
+    };
+
+    flattenDeepNesting(schema);
+
+    expect(schema.properties.edges.description).toContain('Connection name');
+    expect(schema.properties.edges.description).toContain('Color hex');
+  });
+
+  it('full pipeline preserves planTask status enum values in description', () => {
+    const tools = getToolDefinitions();
+    const planTool = tools.find(t => t.name === 'planTask');
+    expect(planTool).toBeDefined();
+
+    const params = JSON.parse(JSON.stringify(planTool.parameters));
+    stripEmptyRequired(params);
+    condenseSchema(params);
+    flattenDeepNesting(params);
+    makeAllRequired(params);
+
+    // The flattened steps description must contain the valid status values
+    expect(params.properties.steps.description).toContain('pending');
+    expect(params.properties.steps.description).toContain('in_progress');
+    expect(params.properties.steps.description).toContain('done');
+  });
+});
+
+describe('condenseSchema recursion', () => {
+  it('condenses enums in nested arrays-of-objects', () => {
+    const schema = {
+      type: 'object',
+      properties: {
+        steps: {
+          type: 'array',
+          items: {
+            type: 'object',
+            properties: {
+              status: { type: 'string', enum: ['pending', 'done'] },
+              substeps: {
+                type: 'array',
+                items: {
+                  type: 'object',
+                  properties: {
+                    status: { type: 'string', enum: ['pending', 'done'] }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    };
+
+    condenseSchema(schema);
+
+    // Top-level enum condensed
+    const stepStatus = schema.properties.steps.items.properties.status;
+    expect(stepStatus.enum).toBeUndefined();
+    expect(stepStatus.description).toContain('One of: pending, done');
+
+    // Nested (substep) enum also condensed
+    const subStatus = schema.properties.steps.items.properties.substeps.items.properties.status;
+    expect(subStatus.enum).toBeUndefined();
+    expect(subStatus.description).toContain('One of: pending, done');
+  });
 });
 
 describe('selectToolsForTurn', () => {
@@ -609,6 +723,19 @@ describe('stripNulls', () => {
 
   it('keeps empty string and zero values', () => {
     expect(stripNulls({ a: '', b: 0, c: false })).toEqual({ a: '', b: 0, c: false });
+  });
+
+  it('recursively strips nulls from nested objects', () => {
+    expect(stripNulls({ a: { b: null, c: 1 } })).toEqual({ a: { c: 1 } });
+  });
+
+  it('recursively strips nulls from array items', () => {
+    expect(stripNulls([{ a: null, b: 1 }, { c: null, d: 2 }])).toEqual([{ b: 1 }, { d: 2 }]);
+  });
+
+  it('handles deeply nested arrays and objects', () => {
+    const input = { items: [{ nested: { val: null, keep: 'yes' } }] };
+    expect(stripNulls(input)).toEqual({ items: [{ nested: { keep: 'yes' } }] });
   });
 });
 

@@ -26,6 +26,10 @@ export default function MultipleChoiceOverlay({ question, options, onSelect, onD
 
             // Inline code
             html = html.replace(/`([^`]+)`/g, `<code style="background:${theme.canvas.inactive};padding:2px 4px;border-radius:3px;">$1</code>`);
+            // Normalize * bullet lines to - bullet lines when 2+ consecutive are found
+            html = html.replace(/((?:^[ \t]*\* .+$\n?){2,})/gm, (block) =>
+              block.replace(/^([ \t]*)\* /gm, '$1- ')
+            );
             // ***bold+italic***
             html = html.replace(/\*\*\*(.+?)\*\*\*/g, '<strong><em>$1</em></strong>');
             // **bold**
