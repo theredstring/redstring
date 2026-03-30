@@ -40,14 +40,12 @@ Redstring enables you to create, connect, and explore concepts through an intuit
 - **Version History**: Complete audit trail using Git's native capabilities
 - **Conflict Resolution**: Git merge capabilities for collaborative knowledge building
 
-### AI-Powered Tools (Experimental - Disabled by Default)
-- **First-Class AI Integration**: AI can interact with Redstring like a human user (requires manual setup)
+### AI Framework Over HTTP and MCP
+- **First-Class AI Integration**: AI can interact with Redstring like a human user
 - **Model Context Protocol (MCP)**: Comprehensive tool suite for AI agents
 - **Semantic Discovery**: AI-powered exploration of knowledge connections
 - **Enhanced Search**: Multi-source queries (70% DBpedia, 20% Wikidata, 10% Wikipedia)
 - **Transparent Operations**: Full visibility into AI tool calls and actions
-
-**Note**: AI features are experimental and disabled by default. Users must explicitly enable and configure them.
 
 ### Format Versioning
 - **Automatic Migration**: Files from older versions (v1.0.0, v2.0.0) auto-upgrade to v3.0.0
@@ -217,19 +215,9 @@ Redstring supports experimental integration with Solid Pods for decentralized st
 
 **Note**: Solid integration is experimental. Git federation is recommended for production use.
 
-## AI Integration (Experimental - Disabled by Default)
+## AI Framework Over HTTP and MCP
 
-**IMPORTANT**: AI integration is experimental and disabled by default. These features require:
-- Manual setup and configuration
-- External AI service credentials
-- Technical knowledge of MCP (Model Context Protocol)
-- Explicit user opt-in to enable functionality
-
-Most users will not use these features. Standard Redstring functionality works completely independently.
-
----
-
-Redstring treats AI as a **first-class user** with comprehensive tool access via Model Context Protocol (MCP).
+Redstring treats AI as a **first-class user** with comprehensive tool access via HTTP and the Model Context Protocol (MCP).
 
 ### Available AI Tools
 
