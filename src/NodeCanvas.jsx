@@ -3242,6 +3242,7 @@ function NodeCanvas() {
   const leftPanelRef = useRef(null); // Ref for Left Panel
 
   const canvasWorker = useCanvasWorker();
+  console.log("NodeCanvas render hit", performance.now());
   const isKeyboardZooming = useRef(false);
   const resizeTimeoutRef = useRef(null);
   // Ensure async zoom results apply in order to avoid ghost frames
@@ -5123,7 +5124,7 @@ function NodeCanvas() {
 
           if (hoveredNode) {
             const dims = baseDimsById.get(hoveredNode.id);
-            setHoveredNodeForVision({
+            setHoveredNodeForVision(prev => prev?.id === hoveredNode.id ? prev : {
               id: hoveredNode.id,
               name: hoveredNode.name,
               color: hoveredNode.color,
@@ -5288,7 +5289,7 @@ function NodeCanvas() {
                   }
                 }
 
-                setHoveredConnectionForVision({
+                setHoveredConnectionForVision(prev => prev?.id === edge.id ? prev : {
                   id: edge.id,
                   name: connectionName,
                   color: connectionColor,
@@ -5319,7 +5320,11 @@ function NodeCanvas() {
               }
             }
 
-            setHoveredEdgeInfo(foundHoveredEdgeInfo);
+            setHoveredEdgeInfo(prev => {
+              if (!prev && !foundHoveredEdgeInfo) return prev;
+              if (prev && foundHoveredEdgeInfo && prev.edgeId === foundHoveredEdgeInfo.edgeId) return prev;
+              return foundHoveredEdgeInfo;
+            });
 
             if (!foundHoveredEdgeInfo) {
               setHoveredConnectionForVision(null);
