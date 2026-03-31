@@ -677,12 +677,12 @@ ipcMain.handle('agent:restart', async () => {
 
 // Auto-updater: quit and install the downloaded update
 ipcMain.handle('updater:install', () => {
-  // Stop the agent server before quitting
+  console.log('[Electron] updater:install called — quitting and installing update');
   stopAgentServer();
-  // Force quit on macOS (which normally keeps apps alive after closing windows)
-  app.removeAllListeners('window-all-closed');
-  // isSilent=false (show installer), isForceRunAfter=true (relaunch after install)
-  autoUpdater.quitAndInstall(false, true);
+  // autoUpdater.quitAndInstall is unreliable on macOS — do it manually
+  autoUpdater.autoInstallOnAppQuit = true;
+  app.relaunch();
+  app.exit(0);
 });
 
 // Let renderer check if an update was already downloaded (survives page refresh)
