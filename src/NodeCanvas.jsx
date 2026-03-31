@@ -11696,7 +11696,18 @@ function NodeCanvas() {
                   );
                 })()}
 
-                {/* Drawing connection line moved to after thing-group titles for correct z-ordering */}
+                {/* Drawing connection line (same z-level as existing edges, below nodes) */}
+                {drawingConnectionFrom && (
+                  <line
+                    x1={drawingConnectionFrom.startX}
+                    y1={drawingConnectionFrom.startY}
+                    x2={drawingConnectionFrom.currentX}
+                    y2={drawingConnectionFrom.currentY}
+                    stroke="black"
+                    strokeWidth="8"
+                  />
+                )}
+
                 {(() => {
                   const draggingNodeId = draggingNodeInfo?.primaryId || draggingNodeInfo?.instanceId;
 
@@ -11823,18 +11834,6 @@ function NodeCanvas() {
 
                       {/* Groups Phase 3: Thing-group titles (above member nodes, below active/dragging) */}
                       {nodeGroupTitlesRef.current}
-
-                      {/* Drawing connection line (above titles) */}
-                      {drawingConnectionFrom && (
-                        <line
-                          x1={drawingConnectionFrom.startX}
-                          y1={drawingConnectionFrom.startY}
-                          x2={drawingConnectionFrom.currentX}
-                          y2={drawingConnectionFrom.currentY}
-                          stroke="black"
-                          strokeWidth="8"
-                        />
-                      )}
 
                       {/* Render The PieMenu next (it will be visually under the active node) */}
                       {isPieMenuRendered && currentPieMenuData && (
