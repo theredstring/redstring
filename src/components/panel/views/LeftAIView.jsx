@@ -3402,6 +3402,9 @@ const LeftAIView = ({ compact = false,
         effectiveProvider = 'anthropic';
       } else if (apiKey?.startsWith('sk-proj-') && (!effectiveProvider || effectiveProvider === 'openrouter')) {
         effectiveProvider = 'openai';
+      } else if (apiKey?.startsWith('AIza') && (!effectiveProvider || effectiveProvider === 'openrouter')) {
+        console.warn('[LeftAIView] Detected Google API key with OpenRouter config. Auto-switching to Google.');
+        effectiveProvider = 'google';
       }
 
       // Collect any tabular data from attachments for tool access
@@ -3665,6 +3668,12 @@ const LeftAIView = ({ compact = false,
       if (!apiConfig) { addMessage('ai', 'Please set up your API key first by clicking the key icon in the header.', {}, targetConversationId); return; }
       const apiKey = await apiKeyManager.getAPIKey();
       if (!apiKey) { addMessage('ai', 'No API key found. Please set one via the key icon.', {}, targetConversationId); return; }
+      // Auto-correct provider if key mismatches
+      let chatProvider = apiConfig?.provider;
+      if (apiKey?.startsWith('sk-ant-') && (!chatProvider || chatProvider === 'openrouter')) chatProvider = 'anthropic';
+      else if (apiKey?.startsWith('sk-proj-') && (!chatProvider || chatProvider === 'openrouter')) chatProvider = 'openai';
+      else if (apiKey?.startsWith('AIza') && (!chatProvider || chatProvider === 'openrouter')) chatProvider = 'google';
+
       const response = await bridgeFetch('/api/ai/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
@@ -3675,7 +3684,7 @@ const LeftAIView = ({ compact = false,
             activeGraphId: activeGraphId || null,
             graphInfo,
             graphCount,
-            apiConfig: apiConfig ? { provider: apiConfig.provider, endpoint: apiConfig.endpoint, model: apiConfig.model, settings: apiConfig.settings } : null
+            apiConfig: apiConfig ? { provider: chatProvider || apiConfig.provider, endpoint: apiConfig.endpoint, model: apiConfig.model, settings: apiConfig.settings } : null
           },
           model: apiConfig?.model || undefined
         })

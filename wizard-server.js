@@ -165,9 +165,10 @@ app.post('/api/wizard', async (req, res) => {
       : `[multimodal: ${message.length} blocks]`;
     console.log('[Wizard] Request:', {
       messagePreview,
+      provider: llmConfig.provider,
+      model: llmConfig.model,
       historyLength: conversationHistory?.length || 0,
-      activeGraph: graphState?.activeGraphId,
-      model: llmConfig.model
+      activeGraph: graphState?.activeGraphId
     });
 
     const abortController = new AbortController();
