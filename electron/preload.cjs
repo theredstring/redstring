@@ -56,6 +56,7 @@ contextBridge.exposeInMainWorld('electron', {
     onUpdateReady: (callback) => {
       ipcRenderer.on('updater:update-ready', (_event, info) => callback(info));
     },
+    checkPending: () => ipcRenderer.invoke('updater:check-pending'),
     installUpdate: () => ipcRenderer.invoke('updater:install'),
   }
 });

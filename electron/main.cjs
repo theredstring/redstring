@@ -13,14 +13,18 @@ autoUpdater.autoInstallOnAppQuit = true;
 autoUpdater.logger = require('electron-log');
 autoUpdater.logger.transports.file.level = 'info';
 
+// Cache downloaded update info so the renderer can query it after refresh
+let pendingUpdateInfo = null;
+
 // Notify renderer when an update has been downloaded and is ready to install
 autoUpdater.on('update-downloaded', (info) => {
   console.log('[Electron] Update downloaded:', info.version);
+  pendingUpdateInfo = {
+    version: info.version,
+    releaseName: info.releaseName || ''
+  };
   if (mainWindow) {
-    mainWindow.webContents.send('updater:update-ready', {
-      version: info.version,
-      releaseName: info.releaseName || ''
-    });
+    mainWindow.webContents.send('updater:update-ready', pendingUpdateInfo);
   }
 });
 
@@ -673,6 +677,16 @@ ipcMain.handle('agent:restart', async () => {
 
 // Auto-updater: quit and install the downloaded update
 ipcMain.handle('updater:install', () => {
-  autoUpdater.quitAndInstall();
+  // Stop the agent server before quitting
+  stopAgentServer();
+  // Force quit on macOS (which normally keeps apps alive after closing windows)
+  app.removeAllListeners('window-all-closed');
+  // isSilent=false (show installer), isForceRunAfter=true (relaunch after install)
+  autoUpdater.quitAndInstall(false, true);
+});
+
+// Let renderer check if an update was already downloaded (survives page refresh)
+ipcMain.handle('updater:check-pending', () => {
+  return pendingUpdateInfo;
 });
 

@@ -14,10 +14,20 @@ export default function UpdateToast() {
   const [dismissing, setDismissing] = useState(false);
 
   useEffect(() => {
-    if (!window.electron?.updater?.onUpdateReady) return;
+    if (!window.electron?.updater) return;
+
+    // Listen for new update-downloaded events
     window.electron.updater.onUpdateReady((info) => {
       setUpdateInfo(info);
       requestAnimationFrame(() => setVisible(true));
+    });
+
+    // Check if an update was already downloaded before this mount (e.g. after page refresh)
+    window.electron.updater.checkPending?.().then((info) => {
+      if (info) {
+        setUpdateInfo(info);
+        requestAnimationFrame(() => setVisible(true));
+      }
     });
   }, []);
 

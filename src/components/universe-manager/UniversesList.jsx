@@ -309,9 +309,6 @@ const UniversesList = ({
                       color: theme.canvas.textPrimary,
                       display: 'flex',
                       alignItems: 'center',
-                      color: theme.canvas.textPrimary,
-                      display: 'flex',
-                      alignItems: 'center',
                       gap: 6
                     }}
                     onMouseEnter={(e) => e.currentTarget.style.backgroundColor = theme.canvas.hover}
@@ -1147,8 +1144,6 @@ const UniversesList = ({
                                   transform: 'translateX(-50%)',
                                   marginTop: 4,
                                   backgroundColor: theme.canvas.bg,
-                                  borderRadius: 6,
-
                                   border: `1px solid ${theme.canvas.border}`,
                                   borderRadius: 6,
                                   boxShadow: '0 4px 12px rgba(0,0,0,0.15)',

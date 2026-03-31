@@ -336,7 +336,6 @@ function NodeCanvas() {
 
 
   const MIN_WIDTH = 180;
-  const MAX_WIDTH = Math.max(240, Math.round(window.innerWidth / 2));
 
   const beginDrag = (side, clientX) => {
     if (side === 'left') {
@@ -356,14 +355,17 @@ function NodeCanvas() {
 
   const onDragMove = (e) => {
     const clientX = e.touches?.[0]?.clientX ?? e.clientX;
+    // Compute max width fresh each call so it reflects the current window size
+    // (not a stale closure value from the first render)
+    const maxWidth = Math.max(240, Math.round(window.innerWidth / 2));
     if (isDraggingLeft.current) {
       const dx = clientX - dragStartXRef.current;
-      const w = Math.max(MIN_WIDTH, Math.min(startWidthRef.current + dx, MAX_WIDTH));
+      const w = Math.max(MIN_WIDTH, Math.min(startWidthRef.current + dx, maxWidth));
       setLeftPanelWidth(w);
       try { window.dispatchEvent(new CustomEvent('panelWidthChanging', { detail: { side: 'left', width: w } })); } catch { }
     } else if (isDraggingRight.current) {
       const dx = clientX - dragStartXRef.current;
-      const w = Math.max(MIN_WIDTH, Math.min(startWidthRef.current - dx, MAX_WIDTH));
+      const w = Math.max(MIN_WIDTH, Math.min(startWidthRef.current - dx, maxWidth));
       setRightPanelWidth(w);
       try { window.dispatchEvent(new CustomEvent('panelWidthChanging', { detail: { side: 'right', width: w } })); } catch { }
     }
@@ -3242,7 +3244,6 @@ function NodeCanvas() {
   const leftPanelRef = useRef(null); // Ref for Left Panel
 
   const canvasWorker = useCanvasWorker();
-  console.log("NodeCanvas render hit", performance.now());
   const isKeyboardZooming = useRef(false);
   const resizeTimeoutRef = useRef(null);
   // Ensure async zoom results apply in order to avoid ghost frames
