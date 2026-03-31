@@ -61,6 +61,9 @@ function startAgentServer() {
     return;
   }
 
+  // agent-server.js uses ESM imports, which don't work from inside asar archives.
+  // Both script and cwd must point to app.asar.unpacked/ where all files
+  // (including node_modules) are extracted as real files on disk.
   let agentServerPath = path.join(__dirname, '..', 'agent-server.js');
   let agentCwd = path.join(__dirname, '..');
   if (app.isPackaged) {
@@ -68,7 +71,6 @@ function startAgentServer() {
     agentCwd = agentCwd.replace('app.asar', 'app.asar.unpacked');
   }
 
-  // Check if agent-server.js exists
   if (!fsSync.existsSync(agentServerPath)) {
     console.error('[Electron] Agent server not found at:', agentServerPath);
     return;
@@ -76,28 +78,32 @@ function startAgentServer() {
 
   console.log('[Electron] Starting agent server from:', agentServerPath);
 
-  // Fork the agent server as a child process
-  // Using fork with execArgv to handle ES modules
-  agentServerProcess = fork(agentServerPath, [], {
-    cwd: agentCwd,
-    stdio: ['pipe', 'pipe', 'pipe', 'ipc'],
-    env: {
-      ...process.env,
-      AGENT_SERVER_MODE: 'true',
-      NODE_ENV: process.env.NODE_ENV || 'development'
-    }
-  });
+  try {
+    agentServerProcess = fork(agentServerPath, [], {
+      cwd: agentCwd,
+      stdio: ['pipe', 'pipe', 'pipe', 'ipc'],
+      env: {
+        ...process.env,
+        AGENT_SERVER_MODE: 'true',
+        NODE_ENV: process.env.NODE_ENV || 'development'
+      }
+    });
+    console.log('[Electron] Agent server forked, pid:', agentServerProcess.pid);
+  } catch (forkErr) {
+    console.error('[Electron] Agent server fork failed:', forkErr.message);
+    return;
+  }
 
   agentServerProcess.stdout.on('data', (data) => {
-    console.log(`[AgentServer] ${data.toString().trim()} `);
+    console.log(`[AgentServer] ${data.toString().trim()}`);
   });
 
   agentServerProcess.stderr.on('data', (data) => {
-    console.error(`[AgentServer] ${data.toString().trim()} `);
+    console.error(`[AgentServer] ${data.toString().trim()}`);
   });
 
   agentServerProcess.on('error', (error) => {
-    console.error('[Electron] Failed to start agent server:', error);
+    console.error('[Electron] Agent server error:', error.message);
     agentServerProcess = null;
   });
 

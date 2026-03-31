@@ -27,7 +27,8 @@
     "src/utils/**/*",
     "src/ai/palettes.js",
     "src/constants.js",
-    "src/core/**/*"
+    "src/core/**/*",
+    "node_modules/**/*"
   ],
   "mac": {
     "entitlements": "entitlements.mac.plist",
