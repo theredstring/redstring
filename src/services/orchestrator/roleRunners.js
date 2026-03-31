@@ -1,4 +1,5 @@
 import { NODE_DEFAULT_COLOR } from '../../constants.js';
+import { bridgeUrl } from '../bridgeConfig.js';
 import queueManager from '../queue/Queue.js';
 // Avoid calling UI store from the daemon; generate ops directly here
 import toolValidator from '../toolValidator.js';
@@ -2048,7 +2049,7 @@ export async function runExecutorOnce() {
       }
 
       try {
-        await fetch('http://localhost:3001/api/bridge/chat/append', {
+        await fetch(bridgeUrl('/api/bridge/chat/append'), {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({

@@ -41,6 +41,11 @@ export function getBridgeBaseUrl() {
   if (typeof window !== 'undefined' && window.location) {
     const { protocol, hostname, port } = window.location;
 
+    // Electron production loads via file:// — bridge runs on localhost:3001
+    if (protocol === 'file:') {
+      return 'http://localhost:3001';
+    }
+
     // In production (Cloud Run), use the main server URL (AI endpoints are proxied)
     if (hostname === 'redstring.io' ||
       hostname.includes('.redstring.io') ||
@@ -79,6 +84,11 @@ export function getOAuthBaseUrl() {
 
   if (typeof window !== 'undefined' && window.location) {
     const { protocol, hostname, port } = window.location;
+
+    // Electron production loads via file:// — OAuth runs on localhost:3002
+    if (protocol === 'file:') {
+      return 'http://localhost:3002';
+    }
 
     // In production (Cloud Run or custom domain), use the same origin as the main app
     if (hostname.includes('run.app') || hostname === 'redstring.io' || hostname.includes('.redstring.io')) {

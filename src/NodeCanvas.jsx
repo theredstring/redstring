@@ -12734,6 +12734,10 @@ function NodeCanvas() {
       <StorageSetupModal
         isVisible={showStorageSetupModal}
         onClose={() => {
+          // Persist dismissal so the onboarding doesn't reappear
+          try {
+            localStorage.setItem(getStorageKey('redstring-welcome-seen'), 'true');
+          } catch { }
           setShowStorageSetupModal(false);
         }}
         onFolderSelected={async (folderPath, universeName) => {

@@ -3,7 +3,7 @@ import CanvasModal from './CanvasModal';
 import MaroonSlider from './MaroonSlider.jsx';
 import useGraphStore from '../store/graphStore.jsx';
 import { useTheme } from '../hooks/useTheme.js';
-import { Monitor, Grid3x3, Cable, Keyboard, Type, Brain } from 'lucide-react';
+import { Monitor, Grid3x3, Cable, Keyboard, Type, Brain, Info } from 'lucide-react';
 import AISection from './settings/AISection.jsx';
 import './SettingsModal.css';
 
@@ -93,7 +93,8 @@ const SettingsModal = ({ isVisible, onClose }) => {
     grid: <Grid3x3 size={16} style={{ minWidth: '16px', flexShrink: 0 }} />,
     connections: <Cable size={16} style={{ minWidth: '16px', flexShrink: 0 }} />,
     keyboard: <Keyboard size={16} style={{ minWidth: '16px', flexShrink: 0 }} />,
-    text: <Type size={16} style={{ minWidth: '16px', flexShrink: 0 }} />
+    text: <Type size={16} style={{ minWidth: '16px', flexShrink: 0 }} />,
+    about: <Info size={16} style={{ minWidth: '16px', flexShrink: 0 }} />
   };
 
   const sections = {
@@ -271,6 +272,61 @@ const SettingsModal = ({ isVisible, onClose }) => {
               suffix="x"
               onChange={(v) => useGraphStore.getState().setTextLineSpacing?.(v)}
             />
+          </div>
+        </div>
+      )
+    },
+    about: {
+      title: 'About',
+      content: (
+        <div>
+          <div style={{ marginBottom: '16px' }}>
+            <span style={{
+              fontSize: '1.4rem',
+              fontWeight: 'bold',
+              color: theme.darkMode ? '#ff9a9a' : (theme.accent?.primary || '#8B0000')
+            }}>
+              Redstring
+            </span>
+            <span style={{
+              fontSize: '0.75rem',
+              color: theme.canvas.textSecondary,
+              marginLeft: '10px'
+            }}>
+              v{import.meta.env.VITE_APP_VERSION}
+            </span>
+          </div>
+          <div style={{
+            fontSize: '0.8rem',
+            color: theme.canvas.textSecondary,
+            lineHeight: '1.7',
+            marginBottom: '16px'
+          }}>
+            A semantic knowledge graph that bridges human cognition and machine intelligence through visual node-based interfaces, W3C semantic web standards, and AI-powered knowledge discovery.
+          </div>
+          <ul style={{
+            fontSize: '0.78rem',
+            color: theme.canvas.textSecondary,
+            lineHeight: '1.8',
+            margin: 0,
+            paddingLeft: '18px',
+            listStyleType: 'disc'
+          }}>
+            <li><strong style={{ color: theme.canvas.textPrimary }}>Visual Knowledge Graphs</strong> — hierarchical, expandable nodes with contextual definitions</li>
+            <li><strong style={{ color: theme.canvas.textPrimary }}>Semantic Web</strong> — W3C compliant with RDF, OWL, and JSON-LD; integrates Wikidata, DBpedia, and Wikipedia</li>
+            <li><strong style={{ color: theme.canvas.textPrimary }}>Local-First</strong> — your data lives on your machine; Git and cloud sync are opt-in</li>
+            <li><strong style={{ color: theme.canvas.textPrimary }}>Git Federation</strong> — real-time sync with hot-swappable providers and multi-provider redundancy</li>
+            <li><strong style={{ color: theme.canvas.textPrimary }}>AI-Native</strong> — first-class AI integration via MCP and HTTP tool framework</li>
+          </ul>
+          <div style={{
+            marginTop: '20px',
+            paddingTop: '14px',
+            borderTop: `1px solid ${theme.canvas.border}`,
+            fontSize: '0.72rem',
+            color: theme.canvas.textSecondary,
+            lineHeight: '1.6'
+          }}>
+            Everything is connected. Most things can be generalized as a community of components and relations. Redstring makes these connections visible, explorable, and shareable.
           </div>
         </div>
       )
