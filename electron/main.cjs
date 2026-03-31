@@ -38,7 +38,12 @@ function startAgentServer() {
     return;
   }
 
-  const agentServerPath = path.join(__dirname, '..', 'agent-server.js');
+  let agentServerPath = path.join(__dirname, '..', 'agent-server.js');
+  let agentCwd = path.join(__dirname, '..');
+  if (app.isPackaged) {
+    agentServerPath = agentServerPath.replace('app.asar', 'app.asar.unpacked');
+    agentCwd = agentCwd.replace('app.asar', 'app.asar.unpacked');
+  }
 
   // Check if agent-server.js exists
   if (!fsSync.existsSync(agentServerPath)) {
@@ -46,12 +51,12 @@ function startAgentServer() {
     return;
   }
 
-  console.log('[Electron] Starting agent server...');
+  console.log('[Electron] Starting agent server from:', agentServerPath);
 
   // Fork the agent server as a child process
   // Using fork with execArgv to handle ES modules
   agentServerProcess = fork(agentServerPath, [], {
-    cwd: path.join(__dirname, '..'),
+    cwd: agentCwd,
     stdio: ['pipe', 'pipe', 'pipe', 'ipc'],
     env: {
       ...process.env,
@@ -211,12 +216,27 @@ function createWindow() {
   } else {
     // In production, load the built index.html
     const indexPath = path.join(__dirname, '../dist/index.html');
+    console.log('[Electron] Loading production index:', indexPath);
     const query = {};
     if (isTestMode) query.test = 'true';
     if (sessionName) query.session = sessionName;
 
-    mainWindow.loadFile(indexPath, { query });
+    mainWindow.webContents.on('did-fail-load', (event, errorCode, errorDescription, validatedURL) => {
+      console.error('[Electron] Failed to load:', { errorCode, errorDescription, validatedURL });
+    });
+
+    mainWindow.loadFile(indexPath, { query }).catch(err => {
+      console.error('[Electron] loadFile error:', err);
+    });
   }
+
+  // Fallback: show the window after 5s even if ready-to-show hasn't fired
+  setTimeout(() => {
+    if (mainWindow && !mainWindow.isVisible()) {
+      console.warn('[Electron] ready-to-show did not fire, showing window anyway');
+      mainWindow.show();
+    }
+  }, 5000);
 }
 
 function createMenu() {

@@ -9,7 +9,25 @@
   "files": [
     "dist/**/*",
     "electron/**/*",
-    "package.json"
+    "package.json",
+    "agent-server.js",
+    "wizard-server.js",
+    "src/wizard/**/*",
+    "src/services/**/*",
+    "src/utils/**/*",
+    "src/ai/palettes.js",
+    "src/constants.js",
+    "src/core/**/*"
+  ],
+  "asarUnpack": [
+    "agent-server.js",
+    "wizard-server.js",
+    "src/wizard/**/*",
+    "src/services/**/*",
+    "src/utils/**/*",
+    "src/ai/palettes.js",
+    "src/constants.js",
+    "src/core/**/*"
   ],
   "mac": {
     "entitlements": "entitlements.mac.plist",
