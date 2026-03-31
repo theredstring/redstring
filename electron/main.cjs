@@ -13,6 +13,17 @@ autoUpdater.autoInstallOnAppQuit = true;
 autoUpdater.logger = require('electron-log');
 autoUpdater.logger.transports.file.level = 'info';
 
+// Notify renderer when an update has been downloaded and is ready to install
+autoUpdater.on('update-downloaded', (info) => {
+  console.log('[Electron] Update downloaded:', info.version);
+  if (mainWindow) {
+    mainWindow.webContents.send('updater:update-ready', {
+      version: info.version,
+      releaseName: info.releaseName || ''
+    });
+  }
+});
+
 const DIST = path.join(__dirname, '../dist');
 const VITE_DEV_SERVER_URL = process.env['VITE_DEV_SERVER_URL'];
 
@@ -623,7 +634,7 @@ app.whenReady().then(async () => {
   // Check for updates if not in dev mode
   if (!isDev) {
     try {
-      autoUpdater.checkForUpdatesAndNotify();
+      autoUpdater.checkForUpdates();
     } catch (error) {
       console.error('[Electron] Auto-updater error:', error);
     }
@@ -658,5 +669,10 @@ ipcMain.handle('agent:restart', async () => {
   await new Promise(resolve => setTimeout(resolve, 500));
   startAgentServer();
   return { success: true };
+});
+
+// Auto-updater: quit and install the downloaded update
+ipcMain.handle('updater:install', () => {
+  autoUpdater.quitAndInstall();
 });
 

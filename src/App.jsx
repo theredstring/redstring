@@ -4,6 +4,7 @@ import SpawningNodeDragLayer from './SpawningNodeDragLayer';
 import BridgeClient from './ai/BridgeClient.jsx';
 import GlobalContextMenu from './components/GlobalContextMenu.jsx';
 import UniverseManagerBootstrap from './components/UniverseManagerBootstrap.jsx';
+import UpdateToast from './components/UpdateToast.jsx';
 import useGraphStore from './store/graphStore.jsx';
 import { DARK_THEME, LIGHT_THEME } from './utils/themeColors.js';
 import './App.css';
@@ -56,6 +57,7 @@ function App() {
       <SpawningNodeDragLayer />
       <BridgeClient />
       <GlobalContextMenu />
+      <UpdateToast />
     </>
   );
 }

@@ -49,6 +49,14 @@ contextBridge.exposeInMainWorld('electron', {
   agent: {
     status: () => ipcRenderer.invoke('agent:status'),
     restart: () => ipcRenderer.invoke('agent:restart'),
+  },
+
+  // Auto-updater
+  updater: {
+    onUpdateReady: (callback) => {
+      ipcRenderer.on('updater:update-ready', (_event, info) => callback(info));
+    },
+    installUpdate: () => ipcRenderer.invoke('updater:install'),
   }
 });
 
