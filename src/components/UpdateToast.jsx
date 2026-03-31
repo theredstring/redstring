@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { RotateCcw, X } from 'lucide-react';
+import { RotateCcw, ExternalLink, X } from 'lucide-react';
 import PanelIconButton from './shared/PanelIconButton.jsx';
 import './UpdateToast.css';
 
@@ -12,6 +12,7 @@ export default function UpdateToast() {
   const [dismissed, setDismissed] = useState(false);
   const [visible, setVisible] = useState(false);
   const [dismissing, setDismissing] = useState(false);
+  const [installFailed, setInstallFailed] = useState(false);
 
   useEffect(() => {
     if (!window.electron?.updater) return;
@@ -20,6 +21,11 @@ export default function UpdateToast() {
     window.electron.updater.onUpdateReady((info) => {
       setUpdateInfo(info);
       requestAnimationFrame(() => setVisible(true));
+    });
+
+    // Listen for updater errors (e.g. code signature validation failure on unsigned builds)
+    window.electron.updater.onError?.(() => {
+      setInstallFailed(true);
     });
 
     // Check if an update was already downloaded before this mount (e.g. after page refresh)
@@ -34,7 +40,11 @@ export default function UpdateToast() {
   if (!updateInfo || dismissed) return null;
 
   const handleRestart = () => {
-    window.electron?.updater?.installUpdate();
+    if (installFailed) {
+      window.electron?.updater?.openReleases?.();
+    } else {
+      window.electron?.updater?.installUpdate();
+    }
   };
 
   const handleDismiss = () => {
@@ -56,15 +66,15 @@ export default function UpdateToast() {
           Version {updateInfo.version || 'update'} released
         </div>
         <div className="update-toast-subtitle">
-          Restart to update
+          {installFailed ? 'Download from GitHub' : 'Restart to update'}
         </div>
       </div>
       <div className="update-toast-actions">
         <PanelIconButton
-          icon={RotateCcw}
+          icon={installFailed ? ExternalLink : RotateCcw}
           size={15}
           onClick={handleRestart}
-          title="Restart and install update"
+          title={installFailed ? 'Download update' : 'Restart and install update'}
           variant="outline"
         />
         <PanelIconButton

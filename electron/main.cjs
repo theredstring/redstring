@@ -28,6 +28,14 @@ autoUpdater.on('update-downloaded', (info) => {
   }
 });
 
+// Forward updater errors to renderer (e.g. code signature validation failures)
+autoUpdater.on('error', (err) => {
+  console.error('[Electron] Auto-updater error:', err.message);
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send('updater:error', err.message);
+  }
+});
+
 const DIST = path.join(__dirname, '../dist');
 const VITE_DEV_SERVER_URL = process.env['VITE_DEV_SERVER_URL'];
 
@@ -676,17 +684,29 @@ ipcMain.handle('agent:restart', async () => {
 });
 
 // Auto-updater: quit and install the downloaded update
-ipcMain.handle('updater:install', () => {
-  console.log('[Electron] updater:install called — quitting and installing update');
+// Use ipcMain.on (fire-and-forget) instead of .handle (promise-based) —
+// quitAndInstall kills the process, which breaks the promise chain in .handle
+ipcMain.on('updater:install', () => {
+  console.log('[Electron] updater:install — attempting quit and install');
   stopAgentServer();
-  // autoUpdater.quitAndInstall is unreliable on macOS — do it manually
-  autoUpdater.autoInstallOnAppQuit = true;
-  app.relaunch();
-  app.exit(0);
+  autoUpdater.quitAndInstall(false, true);
+  // If still alive after 3s, quitAndInstall failed silently (e.g. unsigned local build)
+  setTimeout(() => {
+    console.warn('[Electron] quitAndInstall did not exit — sending error to renderer');
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send('updater:error',
+        'Update install failed — the app may not be code-signed');
+    }
+  }, 3000);
 });
 
 // Let renderer check if an update was already downloaded (survives page refresh)
 ipcMain.handle('updater:check-pending', () => {
   return pendingUpdateInfo;
+});
+
+// Fallback: open GitHub releases page for manual download
+ipcMain.handle('updater:open-releases', () => {
+  shell.openExternal('https://github.com/theredstring/redstring/releases/latest');
 });
 
