@@ -61,14 +61,17 @@ function startAgentServer() {
     return;
   }
 
-  // agent-server.js uses ESM imports, which don't work from inside asar archives.
-  // Both script and cwd must point to app.asar.unpacked/ where all files
-  // (including node_modules) are extracted as real files on disk.
-  let agentServerPath = path.join(__dirname, '..', 'agent-server.js');
+  // In production: use the pre-bundled CJS file from app.asar.unpacked/
+  // (single file, no ESM/asar issues, no node_modules needed)
+  // In dev: use the original ESM source (system Node.js handles ESM fine)
+  let agentServerPath;
   let agentCwd = path.join(__dirname, '..');
   if (app.isPackaged) {
-    agentServerPath = agentServerPath.replace('app.asar', 'app.asar.unpacked');
+    agentServerPath = path.join(__dirname, '..', 'agent-server.bundle.cjs')
+      .replace('app.asar', 'app.asar.unpacked');
     agentCwd = agentCwd.replace('app.asar', 'app.asar.unpacked');
+  } else {
+    agentServerPath = path.join(__dirname, '..', 'agent-server.js');
   }
 
   if (!fsSync.existsSync(agentServerPath)) {

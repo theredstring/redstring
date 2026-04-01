@@ -11,6 +11,7 @@ node_modules
 dist
 dist-ssr
 dist-electron
+agent-server.bundle.cjs
 *.local
 
 # Editor directories and files

@@ -16,6 +16,7 @@ import { getToolDefinitions, executeTool } from './src/wizard/tools/index.js';
 import { callLLM } from './src/wizard/LLMClient.js';
 import { debugLogSync } from './src/utils/debugLogger.js';
 import { enrichBatch, enrichSingle } from './src/wizard/services/wikipediaEnrichment.js';
+import SchedulerModule from './src/services/orchestrator/Scheduler.js';
 
 const app = express();
 
@@ -72,18 +73,8 @@ let scheduler = null;
 async function ensureSchedulerStarted() {
   if (!scheduler) {
     try {
-      // #region agent log
-      debugLogSync('wizard-server.js:scheduler:IMPORT_START', 'Importing scheduler', {}, 'debug-session', 'E');
-      // #endregion
-      const mod = await import('./src/services/orchestrator/Scheduler.js');
-      scheduler = mod.default;
-      // #region agent log
-      debugLogSync('wizard-server.js:scheduler:IMPORT_OK', 'Scheduler imported', { hasDefault: !!mod.default }, 'debug-session', 'E');
-      // #endregion
+      scheduler = SchedulerModule;
     } catch (e) {
-      // #region agent log
-      debugLogSync('wizard-server.js:scheduler:IMPORT_FAIL', 'Scheduler import failed', { error: e.message }, 'debug-session', 'E');
-      // #endregion
       console.warn('[Wizard] Failed to load scheduler:', e.message);
       return;
     }

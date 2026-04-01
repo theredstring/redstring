@@ -13,8 +13,9 @@ import { selectToolsForTurn } from './tools/schemas.js';
 import { WIZARD_SYSTEM_PROMPT } from '../services/agent/WizardPrompt.js';
 import { NODE_DEFAULT_COLOR } from '../constants.js';
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
+// Safe for both ESM and CJS (esbuild bundle) contexts
+const __filename = import.meta.url ? fileURLToPath(import.meta.url) : '';
+const __dirname = __filename ? path.dirname(__filename) : process.cwd();
 
 // Load system prompt
 let SYSTEM_PROMPT = WIZARD_SYSTEM_PROMPT;

@@ -32,6 +32,9 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Bundle agent server
+        run: npm run bundle:agent
+
       - name: Build and Release
         uses: samuelmeuli/action-electron-builder@v1
         env:

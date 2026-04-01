@@ -5,8 +5,9 @@ import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
+// Safe for both ESM and CJS (esbuild bundle) contexts
+const __filename = import.meta.url ? fileURLToPath(import.meta.url) : '';
+const __dirname = __filename ? path.dirname(__filename) : '';
 
 function ensureDir(dirPath) {
   if (!fs.existsSync(dirPath)) {
@@ -23,7 +24,9 @@ function randomId(prefix = 'q') {
 }
 
 class QueueManager {
-  constructor(journalRoot = path.resolve(__dirname, '../../../data/queues')) {
+  constructor(journalRoot = __dirname
+    ? path.resolve(__dirname, '../../../data/queues')
+    : path.join(process.cwd(), 'data', 'queues')) {
     this.journalRoot = journalRoot;
     ensureDir(this.journalRoot);
     // Map<string, { items: Array, inflight: Map<leaseId,itemId>, byId: Map, metrics: {} }>
