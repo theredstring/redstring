@@ -20,6 +20,7 @@
     "src/core/**/*"
   ],
   "asarUnpack": [
+    "package.json",
     "agent-server.js",
     "wizard-server.js",
     "src/wizard/**/*",

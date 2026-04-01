@@ -84,6 +84,7 @@ function startAgentServer() {
       stdio: ['pipe', 'pipe', 'pipe', 'ipc'],
       env: {
         ...process.env,
+        ELECTRON_RUN_AS_NODE: '1',
         AGENT_SERVER_MODE: 'true',
         NODE_ENV: process.env.NODE_ENV || 'development'
       }

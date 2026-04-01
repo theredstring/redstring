@@ -40,11 +40,11 @@ Redstring enables you to create, connect, and explore concepts through an intuit
 - **Version History**: Complete audit trail using Git's native capabilities
 - **Conflict Resolution**: Git merge capabilities for collaborative knowledge building
 
-### AI Framework Over HTTP and MCP
-- **First-Class AI Integration**: AI can interact with Redstring like a human user
-- **Model Context Protocol (MCP)**: Comprehensive tool suite for AI agents
-- **Semantic Discovery**: AI-powered exploration of knowledge connections
-- **Enhanced Search**: Multi-source queries (70% DBpedia, 20% Wikidata, 10% Wikipedia)
+### The Wizard (AI Agent)
+- **Mystical Guide**: The Wizard is Redstring's AI agent — a guide through your knowledge graph with first-class access to create, explore, and transform your semantic space
+- **42 Specialized Tools**: Comprehensive tool suite spanning graph creation, semantic web discovery, tabular data import, and more
+- **Model Context Protocol (MCP)**: Full MCP server for integration with external AI clients
+- **3-Tier Dynamic Tool Selection**: Core tools always available, advanced tools surface contextually based on graph state and user intent
 - **Transparent Operations**: Full visibility into AI tool calls and actions
 
 ### Format Versioning
@@ -215,43 +215,93 @@ Redstring supports experimental integration with Solid Pods for decentralized st
 
 **Note**: Solid integration is experimental. Git federation is recommended for production use.
 
-## AI Framework Over HTTP and MCP
+## The Wizard
 
-Redstring treats AI as a **first-class user** with comprehensive tool access via HTTP and the Model Context Protocol (MCP).
+The Wizard is Redstring's mystical guide through your knowledge graph — an AI agent that can create, explore, and transform your semantic space through natural conversation. With first-class access to 42 specialized tools organized in a 3-tier dynamic selection system, it works alongside you: core tools are always available, while advanced tools surface contextually based on your graph state and what you're asking about.
 
-### Available AI Tools
+### Wizard Tools
 
-#### Graph Operations
-- `list_available_graphs` - List all graphs in current universe
-- `get_active_graph` - Get details about currently active graph
-- `open_graph` - Open a graph for viewing/editing
-- `set_active_graph` - Switch to a different graph
+#### Graph Creation & Navigation
+- `createGraph` - Create a new graph workspace
+- `createPopulatedGraph` - Create a new graph with nodes, edges, and groups in one step
+- `expandGraph` - Add nodes, edges, and groups to an existing graph
+- `readGraph` - Read all nodes, edges, and groups from the active graph
+- `switchToGraph` - Navigate to a different graph
+- `inspectWorkspace` - Quick comprehensive overview of entire workspace
+- `sketchGraph` - Sketch a graph structure in lightweight shorthand before building it
 
 #### Node Operations
-- `add_node_prototype` - Create new concept types
-- `add_node_instance` - Add nodes to graphs
-- `update_node_prototype` - Modify node properties (name, description, color)
-- `delete_node_instance` - Remove nodes from graphs
-- `move_node_instance` - Reposition nodes on canvas
-- `search_nodes` - Find nodes by name or description
+- `createNode` - Create a single node in the active or target graph
+- `updateNode` - Update an existing node's properties (name, description, color)
+- `deleteNode` - Remove a node and its connections by name
+- `selectNode` - Select and highlight a node on the canvas
+- `search` - Search for nodes or connections by keyword, or list all
+- `setNodeType` - Set or clear a node's type/category (auto-creates type node)
+- `inspectPrototype` - Get detailed properties of a node prototype and find all instances
 
 #### Edge Operations
-- `create_edge` - Connect two nodes with a relationship
-- `create_edge_definition` - Define new relationship types
+- `createEdge` - Connect two existing nodes by name
+- `updateEdge` - Update properties of an existing connection
+- `deleteEdge` - Remove a connection between nodes
+- `replaceEdges` - Bulk-replace or update connections between existing nodes
+
+#### Groups
+- `createGroup` - Create a visual group to organize nodes together
+- `updateGroup` - Update a group (rename, change color, add/remove members)
+- `deleteGroup` - Delete a group (member nodes are kept)
+- `thingGroup` - Convert a Group into a Thing-Group, or collapse it back to a node
+
+#### Definitions & Structure
+- `populateDefinitionGraph` - Create and populate a definition graph for a node in one step
+- `manageDefinitions` - List or remove definition graphs for a node
+- `decomposeNode` - Unpack a node into its definition graph contents as a Thing-Group
+- `condenseToNode` - Package selected nodes into a new concept with a definition graph
+- `abstractionChain` - Read, add to, or remove from a node's abstraction chains
+
+#### Semantic Web Discovery
+- `discoverOrbit` - Discover linked-data connections from Wikidata/DBpedia (returns 4 quality rings)
+- `semanticSearch` - Search Wikidata/DBpedia for entity data (enrich or related mode)
+- `materializeSemanticEntities` - Turn semantic web discoveries into Redstring nodes/edges
+- `importKnowledgeCluster` - BFS crawl of Wikidata/DBpedia linked data around a seed entity
+- `querySparql` - Execute raw SPARQL SELECT queries against Wikidata/DBpedia/Schema.org
+
+#### Enrichment & Styling
+- `enrichFromWikipedia` - Pull Wikipedia data for a node (image, description, link)
+- `themeGraph` - Re-color all nodes and connections based on a palette
+
+#### Duplicate Management
+- `findDuplicates` - Find potential duplicate nodes by name similarity
+- `mergeNodes` - Merge two nodes into one (primary survives, secondary absorbed)
+- `mergeGraphs` - Find and merge duplicate nodes between two graphs
+
+#### Tabular Data Import
+- `analyzeTabularData` - Analyze attached tabular file (CSV, TSV, XLSX, JSON) structure
+- `importTabularAsGraph` - Import tabular data as a graph (entity lists, edge lists, adjacency matrices, relational data)
+
+#### Planning & Interaction
+- `planTask` - Create or update a step-by-step task plan for complex operations
+- `askMultipleChoice` - Ask the user a multiple-choice question
+- `listTools` - List all available tools with descriptions
+
+### Tool Selection Strategy
+
+The Wizard uses 3-tier dynamic filtering so conversations stay focused:
+
+- **Tier 1 (Always Available)**: Core creation, search, navigation, and planning tools (~19 tools)
+- **Tier 2 (Context-Triggered)**: Groups, definitions, merging, and styling tools — included when your graph has relevant content
+- **Tier 3 (Keyword-Triggered)**: Semantic web discovery and tabular import tools — included when your message mentions related concepts
 
 ### Tool Call Flow
 
-The AI integration provides complete transparency:
+1. **You speak**: Describe what you want in natural language
+2. **Wizard plans**: The agent selects and sequences tool calls
+3. **MCP Server**: Receives tool calls and queues actions
+4. **Bridge execution**: Frontend executes actions in the Redstring store
+5. **UI updates**: Your canvas reflects changes in real-time
 
-1. **AI Decision**: AI decides to call a tool (e.g., `open_graph`)
-2. **MCP Server**: Receives tool call and queues action
-3. **Bridge Polling**: Frontend polls for pending actions every 2 seconds
-4. **Action Execution**: Bridge executes action in Redstring store
-5. **UI Update**: Interface reflects changes in real-time
+All steps are logged for full transparency.
 
-All steps are logged for debugging and transparency.
-
-### Setting Up AI Integration
+### Setting Up the Wizard
 
 ```bash
 # Run the connection wizard
@@ -542,7 +592,7 @@ OAUTH_PORT=3002
 - `aiinstructions.txt` - Project overview and recent enhancements
 - `redstring-format-spec.md` - File format specification
 - `SEMANTIC_WEB_INTEGRATION.md` - Semantic web features and RDF integration
-- `COMPREHENSIVE_AI_TOOLS.md` - AI integration and MCP tools
+- `COMPREHENSIVE_AI_TOOLS.md` - Wizard tools and MCP integration
 - `GIT_FEDERATION.md` - Git federation architecture and workflows
 
 ### Guides
@@ -553,7 +603,7 @@ OAUTH_PORT=3002
 
 ### Troubleshooting
 - `TROUBLESHOOTING.md` - Common issues and solutions
-- `AI_INTEGRATION_TROUBLESHOOTING.md` - AI tool debugging
+- `AI_INTEGRATION_TROUBLESHOOTING.md` - Wizard and AI tool debugging
 - `AUTH_401_FIX.md` - OAuth authentication issues
 
 ## Architecture Highlights
@@ -576,11 +626,11 @@ OAUTH_PORT=3002
 - Multi-provider redundancy and backup
 - Version history and conflict resolution via Git
 
-### AI-First Design
-- Model Context Protocol (MCP) integration
-- Comprehensive tool suite for AI agents
-- Transparent operation logging
-- First-class AI user experience
+### The Wizard (AI-First Design)
+- Built-in AI agent with 42 specialized tools
+- 3-tier dynamic tool selection based on context
+- Model Context Protocol (MCP) for external AI client integration
+- Transparent operation logging and full tool call visibility
 
 ## Performance
 
