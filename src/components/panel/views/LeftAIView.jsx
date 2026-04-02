@@ -3257,6 +3257,22 @@ const LeftAIView = ({ compact = false,
         content: msg.metadata?.contentBlocksForHistory || msg.content
       }));
 
+      // Prepend a hidden context line about the current active graph so the LLM
+      // always knows what the user is looking at (including after refreshes)
+      if (activeGraphId && graphsMap?.has(activeGraphId)) {
+        const ctxGraph = graphsMap.get(activeGraphId);
+        const ctxInstances = ctxGraph.instances instanceof Map
+          ? Array.from(ctxGraph.instances.values())
+          : Array.isArray(ctxGraph.instances) ? ctxGraph.instances : [];
+        const ctxNodeNames = ctxInstances
+          .map(inst => nodePrototypesMap?.get(inst.prototypeId)?.name)
+          .filter(Boolean)
+          .slice(0, 15);
+        const ctxEdgeCount = ctxGraph.edgeIds?.length || 0;
+        const ctxLine = `[Active web: "${ctxGraph.name || 'Unnamed'}" — ${ctxInstances.length} node${ctxInstances.length !== 1 ? 's' : ''}, ${ctxEdgeCount} connection${ctxEdgeCount !== 1 ? 's' : ''}${ctxNodeNames.length > 0 ? '. Nodes: ' + ctxNodeNames.join(', ') : ''}]`;
+        recentMessages.unshift({ role: 'system', content: ctxLine });
+      }
+
       // Build rich context with actual graph data (not just ID)
       let effectiveActiveGraphId = activeGraphId;
       if (persona === 'druid' && druidInstance?.workspaceGraphId) {
@@ -3369,10 +3385,13 @@ const LeftAIView = ({ compact = false,
             })
             .filter(Boolean);
         })() : [],
-        // Extract edges from edgesMap for the active graph, including definitionNodeIds
-        edges: activeGraphData && edgesMap ? (() => {
-          const edgeIds = activeGraphData.edgeIds || [];
-          return edgeIds.map(edgeId => {
+        // Extract edges from ALL graphs so themeGraph can find edges for any target graph
+        edges: edgesMap && graphsMap ? (() => {
+          const allEdgeIds = new Set();
+          Array.from(graphsMap.values()).forEach(g => {
+            (g.edgeIds || []).forEach(id => allEdgeIds.add(id));
+          });
+          return Array.from(allEdgeIds).map(edgeId => {
             const edge = edgesMap.get(edgeId);
             if (!edge) return null;
             return {
@@ -4227,14 +4246,16 @@ const LeftAIView = ({ compact = false,
                       description: proto.description || '',
                       definitionGraphIds: Array.isArray(proto.definitionGraphIds) ? proto.definitionGraphIds : []
                     })) : [],
-                    edges: activeGraphId && edgesMap ? (() => {
-                      const graph = graphsMap.get(activeGraphId);
-                      if (!graph) return [];
-                      return (graph.edgeIds || []).map(edgeId => {
+                    edges: edgesMap && graphsMap ? (() => {
+                      const allEdgeIds = new Set();
+                      Array.from(graphsMap.values()).forEach(g => {
+                        (g.edgeIds || []).forEach(id => allEdgeIds.add(id));
+                      });
+                      return Array.from(allEdgeIds).map(edgeId => {
                         const edge = edgesMap.get(edgeId);
                         if (!edge) return null;
                         return {
-                          id: edgeId, sourceId: edge.sourceId, targetId: edge.targetId,
+                          id: edgeId, sourceId: edge.sourceId, destinationId: edge.destinationId,
                           definitionNodeIds: Array.isArray(edge.definitionNodeIds) ? edge.definitionNodeIds : [],
                           type: edge.type || edge.connectionType || 'relates to'
                         };

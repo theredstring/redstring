@@ -1,10 +1,11 @@
 import React, { useMemo, useState, useEffect, useRef, memo } from 'react';
 // Import base constants used
-import { NODE_WIDTH, NODE_HEIGHT, NODE_CORNER_RADIUS, NODE_PADDING } from './constants';
+import { NODE_WIDTH, NODE_HEIGHT, NODE_CORNER_RADIUS, NODE_PADDING, NODE_DEFAULT_COLOR } from './constants';
 import './Node.css';
 import UniversalNodeRenderer from './UniversalNodeRenderer.jsx'; // Import UniversalNodeRenderer for faithful representations
 import { getNodeDimensions } from './utils.js'; // Import needed for node dims
 import { getTextColor } from './utils/colorUtils.js';
+import { isValidColor } from './ai/palettes.js';
 import { ChevronLeft, ChevronRight, Trash2, Expand, ArrowUpFromDot, PackageOpen } from 'lucide-react'; // Import navigation icons, trash, expand, and package-open
 import useGraphStore, { getHydratedNodesForGraph, getEdgesForGraph } from "./store/graphStore.jsx"; // Import store selectors
 
@@ -172,7 +173,8 @@ const Node = ({
   const displayTitle = (isPreviewing && currentGraphName) ? currentGraphName : nodeName;
 
   // Calculate dynamic text color based on node background
-  const nodeTextColor = useMemo(() => getTextColor(node.color || '#800000', theme.darkMode), [node.color, theme.darkMode]);
+  const safeColor = useMemo(() => isValidColor(node.color) ? node.color : NODE_DEFAULT_COLOR, [node.color]);
+  const nodeTextColor = useMemo(() => getTextColor(safeColor, theme.darkMode), [safeColor, theme.darkMode]);
 
   // For previewing, we want text to wrap exactly as it did when unexpanded
   const unexpandedDims = React.useMemo(() => {
@@ -378,7 +380,7 @@ const Node = ({
         ry={NODE_CORNER_RADIUS - 6}
         width={currentWidth - 12}
         height={currentHeight - 12}
-        fill={node.color || 'maroon'}
+        fill={safeColor}
         stroke={isSelected ? 'black' : 'none'}
         strokeWidth={12}
         mask={isPreviewing && innerNetworkWidth > 0 && innerNetworkHeight > 0 ? `url(#${idPrefix}node-mask-${instanceId})` : undefined}

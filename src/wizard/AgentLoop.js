@@ -132,6 +132,18 @@ function applyBulkSpecToInternalState(graphState, targetGraph, spec) {
             break;
           }
         }
+        // Create a definition node prototype if none exists (mirrors graphStore.applyBulkGraphUpdates)
+        if (definitionNodeIds.length === 0 && tLower !== 'connection' && tLower !== 'relates to') {
+          const defProtoId = `proto-conn-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+          graphState.nodePrototypes.push({
+            id: defProtoId,
+            name: typeName,
+            color: e.definitionNode?.color || NODE_DEFAULT_COLOR,
+            description: e.definitionNode?.description || '',
+            definitionGraphIds: []
+          });
+          definitionNodeIds = [defProtoId];
+        }
       }
 
       targetGraph.edgeIds.push(edgeId);

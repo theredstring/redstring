@@ -2,6 +2,8 @@ import React, { useMemo, useState, useCallback, useRef } from 'react';
 import useGraphStore from './store/graphStore.jsx';
 import { getNodeDimensions } from './utils.js';
 import { getTextColor, getInvertedTextColor, hexToHsl, hslToHex } from './utils/colorUtils.js';
+import { isValidColor } from './ai/palettes.js';
+import { NODE_DEFAULT_COLOR } from './constants.js';
 import { useTheme } from './hooks/useTheme.js';
 
 /**
@@ -949,6 +951,7 @@ const UniversalNodeRenderer = ({
         {scaledNodes.map(node => {
           const isHovered = hoveredNodeId === node.id;
           const hasImage = Boolean(node.imageSrc);
+          const safeColor = isValidColor(node.color) ? node.color : NODE_DEFAULT_COLOR;
 
           // Calculate text sizing and padding
           let nameString = typeof node.name === 'string' ? node.name : '';
@@ -1072,8 +1075,8 @@ const UniversalNodeRenderer = ({
                 height={node.height}
                 rx={node.isGroup ? 20 * transform.scale : cornerRadius}
                 ry={node.isGroup ? 20 * transform.scale : cornerRadius}
-                fill={node.isGroup ? theme.canvas.bg : (node.color || '#800000')}
-                stroke={node.isGroup ? (node.color || '#8B0000') : (hasImage ? (node.color || '#800000') : 'none')}
+                fill={node.isGroup ? theme.canvas.bg : safeColor}
+                stroke={node.isGroup ? safeColor : (hasImage ? safeColor : 'none')}
                 strokeWidth={
                   node.isGroup
                     ? Math.max(1, 6 * transform.scale)
@@ -1122,7 +1125,7 @@ const UniversalNodeRenderer = ({
                         fontWeight: 'bold',
                         color: node.isGroup
                           ? getTextColor(theme.canvas.bg, theme.darkMode)
-                          : getTextColor(node.color || '#800000', theme.darkMode),
+                          : getTextColor(safeColor, theme.darkMode),
                         lineHeight: `${computedLineHeight}px`,
                         // Tighter letter spacing for decomposition view to fit more text
                         letterSpacing: renderContext === 'decomposition' ? '-0.3px' : '-0.2px',

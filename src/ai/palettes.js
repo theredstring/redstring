@@ -24,7 +24,7 @@ export const PALETTES = {
     "safari": {
         name: "Safari",
         colors: {
-            "green": "#84a9950",
+            "green": "#4a9950",
             "tan": "#FFE797",
             "orange": "#FCB53B",
             "red": "#A72706"
@@ -125,6 +125,14 @@ export const PALETTES = {
 // Helper function to get an array of available palette names
 export const getPaletteNames = () => Object.keys(PALETTES);
 
+/**
+ * Validates that a string is a usable CSS color (hex or named color).
+ * Returns false for invalid hex lengths, objects, empty strings, etc.
+ */
+export const isValidColor = (c) =>
+    typeof c === 'string' && c.trim() !== '' &&
+    (/^#([0-9A-Fa-f]{3,4}|[0-9A-Fa-f]{6}|[0-9A-Fa-f]{8})$/.test(c) || /^[a-zA-Z]+$/.test(c));
+
 // Normalize a palette or color key: lowercase and replace spaces with hyphens
 // so AI-provided strings like "Rainbow" or "navy blue" still resolve correctly
 const normalizeKey = (str) => str?.toLowerCase().replace(/\s+/g, '-') ?? '';
@@ -154,36 +162,38 @@ export const getRandomColorFromPalette = (paletteName) => {
 };
 
 export const resolvePaletteColor = (paletteName, colorString) => {
+    let resolved;
+
     if (!colorString) {
         const pName = paletteName || getRandomPalette();
-        return getRandomColorFromPalette(pName) || NODE_DEFAULT_COLOR; // Default fallback
-    }
-
-    // Check if it's already a hex color, tolerating missing #
-    const isHex = /^#?([0-9A-Fa-f]{3}|[0-9A-Fa-f]{6}|[0-9A-Fa-f]{8})$/.test(colorString);
-    if (isHex) {
-        return colorString.startsWith('#') ? colorString : '#' + colorString;
-    }
-
-    if (paletteName) {
-        // Try to resolve as a palette color name
-        const resolvedHex = getColorFromPalette(paletteName, colorString);
-        if (resolvedHex) {
-            return resolvedHex;
-        }
+        resolved = getRandomColorFromPalette(pName) || NODE_DEFAULT_COLOR;
     } else {
-        // If no palette provided, try to find this color name in ANY palette
-        const matchingPaletteEntry = Object.entries(PALETTES).find(([_, p]) =>
-            p.colors[normalizeKey(colorString)]
-        );
-        if (matchingPaletteEntry) {
-            return matchingPaletteEntry[1].colors[normalizeKey(colorString)];
+        // Check if it's already a hex color, tolerating missing #
+        const isHex = /^#?([0-9A-Fa-f]{3}|[0-9A-Fa-f]{6}|[0-9A-Fa-f]{8})$/.test(colorString);
+        if (isHex) {
+            resolved = colorString.startsWith('#') ? colorString : '#' + colorString;
+        } else if (paletteName) {
+            // Try to resolve as a palette color name
+            resolved = getColorFromPalette(paletteName, colorString);
+        } else {
+            // If no palette provided, try to find this color name in ANY palette
+            const matchingPaletteEntry = Object.entries(PALETTES).find(([_, p]) =>
+                p.colors[normalizeKey(colorString)]
+            );
+            if (matchingPaletteEntry) {
+                resolved = matchingPaletteEntry[1].colors[normalizeKey(colorString)];
+            }
+        }
+
+        if (!resolved) {
+            // Fallback: didn't match anything, pick random from palette or any random palette
+            const pName = paletteName || getRandomPalette();
+            resolved = getRandomColorFromPalette(pName) || NODE_DEFAULT_COLOR;
         }
     }
 
-    // Fallback: didn't match anything, pick random from palette or any random palette
-    const pName = paletteName || getRandomPalette();
-    return getRandomColorFromPalette(pName) || NODE_DEFAULT_COLOR;
+    // Final safety: ensure the resolved color is actually valid before returning
+    return isValidColor(resolved) ? resolved : NODE_DEFAULT_COLOR;
 };
 
 /**
