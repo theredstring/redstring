@@ -2,6 +2,7 @@
 // Ready to be swapped with Redis/SQS via a thin adapter layer
 
 import fs from 'fs';
+import os from 'os';
 import path from 'path';
 import { fileURLToPath } from 'url';
 
@@ -26,7 +27,7 @@ function randomId(prefix = 'q') {
 class QueueManager {
   constructor(journalRoot = __dirname
     ? path.resolve(__dirname, '../../../data/queues')
-    : path.join(process.cwd(), 'data', 'queues')) {
+    : path.join(os.tmpdir(), 'redstring-queues')) {
     this.journalRoot = journalRoot;
     ensureDir(this.journalRoot);
     // Map<string, { items: Array, inflight: Map<leaseId,itemId>, byId: Map, metrics: {} }>
