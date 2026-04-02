@@ -4,27 +4,27 @@ export const PALETTES = {
     "rainbow": {
         name: "Rainbow",
         colors: {
-            "red": "#C00909",
-            "orange": "#FF4400",
-            "yellow": "#FFB33F",
-            "green": "#268938",
-            "blue": "#144E8E",
-            "purple": "#6246B1"
+            "red": "#8B0000",
+            "orange": "#d13800",
+            "yellow": "#c47600",
+            "green": "#22752d",
+            "blue": "#1965b5",
+            "purple": "#732ac7"
         }
     },
     "coastal": {
         name: "Coastal",
         colors: {
             "navy-blue": "#0B2D72",
-            "blue": "#0A92C2",
-            "sky-blue": "#0AC4E0",
-            "tan": "#F6E7BC"
+            "blue": "#1b70b5",
+            "sky-blue": "#98d6ed",
+            "tan": "#cfb469"
         }
     },
     "safari": {
         name: "Safari",
         colors: {
-            "green": "#849950",
+            "green": "#84a9950",
             "tan": "#FFE797",
             "orange": "#FCB53B",
             "red": "#A72706"
@@ -33,90 +33,90 @@ export const PALETTES = {
     "teal-gradient": {
         name: "Teal Gradient",
         colors: {
-            "darkest": "#2E5249",
-            "dark": "#437057",
+            "darkest": "#203b34",
+            "dark": "#2f523d",
             "mid": "#97B067",
-            "light": "#E3DE61"
+            "light": "#dfe362"
         }
     },
-    "mesa": {
-        name: "Mesa",
+    "piedmont": {
+        name: "Piedmont",
         colors: {
-            "dark-green": "#4C4B16",
+            "dark-green": "#263d11",
             "olive": "#4C4B16",
-            "tan": "#E6C767",
-            "orange": "#F87A53"
+            "tan": "#5e442a",
+            "orange": "#b0563a"
         }
     },
     "retro": {
         name: "Retro",
         colors: {
-            "teal": "#219C90",
+            "teal": "#26b5a7",
             "yellow": "#E9B825",
             "orange": "#EE9322",
-            "red": "#D83F31"
+            "red": "#f24738"
         }
     },
     "beige-gradient": {
         name: "Beige Gradient",
         colors: {
-            "darkest": "#8E806A",
-            "dark": "#C3B091",
-            "mid": "#C3B091",
-            "light": "#FFE6BC"
+            "darkest": "#453f32",
+            "dark": "#615745",
+            "mid": "#786c59",
+            "light": "#d1bc9b"
         }
     },
     "brown-rainbow": {
         name: "Brown Rainbow",
         colors: {
-            "brown": "#4A3933",
-            "orange": "#F0A500",
-            "red": "#E45826",
-            "tan": "#B79B88"
+            "brown": "#4f2215",
+            "orange": "#d66b00",
+            "red": "#c42f21",
+            "tan": "#967159"
         }
     },
     "taffy": {
         name: "Taffy",
         colors: {
             "pink": "#FDB5CE",
-            "navy": "#142540",
-            "blue": "#16476A",
-            "teal": "#16476A"
+            "navy": "#0e1a2e",
+            "blue": "#27a0c2",
+            "teal": "#1d8a86"
         }
     },
     "sunset": {
         name: "Sunset",
         colors: {
-            "blue": "#0D1164",
-            "purple": "#640D5F",
-            "pink": "#EA2264",
+            "blue": "#1b1b4a",
+            "purple": "#660a66",
+            "pink": "#b01a4c",
             "orange": "#F78D60"
         }
     },
     "tropical": {
         name: "Tropical",
         colors: {
-            "green": "#78C841",
-            "lime": "#B4E50D",
-            "orange": "#FF9B2E",
-            "red": "#FB4141"
+            "green": "#3d6921",
+            "lime": "#a4d600",
+            "orange": "#d46d00",
+            "red": "#bd2626"
         }
     },
     "clay": {
         name: "Clay",
         colors: {
-            "purple": "#604652",
+            "purple": "#543d4e",
             "mud": "#735557",
-            "sage": "#97866A",
+            "sage": "#82725b",
             "tan": "#D29F80"
         }
     },
     "purple-gradient": {
         name: "Purple Gradient",
         colors: {
-            "darkest": "#5A639C",
-            "dark": "#7776B3",
-            "mid": "#9B86BD",
+            "darkest": "#192247",
+            "dark": "#323273",
+            "mid": "#6d5c96",
             "light": "#E2BBE9"
         }
     }
@@ -173,7 +173,7 @@ export const resolvePaletteColor = (paletteName, colorString) => {
         }
     } else {
         // If no palette provided, try to find this color name in ANY palette
-        const matchingPaletteEntry = Object.entries(PALETTES).find(([_, p]) => 
+        const matchingPaletteEntry = Object.entries(PALETTES).find(([_, p]) =>
             p.colors[normalizeKey(colorString)]
         );
         if (matchingPaletteEntry) {

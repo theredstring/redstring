@@ -163,7 +163,7 @@ Choose a palette and use its color names for all \`color\` fields. Use palette n
 - **coastal**: navy-blue, blue, sky-blue, tan
 - **safari**: green, tan, orange, red
 - **teal-gradient**: darkest, dark, mid, light
-- **mesa**: dark-green, olive, tan, orange
+- **piedmont**: dark-green, olive, tan, orange
 - **retro**: teal, yellow, orange, red
 - **beige-gradient**: darkest, dark, mid, light
 - **brown-rainbow**: brown, orange, red, tan
