@@ -1,4 +1,4 @@
-# Redstring ![App Version](https://img.shields.io/badge/version-v0.3.4-blue) [![GitHub Sponsors](https://img.shields.io/github/sponsors/theredstring?logo=github&label=Sponsor)](https://github.com/sponsors/theredstring)
+# Redstring ![App Version](https://img.shields.io/badge/version-v0.3.5-blue) [![GitHub Sponsors](https://img.shields.io/github/sponsors/theredstring?logo=github&label=Sponsor)](https://github.com/sponsors/theredstring)
 
 A semantic knowledge graph application that bridges human cognition and machine intelligence through visual node-based interface, W3C semantic web standards, and AI-powered knowledge discovery.
 
