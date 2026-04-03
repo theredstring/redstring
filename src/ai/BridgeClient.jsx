@@ -1214,27 +1214,27 @@ const BridgeClient = () => {
                 const g = a ? s.graphs.get(a) : null;
                 console.log('MCPBridge: applyMutations summary', { activeGraphId: a, activeInstanceCount: g?.instances?.size, totalGraphs: s.graphs.size });
 
-                // Detect structural changes that warrant auto-layout
-                const structuralChanges = results.filter(r =>
-                  r.ok && (
-                    r.type === 'addNodeInstance' ||
-                    r.type === 'removeNodeInstance' ||
-                    r.type === 'addEdge' ||
-                    r.type === 'removeEdge'
-                  )
-                );
+                // Detect structural changes and collect affected graph IDs
+                const structuralTypes = new Set([
+                  'addNodeInstance', 'deleteNodeInstance',
+                  'addEdge', 'deleteEdge'
+                ]);
+                const affectedGraphIds = new Set();
+                (operations || []).forEach((op, i) => {
+                  if (results[i]?.ok && structuralTypes.has(op.type) && op.graphId) {
+                    affectedGraphIds.add(op.graphId);
+                  }
+                });
 
-                if (structuralChanges.length > 0 && a) {
-                  console.log(`MCPBridge: Triggering auto-layout for ${structuralChanges.length} structural change${structuralChanges.length !== 1 ? 's' : ''}`);
-
-                  // Offscreen layout for all graphs (works even if not active)
-                  try { applyOffscreenLayout(a); } catch (e) { console.error('[BridgeClient] Offscreen layout failed:', e); }
-
-                  // Also dispatch event so DOM-based layout can override with real dimensions
-                  if (typeof window !== 'undefined') {
-                    window.dispatchEvent(new CustomEvent('rs-trigger-auto-layout', {
-                      detail: { graphId: a }
-                    }));
+                if (affectedGraphIds.size > 0) {
+                  console.log(`MCPBridge: Triggering auto-layout for ${affectedGraphIds.size} affected graph(s):`, [...affectedGraphIds]);
+                  for (const gid of affectedGraphIds) {
+                    try { applyOffscreenLayout(gid); } catch (e) { console.error('[BridgeClient] Offscreen layout failed for graph', gid, ':', e); }
+                    if (typeof window !== 'undefined') {
+                      window.dispatchEvent(new CustomEvent('rs-trigger-auto-layout', {
+                        detail: { graphId: gid }
+                      }));
+                    }
                   }
                 }
               } catch { }
