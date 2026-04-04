@@ -273,8 +273,10 @@ export const useCanvasKeyboard = ({
             }
 
             // Directional key while Tab is held → scrub through open graph tabs
-            const scrubLeft = e.key === 'ArrowLeft' || e.key === 'a' || e.key === 'q';
-            const scrubRight = e.key === 'ArrowRight' || e.key === 'd' || e.key === 'e';
+            // Normalize so Caps Lock / Shift don't break the comparison.
+            const key = e.key.length === 1 ? e.key.toLowerCase() : e.key;
+            const scrubLeft = key === 'ArrowLeft' || key === 'a' || key === 'q';
+            const scrubRight = key === 'ArrowRight' || key === 'd' || key === 'e';
             if (tabHeldDown.current && (scrubLeft || scrubRight)) {
                 tabScrubActive.current = true;
                 e.preventDefault();
@@ -293,8 +295,7 @@ export const useCanvasKeyboard = ({
                 }
 
                 // Prevent panning by clearing from keysPressed
-                const normalizedKey = e.key.length === 1 ? e.key.toLowerCase() : e.key;
-                keysPressed.current[normalizedKey] = false;
+                keysPressed.current[key] = false;
             }
         };
 
@@ -338,7 +339,8 @@ export const useCanvasKeyboard = ({
 
             // Skip keys already handled by Tab-scrub
             if (e.key === 'Tab') return;
-            if (tabHeldDown.current && (e.key === 'ArrowLeft' || e.key === 'ArrowRight' || e.key === 'a' || e.key === 'd' || e.key === 'q' || e.key === 'e')) return;
+            const tabScrubKey = e.key.length === 1 ? e.key.toLowerCase() : e.key;
+            if (tabHeldDown.current && (tabScrubKey === 'ArrowLeft' || tabScrubKey === 'ArrowRight' || tabScrubKey === 'a' || tabScrubKey === 'd' || tabScrubKey === 'q' || tabScrubKey === 'e')) return;
 
             if (isInputActive || !activeGraphId) { return; }
 

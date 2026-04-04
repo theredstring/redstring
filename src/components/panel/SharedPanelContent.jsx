@@ -2,8 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { useDrag } from 'react-dnd';
 import { getEmptyImage } from 'react-dnd-html5-backend';
 import { Palette, ArrowUpFromDot, ImagePlus, BookOpen, ExternalLink, Trash2, Bookmark, TextSearch } from 'lucide-react';
-import { NODE_CORNER_RADIUS, NODE_DEFAULT_COLOR, THUMBNAIL_MAX_DIMENSION } from '../../constants.js';
-import { generateThumbnail } from '../../utils.js';
+import { NODE_CORNER_RADIUS, NODE_DEFAULT_COLOR } from '../../constants.js';
 import { getTextColor } from '../../utils/colorUtils';
 import { useTheme } from '../../hooks/useTheme.js';
 import CollapsibleSection from '../CollapsibleSection.jsx';
@@ -13,7 +12,7 @@ import StandardDivider from '../StandardDivider.jsx';
 import PanelIconButton from '../shared/PanelIconButton.jsx';
 import { fastEnrichFromSemanticWeb } from '../../services/semanticWebQuery.js';
 import useGraphStore from "../../store/graphStore.jsx";
-import useImageCache from '../../services/imageCache.js';
+import useImageCache, { queueThumbnailFetch } from '../../services/imageCache.js';
 
 // Helper function to determine the correct article ("a" or "an")
 const getArticleFor = (word) => {
@@ -583,49 +582,50 @@ const WikipediaEnrichment = ({ nodeData, onUpdateNode, triggerRef, onSearchingCh
     console.log(`[Wikipedia Images] ✅ applyWikipediaData complete`);
   };
 
-  const setWikipediaImageFromUrl = async (imageUrl) => {
-    if (!imageUrl) return;
-    let rawUrl = null;
+  const setWikipediaImageFromUrl = async (imageUrl, precomputedDims = null) => {
+    if (!imageUrl || !nodeData?.id) return;
     try {
-      const response = await fetch(imageUrl, { mode: 'cors' });
-      if (!response.ok) throw new Error(`HTTP ${response.status}`);
-      const blob = await response.blob();
-
-      if (blob.size > 10 * 1024 * 1024) {
-        console.warn(`[Wikipedia] Image too large (${(blob.size / 1024 / 1024).toFixed(1)}MB), skipping`);
-        return;
+      // Compute aspect ratio. Prefer caller-provided dimensions; otherwise load via
+      // <img> tag which bypasses CORS for dimension reads (naturalWidth/Height).
+      let aspectRatio = 1;
+      if (precomputedDims && precomputedDims.width > 0 && precomputedDims.height > 0) {
+        aspectRatio = precomputedDims.height / precomputedDims.width;
+      } else {
+        try {
+          const img = await new Promise((resolve, reject) => {
+            const i = new Image();
+            i.onload = () => resolve(i);
+            i.onerror = () => reject(new Error('image load failed'));
+            i.src = imageUrl;
+          });
+          if (img.naturalWidth > 0 && img.naturalHeight > 0) {
+            aspectRatio = img.naturalHeight / img.naturalWidth;
+          }
+          img.src = '';
+        } catch (err) {
+          console.warn('[Wikipedia] Could not compute aspect ratio, using 1:1', err);
+        }
       }
 
-      // Full-size image for panel — no resize, just convert blob to data URL
-      const dataUrl = await new Promise((resolve, reject) => {
-        const reader = new FileReader();
-        reader.onload = () => resolve(reader.result);
-        reader.onerror = reject;
-        reader.readAsDataURL(blob);
+      // Store the Wikipedia URL in semanticMetadata (not a data URL in the main store).
+      // Clear any legacy imageSrc/thumbnailSrc so NodeCanvas's imageCache override activates.
+      await onUpdateNode({
+        imageSrc: null,
+        thumbnailSrc: null,
+        imageAspectRatio: aspectRatio,
+        semanticMetadata: {
+          ...(nodeData.semanticMetadata || {}),
+          wikipediaThumbnail: imageUrl,
+          imageAspectRatio: aspectRatio
+        }
       });
 
-      // Load into Image only for aspect ratio + thumbnail generation
-      rawUrl = URL.createObjectURL(blob);
-      const img = await new Promise((resolve, reject) => {
-        const i = new Image();
-        i.onload = () => resolve(i);
-        i.onerror = reject;
-        i.src = rawUrl;
-      });
+      // Invalidate any stale blob URL so the new URL is fetched.
+      useImageCache.getState().clearImage(nodeData.id);
 
-      const aspectRatio = (img.naturalHeight > 0 && img.naturalWidth > 0)
-        ? img.naturalHeight / img.naturalWidth : 1;
-
-      const thumbSrc = await generateThumbnail(dataUrl, THUMBNAIL_MAX_DIMENSION);
-
-      // Cleanup native memory before triggering store update + save
-      URL.revokeObjectURL(rawUrl);
-      rawUrl = null;
-      img.src = '';
-
-      await onUpdateNode({ imageSrc: dataUrl, thumbnailSrc: thumbSrc, imageAspectRatio: aspectRatio });
+      // Populate the imageCache (separate store that NodeCanvas subscribes to).
+      queueThumbnailFetch(nodeData.id, imageUrl, aspectRatio, nodeData.name || '');
     } catch (error) {
-      if (rawUrl) URL.revokeObjectURL(rawUrl);
       console.warn('[Wikipedia] Failed to set image from URL:', error);
     }
   };
@@ -950,7 +950,7 @@ const WikipediaEnrichment = ({ nodeData, onUpdateNode, triggerRef, onSearchingCh
               <div
                 key={index}
                 onClick={() => {
-                  setWikipediaImageFromUrl(img.url);
+                  setWikipediaImageFromUrl(img.url, { width: img.width, height: img.height });
                   setShowImageOptions(false);
                 }}
                 style={{
