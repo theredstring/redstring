@@ -26,9 +26,14 @@ export const useCanvasKeyboard = ({
     keysPressed,
     mousePositionRef, // {x, y} in client coords
     panOffset,
+    panOffsetRef,
     setPanOffset,
     zoomLevel,
+    zoomLevelRef,
     setZoomLevel,
+    applyTransform,  // direct DOM transform write (no React state)
+    flushSettle,     // flush settled React state (call when movement ends)
+    isPanningOrZoomingRef, // shared ref — guards view-save timeout from firing during movement
     canvasSize, // {width, height, offsetX, offsetY}
     viewportSize, // {width, height}
     viewportBounds, // {x, y, width, height}
@@ -68,9 +73,14 @@ export const useCanvasKeyboard = ({
         keysPressed,
         mousePositionRef, // {x, y} in client coords
         panOffset,
+        panOffsetRef,
         setPanOffset,
         zoomLevel,
+        zoomLevelRef,
         setZoomLevel,
+        applyTransform,
+        flushSettle,
+        isPanningOrZoomingRef,
         canvasSize, // {width, height, offsetX, offsetY}
         viewportSize, // {width, height}
         viewportBounds, // {x, y, width, height}
@@ -120,10 +130,13 @@ export const useCanvasKeyboard = ({
 
     // ---------------------------------------------------------------------------
     // 2. Keyboard Movement (WASD / Arrows / Zoom)
+    //    Writes directly to refs + DOM, completely bypassing React during movement.
+    //    Only flushes settled React state when movement stops.
     // ---------------------------------------------------------------------------
     useEffect(() => {
         let lastFrameTime = performance.now();
         let animationFrameId;
+        let wasMoving = false; // Track movement → flush settle when done
 
         const handleKeyboardMovement = (currentTime = performance.now()) => {
             const params = paramsRef.current;
@@ -138,11 +151,13 @@ export const useCanvasKeyboard = ({
                 activeGraphId,
                 viewportSize,
                 canvasSize,
-                zoomLevel,
+                panOffsetRef,
+                zoomLevelRef,
+                applyTransform,
+                flushSettle,
+                isPanningOrZoomingRef,
                 draggingNodeInfo,
                 isAnimatingZoom,
-                setPanOffset,
-                setZoomLevel,
                 viewportBounds,
                 keyboardSettings
             } = params;
@@ -162,7 +177,10 @@ export const useCanvasKeyboard = ({
                 isLeftPanelInputFocused ||
                 !activeGraphId;
 
-            if (shouldDisableKeyboard) return;
+            if (shouldDisableKeyboard) {
+                if (wasMoving) { isPanningOrZoomingRef.current = false; flushSettle(); wasMoving = false; }
+                return;
+            }
 
             // reference frame rate for speed constants
             const frameRatio = deltaTime * 60;
@@ -177,72 +195,66 @@ export const useCanvasKeyboard = ({
             if (keysPressed.current['ArrowUp'] || keysPressed.current['w']) panDy += currentPanSpeed;
             if (keysPressed.current['ArrowDown'] || keysPressed.current['s']) panDy -= currentPanSpeed;
 
-            // Apply movement
-            if (panDx !== 0 || panDy !== 0) {
-                setPanOffset(prevPan => {
-                    const newX = Math.max(viewportSize.width - canvasSize.width * zoomLevel, Math.min(0, prevPan.x + panDx));
-                    const newY = Math.max(viewportSize.height - canvasSize.height * zoomLevel, Math.min(0, prevPan.y + panDy));
+            let didMove = false;
 
-                    // Only update if actually different to avoid redundant renders
-                    if (newX === prevPan.x && newY === prevPan.y) return prevPan;
-                    return { x: newX, y: newY };
-                });
+            // Apply pan directly to ref + DOM — no scheduleSettle, zero React state during movement
+            if (panDx !== 0 || panDy !== 0) {
+                const prev = panOffsetRef.current;
+                const newX = Math.max(viewportSize.width - canvasSize.width * zoomLevelRef.current, Math.min(0, prev.x + panDx));
+                const newY = Math.max(viewportSize.height - canvasSize.height * zoomLevelRef.current, Math.min(0, prev.y + panDy));
+
+                if (newX !== prev.x || newY !== prev.y) {
+                    panOffsetRef.current = { x: newX, y: newY };
+                    didMove = true;
+                }
             }
 
-            // Handle zoom (stable approach)
-            // Skip keyboard zoom during drag to prevent interference with drag zoom animation
-            if (draggingNodeInfo || isAnimatingZoom) return;
+            // Handle zoom — skip during drag to prevent interference with drag zoom animation
+            if (!draggingNodeInfo && !isAnimatingZoom) {
+                const baseFactor = 1.1;
+                const sensitivity = keyboardSettings?.zoomSensitivity ?? 0.5;
+                const zoomFactor = 1 + (baseFactor - 1) * sensitivity;
+                const timeAdjustedZoomFactor = zoomFactor ** frameRatio;
 
-            // USE GEOMETRIC ZOOM: consistent relative change across zoom levels
-            const baseFactor = 1.1;
-            const sensitivity = keyboardSettings?.zoomSensitivity ?? 0.5;
-            // Map 0 -> 1 sensitivity to 1.0 -> baseFactor scaling
-            const zoomFactor = 1 + (baseFactor - 1) * sensitivity;
+                let zoomMultiplier = 1;
+                if (keysPressed.current[' ']) zoomMultiplier = 1 / timeAdjustedZoomFactor; // Space = zoom out
+                if (keysPressed.current['Shift']) zoomMultiplier = timeAdjustedZoomFactor; // Shift = zoom in
 
-            // Adjust factor by frame ratio to keep speed consistent across refresh rates
-            const timeAdjustedZoomFactor = zoomFactor ** frameRatio;
-
-            let zoomMultiplier = 1;
-            if (keysPressed.current[' ']) zoomMultiplier = 1 / timeAdjustedZoomFactor; // Space = zoom out
-            if (keysPressed.current['Shift']) zoomMultiplier = timeAdjustedZoomFactor; // Shift = zoom in
-
-            if (zoomMultiplier !== 1) {
-                setZoomLevel(prevZoom => {
+                if (zoomMultiplier !== 1) {
+                    const prevZoom = zoomLevelRef.current;
                     const newZoom = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, prevZoom * zoomMultiplier));
 
-                    // Only adjust pan if zoom actually changed
                     if (newZoom !== prevZoom) {
+                        zoomLevelRef.current = newZoom;
+                        didMove = true;
+
+                        // Adjust pan to keep view centered
                         const zoomRatio = newZoom / prevZoom;
-                        // Use the actual visible viewport center, not the full window center
                         const centerX = viewportBounds.width / 2;
                         const centerY = viewportBounds.height / 2;
-
-                        // Update pan to keep view centered, with boundary constraints
-                        setPanOffset(prevPan => {
-                            // The zoom center should be relative to the viewport bounds
-                            const zoomCenterX = centerX + viewportBounds.x;
-                            const zoomCenterY = centerY + viewportBounds.y;
-
-                            const newPanX = zoomCenterX - (zoomCenterX - prevPan.x) * zoomRatio;
-                            const newPanY = zoomCenterY - (zoomCenterY - prevPan.y) * zoomRatio;
-
-                            // Apply zoom boundaries
-                            const maxPanX = 0;
-                            const minPanX = viewportSize.width - canvasSize.width * newZoom;
-                            const maxPanY = 0;
-                            const minPanY = viewportSize.height - canvasSize.height * newZoom;
-
-                            const finalPanX = Math.max(minPanX, Math.min(maxPanX, newPanX));
-                            const finalPanY = Math.max(minPanY, Math.min(maxPanY, newPanY));
-
-                            // Only update if actually different
-                            if (finalPanX === prevPan.x && finalPanY === prevPan.y) return prevPan;
-                            return { x: finalPanX, y: finalPanY };
-                        });
+                        const zoomCenterX = centerX + viewportBounds.x;
+                        const zoomCenterY = centerY + viewportBounds.y;
+                        const prev = panOffsetRef.current;
+                        const newPanX = zoomCenterX - (zoomCenterX - prev.x) * zoomRatio;
+                        const newPanY = zoomCenterY - (zoomCenterY - prev.y) * zoomRatio;
+                        const minPanX = viewportSize.width - canvasSize.width * newZoom;
+                        const minPanY = viewportSize.height - canvasSize.height * newZoom;
+                        const finalPanX = Math.max(minPanX, Math.min(0, newPanX));
+                        const finalPanY = Math.max(minPanY, Math.min(0, newPanY));
+                        panOffsetRef.current = { x: finalPanX, y: finalPanY };
                     }
+                }
+            }
 
-                    return newZoom;
-                });
+            if (didMove) {
+                applyTransform();  // Single DOM write per frame — no React state
+                if (!wasMoving) isPanningOrZoomingRef.current = true; // guard view-save timeout
+                wasMoving = true;
+            } else if (wasMoving) {
+                // Movement just ended — flush settled state for React consumers
+                isPanningOrZoomingRef.current = false;
+                flushSettle();
+                wasMoving = false;
             }
         };
 
@@ -454,8 +466,8 @@ export const useCanvasKeyboard = ({
                             const clientX = mousePositionRef.current.x;
                             const clientY = mousePositionRef.current.y;
                             targetPos = {
-                                x: (clientX - rect.left - panOffset.x) / zoomLevel + canvasSize.offsetX,
-                                y: (clientY - rect.top - panOffset.y) / zoomLevel + canvasSize.offsetY
+                                x: (clientX - rect.left - panOffsetRef.current.x) / zoomLevelRef.current + canvasSize.offsetX,
+                                y: (clientY - rect.top - panOffsetRef.current.y) / zoomLevelRef.current + canvasSize.offsetY
                             };
                             console.log(`[useCanvasKeyboard] Pasting at mouse position:`, targetPos);
                         } else {

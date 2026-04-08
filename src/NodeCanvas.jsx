@@ -91,6 +91,7 @@ import { useNodeActions } from './hooks/useNodeActions';
 import { useControlPanelActions } from './hooks/useControlPanelActions';
 import { useGraphLayout } from './hooks/useGraphLayout';
 import { useCanvasKeyboard } from './hooks/useCanvasKeyboard';
+import { useCanvasTransform } from './hooks/useCanvasTransform';
 import { useTheme } from './hooks/useTheme.js';
 import { interpolateColor } from './utils/canvas/colorUtils.js';
 import { getPortPosition, calculateStaggeredPosition } from './utils/canvas/portPositioning.js';
@@ -142,8 +143,8 @@ const DRAG_ZOOM_MIN = 0.3;                    // Don't zoom out beyond this (abs
 const DRAG_ZOOM_ANIMATION_DURATION = 250;     // ms (slightly increased for smoothness)
 
 function NodeCanvas() {
-  // CULLING DISABLE FLAG - Set to true to enable culling, false to disable
-  const ENABLE_CULLING = false;
+  // CULLING FLAG - viewport culling for nodes and edges
+  const ENABLE_CULLING = true;
 
   // Get theme colors
   const theme = useTheme();
@@ -1350,11 +1351,7 @@ function NodeCanvas() {
 
   const [isPanning, setIsPanning] = useState(false);
   const [panStart, setPanStart] = useState({ x: 0, y: 0 });
-  const [panOffset, setPanOffset] = useState({ x: 0, y: 0 });
-  const panOffsetRef = useRef(panOffset);
-  useEffect(() => {
-    panOffsetRef.current = panOffset;
-  }, [panOffset]);
+  // setPanOffset alias is defined after useCanvasTransform initialization (see below canvasSize)
 
   const panRafRef = useRef(null);
 
@@ -1433,11 +1430,24 @@ function NodeCanvas() {
     canvasSizeRef.current = canvasSize;
   }, [canvasSize]);
 
-  const [zoomLevel, setZoomLevel] = useState(1);
-  const zoomLevelRef = useRef(zoomLevel);
-  useEffect(() => {
-    zoomLevelRef.current = zoomLevel;
-  }, [zoomLevel]);
+  // --- DOM-bypass pan/zoom (Phase 1 perf refactor) ---
+  // panRef/zoomRef are the authoritative values; DOM is updated directly.
+  // settledPan/settledZoom are React state that updates ~150ms after interaction stops.
+  const transform = useCanvasTransform(svgRef, canvasSize);
+  const panOffsetRef = transform.panRef;     // alias for existing code
+  const zoomLevelRef = transform.zoomRef;    // alias for existing code
+  const setPanOffset = transform.setPan;     // drop-in alias for migration
+  const setZoomLevel = transform.setZoom;    // drop-in alias for migration
+  // Settled values used where React re-renders are acceptable (child props, culling, view persistence)
+  const panOffset = transform.settledPan;
+  const zoomLevel = transform.settledZoom;
+
+  // Apply DOM transform after mount and whenever canvasSize changes.
+  // This is the ONLY place the SVG transform is written — JSX style omits `transform`
+  // so React never fights with direct DOM writes.
+  useLayoutEffect(() => {
+    transform.applyTransform();
+  }, [transform.applyTransform]);
 
   // Watchdog removed
   const prevZoomForWatchdog = useRef(zoomLevel);
@@ -1856,8 +1866,7 @@ function NodeCanvas() {
       const finalPanX = Math.min(Math.max(targetPanX, minPanX), maxPanX);
       const finalPanY = Math.min(Math.max(targetPanY, minPanY), maxPanY);
 
-      setZoomLevel(targetZoom);
-      setPanOffset({ x: finalPanX, y: finalPanY });
+      transform.jumpTo({ x: finalPanX, y: finalPanY }, targetZoom);
     } catch { }
   }, [activeGraphId, nodes, baseDimsById, viewportSize, canvasSize, MAX_ZOOM]);
 
@@ -2055,8 +2064,8 @@ function NodeCanvas() {
   const clientToCanvasCoordinates = useCallback((clientX, clientY) => {
     if (!containerRef.current) return { x: 0, y: 0 };
     const rect = containerRef.current.getBoundingClientRect();
-    return GeometryUtils.clientToCanvasCoordinates(clientX, clientY, rect, panOffset, zoomLevel, canvasSize);
-  }, [panOffset, zoomLevel, canvasSize]);
+    return GeometryUtils.clientToCanvasCoordinates(clientX, clientY, rect, panOffsetRef.current, zoomLevelRef.current, canvasSize);
+  }, [canvasSize]);
 
   // --- Grid Snapping Helpers ---
   // (Helpers moved up to satisfy dependency in performDragUpdate)
@@ -2099,7 +2108,9 @@ function NodeCanvas() {
       const maxX = minX + viewportSize.width / zoomLevel;
       const maxY = minY + viewportSize.height / zoomLevel;
 
-      const padding = 400;
+      // Zoom-aware padding: at low zoom, 400px canvas-space is tiny on-screen,
+      // so scale up to keep a meaningful off-screen buffer.
+      const padding = Math.max(400, 1000 / zoomLevel);
       const expanded = {
         minX: minX - padding,
         minY: minY - padding,
@@ -2127,18 +2138,30 @@ function NodeCanvas() {
         }
       }
 
-      // Visible edges - Fixed viewport culling
+      // Visible edges — include if either endpoint node is visible, OR if the
+      // straight line between node centers crosses the expanded viewport (handles
+      // long edges where both endpoints are off-screen but the edge itself is visible).
       const nextVisibleEdges = [];
       for (const edge of edges) {
         const s = nodeById.get(edge.sourceId);
         const d = nodeById.get(edge.destinationId);
         if (!s || !d) continue;
+
+        // Fast path: if either node is visible, the edge is visible
+        if (nextVisibleNodeIds.has(edge.sourceId) || nextVisibleNodeIds.has(edge.destinationId)) {
+          nextVisibleEdges.push(edge);
+          continue;
+        }
+
+        // Slow path: both nodes off-screen, check if edge line crosses viewport
         const sDims = baseDimsById.get(s.id);
         const dDims = baseDimsById.get(d.id);
         if (!sDims || !dDims) continue;
-
-        // Simple edge visibility: if either node is visible, edge is visible
-        if (nextVisibleNodeIds.has(edge.sourceId) || nextVisibleNodeIds.has(edge.destinationId)) {
+        const sx = s.x + sDims.currentWidth / 2;
+        const sy = s.y + sDims.currentHeight / 2;
+        const dx = d.x + dDims.currentWidth / 2;
+        const dy = d.y + dDims.currentHeight / 2;
+        if (GeometryUtils.lineIntersectsRect(sx, sy, dx, dy, expanded)) {
           nextVisibleEdges.push(edge);
         }
       }
@@ -3887,7 +3910,9 @@ function NodeCanvas() {
     setCurrentPieMenuData(prev => prev ? { ...prev, buttons: targetPieMenuButtons } : prev);
   }, [targetPieMenuButtons]);
 
-  // Effect to restore view state on graph change or center if no stored state
+  // Effect to restore view state on graph change or center if no stored state.
+  // IMPORTANT: Does NOT depend on graphsMap — we read it imperatively to avoid
+  // snapping the view back whenever any graph mutation changes the graphsMap ref.
   useLayoutEffect(() => {
     // If we're dragging a node or animating zoom, DO NOT restore view from store
     // This prevents the "teleportation" where store state overrides our local interaction state
@@ -3900,15 +3925,14 @@ function NodeCanvas() {
     // Ensure we have valid sizes and an active graph
     if (activeGraphId && viewportSize.width > 0 && viewportSize.height > 0 && canvasSize.width > 0 && canvasSize.height > 0) {
 
-      const graphData = graphsMap.get(activeGraphId);
+      // Read graph data imperatively (not from deps) so store mutations don't re-trigger this effect
+      const graphData = useGraphStore.getState().graphs.get(activeGraphId);
 
       if (graphData && graphData.panOffset && typeof graphData.zoomLevel === 'number') {
-        // Restore the stored view state immediately
-        setPanOffset(graphData.panOffset);
-        setZoomLevel(graphData.zoomLevel);
+        // Restore the stored view state immediately (jumpTo flushes settled state synchronously)
+        transform.jumpTo(graphData.panOffset, graphData.zoomLevel);
       } else {
         // No stored state, center the view as before
-        // 
 
         // Target the center of the canvas
         const targetCanvasX = canvasSize.width / 2;
@@ -3929,9 +3953,8 @@ function NodeCanvas() {
         const clampedX = Math.min(Math.max(initialPanX, minX), maxX);
         const clampedY = Math.min(Math.max(initialPanY, minY), maxY);
 
-        // Apply the calculated view state immediately
-        setPanOffset({ x: clampedX, y: clampedY });
-        setZoomLevel(defaultZoom);
+        // Apply the calculated view state immediately (jumpTo flushes settled state synchronously)
+        transform.jumpTo({ x: clampedX, y: clampedY }, defaultZoom);
       }
 
       // Set view to ready immediately - no delay
@@ -3940,7 +3963,7 @@ function NodeCanvas() {
     } else if (!activeGraphId) {
       setIsViewReady(true); // No graph, so "ready" to show nothing
     }
-  }, [activeGraphId, viewportSize, canvasSize, graphsMap]);
+  }, [activeGraphId, viewportSize, canvasSize]);
 
   // Track when panning/zooming operations are active
   const isPanningOrZooming = useRef(false);
@@ -4163,9 +4186,9 @@ function NodeCanvas() {
     // Initialize current values if not already animating
     if (!smoothing.animationId) {
 
-      smoothing.currentZoom = zoomLevel;
-      smoothing.currentPanX = panOffset.x;
-      smoothing.currentPanY = panOffset.y;
+      smoothing.currentZoom = zoomLevelRef.current;
+      smoothing.currentPanX = panOffsetRef.current.x;
+      smoothing.currentPanY = panOffsetRef.current.y;
       smoothing.isAnimating = true;
       smoothing.lastFrameTime = now;
 
@@ -4209,7 +4232,7 @@ function NodeCanvas() {
   const isInsideNode = (nodeData, clientX, clientY) => {
     if (!containerRef.current || !nodeData) return false;
     const rect = containerRef.current.getBoundingClientRect();
-    return GeometryUtils.isInsideNode(nodeData, clientX, clientY, rect, panOffset, zoomLevel, canvasSize, previewingNodeId);
+    return GeometryUtils.isInsideNode(nodeData, clientX, clientY, rect, panOffsetRef.current, zoomLevelRef.current, canvasSize, previewingNodeId);
   };
 
   // Check if a client-space point hits a thing group's title area, returns the group or null
@@ -4217,8 +4240,8 @@ function NodeCanvas() {
     if (!containerRef.current) return null;
     const rect = containerRef.current.getBoundingClientRect();
     // Convert client to canvas coordinates
-    const canvasX = (clientX - rect.left - panOffset.x) / zoomLevel + (canvasSize?.offsetX || 0);
-    const canvasY = (clientY - rect.top - panOffset.y) / zoomLevel + (canvasSize?.offsetY || 0);
+    const canvasX = (clientX - rect.left - panOffsetRef.current.x) / zoomLevelRef.current + (canvasSize?.offsetX || 0);
+    const canvasY = (clientY - rect.top - panOffsetRef.current.y) / zoomLevelRef.current + (canvasSize?.offsetY || 0);
 
     for (const [anchorId, info] of anchorPositionUpdatesRef.current.entries()) {
       // info: { x: labelX, y: labelY, width: labelWidth, height: labelHeight, groupId }
@@ -4322,12 +4345,12 @@ function NodeCanvas() {
 
     // Movement Zoom-Out: Trigger after a tiny delay to ensure state is settled
     // This prevents zoom reset during the movement threshold delay while still triggering reliably
-    const currentZoom = zoomLevel;
+    const currentZoom = zoomLevelRef.current;
     if (currentZoom > DRAG_ZOOM_MIN && !zoomOutInitiatedRef.current) {
       zoomOutInitiatedRef.current = true;
       setPreDragZoomLevel(currentZoom);
       // Store original pan offset for proper restore (avoids anchor drift)
-      preDragPanOffsetRef.current = { ...panOffset };
+      preDragPanOffsetRef.current = { ...panOffsetRef.current };
 
       // Calculate zoom factor from zoom amount
       // zoomAmount 0.0 = no zoom (factor 1.0)
@@ -4338,7 +4361,7 @@ function NodeCanvas() {
 
       // Start animation immediately (synchronously) to avoid 1-frame delay/glitch
       // We pass the current panOffset explicitly to ensure the anchor calculation matches the current view
-      animateZoomToTarget(targetZoom, { clientX, clientY }, currentZoom, { ...panOffset });
+      animateZoomToTarget(targetZoom, { clientX, clientY }, currentZoom, { ...panOffsetRef.current });
     }
   }, [zoomLevel, panOffset, animateZoomToTarget, dragZoomSettings]);
 
@@ -4362,8 +4385,8 @@ function NodeCanvas() {
       // Storing canvas coords (not viewport coords) ensures edge panning works correctly —
       // viewport coords + changing pan values produce wrong canvas coordinates.
       const rect = containerRef.current?.getBoundingClientRect();
-      const initMouseCanvasX = rect ? (clientX - rect.left - panOffset.x) / zoomLevel + canvasSize.offsetX : 0;
-      const initMouseCanvasY = rect ? (clientY - rect.top - panOffset.y) / zoomLevel + canvasSize.offsetY : 0;
+      const initMouseCanvasX = rect ? (clientX - rect.left - panOffsetRef.current.x) / zoomLevelRef.current + canvasSize.offsetX : 0;
+      const initMouseCanvasY = rect ? (clientY - rect.top - panOffsetRef.current.y) / zoomLevelRef.current + canvasSize.offsetY : 0;
 
       setDraggingNodeInfo({
         initialMouseCanvas: { x: initMouseCanvasX, y: initMouseCanvasY },
@@ -4383,8 +4406,8 @@ function NodeCanvas() {
 
     const rect = containerRef.current?.getBoundingClientRect();
     if (!rect) return false;
-    const mouseCanvasX = (clientX - rect.left - panOffset.x) / zoomLevel + canvasSize.offsetX;
-    const mouseCanvasY = (clientY - rect.top - panOffset.y) / zoomLevel + canvasSize.offsetY;
+    const mouseCanvasX = (clientX - rect.left - panOffsetRef.current.x) / zoomLevelRef.current + canvasSize.offsetX;
+    const mouseCanvasY = (clientY - rect.top - panOffsetRef.current.y) / zoomLevelRef.current + canvasSize.offsetY;
     const offset = { x: mouseCanvasX - nodeData.x, y: mouseCanvasY - nodeData.y };
     setDraggingNodeInfo({ instanceId, offset, initialPos: { x: nodeData.x, y: nodeData.y } });
 
@@ -4781,8 +4804,8 @@ function NodeCanvas() {
       e.stopPropagation();
       isPanningOrZooming.current = true;
       const zoomDelta = deltaY * TRACKPAD_ZOOM_SENSITIVITY;
-      const currentZoomForWorker = zoomLevel;
-      const currentPanOffsetForWorker = panOffset;
+      const currentZoomForWorker = zoomLevelRef.current;
+      const currentPanOffsetForWorker = panOffsetRef.current;
       const opId = ++zoomOpIdRef.current;
       try {
         const result = await canvasWorker.calculateZoom({
@@ -4824,8 +4847,8 @@ function NodeCanvas() {
       const dx = -deltaX * PAN_DRAG_SENSITIVITY;
       const dy = -deltaY * PAN_DRAG_SENSITIVITY;
 
-      const currentCanvasWidth = canvasSize.width * zoomLevel;
-      const currentCanvasHeight = canvasSize.height * zoomLevel;
+      const currentCanvasWidth = canvasSize.width * zoomLevelRef.current;
+      const currentCanvasHeight = canvasSize.height * zoomLevelRef.current;
       const minX = viewportSize.width - currentCanvasWidth;
       const minY = viewportSize.height - currentCanvasHeight;
       const maxX = 0;
@@ -4855,8 +4878,8 @@ function NodeCanvas() {
       e.stopPropagation();
       isPanningOrZooming.current = true;
       const zoomDelta = deltaY * SMOOTH_MOUSE_WHEEL_ZOOM_SENSITIVITY;
-      const currentZoomForWorker = zoomLevel;
-      const currentPanOffsetForWorker = panOffset;
+      const currentZoomForWorker = zoomLevelRef.current;
+      const currentPanOffsetForWorker = panOffsetRef.current;
       const opId = ++zoomOpIdRef.current;
       try {
         const result = await canvasWorker.calculateZoom({
@@ -4919,7 +4942,7 @@ function NodeCanvas() {
     const container = containerRef.current;
     if (!container) return;
     let gestureAnchor = { x: 0, y: 0 };
-    let gestureStartZoom = zoomLevel;
+    let gestureStartZoom = zoomLevelRef.current;
     let gestureActive = false;
 
     const onGestureStart = (e) => {
@@ -4932,7 +4955,7 @@ function NodeCanvas() {
       const clientX = (typeof e.clientX === 'number') ? e.clientX : (lastMousePosRef.current?.x ?? fallbackX);
       const clientY = (typeof e.clientY === 'number') ? e.clientY : (lastMousePosRef.current?.y ?? fallbackY);
       gestureAnchor = { x: clientX, y: clientY };
-      gestureStartZoom = zoomLevel;
+      gestureStartZoom = zoomLevelRef.current;
       pinchRef.current.active = true;
       pinchRef.current.centerClient = { x: clientX, y: clientY };
       isPanningOrZooming.current = true;
@@ -4977,13 +5000,15 @@ function NodeCanvas() {
       container.removeEventListener('gesturechange', onGestureChange);
       container.removeEventListener('gestureend', onGestureEnd);
     };
-  }, [zoomLevel, panOffset, MIN_ZOOM, MAX_ZOOM, trackpadZoomEnabled]);
+  }, [MIN_ZOOM, MAX_ZOOM, trackpadZoomEnabled]);
 
   // --- Touch helpers for canvas interactions (moved here to ensure refs/state are initialized) ---
   const touch = useCanvasTouch({
     containerRef,
     panOffset,
+    panOffsetRef,
     zoomLevel,
+    zoomLevelRef,
     canvasSize,
     isPaused,
     activeGraphId,
@@ -5107,8 +5132,8 @@ function NodeCanvas() {
     const rect = containerRef.current.getBoundingClientRect();
     // Track last client pointer position for Safari gesture anchoring
     lastMousePosRef.current = { x: e.clientX, y: e.clientY };
-    const rawX = (e.clientX - rect.left - panOffset.x) / zoomLevel + canvasSize.offsetX;
-    const rawY = (e.clientY - rect.top - panOffset.y) / zoomLevel + canvasSize.offsetY;
+    const rawX = (e.clientX - rect.left - panOffsetRef.current.x) / zoomLevelRef.current + canvasSize.offsetX;
+    const rawY = (e.clientY - rect.top - panOffsetRef.current.y) / zoomLevelRef.current + canvasSize.offsetY;
     const { x: currentX, y: currentY } = clampCoordinates(rawX, rawY);
 
     // Edge hover detection (only when not dragging/panning)
@@ -5419,8 +5444,8 @@ function NodeCanvas() {
               }
 
               const rect = containerRef.current.getBoundingClientRect();
-              const rawX = (e.clientX - rect.left - panOffset.x) / zoomLevel + canvasSize.offsetX;
-              const rawY = (e.clientY - rect.top - panOffset.y) / zoomLevel + canvasSize.offsetY;
+              const rawX = (e.clientX - rect.left - panOffsetRef.current.x) / zoomLevelRef.current + canvasSize.offsetX;
+              const rawY = (e.clientY - rect.top - panOffsetRef.current.y) / zoomLevelRef.current + canvasSize.offsetY;
 
               // Validate calculated coordinates are not NaN
               if (isNaN(rawX) || isNaN(rawY)) {
@@ -5458,13 +5483,13 @@ function NodeCanvas() {
       // Movement Zoom-Out: Trigger when drag actually starts moving (not on mousedown)
       // This ensures zoom-out happens after movement threshold, preventing reset during delay
       if (!zoomOutInitiatedRef.current && dragZoomSettings.enabled) {
-        const currentZoom = zoomLevel;
+        const currentZoom = zoomLevelRef.current;
         if (currentZoom > DRAG_ZOOM_MIN) {
           zoomOutInitiatedRef.current = true;
           setPreDragZoomLevel(currentZoom);
           const zoomFactor = 1.0 - dragZoomSettings.zoomAmount;
           const targetZoom = Math.max(DRAG_ZOOM_MIN, currentZoom * zoomFactor);
-          animateZoomToTarget(targetZoom, { clientX: e.clientX, clientY: e.clientY }, currentZoom, { ...panOffset });
+          animateZoomToTarget(targetZoom, { clientX: e.clientX, clientY: e.clientY }, currentZoom, { ...panOffsetRef.current });
         }
       } else if (!zoomOutInitiatedRef.current && !dragZoomSettings.enabled) {
         // Feature disabled - ensure ref is clean
@@ -5555,8 +5580,8 @@ function NodeCanvas() {
           const dyInput = (e.clientY - panStart.y) * dragSensitivity;
           const maxX = 0;
           const maxY = 0;
-          const minX = viewportSize.width - canvasSize.width * zoomLevel;
-          const minY = viewportSize.height - canvasSize.height * zoomLevel;
+          const minX = viewportSize.width - canvasSize.width * zoomLevelRef.current;
+          const minY = viewportSize.height - canvasSize.height * zoomLevelRef.current;
           let appliedDx = 0;
           let appliedDy = 0;
           setPanOffset(prev => {
@@ -5633,8 +5658,8 @@ function NodeCanvas() {
       e.preventDefault();
       e.stopPropagation();
       const rect = containerRef.current.getBoundingClientRect();
-      const startX = (e.clientX - rect.left - panOffset.x) / zoomLevel + canvasSize.offsetX;
-      const startY = (e.clientY - rect.top - panOffset.y) / zoomLevel + canvasSize.offsetY;
+      const startX = (e.clientX - rect.left - panOffsetRef.current.x) / zoomLevelRef.current + canvasSize.offsetX;
+      const startY = (e.clientY - rect.top - panOffsetRef.current.y) / zoomLevelRef.current + canvasSize.offsetY;
       setSelectionStart({ x: startX, y: startY });
       setSelectionRect({ x: startX, y: startY, width: 0, height: 0 });
       selectionBaseRef.current = new Set([...selectedInstanceIds]);
@@ -5984,8 +6009,8 @@ function NodeCanvas() {
     // Finalize selection box
     if (selectionStart) {
       const rect = containerRef.current.getBoundingClientRect();
-      const rawX = (e.clientX - rect.left - panOffset.x) / zoomLevel + canvasSize.offsetX;
-      const rawY = (e.clientY - rect.top - panOffset.y) / zoomLevel + canvasSize.offsetY;
+      const rawX = (e.clientX - rect.left - panOffsetRef.current.x) / zoomLevelRef.current + canvasSize.offsetX;
+      const rawY = (e.clientY - rect.top - panOffsetRef.current.y) / zoomLevelRef.current + canvasSize.offsetY;
       const { x: currentX, y: currentY } = clampCoordinates(rawX, rawY);
       canvasWorker.calculateSelection({ selectionStart, currentX, currentY })
         .then(selectionRes => {
@@ -6186,8 +6211,8 @@ function NodeCanvas() {
     }
 
     const rect = containerRef.current.getBoundingClientRect();
-    const mouseX = (e.clientX - rect.left - panOffset.x) / zoomLevel + canvasSize.offsetX;
-    const mouseY = (e.clientY - rect.top - panOffset.y) / zoomLevel + canvasSize.offsetY;
+    const mouseX = (e.clientX - rect.left - panOffsetRef.current.x) / zoomLevelRef.current + canvasSize.offsetX;
+    const mouseY = (e.clientY - rect.top - panOffsetRef.current.y) / zoomLevelRef.current + canvasSize.offsetY;
     // Prevent plus sign if pie menu is active or about to become active or hovering an edge
     if (!plusSign && selectedInstanceIds.size === 0 && !hoveredEdgeInfo) {
       setPlusSign({ x: mouseX, y: mouseY, mode: 'appear', tempName: '' });
@@ -6862,9 +6887,14 @@ function NodeCanvas() {
     keysPressed,
     mousePositionRef, // {x, y} in client coords
     panOffset,
+    panOffsetRef,
     setPanOffset,
     zoomLevel,
+    zoomLevelRef,
     setZoomLevel,
+    applyTransform: transform.applyTransform,
+    flushSettle: transform.flushSettle,
+    isPanningOrZoomingRef: isPanningOrZooming,
     canvasSize, // {width, height, offsetX, offsetY}
     viewportSize, // {width, height}
     viewportBounds, // {x, y, width, height}
@@ -7782,8 +7812,8 @@ function NodeCanvas() {
                 y: node.y + dimensions.currentHeight / 2
               };
               const svgRect = svgRef.current.getBoundingClientRect();
-              const screenX = svgRect.left + (nodeCenter.x * zoomLevel + panOffset.x);
-              const screenY = svgRect.top + (nodeCenter.y * zoomLevel + panOffset.y);
+              const screenX = svgRect.left + (nodeCenter.x * zoomLevelRef.current + panOffsetRef.current.x);
+              const screenY = svgRect.top + (nodeCenter.y * zoomLevelRef.current + panOffsetRef.current.y);
 
               // Use this as anchor for color picker
               handlePieMenuColorPickerOpen(instanceId, { x: screenX, y: screenY });
@@ -8064,8 +8094,7 @@ function NodeCanvas() {
     });
 
     // Apply the new view state
-    setZoomLevel(targetZoom);
-    setPanOffset({ x: finalPanX, y: finalPanY });
+    transform.jumpTo({ x: finalPanX, y: finalPanY }, targetZoom);
   }, [enableClustering, clusterAnalysis, nodes, baseDimsById, viewportSize, canvasSize, MAX_ZOOM]);
 
   // Listen for auto-layout trigger events from AI operations (mutations)
@@ -8207,8 +8236,7 @@ function NodeCanvas() {
           );
 
           // Apply navigation
-          setZoomLevel(navParams.zoom);
-          setPanOffset({ x: navParams.panX, y: navParams.panY });
+          transform.jumpTo({ x: navParams.panX, y: navParams.panY }, navParams.zoom);
           console.log('[CanvasNav] Navigated to nodes:', { nodeIds, zoom: navParams.zoom });
           break;
         }
@@ -8232,11 +8260,10 @@ function NodeCanvas() {
           const maxPanY = 0;
           const minPanY = viewportSize.height - canvasSize.height * effectiveZoom;
 
-          setZoomLevel(effectiveZoom);
-          setPanOffset({
+          transform.jumpTo({
             x: Math.min(Math.max(targetPanX, minPanX), maxPanX),
             y: Math.min(Math.max(targetPanY, minPanY), maxPanY)
-          });
+          }, effectiveZoom);
           console.log('[CanvasNav] Navigated to coordinates:', { x: targetX, y: targetY, zoom: effectiveZoom });
           break;
         }
@@ -8252,11 +8279,10 @@ function NodeCanvas() {
           const maxPanY = 0;
           const minPanY = viewportSize.height - canvasSize.height * defaultZoom;
 
-          setZoomLevel(defaultZoom);
-          setPanOffset({
+          transform.jumpTo({
             x: Math.min(Math.max(centerPanX, minPanX), maxPanX),
             y: Math.min(Math.max(centerPanY, minPanY), maxPanY)
-          });
+          }, defaultZoom);
           console.log('[CanvasNav] Navigated to center');
           break;
         }
@@ -8284,7 +8310,6 @@ function NodeCanvas() {
         transition: 'background-color 0.3s ease',
       }}
       tabIndex="0"
-      onBlur={() => keysPressed.current = {}}
     >
       {/* Main content uncommented */}
 
@@ -8742,12 +8767,13 @@ function NodeCanvas() {
           ) : (
             <>
               <svg
+                ref={svgRef}
                 className="canvas"
                 width={canvasSize.width}
                 height={canvasSize.height}
                 style={{
-                  transform: `translate(${panOffset.x - canvasSize.offsetX * zoomLevel}px, ${panOffset.y - canvasSize.offsetY * zoomLevel}px) scale(${zoomLevel})`,
                   transformOrigin: '0 0',
+                  willChange: 'transform',
                   backgroundColor: theme.canvas.bg,
                   opacity: 1,
                   pointerEvents: 'auto',
@@ -8938,8 +8964,8 @@ function NodeCanvas() {
                             if (drawingConnectionFrom) return;
                             setLongPressingInstanceId(null);
                             const rect = containerRef.current.getBoundingClientRect();
-                            const mouseCanvasX = (downX - rect.left - panOffset.x) / zoomLevel + canvasSize.offsetX;
-                            const mouseCanvasY = (downY - rect.top - panOffset.y) / zoomLevel + canvasSize.offsetY;
+                            const mouseCanvasX = (downX - rect.left - panOffsetRef.current.x) / zoomLevelRef.current + canvasSize.offsetX;
+                            const mouseCanvasY = (downY - rect.top - panOffsetRef.current.y) / zoomLevelRef.current + canvasSize.offsetY;
                             const offsets = members.map(m => ({ id: m.id, dx: mouseCanvasX - m.x, dy: mouseCanvasY - m.y }));
                             if (group.anchorInstanceId) {
                               const anchorNode = nodes.find(n => n.id === group.anchorInstanceId);

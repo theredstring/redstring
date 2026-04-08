@@ -14,7 +14,9 @@ const LONG_PRESS_DURATION = 500;
 export const useCanvasTouch = ({
     containerRef,
     panOffset,
+    panOffsetRef,
     zoomLevel,
+    zoomLevelRef,
     canvasSize,
     isPaused,
     activeGraphId,
@@ -162,12 +164,12 @@ export const useCanvasTouch = ({
             const centerX = (t1.clientX + t2.clientX) / 2;
             const centerY = (t1.clientY + t2.clientY) / 2;
             const rect = containerRef.current.getBoundingClientRect();
-            const worldX = (centerX - rect.left - panOffset.x) / zoomLevel + canvasSize.offsetX;
-            const worldY = (centerY - rect.top - panOffset.y) / zoomLevel + canvasSize.offsetY;
+            const worldX = (centerX - rect.left - panOffsetRef.current.x) / zoomLevelRef.current + canvasSize.offsetX;
+            const worldY = (centerY - rect.top - panOffsetRef.current.y) / zoomLevelRef.current + canvasSize.offsetY;
             pinchRef.current = {
                 active: true,
                 startDist: dist,
-                startZoom: zoomLevel,
+                startZoom: zoomLevelRef.current,
                 centerClient: { x: centerX, y: centerY },
                 centerWorld: { x: worldX, y: worldY },
                 lastCenterClient: { x: centerX, y: centerY },
@@ -265,12 +267,12 @@ export const useCanvasTouch = ({
                 const centerY = (t1.clientY + t2.clientY) / 2;
                 const rect = containerRef.current?.getBoundingClientRect();
                 if (rect) {
-                    const worldX = (centerX - rect.left - panOffset.x) / zoomLevel + canvasSize.offsetX;
-                    const worldY = (centerY - rect.top - panOffset.y) / zoomLevel + canvasSize.offsetY;
+                    const worldX = (centerX - rect.left - panOffsetRef.current.x) / zoomLevelRef.current + canvasSize.offsetX;
+                    const worldY = (centerY - rect.top - panOffsetRef.current.y) / zoomLevelRef.current + canvasSize.offsetY;
                     pinchRef.current = {
                         active: true,
                         startDist: dist,
-                        startZoom: zoomLevel,
+                        startZoom: zoomLevelRef.current,
                         centerClient: { x: centerX, y: centerY },
                         centerWorld: { x: worldX, y: worldY },
                         lastCenterClient: { x: centerX, y: centerY },
@@ -302,7 +304,7 @@ export const useCanvasTouch = ({
             const dist = Math.hypot(t2.clientX - t1.clientX, t2.clientY - t1.clientY) || 1;
             pinchRef.current.centerClient = { x: centerX, y: centerY };
             const startDist = pinchRef.current.startDist || dist;
-            const startZoom = pinchRef.current.startZoom || zoomLevel;
+            const startZoom = pinchRef.current.startZoom || zoomLevelRef.current;
             const ratioFromStart = dist / (startDist || dist);
             const targetZoomRaw = startZoom * (ratioFromStart || 1);
             const easing = 1 - Math.pow(1 - TOUCH_PINCH_SENSITIVITY, Math.min(6, dt / 16));
@@ -447,8 +449,8 @@ export const useCanvasTouch = ({
                     setSelectedInstanceIds(new Set());
                 } else if (!plusSign) {
                     const rect = containerRef.current.getBoundingClientRect();
-                    const mouseX = (clientX - rect.left - panOffset.x) / zoomLevel + canvasSize.offsetX;
-                    const mouseY = (clientY - rect.top - panOffset.y) / zoomLevel + canvasSize.offsetY;
+                    const mouseX = (clientX - rect.left - panOffsetRef.current.x) / zoomLevelRef.current + canvasSize.offsetX;
+                    const mouseY = (clientY - rect.top - panOffsetRef.current.y) / zoomLevelRef.current + canvasSize.offsetY;
                     setPlusSign({ x: mouseX, y: mouseY, mode: 'appear', tempName: '' });
                     setLastInteractionType('plus_sign_shown_touch');
                 }
@@ -534,8 +536,8 @@ export const useCanvasTouch = ({
         const rect = containerRef.current?.getBoundingClientRect();
         let dragOffset = null;
         if (rect) {
-            const mouseCanvasX = (touch.clientX - rect.left - panOffset.x) / zoomLevel + canvasSize.offsetX;
-            const mouseCanvasY = (touch.clientY - rect.top - panOffset.y) / zoomLevel + canvasSize.offsetY;
+            const mouseCanvasX = (touch.clientX - rect.left - panOffsetRef.current.x) / zoomLevelRef.current + canvasSize.offsetX;
+            const mouseCanvasY = (touch.clientY - rect.top - panOffsetRef.current.y) / zoomLevelRef.current + canvasSize.offsetY;
             dragOffset = { x: mouseCanvasX - nodeData.x, y: mouseCanvasY - nodeData.y };
         }
 
@@ -676,8 +678,8 @@ export const useCanvasTouch = ({
                         }
 
                         const rect = containerRef.current.getBoundingClientRect();
-                        const rawX = (touch.clientX - rect.left - panOffset.x) / zoomLevel + canvasSize.offsetX;
-                        const rawY = (touch.clientY - rect.top - panOffset.y) / zoomLevel + canvasSize.offsetY;
+                        const rawX = (touch.clientX - rect.left - panOffsetRef.current.x) / zoomLevelRef.current + canvasSize.offsetX;
+                        const rawY = (touch.clientY - rect.top - panOffsetRef.current.y) / zoomLevelRef.current + canvasSize.offsetY;
 
                         if (isNaN(rawX) || isNaN(rawY)) {
                             // Only abort initialization if NOT already dragging
