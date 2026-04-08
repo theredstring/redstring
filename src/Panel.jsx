@@ -943,45 +943,42 @@ const Panel = memo(forwardRef(
     }, [openGraphIds, side]);
 
     // Effect to update maxHeights for all sections when content changes or visibility toggles
-    useEffect(() => {
-      // Don't run if panelWidth hasn't been initialized yet
-      if (!isWidthInitialized) {
-        return;
-      }
+    const recalcSectionMaxHeights = useCallback(() => {
+      if (!isWidthInitialized) return;
 
       const newMaxHeights = {};
-
-      // Calculate heights for both saved nodes and all nodes (for All Things tab)
       const allTypeGroups = new Map([...savedNodesByType, ...allNodesByType]);
 
       allTypeGroups.forEach((group, typeId) => {
         const sectionRef = sectionContentRefs.current.get(typeId);
-        let maxHeight = '0px'; // Default to collapsed height
+        let maxHeight = '0px';
 
         if (sectionRef) {
           const currentScrollHeight = sectionRef.scrollHeight;
           const potentialOpenHeight = `${currentScrollHeight}px`;
-
-          // Decide whether to use the calculated height or 0px
           if (!sectionCollapsed[typeId]) {
-            // Section is OPEN, use the calculated height
             maxHeight = potentialOpenHeight;
-          } else {
-            // Section is CLOSED, maxHeight remains '0px'
-            maxHeight = '0px';
           }
         } else {
-          // Fallback if ref isn't ready (might happen on initial render)
           maxHeight = sectionCollapsed[typeId] ? '0px' : '500px';
         }
 
         newMaxHeights[typeId] = maxHeight;
       });
 
-      // Set the state
       setSectionMaxHeights(newMaxHeights);
+    }, [savedNodesByType, allNodesByType, sectionCollapsed, isWidthInitialized]);
 
-    }, [savedNodesByType, allNodesByType, sectionCollapsed, panelWidth, isWidthInitialized]); // Rerun when savedNodesByType, allNodesByType, collapsed state, or panel width changes
+    useEffect(() => {
+      recalcSectionMaxHeights();
+    }, [recalcSectionMaxHeights]);
+
+    // Recalculate section heights after panel resize finishes (not during drag)
+    useEffect(() => {
+      const onResizeEnd = () => recalcSectionMaxHeights();
+      window.addEventListener('panelWidthChanged', onResizeEnd);
+      return () => window.removeEventListener('panelWidthChanged', onResizeEnd);
+    }, [recalcSectionMaxHeights]);
 
 
 

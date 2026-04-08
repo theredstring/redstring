@@ -261,6 +261,8 @@ function NodeCanvas() {
   const isDraggingRight = useRef(false);
   const dragStartXRef = useRef(0);
   const startWidthRef = useRef(0);
+  const resizeRafRef = useRef(null);
+  const latestResizeClientXRef = useRef(0);
   const groupLongPressTimeout = useRef(null);
   // Split group rendering across z-layers: Phase 1 computes layouts and stores
   // JSX for later phases, so thing-group backgrounds/titles render at the right z-level
@@ -353,10 +355,9 @@ function NodeCanvas() {
     try { document.body.style.overscrollBehavior = 'none'; } catch { }
   };
 
-  const onDragMove = (e) => {
-    const clientX = e.touches?.[0]?.clientX ?? e.clientX;
-    // Compute max width fresh each call so it reflects the current window size
-    // (not a stale closure value from the first render)
+  const applyResizeUpdate = () => {
+    resizeRafRef.current = null;
+    const clientX = latestResizeClientXRef.current;
     const maxWidth = Math.max(240, Math.round(window.innerWidth / 2));
     if (isDraggingLeft.current) {
       const dx = clientX - dragStartXRef.current;
@@ -371,7 +372,21 @@ function NodeCanvas() {
     }
   };
 
+  const onDragMove = (e) => {
+    latestResizeClientXRef.current = e.touches?.[0]?.clientX ?? e.clientX;
+    if (!resizeRafRef.current) {
+      resizeRafRef.current = requestAnimationFrame(applyResizeUpdate);
+    }
+  };
+
   const endDrag = () => {
+    // Cancel any pending rAF resize update
+    if (resizeRafRef.current) {
+      cancelAnimationFrame(resizeRafRef.current);
+      resizeRafRef.current = null;
+      // Apply final position synchronously so endDrag broadcasts the correct width
+      applyResizeUpdate();
+    }
     if (isDraggingLeft.current) {
       isDraggingLeft.current = false;
       try {

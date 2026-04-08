@@ -76,64 +76,52 @@ const GraphListItem = forwardRef(({
     onClick?.(graphData.id);
   }, [onClick, graphData.id]);
 
+  const handleMouseEnter = useCallback(() => setIsHovered(true), []);
+  const handleMouseLeave = useCallback(() => setIsHovered(false), []);
+
   // Calculate actual item width (needed for height animation)
   const currentItemWidth = useMemo(() => {
     // Subtracting 5px for the parent container's right padding
     return panelWidth ? panelWidth - 5 : NODE_HEIGHT; // Fallback to NODE_HEIGHT if panelWidth undefined?
   }, [panelWidth]);
 
-  const itemStyle = {
+  const itemStyle = useMemo(() => ({
     width: '100%',
-    // FIX: Set height explicitly for smooth animation
     height: isExpanded ? currentItemWidth : NODE_HEIGHT,
-    // aspectRatio: isExpanded ? '1 / 1' : undefined, // REMOVE aspect-ratio
-    // FIX: Set static background/color, only border changes
-    backgroundColor: graphData.color || 'maroon', // Always maroon
+    backgroundColor: graphData.color || 'maroon',
     color: getTextColor(graphData.color || 'maroon'),
-    // FIX: Use margin for spacing, remove marginBottom
-    // marginBottom: '10px',
-    margin: '5px 0', // Equal top/bottom margin
-    // FIX: Increase border radius
+    margin: '5px 0',
     borderRadius: '12px',
     boxSizing: 'border-box',
     cursor: 'pointer',
     display: 'flex',
     flexDirection: 'column',
-    // FIX: Apply border always - thicker when active, no border when inactive
-    border: isActive ? '12px solid black' : 'none', // Active: thicker black, Inactive: no border
-    // FIX: Update transition (remove background-color, color)
+    border: isActive ? '12px solid black' : 'none',
     transition: 'height 0.2s ease, border 0.2s ease',
-    // FIX: Add alignment for when expanded
-    alignItems: 'center', // Center preview horizontally
-    justifyContent: isExpanded ? 'flex-start' : 'center', // Center name vertically when collapsed
-    // FIX: Adjust padding based on expansion (add bottom padding when expanded)
+    alignItems: 'center',
+    justifyContent: isExpanded ? 'flex-start' : 'center',
     paddingTop: isExpanded ? '10px' : '0',
     paddingLeft: isExpanded ? '10px' : '0',
     paddingRight: isExpanded ? '10px' : '0',
-    paddingBottom: isExpanded ? '15px' : '0', // Add more bottom padding for "chin"
-    position: 'relative', // <<< Add relative position for absolute close button
+    paddingBottom: isExpanded ? '15px' : '0',
+    position: 'relative',
     opacity: isDragging ? 0.5 : 1,
-  };
+  }), [isExpanded, currentItemWidth, graphData.color, isActive, isDragging]);
 
-  // Style for the preview container - Apply animation directly here
-  const previewContainerStyle = {
+  const previewContainerStyle = useMemo(() => ({
     width: '85%',
-    // height: '80%', // REMOVE fixed height
-    // FIX: Animate maxHeight and opacity directly
     maxHeight: isExpanded ? '80%' : '0px',
     opacity: isExpanded ? 1 : 0,
     marginTop: '0',
     marginBottom: '0',
     backgroundColor: theme.canvas.bg,
-
     borderRadius: '4px',
     overflow: 'hidden',
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
-    // FIX: Add transition here
     transition: 'max-height 0.2s ease, opacity 0.2s ease',
-  };
+  }), [isExpanded, theme.canvas.bg]);
 
   return (
     <div
@@ -148,8 +136,8 @@ const GraphListItem = forwardRef(({
       style={itemStyle}
       onClick={handleClick}
       onDoubleClick={handleDoubleClick}
-      onMouseEnter={() => setIsHovered(true)}
-      onMouseLeave={() => setIsHovered(false)}
+      onMouseEnter={handleMouseEnter}
+      onMouseLeave={handleMouseLeave}
       title={graphData.name} // Tooltip with full name
       data-graph-id={graphData.id}
     >
@@ -222,4 +210,33 @@ const GraphListItem = forwardRef(({
   );
 });
 
-export default GraphListItem; 
+GraphListItem.displayName = 'GraphListItem';
+
+const areGraphListItemPropsEqual = (prevProps, nextProps) => {
+  // For collapsed items, panelWidth has no visual effect — skip re-render
+  if (!prevProps.isExpanded && !nextProps.isExpanded) {
+    if (
+      prevProps.graphData === nextProps.graphData &&
+      prevProps.isActive === nextProps.isActive &&
+      prevProps.onClick === nextProps.onClick &&
+      prevProps.onClose === nextProps.onClose &&
+      prevProps.onDoubleClick === nextProps.onDoubleClick &&
+      prevProps.onToggleExpand === nextProps.onToggleExpand
+    ) {
+      return true; // Props equal, skip re-render
+    }
+  }
+  // For expanded items or when non-panelWidth props changed, shallow compare all
+  return (
+    prevProps.graphData === nextProps.graphData &&
+    prevProps.panelWidth === nextProps.panelWidth &&
+    prevProps.isActive === nextProps.isActive &&
+    prevProps.isExpanded === nextProps.isExpanded &&
+    prevProps.onClick === nextProps.onClick &&
+    prevProps.onClose === nextProps.onClose &&
+    prevProps.onDoubleClick === nextProps.onDoubleClick &&
+    prevProps.onToggleExpand === nextProps.onToggleExpand
+  );
+};
+
+export default React.memo(GraphListItem, areGraphListItemPropsEqual);

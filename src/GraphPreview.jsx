@@ -440,4 +440,4 @@ const GraphPreview = ({ nodes = [], edges = [], width, height }) => {
   );
 };
 
-export default GraphPreview; 
+export default React.memo(GraphPreview);
