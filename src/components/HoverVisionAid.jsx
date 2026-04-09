@@ -2,37 +2,7 @@ import React from 'react';
 import UniversalNodeRenderer from '../UniversalNodeRenderer';
 import { RENDERER_PRESETS } from '../UniversalNodeRenderer.presets';
 import { getNodeDimensions } from '../utils.js';
-
-/**
- * Helper to measure text width consistently with the control panel
- */
-const createTextMeasurer = () => {
-  let canvas = null;
-  let context = null;
-  return (text, font) => {
-    const content = text || '';
-    const fallbackUnit = font?.includes('14px') ? 7.2 : 8.4;
-
-    if (typeof document === 'undefined') {
-      return content.length * fallbackUnit;
-    }
-
-    if (!canvas) {
-      canvas = document.createElement('canvas');
-      context = canvas.getContext('2d');
-    }
-
-    if (!context) {
-      return content.length * fallbackUnit;
-    }
-
-    // Default font matches UnifiedBottomControlPanel's latest refinement (24px)
-    context.font = font || '24px "EmOne", sans-serif';
-    return context.measureText(content).width;
-  };
-};
-
-const measureTextWidth = createTextMeasurer();
+import { measureTextWidth } from '../services/textMeasurement.js';
 
 /**
  * HoverVisionAid displays a high-fidelity preview of nodes or connections

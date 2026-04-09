@@ -30,28 +30,16 @@ export const RADIAL_CONFIG = {
   connectionCurvature: 0.3
 };
 
-/**
- * Measure text width using canvas
- */
-let measurementCanvas = null;
-function getTextWidth(text, fontSize = RADIAL_CONFIG.fontSize, fontFamily = RADIAL_CONFIG.fontFamily) {
-  if (!measurementCanvas) {
-    measurementCanvas = document.createElement('canvas');
-  }
+import { measureTextWidth, buildFontString } from './textMeasurement.js';
 
-  const context = measurementCanvas.getContext('2d');
-  context.font = `${fontSize}px ${fontFamily}`;
-
-  const metrics = context.measureText(text);
-  return metrics.width;
-}
+const radialFontString = buildFontString(RADIAL_CONFIG.fontSize, RADIAL_CONFIG.fontFamily);
 
 /**
  * Calculate node dimensions based on label
  */
 export function calculateNodeDimensions(node) {
   const label = node.name || node.label || '';
-  const textWidth = getTextWidth(label);
+  const textWidth = measureTextWidth(label, radialFontString);
 
   return {
     width: Math.max(textWidth + 40, RADIAL_CONFIG.minNodeWidth), // Add padding

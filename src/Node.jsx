@@ -283,6 +283,7 @@ const Node = ({
   return (
     <g
       className={`node ${isSelected ? 'selected' : ''} ${isDragging ? 'dragging' : ''} ${isPreviewing ? 'previewing' : ''}`}
+      data-instance-id={instanceId}
       data-has-context-menu="true"
       /* Disable default touch gestures on node group */
       style={{

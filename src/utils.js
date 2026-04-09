@@ -6,101 +6,10 @@ import {
   NAME_AREA_FACTOR
 } from './constants'; // Import necessary constants
 import useGraphStore from './store/graphStore.jsx'; // Import store for textSettings
-
-// Reusable DOM nodes for text/description measurement to avoid per-call allocations.
-let measurementContainer = null;
-let measurementSpan = null;
-let descriptionMeasurementDiv = null;
-let nameMeasurementDiv = null;
+import { measureTextBlockHeight, measureTextWidth, buildNodeFontString } from './services/textMeasurement.js';
 
 // Font-load guard: clear dimension cache once the custom font is ready
 let fontLoadListenerAdded = false;
-
-const ensureMeasurementElements = () => {
-  if (typeof document === 'undefined') {
-    return null;
-  }
-
-  // Get current text settings from the store
-  const textSettings = useGraphStore.getState().textSettings;
-  const scaledFontSize = 20 * textSettings.fontSize;
-  const scaledLineHeight = (textSettings.lineHeightBase || 28) * textSettings.lineSpacing;
-  const scaledDescriptionLineHeight = 24 * textSettings.lineSpacing;
-
-  if (!measurementContainer) {
-    measurementContainer = document.createElement('div');
-    measurementContainer.setAttribute('data-node-dimension-measurements', 'true');
-    const style = measurementContainer.style;
-    style.position = 'absolute';
-    style.left = '-9999px';
-    style.top = '-9999px';
-    style.width = 'auto';
-    style.height = 'auto';
-    style.overflow = 'hidden';
-    style.pointerEvents = 'none';
-    style.visibility = 'hidden';
-    document.body.appendChild(measurementContainer);
-  }
-
-  if (!measurementSpan) {
-    measurementSpan = document.createElement('span');
-    const style = measurementSpan.style;
-    style.fontFamily = "'EmOne', sans-serif";
-    style.fontWeight = 'bold';
-    style.whiteSpace = 'nowrap';
-    style.display = 'inline-block';
-    measurementContainer.appendChild(measurementSpan);
-  }
-  // Always update font size to match current settings
-  measurementSpan.style.fontSize = `${scaledFontSize}px`;
-
-  if (!descriptionMeasurementDiv) {
-    descriptionMeasurementDiv = document.createElement('div');
-    const style = descriptionMeasurementDiv.style;
-    style.fontWeight = 'normal';
-    style.wordWrap = 'break-word';
-    style.overflowWrap = 'break-word';
-    style.whiteSpace = 'normal';
-    style.display = 'block';
-    measurementContainer.appendChild(descriptionMeasurementDiv);
-  }
-  // Always update font size and line height to match current settings
-  descriptionMeasurementDiv.style.fontSize = `${scaledFontSize}px`;
-  descriptionMeasurementDiv.style.lineHeight = `${scaledDescriptionLineHeight}px`;
-
-  if (!nameMeasurementDiv) {
-    nameMeasurementDiv = document.createElement('div');
-    const style = nameMeasurementDiv.style;
-    style.fontFamily = "'EmOne', sans-serif";
-    style.fontWeight = 'bold';
-    style.whiteSpace = 'normal';
-    style.overflowWrap = 'break-word';
-    style.wordBreak = 'break-word';
-    style.textAlign = 'center';
-    style.hyphens = 'auto';
-    style.display = 'block';
-    style.boxSizing = 'border-box';
-    style.padding = '0';
-    measurementContainer.appendChild(nameMeasurementDiv);
-  }
-  // Always update font size and line height to match current settings
-  nameMeasurementDiv.style.fontSize = `${scaledFontSize}px`;
-  nameMeasurementDiv.style.lineHeight = `${scaledLineHeight}px`;
-
-  // Set up font-load listener to clear dimension cache when custom font loads
-  if (!fontLoadListenerAdded && document.fonts) {
-    fontLoadListenerAdded = true;
-    document.fonts.ready.then(() => {
-      dimensionCache.clear();
-    });
-  }
-
-  return {
-    textSpan: measurementSpan,
-    descriptionDiv: descriptionMeasurementDiv,
-    nameDiv: nameMeasurementDiv
-  };
-};
 
 // --- Define constants for preview dimensions ---
 const PREVIEW_NODE_WIDTH = 600; // Wider for preview
@@ -171,18 +80,16 @@ export const getNodeDimensions = (node, isPreviewing = false, descriptionContent
   // const hasValidImageDimensions = hasImage && node.image.naturalWidth > 0; // This needs re-evaluation
   const hasValidImageDimensions = hasImage; // Simplification for now
 
-  // --- Text Measurement ---
-  // Use textSettings already declared above for cache key
-  const scaledCharWidth = 12 * textSettings.fontSize; // Match Node.jsx and calculateTextAreaHeight
+  // --- Text Measurement (via Pretext — no DOM reflow) ---
+  const fontString = buildNodeFontString(textSettings);
+  const textWidth = measureTextWidth(nodeName, fontString);
 
-  let textWidth = nodeName.length * scaledCharWidth;
-  const measurementElements = ensureMeasurementElements();
-  if (measurementElements?.textSpan) {
-    const { textSpan } = measurementElements;
-    textSpan.textContent = nodeName;
-    textSpan.style.width = 'auto';
-    textSpan.style.whiteSpace = 'nowrap';
-    textWidth = textSpan.offsetWidth;
+  // Set up font-load listener to clear dimension cache when custom font loads
+  if (!fontLoadListenerAdded && typeof document !== 'undefined' && document.fonts) {
+    fontLoadListenerAdded = true;
+    document.fonts.ready.then(() => {
+      dimensionCache.clear();
+    });
   }
 
   // --- Determine base dimensions based on state ---
@@ -210,26 +117,13 @@ export const getNodeDimensions = (node, isPreviewing = false, descriptionContent
   // --- Calculate Dimensions Based on State ---
   let currentWidth, currentHeight, textAreaHeight, imageWidth, calculatedImageHeight, innerNetworkWidth, innerNetworkHeight, descriptionAreaHeight;
 
-  // Shared: compute scaled values for DOM measurement
+  // Shared: compute scaled line height
   const scaledLineHeightShared = (lineHeightBase || 28) * textSettings.lineSpacing;
-  const scaledFontSizeShared = 20 * textSettings.fontSize;
-  const fontReady = (typeof document !== 'undefined' && document.fonts?.check?.(`bold ${scaledFontSizeShared}px EmOne`)) ?? false;
 
   if (isPreviewing) {
     currentWidth = baseWidth;
     // Calculate textAreaHeight dynamically based on actual text wrapping with correct width
-    let textBlockHeight;
-    if (measurementElements?.nameDiv && fontReady) {
-      const { nameDiv } = measurementElements;
-      nameDiv.style.fontSize = `${scaledFontSizeShared}px`;
-      nameDiv.style.lineHeight = `${scaledLineHeightShared}px`;
-      nameDiv.style.width = `${textWidthTarget}px`;
-      nameDiv.textContent = nodeName;
-      textBlockHeight = nameDiv.offsetHeight;
-      nameDiv.textContent = '';
-    } else {
-      textBlockHeight = calculateTextAreaHeight(nodeName, textWidthTarget, lineHeightBase);
-    }
+    const textBlockHeight = measureTextBlockHeight(nodeName, textWidthTarget, textSettings, lineHeightBase);
     textAreaHeight = Math.max(PREVIEW_TEXT_AREA_HEIGHT, textBlockHeight + TEXT_V_PADDING_TOTAL);
 
     innerNetworkWidth = currentWidth - 2 * NODE_PADDING;
@@ -237,16 +131,7 @@ export const getNodeDimensions = (node, isPreviewing = false, descriptionContent
     // Calculate description area height dynamically based on actual content
     if (descriptionContent && descriptionContent.trim() && descriptionContent !== 'No description.') {
       // Measure actual text to determine how many lines we need
-      let actualHeight = 0;
-      if (measurementElements?.descriptionDiv) {
-        const { descriptionDiv } = measurementElements;
-        descriptionDiv.style.width = `${innerNetworkWidth}px`;
-        descriptionDiv.textContent = descriptionContent;
-        actualHeight = descriptionDiv.offsetHeight;
-        descriptionDiv.textContent = '';
-      } else {
-        actualHeight = Math.ceil(descriptionContent.length / (innerNetworkWidth || 1)) * DESCRIPTION_LINE_HEIGHT;
-      }
+      const actualHeight = measureTextBlockHeight(descriptionContent, innerNetworkWidth, textSettings, DESCRIPTION_LINE_HEIGHT);
 
       // Cap at maximum 3 lines but use actual height if smaller
       const maxAllowedHeight = DESCRIPTION_MAX_LINES * DESCRIPTION_LINE_HEIGHT;
@@ -277,18 +162,7 @@ export const getNodeDimensions = (node, isPreviewing = false, descriptionContent
   } else if (hasImage) {
     currentWidth = baseWidth;
     // Calculate text block height based on expanded width
-    let textBlockHeight;
-    if (measurementElements?.nameDiv && fontReady) {
-      const { nameDiv } = measurementElements;
-      nameDiv.style.fontSize = `${scaledFontSizeShared}px`;
-      nameDiv.style.lineHeight = `${scaledLineHeightShared}px`;
-      nameDiv.style.width = `${textWidthTarget}px`;
-      nameDiv.textContent = nodeName;
-      textBlockHeight = nameDiv.offsetHeight;
-      nameDiv.textContent = '';
-    } else {
-      textBlockHeight = calculateTextAreaHeight(nodeName, textWidthTarget, lineHeightBase);
-    }
+    const textBlockHeight = measureTextBlockHeight(nodeName, textWidthTarget, textSettings, lineHeightBase);
     // Text area height is text height + vertical padding, with a minimum.
     textAreaHeight = Math.max(NODE_HEIGHT, textBlockHeight + TEXT_V_PADDING_TOTAL);
 
@@ -328,20 +202,7 @@ export const getNodeDimensions = (node, isPreviewing = false, descriptionContent
       // Use multi-line padding (30px per side = 60px total) for conservative measurement.
       // This guarantees height is always sufficient even when text wraps to multiline.
       const actualTextWidth = currentWidth - 60;
-
-      // Attempt DOM measurement for accurate wrapped text height
-      if (measurementElements?.nameDiv && fontReady) {
-        const { nameDiv } = measurementElements;
-        nameDiv.style.fontSize = `${scaledFontSizeShared}px`;
-        nameDiv.style.lineHeight = `${scaledLineHeightShared}px`;
-        nameDiv.style.width = `${actualTextWidth}px`;
-        nameDiv.textContent = nodeName;
-        textBlockHeight = nameDiv.offsetHeight;
-        nameDiv.textContent = '';
-      } else {
-        // SSR/non-DOM/font-not-ready fallback: use character-counting heuristic
-        textBlockHeight = calculateTextAreaHeight(nodeName, actualTextWidth, lineHeightBase);
-      }
+      textBlockHeight = measureTextBlockHeight(nodeName, actualTextWidth, textSettings, lineHeightBase);
     }
 
     // Total height is the text block height plus padding, with a minimum of NODE_HEIGHT
@@ -406,59 +267,7 @@ export const getNodeDimensions = (node, isPreviewing = false, descriptionContent
   return result;
 };
 
-// Add other utility functions here if needed 
-
-export const calculateTextAreaHeight = (name, width, lineHeightBase = 28) => {
-  // Get current text settings from the store for scaled measurements
-  const textSettings = useGraphStore.getState().textSettings;
-  const scaledLineHeight = lineHeightBase * textSettings.lineSpacing;
-  const scaledCharWidth = 12 * textSettings.fontSize; // Match Node.jsx calculation
-
-  // The width parameter should already be the available text width
-  const textWidth = width;
-  if (textWidth <= 0) {
-    return scaledLineHeight;
-  }
-  const charsPerLine = Math.floor(textWidth / scaledCharWidth);
-
-  if (!name || charsPerLine <= 0) {
-    return scaledLineHeight;
-  }
-
-  const words = name.split(' ');
-  let lineCount = 1;
-  let currentLineChars = 0;
-
-  for (const word of words) {
-    const wordLength = word.length;
-
-    // Word is longer than a whole line and must be broken up.
-    if (wordLength > charsPerLine) {
-      // If there's something on the current line, the long word goes to the next.
-      if (currentLineChars > 0) {
-        lineCount++;
-      }
-      // Add the number of lines this long word will take up.
-      lineCount += Math.ceil(wordLength / charsPerLine) - 1;
-      // The line is now empty for the next word.
-      currentLineChars = 0;
-      continue;
-    }
-
-    // If there is content, check if the new word (plus a space) fits.
-    if (currentLineChars > 0 && (currentLineChars + 1 + wordLength) > charsPerLine) {
-      // It doesn't fit, so move to the next line.
-      lineCount++;
-      currentLineChars = wordLength;
-    } else {
-      // It fits, so add it to the current line.
-      // Add a space if it's not the first word on the line.
-      currentLineChars += (currentLineChars > 0 ? 1 : 0) + wordLength;
-    }
-  }
-
-  return lineCount * scaledLineHeight;
-};
+// Add other utility functions here if needed
 
 /**
  * Generates a thumbnail data URL from an image source.

@@ -66,32 +66,7 @@ const PredicateRail = ({ color = '#4A5568', leftActive, rightActive, onToggleLef
   );
 };
 
-const createTextMeasurer = () => {
-  let canvas = null;
-  let context = null;
-  return (text, font) => {
-    const content = text || '';
-    const fallbackUnit = font?.includes('14px') ? 7.2 : 8.4;
-
-    if (typeof document === 'undefined') {
-      return content.length * fallbackUnit;
-    }
-
-    if (!canvas) {
-      canvas = document.createElement('canvas');
-      context = canvas.getContext('2d');
-    }
-
-    if (!context) {
-      return content.length * fallbackUnit;
-    }
-
-    context.font = font || '24px "EmOne", sans-serif';
-    return context.measureText(content).width;
-  };
-};
-
-const measureTextWidth = createTextMeasurer();
+import { measureTextWidth } from './services/textMeasurement.js';
 
 // Modes: 'nodes' | 'connections' | 'abstraction' | 'group' | 'nodegroup'
 const UnifiedBottomControlPanel = ({

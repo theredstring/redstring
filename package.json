@@ -72,6 +72,7 @@
     "release": "./scripts/publish-release.sh"
   },
   "dependencies": {
+    "@chenglou/pretext": "^0.0.5",
     "@inrupt/solid-client": "^1.23.1",
     "@inrupt/solid-client-authn-browser": "^3.1.0",
     "@modelcontextprotocol/sdk": "^1.17.1",

@@ -10,6 +10,10 @@ import { MultiBackend } from 'react-dnd-multi-backend'
 // Initialize debug configuration early
 import './utils/debugConfig.js'
 
+// Initialize Pretext text measurement (sets up font-load cache invalidation)
+import { initTextMeasurement } from './services/textMeasurement.js'
+initTextMeasurement()
+
 // Configure multi-backend for both mouse and touch support
 const HTML5toTouch = {
   backends: [
