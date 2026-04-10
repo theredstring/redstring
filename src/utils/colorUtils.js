@@ -211,6 +211,28 @@ export const getInvertedTextColor = (backgroundColor, isDarkMode = false) => {
   }
 };
 
+/**
+ * Returns a light color preserving the hue/saturation of the input color.
+ * Always returns high lightness regardless of input brightness.
+ * Used for connection label fill text.
+ */
+export const getLightHueText = (backgroundColor) => {
+  if (!backgroundColor) return '#bdb5b5';
+  const { h, s } = hexToHsl(backgroundColor);
+  return hslToHex(h, s, LIGHT_TEXT_LIGHTNESS);
+};
+
+/**
+ * Returns a dark color preserving the hue/saturation of the input color.
+ * Always returns low lightness regardless of input brightness.
+ * Used for connection label stroke outline.
+ */
+export const getDarkHueText = (backgroundColor) => {
+  if (!backgroundColor) return '#bdb5b5';
+  const { h, s } = hexToHsl(backgroundColor);
+  return hslToHex(h, s, DARK_TEXT_LIGHTNESS);
+};
+
 // Generate consistent color based on node name
 export const generateConceptColor = (name) => {
   // Hue values that create pleasant, readable colors with maroon's saturation/brightness

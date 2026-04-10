@@ -20,7 +20,7 @@ import BackToCivilization from './BackToCivilization.jsx'; // Import the BackToC
 import HoverVisionAid from './components/HoverVisionAid.jsx'; // Import the HoverVisionAid component
 import { getNodeDimensions } from './utils.js';
 import { measureTextWidth as pretextMeasureTextWidth } from './services/textMeasurement.js';
-import { getTextColor, getInvertedTextColor, hexToHsl, hslToHex } from './utils/colorUtils.js';
+import { getTextColor, getInvertedTextColor, getLightHueText, getDarkHueText, hexToHsl, hslToHex } from './utils/colorUtils.js';
 import { getStorageKey } from './utils/storageUtils.js';
 import { getPrototypeIdFromItem } from './utils/abstraction.js';
 import { copySelection, pasteClipboard } from './utils/clipboard.js';
@@ -9878,18 +9878,18 @@ function NodeCanvas() {
                                   <text
                                     x={midX}
                                     y={midY}
-                                    fill={getTextColor(edgeColor, theme.darkMode)}
+                                    fill={getLightHueText(edgeColor)}
                                     fontSize={connectionFontSize}
                                     fontWeight="bold"
                                     textAnchor="middle"
                                     dominantBaseline="middle"
                                     transform={`rotate(${adjustedAngle}, ${midX}, ${midY})`}
-                                    stroke={getInvertedTextColor(edgeColor, theme.darkMode)}
-                                    strokeWidth="6"
+                                    stroke={getDarkHueText(edgeColor)}
+                                    strokeWidth="8"
                                     strokeLinecap="round"
                                     strokeLinejoin="round"
                                     paintOrder="stroke fill"
-                                    style={{ pointerEvents: 'none', fontFamily: "'EmOne', sans-serif" }}
+                                    style={{ pointerEvents: 'none', fontFamily: "'EmOne', sans-serif", filter: 'drop-shadow(0px 2px 3px rgba(0,0,0,0.3))' }}
                                   >
                                     {connectionName}
                                   </text>
@@ -11041,18 +11041,18 @@ function NodeCanvas() {
                                   <text
                                     x={midX}
                                     y={midY}
-                                    fill={getTextColor(edgeColor, theme.darkMode)}
+                                    fill={getLightHueText(edgeColor)}
                                     fontSize={connectionFontSize}
                                     fontWeight="bold"
                                     textAnchor="middle"
                                     dominantBaseline="middle"
                                     transform={`rotate(${adjustedAngle}, ${midX}, ${midY})`}
-                                    stroke={getInvertedTextColor(edgeColor, theme.darkMode)}
-                                    strokeWidth="6"
+                                    stroke={getDarkHueText(edgeColor)}
+                                    strokeWidth="8"
                                     strokeLinecap="round"
                                     strokeLinejoin="round"
                                     paintOrder="stroke fill"
-                                    style={{ pointerEvents: 'none', fontFamily: "'EmOne', sans-serif" }}
+                                    style={{ pointerEvents: 'none', fontFamily: "'EmOne', sans-serif", filter: 'drop-shadow(0px 2px 3px rgba(0,0,0,0.3))' }}
                                   >
                                     {connectionName}
                                   </text>
@@ -11624,6 +11624,8 @@ function NodeCanvas() {
             baseDimensionsById={baseDimsById}
             panOffset={panOffset}
             zoomLevel={zoomLevel}
+            panOffsetRef={panOffsetRef}
+            zoomLevelRef={zoomLevelRef}
             leftPanelExpanded={leftPanelExpanded}
             rightPanelExpanded={rightPanelExpanded}
             previewingNodeId={previewingNodeId}

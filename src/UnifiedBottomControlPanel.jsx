@@ -6,6 +6,7 @@ import { useTheme } from './hooks/useTheme.js';
 import useGraphStore from "./store/graphStore.jsx";
 import { getNodeDimensions } from './utils.js';
 import useMobileDetection from './hooks/useMobileDetection';
+import { getTextColor, getLightHueText, getDarkHueText } from './utils/colorUtils.js';
 import './UnifiedBottomControlPanel.css';
 
 // Small helper to render a triangle cap (rounded-ish via strokeJoin/lineJoin aesthetics)
@@ -49,14 +50,17 @@ const PredicateRail = ({ color = '#4A5568', leftActive, rightActive, onToggleLef
         border: '1px solid rgba(38, 0, 0, 0.2)',
       }}>
         <span style={{
-          color: getTextColor(theme.canvas.bg, theme.darkMode),
+          color: getLightHueText(color),
           fontWeight: 'bold',
           fontSize: '24px',
           fontFamily: "'EmOne', sans-serif",
           textAlign: 'center',
           whiteSpace: 'nowrap',
           overflow: 'hidden',
-          textOverflow: 'ellipsis'
+          textOverflow: 'ellipsis',
+          WebkitTextStroke: `2px ${getDarkHueText(color)}`,
+          paintOrder: 'stroke fill',
+          textShadow: '0px 2px 3px rgba(0,0,0,0.3)'
         }}>
           {label || 'Connection'}
         </span>

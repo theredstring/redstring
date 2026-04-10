@@ -7,7 +7,7 @@
 import React from 'react';
 import { calculateParallelEdgePath } from '../utils/canvas/parallelEdgeUtils.js';
 import { generateManhattanRoutingPath, generateCleanRoutingPath } from '../utils/canvas/edgeRouting.js';
-import { getTextColor, getInvertedTextColor } from '../utils/colorUtils.js';
+import { getTextColor, getInvertedTextColor, getLightHueText, getDarkHueText } from '../utils/colorUtils.js';
 import { useTheme } from '../hooks/useTheme.js';
 
 /**
@@ -356,18 +356,18 @@ function EdgeRenderer({
           <text
             x={useCurve ? parallelPath.apexX : midX}
             y={useCurve ? parallelPath.apexY : midY}
-            fill={getTextColor(edgeColor || '#800000', theme.darkMode)}
+            fill={getLightHueText(edgeColor || '#800000')}
             fontSize={connectionFontSize}
             fontWeight="bold"
             textAnchor="middle"
             dominantBaseline="middle"
             transform={`rotate(${angle > 90 || angle < -90 ? angle + 180 : angle}, ${useCurve ? parallelPath.apexX : midX}, ${useCurve ? parallelPath.apexY : midY})`}
-            stroke={getInvertedTextColor(edgeColor || '#800000', theme.darkMode)}
-            strokeWidth={Math.max(2, connectionFontSize * 0.25)}
+            stroke={getDarkHueText(edgeColor || '#800000')}
+            strokeWidth={Math.max(2, connectionFontSize * 0.33)}
             strokeLinecap="round"
             strokeLinejoin="round"
             paintOrder="stroke fill"
-            style={{ pointerEvents: 'none', fontFamily: "'EmOne', sans-serif" }}
+            style={{ pointerEvents: 'none', fontFamily: "'EmOne', sans-serif", filter: 'drop-shadow(0px 2px 3px rgba(0,0,0,0.3))' }}
           >
             {connectionName}
           </text>

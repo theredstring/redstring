@@ -1,4 +1,4 @@
-import React, { useMemo } from 'react';
+import React, { useMemo, useState, useEffect, useRef } from 'react';
 import { useViewportBounds } from '../hooks/useViewportBounds';
 import { getNodeDimensions } from '../utils';
 import { HEADER_HEIGHT, NODE_HEIGHT } from '../constants';
@@ -9,6 +9,8 @@ const EdgeGlowIndicator = ({
   baseDimensionsById,
   panOffset,
   zoomLevel,
+  panOffsetRef,
+  zoomLevelRef,
   leftPanelExpanded,
   rightPanelExpanded,
   previewingNodeId,
@@ -17,6 +19,40 @@ const EdgeGlowIndicator = ({
   showDirectionLines = false,
   canvasViewportSize // Pass in the fixed canvas viewport size
 }) => {
+  // Poll pan/zoom refs for live updates during DOM-bypass panning.
+  // The RAF loop is cheap (compares two numbers per frame) and only triggers
+  // re-renders when values actually change.
+  const [livePan, setLivePan] = useState(panOffset);
+  const [liveZoom, setLiveZoom] = useState(zoomLevel);
+  const lastPanRef = useRef(panOffset);
+  const lastZoomRef = useRef(zoomLevel);
+
+  useEffect(() => {
+    if (!panOffsetRef || !zoomLevelRef) return;
+    let rafId;
+    const poll = () => {
+      const curPan = panOffsetRef.current;
+      const curZoom = zoomLevelRef.current;
+      const last = lastPanRef.current;
+      if (curPan.x !== last.x || curPan.y !== last.y || curZoom !== lastZoomRef.current) {
+        lastPanRef.current = curPan;
+        lastZoomRef.current = curZoom;
+        setLivePan(curPan);
+        setLiveZoom(curZoom);
+      }
+      rafId = requestAnimationFrame(poll);
+    };
+    rafId = requestAnimationFrame(poll);
+    return () => cancelAnimationFrame(rafId);
+  }, [panOffsetRef, zoomLevelRef]);
+
+  // Sync from React state when refs aren't available (fallback)
+  useEffect(() => {
+    if (!panOffsetRef) setLivePan(panOffset);
+  }, [panOffset, panOffsetRef]);
+  useEffect(() => {
+    if (!zoomLevelRef) setLiveZoom(zoomLevel);
+  }, [zoomLevel, zoomLevelRef]);
   // Get TypeList visibility from store
   const typeListMode = useGraphStore(state => state.typeListMode);
   const typeListVisible = typeListMode !== 'closed';
@@ -45,10 +81,10 @@ const EdgeGlowIndicator = ({
 
     // Calculate the actual visible viewport area in canvas coordinates
     // Use the fixed canvas size for consistent coordinate system
-    const canvasViewportMinX = (-panOffset.x) / zoomLevel;
-    const canvasViewportMinY = (-panOffset.y) / zoomLevel;
-    const canvasViewportMaxX = canvasViewportMinX + canvasSize.width / zoomLevel;
-    const canvasViewportMaxY = canvasViewportMinY + canvasSize.height / zoomLevel;
+    const canvasViewportMinX = (-livePan.x) / liveZoom;
+    const canvasViewportMinY = (-livePan.y) / liveZoom;
+    const canvasViewportMaxX = canvasViewportMinX + canvasSize.width / liveZoom;
+    const canvasViewportMaxY = canvasViewportMinY + canvasSize.height / liveZoom;
 
     const nodeData = [];
 
@@ -76,13 +112,12 @@ const EdgeGlowIndicator = ({
       const canvasOffsetY = -50000; // From canvasSize.offsetY
 
       // Transform from canvas coordinates to screen coordinates
-      // NodeCanvas transform: translate(panOffset.x - canvasOffsetX * zoomLevel, panOffset.y - canvasOffsetY * zoomLevel) scale(zoomLevel)
-      // This means: screenPos = (canvasPos * zoomLevel) + (panOffset + (-canvasOffset) * zoomLevel)
-      // Simplified: screenPos = (canvasPos + (-canvasOffset)) * zoomLevel + panOffset
+      // NodeCanvas transform: translate(livePan.x - canvasOffsetX * liveZoom, livePan.y - canvasOffsetY * liveZoom) scale(liveZoom)
+      // Simplified: screenPos = (canvasPos + (-canvasOffset)) * liveZoom + livePan
       // Since canvasOffset is -50000, -canvasOffset is +50000
       // IMPORTANT: Add rect.left and rect.top like the original working version
-      const nodeScreenX = (nodeCenterX + (-canvasOffsetX)) * zoomLevel + panOffset.x + rect.left;
-      const nodeScreenY = (nodeCenterY + (-canvasOffsetY)) * zoomLevel + panOffset.y + rect.top;
+      const nodeScreenX = (nodeCenterX + (-canvasOffsetX)) * liveZoom + livePan.x + rect.left;
+      const nodeScreenY = (nodeCenterY + (-canvasOffsetY)) * liveZoom + livePan.y + rect.top;
 
       // Convert to overlay coordinates relative to the viewport bounds
       const nodeOverlayX = nodeScreenX - viewportBounds.x;
@@ -112,7 +147,7 @@ const EdgeGlowIndicator = ({
     });
 
     return nodeData;
-  }, [nodes, panOffset, zoomLevel, viewportBounds, previewingNodeId, containerRef, canvasSize, baseDimensionsById]);
+  }, [nodes, livePan, liveZoom, viewportBounds, previewingNodeId, containerRef, canvasSize, baseDimensionsById]);
 
   const offScreenGlows = useMemo(() => {
     const glows = [];

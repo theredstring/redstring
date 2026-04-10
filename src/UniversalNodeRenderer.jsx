@@ -1,7 +1,7 @@
 import React, { useMemo, useState, useCallback, useRef } from 'react';
 import useGraphStore from './store/graphStore.jsx';
 import { getNodeDimensions } from './utils.js';
-import { getTextColor, getInvertedTextColor, hexToHsl, hslToHex } from './utils/colorUtils.js';
+import { getTextColor, getInvertedTextColor, getLightHueText, getDarkHueText, hexToHsl, hslToHex } from './utils/colorUtils.js';
 import { isValidColor } from './ai/palettes.js';
 import { NODE_DEFAULT_COLOR } from './constants.js';
 import { useTheme } from './hooks/useTheme.js';
@@ -62,18 +62,18 @@ const ConnectionText = ({
           key={i}
           x={midX}
           y={midY + (i - (lines.length - 1) / 2) * scaledLineHeight}
-          fill={getTextColor(connection.color || '#800000', theme.darkMode)}
+          fill={getLightHueText(connection.color || '#800000')}
           fontSize={fontSize}
           fontWeight="bold"
           textAnchor="middle"
           dominantBaseline="middle"
-          stroke={getInvertedTextColor(connection.color || '#800000', theme.darkMode)}
+          stroke={getDarkHueText(connection.color || '#800000')}
           strokeWidth={strokeWidth}
           strokeLinecap="round"
           strokeLinejoin="round"
           paintOrder="stroke fill"
           fontFamily="'EmOne', sans-serif"
-          style={{ pointerEvents: 'none' }}
+          style={{ pointerEvents: 'none', filter: 'drop-shadow(0px 2px 3px rgba(0,0,0,0.3))' }}
         >
           {line}
         </text>
