@@ -33,6 +33,7 @@ export const useCanvasKeyboard = ({
     setZoomLevel,
     applyTransform,  // direct DOM transform write (no React state)
     flushSettle,     // flush settled React state (call when movement ends)
+    onTransformChange, // synchronous callback fired on every pan/zoom mutation (drives culling)
     isPanningOrZoomingRef, // shared ref — guards view-save timeout from firing during movement
     canvasSize, // {width, height, offsetX, offsetY}
     viewportSize, // {width, height}
@@ -80,6 +81,7 @@ export const useCanvasKeyboard = ({
         setZoomLevel,
         applyTransform,
         flushSettle,
+        onTransformChange,
         isPanningOrZoomingRef,
         canvasSize, // {width, height, offsetX, offsetY}
         viewportSize, // {width, height}
@@ -155,6 +157,7 @@ export const useCanvasKeyboard = ({
                 zoomLevelRef,
                 applyTransform,
                 flushSettle,
+                onTransformChange,
                 isPanningOrZoomingRef,
                 draggingNodeInfo,
                 isAnimatingZoomRef,
@@ -248,6 +251,11 @@ export const useCanvasKeyboard = ({
 
             if (didMove) {
                 applyTransform();  // Single DOM write per frame — no React state
+                // Fire culling callback synchronously — keyboard path writes refs directly
+                // (bypassing setPan/setZoom), so onTransformChange is the only way culling
+                // hears about keyboard-driven pan/zoom. Without this, visibility state is
+                // frozen until the user touches the trackpad/mouse, causing nodes to vanish.
+                onTransformChange?.();
                 if (!wasMoving) isPanningOrZoomingRef.current = true; // guard view-save timeout
                 wasMoving = true;
             } else if (wasMoving) {

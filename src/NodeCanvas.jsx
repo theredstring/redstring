@@ -1814,16 +1814,18 @@ function NodeCanvas() {
       const maxX = minX + viewport.width / zoom;
       const maxY = minY + viewport.height / zoom;
 
-      // Off-screen buffer to pre-load nodes just outside the viewport. Capped
-      // at 2000 canvas units so low-zoom views don't pull in absurd numbers of
-      // far-off-screen nodes (the old `1000/zoom` formula reached 20000 at
-      // zoom=0.05, killing render perf on slower machines).
+      // Two-zone hysteresis: `inner` is the threshold to ADD a node/edge to
+      // the visible set; `outer` (= inner + HYSTERESIS_BAND) is the threshold
+      // to REMOVE one that's already visible.
       //
-      // Two-zone hysteresis: `inner` is the threshold to ADD a node/edge to the
-      // visible set; `outer` (= inner + HYSTERESIS_BAND) is the threshold to REMOVE
-      // one that's already visible. The deadband between them prevents items sitting
-      // right at the viewport edge from flickering in/out as zoom shifts the bounds.
-      const HYSTERESIS_BAND = 500;
+      // Band is specified in SCREEN pixels, then converted to canvas units via
+      // zoom. A canvas-unit band collapses visually at low zoom (e.g. 100
+      // canvas units = 50 screen px at zoom 0.5), making it easy for a single
+      // wheel tick or pinch delta to cross the entire deadband in one frame
+      // and defeat hysteresis. Screen-space keeps the visual "sticky zone"
+      // constant at every zoom level so per-frame deltas never cross it.
+      const HYSTERESIS_BAND_SCREEN_PX = 400;
+      const HYSTERESIS_BAND = HYSTERESIS_BAND_SCREEN_PX / zoom;
       const innerPadding = Math.max(200, Math.min(2000, 500 / zoom));
       const outerPadding = innerPadding + HYSTERESIS_BAND;
       const innerRect = {
@@ -1904,6 +1906,16 @@ function NodeCanvas() {
           nextVisibleEdges.push(edge);
         }
       }
+
+      // Update refs synchronously — these are the hysteresis "previous visible
+      // set" for the NEXT runCulling tick. The useEffect sync at the bottom of
+      // the component is too late because passive effects can lag behind
+      // consecutive RAF ticks under zoom pressure (worse in large graphs where
+      // commits are expensive), causing hysteresis to evaluate against a stale
+      // prev and flicker edges at viewport edges. These refs are read only
+      // inside runCulling itself, so owning them here is safe.
+      visibleNodeIdsRef.current = nextVisibleNodeIds;
+      visibleEdgesRef.current = nextVisibleEdges;
 
       // Synchronous visibility commit (no startTransition) so the visible set
       // always lands in lockstep with the SVG DOM transform — using transitions
@@ -6349,6 +6361,7 @@ function NodeCanvas() {
     setZoomLevel,
     applyTransform: transform.applyTransform,
     flushSettle: transform.flushSettle,
+    onTransformChange: () => transform.onTransformChangeRef.current?.(),
     isPanningOrZoomingRef: isPanningOrZooming,
     canvasSize, // {width, height, offsetX, offsetY}
     viewportSize, // {width, height}
