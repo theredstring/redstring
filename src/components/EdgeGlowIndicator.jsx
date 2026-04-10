@@ -11,6 +11,7 @@ const EdgeGlowIndicator = ({
   zoomLevel,
   panOffsetRef,
   zoomLevelRef,
+  glowUpdateRef,
   leftPanelExpanded,
   rightPanelExpanded,
   previewingNodeId,
@@ -19,18 +20,18 @@ const EdgeGlowIndicator = ({
   showDirectionLines = false,
   canvasViewportSize // Pass in the fixed canvas viewport size
 }) => {
-  // Poll pan/zoom refs for live updates during DOM-bypass panning.
-  // The RAF loop is cheap (compares two numbers per frame) and only triggers
-  // re-renders when values actually change.
+  // Live pan/zoom state for rendering. Updated by an event-driven callback
+  // registered into `glowUpdateRef` — NodeCanvas's RAF-coalesced culling loop
+  // fires this on every transform change. No free-running RAF polling; zero
+  // work during idle.
   const [livePan, setLivePan] = useState(panOffset);
   const [liveZoom, setLiveZoom] = useState(zoomLevel);
   const lastPanRef = useRef(panOffset);
   const lastZoomRef = useRef(zoomLevel);
 
   useEffect(() => {
-    if (!panOffsetRef || !zoomLevelRef) return;
-    let rafId;
-    const poll = () => {
+    if (!glowUpdateRef || !panOffsetRef || !zoomLevelRef) return;
+    const update = () => {
       const curPan = panOffsetRef.current;
       const curZoom = zoomLevelRef.current;
       const last = lastPanRef.current;
@@ -40,11 +41,12 @@ const EdgeGlowIndicator = ({
         setLivePan(curPan);
         setLiveZoom(curZoom);
       }
-      rafId = requestAnimationFrame(poll);
     };
-    rafId = requestAnimationFrame(poll);
-    return () => cancelAnimationFrame(rafId);
-  }, [panOffsetRef, zoomLevelRef]);
+    glowUpdateRef.current = update;
+    return () => {
+      if (glowUpdateRef.current === update) glowUpdateRef.current = null;
+    };
+  }, [glowUpdateRef, panOffsetRef, zoomLevelRef]);
 
   // Sync from React state when refs aren't available (fallback)
   useEffect(() => {

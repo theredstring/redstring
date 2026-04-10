@@ -28,6 +28,7 @@ export const useCanvasTouch = ({
     setIsPanning,
     setPanOffset,
     setZoomLevel,
+    setPanAndZoom,
     stopPanMomentum,
     storeActions,
     selectedInstanceIds,
@@ -308,31 +309,34 @@ export const useCanvasTouch = ({
             const ratioFromStart = dist / (startDist || dist);
             const targetZoomRaw = startZoom * (ratioFromStart || 1);
             const easing = 1 - Math.pow(1 - TOUCH_PINCH_SENSITIVITY, Math.min(6, dt / 16));
-            setZoomLevel(prevZoom => {
+            // Atomic pan+zoom update: read prev values from refs and apply both
+            // in a single DOM write to prevent the one-frame anchor jump that
+            // sequential setZoom + setPan produces.
+            {
+                const prevZoom = zoomLevelRef.current;
+                const prevPan = panOffsetRef.current;
                 const targetZoom = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, targetZoomRaw || prevZoom));
                 const newZoom = prevZoom + (targetZoom - prevZoom) * easing;
                 if (!containerRef.current) {
                     pinchRef.current.lastDist = dist;
                     pinchRef.current.lastCenterClient = { x: centerX, y: centerY };
-                    return prevZoom;
+                    return;
                 }
                 const rect = containerRef.current.getBoundingClientRect();
-                setPanOffset(prevPan => {
-                    const rawWorldX = (centerX - rect.left - prevPan.x) / prevZoom + canvasSize.offsetX;
-                    const rawWorldY = (centerY - rect.top - prevPan.y) / prevZoom + canvasSize.offsetY;
-                    const prevWorld = pinchRef.current.centerWorld;
-                    const worldX = prevWorld ? prevWorld.x + (rawWorldX - prevWorld.x) * TOUCH_PINCH_CENTER_SMOOTHING : rawWorldX;
-                    const worldY = prevWorld ? prevWorld.y + (rawWorldY - prevWorld.y) * TOUCH_PINCH_CENTER_SMOOTHING : rawWorldY;
-                    pinchRef.current.centerWorld = { x: worldX, y: worldY };
-                    return {
-                        x: centerX - rect.left - (worldX - canvasSize.offsetX) * newZoom,
-                        y: centerY - rect.top - (worldY - canvasSize.offsetY) * newZoom
-                    };
-                });
+                const rawWorldX = (centerX - rect.left - prevPan.x) / prevZoom + canvasSize.offsetX;
+                const rawWorldY = (centerY - rect.top - prevPan.y) / prevZoom + canvasSize.offsetY;
+                const prevWorld = pinchRef.current.centerWorld;
+                const worldX = prevWorld ? prevWorld.x + (rawWorldX - prevWorld.x) * TOUCH_PINCH_CENTER_SMOOTHING : rawWorldX;
+                const worldY = prevWorld ? prevWorld.y + (rawWorldY - prevWorld.y) * TOUCH_PINCH_CENTER_SMOOTHING : rawWorldY;
+                pinchRef.current.centerWorld = { x: worldX, y: worldY };
+                const newPan = {
+                    x: centerX - rect.left - (worldX - canvasSize.offsetX) * newZoom,
+                    y: centerY - rect.top - (worldY - canvasSize.offsetY) * newZoom,
+                };
+                setPanAndZoom(newPan, newZoom);
                 pinchRef.current.lastDist = dist;
                 pinchRef.current.lastCenterClient = { x: centerX, y: centerY };
-                return newZoom;
-            });
+            }
             return;
         }
         const { clientX, clientY } = normalizeTouchEvent(e);

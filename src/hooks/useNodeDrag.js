@@ -67,7 +67,7 @@ export const useNodeDrag = ({
   baseDimsByIdRef,
   edgeCurveInfoRef,
   edgesByNodeIdRef,
-  visibleEdgesRef,
+  edgesRef,
   selectedInstanceIdsRef,
   enableAutoRoutingRef,
   routingStyleRef,
@@ -309,11 +309,14 @@ export const useNodeDrag = ({
     const isManhattanOrClean = enableAutoRoutingRef.current &&
       (routingStyleRef.current === 'manhattan' || routingStyleRef.current === 'clean');
 
-    // Build edge data index on demand from visible edges
-    const visEdges = visibleEdgesRef.current;
+    // Build edge data index from ALL edges (not just visible) — edgesByNodeIdRef now
+    // spans all edges, so affectedEdgeIds may include edges that culled out. Looking
+    // them up here lets drag update any whose DOM element was cached at drag start,
+    // even if a subsequent culling pass would have excluded them from the visible set.
+    const allEdges = edgesRef.current;
     const edgeDataMap = new Map();
-    for (let i = 0; i < visEdges.length; i++) {
-      const e = visEdges[i];
+    for (let i = 0; i < allEdges.length; i++) {
+      const e = allEdges[i];
       if (affectedEdgeIds.has(e.id)) edgeDataMap.set(e.id, e);
     }
 
@@ -455,7 +458,7 @@ export const useNodeDrag = ({
         }
       });
     });
-  }, [nodeByIdRef, baseDimsByIdRef, edgeCurveInfoRef, edgesByNodeIdRef, visibleEdgesRef,
+  }, [nodeByIdRef, baseDimsByIdRef, edgeCurveInfoRef, edgesByNodeIdRef, edgesRef,
       selectedInstanceIdsRef, enableAutoRoutingRef, routingStyleRef]);
 
   // ---------------------------------------------------------------------------

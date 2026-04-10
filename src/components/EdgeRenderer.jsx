@@ -119,7 +119,7 @@ function EdgeRenderer({
             strokeWidth="12"
             opacity={isSelected ? "0.3" : "0.2"}
             style={{
-              filter: `blur(3px) drop-shadow(0 0 8px ${edgeColor})`
+              filter: `drop-shadow(0 0 8px ${edgeColor})`
             }}
             strokeLinecap="round"
           />
@@ -131,7 +131,7 @@ function EdgeRenderer({
             strokeWidth="12"
             opacity={isSelected ? "0.3" : "0.2"}
             style={{
-              filter: `blur(3px) drop-shadow(0 0 8px ${edgeColor})`
+              filter: `drop-shadow(0 0 8px ${edgeColor})`
             }}
             strokeLinecap="round"
           />
@@ -145,7 +145,7 @@ function EdgeRenderer({
             strokeWidth="12"
             opacity={isSelected ? "0.3" : "0.2"}
             style={{
-              filter: `blur(3px) drop-shadow(0 0 8px ${edgeColor})`
+              filter: `drop-shadow(0 0 8px ${edgeColor})`
             }}
           />
         )
@@ -255,7 +255,7 @@ function EdgeRenderer({
               strokeLinecap="round"
               opacity={isSelected ? "0.3" : "0.2"}
               style={{
-                filter: `blur(2px) drop-shadow(0 0 6px ${edgeColor})`
+                filter: `drop-shadow(0 0 6px ${edgeColor})`
               }}
             />
           )}
@@ -288,7 +288,7 @@ function EdgeRenderer({
               strokeLinecap="round"
               opacity={isSelected ? "0.3" : "0.2"}
               style={{
-                filter: `blur(2px) drop-shadow(0 0 6px ${edgeColor})`
+                filter: `drop-shadow(0 0 6px ${edgeColor})`
               }}
             />
           )}
@@ -367,7 +367,7 @@ function EdgeRenderer({
             strokeLinecap="round"
             strokeLinejoin="round"
             paintOrder="stroke fill"
-            style={{ pointerEvents: 'none', fontFamily: "'EmOne', sans-serif", filter: 'drop-shadow(0px 2px 3px rgba(0,0,0,0.3))' }}
+            style={{ pointerEvents: 'none', fontFamily: "'EmOne', sans-serif" }}
           >
             {connectionName}
           </text>

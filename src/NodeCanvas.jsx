@@ -1068,6 +1068,9 @@ function NodeCanvas() {
   const edgeCurveInfoRef = useRef(null);
   const edgesByNodeIdRef = useRef(null);
   const visibleEdgesRef = useRef(visibleEdges);
+  // Previous-committed visible node set, read by runCulling for hysteresis (two-zone
+  // culling: an already-visible node stays visible until it's outside the OUTER margin).
+  const visibleNodeIdsRef = useRef(visibleNodeIds);
   // Refs to current nodes/edges arrays — read by runCulling (invoked imperatively
   // from onTransformChangeRef, so it can't rely on useEffect closures).
   const nodesRef = useRef(nodes);
@@ -1433,6 +1436,7 @@ function NodeCanvas() {
   const zoomLevelRef = transform.zoomRef;    // alias for existing code
   const setPanOffset = transform.setPan;     // drop-in alias for migration
   const setZoomLevel = transform.setZoom;    // drop-in alias for migration
+  const setPanAndZoom = transform.setPanAndZoom;  // atomic: single DOM write, single culling call
   // Settled values used where React re-renders are acceptable (child props, culling, view persistence)
   const panOffset = transform.settledPan;
   const zoomLevel = transform.settledZoom;
@@ -1529,7 +1533,7 @@ function NodeCanvas() {
     baseDimsByIdRef,
     edgeCurveInfoRef,
     edgesByNodeIdRef,
-    visibleEdgesRef,
+    edgesRef,
     selectedInstanceIdsRef,
     enableAutoRoutingRef,
     routingStyleRef,
@@ -1766,11 +1770,20 @@ function NodeCanvas() {
   // pan/zoom mutation) without waiting for settled-state debounce. RAF-coalesced
   // so multiple calls within the same frame produce at most one compute.
   const cullingRafIdRef = useRef(null);
+  // Event-driven glow update: EdgeGlowIndicator registers a callback here so it
+  // can react to pan/zoom transform changes in lockstep with culling (one
+  // RAF-coalesced tick per frame), without running its own free-running RAF loop.
+  const glowUpdateRef = useRef(null);
   const runCulling = useCallback(() => {
     if (cullingRafIdRef.current != null) return;
 
     cullingRafIdRef.current = requestAnimationFrame(() => {
       cullingRafIdRef.current = null;
+
+      // Notify EdgeGlowIndicator (and any other transform-driven subscribers)
+      // BEFORE the culling guards, so the glow still tracks transform updates
+      // during node drag / pinch animation where culling itself is skipped.
+      glowUpdateRef.current?.();
 
       if (!ENABLE_CULLING) {
         // CULLING DISABLED - Show all nodes and edges
@@ -1805,33 +1818,55 @@ function NodeCanvas() {
       // at 2000 canvas units so low-zoom views don't pull in absurd numbers of
       // far-off-screen nodes (the old `1000/zoom` formula reached 20000 at
       // zoom=0.05, killing render perf on slower machines).
-      const padding = Math.max(200, Math.min(2000, 500 / zoom));
-      const expanded = {
-        minX: minX - padding,
-        minY: minY - padding,
-        maxX: maxX + padding,
-        maxY: maxY + padding,
+      //
+      // Two-zone hysteresis: `inner` is the threshold to ADD a node/edge to the
+      // visible set; `outer` (= inner + HYSTERESIS_BAND) is the threshold to REMOVE
+      // one that's already visible. The deadband between them prevents items sitting
+      // right at the viewport edge from flickering in/out as zoom shifts the bounds.
+      const HYSTERESIS_BAND = 500;
+      const innerPadding = Math.max(200, Math.min(2000, 500 / zoom));
+      const outerPadding = innerPadding + HYSTERESIS_BAND;
+      const innerRect = {
+        minX: minX - innerPadding,
+        minY: minY - innerPadding,
+        maxX: maxX + innerPadding,
+        maxY: maxY + innerPadding,
+      };
+      const outerRect = {
+        minX: minX - outerPadding,
+        minY: minY - outerPadding,
+        maxX: maxX + outerPadding,
+        maxY: maxY + outerPadding,
       };
 
       const currentNodes = nodesRef.current;
       const currentEdges = edgesRef.current;
       const dimsMap = baseDimsByIdRef.current;
       const nodeMap = nodeByIdRef.current;
+      const prevVisibleNodeIds = visibleNodeIdsRef.current;
+      // Build Set<edgeId> for O(1) prev-visibility lookup (visibleEdgesRef is an array).
+      const prevVisibleEdgesArr = visibleEdgesRef.current;
+      const prevVisibleEdgeIds = new Set();
+      for (let i = 0; i < prevVisibleEdgesArr.length; i++) {
+        prevVisibleEdgeIds.add(prevVisibleEdgesArr[i].id);
+      }
 
-      // Visible nodes - Fixed viewport culling
+      // Visible nodes with hysteresis
       const nextVisibleNodeIds = new Set();
       for (const n of currentNodes) {
         const dims = dimsMap.get(n.id);
         if (!dims) continue;
 
-        // Node bounds in canvas space
         const nx1 = n.x;
         const ny1 = n.y;
         const nx2 = n.x + dims.currentWidth;
         const ny2 = n.y + dims.currentHeight;
 
-        // Check if node intersects with expanded viewport area
-        const isVisible = !(nx2 < expanded.minX || nx1 > expanded.maxX || ny2 < expanded.minY || ny1 > expanded.maxY);
+        // Previously visible → use outer rect (stays visible until clearly outside)
+        // Not previously visible → use inner rect (must come clearly inside to appear)
+        const wasVisible = prevVisibleNodeIds.has(n.id);
+        const rect = wasVisible ? outerRect : innerRect;
+        const isVisible = !(nx2 < rect.minX || nx1 > rect.maxX || ny2 < rect.minY || ny1 > rect.maxY);
 
         if (isVisible) {
           nextVisibleNodeIds.add(n.id);
@@ -1839,8 +1874,9 @@ function NodeCanvas() {
       }
 
       // Visible edges — include if either endpoint node is visible, OR if the
-      // straight line between node centers crosses the expanded viewport (handles
+      // straight line between node centers crosses the viewport area (handles
       // long edges where both endpoints are off-screen but the edge itself is visible).
+      // Hysteresis applied to the slow-path line intersection test as well.
       const nextVisibleEdges = [];
       for (const edge of currentEdges) {
         const s = nodeMap.get(edge.sourceId);
@@ -1848,12 +1884,14 @@ function NodeCanvas() {
         if (!s || !d) continue;
 
         // Fast path: if either node is visible, the edge is visible
+        // (node hysteresis already prevents endpoint flicker, so this is stable).
         if (nextVisibleNodeIds.has(edge.sourceId) || nextVisibleNodeIds.has(edge.destinationId)) {
           nextVisibleEdges.push(edge);
           continue;
         }
 
-        // Slow path: both nodes off-screen, check if edge line crosses viewport
+        // Slow path: both nodes off-screen, check if edge line crosses viewport.
+        // Apply hysteresis: previously-visible edges test against outer rect.
         const sDims = dimsMap.get(s.id);
         const dDims = dimsMap.get(d.id);
         if (!sDims || !dDims) continue;
@@ -1861,7 +1899,8 @@ function NodeCanvas() {
         const sy = s.y + sDims.currentHeight / 2;
         const dx = d.x + dDims.currentWidth / 2;
         const dy = d.y + dDims.currentHeight / 2;
-        if (GeometryUtils.lineIntersectsRect(sx, sy, dx, dy, expanded)) {
+        const edgeRect = prevVisibleEdgeIds.has(edge.id) ? outerRect : innerRect;
+        if (GeometryUtils.lineIntersectsRect(sx, sy, dx, dy, edgeRect)) {
           nextVisibleEdges.push(edge);
         }
       }
@@ -2069,17 +2108,20 @@ function NodeCanvas() {
     return curveInfoMap;
   }, [edges]);
 
-  // Reverse-index: instanceId → Set<edgeId> for O(1) lookup of edges connected to a node
+  // Reverse-index: instanceId → Set<edgeId> for O(1) lookup of edges connected to a node.
+  // NOTE: iterate ALL edges (not visibleEdges) so the index stays stable across culling
+  // changes — otherwise drag start misses connections whose sibling edges just culled out,
+  // leaving a subset of a node's edges frozen during drag. Same pattern as edgeCurveInfo above.
   const edgesByNodeId = useMemo(() => {
     const map = new Map();
-    visibleEdges.forEach(edge => {
+    edges.forEach(edge => {
       if (!map.has(edge.sourceId)) map.set(edge.sourceId, new Set());
       if (!map.has(edge.destinationId)) map.set(edge.destinationId, new Set());
       map.get(edge.sourceId).add(edge.id);
       map.get(edge.destinationId).add(edge.id);
     });
     return map;
-  }, [visibleEdges]);
+  }, [edges]);
 
   // Refs for DOM-bypass drag: sync latest values (refs declared earlier, before useNodeDrag)
   useEffect(() => { nodeByIdRef.current = nodeById; }, [nodeById]);
@@ -2087,6 +2129,7 @@ function NodeCanvas() {
   useEffect(() => { edgeCurveInfoRef.current = edgeCurveInfo; }, [edgeCurveInfo]);
   useEffect(() => { edgesByNodeIdRef.current = edgesByNodeId; }, [edgesByNodeId]);
   useEffect(() => { visibleEdgesRef.current = visibleEdges; }, [visibleEdges]);
+  useEffect(() => { visibleNodeIdsRef.current = visibleNodeIds; }, [visibleNodeIds]);
   useEffect(() => { nodesRef.current = nodes; }, [nodes]);
   useEffect(() => { edgesRef.current = edges; }, [edges]);
 
@@ -3842,16 +3885,20 @@ function NodeCanvas() {
     const panXDelta = smoothing.currentPanX - prevPanX;
     const panYDelta = smoothing.currentPanY - prevPanY;
 
-    // Batch state updates to reduce renders and potential jitter
+    // Atomic update: single DOM write + single culling call per frame.
+    // Avoids the one-frame anchor jump from sequential setPan + setZoom.
     if (React?.startTransition) {
       React.startTransition(() => {
-        setZoomLevel(smoothing.currentZoom);
-        setPanOffset({ x: smoothing.currentPanX, y: smoothing.currentPanY });
+        setPanAndZoom(
+          { x: smoothing.currentPanX, y: smoothing.currentPanY },
+          smoothing.currentZoom
+        );
       });
     } else {
-      // Fallback if startTransition not available
-      setZoomLevel(smoothing.currentZoom);
-      setPanOffset({ x: smoothing.currentPanX, y: smoothing.currentPanY });
+      setPanAndZoom(
+        { x: smoothing.currentPanX, y: smoothing.currentPanY },
+        smoothing.currentZoom
+      );
     }
 
     // Check if we're close enough to the target to stop animating
@@ -3888,8 +3935,10 @@ function NodeCanvas() {
       smoothing.animationId = requestAnimationFrame(animatePinchSmoothing);
     } else {
       // Snap to final values and stop animation
-      setZoomLevel(smoothing.targetZoom);
-      setPanOffset({ x: smoothing.targetPanX, y: smoothing.targetPanY });
+      setPanAndZoom(
+        { x: smoothing.targetPanX, y: smoothing.targetPanY },
+        smoothing.targetZoom
+      );
       smoothing.currentZoom = smoothing.targetZoom;
       smoothing.currentPanX = smoothing.targetPanX;
       smoothing.currentPanY = smoothing.targetPanY;
@@ -3936,8 +3985,7 @@ function NodeCanvas() {
     // Emergency fallback - if smoothing isn't working, use direct updates
     if (!animatePinchSmoothing || typeof animatePinchSmoothing !== 'function') {
 
-      setZoomLevel(targetZoom);
-      setPanOffset({ x: targetPanX, y: targetPanY });
+      setPanAndZoom({ x: targetPanX, y: targetPanY }, targetZoom);
       return;
     }
 
@@ -4494,8 +4542,7 @@ function NodeCanvas() {
           viewportSize, canvasSize, MIN_ZOOM, MAX_ZOOM,
         });
         if (opId === zoomOpIdRef.current) {
-          setPanOffset(result.panOffset);
-          setZoomLevel(result.zoomLevel);
+          setPanAndZoom(result.panOffset, result.zoomLevel);
         }
         // setDebugData call removed - debug mode disabled
         // Clear the flag after a delay
@@ -4569,8 +4616,7 @@ function NodeCanvas() {
         });
         // Drop stale results (older ops) to avoid "ghost frames"
         if (opId === zoomOpIdRef.current) {
-          setPanOffset(result.panOffset);
-          setZoomLevel(result.zoomLevel);
+          setPanAndZoom(result.panOffset, result.zoomLevel);
           lastZoomTsRef.current = nowTs;
         }
         // setDebugData call removed - debug mode disabled
@@ -4650,16 +4696,19 @@ function NodeCanvas() {
       const targetZoom = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, gestureStartZoom * e.scale));
       const anchorX = gestureAnchor.x;
       const anchorY = gestureAnchor.y;
-      setZoomLevel(prevZoom => {
-        const easedZoom = prevZoom + (targetZoom - prevZoom) * 0.35;
-        const newZoom = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, easedZoom));
-        const zoomRatio = newZoom / prevZoom;
-        setPanOffset(prevPan => ({
-          x: anchorX - rect.left - (anchorX - rect.left - prevPan.x) * zoomRatio,
-          y: anchorY - rect.top - (anchorY - rect.top - prevPan.y) * zoomRatio
-        }));
-        return newZoom;
-      });
+      // Atomic update: read prev values from refs synchronously and write
+      // both pan and zoom in a single DOM write to avoid the one-frame anchor
+      // jump that the previous nested functional setState pattern produced.
+      const prevZoom = zoomLevelRef.current;
+      const prevPan = panOffsetRef.current;
+      const easedZoom = prevZoom + (targetZoom - prevZoom) * 0.35;
+      const newZoom = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, easedZoom));
+      const zoomRatio = newZoom / prevZoom;
+      const newPan = {
+        x: anchorX - rect.left - (anchorX - rect.left - prevPan.x) * zoomRatio,
+        y: anchorY - rect.top - (anchorY - rect.top - prevPan.y) * zoomRatio,
+      };
+      setPanAndZoom(newPan, newZoom);
     };
 
     const onGestureEnd = () => {
@@ -4698,6 +4747,7 @@ function NodeCanvas() {
     setIsPanning,
     setPanOffset,
     setZoomLevel,
+    setPanAndZoom,
     stopPanMomentum,
     storeActions,
     selectedInstanceIds,
@@ -9083,7 +9133,7 @@ function NodeCanvas() {
                                   strokeWidth="12"
                                   opacity={isSelected ? "0.3" : "0.2"}
                                   style={{
-                                    filter: `blur(3px) drop-shadow(0 0 8px ${edgeColor})`
+                                    filter: `drop-shadow(0 0 8px ${edgeColor})`
                                   }}
                                   strokeLinecap="round"
                                 />
@@ -9095,7 +9145,7 @@ function NodeCanvas() {
                                   strokeWidth="12"
                                   opacity={isSelected ? "0.3" : "0.2"}
                                   style={{
-                                    filter: `blur(3px) drop-shadow(0 0 8px ${edgeColor})`
+                                    filter: `drop-shadow(0 0 8px ${edgeColor})`
                                   }}
                                   strokeLinecap="round"
                                 />
@@ -9109,7 +9159,7 @@ function NodeCanvas() {
                                   strokeWidth="12"
                                   opacity={isSelected ? "0.3" : "0.2"}
                                   style={{
-                                    filter: `blur(3px) drop-shadow(0 0 8px ${edgeColor})`
+                                    filter: `drop-shadow(0 0 8px ${edgeColor})`
                                   }}
                                 />
                               )
@@ -9722,7 +9772,7 @@ function NodeCanvas() {
                                           strokeLinecap="round"
                                           opacity={isSelected ? "0.3" : "0.2"}
                                           style={{
-                                            filter: `blur(2px) drop-shadow(0 0 6px ${edgeColor})`
+                                            filter: `drop-shadow(0 0 6px ${edgeColor})`
                                           }}
                                         />
                                       )}
@@ -9758,7 +9808,7 @@ function NodeCanvas() {
                                           strokeLinecap="round"
                                           opacity={isSelected ? "0.3" : "0.2"}
                                           style={{
-                                            filter: `blur(2px) drop-shadow(0 0 6px ${edgeColor})`
+                                            filter: `drop-shadow(0 0 6px ${edgeColor})`
                                           }}
                                         />
                                       )}
@@ -9968,7 +10018,7 @@ function NodeCanvas() {
                                     strokeLinecap="round"
                                     strokeLinejoin="round"
                                     paintOrder="stroke fill"
-                                    style={{ pointerEvents: 'none', fontFamily: "'EmOne', sans-serif", filter: 'drop-shadow(0px 2px 3px rgba(0,0,0,0.3))' }}
+                                    style={{ pointerEvents: 'none', fontFamily: "'EmOne', sans-serif" }}
                                   >
                                     {connectionName}
                                   </text>
@@ -10381,7 +10431,7 @@ function NodeCanvas() {
                                   strokeWidth="12"
                                   opacity={isSelected ? "0.3" : "0.2"}
                                   style={{
-                                    filter: `blur(3px) drop-shadow(0 0 8px ${edgeColor})`
+                                    filter: `drop-shadow(0 0 8px ${edgeColor})`
                                   }}
                                   strokeLinecap="round"
                                 />
@@ -10393,7 +10443,7 @@ function NodeCanvas() {
                                   strokeWidth="12"
                                   opacity={isSelected ? "0.3" : "0.2"}
                                   style={{
-                                    filter: `blur(3px) drop-shadow(0 0 8px ${edgeColor})`
+                                    filter: `drop-shadow(0 0 8px ${edgeColor})`
                                   }}
                                   strokeLinecap="round"
                                 />
@@ -10407,7 +10457,7 @@ function NodeCanvas() {
                                   strokeWidth="12"
                                   opacity={isSelected ? "0.3" : "0.2"}
                                   style={{
-                                    filter: `blur(3px) drop-shadow(0 0 8px ${edgeColor})`
+                                    filter: `drop-shadow(0 0 8px ${edgeColor})`
                                   }}
                                 />
                               )
@@ -10885,7 +10935,7 @@ function NodeCanvas() {
                                           strokeLinecap="round"
                                           opacity={isSelected ? "0.3" : "0.2"}
                                           style={{
-                                            filter: `blur(2px) drop-shadow(0 0 6px ${edgeColor})`
+                                            filter: `drop-shadow(0 0 6px ${edgeColor})`
                                           }}
                                         />
                                       )}
@@ -10921,7 +10971,7 @@ function NodeCanvas() {
                                           strokeLinecap="round"
                                           opacity={isSelected ? "0.3" : "0.2"}
                                           style={{
-                                            filter: `blur(2px) drop-shadow(0 0 6px ${edgeColor})`
+                                            filter: `drop-shadow(0 0 6px ${edgeColor})`
                                           }}
                                         />
                                       )}
@@ -11131,7 +11181,7 @@ function NodeCanvas() {
                                     strokeLinecap="round"
                                     strokeLinejoin="round"
                                     paintOrder="stroke fill"
-                                    style={{ pointerEvents: 'none', fontFamily: "'EmOne', sans-serif", filter: 'drop-shadow(0px 2px 3px rgba(0,0,0,0.3))' }}
+                                    style={{ pointerEvents: 'none', fontFamily: "'EmOne', sans-serif" }}
                                   >
                                     {connectionName}
                                   </text>
@@ -11705,6 +11755,7 @@ function NodeCanvas() {
             zoomLevel={zoomLevel}
             panOffsetRef={panOffsetRef}
             zoomLevelRef={zoomLevelRef}
+            glowUpdateRef={glowUpdateRef}
             leftPanelExpanded={leftPanelExpanded}
             rightPanelExpanded={rightPanelExpanded}
             previewingNodeId={previewingNodeId}

@@ -73,7 +73,7 @@ const ConnectionText = ({
           strokeLinejoin="round"
           paintOrder="stroke fill"
           fontFamily="'EmOne', sans-serif"
-          style={{ pointerEvents: 'none', filter: 'drop-shadow(0px 2px 3px rgba(0,0,0,0.3))' }}
+          style={{ pointerEvents: 'none' }}
         >
           {line}
         </text>
