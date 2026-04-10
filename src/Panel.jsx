@@ -1442,6 +1442,7 @@ const Panel = memo(forwardRef(
 
     // --- Determine Active View/Tab --- 
     const isUltraSlim = panelWidth <= 275;
+    const isWideLayout = panelWidth > 250;
     // Get tabs reactively if side is 'right'
     const activeRightPanelTab = useMemo(() => {
       if (side !== 'right') return null;
@@ -1646,7 +1647,7 @@ const Panel = memo(forwardRef(
             sectionCollapsed={sectionCollapsed}
             sectionMaxHeights={sectionMaxHeights}
             toggleSection={toggleSection}
-            panelWidth={panelWidth}
+            isWideLayout={isWideLayout}
             sectionContentRefs={sectionContentRefs}
             activeDefinitionNodeId={activeDefinitionNodeId}
             openGraphTab={openGraphTab}
@@ -1663,7 +1664,7 @@ const Panel = memo(forwardRef(
             sectionCollapsed={sectionCollapsed}
             sectionMaxHeights={sectionMaxHeights}
             toggleSection={toggleSection}
-            panelWidth={panelWidth}
+            isWideLayout={isWideLayout}
             sectionContentRefs={sectionContentRefs}
             activeDefinitionNodeId={activeDefinitionNodeId}
             openGraphTab={openGraphTab}

@@ -3,7 +3,7 @@ import * as GeometryUtils from '../utils/canvas/geometryUtils.js';
 import { getNodeDimensions } from '../utils.js';
 import useHistoryStore from '../store/historyStore.js';
 import { getVisualConnectionEndpoints } from '../utils/canvas/nodeHitbox.js';
-import { calculateParallelEdgePath } from '../utils/canvas/parallelEdgeUtils.js';
+import { calculateParallelEdgePath, getPointOnQuadraticBezier } from '../utils/canvas/parallelEdgeUtils.js';
 
 // Movement Zoom-Out constants
 const DRAG_ZOOM_MIN = 0.3;
@@ -69,6 +69,9 @@ export const useNodeDrag = ({
   edgesByNodeIdRef,
   visibleEdgesRef,
   selectedInstanceIdsRef,
+  enableAutoRoutingRef,
+  routingStyleRef,
+  groupsByNodeIdRef,
 }) => {
   // ---------------------------------------------------------------------------
   // State & Refs
@@ -79,9 +82,9 @@ export const useNodeDrag = ({
 
   const [preDragZoomLevel, setPreDragZoomLevel] = useState(null);
 
-  const [isAnimatingZoom, setIsAnimatingZoom] = useState(false);
+  // isAnimatingZoom is ref-only (no React state) to avoid re-renders during drag zoom animation.
+  // Consumers read isAnimatingZoomRef.current directly.
   const isAnimatingZoomRef = useRef(false);
-  useEffect(() => { isAnimatingZoomRef.current = isAnimatingZoom; }, [isAnimatingZoom]);
 
   const [longPressingInstanceId, setLongPressingInstanceId] = useState(null);
 
@@ -114,7 +117,8 @@ export const useNodeDrag = ({
   // DOM-bypass drag state
   const dragPositionsRef = useRef(new Map());     // instanceId → {x, y}
   const dragNodeElsRef = useRef(new Map());       // instanceId → DOM <g> element
-  const dragEdgeElsRef = useRef(new Map());       // edgeId → DOM <g> element
+  const dragEdgeElsRef = useRef(new Map());       // edgeId → DOM <g> element(s)
+  const dragGroupElsRef = useRef(new Map());      // groupId → DOM <g> element(s)
 
   // ---------------------------------------------------------------------------
   // Grid Snapping Helpers
@@ -132,6 +136,7 @@ export const useNodeDrag = ({
 
     dragNodeElsRef.current.clear();
     dragEdgeElsRef.current.clear();
+    dragGroupElsRef.current.clear();
 
     // Cache node <g> elements
     const nodeIdSet = new Set(nodeIds);
@@ -156,7 +161,38 @@ export const useNodeDrag = ({
         dragEdgeElsRef.current.set(edgeId, Array.from(els));
       }
     });
-  }, [containerRef, edgesByNodeIdRef]);
+
+    // Cache group <g> elements for all groups containing dragged nodes
+    const groupsByNode = groupsByNodeIdRef.current;
+    nodeIdSet.forEach(nodeId => {
+      const groups = groupsByNode.get(nodeId);
+      if (groups) {
+        groups.forEach(({ groupId }) => {
+          if (!dragGroupElsRef.current.has(groupId)) {
+            const els = container.querySelectorAll(`[data-group-id="${groupId}"]`);
+            if (els.length > 0) dragGroupElsRef.current.set(groupId, Array.from(els));
+          }
+        });
+      }
+    });
+  }, [containerRef, edgesByNodeIdRef, groupsByNodeIdRef]);
+
+  // Re-cache DOM elements after React re-renders for drag start.
+  // The primary node moves to a separate JSX block (isDragging=true) on re-render,
+  // invalidating the DOM ref cached synchronously in startDragForNode.
+  useEffect(() => {
+    if (!draggingNodeInfo) return;
+    const ids = [];
+    if (draggingNodeInfo.relativeOffsets) {
+      ids.push(draggingNodeInfo.primaryId);
+      Object.keys(draggingNodeInfo.relativeOffsets).forEach(id => ids.push(id));
+    } else if (draggingNodeInfo.instanceId) {
+      ids.push(draggingNodeInfo.instanceId);
+    } else if (draggingNodeInfo.memberOffsets) {
+      draggingNodeInfo.memberOffsets.forEach(m => ids.push(m.id));
+    }
+    if (ids.length > 0) cacheDOMElements(ids);
+  }, [draggingNodeInfo, cacheDOMElements]);
 
   // ---------------------------------------------------------------------------
   // Compute Position Updates (pure math, no side effects)
@@ -227,7 +263,7 @@ export const useNodeDrag = ({
   }, [gridMode, gridSize, snapToGridAnimated, nodeByIdRef]);
 
   // ---------------------------------------------------------------------------
-  // Update Edge DOM Elements During Drag
+  // Update Edge DOM Elements During Drag (edges, arrows, labels)
   // ---------------------------------------------------------------------------
   const updateEdgesInDOM = useCallback((movedNodeIds) => {
     const edgesByNode = edgesByNodeIdRef.current;
@@ -241,6 +277,8 @@ export const useNodeDrag = ({
     const curBaseDims = baseDimsByIdRef.current;
     const curCurveInfo = edgeCurveInfoRef.current;
     const curSelectedIds = selectedInstanceIdsRef.current;
+    const isManhattanOrClean = enableAutoRoutingRef.current &&
+      (routingStyleRef.current === 'manhattan' || routingStyleRef.current === 'clean');
 
     // Build edge data index on demand from visible edges
     const visEdges = visibleEdgesRef.current;
@@ -281,13 +319,15 @@ export const useNodeDrag = ({
 
       // Get curve info for parallel edges
       const curveInfo = curCurveInfo.get(edgeId);
+      const useCurve = curveInfo && curveInfo.totalInPair > 1;
       const parallelPath = calculateParallelEdgePath(
         endpoints.x1, endpoints.y1, endpoints.x2, endpoints.y2, curveInfo
       );
 
       // Update each edge <g> element (may appear in both above/below blocks)
       edgeEls.forEach(edgeEl => {
-        if (parallelPath.type === 'line' && (!curveInfo || curveInfo.totalInPair <= 1)) {
+        // --- Update edge geometry (paths + lines) ---
+        if (parallelPath.type === 'line' && !useCurve) {
           // Straight edge: update <line> elements
           const lines = edgeEl.querySelectorAll('line');
           lines.forEach(line => {
@@ -320,9 +360,74 @@ export const useNodeDrag = ({
             line.setAttribute('y2', endpoints.y2);
           });
         }
+
+        // --- Update arrow positions ---
+        if (!isManhattanOrClean) {
+          const arrowGs = edgeEl.querySelectorAll('[data-arrow]');
+          if (arrowGs.length > 0) {
+            if (useCurve && parallelPath.ctrlX != null) {
+              // Curved: compute point on quadratic bezier at t near endpoints + tangent angle
+              arrowGs.forEach(arrowG => {
+                const type = arrowG.getAttribute('data-arrow');
+                const t = type === 'source' ? 0.08 : 0.92;
+                const pt = getPointOnQuadraticBezier(t,
+                  parallelPath.startX, parallelPath.startY,
+                  parallelPath.ctrlX, parallelPath.ctrlY,
+                  parallelPath.endX, parallelPath.endY);
+                const invT = 1 - t;
+                const tx = 2 * invT * (parallelPath.ctrlX - parallelPath.startX) + 2 * t * (parallelPath.endX - parallelPath.ctrlX);
+                const ty = 2 * invT * (parallelPath.ctrlY - parallelPath.startY) + 2 * t * (parallelPath.endY - parallelPath.ctrlY);
+                const angle = Math.atan2(ty, tx) * (180 / Math.PI) + (type === 'source' ? 180 : 0);
+                arrowG.setAttribute('transform', `translate(${pt.x}, ${pt.y}) rotate(${angle + 90})`);
+              });
+            } else {
+              // Straight: arrows near endpoints, angle from line direction
+              const dx = endpoints.x2 - endpoints.x1;
+              const dy = endpoints.y2 - endpoints.y1;
+              const len = Math.sqrt(dx * dx + dy * dy);
+              if (len > 0) {
+                const offset = 5;
+                const angle = Math.atan2(dy, dx) * (180 / Math.PI);
+                arrowGs.forEach(arrowG => {
+                  const type = arrowG.getAttribute('data-arrow');
+                  if (type === 'source') {
+                    arrowG.setAttribute('transform',
+                      `translate(${endpoints.x1 + (dx / len) * offset}, ${endpoints.y1 + (dy / len) * offset}) rotate(${angle + 180 + 90})`);
+                  } else {
+                    arrowG.setAttribute('transform',
+                      `translate(${endpoints.x2 - (dx / len) * offset}, ${endpoints.y2 - (dy / len) * offset}) rotate(${angle + 90})`);
+                  }
+                });
+              }
+            }
+          }
+        }
+        // Manhattan/clean arrows: stay at pre-drag positions (port logic is too complex to replicate)
+
+        // --- Update edge labels ---
+        const textEls = edgeEl.querySelectorAll('text');
+        if (textEls.length > 0) {
+          let midX, midY, labelAngle;
+          if (useCurve && parallelPath.apexX != null) {
+            midX = parallelPath.apexX;
+            midY = parallelPath.apexY;
+            labelAngle = parallelPath.labelAngle || 0;
+          } else {
+            midX = (endpoints.x1 + endpoints.x2) / 2;
+            midY = (endpoints.y1 + endpoints.y2) / 2;
+            labelAngle = Math.atan2(endpoints.y2 - endpoints.y1, endpoints.x2 - endpoints.x1) * (180 / Math.PI);
+          }
+          const adj = (labelAngle > 90 || labelAngle < -90) ? labelAngle + 180 : labelAngle;
+          textEls.forEach(t => {
+            t.setAttribute('x', midX);
+            t.setAttribute('y', midY);
+            t.setAttribute('transform', `rotate(${adj}, ${midX}, ${midY})`);
+          });
+        }
       });
     });
-  }, [nodeByIdRef, baseDimsByIdRef, edgeCurveInfoRef, edgesByNodeIdRef, visibleEdgesRef, selectedInstanceIdsRef]);
+  }, [nodeByIdRef, baseDimsByIdRef, edgeCurveInfoRef, edgesByNodeIdRef, visibleEdgesRef,
+      selectedInstanceIdsRef, enableAutoRoutingRef, routingStyleRef]);
 
   // ---------------------------------------------------------------------------
   // Core DOM Drag Update (replaces performDragUpdate — writes to DOM, not store)
@@ -374,6 +479,20 @@ export const useNodeDrag = ({
 
     // Update connected edges in DOM
     updateEdgesInDOM(movedNodeIds);
+
+    // Update group outlines via CSS translate for group drags
+    if (draggingInfo.groupId && dragGroupElsRef.current.size > 0) {
+      const first = draggingInfo.memberOffsets?.[0];
+      const firstNode = first && curNodeById.get(first.id);
+      const firstNewPos = first && dragPositionsRef.current.get(first.id);
+      if (firstNode && firstNewPos) {
+        const dx = firstNewPos.x - firstNode.x;
+        const dy = firstNewPos.y - firstNode.y;
+        dragGroupElsRef.current.forEach(els => {
+          els.forEach(el => { el.style.transform = `translate(${dx}px, ${dy}px)`; });
+        });
+      }
+    }
   }, [containerRef, canvasSizeRef, placedLabelsRef, computePositionUpdates, nodeByIdRef, baseDimsByIdRef, updateEdgesInDOM]);
 
   // Ref to hold latest performDOMDragUpdate (avoids restarting edge panning effect)
@@ -420,7 +539,7 @@ export const useNodeDrag = ({
       animationId: null
     };
 
-    setIsAnimatingZoom(true);
+    isAnimatingZoomRef.current = true;
 
     const step = (now) => {
       const state = zoomAnimationRef.current;
@@ -453,7 +572,7 @@ export const useNodeDrag = ({
         }
         state.active = false;
         state.animationId = null;
-        setIsAnimatingZoom(false);
+        isAnimatingZoomRef.current = false;
       }
     };
 
@@ -483,7 +602,7 @@ export const useNodeDrag = ({
       animationId: null
     };
 
-    setIsAnimatingZoom(true);
+    isAnimatingZoomRef.current = true;
 
     const step = (now) => {
       const state = zoomAnimationRef.current;
@@ -505,7 +624,7 @@ export const useNodeDrag = ({
       } else {
         state.active = false;
         state.animationId = null;
-        setIsAnimatingZoom(false);
+        isAnimatingZoomRef.current = false;
       }
     };
 
@@ -542,9 +661,13 @@ export const useNodeDrag = ({
       el.style.transform = '';
       el.style.transformOrigin = '';
     });
+    dragGroupElsRef.current.forEach(els => {
+      els.forEach(el => { el.style.transform = ''; });
+    });
     dragPositionsRef.current.clear();
     dragNodeElsRef.current.clear();
     dragEdgeElsRef.current.clear();
+    dragGroupElsRef.current.clear();
   }, []);
 
   // ---------------------------------------------------------------------------
@@ -965,7 +1088,6 @@ export const useNodeDrag = ({
     // State
     draggingNodeInfo,
     draggingNodeInfoRef,
-    isAnimatingZoom,
     isAnimatingZoomRef,
     longPressingInstanceId,
     setLongPressingInstanceId,

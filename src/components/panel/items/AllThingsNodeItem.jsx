@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useCallback, useEffect } from 'react';
 import { useDrag } from 'react-dnd';
 import { getEmptyImage } from 'react-dnd-html5-backend';
 import { Copy, XCircle } from 'lucide-react';
@@ -24,6 +24,8 @@ const getSemanticNodeColor = (nodeData) => {
 const AllThingsNodeItem = ({ node, onClick, onDoubleClick, isActive, hasSemanticData, onDelete, duplicateNodePrototype }) => {
   const theme = useTheme();
   const [isHovered, setIsHovered] = useState(false);
+  const handleMouseEnter = useCallback(() => setIsHovered(true), []);
+  const handleMouseLeave = useCallback(() => setIsHovered(false), []);
 
   const [{ isDragging }, drag, preview] = useDrag(() => ({
     type: ItemTypes.SPAWNABLE_NODE,
@@ -63,8 +65,8 @@ const AllThingsNodeItem = ({ node, onClick, onDoubleClick, isActive, hasSemantic
         onClick={onClick}
         onDoubleClick={onDoubleClick}
         onContextMenu={handleContextMenu}
-        onMouseEnter={() => setIsHovered(true)}
-        onMouseLeave={() => setIsHovered(false)}
+        onMouseEnter={handleMouseEnter}
+        onMouseLeave={handleMouseLeave}
         style={{
           position: 'relative',
           backgroundColor: node.semanticMetadata?.isSemanticNode ? getSemanticNodeColor(node) : (node.color || NODE_DEFAULT_COLOR),
@@ -136,4 +138,4 @@ const AllThingsNodeItem = ({ node, onClick, onDoubleClick, isActive, hasSemantic
   );
 };
 
-export default AllThingsNodeItem;
+export default React.memo(AllThingsNodeItem);

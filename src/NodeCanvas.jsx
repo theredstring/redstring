@@ -1071,6 +1071,29 @@ function NodeCanvas() {
   const selectedInstanceIdsRef = useRef(selectedInstanceIds);
   useEffect(() => { selectedInstanceIdsRef.current = selectedInstanceIds; }, [selectedInstanceIds]);
 
+  // Routing refs for DOM-bypass drag (arrow/label updates need to know routing mode)
+  const enableAutoRoutingRef = useRef(enableAutoRouting);
+  const routingStyleRef = useRef(routingStyle);
+  useEffect(() => { enableAutoRoutingRef.current = enableAutoRouting; }, [enableAutoRouting]);
+  useEffect(() => { routingStyleRef.current = routingStyle; }, [routingStyle]);
+
+  // Groups-by-node mapping for DOM-bypass group drag
+  const groupsByNodeIdRef = useRef(new Map());
+  useEffect(() => {
+    const map = new Map();
+    const graphData = activeGraphId ? graphsMap.get(activeGraphId) : null;
+    if (graphData?.groups) {
+      graphData.groups.forEach((group, groupId) => {
+        if (!group.memberInstanceIds) return;
+        group.memberInstanceIds.forEach(instId => {
+          if (!map.has(instId)) map.set(instId, []);
+          map.get(instId).push({ groupId, memberInstanceIds: group.memberInstanceIds });
+        });
+      });
+    }
+    groupsByNodeIdRef.current = map;
+  }, [activeGraphId, graphsMap]);
+
   // Clipboard ref for copy/paste operations
   const clipboardRef = useRef(null);
 
@@ -1504,11 +1527,13 @@ function NodeCanvas() {
     edgesByNodeIdRef,
     visibleEdgesRef,
     selectedInstanceIdsRef,
+    enableAutoRoutingRef,
+    routingStyleRef,
+    groupsByNodeIdRef,
   });
   // Aliases for 1:1 replacement of old local state/refs
   const draggingNodeInfo = nodeDrag.draggingNodeInfo;
   const draggingNodeInfoRef = nodeDrag.draggingNodeInfoRef;
-  const isAnimatingZoom = nodeDrag.isAnimatingZoom;
   const isAnimatingZoomRef = nodeDrag.isAnimatingZoomRef;
   const longPressingInstanceId = nodeDrag.longPressingInstanceId;
   const setLongPressingInstanceId = nodeDrag.setLongPressingInstanceId;
@@ -3666,7 +3691,7 @@ function NodeCanvas() {
       }
 
       // CRITICAL: Don't save during node drag or drag zoom animations
-      if (draggingNodeInfo || isAnimatingZoom) {
+      if (draggingNodeInfo || isAnimatingZoomRef.current) {
         return;
       }
 
@@ -3684,7 +3709,7 @@ function NodeCanvas() {
         clearTimeout(saveViewStateTimeout.current);
       }
     };
-  }, [activeGraphId, panOffset, zoomLevel, updateGraphViewInStore, draggingNodeInfo, isAnimatingZoom]);
+  }, [activeGraphId, panOffset, zoomLevel, updateGraphViewInStore, draggingNodeInfo]);
 
   // --- Utility Functions ---
 
@@ -4372,7 +4397,7 @@ function NodeCanvas() {
     // Skip webworker zoom during drag to prevent interference with drag zoom-out animation
     if (isMac && e.ctrlKey && !trackpadZoomEnabled) {
       // Don't interfere with drag zoom-out animation
-      if (draggingNodeInfo || isAnimatingZoom) {
+      if (draggingNodeInfo || isAnimatingZoomRef.current) {
         return;
       }
       e.stopPropagation();
@@ -4446,7 +4471,7 @@ function NodeCanvas() {
     // Skip webworker zoom during drag to prevent interference with drag zoom-out animation
     if (deviceType === 'mouse' || deviceType === 'mouse_wheel' || (deviceType === 'undetermined' && deltaY !== 0 && Math.abs(deltaX) < 0.15)) {
       // Don't interfere with drag zoom-out animation
-      if (draggingNodeInfo || isAnimatingZoom) {
+      if (draggingNodeInfo || isAnimatingZoomRef.current) {
         return;
       }
       e.stopPropagation();
@@ -6196,7 +6221,7 @@ function NodeCanvas() {
     viewportSize, // {width, height}
     viewportBounds, // {x, y, width, height}
     draggingNodeInfo,
-    isAnimatingZoom,
+    isAnimatingZoomRef,
     minZoom: MIN_ZOOM,
     maxZoom: MAX_ZOOM,
     isPaused,
@@ -9597,6 +9622,7 @@ function NodeCanvas() {
                                   {/* Source Arrow - visible if arrow points toward source node */}
                                   {arrowsToward.has(sourceNode.id) && (
                                     <g
+                                      data-arrow="source"
                                       transform={`translate(${sourceArrowX}, ${sourceArrowY}) rotate(${sourceArrowAngle + 90})`}
                                       style={{ cursor: 'pointer' }}
                                       onClick={(e) => handleArrowClick(sourceNode.id, e)}
@@ -9632,6 +9658,7 @@ function NodeCanvas() {
                                   {/* Destination Arrow - visible if arrow points toward destination node */}
                                   {arrowsToward.has(destNode.id) && (
                                     <g
+                                      data-arrow="dest"
                                       transform={`translate(${destArrowX}, ${destArrowY}) rotate(${destArrowAngle + 90})`}
                                       style={{ cursor: 'pointer' }}
                                       onClick={(e) => handleArrowClick(destNode.id, e)}
@@ -10758,6 +10785,7 @@ function NodeCanvas() {
                                   {/* Source Arrow - visible if arrow points toward source node */}
                                   {arrowsToward.has(sourceNode.id) && (
                                     <g
+                                      data-arrow="source"
                                       transform={`translate(${sourceArrowX}, ${sourceArrowY}) rotate(${sourceArrowAngle + 90})`}
                                       style={{ cursor: 'pointer' }}
                                       onClick={(e) => handleArrowClick(sourceNode.id, e)}
@@ -10793,6 +10821,7 @@ function NodeCanvas() {
                                   {/* Destination Arrow - visible if arrow points toward destination node */}
                                   {arrowsToward.has(destNode.id) && (
                                     <g
+                                      data-arrow="dest"
                                       transform={`translate(${destArrowX}, ${destArrowY}) rotate(${destArrowAngle + 90})`}
                                       style={{ cursor: 'pointer' }}
                                       onClick={(e) => handleArrowClick(destNode.id, e)}

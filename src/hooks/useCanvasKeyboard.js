@@ -38,7 +38,7 @@ export const useCanvasKeyboard = ({
     viewportSize, // {width, height}
     viewportBounds, // {x, y, width, height}
     draggingNodeInfo,
-    isAnimatingZoom,
+    isAnimatingZoomRef,
     // UI State flags
     isPaused,
     nodeNamePrompt,
@@ -85,7 +85,7 @@ export const useCanvasKeyboard = ({
         viewportSize, // {width, height}
         viewportBounds, // {x, y, width, height}
         draggingNodeInfo,
-        isAnimatingZoom,
+        isAnimatingZoomRef,
         // UI State flags
         isPaused,
         nodeNamePrompt,
@@ -157,7 +157,7 @@ export const useCanvasKeyboard = ({
                 flushSettle,
                 isPanningOrZoomingRef,
                 draggingNodeInfo,
-                isAnimatingZoom,
+                isAnimatingZoomRef,
                 viewportBounds,
                 keyboardSettings
             } = params;
@@ -210,7 +210,7 @@ export const useCanvasKeyboard = ({
             }
 
             // Handle zoom — skip during drag to prevent interference with drag zoom animation
-            if (!draggingNodeInfo && !isAnimatingZoom) {
+            if (!draggingNodeInfo && !isAnimatingZoomRef.current) {
                 const baseFactor = 1.1;
                 const sensitivity = keyboardSettings?.zoomSensitivity ?? 0.5;
                 const zoomFactor = 1 + (baseFactor - 1) * sensitivity;

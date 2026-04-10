@@ -38,6 +38,8 @@ const LeftLibraryView = ({
     }
   ];
 
+  const isWideLayout = panelWidth > 250;
+
   const gridComponents = useMemo(() => {
     return {
       List: React.forwardRef((props, ref) => (
@@ -47,8 +49,8 @@ const LeftLibraryView = ({
           style={{
             ...props.style,
             display: 'grid',
-            gridTemplateColumns: panelWidth > 250 ? '1fr 1fr' : '1fr',
-            gap: panelWidth > 250 ? '8px' : '0px',
+            gridTemplateColumns: isWideLayout ? '1fr 1fr' : '1fr',
+            gap: isWideLayout ? '8px' : '0px',
             width: '100%',
           }}
         />
@@ -57,7 +59,7 @@ const LeftLibraryView = ({
         <div {...props} ref={ref} style={{ ...props.style, display: 'flex', flexDirection: 'column', minWidth: 0, width: '100%' }} />
       ))
     };
-  }, [panelWidth]);
+  }, [isWideLayout]);
 
   return (
     <div
@@ -150,7 +152,7 @@ const LeftLibraryView = ({
                         if (el) { sectionContentRefs.current.set(typeId, el); } else { sectionContentRefs.current.delete(typeId); }
                       }}
                       style={{
-                        height: `${Math.min(Math.ceil(nodes.length / (panelWidth > 250 ? 2 : 1)) * 42 + 16, 400)}px`,
+                        height: `${Math.min(Math.ceil(nodes.length / (isWideLayout ? 2 : 1)) * 42 + 16, 400)}px`,
                         marginTop: '8px',
                         paddingBottom: '8px',
                       }}
