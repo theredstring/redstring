@@ -119,6 +119,7 @@ export const useNodeDrag = ({
   const dragNodeElsRef = useRef(new Map());       // instanceId → DOM <g> element
   const dragEdgeElsRef = useRef(new Map());       // edgeId → DOM <g> element(s)
   const dragGroupElsRef = useRef(new Map());      // groupId → DOM <g> element(s)
+  const dragGroupMetaRef = useRef(new Map());     // groupId → { memberIds, elements[] }
 
   // ---------------------------------------------------------------------------
   // Grid Snapping Helpers
@@ -162,19 +163,40 @@ export const useNodeDrag = ({
       }
     });
 
-    // Cache group <g> elements for all groups containing dragged nodes
+    // Cache group <g> elements and sub-element metadata for all groups containing dragged nodes
     const groupsByNode = groupsByNodeIdRef.current;
+    dragGroupMetaRef.current.clear();
     nodeIdSet.forEach(nodeId => {
       const groups = groupsByNode.get(nodeId);
       if (groups) {
-        groups.forEach(({ groupId }) => {
+        groups.forEach(({ groupId, memberInstanceIds }) => {
           if (!dragGroupElsRef.current.has(groupId)) {
             const els = container.querySelectorAll(`[data-group-id="${groupId}"]`);
             if (els.length > 0) {
               const arr = Array.from(els);
-              // Snapshot current React-rendered transform (includes scale for dragged groups)
               arr.forEach(el => { el.dataset.groupBaseTransform = el.style.transform || ''; });
               dragGroupElsRef.current.set(groupId, arr);
+
+              // Cache sub-element references for direct attribute updates
+              dragGroupMetaRef.current.set(groupId, {
+                memberIds: memberInstanceIds ? [...memberInstanceIds] : [],
+                elements: arr.map(el => {
+                  const isRegular = el.classList.contains('group');
+                  const isBg = el.classList.contains('node-group-bg');
+                  const labelG = el.querySelector(':scope > .group-label');
+                  const labelRect = labelG?.querySelector('rect');
+                  const labelText = labelG?.querySelector('text');
+                  return {
+                    el,
+                    type: isRegular ? 'regular' : isBg ? 'bg' : 'title',
+                    directRects: Array.from(el.querySelectorAll(':scope > rect')),
+                    labelRect,
+                    labelText,
+                    labelWidth: labelRect ? parseFloat(labelRect.getAttribute('width')) : 0,
+                    labelHeight: labelRect ? parseFloat(labelRect.getAttribute('height')) : 0,
+                  };
+                }),
+              });
             }
           }
         });
@@ -437,6 +459,115 @@ export const useNodeDrag = ({
       selectedInstanceIdsRef, enableAutoRoutingRef, routingStyleRef]);
 
   // ---------------------------------------------------------------------------
+  // Update Group Bounds in DOM (recomputes bounding boxes for affected groups)
+  // ---------------------------------------------------------------------------
+  const updateGroupBoundsInDOM = useCallback((movedNodeIds) => {
+    if (dragGroupMetaRef.current.size === 0) return;
+
+    const groupsByNode = groupsByNodeIdRef.current;
+    const affectedGroupIds = new Set();
+    movedNodeIds.forEach(nodeId => {
+      const groups = groupsByNode.get(nodeId);
+      if (groups) groups.forEach(({ groupId }) => affectedGroupIds.add(groupId));
+    });
+    if (affectedGroupIds.size === 0) return;
+
+    const curNodeById = nodeByIdRef.current;
+    const curBaseDims = baseDimsByIdRef.current;
+    const dragPos = dragPositionsRef.current;
+
+    // GROUP_SPACING must match NodeCanvas render (lines 8176-8190)
+    const memberBoundaryPadding = Math.max(24, Math.round(gridSize * 0.2));
+    const innerCanvasBorder = 32;
+    const margin = memberBoundaryPadding + innerCanvasBorder;
+    const titleToCanvasGap = 24;
+    const titleTopMargin = 24;
+    const titleBottomMargin = 24;
+
+    affectedGroupIds.forEach(groupId => {
+      const meta = dragGroupMetaRef.current.get(groupId);
+      if (!meta) return;
+
+      // Compute bounding box from all member positions (drag or store)
+      let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+      meta.memberIds.forEach(id => {
+        const dp = dragPos.get(id);
+        const stored = curNodeById.get(id);
+        const px = dp ? dp.x : (stored?.x ?? 0);
+        const py = dp ? dp.y : (stored?.y ?? 0);
+        const dims = curBaseDims.get(id) || { currentWidth: 200, currentHeight: 150 };
+        if (px < minX) minX = px;
+        if (py < minY) minY = py;
+        if (px + dims.currentWidth > maxX) maxX = px + dims.currentWidth;
+        if (py + dims.currentHeight > maxY) maxY = py + dims.currentHeight;
+      });
+      if (!isFinite(minX)) return;
+
+      const rectX = minX - margin;
+      const rectY = minY - margin;
+      const rectW = (maxX - minX) + margin * 2;
+      const rectH = (maxY - minY) + margin * 2;
+
+      meta.elements.forEach(sub => {
+        // Clear CSS transform — use raw attribute positioning instead
+        sub.el.style.transform = '';
+        sub.el.style.transformOrigin = '';
+
+        if (sub.type === 'regular') {
+          // Outline rect
+          if (sub.directRects[0]) {
+            sub.directRects[0].setAttribute('x', rectX);
+            sub.directRects[0].setAttribute('y', rectY);
+            sub.directRects[0].setAttribute('width', rectW);
+            sub.directRects[0].setAttribute('height', rectH);
+          }
+          // Label position (centered above group)
+          if (sub.labelRect) {
+            const lx = rectX + (rectW - sub.labelWidth) / 2;
+            const ly = rectY - sub.labelHeight - titleToCanvasGap;
+            sub.labelRect.setAttribute('x', lx);
+            sub.labelRect.setAttribute('y', ly);
+            if (sub.labelText) {
+              sub.labelText.setAttribute('x', lx + sub.labelWidth / 2);
+              sub.labelText.setAttribute('y', ly + sub.labelHeight * 0.7 - 2);
+            }
+          }
+        } else if (sub.type === 'bg') {
+          // Thing-group background: outer rect + inner canvas rect
+          const labelY = rectY - sub.labelHeight - titleToCanvasGap;
+          const ngRectY = labelY - titleTopMargin;
+          const ngRectH = (rectY + rectH) - ngRectY;
+          const innerY = labelY + sub.labelHeight + titleBottomMargin;
+          if (sub.directRects[0]) {
+            sub.directRects[0].setAttribute('x', rectX);
+            sub.directRects[0].setAttribute('y', ngRectY);
+            sub.directRects[0].setAttribute('width', rectW);
+            sub.directRects[0].setAttribute('height', ngRectH);
+          }
+          if (sub.directRects[1]) {
+            sub.directRects[1].setAttribute('x', rectX + innerCanvasBorder);
+            sub.directRects[1].setAttribute('y', innerY);
+            sub.directRects[1].setAttribute('width', rectW - innerCanvasBorder * 2);
+            sub.directRects[1].setAttribute('height', (rectY + rectH) - innerY - innerCanvasBorder);
+          }
+        } else if (sub.type === 'title') {
+          // Thing-group title label
+          if (sub.labelRect) {
+            const lx = rectX + (rectW - sub.labelWidth) / 2;
+            const ly = rectY - sub.labelHeight - titleToCanvasGap;
+            sub.labelRect.setAttribute('x', lx);
+            sub.labelRect.setAttribute('y', ly);
+            if (sub.labelText) {
+              sub.labelText.setAttribute('x', lx + sub.labelWidth / 2);
+              sub.labelText.setAttribute('y', ly + sub.labelHeight * 0.7 - 2);
+            }
+          }
+        }
+      });
+    });
+  }, [groupsByNodeIdRef, nodeByIdRef, baseDimsByIdRef, gridSize]);
+
+  // ---------------------------------------------------------------------------
   // Core DOM Drag Update (replaces performDragUpdate — writes to DOM, not store)
   // ---------------------------------------------------------------------------
   const performDOMDragUpdate = useCallback((clientX, clientY, currentPan, currentZoom, draggingInfo) => {
@@ -489,22 +620,9 @@ export const useNodeDrag = ({
     // Update connected edges in DOM
     updateEdgesInDOM(movedNodeIds);
 
-    // Update group outlines via CSS translate for group drags
-    if (draggingInfo.groupId && dragGroupElsRef.current.size > 0) {
-      const first = draggingInfo.memberOffsets?.[0];
-      const firstNode = first && curNodeById.get(first.id);
-      const firstNewPos = first && dragPositionsRef.current.get(first.id);
-      if (firstNode && firstNewPos) {
-        const dx = firstNewPos.x - firstNode.x;
-        const dy = firstNewPos.y - firstNode.y;
-        dragGroupElsRef.current.forEach(els => {
-          els.forEach(el => {
-              el.style.transform = `translate(${dx}px, ${dy}px) ${el.dataset.groupBaseTransform || ''}`;
-            });
-        });
-      }
-    }
-  }, [containerRef, canvasSizeRef, placedLabelsRef, computePositionUpdates, nodeByIdRef, baseDimsByIdRef, updateEdgesInDOM]);
+    // Update group bounding boxes for ALL drag types (single, multi, group-label)
+    updateGroupBoundsInDOM(movedNodeIds);
+  }, [containerRef, canvasSizeRef, placedLabelsRef, computePositionUpdates, nodeByIdRef, baseDimsByIdRef, updateEdgesInDOM, updateGroupBoundsInDOM]);
 
   // Ref to hold latest performDOMDragUpdate (avoids restarting edge panning effect)
   const performDragUpdateRef = useRef(performDOMDragUpdate);
@@ -691,6 +809,7 @@ export const useNodeDrag = ({
     dragNodeElsRef.current.clear();
     dragEdgeElsRef.current.clear();
     dragGroupElsRef.current.clear();
+    dragGroupMetaRef.current.clear();
   }, []);
 
   // ---------------------------------------------------------------------------
@@ -836,18 +955,13 @@ export const useNodeDrag = ({
     const info = draggingNodeInfo;
     if (!info) return { draggedNodeIds: [], primaryNodeId: null, checkGroupDrop: false, wasGroupDrag: false };
 
-    // --- Flush DOM-bypass positions to Zustand store ---
+    // --- Capture final positions (NOT flushed yet — deferred to performCleanup) ---
     const finalPositions = new Map(dragPositionsRef.current);
-    if (finalPositions.size > 0) {
-      const finalUpdates = Array.from(finalPositions.entries()).map(
-        ([instanceId, { x, y }]) => ({ instanceId, x, y })
-      );
-      storeActions.updateMultipleNodeInstancePositions(
-        activeGraphId,
-        finalUpdates,
-        { isDragging: true, phase: 'move' }
-      );
-    }
+    const finalUpdates = finalPositions.size > 0
+      ? Array.from(finalPositions.entries()).map(
+          ([instanceId, { x, y }]) => ({ instanceId, x, y })
+        )
+      : [];
 
     // --- History Recording (use finalPositions from dragPositionsRef) ---
     if (!dragHistoryRecordedRef.current) {
@@ -915,7 +1029,8 @@ export const useNodeDrag = ({
       }
     }
 
-    // --- Finalize Group Drag (history + position commit) ---
+    // --- Compute Group Drag data (deferred to performCleanup) ---
+    let groupDragUpdates = null;
     if (wasGroupDrag) {
       const rect = containerRef.current.getBoundingClientRect();
       const currentPan = panOffsetRef.current;
@@ -943,16 +1058,29 @@ export const useNodeDrag = ({
       const graph = graphsMap?.get(activeGraphId);
       const groupName = graph?.groups?.get(info.groupId)?.name;
 
-      storeActions.updateMultipleNodeInstancePositions(
-        activeGraphId,
-        positionUpdates,
-        { finalize: true, type: 'node_position', groupId: info.groupId, groupName }
-      );
+      groupDragUpdates = {
+        updates: positionUpdates,
+        groupId: info.groupId,
+        groupName
+      };
     }
 
     // --- Cleanup function: clears DOM transforms, resets scale, nulls drag state ---
     // Deferred to after zoom-restore animation if applicable, otherwise runs immediately.
     const performCleanup = () => {
+      // Flush positions to store (deferred to avoid double-offset during zoom-restore)
+      if (finalUpdates.length > 0) {
+        storeActions.updateMultipleNodeInstancePositions(
+          activeGraphId, finalUpdates, { isDragging: true, phase: 'move' }
+        );
+      }
+      if (groupDragUpdates) {
+        storeActions.updateMultipleNodeInstancePositions(
+          activeGraphId, groupDragUpdates.updates,
+          { finalize: true, type: 'node_position', groupId: groupDragUpdates.groupId, groupName: groupDragUpdates.groupName }
+        );
+      }
+
       clearDOMTransforms();
 
       let finalizeSent = false;
@@ -1029,7 +1157,7 @@ export const useNodeDrag = ({
     }
 
     const primaryNodeId = info.primaryId || info.instanceId || null;
-    return { draggedNodeIds, primaryNodeId, checkGroupDrop, wasGroupDrag };
+    return { draggedNodeIds, primaryNodeId, checkGroupDrop, wasGroupDrag, finalPositions };
   }, [draggingNodeInfo, nodes, activeGraphId, storeActions, nodeByIdRef, gridMode, gridSize,
     preDragZoomLevel, dragZoomSettings, zoomLevelRef, panOffsetRef, containerRef, canvasSizeRef,
     animateZoomAndPanToTarget, clearDOMTransforms]);

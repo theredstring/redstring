@@ -5282,8 +5282,12 @@ function NodeCanvas() {
 
           if (primaryNode) {
             const primaryDims = getNodeDimensions(primaryNode, false, null);
-            const primaryCenterX = primaryNode.x + primaryDims.currentWidth / 2;
-            const primaryCenterY = primaryNode.y + primaryDims.currentHeight / 2;
+            // Use finalPositions (accurate during zoom-restore when store isn't flushed yet)
+            const fp = dragResult.finalPositions?.get(primaryNodeId);
+            const posX = fp ? fp.x : primaryNode.x;
+            const posY = fp ? fp.y : primaryNode.y;
+            const primaryCenterX = posX + primaryDims.currentWidth / 2;
+            const primaryCenterY = posY + primaryDims.currentHeight / 2;
 
             let targetGroup = null;
             for (let i = groups.length - 1; i >= 0; i--) {

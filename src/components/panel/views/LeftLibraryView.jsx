@@ -3,6 +3,7 @@ import { Merge, ChevronRight, Search } from 'lucide-react';
 import { VirtuosoGrid } from 'react-virtuoso';
 import DuplicateManager from '../../DuplicateManager.jsx';
 import SavedNodeItem from '../items/SavedNodeItem.jsx';
+import LazySection from '../LazySection.jsx';
 import StandardDivider from '../../StandardDivider.jsx';
 import { getTextColor } from '../../../utils/colorUtils';
 import { showContextMenu } from '../../GlobalContextMenu.jsx';
@@ -164,37 +165,39 @@ const LeftLibraryView = ({
                 </div>
 
                 {!isCollapsed && (
-                  <div style={{ overflow: 'hidden', transition: 'max-height 0.2s ease-out', maxHeight }}>
-                    <div
-                      ref={(el) => {
-                        if (el) { sectionContentRefs.current.set(typeId, el); } else { sectionContentRefs.current.delete(typeId); }
-                      }}
-                      style={{
-                        height: `${Math.min(Math.ceil(nodes.length / (isWideLayout ? 2 : 1)) * 42 + 16, 400)}px`,
-                        marginTop: '8px',
-                        paddingBottom: '8px',
-                      }}
-                    >
-                      <VirtuosoGrid
-                        style={{ height: '100%', width: '100%', overflowX: 'hidden' }}
-                        totalCount={nodes.length}
-                        components={gridComponents}
-                        itemContent={(index) => {
-                          const node = nodes[index];
-                          return (
-                            <SavedNodeItem
-                              key={node.id}
-                              node={node}
-                              onClick={handleItemClick}
-                              onDoubleClick={handleItemDoubleClick}
-                              onUnsave={handleItemUnsave}
-                              isActive={node.id === activeDefinitionNodeId}
-                            />
-                          );
+                  <LazySection estimatedHeight={`${Math.min(Math.ceil(nodes.length / (isWideLayout ? 2 : 1)) * 42 + 16, 400) + 16}px`}>
+                    <div style={{ overflow: 'hidden', transition: 'max-height 0.2s ease-out', maxHeight }}>
+                      <div
+                        ref={(el) => {
+                          if (el) { sectionContentRefs.current.set(typeId, el); } else { sectionContentRefs.current.delete(typeId); }
                         }}
-                      />
+                        style={{
+                          height: `${Math.min(Math.ceil(nodes.length / (isWideLayout ? 2 : 1)) * 42 + 16, 400)}px`,
+                          marginTop: '8px',
+                          paddingBottom: '8px',
+                        }}
+                      >
+                        <VirtuosoGrid
+                          style={{ height: '100%', width: '100%', overflowX: 'hidden' }}
+                          totalCount={nodes.length}
+                          components={gridComponents}
+                          itemContent={(index) => {
+                            const node = nodes[index];
+                            return (
+                              <SavedNodeItem
+                                key={node.id}
+                                node={node}
+                                onClick={handleItemClick}
+                                onDoubleClick={handleItemDoubleClick}
+                                onUnsave={handleItemUnsave}
+                                isActive={node.id === activeDefinitionNodeId}
+                              />
+                            );
+                          }}
+                        />
+                      </div>
                     </div>
-                  </div>
+                  </LazySection>
                 )}
               </div>
               {!isLastSection && <StandardDivider />}

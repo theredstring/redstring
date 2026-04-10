@@ -1052,12 +1052,14 @@ const Panel = memo(forwardRef(
           if (nodeCanvasWidth && typeof nodeCanvasWidth === 'number' && nodeCanvasWidth >= MIN_PANEL_WIDTH) {
             // Use NodeCanvas width if available
             setPanelWidth(nodeCanvasWidth);
+            setIsWideLayout(nodeCanvasWidth > 250);
             setLastCustomWidth(nodeCanvasWidth);
           } else {
             // Fall back to our own localStorage or default
             const initialWidth = getInitialWidth(side, INITIAL_PANEL_WIDTH);
             const initialLastCustom = getInitialLastCustomWidth(side, INITIAL_PANEL_WIDTH);
             setPanelWidth(initialWidth);
+            setIsWideLayout(initialWidth > 250);
             setLastCustomWidth(initialLastCustom);
           }
           setIsWidthInitialized(true);
@@ -1208,6 +1210,7 @@ const Panel = memo(forwardRef(
       const maxWidth = window.innerWidth / 2;
       const clampedWidth = Math.max(MIN_PANEL_WIDTH, Math.min(newWidth, maxWidth));
       setPanelWidth(clampedWidth);
+      setIsWideLayout(clampedWidth > 250);
     }, [side]);
 
     const handleResizeMouseMove = useCallback((e) => {
@@ -1320,6 +1323,7 @@ const Panel = memo(forwardRef(
       if (newWidth !== panelWidth) {
         setIsAnimatingWidth(true);
         setPanelWidth(newWidth);
+        setIsWideLayout(newWidth > 250);
         try {
           localStorage.setItem(`panelWidth_${side}`, JSON.stringify(newWidth));
           // Broadcast change so external overlays can sync
@@ -1343,6 +1347,9 @@ const Panel = memo(forwardRef(
         const { side: evtSide, width } = e.detail;
         if (evtSide === side && typeof width === 'number' && panelRef.current) {
           panelRef.current.style.width = `${width}px`;
+          // Update wide layout when crossing the threshold (at most 1 re-render per drag)
+          const nowWide = width > 250;
+          setIsWideLayout(prev => prev === nowWide ? prev : nowWide);
         }
       };
       const onChanged = (e) => {
@@ -1350,6 +1357,7 @@ const Panel = memo(forwardRef(
         const { side: evtSide, width } = e.detail;
         if (evtSide === side && typeof width === 'number') {
           setPanelWidth(width);
+          setIsWideLayout(width > 250);
           try {
             localStorage.setItem(`panelWidth_${side}`, JSON.stringify(width));
           } catch { }
@@ -1444,7 +1452,7 @@ const Panel = memo(forwardRef(
 
     // --- Determine Active View/Tab --- 
     const isUltraSlim = panelWidth <= 275;
-    const isWideLayout = panelWidth > 250;
+    const [isWideLayout, setIsWideLayout] = useState(() => panelWidth > 250);
     // Get tabs reactively if side is 'right'
     const activeRightPanelTab = useMemo(() => {
       if (side !== 'right') return null;
