@@ -23,6 +23,11 @@ export function useCanvasTransform(svgRef, canvasSize) {
 
   const settleTimerRef = useRef(null);
 
+  // Consumer-supplied callback fired synchronously on every pan/zoom mutation.
+  // Used by the culling system to recompute visibility without waiting for the
+  // settled-state debounce. Consumers assign via `transform.onTransformChangeRef.current = fn`.
+  const onTransformChangeRef = useRef(null);
+
   // Write transform directly to SVG DOM element — no React involved.
   const applyTransform = useCallback(() => {
     const svg = svgRef.current;
@@ -59,6 +64,7 @@ export function useCanvasTransform(svgRef, canvasSize) {
     }
     applyTransform();
     scheduleSettle();
+    onTransformChangeRef.current?.();
   }, [applyTransform, scheduleSettle]);
 
   const setZoom = useCallback((newZoom) => {
@@ -69,6 +75,7 @@ export function useCanvasTransform(svgRef, canvasSize) {
     }
     applyTransform();
     scheduleSettle();
+    onTransformChangeRef.current?.();
   }, [applyTransform, scheduleSettle]);
 
   // Convenience: set both in one call (one DOM write, one settle timer reset)
@@ -85,6 +92,7 @@ export function useCanvasTransform(svgRef, canvasSize) {
     }
     applyTransform();
     scheduleSettle();
+    onTransformChangeRef.current?.();
   }, [applyTransform, scheduleSettle]);
 
   // Same as setPanAndZoom but also immediately flushes settled state
@@ -94,6 +102,7 @@ export function useCanvasTransform(svgRef, canvasSize) {
     zoomRef.current = typeof newZoom === 'function' ? newZoom(zoomRef.current) : newZoom;
     applyTransform();
     flushSettle();
+    onTransformChangeRef.current?.();
   }, [applyTransform, flushSettle]);
 
   return {
@@ -114,5 +123,9 @@ export function useCanvasTransform(svgRef, canvasSize) {
     // Direct DOM application (call after externally mutating refs)
     applyTransform,
     flushSettle,
+
+    // Consumer-writable: assign a function to receive synchronous notification
+    // on every pan/zoom mutation (used by culling to read live ref values).
+    onTransformChangeRef,
   };
 }

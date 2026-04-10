@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect, useLayoutEffect, useMemo, useCallback } from 'react';
+import React, { useState, useRef, useEffect, useLayoutEffect, useMemo, useCallback, startTransition } from 'react';
 import { Lethargy } from 'lethargy';
 import './NodeCanvas.css';
 import { X } from 'lucide-react';
@@ -1068,6 +1068,10 @@ function NodeCanvas() {
   const edgeCurveInfoRef = useRef(null);
   const edgesByNodeIdRef = useRef(null);
   const visibleEdgesRef = useRef(visibleEdges);
+  // Refs to current nodes/edges arrays — read by runCulling (invoked imperatively
+  // from onTransformChangeRef, so it can't rely on useEffect closures).
+  const nodesRef = useRef(nodes);
+  const edgesRef = useRef(edges);
   const selectedInstanceIdsRef = useRef(selectedInstanceIds);
   useEffect(() => { selectedInstanceIdsRef.current = selectedInstanceIds; }, [selectedInstanceIds]);
 
@@ -1757,40 +1761,51 @@ function NodeCanvas() {
     0.05  // Absolute minimum
   );
 
-  // Compute and update culling sets when pan/zoom or graph state changes (batch to next frame)
-  useEffect(() => {
-    if (!ENABLE_CULLING) {
-      // CULLING DISABLED - Show all nodes and edges
-      setVisibleNodeIds(new Set(nodes.map(n => n.id)));
-      setVisibleEdges(edges);
-      return;
-    }
+  // Stable culling compute. Reads every input from refs so it can be invoked
+  // imperatively from `transform.onTransformChangeRef` (which fires on every
+  // pan/zoom mutation) without waiting for settled-state debounce. RAF-coalesced
+  // so multiple calls within the same frame produce at most one compute.
+  const cullingRafIdRef = useRef(null);
+  const runCulling = useCallback(() => {
+    if (cullingRafIdRef.current != null) return;
 
-    // Guard until basic view state is present
-    if (!viewportSize || !canvasSize) return;
+    cullingRafIdRef.current = requestAnimationFrame(() => {
+      cullingRafIdRef.current = null;
 
-    // PERF: Skip visibility recalculation during drag movement — visibility barely changes
-    // when moving a node, and this avoids a second setState/re-render cycle per frame.
-    // But DO allow visibility updates during zoom animations (drag zoom-out) so nodes
-    // appear/disappear correctly as the viewport changes.
-    if (draggingNodeInfo && !isAnimatingZoomRef.current) return;
+      if (!ENABLE_CULLING) {
+        // CULLING DISABLED - Show all nodes and edges
+        const all = nodesRef.current;
+        setVisibleNodeIds(new Set(all.map(n => n.id)));
+        setVisibleEdges(edgesRef.current);
+        return;
+      }
 
-    // Skip expensive culling during pinch zoom animation to prevent jitter
-    if (pinchSmoothingRef.current.isAnimating) {
-      return;
-    }
+      const viewport = viewportSizeRef.current;
+      const canvas = canvasSizeRef.current;
+      if (!viewport || !canvas) return;
 
-    let rafId = null;
-    const compute = () => {
+      // PERF: Skip visibility recalculation during drag movement — visibility barely changes
+      // when moving a node. But DO allow updates during zoom animations (drag zoom-out).
+      if (draggingNodeInfoRef.current && !isAnimatingZoomRef.current) return;
+
+      // Skip expensive culling during pinch zoom animation to prevent jitter
+      if (pinchSmoothingRef.current?.isAnimating) return;
+
+      // Read live pan/zoom directly from refs — this is the whole point of the fix.
+      const pan = panOffsetRef.current;
+      const zoom = zoomLevelRef.current;
+
       // Derive canvas-space viewport
-      const minX = (-panOffset.x) / zoomLevel + canvasSize.offsetX;
-      const minY = (-panOffset.y) / zoomLevel + canvasSize.offsetY;
-      const maxX = minX + viewportSize.width / zoomLevel;
-      const maxY = minY + viewportSize.height / zoomLevel;
+      const minX = (-pan.x) / zoom + canvas.offsetX;
+      const minY = (-pan.y) / zoom + canvas.offsetY;
+      const maxX = minX + viewport.width / zoom;
+      const maxY = minY + viewport.height / zoom;
 
-      // Zoom-aware padding: at low zoom, 400px canvas-space is tiny on-screen,
-      // so scale up to keep a meaningful off-screen buffer.
-      const padding = Math.max(400, 1000 / zoomLevel);
+      // Off-screen buffer to pre-load nodes just outside the viewport. Capped
+      // at 2000 canvas units so low-zoom views don't pull in absurd numbers of
+      // far-off-screen nodes (the old `1000/zoom` formula reached 20000 at
+      // zoom=0.05, killing render perf on slower machines).
+      const padding = Math.max(200, Math.min(2000, 500 / zoom));
       const expanded = {
         minX: minX - padding,
         minY: minY - padding,
@@ -1798,10 +1813,15 @@ function NodeCanvas() {
         maxY: maxY + padding,
       };
 
+      const currentNodes = nodesRef.current;
+      const currentEdges = edgesRef.current;
+      const dimsMap = baseDimsByIdRef.current;
+      const nodeMap = nodeByIdRef.current;
+
       // Visible nodes - Fixed viewport culling
       const nextVisibleNodeIds = new Set();
-      for (const n of nodes) {
-        const dims = baseDimsById.get(n.id);
+      for (const n of currentNodes) {
+        const dims = dimsMap.get(n.id);
         if (!dims) continue;
 
         // Node bounds in canvas space
@@ -1822,9 +1842,9 @@ function NodeCanvas() {
       // straight line between node centers crosses the expanded viewport (handles
       // long edges where both endpoints are off-screen but the edge itself is visible).
       const nextVisibleEdges = [];
-      for (const edge of edges) {
-        const s = nodeById.get(edge.sourceId);
-        const d = nodeById.get(edge.destinationId);
+      for (const edge of currentEdges) {
+        const s = nodeMap.get(edge.sourceId);
+        const d = nodeMap.get(edge.destinationId);
         if (!s || !d) continue;
 
         // Fast path: if either node is visible, the edge is visible
@@ -1834,8 +1854,8 @@ function NodeCanvas() {
         }
 
         // Slow path: both nodes off-screen, check if edge line crosses viewport
-        const sDims = baseDimsById.get(s.id);
-        const dDims = baseDimsById.get(d.id);
+        const sDims = dimsMap.get(s.id);
+        const dDims = dimsMap.get(d.id);
         if (!sDims || !dDims) continue;
         const sx = s.x + sDims.currentWidth / 2;
         const sy = s.y + sDims.currentHeight / 2;
@@ -1846,13 +1866,64 @@ function NodeCanvas() {
         }
       }
 
-      setVisibleNodeIds(nextVisibleNodeIds);
-      setVisibleEdges(nextVisibleEdges);
-    };
+      // Mark visibility updates as a transition so React can interrupt them
+      // for higher-priority work (next pan frame, input events). On low-power
+      // devices this keeps the canvas responsive even when reconciling many
+      // visible nodes can't keep up with the input rate.
+      // Functional updaters bail out (return prev) when membership is unchanged,
+      // skipping the render entirely during steady-state pans.
+      startTransition(() => {
+        setVisibleNodeIds(prev => {
+          if (prev.size === nextVisibleNodeIds.size) {
+            let same = true;
+            for (const id of nextVisibleNodeIds) {
+              if (!prev.has(id)) { same = false; break; }
+            }
+            if (same) return prev;
+          }
+          return nextVisibleNodeIds;
+        });
+        setVisibleEdges(prev => {
+          if (prev.length === nextVisibleEdges.length) {
+            let same = true;
+            for (let i = 0; i < prev.length; i++) {
+              if (prev[i] !== nextVisibleEdges[i]) { same = false; break; }
+            }
+            if (same) return prev;
+          }
+          return nextVisibleEdges;
+        });
+      });
+    });
+  }, []); // Empty deps — everything is read from refs; identity stays stable forever.
 
-    rafId = requestAnimationFrame(compute);
-    return () => { if (rafId) cancelAnimationFrame(rafId); };
-  }, [panOffset, zoomLevel, viewportSize, canvasSize, nodes, edges, baseDimsById, nodeById, draggingNodeInfo]);
+  // Wire runCulling into the transform hook so pan/zoom mutations trigger culling
+  // synchronously (without waiting for settled-state debounce).
+  // Depend on the underlying ref object (stable across renders), NOT `transform`
+  // itself (which is a fresh object literal each render).
+  const onTransformChangeRef = transform.onTransformChangeRef;
+  useEffect(() => {
+    onTransformChangeRef.current = runCulling;
+    return () => { onTransformChangeRef.current = null; };
+  }, [onTransformChangeRef, runCulling]);
+
+  // Unmount cleanup for any in-flight culling RAF.
+  useEffect(() => {
+    return () => {
+      if (cullingRafIdRef.current != null) {
+        cancelAnimationFrame(cullingRafIdRef.current);
+        cullingRafIdRef.current = null;
+      }
+    };
+  }, []);
+
+  // Reactive trigger: when non-transform inputs change (graph data, viewport
+  // resize, drag end), schedule a culling recompute. Transform-driven updates
+  // (pan, zoom) flow through onTransformChangeRef → runCulling directly and
+  // bypass this effect entirely.
+  useEffect(() => {
+    runCulling();
+  }, [nodes, edges, viewportSize, canvasSize, baseDimsById, nodeById, draggingNodeInfo, runCulling]);
 
 
 
@@ -2010,6 +2081,8 @@ function NodeCanvas() {
   useEffect(() => { edgeCurveInfoRef.current = edgeCurveInfo; }, [edgeCurveInfo]);
   useEffect(() => { edgesByNodeIdRef.current = edgesByNodeId; }, [edgesByNodeId]);
   useEffect(() => { visibleEdgesRef.current = visibleEdges; }, [visibleEdges]);
+  useEffect(() => { nodesRef.current = nodes; }, [nodes]);
+  useEffect(() => { edgesRef.current = edges; }, [edges]);
 
   const [debugMode, setDebugMode] = useState(false); // Debug mode disabled
   // Debug data state removed - debug mode disabled
