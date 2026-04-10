@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect, useLayoutEffect, useMemo, useCallback, startTransition } from 'react';
+import React, { useState, useRef, useEffect, useLayoutEffect, useMemo, useCallback } from 'react';
 import { Lethargy } from 'lethargy';
 import './NodeCanvas.css';
 import { X } from 'lucide-react';
@@ -1866,33 +1866,31 @@ function NodeCanvas() {
         }
       }
 
-      // Mark visibility updates as a transition so React can interrupt them
-      // for higher-priority work (next pan frame, input events). On low-power
-      // devices this keeps the canvas responsive even when reconciling many
-      // visible nodes can't keep up with the input rate.
+      // Synchronous visibility commit (no startTransition) so the visible set
+      // always lands in lockstep with the SVG DOM transform — using transitions
+      // here causes edges to flicker during zoom because the transform updates
+      // immediately but the deferred visibility commit lags by a frame or two.
       // Functional updaters bail out (return prev) when membership is unchanged,
       // skipping the render entirely during steady-state pans.
-      startTransition(() => {
-        setVisibleNodeIds(prev => {
-          if (prev.size === nextVisibleNodeIds.size) {
-            let same = true;
-            for (const id of nextVisibleNodeIds) {
-              if (!prev.has(id)) { same = false; break; }
-            }
-            if (same) return prev;
+      setVisibleNodeIds(prev => {
+        if (prev.size === nextVisibleNodeIds.size) {
+          let same = true;
+          for (const id of nextVisibleNodeIds) {
+            if (!prev.has(id)) { same = false; break; }
           }
-          return nextVisibleNodeIds;
-        });
-        setVisibleEdges(prev => {
-          if (prev.length === nextVisibleEdges.length) {
-            let same = true;
-            for (let i = 0; i < prev.length; i++) {
-              if (prev[i] !== nextVisibleEdges[i]) { same = false; break; }
-            }
-            if (same) return prev;
+          if (same) return prev;
+        }
+        return nextVisibleNodeIds;
+      });
+      setVisibleEdges(prev => {
+        if (prev.length === nextVisibleEdges.length) {
+          let same = true;
+          for (let i = 0; i < prev.length; i++) {
+            if (prev[i] !== nextVisibleEdges[i]) { same = false; break; }
           }
-          return nextVisibleEdges;
-        });
+          if (same) return prev;
+        }
+        return nextVisibleEdges;
       });
     });
   }, []); // Empty deps — everything is read from refs; identity stays stable forever.
@@ -1961,7 +1959,11 @@ function NodeCanvas() {
     const portAssignments = new Map(); // edgeId -> { sourcePort, destPort }
     // PERF: Skip expensive port assignment during drag — reuse cached result
     if (draggingNodeInfo) return prevCleanLaneOffsetsRef.current || portAssignments;
-    if (!enableAutoRouting || routingStyle !== 'clean' || !visibleEdges?.length) return portAssignments;
+    // NOTE: iterate ALL edges (not visibleEdges) so port stagger indices stay
+    // stable as the visible set changes during pan/zoom. Otherwise, when a
+    // neighboring edge pops in/out of visibility at high zoom, the stagger
+    // length shifts and the still-visible edge jumps to a new lane = flicker.
+    if (!enableAutoRouting || routingStyle !== 'clean' || !edges?.length) return portAssignments;
 
     try {
       // Step 1: Group edges by node pairs and assign ports intelligently
@@ -1973,7 +1975,7 @@ function NodeCanvas() {
       }
 
       // Step 2: Assign ports for each edge based on direction and avoid clustering
-      for (const edge of visibleEdges) {
+      for (const edge of edges) {
         const s = nodeById.get(edge.sourceId);
         const d = nodeById.get(edge.destinationId);
         if (!s || !d) continue;
@@ -2038,14 +2040,18 @@ function NodeCanvas() {
 
       return new Map();
     }
-  }, [enableAutoRouting, routingStyle, visibleEdges, nodeById, baseDimsById, nodes, draggingNodeInfo]);
+  }, [enableAutoRouting, routingStyle, edges, nodeById, baseDimsById, nodes, draggingNodeInfo]);
 
-  // Memoize edgeCurveInfo for parallel edge detection (used by both rendering and hover detection)
+  // Memoize edgeCurveInfo for parallel edge detection (used by both rendering and hover detection).
+  // NOTE: iterate ALL edges (not visibleEdges) so the pairIndex / totalInPair for
+  // any given edge stays stable as neighboring edges pop in/out of visibility
+  // during pan/zoom. Otherwise, parallel edges visibly jump lanes when a sibling
+  // culls out = flicker.
   const edgeCurveInfo = useMemo(() => {
     const edgePairGroups = new Map();
     const curveInfoMap = new Map();
 
-    visibleEdges.forEach(edge => {
+    edges.forEach(edge => {
       const key = [edge.sourceId, edge.destinationId].sort().join('-');
       if (!edgePairGroups.has(key)) {
         edgePairGroups.set(key, []);
@@ -2061,7 +2067,7 @@ function NodeCanvas() {
     });
 
     return curveInfoMap;
-  }, [visibleEdges]);
+  }, [edges]);
 
   // Reverse-index: instanceId → Set<edgeId> for O(1) lookup of edges connected to a node
   const edgesByNodeId = useMemo(() => {
