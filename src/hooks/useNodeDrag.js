@@ -170,7 +170,12 @@ export const useNodeDrag = ({
         groups.forEach(({ groupId }) => {
           if (!dragGroupElsRef.current.has(groupId)) {
             const els = container.querySelectorAll(`[data-group-id="${groupId}"]`);
-            if (els.length > 0) dragGroupElsRef.current.set(groupId, Array.from(els));
+            if (els.length > 0) {
+              const arr = Array.from(els);
+              // Snapshot current React-rendered transform (includes scale for dragged groups)
+              arr.forEach(el => { el.dataset.groupBaseTransform = el.style.transform || ''; });
+              dragGroupElsRef.current.set(groupId, arr);
+            }
           }
         });
       }
@@ -199,6 +204,8 @@ export const useNodeDrag = ({
   // Returns [{instanceId, x, y}, ...]
   // ---------------------------------------------------------------------------
   const computePositionUpdates = useCallback((mouseCanvasX, mouseCanvasY, draggingInfo) => {
+    if (!draggingInfo) return [];
+
     // Group drag via label
     if (draggingInfo.groupId && Array.isArray(draggingInfo.memberOffsets)) {
       return draggingInfo.memberOffsets.map(({ id, dx, dy }) => {
@@ -433,6 +440,8 @@ export const useNodeDrag = ({
   // Core DOM Drag Update (replaces performDragUpdate — writes to DOM, not store)
   // ---------------------------------------------------------------------------
   const performDOMDragUpdate = useCallback((clientX, clientY, currentPan, currentZoom, draggingInfo) => {
+    if (!draggingInfo) return;
+
     // Clear label placement cache during drag
     placedLabelsRef.current = new Map();
 
@@ -489,7 +498,9 @@ export const useNodeDrag = ({
         const dx = firstNewPos.x - firstNode.x;
         const dy = firstNewPos.y - firstNode.y;
         dragGroupElsRef.current.forEach(els => {
-          els.forEach(el => { el.style.transform = `translate(${dx}px, ${dy}px)`; });
+          els.forEach(el => {
+              el.style.transform = `translate(${dx}px, ${dy}px) ${el.dataset.groupBaseTransform || ''}`;
+            });
         });
       }
     }
@@ -563,6 +574,14 @@ export const useNodeDrag = ({
       setZoomLevel(currentZoomVal);
       setPanOffset({ x: clampedPanX, y: clampedPanY });
 
+      // Update node CSS transforms to track cursor during zoom animation
+      const dragInfo = draggingNodeInfoRef.current;
+      if (dragInfo) {
+        const mouse = mousePositionRef.current;
+        performDragUpdateRef.current(mouse.x, mouse.y,
+          { x: clampedPanX, y: clampedPanY }, currentZoomVal, dragInfo);
+      }
+
       if (progress < 1) {
         state.animationId = requestAnimationFrame(step);
       } else {
@@ -579,7 +598,7 @@ export const useNodeDrag = ({
     zoomAnimationRef.current.animationId = requestAnimationFrame(step);
   }, [setZoomLevel, setPanOffset, panOffsetRef, zoomLevelRef, viewportSizeRef, containerRef, canvasSizeRef, pinchSmoothingRef]);
 
-  const animateZoomAndPanToTarget = useCallback((targetZoom, targetPan, currentZoom, currentPan = null) => {
+  const animateZoomAndPanToTarget = useCallback((targetZoom, targetPan, currentZoom, currentPan = null, onComplete = null) => {
     if (zoomAnimationRef.current.animationId) {
       cancelAnimationFrame(zoomAnimationRef.current.animationId);
     }
@@ -625,6 +644,7 @@ export const useNodeDrag = ({
         state.active = false;
         state.animationId = null;
         isAnimatingZoomRef.current = false;
+        if (onComplete) onComplete();
       }
     };
 
@@ -662,7 +682,10 @@ export const useNodeDrag = ({
       el.style.transformOrigin = '';
     });
     dragGroupElsRef.current.forEach(els => {
-      els.forEach(el => { el.style.transform = ''; });
+      els.forEach(el => {
+        el.style.transform = '';
+        delete el.dataset.groupBaseTransform;
+      });
     });
     dragPositionsRef.current.clear();
     dragNodeElsRef.current.clear();
@@ -826,9 +849,6 @@ export const useNodeDrag = ({
       );
     }
 
-    // Clear DOM transforms before React re-renders with correct positions
-    clearDOMTransforms();
-
     // --- History Recording (use finalPositions from dragPositionsRef) ---
     if (!dragHistoryRecordedRef.current) {
       const patches = [];
@@ -867,7 +887,7 @@ export const useNodeDrag = ({
       }
     }
 
-    // --- Scale Reset ---
+    // --- Collect IDs for scale reset ---
     const instanceIdsToReset = new Set();
     if (info.relativeOffsets) {
       instanceIdsToReset.add(info.primaryId);
@@ -879,23 +899,6 @@ export const useNodeDrag = ({
       instanceIdsToReset.add(info.memberOffsets[0].id);
     }
     const primaryFinalizeId = info.primaryId || info.instanceId || (Array.isArray(info.memberOffsets) ? info.memberOffsets[0]?.id : null);
-    let finalizeSent = false;
-
-    setTimeout(() => {
-      instanceIdsToReset.forEach(id => {
-        const nodeExists = nodes.some(n => n.id === id);
-        if (nodeExists) {
-          const shouldFinalize = primaryFinalizeId ? id === primaryFinalizeId : !finalizeSent;
-          storeActions.updateNodeInstance(
-            activeGraphId,
-            id,
-            draft => { draft.scale = 1; },
-            { phase: 'end', isDragging: false, finalize: shouldFinalize, ignore: true }
-          );
-          if (shouldFinalize) finalizeSent = true;
-        }
-      });
-    }, 0);
 
     // --- Collect dragged node IDs and determine if group-drop should be checked ---
     const draggedNodeIds = [];
@@ -947,16 +950,38 @@ export const useNodeDrag = ({
       );
     }
 
-    // --- Clear drag state ---
-    setDraggingNodeInfo(null);
+    // --- Cleanup function: clears DOM transforms, resets scale, nulls drag state ---
+    // Deferred to after zoom-restore animation if applicable, otherwise runs immediately.
+    const performCleanup = () => {
+      clearDOMTransforms();
 
-    wasDraggingRef.current = true;
-    setTimeout(() => { wasDraggingRef.current = false; }, 50);
+      let finalizeSent = false;
+      setTimeout(() => {
+        instanceIdsToReset.forEach(id => {
+          const nodeExists = nodes.some(n => n.id === id);
+          if (nodeExists) {
+            const shouldFinalize = primaryFinalizeId ? id === primaryFinalizeId : !finalizeSent;
+            storeActions.updateNodeInstance(
+              activeGraphId,
+              id,
+              draft => { draft.scale = 1; },
+              { phase: 'end', isDragging: false, finalize: shouldFinalize, ignore: true }
+            );
+            if (shouldFinalize) finalizeSent = true;
+          }
+        });
+      }, 0);
 
-    isEdgePanningRef.current = false;
+      setDraggingNodeInfo(null);
+      wasDraggingRef.current = true;
+      setTimeout(() => { wasDraggingRef.current = false; }, 50);
+      isEdgePanningRef.current = false;
+    };
 
-    // --- Zoom Restore ---
-    if (preDragZoomLevel !== null && dragZoomSettings.enabled && !restoreInProgressRef.current) {
+    // --- Zoom Restore (or immediate cleanup) ---
+    const needsZoomRestore = preDragZoomLevel !== null && dragZoomSettings.enabled && !restoreInProgressRef.current;
+
+    if (needsZoomRestore) {
       restoreInProgressRef.current = true;
 
       const targetZoom = preDragZoomLevel;
@@ -979,21 +1004,28 @@ export const useNodeDrag = ({
       const clampedTargetPanX = Math.min(0, Math.max(targetPanX, minPanX));
       const clampedTargetPanY = Math.min(0, Math.max(targetPanY, minPanY));
 
-      animateZoomAndPanToTarget(targetZoom, { x: clampedTargetPanX, y: clampedTargetPanY }, currentZoom, currentPan);
+      // Cleanup fires AFTER zoom animation completes — no visual gap
+      animateZoomAndPanToTarget(targetZoom, { x: clampedTargetPanX, y: clampedTargetPanY }, currentZoom, currentPan, () => {
+        performCleanup();
+        restoreInProgressRef.current = false;
+      });
 
       setPreDragZoomLevel(null);
       zoomOutInitiatedRef.current = false;
       actualZoomedOutLevelRef.current = null;
       actualZoomedOutPanRef.current = null;
       preDragPanOffsetRef.current = null;
-      requestAnimationFrame(() => { restoreInProgressRef.current = false; });
-    } else if (preDragZoomLevel !== null) {
-      setPreDragZoomLevel(null);
-      zoomOutInitiatedRef.current = false;
-      actualZoomedOutLevelRef.current = null;
-      actualZoomedOutPanRef.current = null;
-      preDragPanOffsetRef.current = null;
-      restoreInProgressRef.current = false;
+    } else {
+      performCleanup();
+
+      if (preDragZoomLevel !== null) {
+        setPreDragZoomLevel(null);
+        zoomOutInitiatedRef.current = false;
+        actualZoomedOutLevelRef.current = null;
+        actualZoomedOutPanRef.current = null;
+        preDragPanOffsetRef.current = null;
+        restoreInProgressRef.current = false;
+      }
     }
 
     const primaryNodeId = info.primaryId || info.instanceId || null;

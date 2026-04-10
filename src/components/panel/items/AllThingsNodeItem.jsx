@@ -62,8 +62,8 @@ const AllThingsNodeItem = ({ node, onClick, onDoubleClick, isActive, hasSemantic
         key={node.id}
         data-has-context-menu="true"
         title={`${node.name}${hasSemanticData ? ' • Connected to semantic web' : ''}`}
-        onClick={onClick}
-        onDoubleClick={onDoubleClick}
+        onClick={() => onClick(node)}
+        onDoubleClick={() => onDoubleClick(node)}
         onContextMenu={handleContextMenu}
         onMouseEnter={handleMouseEnter}
         onMouseLeave={handleMouseLeave}
@@ -119,7 +119,7 @@ const AllThingsNodeItem = ({ node, onClick, onDoubleClick, isActive, hasSemantic
           }}
           onClick={(e) => {
             e.stopPropagation();
-            onDelete?.(node.id);
+            onDelete?.(node);
           }}
           title="Delete this item"
         >

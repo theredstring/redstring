@@ -32,21 +32,17 @@ export const useViewportBounds = (leftExpanded = true, rightExpanded = true, typ
     return () => window.removeEventListener('resize', onResize);
   }, []);
 
+  // Only sync React state on drag end (panelWidthChanged) to avoid
+  // re-rendering NodeCanvas and other consumers on every drag frame.
+  // The panel DOM width is updated directly via ref during drag.
   useEffect(() => {
-    const onChanging = (e) => {
-      const { side, width } = e.detail || {};
-      if (side === 'left' && typeof width === 'number') setLeftWidth(width);
-      if (side === 'right' && typeof width === 'number') setRightWidth(width);
-    };
     const onChanged = (e) => {
       const { side, width } = e.detail || {};
       if (side === 'left' && typeof width === 'number') setLeftWidth(width);
       if (side === 'right' && typeof width === 'number') setRightWidth(width);
     };
-    window.addEventListener('panelWidthChanging', onChanging);
     window.addEventListener('panelWidthChanged', onChanged);
     return () => {
-      window.removeEventListener('panelWidthChanging', onChanging);
       window.removeEventListener('panelWidthChanged', onChanged);
     };
   }, []);

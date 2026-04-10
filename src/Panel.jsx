@@ -1335,12 +1335,14 @@ const Panel = memo(forwardRef(
     }, [panelWidth, lastCustomWidth, side]);
 
     // Listen for external resizer overlay updates from NodeCanvas for low-latency sync
+    // During drag: mutate DOM directly via ref (zero React re-renders)
+    // On drag end: sync final width to React state
     useEffect(() => {
       const onChanging = (e) => {
         if (!e?.detail) return;
         const { side: evtSide, width } = e.detail;
-        if (evtSide === side && typeof width === 'number') {
-          setPanelWidth(width);
+        if (evtSide === side && typeof width === 'number' && panelRef.current) {
+          panelRef.current.style.width = `${width}px`;
         }
       };
       const onChanged = (e) => {

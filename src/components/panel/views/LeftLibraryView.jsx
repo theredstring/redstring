@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useCallback } from 'react';
 import { Merge, ChevronRight, Search } from 'lucide-react';
 import { VirtuosoGrid } from 'react-virtuoso';
 import DuplicateManager from '../../DuplicateManager.jsx';
@@ -15,7 +15,7 @@ const LeftLibraryView = ({
   sectionCollapsed,
   sectionMaxHeights,
   toggleSection,
-  panelWidth,
+  isWideLayout,
   sectionContentRefs,
   activeDefinitionNodeId,
   openGraphTab,
@@ -38,8 +38,6 @@ const LeftLibraryView = ({
     }
   ];
 
-  const isWideLayout = panelWidth > 250;
-
   const gridComponents = useMemo(() => {
     return {
       List: React.forwardRef((props, ref) => (
@@ -60,6 +58,26 @@ const LeftLibraryView = ({
       ))
     };
   }, [isWideLayout]);
+
+  // Stable callbacks for item interactions
+  const handleItemClick = useCallback((node) => {
+    if (node.definitionGraphIds && node.definitionGraphIds.length > 0) {
+      const graphIdToOpen = node.definitionGraphIds[0];
+      openGraphTab?.(graphIdToOpen, node.id);
+    } else if (createAndAssignGraphDefinition) {
+      createAndAssignGraphDefinition(node.id);
+    } else {
+      console.error('[Panel Saved Node Click] Missing required actions');
+    }
+  }, [openGraphTab, createAndAssignGraphDefinition]);
+
+  const handleItemDoubleClick = useCallback((node) => {
+    openRightPanelNodeTab?.(node.id);
+  }, [openRightPanelNodeTab]);
+
+  const handleItemUnsave = useCallback((node) => {
+    toggleSavedNode?.(node.id);
+  }, [toggleSavedNode]);
 
   return (
     <div
@@ -163,25 +181,13 @@ const LeftLibraryView = ({
                         components={gridComponents}
                         itemContent={(index) => {
                           const node = nodes[index];
-                          const handleSingleClick = () => {
-                            if (node.definitionGraphIds && node.definitionGraphIds.length > 0) {
-                              const graphIdToOpen = node.definitionGraphIds[0];
-                              openGraphTab?.(graphIdToOpen, node.id);
-                            } else if (createAndAssignGraphDefinition) {
-                              createAndAssignGraphDefinition(node.id);
-                            } else {
-                              console.error('[Panel Saved Node Click] Missing required actions');
-                            }
-                          };
-                          const handleDoubleClick = () => { openRightPanelNodeTab?.(node.id); };
-                          const handleUnsave = () => { toggleSavedNode?.(node.id); };
                           return (
                             <SavedNodeItem
                               key={node.id}
                               node={node}
-                              onClick={handleSingleClick}
-                              onDoubleClick={handleDoubleClick}
-                              onUnsave={handleUnsave}
+                              onClick={handleItemClick}
+                              onDoubleClick={handleItemDoubleClick}
+                              onUnsave={handleItemUnsave}
                               isActive={node.id === activeDefinitionNodeId}
                             />
                           );
@@ -200,4 +206,4 @@ const LeftLibraryView = ({
   );
 };
 
-export default LeftLibraryView;
+export default React.memo(LeftLibraryView);

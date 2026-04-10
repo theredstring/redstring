@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useCallback } from 'react';
 import { Merge, ChevronRight, Search } from 'lucide-react';
 import { VirtuosoGrid } from 'react-virtuoso';
 import DuplicateManager from '../../DuplicateManager.jsx';
@@ -15,7 +15,7 @@ const LeftAllThingsView = ({
   sectionCollapsed,
   sectionMaxHeights,
   toggleSection,
-  panelWidth,
+  isWideLayout,
   sectionContentRefs,
   activeDefinitionNodeId,
   openGraphTab,
@@ -35,8 +35,6 @@ const LeftAllThingsView = ({
       action: () => setShowDuplicateManager(true)
     }
   ];
-
-  const isWideLayout = panelWidth > 250;
 
   const gridComponents = useMemo(() => {
     return {
@@ -58,6 +56,30 @@ const LeftAllThingsView = ({
       ))
     };
   }, [isWideLayout]);
+
+  // Stable callbacks for item interactions
+  const handleItemClick = useCallback((node) => {
+    if (node.definitionGraphIds && node.definitionGraphIds.length > 0) {
+      const graphIdToOpen = node.definitionGraphIds[0];
+      openGraphTab?.(graphIdToOpen, node.id);
+    } else if (createAndAssignGraphDefinition) {
+      createAndAssignGraphDefinition(node.id);
+    } else {
+      console.error('[Panel All Node Click] Missing required actions');
+    }
+  }, [openGraphTab, createAndAssignGraphDefinition]);
+
+  const handleItemDoubleClick = useCallback((node) => {
+    openRightPanelNodeTab?.(node.id);
+  }, [openRightPanelNodeTab]);
+
+  const handleItemDelete = useCallback((node) => {
+    if (storeActions?.deleteNodePrototype) {
+      storeActions.deleteNodePrototype(node.id);
+    }
+  }, [storeActions]);
+
+  const duplicateNodePrototype = storeActions?.duplicateNodePrototype;
 
   return (
     <div
@@ -108,14 +130,6 @@ const LeftAllThingsView = ({
           const maxHeight = sectionMaxHeights[typeId] || '0px';
           const isLastSection = index === array.length - 1;
 
-          // Debug logging
-          // console.log(`[AllThingsView] Rendering type ${typeId}:`, {
-          //   typeName: typeInfo.name,
-          //   nodeCount: nodes.length,
-          //   isCollapsed,
-          //   maxHeight,
-          //   nodes: nodes.map(n => ({ id: n.id, name: n.name }))
-          // });
           return (
             <div key={typeId}>
               <div style={{ marginBottom: '10px' }}>
@@ -168,36 +182,18 @@ const LeftAllThingsView = ({
                         components={gridComponents}
                         itemContent={(index) => {
                           const node = nodes[index];
-                          const handleSingleClick = () => {
-                            if (node.definitionGraphIds && node.definitionGraphIds.length > 0) {
-                              const graphIdToOpen = node.definitionGraphIds[0];
-                              openGraphTab?.(graphIdToOpen, node.id);
-                            } else if (createAndAssignGraphDefinition) {
-                              createAndAssignGraphDefinition(node.id);
-                            } else {
-                              console.error('[Panel All Node Click] Missing required actions');
-                            }
-                          };
-                          const handleDoubleClick = () => { openRightPanelNodeTab?.(node.id); };
-
-                          // Check if node has semantic web data (for glow effect)
                           const hasSemanticData = node.equivalentClasses?.length > 0 || node.externalLinks?.length > 0;
 
                           return (
                             <AllThingsNodeItem
                               key={node.id}
                               node={node}
-                              onClick={handleSingleClick}
-                              onDoubleClick={handleDoubleClick}
+                              onClick={handleItemClick}
+                              onDoubleClick={handleItemDoubleClick}
                               isActive={node.id === activeDefinitionNodeId}
                               hasSemanticData={hasSemanticData}
-                              onDelete={(nodeId) => {
-                                // Delete the node prototype
-                                if (storeActions?.deleteNodePrototype) {
-                                  storeActions.deleteNodePrototype(nodeId);
-                                }
-                              }}
-                              duplicateNodePrototype={storeActions?.duplicateNodePrototype}
+                              onDelete={handleItemDelete}
+                              duplicateNodePrototype={duplicateNodePrototype}
                             />
                           );
                         }}
@@ -215,4 +211,4 @@ const LeftAllThingsView = ({
   );
 };
 
-export default LeftAllThingsView;
+export default React.memo(LeftAllThingsView);

@@ -43,8 +43,8 @@ const SavedNodeItem = ({ node, onClick, onDoubleClick, onUnsave, isActive }) => 
       ref={drag}
       key={node.id}
       title={node.name}
-      onClick={onClick}
-      onDoubleClick={onDoubleClick}
+      onClick={() => onClick(node)}
+      onDoubleClick={() => onDoubleClick(node)}
       onMouseEnter={handleMouseEnter}
       onMouseLeave={handleMouseLeave}
       style={{
@@ -97,7 +97,7 @@ const SavedNodeItem = ({ node, onClick, onDoubleClick, onUnsave, isActive }) => 
         }}
         onClick={(e) => {
           e.stopPropagation();
-          onUnsave(node.id);
+          onUnsave(node);
         }}
         title="Unsave this item"
       >
