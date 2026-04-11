@@ -145,6 +145,10 @@ function NodeCanvas() {
   // CULLING FLAG - viewport culling for nodes and edges
   const ENABLE_CULLING = true;
 
+  // TEMPORARY DIAGNOSTIC - zoom flicker root-cause investigation.
+  // Remove after culprit identified. See /Users/granteubanks/.claude/plans/sleepy-snacking-mist.md
+  const DIAGNOSE_ZOOM_FLICKER = true;
+
   // Get theme colors
   const theme = useTheme();
 
@@ -593,6 +597,21 @@ function NodeCanvas() {
   const universeLoadingError = useGraphStore(state => state.universeLoadingError);
   const hasUniverseFile = useGraphStore(state => state.hasUniverseFile);
 
+  // TEMPORARY DIAGNOSTIC — zoom flicker investigation (H3: SVG unmount/remount)
+  // Fires whenever any of the four top-level SVG conditional flags flips. If this
+  // fires during an active zoom gesture, the SVG subtree is briefly unmounting
+  // and the fallback branch renders for one frame → whole canvas blank.
+  useEffect(() => {
+    if (DIAGNOSE_ZOOM_FLICKER) {
+      console.warn('[flicker:svg-conditions]', {
+        isUniverseLoading,
+        isUniverseLoaded,
+        hasUniverseFile,
+        activeGraphIdPresent: !!activeGraphId,
+      });
+    }
+  }, [isUniverseLoading, isUniverseLoaded, hasUniverseFile, activeGraphId]);
+
   useEffect(() => {
     const timerApi = typeof window !== 'undefined' ? window : globalThis;
     const timeoutId = timerApi.setTimeout(() => setResizersVisible(true), 180);
@@ -997,6 +1016,16 @@ function NodeCanvas() {
     }
 
     prevNodesRef.current = newMap;
+
+    // TEMPORARY DIAGNOSTIC — zoom flicker investigation (H4: memo transiently empty)
+    if (DIAGNOSE_ZOOM_FLICKER && result.length === 0 && instances && instances.size > 0) {
+      console.warn('[flicker:nodes-memo] returned EMPTY with non-empty instances', {
+        instancesSize: instances.size,
+        hasPrototypes: !!nodePrototypesMap,
+        protoCount: nodePrototypesMap?.size,
+      });
+    }
+
     return result;
   }, [instances, nodePrototypesMap, imageCacheMap]);
 
@@ -1788,8 +1817,12 @@ function NodeCanvas() {
       if (!ENABLE_CULLING) {
         // CULLING DISABLED - Show all nodes and edges
         const all = nodesRef.current;
-        setVisibleNodeIds(new Set(all.map(n => n.id)));
-        setVisibleEdges(edgesRef.current);
+        const allIds = new Set(all.map(n => n.id));
+        const allEdges = edgesRef.current;
+        visibleNodeIdsRef.current = allIds;
+        visibleEdgesRef.current = allEdges;
+        setVisibleNodeIds(allIds);
+        setVisibleEdges(allEdges);
         return;
       }
 
@@ -1916,6 +1949,33 @@ function NodeCanvas() {
       // inside runCulling itself, so owning them here is safe.
       visibleNodeIdsRef.current = nextVisibleNodeIds;
       visibleEdgesRef.current = nextVisibleEdges;
+
+      // TEMPORARY DIAGNOSTIC — zoom flicker investigation
+      if (DIAGNOSE_ZOOM_FLICKER) {
+        const reasons = [];
+        if (!currentNodes || currentNodes.length === 0) {
+          reasons.push(`nodesRef empty (len=${currentNodes?.length})`);
+        }
+        if (!dimsMap || dimsMap.size === 0) {
+          reasons.push(`dimsMap empty (size=${dimsMap?.size})`);
+        }
+        if (nextVisibleNodeIds.size === 0 && currentNodes && currentNodes.length > 0) {
+          reasons.push(`visible EMPTY with ${currentNodes.length} nodes in graph`);
+        }
+        if (reasons.length) {
+          console.warn('[flicker:culling]', {
+            reasons,
+            zoom,
+            pan: { x: pan.x, y: pan.y },
+            viewport: { w: viewport.width, h: viewport.height },
+            innerRect,
+            prevVisibleSize: prevVisibleNodeIds.size,
+            nextVisibleSize: nextVisibleNodeIds.size,
+            nodesLen: currentNodes?.length,
+            dimsMapSize: dimsMap?.size,
+          });
+        }
+      }
 
       // Synchronous visibility commit (no startTransition) so the visible set
       // always lands in lockstep with the SVG DOM transform — using transitions
@@ -2140,8 +2200,13 @@ function NodeCanvas() {
   useEffect(() => { baseDimsByIdRef.current = baseDimsById; }, [baseDimsById]);
   useEffect(() => { edgeCurveInfoRef.current = edgeCurveInfo; }, [edgeCurveInfo]);
   useEffect(() => { edgesByNodeIdRef.current = edgesByNodeId; }, [edgesByNodeId]);
-  useEffect(() => { visibleEdgesRef.current = visibleEdges; }, [visibleEdges]);
-  useEffect(() => { visibleNodeIdsRef.current = visibleNodeIds; }, [visibleNodeIds]);
+  // visibleNodeIdsRef / visibleEdgesRef are owned exclusively by runCulling() —
+  // it writes them synchronously at the end of each RAF tick. Syncing from
+  // React state via passive useEffect here would race: a commit for frame N
+  // can fire its passive effect AFTER runCulling() has already advanced the
+  // ref to frame N+1, clobbering the newer value with a stale one and
+  // breaking hysteresis on the next tick (cause of whole-graph flicker
+  // during zoom on large graphs).
   useEffect(() => { nodesRef.current = nodes; }, [nodes]);
   useEffect(() => { edgesRef.current = edges; }, [edges]);
 

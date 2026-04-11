@@ -35,8 +35,19 @@ export function useCanvasTransform(svgRef, canvasSize) {
     const p = panRef.current;
     const z = zoomRef.current;
     const cs = canvasSize;
-    svg.style.transform =
-      `translate(${p.x - cs.offsetX * z}px, ${p.y - cs.offsetY * z}px) scale(${z})`;
+    const tx = p.x - cs.offsetX * z;
+    const ty = p.y - cs.offsetY * z;
+    // TEMPORARY DIAGNOSTIC — zoom flicker investigation (H1: invalid transform string)
+    // If any input is NaN/Infinity, the resulting CSS transform is invalid and
+    // browsers drop the transform entirely → content snaps to natural coords → blank.
+    if (!Number.isFinite(tx) || !Number.isFinite(ty) || !Number.isFinite(z)) {
+      console.warn('[flicker:transform] invalid transform values', {
+        px: p.x, py: p.y, z,
+        csOffX: cs?.offsetX, csOffY: cs?.offsetY,
+        tx, ty,
+      });
+    }
+    svg.style.transform = `translate(${tx}px, ${ty}px) scale(${z})`;
   }, [svgRef, canvasSize]);
 
   // Schedule a deferred React state update when interaction settles.
