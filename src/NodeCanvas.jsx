@@ -4337,7 +4337,7 @@ function NodeCanvas() {
   const DELTA_TIMEOUT = 500; // Clear history after 500ms of inactivity
   const deltaTimeoutRef = useRef(null);
   // Lock the detected device type within a continuous wheel stream
-  const wheelStreamRef = useRef({ lockedType: null, lastTimestamp: 0 });
+  const wheelStreamRef = useRef({ lockedType: null, lastTimestamp: 0, panActive: false });
   const WHEEL_STREAM_GAP_MS = 140; // gap after which a new stream starts
   // Lethargy instance to classify intentful mouse wheel vs inertial trackpad
   const lethargyRef = useRef(null);
@@ -4516,6 +4516,7 @@ function NodeCanvas() {
       wheelStreamRef.current.mouseEvidence = 0;
       wheelStreamRef.current.trackpadEvidence = 0;
       wheelStreamRef.current.candidate = { type: null, count: 0 };
+      wheelStreamRef.current.panActive = false;
       // Reset history between streams to avoid cross-gesture contamination
       deltaHistoryRef.current = [];
     }
@@ -4540,13 +4541,16 @@ function NodeCanvas() {
 
     // Evidence-based locking to stabilize fast wheel bursts
     const absWheel = Math.abs(e.wheelDeltaY || 0);
+    const fractionalPresent = ((Math.abs(e.deltaY) % 1) !== 0) || ((Math.abs(e.deltaX) % 1) !== 0);
     if (absWheel >= 120 && absWheel % 120 === 0 && Math.abs(deltaX) < 0.05) {
       wheelStreamRef.current.mouseEvidence = (wheelStreamRef.current.mouseEvidence || 0) + 1;
     }
-    if (Math.abs(deltaX) < 0.03) {
+    // "No horizontal drift" alone is not mouse evidence — pure-vertical trackpad
+    // pans satisfy it. Require integer-valued deltaY and no fractional component
+    // anywhere (trackpads regularly emit fractional deltas; mice do not).
+    if (Math.abs(deltaX) < 0.03 && !fractionalPresent && Math.abs(e.deltaY) % 1 === 0) {
       wheelStreamRef.current.mouseEvidence = (wheelStreamRef.current.mouseEvidence || 0) + 1;
     }
-    const fractionalPresent = ((Math.abs(e.deltaY) % 1) !== 0) || ((Math.abs(e.deltaX) % 1) !== 0);
     const hasHorizontalDriftStrong = Math.abs(deltaX) > 0.2;
     const hasHorizontalDriftMild = Math.abs(deltaX) > 0.08;
     if (!e.ctrlKey && e.deltaMode === 0 && (hasHorizontalDriftStrong || (fractionalPresent && hasHorizontalDriftMild))) {
@@ -4582,6 +4586,12 @@ function NodeCanvas() {
     if (!e.ctrlKey && e.deltaMode === 0 && (hasHorizontalDriftStrong || (fractionalPresent && hasHorizontalDriftMild))) {
       deviceType = 'trackpad';
       if (!wheelStreamRef.current.lockedType) wheelStreamRef.current.lockedType = 'trackpad';
+    }
+    // Pan-lock: once a pan has dispatched in this stream, stay in pan mode for
+    // the rest of the stream. Real pinch-to-zoom flips ctrlKey on, so gate
+    // on !ctrlKey to leave that path open.
+    if (wheelStreamRef.current.panActive && !e.ctrlKey) {
+      deviceType = 'trackpad';
     }
 
     // Post-zoom cooldown bias: shortly after zoom, tiny pixel-mode deltas skew to pan unless strong mouse evidence
@@ -4645,6 +4655,7 @@ function NodeCanvas() {
     if (deviceType === 'trackpad' || deviceType === 'trackpad_inertia' || (deviceType === 'undetermined' && isMac && (Math.abs(deltaX) > 0.05 || (Math.abs(deltaY) < 30 && Math.abs(deltaX) > 0)))) {
       e.stopPropagation();
       isPanningOrZooming.current = true;
+      wheelStreamRef.current.panActive = true;
       panSourceRef.current = deviceType === 'trackpad_inertia' ? 'trackpad' : 'trackpad';
       const dx = -deltaX * PAN_DRAG_SENSITIVITY;
       const dy = -deltaY * PAN_DRAG_SENSITIVITY;
