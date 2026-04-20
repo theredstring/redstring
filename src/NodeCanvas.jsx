@@ -9195,7 +9195,7 @@ function NodeCanvas() {
                         }
 
                         return (
-                          <g key={`edge-above-${edge.id}-${idx}`} data-edge-id={edge.id}>
+                          <g key={`edge-${edge.id}`} data-edge-id={edge.id}>
                             {/* Main edge line - always same thickness */}
                             {/* Glow effect for selected or hovered edge */}
                             {(isSelected || isHovered) && (
@@ -10493,7 +10493,7 @@ function NodeCanvas() {
                         }
 
                         return (
-                          <g key={`edge-above-${edge.id}-${idx}`} data-edge-id={edge.id}>
+                          <g key={`edge-${edge.id}`} data-edge-id={edge.id}>
                             {/* Main edge line - always same thickness */}
                             {/* Glow effect for selected or hovered edge */}
                             {(isSelected || isHovered) && (

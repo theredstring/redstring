@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useCallback } from 'react';
+import { useState, useRef, useEffect, useLayoutEffect, useCallback } from 'react';
 import * as GeometryUtils from '../utils/canvas/geometryUtils.js';
 import { getNodeDimensions } from '../utils.js';
 import useHistoryStore from '../store/historyStore.js';
@@ -630,6 +630,26 @@ export const useNodeDrag = ({
   // Ref to hold latest performDOMDragUpdate (avoids restarting edge panning effect)
   const performDragUpdateRef = useRef(performDOMDragUpdate);
   useEffect(() => { performDragUpdateRef.current = performDOMDragUpdate; }, [performDOMDragUpdate]);
+
+  // Re-apply DOM-bypass drag updates after every React commit while dragging.
+  // During edge panning, `setPan` schedules a settled-state commit that re-runs
+  // NodeCanvas's JSX; the edge-render path recomputes `x1`/`y1`/`x2`/`y2` from
+  // *stored* node positions and writes them onto the same DOM nodes we just
+  // updated, making connections flicker back to pre-drag coords for a frame.
+  // This layout effect runs synchronously after commit, before paint, and
+  // restores the correct drag-driven attributes. Fast path: no-op unless a
+  // drag is actually in flight.
+  useLayoutEffect(() => {
+    if (!draggingNodeInfoRef.current) return;
+    const last = pendingDragUpdate.current;
+    if (!last) return;
+    const { clientX, clientY, draggingNodeInfo: info } = last;
+    performDragUpdateRef.current(
+      clientX, clientY,
+      panOffsetRef.current, zoomLevelRef.current,
+      info
+    );
+  });
 
   // ---------------------------------------------------------------------------
   // Zoom Animations (drag zoom-out and restore)
