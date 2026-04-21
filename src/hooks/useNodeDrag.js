@@ -365,11 +365,39 @@ export const useNodeDrag = ({
       const virtualSource = { ...sStored, x: sPos.x, y: sPos.y };
       const virtualDest = { ...dStored, x: dPos.x, y: dPos.y };
 
-      const endpoints = getVisualConnectionEndpoints(
-        virtualSource, virtualDest, sDims, dDims,
-        curSelectedIds.has(edge.sourceId),
-        curSelectedIds.has(edge.destinationId)
-      );
+      // Match NodeCanvas edge-endpoint logic: border-clip only the arrow side(s),
+      // centers for non-directed sides. Otherwise non-directed edges visually
+      // terminate at the node border during drag instead of the center.
+      const arrowsToward = edge.directionality?.arrowsToward instanceof Set
+        ? edge.directionality.arrowsToward
+        : new Set(Array.isArray(edge.directionality?.arrowsToward) ? edge.directionality.arrowsToward : []);
+      const hasSourceArrow = arrowsToward.has(edge.sourceId);
+      const hasDestArrow = arrowsToward.has(edge.destinationId);
+      const isDirected = arrowsToward.size > 0;
+
+      const centerX1 = virtualSource.x + sDims.currentWidth / 2;
+      const centerY1 = virtualSource.y + sDims.currentHeight / 2;
+      const centerX2 = virtualDest.x + dDims.currentWidth / 2;
+      const centerY2 = virtualDest.y + dDims.currentHeight / 2;
+
+      let endpoints;
+      if (isManhattanOrClean) {
+        endpoints = { x1: centerX1, y1: centerY1, x2: centerX2, y2: centerY2 };
+      } else if (isDirected && (hasSourceArrow || hasDestArrow)) {
+        const clipped = getVisualConnectionEndpoints(
+          virtualSource, virtualDest, sDims, dDims,
+          curSelectedIds.has(edge.sourceId),
+          curSelectedIds.has(edge.destinationId)
+        );
+        endpoints = {
+          x1: hasSourceArrow ? clipped.x1 : centerX1,
+          y1: hasSourceArrow ? clipped.y1 : centerY1,
+          x2: hasDestArrow ? clipped.x2 : centerX2,
+          y2: hasDestArrow ? clipped.y2 : centerY2,
+        };
+      } else {
+        endpoints = { x1: centerX1, y1: centerY1, x2: centerX2, y2: centerY2 };
+      }
 
       // Get curve info for parallel edges
       const curveInfo = curCurveInfo.get(edgeId);
