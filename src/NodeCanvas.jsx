@@ -100,6 +100,8 @@ import { computeCleanPolylineFromPorts, generateManhattanRoutingPath, generateCl
 import * as GeometryUtils from './utils/canvas/geometryUtils.js';
 import EdgeRenderer from './components/EdgeRenderer.jsx';
 import { calculateParallelEdgePath, distanceToQuadraticBezier, calculateCurveControlPoint, getTrimmedBezierPath, getPointOnQuadraticBezier } from './utils/canvas/parallelEdgeUtils.js';
+import { calculateSelfLoopPath, countSelfLoopsForNode, distanceToSelfLoop } from './utils/canvas/selfLoopUtils.js';
+import SelfLoopEdge from './components/canvas/SelfLoopEdge.jsx';
 import { chooseLabelPlacement, buildRoundedPathFromPoints, estimateTextWidth } from './utils/canvas/edgeLabelPlacement.js';
 import { likelyTouch, isTouchDevice } from './utils/inputDeviceAnalysis';
 import TypeList from './TypeList'; // Re-add TypeList component
@@ -1427,6 +1429,11 @@ function NodeCanvas() {
     }
   }, []);
   const [drawingConnectionFrom, setDrawingConnectionFrom] = useState(null); // Structure might change (store source ID)
+  // True once the pointer has moved >=10px (in canvas coords) outside the source node's
+  // bounds during a connection draw. Used to gate the self-loop gesture: the user must
+  // exit the source node and return to it before releasing.
+  const connectionExitedSourceRef = useRef(false);
+  const [selfLoopDialog, setSelfLoopDialog] = useState(null);
 
   const [isPanning, setIsPanning] = useState(false);
   const [panStart, setPanStart] = useState({ x: 0, y: 0 });
@@ -4752,7 +4759,14 @@ function NodeCanvas() {
 
               let distance = Infinity;
 
-              if (enableAutoRouting && routingStyle === 'clean') {
+              if (edge.sourceId === edge.destinationId) {
+                distance = distanceToSelfLoop(
+                  currentX, currentY,
+                  sourceInstance.x, sourceInstance.y,
+                  sourceDims.currentWidth, sourceDims.currentHeight,
+                  edgeCurveInfo.get(edge.id)
+                );
+              } else if (enableAutoRouting && routingStyle === 'clean') {
                 const pathPoints = generateCleanRoutingPath(
                   edge,
                   sourceInstance,
@@ -5013,6 +5027,7 @@ function NodeCanvas() {
 
               const { x: currentX, y: currentY } = clampCoordinates(rawX, rawY);
               setDrawingConnectionFrom({ sourceInstanceId: longPressingInstanceId, startX: startPt.x, startY: startPt.y, currentX, currentY });
+              connectionExitedSourceRef.current = false;
               setLongPressingInstanceId(null); // Clear ID
             }
           }
@@ -5038,6 +5053,26 @@ function NodeCanvas() {
       // Update connection drawing coordinates with RAF throttling
       // Validate coordinates before updating
       if (typeof currentX === 'number' && typeof currentY === 'number' && !isNaN(currentX) && !isNaN(currentY)) {
+        // Self-loop gesture: flip once the pointer has traveled >=10px (screen-space)
+        // outside the source node's bounds. Threshold is scaled to canvas units by zoom.
+        if (!connectionExitedSourceRef.current) {
+          const srcNode = nodes.find(n => n.id === drawingConnectionFrom.sourceInstanceId);
+          if (srcNode) {
+            const srcAnchorInfo = srcNode.isGroupAnchor ? anchorPositionUpdatesRef.current.get(srcNode.id) : null;
+            const srcDims = srcAnchorInfo
+              ? { currentWidth: srcAnchorInfo.width, currentHeight: srcAnchorInfo.height }
+              : getNodeDimensions(srcNode, false, null);
+            const sx = srcAnchorInfo ? srcAnchorInfo.x : srcNode.x;
+            const sy = srcAnchorInfo ? srcAnchorInfo.y : srcNode.y;
+            const closestX = Math.max(sx, Math.min(currentX, sx + srcDims.currentWidth));
+            const closestY = Math.max(sy, Math.min(currentY, sy + srcDims.currentHeight));
+            const distSq = (currentX - closestX) ** 2 + (currentY - closestY) ** 2;
+            const threshold = 10 / Math.max(zoomLevelRef.current, 0.0001);
+            if (distSq >= threshold * threshold) {
+              connectionExitedSourceRef.current = true;
+            }
+          }
+        }
         pendingConnectionUpdate.current = { currentX, currentY };
         if (!connectionUpdateScheduled.current) {
           connectionUpdateScheduled.current = true;
@@ -5211,7 +5246,13 @@ function NodeCanvas() {
         sourceId: drawingConnectionFrom.sourceInstanceId
       });
 
-      if (targetId && targetId !== drawingConnectionFrom.sourceInstanceId) {
+      if (targetId && targetId === drawingConnectionFrom.sourceInstanceId && connectionExitedSourceRef.current) {
+        // Self-loop gesture: exited source bounds then returned — ask to confirm.
+        setSelfLoopDialog({
+          sourceInstanceId: targetId,
+          position: { x: e.clientX, y: e.clientY }
+        });
+      } else if (targetId && targetId !== drawingConnectionFrom.sourceInstanceId) {
         const sourceId = drawingConnectionFrom.sourceInstanceId;
 
         // Allow multiple parallel edges between the same nodes
@@ -5221,6 +5262,7 @@ function NodeCanvas() {
         storeActions.addEdge(activeGraphId, newEdgeData);
       }
       setDrawingConnectionFrom(null);
+      connectionExitedSourceRef.current = false;
       // Reset guard after a short delay to allow for the next connection drawing
       setTimeout(() => { connectionCreationInProgressRef.current = false; }, 50);
     }
@@ -7944,12 +7986,21 @@ function NodeCanvas() {
                 }}>
                   Redstring
                   <div style={{
-                    fontSize: '12px',
-                    color: theme.canvas.textSecondary,
-                    marginTop: '8px',
+                    marginTop: '12px',
+                    display: 'flex',
+                    justifyContent: 'center',
                     opacity: 0.6
                   }}>
-                    Loading...
+                    <div
+                      className="loading-spinner"
+                      style={{
+                        borderColor: theme.canvas.border,
+                        borderTopColor: theme.canvas.textSecondary,
+                        width: 20,
+                        height: 20,
+                        borderWidth: 2
+                      }}
+                    />
                   </div>
 
                   {/* Escape hatch for stuck loading states */}
@@ -8573,7 +8624,8 @@ function NodeCanvas() {
                     arrowsSet.forEach(id => {
                       if (id !== edge.sourceId && id !== edge.destinationId) stale.push(id);
                     });
-                    const coincident = sNode && dNode && sNode.x === dNode.x && sNode.y === dNode.y;
+                    const isSelfLoop = edge.sourceId === edge.destinationId;
+                    const coincident = !isSelfLoop && sNode && dNode && sNode.x === dNode.x && sNode.y === dNode.y;
                     const missingEndpoint = !sNode || !dNode;
                     if (stale.length > 0 || coincident || missingEndpoint) {
                       arrowheadAuditSeenRef.current.add(edge.id);
@@ -8617,6 +8669,42 @@ function NodeCanvas() {
                           : (baseDimsById.get(destNode.id) || getNodeDimensions(destNode, false, null));
                         const isSNodePreviewing = previewingNodeId === sourceNode.id;
                         const isENodePreviewing = previewingNodeId === destNode.id;
+
+                        if (edge.sourceId === edge.destinationId) {
+                          const isHovered = !draggingNodeInfo && hoveredEdgeInfo?.edgeId === edge.id;
+                          const isSelected = selectedEdgeId === edge.id || selectedEdgeIds.has(edge.id);
+                          let selfColor = sourceNode.color || NODE_DEFAULT_COLOR;
+                          if (edge.definitionNodeIds && edge.definitionNodeIds.length > 0) {
+                            const defProto = nodePrototypesMap.get(edge.definitionNodeIds[0]);
+                            if (defProto) selfColor = defProto.color || selfColor;
+                          } else if (edge.typeNodeId) {
+                            if (edge.typeNodeId === 'base-connection-prototype') {
+                              selfColor = '#000000';
+                            } else {
+                              const proto = edgePrototypesMap.get(edge.typeNodeId);
+                              if (proto) selfColor = proto.color || selfColor;
+                            }
+                          }
+                          return (
+                            <SelfLoopEdge
+                              key={`edge-${edge.id}`}
+                              edge={edge}
+                              node={sourceNode}
+                              nodeDims={sNodeDims}
+                              curveInfo={edgeCurveInfo.get(edge.id)}
+                              isHovered={isHovered}
+                              isSelected={isSelected}
+                              edgeColor={selfColor}
+                              showConnectionNames={showConnectionNames}
+                              selectedEdgeIds={selectedEdgeIds}
+                              storeActions={storeActions}
+                              ignoreCanvasClick={ignoreCanvasClick}
+                              setLongPressingInstanceId={setLongPressingInstanceId}
+                              setDrawingConnectionFrom={setDrawingConnectionFrom}
+                              handleEdgePointerDownTouch={handleEdgePointerDownTouch}
+                            />
+                          );
+                        }
 
                         // Check if this is a directed edge (has arrows)
                         const arrowsToward = edge.directionality?.arrowsToward instanceof Set
@@ -9919,6 +10007,42 @@ function NodeCanvas() {
                         const isSNodePreviewing = previewingNodeId === sourceNode.id;
                         const isENodePreviewing = previewingNodeId === destNode.id;
 
+                        if (edge.sourceId === edge.destinationId) {
+                          const isHovered = !draggingNodeInfo && hoveredEdgeInfo?.edgeId === edge.id;
+                          const isSelected = selectedEdgeId === edge.id || selectedEdgeIds.has(edge.id);
+                          let selfColor = sourceNode.color || NODE_DEFAULT_COLOR;
+                          if (edge.definitionNodeIds && edge.definitionNodeIds.length > 0) {
+                            const defProto = nodePrototypesMap.get(edge.definitionNodeIds[0]);
+                            if (defProto) selfColor = defProto.color || selfColor;
+                          } else if (edge.typeNodeId) {
+                            if (edge.typeNodeId === 'base-connection-prototype') {
+                              selfColor = '#000000';
+                            } else {
+                              const proto = edgePrototypesMap.get(edge.typeNodeId);
+                              if (proto) selfColor = proto.color || selfColor;
+                            }
+                          }
+                          return (
+                            <SelfLoopEdge
+                              key={`edge-${edge.id}`}
+                              edge={edge}
+                              node={sourceNode}
+                              nodeDims={sNodeDims}
+                              curveInfo={edgeCurveInfo.get(edge.id)}
+                              isHovered={isHovered}
+                              isSelected={isSelected}
+                              edgeColor={selfColor}
+                              showConnectionNames={showConnectionNames}
+                              selectedEdgeIds={selectedEdgeIds}
+                              storeActions={storeActions}
+                              ignoreCanvasClick={ignoreCanvasClick}
+                              setLongPressingInstanceId={setLongPressingInstanceId}
+                              setDrawingConnectionFrom={setDrawingConnectionFrom}
+                              handleEdgePointerDownTouch={handleEdgePointerDownTouch}
+                            />
+                          );
+                        }
+
                         // Check if this is a directed edge (has arrows)
                         const arrowsToward = edge.directionality?.arrowsToward instanceof Set
                           ? edge.directionality.arrowsToward
@@ -11078,6 +11202,30 @@ function NodeCanvas() {
                     strokeWidth="8"
                   />
                 )}
+                {drawingConnectionFrom && !draggingNodeInfo && connectionExitedSourceRef.current && (() => {
+                  const srcNode = nodes.find(n => n.id === drawingConnectionFrom.sourceInstanceId);
+                  if (!srcNode) return null;
+                  const srcDims = baseDimsById.get(srcNode.id) || getNodeDimensions(srcNode, false, null);
+                  const sx = srcNode.x;
+                  const sy = srcNode.y;
+                  const insideX = drawingConnectionFrom.currentX >= sx && drawingConnectionFrom.currentX <= sx + srcDims.currentWidth;
+                  const insideY = drawingConnectionFrom.currentY >= sy && drawingConnectionFrom.currentY <= sy + srcDims.currentHeight;
+                  if (!insideX || !insideY) return null;
+                  const existing = countSelfLoopsForNode(visibleEdges, srcNode.id);
+                  const loop = calculateSelfLoopPath(sx, sy, srcDims.currentWidth, srcDims.currentHeight, { pairIndex: existing, totalInPair: existing + 1 });
+                  return (
+                    <path
+                      d={loop.path}
+                      fill="none"
+                      stroke="black"
+                      strokeWidth="6"
+                      strokeDasharray="6 6"
+                      strokeLinecap="round"
+                      opacity="0.7"
+                      style={{ pointerEvents: 'none' }}
+                    />
+                  );
+                })()}
 
                 {(() => {
                   const draggingNodeId = draggingNodeInfo?.primaryId || draggingNodeInfo?.instanceId;
@@ -12288,6 +12436,33 @@ function NodeCanvas() {
           />
         )
       }
+
+      {/* Self-referential connection confirmation */}
+      {selfLoopDialog && (
+        <CanvasConfirmDialog
+          isOpen={true}
+          onClose={() => setSelfLoopDialog(null)}
+          onConfirm={() => {
+            if (activeGraphId && selfLoopDialog.sourceInstanceId) {
+              storeActions.addEdge(activeGraphId, {
+                id: uuidv4(),
+                sourceId: selfLoopDialog.sourceInstanceId,
+                destinationId: selfLoopDialog.sourceInstanceId
+              });
+            }
+            setSelfLoopDialog(null);
+          }}
+          title="Self-referential connection?"
+          message="Connect this node to itself?"
+          confirmLabel="Connect"
+          cancelLabel="Cancel"
+          variant="default"
+          position={selfLoopDialog.position}
+          containerRect={containerRef.current?.getBoundingClientRect()}
+          panOffset={panOffset}
+          zoomLevel={zoomLevel}
+        />
+      )}
 
       {/* Auto Graph Generation Modal */}
       <AutoGraphModal
