@@ -9,5 +9,16 @@
     "ip": "::1",
     "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Redstring/0.3.5 Chrome/142.0.7444.226 Electron/39.2.6 Safari/537.36",
     "endedAt": 1775784104179
+  },
+  "230064616": {
+    "id": "session-1776782736967-a5age9he",
+    "userId": "230064616",
+    "userLogin": "theredstring",
+    "startedAt": 1776782736967,
+    "lastActivity": 1776782754422,
+    "activityCount": 2,
+    "ip": "::1",
+    "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Redstring/0.3.6 Chrome/142.0.7444.226 Electron/39.2.6 Safari/537.36",
+    "endedAt": 1776782754422
   }
 }

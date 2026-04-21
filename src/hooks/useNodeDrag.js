@@ -1341,6 +1341,11 @@ export const useNodeDrag = ({
     // DOM-bypass access (for external consumers that need drag positions)
     dragPositionsRef,
 
+    // Ref to the latest DOM-drag update fn — used by keyboard pan/zoom so a
+    // dragged node tracks the mouse when the canvas moves under it without the
+    // mouse moving.
+    performDragUpdateRef,
+
     // Convenience
     isDragging,
   };

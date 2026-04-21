@@ -6,5 +6,13 @@
     "lastSeen": 1775784104179,
     "totalActions": 4,
     "sessions": 4
+  },
+  "230064616": {
+    "id": "230064616",
+    "login": "theredstring",
+    "firstSeen": 1776782736967,
+    "lastSeen": 1776782754422,
+    "totalActions": 2,
+    "sessions": 1
   }
 }

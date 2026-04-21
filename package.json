@@ -89,7 +89,6 @@
     "immer": "^10.1.1",
     "jsonld": "^8.3.3",
     "jsonwebtoken": "^9.0.2",
-    "lethargy": "^1.0.9",
     "lucide-react": "^0.454.0",
     "node-fetch": "^3.3.2",
     "papaparse": "^5.5.3",

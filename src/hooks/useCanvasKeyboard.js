@@ -39,6 +39,8 @@ export const useCanvasKeyboard = ({
     viewportSize, // {width, height}
     viewportBounds, // {x, y, width, height}
     draggingNodeInfo,
+    draggingNodeInfoRef,
+    performDragUpdateRef,
     isAnimatingZoomRef,
     // UI State flags
     isPaused,
@@ -87,6 +89,8 @@ export const useCanvasKeyboard = ({
         viewportSize, // {width, height}
         viewportBounds, // {x, y, width, height}
         draggingNodeInfo,
+        draggingNodeInfoRef,
+        performDragUpdateRef,
         isAnimatingZoomRef,
         // UI State flags
         isPaused,
@@ -160,6 +164,9 @@ export const useCanvasKeyboard = ({
                 onTransformChange,
                 isPanningOrZoomingRef,
                 draggingNodeInfo,
+                draggingNodeInfoRef,
+                performDragUpdateRef,
+                mousePositionRef,
                 isAnimatingZoomRef,
                 viewportBounds,
                 keyboardSettings
@@ -212,8 +219,11 @@ export const useCanvasKeyboard = ({
                 }
             }
 
-            // Handle zoom — skip during drag to prevent interference with drag zoom animation
-            if (!draggingNodeInfo && !isAnimatingZoomRef.current) {
+            // Handle zoom — skip only while the drag-start auto-zoom animation
+            // is running (isAnimatingZoomRef guards that window). Otherwise allow
+            // manual Shift/Space zoom during a drag so the dragged node can track
+            // the mouse across zoom changes, same way it does for pan.
+            if (!isAnimatingZoomRef.current) {
                 const baseFactor = 1.1;
                 const sensitivity = keyboardSettings?.zoomSensitivity ?? 0.5;
                 const zoomFactor = 1 + (baseFactor - 1) * sensitivity;
@@ -256,6 +266,22 @@ export const useCanvasKeyboard = ({
                 // hears about keyboard-driven pan/zoom. Without this, visibility state is
                 // frozen until the user touches the trackpad/mouse, causing nodes to vanish.
                 onTransformChange?.();
+
+                // If a node drag is live, re-project the mouse into world coords
+                // against the NEW pan/zoom so the dragged node tracks the mouse
+                // while the canvas moves under it. Same idea as edge-panning's
+                // per-frame performDragUpdate, just triggered by keyboard.
+                const activeDragInfo = draggingNodeInfoRef?.current;
+                if (activeDragInfo && performDragUpdateRef?.current && mousePositionRef?.current) {
+                    performDragUpdateRef.current(
+                        mousePositionRef.current.x,
+                        mousePositionRef.current.y,
+                        panOffsetRef.current,
+                        zoomLevelRef.current,
+                        activeDragInfo
+                    );
+                }
+
                 if (!wasMoving) isPanningOrZoomingRef.current = true; // guard view-save timeout
                 wasMoving = true;
             } else if (wasMoving) {
