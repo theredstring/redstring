@@ -71,6 +71,14 @@ const HelpModal = ({ isVisible, onClose }) => {
             <li><strong>2:</strong> Toggle right panel</li>
             <li><strong>3:</strong> Toggle bottom bar</li>
           </ul>
+
+          <h3 style={{ color: headingColor }}>Mouse &amp; Trackpad</h3>
+          <ul style={{ lineHeight: '1.8' }}>
+            <li><strong>Mouse Wheel / Two-Finger Scroll:</strong> Pan the canvas</li>
+            <li><strong>Ctrl/Cmd + Wheel:</strong> Zoom toward cursor</li>
+            <li><strong>Trackpad Pinch:</strong> Zoom toward cursor</li>
+            <li><strong>Click and drag on empty space:</strong> Pan the canvas</li>
+          </ul>
         </div>
       )
     },
@@ -80,10 +88,8 @@ const HelpModal = ({ isVisible, onClose }) => {
         <div>
           <h3 style={{ color: headingColor, marginTop: 0 }}>Moving Around the Canvas</h3>
           <ul style={{ lineHeight: '1.8' }}>
-            <li><strong>Pan (Mouse):</strong> Click and drag on empty space to move around</li>
-            <li><strong>Pan (Trackpad):</strong> Two-finger drag to pan smoothly</li>
-            <li><strong>Zoom (Mouse):</strong> Use mouse wheel to zoom in and out</li>
-            <li><strong>Zoom (Trackpad):</strong> Pinch with two fingers to zoom</li>
+            <li><strong>Pan:</strong> Mouse wheel, two-finger trackpad scroll, or click-and-drag on empty space</li>
+            <li><strong>Zoom:</strong> Ctrl/Cmd + Wheel, trackpad pinch, or Shift/Space keyboard</li>
             <li><strong>Go back:</strong> Use the breadcrumb navigation at the top to return to parent Webs</li>
           </ul>
 
@@ -97,6 +103,14 @@ const HelpModal = ({ isVisible, onClose }) => {
             <li><strong>1:</strong> Toggle left panel</li>
             <li><strong>2:</strong> Toggle right panel</li>
             <li><strong>3:</strong> Toggle bottom bar</li>
+          </ul>
+
+          <h3 style={{ color: headingColor }}>Mouse &amp; Trackpad</h3>
+          <ul style={{ lineHeight: '1.8' }}>
+            <li><strong>Mouse Wheel / Two-Finger Scroll:</strong> Pan the canvas</li>
+            <li><strong>Ctrl/Cmd + Wheel:</strong> Zoom toward cursor</li>
+            <li><strong>Trackpad Pinch:</strong> Zoom toward cursor</li>
+            <li><strong>Click and drag on empty space:</strong> Pan the canvas</li>
           </ul>
 
           <h3 style={{ color: headingColor }}>Interface Panels</h3>
