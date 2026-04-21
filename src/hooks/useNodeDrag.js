@@ -459,7 +459,7 @@ export const useNodeDrag = ({
       });
     });
   }, [nodeByIdRef, baseDimsByIdRef, edgeCurveInfoRef, edgesByNodeIdRef, edgesRef,
-      selectedInstanceIdsRef, enableAutoRoutingRef, routingStyleRef]);
+    selectedInstanceIdsRef, enableAutoRoutingRef, routingStyleRef]);
 
   // ---------------------------------------------------------------------------
   // Update Group Bounds in DOM (recomputes bounding boxes for affected groups)
@@ -982,8 +982,8 @@ export const useNodeDrag = ({
     const finalPositions = new Map(dragPositionsRef.current);
     const finalUpdates = finalPositions.size > 0
       ? Array.from(finalPositions.entries()).map(
-          ([instanceId, { x, y }]) => ({ instanceId, x, y })
-        )
+        ([instanceId, { x, y }]) => ({ instanceId, x, y })
+      )
       : [];
 
     // --- History Recording (use finalPositions from dragPositionsRef) ---
