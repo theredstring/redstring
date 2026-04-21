@@ -139,11 +139,18 @@ export const useNodeDrag = ({
     dragEdgeElsRef.current.clear();
     dragGroupElsRef.current.clear();
 
-    // Cache node <g> elements
+    // Cache node <g> elements. Suppress the CSS transform transition inline
+    // so DOM-bypass position writes apply instantly. Only the primary dragged
+    // node carries the `.node.dragging` class (which already disables the
+    // transition via CSS); members of a group- or multi-drag do not, so they
+    // would otherwise lerp toward each new transform.
     const nodeIdSet = new Set(nodeIds);
     nodeIdSet.forEach(id => {
       const el = container.querySelector(`[data-instance-id="${id}"]`);
-      if (el) dragNodeElsRef.current.set(id, el);
+      if (el) {
+        dragNodeElsRef.current.set(id, el);
+        el.style.transition = 'none';
+      }
     });
 
     // Cache edge <g> elements for all edges connected to dragged nodes
@@ -177,25 +184,40 @@ export const useNodeDrag = ({
               arr.forEach(el => { el.dataset.groupBaseTransform = el.style.transform || ''; });
               dragGroupElsRef.current.set(groupId, arr);
 
-              // Cache sub-element references for direct attribute updates
+              // Cache sub-element references for direct attribute updates.
+              // The label (rect+text) only lives on one sub per group — on the
+              // `.group` element for regular groups, or on the separate
+              // `.node-group-title` element for thing-groups. The `.node-group-bg`
+              // sub has no label child, so derive shared dims at the group level.
+              const elements = arr.map(el => {
+                const isRegular = el.classList.contains('group');
+                const isBg = el.classList.contains('node-group-bg');
+                const labelG = el.querySelector(':scope > .group-label');
+                const labelRect = labelG?.querySelector('rect');
+                const labelText = labelG?.querySelector('text');
+                return {
+                  el,
+                  type: isRegular ? 'regular' : isBg ? 'bg' : 'title',
+                  directRects: Array.from(el.querySelectorAll(':scope > rect')),
+                  labelRect,
+                  labelText,
+                  labelWidth: labelRect ? parseFloat(labelRect.getAttribute('width')) : 0,
+                  labelHeight: labelRect ? parseFloat(labelRect.getAttribute('height')) : 0,
+                };
+              });
+              let groupLabelWidth = 0;
+              let groupLabelHeight = 0;
+              for (const sub of elements) {
+                if (sub.labelHeight > groupLabelHeight) {
+                  groupLabelWidth = sub.labelWidth;
+                  groupLabelHeight = sub.labelHeight;
+                }
+              }
               dragGroupMetaRef.current.set(groupId, {
                 memberIds: memberInstanceIds ? [...memberInstanceIds] : [],
-                elements: arr.map(el => {
-                  const isRegular = el.classList.contains('group');
-                  const isBg = el.classList.contains('node-group-bg');
-                  const labelG = el.querySelector(':scope > .group-label');
-                  const labelRect = labelG?.querySelector('rect');
-                  const labelText = labelG?.querySelector('text');
-                  return {
-                    el,
-                    type: isRegular ? 'regular' : isBg ? 'bg' : 'title',
-                    directRects: Array.from(el.querySelectorAll(':scope > rect')),
-                    labelRect,
-                    labelText,
-                    labelWidth: labelRect ? parseFloat(labelRect.getAttribute('width')) : 0,
-                    labelHeight: labelRect ? parseFloat(labelRect.getAttribute('height')) : 0,
-                  };
-                }),
+                labelWidth: groupLabelWidth,
+                labelHeight: groupLabelHeight,
+                elements,
               });
             }
           }
@@ -511,6 +533,14 @@ export const useNodeDrag = ({
       const rectW = (maxX - minX) + margin * 2;
       const rectH = (maxY - minY) + margin * 2;
 
+      // Shared label dims at the group level (bg sub has no label child of its
+      // own, so it must borrow from the title/regular sub to compute the
+      // header strip correctly).
+      const groupLabelWidth = meta.labelWidth || 0;
+      const groupLabelHeight = meta.labelHeight || 0;
+      const labelY = rectY - groupLabelHeight - titleToCanvasGap;
+      const labelX = rectX + (rectW - groupLabelWidth) / 2;
+
       meta.elements.forEach(sub => {
         // Clear CSS transform — use raw attribute positioning instead
         sub.el.style.transform = '';
@@ -524,23 +554,26 @@ export const useNodeDrag = ({
             sub.directRects[0].setAttribute('width', rectW);
             sub.directRects[0].setAttribute('height', rectH);
           }
-          // Label position (centered above group)
+          // Label position (centered above group). Also sync the label rect's
+          // transform-origin — JSX computes it from the render-time labelX/Y,
+          // which goes stale during drag and makes the scale(1.08) pop-up
+          // scale from the wrong pivot.
           if (sub.labelRect) {
-            const lx = rectX + (rectW - sub.labelWidth) / 2;
-            const ly = rectY - sub.labelHeight - titleToCanvasGap;
-            sub.labelRect.setAttribute('x', lx);
-            sub.labelRect.setAttribute('y', ly);
+            sub.labelRect.setAttribute('x', labelX);
+            sub.labelRect.setAttribute('y', labelY);
+            sub.labelRect.style.transformOrigin = `${labelX + groupLabelWidth / 2}px ${labelY + groupLabelHeight / 2}px`;
             if (sub.labelText) {
-              sub.labelText.setAttribute('x', lx + sub.labelWidth / 2);
-              sub.labelText.setAttribute('y', ly + sub.labelHeight * 0.7 - 2);
+              sub.labelText.setAttribute('x', labelX + groupLabelWidth / 2);
+              sub.labelText.setAttribute('y', labelY + groupLabelHeight * 0.7 - 2);
             }
           }
         } else if (sub.type === 'bg') {
-          // Thing-group background: outer rect + inner canvas rect
-          const labelY = rectY - sub.labelHeight - titleToCanvasGap;
+          // Thing-group background: outer rect + inner canvas rect.
+          // Must mirror render math: outer spans from (labelY - titleTopMargin)
+          // to (rectY + rectH); inner starts at (labelY + labelHeight + titleBottomMargin).
           const ngRectY = labelY - titleTopMargin;
           const ngRectH = (rectY + rectH) - ngRectY;
-          const innerY = labelY + sub.labelHeight + titleBottomMargin;
+          const innerY = labelY + groupLabelHeight + titleBottomMargin;
           if (sub.directRects[0]) {
             sub.directRects[0].setAttribute('x', rectX);
             sub.directRects[0].setAttribute('y', ngRectY);
@@ -554,15 +587,16 @@ export const useNodeDrag = ({
             sub.directRects[1].setAttribute('height', (rectY + rectH) - innerY - innerCanvasBorder);
           }
         } else if (sub.type === 'title') {
-          // Thing-group title label
+          // Thing-group title label — keep the label rect, its scale-pop
+          // transform-origin, and the label text all in sync with the new
+          // bbox-derived labelX/labelY.
           if (sub.labelRect) {
-            const lx = rectX + (rectW - sub.labelWidth) / 2;
-            const ly = rectY - sub.labelHeight - titleToCanvasGap;
-            sub.labelRect.setAttribute('x', lx);
-            sub.labelRect.setAttribute('y', ly);
+            sub.labelRect.setAttribute('x', labelX);
+            sub.labelRect.setAttribute('y', labelY);
+            sub.labelRect.style.transformOrigin = `${labelX + groupLabelWidth / 2}px ${labelY + groupLabelHeight / 2}px`;
             if (sub.labelText) {
-              sub.labelText.setAttribute('x', lx + sub.labelWidth / 2);
-              sub.labelText.setAttribute('y', ly + sub.labelHeight * 0.7 - 2);
+              sub.labelText.setAttribute('x', labelX + groupLabelWidth / 2);
+              sub.labelText.setAttribute('y', labelY + groupLabelHeight * 0.7 - 2);
             }
           }
         }
@@ -818,9 +852,17 @@ export const useNodeDrag = ({
   // Clear DOM Transforms (called on drag end or cancel)
   // ---------------------------------------------------------------------------
   const clearDOMTransforms = useCallback(() => {
+    // Snapshot elements before clearing refs so we can defer restoring the
+    // `transition` property until AFTER React commits the flushed store
+    // positions. Otherwise React may not yet have re-rendered new SVG attrs
+    // when the inline `transform` drops off, and the node's CSS-transform
+    // change from `translate(dx,dy) scale(1)` → `scale(1)` would lerp across
+    // the 0.05s `transform` transition — the "teleport + fly-in" artifact.
+    const snapshotNodeEls = Array.from(dragNodeElsRef.current.values());
     dragNodeElsRef.current.forEach((el) => {
       el.style.transform = '';
       el.style.transformOrigin = '';
+      // Leave `style.transition = 'none'` in place for now.
     });
     dragGroupElsRef.current.forEach(els => {
       els.forEach(el => {
@@ -833,6 +875,17 @@ export const useNodeDrag = ({
     dragEdgeElsRef.current.clear();
     dragGroupElsRef.current.clear();
     dragGroupMetaRef.current.clear();
+
+    // Double-rAF: first frame lets React commit + paint with the new stored
+    // positions; second frame restores normal transition behavior for any
+    // future hover/scale animations.
+    if (snapshotNodeEls.length > 0) {
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+          snapshotNodeEls.forEach(el => { el.style.transition = ''; });
+        });
+      });
+    }
   }, []);
 
   // ---------------------------------------------------------------------------

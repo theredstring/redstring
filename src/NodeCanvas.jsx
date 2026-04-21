@@ -2038,6 +2038,14 @@ function NodeCanvas() {
 
 
 
+  // When a drag starts, discard any in-flight connection draw that leaked
+  // through from the long-press → drag transition. Prevents both the phantom
+  // static "black stub" line and an unintended edge-create on mouse-up.
+  useEffect(() => {
+    if (!draggingNodeInfo) return;
+    if (drawingConnectionFrom) setDrawingConnectionFrom(null);
+  }, [draggingNodeInfo, drawingConnectionFrom, setDrawingConnectionFrom]);
+
   // Flush anchor position updates from group rendering to the store
   // Skip during active drag to avoid double-renders per frame (positions sync when drag ends)
   useEffect(() => {
@@ -5229,8 +5237,11 @@ function NodeCanvas() {
         if (clickTimeoutIdRef.current) { clearTimeout(clickTimeoutIdRef.current); clickTimeoutIdRef.current = null; potentialClickNodeRef.current = null; }
         // REMOVED: setSelectedNodeIdForPieMenu(null); 
 
-        // Start drawing connection when dragging from a node (desktop quick-drag or long-press)
-        if (longPressingInstanceId && !draggingNodeInfo && !pinchRef.current.active) {
+        // Start drawing connection when dragging from a node (desktop quick-drag or long-press).
+        // Use the ref for draggingNodeInfo — state can be one commit stale relative to the
+        // long-press timer's setDraggingNodeInfo, which lets a mousemove firing in the same
+        // tick slip past `!draggingNodeInfo` and start a phantom connection from the node.
+        if (longPressingInstanceId && !draggingNodeInfo && !draggingNodeInfoRef.current && !pinchRef.current.active) {
           const longPressNodeData = nodes.find(n => n.id === longPressingInstanceId); // Get data
           if (longPressNodeData) {
             const leftNodeArea = !isInsideNode(longPressNodeData, e.clientX, e.clientY);
@@ -8900,7 +8911,10 @@ function NodeCanvas() {
                           y2 = destNode.y + (isENodePreviewing ? NODE_HEIGHT / 2 : eNodeDims.currentHeight / 2);
                         }
 
-                        const isHovered = hoveredEdgeInfo?.edgeId === edge.id;
+                        // Suppress edge hover (connection dots, hover-widened arrows, etc.)
+                        // while dragging — the dots would otherwise freeze at the last
+                        // hovered position instead of tracking the moving node.
+                        const isHovered = !draggingNodeInfo && hoveredEdgeInfo?.edgeId === edge.id;
                         const isSelected = selectedEdgeId === edge.id || selectedEdgeIds.has(edge.id);
 
 
@@ -10198,7 +10212,10 @@ function NodeCanvas() {
                           y2 = destNode.y + (isENodePreviewing ? NODE_HEIGHT / 2 : eNodeDims.currentHeight / 2);
                         }
 
-                        const isHovered = hoveredEdgeInfo?.edgeId === edge.id;
+                        // Suppress edge hover (connection dots, hover-widened arrows, etc.)
+                        // while dragging — the dots would otherwise freeze at the last
+                        // hovered position instead of tracking the moving node.
+                        const isHovered = !draggingNodeInfo && hoveredEdgeInfo?.edgeId === edge.id;
                         const isSelected = selectedEdgeId === edge.id || selectedEdgeIds.has(edge.id);
 
 
@@ -11284,8 +11301,10 @@ function NodeCanvas() {
                   );
                 })()}
 
-                {/* Drawing connection line (same z-level as existing edges, below nodes) */}
-                {drawingConnectionFrom && (
+                {/* Drawing connection line (same z-level as existing edges, below nodes).
+                    Hidden while dragging — a race can leak `drawingConnectionFrom` state
+                    into a drag, which would otherwise leave a frozen black stub behind. */}
+                {drawingConnectionFrom && !draggingNodeInfo && (
                   <line
                     x1={drawingConnectionFrom.startX}
                     y1={drawingConnectionFrom.startY}
