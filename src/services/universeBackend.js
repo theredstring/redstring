@@ -926,13 +926,39 @@ class UniverseBackend {
         await this.updateLocalFileState(universe, {
           hadFileHandle: false,
           fileHandleStatus: 'needs_reconnect',
-          reconnectMessage: 'Local file not found. Reconnect the file to continue.'
+          reconnectMessage: 'Local file not found. Reconnect the file to continue.',
+          unavailableReason: 'Local file not found. Reconnect the file to continue.'
         });
       } else if (access?.reason === 'permission_denied') {
         await this.updateLocalFileState(universe, {
           fileHandleStatus: 'permission_needed',
-          reconnectMessage: 'Grant file access permission to resume saving.'
+          reconnectMessage: 'Grant file access permission to resume saving.',
+          unavailableReason: 'Grant file access permission to resume saving.'
         });
+      } else if (access && !access.isValid && this.isInitialized) {
+        // Conservative catch-all: unknown failure reason. Retry once after a short
+        // delay to dodge transient IPC/filesystem races. Only classify as
+        // needs_reconnect if the second attempt also fails. Gated on
+        // isInitialized so startup-time races never flip a working file.
+        const retryAccess = await new Promise((resolve) => {
+          setTimeout(() => {
+            verifyFileHandleAccess(existingHandle).then(resolve).catch(() => resolve(null));
+          }, 500);
+        });
+
+        if (retryAccess?.isValid) {
+          umLog(`[UniverseBackend] Transient verify failure for ${slug} self-healed on retry`);
+          // Fall through; the restore path below will re-run and mark connected.
+        } else {
+          const reason = retryAccess?.reason || access.reason || 'unknown';
+          const msg = `Local file unavailable (${reason}). Click Reconnect to locate it.`;
+          await this.updateLocalFileState(universe, {
+            fileHandleStatus: 'needs_reconnect',
+            hadFileHandle: false,
+            reconnectMessage: msg,
+            unavailableReason: msg
+          });
+        }
       }
 
       this.fileHandles.delete(slug);
@@ -992,13 +1018,20 @@ class UniverseBackend {
     if (restore.needsPermission) {
       await this.updateLocalFileState(universe, {
         fileHandleStatus: 'permission_needed',
-        reconnectMessage: restore.message || 'Grant file access permission to resume saving.'
+        reconnectMessage: restore.message || 'Grant file access permission to resume saving.',
+        unavailableReason: restore.message || 'Grant file access permission to resume saving.'
       });
     } else if (restore.needsReconnect) {
+      const lastKnown = universe.localFile?.displayPath || universe.localFile?.path;
+      const fileName = universe.localFile?.fileName ||
+        (typeof lastKnown === 'string' ? lastKnown.split(/[/\\]/).pop() : null);
+      const fallbackMsg = fileName
+        ? `Could not find ${fileName}${lastKnown && lastKnown !== fileName ? ` (last known path: ${lastKnown})` : ''}. Click Reconnect to locate it.`
+        : 'Reconnect the local file to continue.';
       await this.updateLocalFileState(universe, {
         fileHandleStatus: 'needs_reconnect',
-        reconnectMessage: restore.message || 'Reconnect the local file to continue.',
-        unavailableReason: restore.message || 'Reconnect the local file to continue.',
+        reconnectMessage: restore.message || fallbackMsg,
+        unavailableReason: restore.message || fallbackMsg,
         hadFileHandle: false
       });
     }
@@ -1059,6 +1092,9 @@ class UniverseBackend {
                 try {
                   const paths = await window.electron.storage.getPaths();
                   if (paths?.documents) {
+                    // Default Redstring documents subdir — where `file:pick`/`file:saveAs`
+                    // default to, so the most likely place for relinked files.
+                    possiblePaths.push(`${paths.documents}/Redstring/${metadata.displayPath}`);
                     possiblePaths.push(`${paths.documents}/${metadata.displayPath}`);
                   }
                   if (paths?.downloads) {

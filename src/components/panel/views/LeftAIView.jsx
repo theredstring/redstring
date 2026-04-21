@@ -485,8 +485,8 @@ function applyToolResultToStore(toolName, result, toolCallId) {
     store.applyBulkGraphUpdates(graphId, {
       nodes: [],
       edges: [{
-        sourceId: result.sourceId,
-        targetId: result.targetId,
+        sourceId: result.sourceInstanceId,
+        targetId: result.targetInstanceId,
         source: result.sourceName,
         target: result.targetName,
         type: result.type || 'relates to',
@@ -495,6 +495,7 @@ function applyToolResultToStore(toolName, result, toolCallId) {
       }]
     });
     console.log('[Wizard] Successfully created edge:', result.sourceName, '→', result.targetName);
+    try { store.cleanupOrphanedData(); } catch (e) { console.warn('[Wizard] cleanupOrphanedData failed:', e); }
     return;
   }
 
@@ -769,6 +770,7 @@ function applyToolResultToStore(toolName, result, toolCallId) {
     }
 
     console.log('[Wizard] replaceEdges: Completed. Updated existing + created', newEdges.length, 'new edges');
+    try { store.cleanupOrphanedData(); } catch (e) { console.warn('[Wizard] cleanupOrphanedData failed:', e); }
     return;
   }
 
@@ -1183,6 +1185,7 @@ function applyToolResultToStore(toolName, result, toolCallId) {
 
     store.applyBulkGraphUpdates(graphId, bulkData);
     console.log('[Wizard] Successfully populated definition graph:', graphId);
+    try { store.cleanupOrphanedData(); } catch (e) { console.warn('[Wizard] cleanupOrphanedData failed:', e); }
 
     try { applyOffscreenLayout(graphId); } catch (e) { console.warn('[Wizard] Offscreen layout failed:', e); }
     setTimeout(() => {
@@ -1344,6 +1347,7 @@ function applyToolResultToStore(toolName, result, toolCallId) {
     store.applyBulkGraphUpdates(graphId, bulkData);
 
     console.log('[Wizard] Successfully populated graph:', graphId);
+    try { store.cleanupOrphanedData(); } catch (e) { console.warn('[Wizard] cleanupOrphanedData failed:', e); }
 
     // 4. Auto-layout: offscreen layout immediately, then event for DOM-based override
     try { applyOffscreenLayout(graphId); } catch (e) { console.warn('[Wizard] Offscreen layout failed:', e); }
@@ -1446,6 +1450,7 @@ function applyToolResultToStore(toolName, result, toolCallId) {
 
     store.applyBulkGraphUpdates(graphId, bulkData);
     console.log('[Wizard] Successfully imported tabular data to graph:', graphId);
+    try { store.cleanupOrphanedData(); } catch (e) { console.warn('[Wizard] cleanupOrphanedData failed:', e); }
 
     // 4. Auto-layout
     try { applyOffscreenLayout(graphId); } catch (e) { console.warn('[Wizard] Offscreen layout failed:', e); }
@@ -1549,6 +1554,7 @@ function applyToolResultToStore(toolName, result, toolCallId) {
 
     // Apply bulk updates to the ACTIVE graph (not creating a new one)
     store.applyBulkGraphUpdates(activeGraphId, bulkData);
+    try { store.cleanupOrphanedData(); } catch (e) { console.warn('[Wizard] cleanupOrphanedData failed:', e); }
 
     // Verify the operation actually succeeded
     const updatedGraph = store.graphs.get(activeGraphId);
@@ -1811,6 +1817,7 @@ function applyToolResultToStore(toolName, result, toolCallId) {
 
     // Apply to target graph (applyBulkGraphUpdates deduplicates by name)
     freshStore.applyBulkGraphUpdates(targetGraphId, { nodes, edges });
+    try { freshStore.cleanupOrphanedData(); } catch (e) { console.warn('[Wizard] cleanupOrphanedData failed:', e); }
 
     // Step 3: Delete source graph
     freshStore.deleteGraph(sourceGraphId);

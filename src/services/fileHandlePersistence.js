@@ -12,6 +12,9 @@
 import { isElectron, fileExists } from '../utils/fileAccessAdapter.js';
 
 const DB_NAME = 'RedstringFileHandles';
+// Do NOT bump DB_VERSION unless you are writing an explicit migration in
+// openDB().onupgradeneeded. Bumping without migrating silently orphans old
+// records and presents as "files unlinked after update" to the user.
 const DB_VERSION = 2;
 const STORE_NAME = 'fileHandles';
 const ELECTRON_STORE_NAME = 'fileHandles'; // Storage namespace for Electron
@@ -86,12 +89,27 @@ const openDB = () => {
     
     request.onupgradeneeded = (event) => {
       const db = event.target.result;
-      
-      // Create object store if it doesn't exist
+      const oldVersion = event.oldVersion;
+
       if (!db.objectStoreNames.contains(STORE_NAME)) {
         const objectStore = db.createObjectStore(STORE_NAME, { keyPath: 'universeSlug' });
         objectStore.createIndex('lastAccessed', 'lastAccessed', { unique: false });
         objectStore.createIndex('fileName', 'fileName', { unique: false });
+      }
+
+      // Per-version migrations. Add a case for each DB_VERSION bump so existing
+      // records are carried forward rather than silently orphaned.
+      switch (oldVersion) {
+        case 0:
+          // Fresh install — store was just created above.
+          break;
+        case 1:
+          // v1 -> v2: no schema change; indices already match.
+          console.log('[FileHandles] IndexedDB migrated v1 -> v2 (no-op)');
+          break;
+        default:
+          // oldVersion >= DB_VERSION: nothing to do.
+          break;
       }
     };
   });

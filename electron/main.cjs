@@ -420,7 +420,21 @@ ipcMain.handle('file:pick', async (event, options = {}) => {
     throw new Error('File picker cancelled');
   }
 
-  return result.filePaths[0];
+  let filePath = result.filePaths?.[0];
+  if (!filePath || typeof filePath !== 'string') {
+    // macOS iCloud conflict resolution dialogs can produce this state.
+    throw new Error('No file selected (empty result from system dialog)');
+  }
+
+  if (!path.isAbsolute(filePath)) {
+    console.warn('[FileHandles] ⚠ file:pick returned RELATIVE path:', filePath);
+    filePath = path.resolve(defaultPath, '..', filePath);
+    console.log('[FileHandles] ✓ Resolved to absolute path:', filePath);
+  } else {
+    console.log('[FileHandles] ✓ file:pick returned absolute path:', filePath);
+  }
+
+  return filePath;
 });
 
 ipcMain.handle('file:pickFolder', async (event, options = {}) => {

@@ -20,38 +20,48 @@ function resolveNodeByName(name, nodePrototypes, graphs, graphId) {
       ? Array.from(targetGraph.instances.values())
       : Object.values(targetGraph.instances || {});
 
-  // Try exact match first
+  // Exact match — take LAST match so newly created instances win over stale duplicates.
+  // (Rule from project memory: Maps iterate insertion-order; oldest first. Never break early.)
+  let exactMatch = null;
   for (const inst of instances) {
     const proto = nodePrototypes.find(p => p.id === inst.prototypeId);
     const nodeName = (inst.name || proto?.name || '').toLowerCase().trim();
     if (nodeName === queryLower) {
-      return { instanceId: inst.id, prototypeId: inst.prototypeId, name: inst.name || proto?.name };
+      exactMatch = { instanceId: inst.id, prototypeId: inst.prototypeId, name: inst.name || proto?.name };
     }
   }
+  if (exactMatch) return exactMatch;
 
-  // Substring match fallback
+  // Substring fallback — also LAST match, and warn so silent mis-wires are visible in logs.
+  let substringMatch = null;
   for (const inst of instances) {
     const proto = nodePrototypes.find(p => p.id === inst.prototypeId);
     const nodeName = (inst.name || proto?.name || '').toLowerCase().trim();
-    if (nodeName.includes(queryLower) || queryLower.includes(nodeName)) {
-      return { instanceId: inst.id, prototypeId: inst.prototypeId, name: inst.name || proto?.name };
+    if (nodeName && (nodeName.includes(queryLower) || queryLower.includes(nodeName))) {
+      substringMatch = { instanceId: inst.id, prototypeId: inst.prototypeId, name: inst.name || proto?.name };
     }
   }
+  if (substringMatch) {
+    console.warn('[createEdge] Substring fallback matched — may be wrong instance:', { query: name, matched: substringMatch.name });
+    return substringMatch;
+  }
 
-  // Check thing group names — resolve to anchor instance if available
+  // Thing-group names — also LAST match.
   const groups = Array.isArray(targetGraph.groups)
     ? targetGraph.groups
     : targetGraph.groups instanceof Map
       ? Array.from(targetGraph.groups.values())
       : Object.values(targetGraph.groups || {});
 
+  let groupMatch = null;
   for (const group of groups) {
     if (!group.linkedNodePrototypeId || !group.anchorInstanceId) continue;
     const groupName = (group.name || '').toLowerCase().trim();
     if (groupName === queryLower) {
-      return { instanceId: group.anchorInstanceId, prototypeId: group.linkedNodePrototypeId, name: group.name };
+      groupMatch = { instanceId: group.anchorInstanceId, prototypeId: group.linkedNodePrototypeId, name: group.name };
     }
   }
+  if (groupMatch) return groupMatch;
 
   return null;
 }

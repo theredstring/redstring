@@ -78,7 +78,12 @@ export const useNodeDrag = ({
   // ---------------------------------------------------------------------------
   const [draggingNodeInfo, setDraggingNodeInfo] = useState(null);
   const draggingNodeInfoRef = useRef(null);
-  useEffect(() => { draggingNodeInfoRef.current = draggingNodeInfo; }, [draggingNodeInfo]);
+  // Sync synchronously (pre-paint, pre-RAF) so the drag-zoom animation's first
+  // step — scheduled from the same event handler that calls setDraggingNodeInfo
+  // — sees a populated ref. A post-paint useEffect here let the first zoom
+  // frame skip performDragUpdate, leaving the node un-transformed while the
+  // SVG zoom animated.
+  useLayoutEffect(() => { draggingNodeInfoRef.current = draggingNodeInfo; }, [draggingNodeInfo]);
 
   const [preDragZoomLevel, setPreDragZoomLevel] = useState(null);
 
@@ -229,7 +234,10 @@ export const useNodeDrag = ({
   // Re-cache DOM elements after React re-renders for drag start.
   // The primary node moves to a separate JSX block (isDragging=true) on re-render,
   // invalidating the DOM ref cached synchronously in startDragForNode.
-  useEffect(() => {
+  // Must run pre-paint: the drag-zoom animation's first RAF fires the same
+  // frame as this commit, and needs the fresh DOM refs to write node/edge
+  // transforms to the live elements rather than the detached pre-rerender ones.
+  useLayoutEffect(() => {
     if (!draggingNodeInfo) return;
     const ids = [];
     if (draggingNodeInfo.relativeOffsets) {

@@ -1096,6 +1096,8 @@ function NodeCanvas() {
   const edgeCurveInfoRef = useRef(null);
   const edgesByNodeIdRef = useRef(null);
   const visibleEdgesRef = useRef(visibleEdges);
+  // Dedup set so the arrowhead audit only warns once per edge per session.
+  const arrowheadAuditSeenRef = useRef(new Set());
   // Previous-committed visible node set, read by runCulling for hysteresis (two-zone
   // culling: an already-visible node stays visible until it's outside the OUTER margin).
   const visibleNodeIdsRef = useRef(visibleNodeIds);
@@ -1212,7 +1214,22 @@ function NodeCanvas() {
         }
         // If NEEDS_ONBOARDING, check if user has skipped setup before
         else if (result.status === 'NEEDS_ONBOARDING') {
-          const welcomeSeen = typeof window !== 'undefined' && localStorage.getItem(getStorageKey('redstring-welcome-seen')) === 'true';
+          let welcomeSeen = typeof window !== 'undefined' && localStorage.getItem(getStorageKey('redstring-welcome-seen')) === 'true';
+
+          // Self-heal: if localStorage flag is missing but the backend already
+          // has universes, treat as onboarded and rewrite the flag.
+          if (!welcomeSeen) {
+            try {
+              const mod = await import('./services/universeBackend.js');
+              const existing = mod.default?.getAllUniverses?.() || [];
+              if (existing.length > 0) {
+                welcomeSeen = true;
+                if (typeof window !== 'undefined') {
+                  try { localStorage.setItem(getStorageKey('redstring-welcome-seen'), 'true'); } catch { }
+                }
+              }
+            } catch { }
+          }
 
           if (welcomeSeen) {
             console.log('[NodeCanvas] Onboarding seen but no workspace config. Falling back to browser/auto-connect...');
@@ -1254,40 +1271,71 @@ function NodeCanvas() {
 
   // Show onboarding modal when there's no universe file and universe isn't loaded
   useEffect(() => {
-    // Check if user has already completed onboarding
-    let hasCompletedOnboarding = false;
-    try {
-      if (typeof window !== 'undefined') {
-        const welcomeSeenVar = localStorage.getItem(getStorageKey('redstring-welcome-seen')) === 'true';
-        const fp = localStorage.getItem(getStorageKey('redstring_workspace_folder_path'));
-        hasCompletedOnboarding = welcomeSeenVar || !!fp;
-      }
-    } catch { }
+    let cancelled = false;
 
-    // Suppress welcome modal if Git auth/app flow is pending or resuming
-    let suppressForGitFlow = false;
-    try {
-      if (typeof window !== 'undefined') {
-        suppressForGitFlow = (
-          sessionStorage.getItem('github_oauth_pending') === 'true' ||
-          sessionStorage.getItem('github_app_pending') === 'true' ||
-          sessionStorage.getItem('redstring_onboarding_resume') === 'true'
+    const evaluate = async () => {
+      // Check if user has already completed onboarding
+      let welcomeSeenVar = false;
+      let hasCompletedOnboarding = false;
+      try {
+        if (typeof window !== 'undefined') {
+          welcomeSeenVar = localStorage.getItem(getStorageKey('redstring-welcome-seen')) === 'true';
+          const fp = localStorage.getItem(getStorageKey('redstring_workspace_folder_path'));
+          hasCompletedOnboarding = welcomeSeenVar || !!fp;
+        }
+      } catch { }
+
+      // If neither flag is set, check the backend — if the user already has
+      // universes, they've clearly onboarded before. This self-heals cases
+      // where localStorage was cleared (new machine, browser reset, a
+      // version bump that moved a key) but universe state survived.
+      if (!hasCompletedOnboarding) {
+        try {
+          const mod = await import('./services/universeBackend.js');
+          const existing = mod.default?.getAllUniverses?.() || [];
+          if (existing.length > 0) {
+            hasCompletedOnboarding = true;
+            // Self-heal: re-write the flag so future cold starts short-circuit.
+            if (typeof window !== 'undefined' && !welcomeSeenVar) {
+              try {
+                localStorage.setItem(getStorageKey('redstring-welcome-seen'), 'true');
+              } catch { }
+            }
+          }
+        } catch { }
+      }
+
+      if (cancelled) return;
+
+      // Suppress welcome modal if Git auth/app flow is pending or resuming
+      let suppressForGitFlow = false;
+      try {
+        if (typeof window !== 'undefined') {
+          suppressForGitFlow = (
+            sessionStorage.getItem('github_oauth_pending') === 'true' ||
+            sessionStorage.getItem('github_app_pending') === 'true' ||
+            sessionStorage.getItem('redstring_onboarding_resume') === 'true'
+          );
+        }
+      } catch { }
+
+      const shouldShowOnboarding =
+        !hasCompletedOnboarding &&
+        !suppressForGitFlow &&
+        !isUniverseLoading && (
+          !hasUniverseFile ||
+          !isUniverseLoaded ||
+          !!universeLoadingError
         );
+
+      if (shouldShowOnboarding && !showStorageSetupModal) {
+        setShowStorageSetupModal(true);
       }
-    } catch { }
+    };
 
-    const shouldShowOnboarding =
-      !hasCompletedOnboarding &&
-      !suppressForGitFlow &&
-      !isUniverseLoading && (
-        !hasUniverseFile ||
-        !isUniverseLoaded ||
-        !!universeLoadingError
-      );
+    evaluate();
 
-    if (shouldShowOnboarding && !showStorageSetupModal) {
-      setShowStorageSetupModal(true);
-    }
+    return () => { cancelled = true; };
   }, [isUniverseLoading, hasUniverseFile, isUniverseLoaded, universeLoadingError, showStorageSetupModal]);
 
   // Open Federation panel when global event is dispatched (from SaveStatusDisplay CTA)
@@ -8512,6 +8560,37 @@ function NodeCanvas() {
                   if (multiEdgePairs.length > 0) {
                     debugLogSync('NodeCanvas.jsx:edgeRender', 'Edge rendering info', { totalEdges: visibleEdges.length, multiEdgePairs: multiEdgePairs.map(([k, v]) => ({ pair: k, edgeCount: v.length, edgeIds: v })), enableAutoRouting, routingStyle, willUseCurves: !(enableAutoRouting && (routingStyle === 'manhattan' || routingStyle === 'clean')) }, 'debug-session', 'D-E');
                   }
+                  // #endregion
+
+                  // #region ArrowheadAudit — catch edges that can render a detached-looking arrowhead
+                  visibleEdges.forEach(edge => {
+                    if (arrowheadAuditSeenRef.current.has(edge.id)) return;
+                    const sNode = nodeById.get(edge.sourceId);
+                    const dNode = nodeById.get(edge.destinationId);
+                    const at = edge.directionality?.arrowsToward;
+                    const arrowsSet = at instanceof Set ? at : new Set(Array.isArray(at) ? at : []);
+                    const stale = [];
+                    arrowsSet.forEach(id => {
+                      if (id !== edge.sourceId && id !== edge.destinationId) stale.push(id);
+                    });
+                    const coincident = sNode && dNode && sNode.x === dNode.x && sNode.y === dNode.y;
+                    const missingEndpoint = !sNode || !dNode;
+                    if (stale.length > 0 || coincident || missingEndpoint) {
+                      arrowheadAuditSeenRef.current.add(edge.id);
+                      console.warn('[ArrowheadAudit]', {
+                        edgeId: edge.id,
+                        sourceId: edge.sourceId,
+                        destinationId: edge.destinationId,
+                        arrowsToward: Array.from(arrowsSet),
+                        staleArrowsTowardIds: stale,
+                        sourceNodePresent: !!sNode,
+                        destNodePresent: !!dNode,
+                        coincidentEndpoints: coincident,
+                        sourcePos: sNode ? { x: sNode.x, y: sNode.y } : null,
+                        destPos: dNode ? { x: dNode.x, y: dNode.y } : null,
+                      });
+                    }
+                  });
                   // #endregion
 
                   return (

@@ -2096,9 +2096,21 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
           });
         }
 
-        // Add all edges
+        // Add all edges — skip any whose endpoints aren't in the graph's instances
+        // (matches the validation in addEdge and applyBulkGraphUpdates; prevents orphan
+        // edges from persisting if clipboard data is stale).
         for (const edge of edges) {
           const edgeId = edge.id;
+          if (!graph.instances?.has(edge.sourceId) || !graph.instances?.has(edge.destinationId)) {
+            console.warn('[pasteNodesAndEdges] Skipping edge with missing endpoint', {
+              edgeId,
+              sourceId: edge.sourceId,
+              destinationId: edge.destinationId,
+              sourcePresent: graph.instances?.has(edge.sourceId),
+              destPresent: graph.instances?.has(edge.destinationId),
+            });
+            continue;
+          }
           draft.edges.set(edgeId, edge);
           graph.edgeIds.push(edgeId);
         }

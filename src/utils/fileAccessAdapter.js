@@ -46,6 +46,9 @@ export const hasFileSystemAccess = () => {
 export const pickFile = async (options = {}) => {
   if (isElectron()) {
     const filePath = await window.electron.fileSystem.pickFile(options);
+    if (!filePath || typeof filePath !== 'string') {
+      throw new Error('File picker returned no file');
+    }
     return filePath;
   } else if (hasFileSystemAccess()) {
     const [fileHandle] = await window.showOpenFilePicker({
@@ -53,6 +56,9 @@ export const pickFile = async (options = {}) => {
       multiple: false,
       ...options
     });
+    if (!fileHandle) {
+      throw new Error('File picker returned no file');
+    }
     return fileHandle;
   } else {
     throw new Error('File System Access API not available. Use Electron build or modern browser.');
@@ -72,12 +78,18 @@ export const pickSaveLocation = async (options = {}) => {
       suggestedName: options.suggestedName,
       defaultPath: options.defaultPath
     });
+    if (!filePath || typeof filePath !== 'string') {
+      throw new Error('Save dialog returned no path');
+    }
     return filePath;
   } else if (hasFileSystemAccess()) {
     const fileHandle = await window.showSaveFilePicker({
       suggestedName: options.suggestedName || 'untitled.redstring',
       types: [{ description: 'Redstring Files', accept: { 'application/json': ['.redstring'] } }]
     });
+    if (!fileHandle) {
+      throw new Error('Save dialog returned no handle');
+    }
     return fileHandle;
   } else {
     throw new Error('File System Access API not available. Use Electron build or modern browser.');
@@ -90,15 +102,20 @@ export const pickSaveLocation = async (options = {}) => {
  * @returns {Promise<string>} - File contents as string
  */
 export const readFile = async (fileHandleOrPath) => {
+  if (!fileHandleOrPath) {
+    throw new Error('readFile: no file handle or path provided');
+  }
   if (isElectron() && typeof fileHandleOrPath === 'string') {
     // Electron string path
     const result = await window.electron.fileSystem.readFile(fileHandleOrPath);
     return result.content;
-  } else {
+  }
+  if (fileHandleOrPath && typeof fileHandleOrPath.getFile === 'function') {
     // Browser or Electron with FileHandle object
     const file = await fileHandleOrPath.getFile();
     return await file.text();
   }
+  throw new Error(`readFile: unsupported handle/path (got ${typeof fileHandleOrPath})`);
 };
 
 /**
@@ -108,15 +125,22 @@ export const readFile = async (fileHandleOrPath) => {
  * @returns {Promise<void>}
  */
 export const writeFile = async (fileHandleOrPath, content) => {
+  if (!fileHandleOrPath) {
+    throw new Error('writeFile: no file handle or path provided');
+  }
   if (isElectron() && typeof fileHandleOrPath === 'string') {
     // Electron string path
     await window.electron.fileSystem.writeFile(fileHandleOrPath, content);
-  } else {
+    return;
+  }
+  if (fileHandleOrPath && typeof fileHandleOrPath.createWritable === 'function') {
     // Browser or Electron with FileHandle object
     const writable = await fileHandleOrPath.createWritable();
     await writable.write(content);
     await writable.close();
+    return;
   }
+  throw new Error(`writeFile: unsupported handle/path (got ${typeof fileHandleOrPath})`);
 };
 
 /**
@@ -125,6 +149,7 @@ export const writeFile = async (fileHandleOrPath, content) => {
  * @returns {Promise<boolean>}
  */
 export const fileExists = async (fileHandleOrPath) => {
+  if (!fileHandleOrPath) return false;
   if (isElectron() && typeof fileHandleOrPath === 'string') {
     try {
       const result = await window.electron.fileSystem.fileExists(fileHandleOrPath);
@@ -134,11 +159,10 @@ export const fileExists = async (fileHandleOrPath) => {
       console.error(`[fileAccessAdapter] fileExists error for "${fileHandleOrPath}":`, error);
       return false;
     }
-  } else {
-    // In browser or with Handle, if we have a FileHandle object, it "exists" in the sense that we have a reference.
-    // For robust checking we might try to getFile(), but usually this suffices.
-    return !!fileHandleOrPath;
   }
+  // In browser, having a FileHandle object means we have a reference.
+  // For robust checking we might try to getFile(), but usually this suffices.
+  return !!fileHandleOrPath;
 };
 
 /**
@@ -148,14 +172,19 @@ export const fileExists = async (fileHandleOrPath) => {
  * @returns {Promise<string>} - Stable identifier
  */
 export const getFileIdentifier = async (fileHandleOrPath) => {
-  if (isElectron()) {
+  if (!fileHandleOrPath) {
+    throw new Error('getFileIdentifier: no file handle or path provided');
+  }
+  if (isElectron() && typeof fileHandleOrPath === 'string') {
     // Electron: use the path as identifier
     return fileHandleOrPath;
-  } else {
+  }
+  if (fileHandleOrPath && typeof fileHandleOrPath.getFile === 'function') {
     // Browser: use FileHandle's name and lastModified as identifier
     const file = await fileHandleOrPath.getFile();
     return `${file.name}-${file.lastModified}`;
   }
+  throw new Error(`getFileIdentifier: unsupported handle/path (got ${typeof fileHandleOrPath})`);
 };
 
 /**
@@ -164,16 +193,23 @@ export const getFileIdentifier = async (fileHandleOrPath) => {
  * @returns {Promise<string>} - File name
  */
 export const getFileName = async (fileHandleOrPath) => {
-  if (isElectron()) {
+  if (!fileHandleOrPath) {
+    throw new Error('getFileName: no file handle or path provided');
+  }
+  if (isElectron() && typeof fileHandleOrPath === 'string') {
     // Electron: extract filename from path
-    // Note: We can't use require() in ES modules, so we'll use a simple path split
     const parts = fileHandleOrPath.split(/[/\\]/);
     return parts[parts.length - 1];
-  } else {
+  }
+  if (fileHandleOrPath && typeof fileHandleOrPath.getFile === 'function') {
     // Browser: get name from FileHandle
     const file = await fileHandleOrPath.getFile();
     return file.name;
   }
+  if (typeof fileHandleOrPath?.name === 'string') {
+    return fileHandleOrPath.name;
+  }
+  throw new Error(`getFileName: unsupported handle/path (got ${typeof fileHandleOrPath})`);
 };
 
 /**

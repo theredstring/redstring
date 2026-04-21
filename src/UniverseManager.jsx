@@ -20,6 +20,7 @@ import {
   ChevronDown,
   ChevronRight,
   Loader2,
+  RotateCcw,
 } from 'lucide-react';
 
 import universeManagerService, { STORAGE_TYPES } from './services/universeManagerService.js';
@@ -1143,6 +1144,10 @@ const UniverseManager = ({ variant = 'panel', onRequestClose }) => {
             if (!fileHandle) {
               // This mimics saveAs behavior but with explicit control
               fileHandle = await pickSaveLocation({ suggestedName });
+              if (!fileHandle) {
+                umLog('[UniverseManager] Create universe: save dialog returned nothing, aborting');
+                return;
+              }
               await writeFile(fileHandle, defaultContent);
             }
 
@@ -3074,6 +3079,12 @@ const UniverseManager = ({ variant = 'panel', onRequestClose }) => {
       // Use the file access adapter (works in both browser and Electron)
       const fileHandle = await pickFile();
 
+      if (!fileHandle) {
+        // Belt-and-suspenders: adapter should have thrown, but don't trust it
+        umLog('[UniverseManager] Link local file: picker returned nothing, aborting');
+        return;
+      }
+
       // Get file name for display
       let fileName;
       if (isElectron() && typeof fileHandle === 'string') {
@@ -3251,6 +3262,10 @@ const UniverseManager = ({ variant = 'panel', onRequestClose }) => {
       // Fallback to picker if no workspace folder or creation failed
       if (!fileHandle) {
         fileHandle = await pickSaveLocation({ suggestedName });
+        if (!fileHandle) {
+          umLog('[UniverseManager] Create local file: save dialog returned nothing, aborting');
+          return;
+        }
         umLog('[UniverseManager] Using pickSaveLocation result:', {
           fileHandleType: typeof fileHandle,
           fileHandleValue: fileHandle?.name || fileHandle
@@ -3889,6 +3904,15 @@ const UniverseManager = ({ variant = 'panel', onRequestClose }) => {
       );
     }
 
+    const needsPermission = localFile.fileHandleStatus === 'permission_needed';
+    const needsReconnect = localFile.fileHandleStatus === 'needs_reconnect'
+      || (!!localFile.unavailableReason && !needsPermission);
+    const alertPalette = needsReconnect
+      ? theme.alert.error
+      : needsPermission
+        ? theme.alert.warning
+        : null;
+
     return (
       <div
         style={{
@@ -3918,11 +3942,20 @@ const UniverseManager = ({ variant = 'panel', onRequestClose }) => {
             </div>
           </div>
           <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-            <PanelIconButton
-              label="Relink File"
-              variant="outline"
-              onClick={() => handleLinkLocalFile(universe.slug)}
-            />
+            {needsReconnect ? (
+              <PanelIconButton
+                icon={RotateCcw}
+                label="Reconnect"
+                variant="solid"
+                onClick={() => handleLinkLocalFile(universe.slug)}
+              />
+            ) : (
+              <PanelIconButton
+                label="Relink File"
+                variant="outline"
+                onClick={() => handleLinkLocalFile(universe.slug)}
+              />
+            )}
             <PanelIconButton
               label="Download"
               variant="outline"
@@ -3930,9 +3963,21 @@ const UniverseManager = ({ variant = 'panel', onRequestClose }) => {
             />
           </div>
         </div>
-        {localFile.unavailableReason && (
-          <div style={{ fontSize: '0.72rem', color: '#7A0000', fontStyle: 'italic' }}>
-            ⚠️ {localFile.unavailableReason}
+        {alertPalette && localFile.unavailableReason && (
+          <div
+            style={{
+              padding: '6px 10px',
+              borderRadius: 6,
+              backgroundColor: alertPalette.bg,
+              border: `1px solid ${alertPalette.border}`,
+              color: alertPalette.text,
+              fontSize: '0.72rem',
+              display: 'flex',
+              alignItems: 'center',
+              gap: 6
+            }}
+          >
+            <span>⚠️ {localFile.unavailableReason}</span>
           </div>
         )}
       </div>
