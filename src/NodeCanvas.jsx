@@ -8015,7 +8015,6 @@ function NodeCanvas() {
                 style={{
                   transformOrigin: '0 0',
                   willChange: 'transform',
-                  backgroundColor: theme.canvas.bg,
                   opacity: 1,
                   pointerEvents: 'auto',
                   overflow: 'visible',

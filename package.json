@@ -69,7 +69,11 @@
     "docs:generate": "node scripts/generate-docs.js",
     "docs:dev": "cd docs && npx mintlify dev",
     "docs:build": "cd docs && npx mintlify build",
-    "release": "./scripts/publish-release.sh"
+    "release": "./scripts/publish-release.sh",
+    "release:patch": "./scripts/publish-release.sh patch",
+    "release:minor": "./scripts/publish-release.sh minor",
+    "release:major": "./scripts/publish-release.sh major",
+    "release:dry": "./scripts/publish-release.sh --dry-run"
   },
   "dependencies": {
     "@chenglou/pretext": "^0.0.5",

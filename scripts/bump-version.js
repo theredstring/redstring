@@ -10,9 +10,11 @@ const pkgPath = path.join(__dirname, '../package.json');
 const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf8'));
 const currentVersion = pkg.version;
 
-const arg = (process.argv[2] || 'patch').trim();
+const arg = (process.argv[2] || '').trim();
 
 function computeNextVersion(current, spec) {
+  if (!spec) return current;
+
   const explicit = spec.match(/^v?(\d+)\.(\d+)\.(\d+)(?:-[a-zA-Z0-9.]+)?$/);
   if (explicit) return spec.replace(/^v/, '');
 
@@ -63,3 +65,5 @@ try {
 } catch (err) {
   console.warn(`[bump-version] Could not refresh package-lock.json: ${err.message}`);
 }
+
+console.log(`VERSION=${newVersion}`);
