@@ -75,6 +75,7 @@ const HelpModal = ({ isVisible, onClose }) => {
           <h3 style={{ color: headingColor }}>Mouse &amp; Trackpad</h3>
           <ul style={{ lineHeight: '1.8' }}>
             <li><strong>Mouse Wheel / Two-Finger Scroll:</strong> Pan the canvas</li>
+            <li><strong>Alt/Option + Wheel:</strong> Pan horizontally</li>
             <li><strong>Ctrl/Cmd + Wheel:</strong> Zoom toward cursor</li>
             <li><strong>Trackpad Pinch:</strong> Zoom toward cursor</li>
             <li><strong>Click and drag on empty space:</strong> Pan the canvas</li>
@@ -88,7 +89,7 @@ const HelpModal = ({ isVisible, onClose }) => {
         <div>
           <h3 style={{ color: headingColor, marginTop: 0 }}>Moving Around the Canvas</h3>
           <ul style={{ lineHeight: '1.8' }}>
-            <li><strong>Pan:</strong> Mouse wheel, two-finger trackpad scroll, or click-and-drag on empty space</li>
+            <li><strong>Pan:</strong> Mouse wheel, two-finger trackpad scroll, or click-and-drag on empty space. Hold Alt/Option to pan horizontally</li>
             <li><strong>Zoom:</strong> Ctrl/Cmd + Wheel, trackpad pinch, or Shift/Space keyboard</li>
             <li><strong>Go back:</strong> Use the breadcrumb navigation at the top to return to parent Webs</li>
           </ul>
@@ -108,6 +109,7 @@ const HelpModal = ({ isVisible, onClose }) => {
           <h3 style={{ color: headingColor }}>Mouse &amp; Trackpad</h3>
           <ul style={{ lineHeight: '1.8' }}>
             <li><strong>Mouse Wheel / Two-Finger Scroll:</strong> Pan the canvas</li>
+            <li><strong>Alt/Option + Wheel:</strong> Pan horizontally</li>
             <li><strong>Ctrl/Cmd + Wheel:</strong> Zoom toward cursor</li>
             <li><strong>Trackpad Pinch:</strong> Zoom toward cursor</li>
             <li><strong>Click and drag on empty space:</strong> Pan the canvas</li>

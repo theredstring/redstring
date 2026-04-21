@@ -13,8 +13,30 @@ autoUpdater.autoInstallOnAppQuit = true;
 autoUpdater.logger = require('electron-log');
 autoUpdater.logger.transports.file.level = 'info';
 
-// Cache downloaded update info so the renderer can query it after refresh
-let pendingUpdateInfo = null;
+// Cache update info so the renderer can query it after page refresh
+let pendingUpdateInfo = null;      // set once download-downloaded fires
+let availableUpdateInfo = null;    // set once update-available fires (may remain while downloading)
+
+// Notify renderer when a release has been detected (before download completes)
+autoUpdater.on('update-available', (info) => {
+  console.log('[Electron] Update available:', info.version);
+  availableUpdateInfo = {
+    version: info.version,
+    releaseName: info.releaseName || ''
+  };
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send('updater:update-available', availableUpdateInfo);
+  }
+});
+
+// Forward download progress so the renderer can show a live status
+autoUpdater.on('download-progress', (p) => {
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send('updater:download-progress', {
+      percent: typeof p?.percent === 'number' ? p.percent : 0
+    });
+  }
+});
 
 // Notify renderer when an update has been downloaded and is ready to install
 autoUpdater.on('update-downloaded', (info) => {
@@ -28,11 +50,16 @@ autoUpdater.on('update-downloaded', (info) => {
   }
 });
 
-// Forward updater errors to renderer (e.g. code signature validation failures)
+// Forward updater errors to renderer, tagged with phase so the renderer can
+// distinguish transient download errors (retryable, should not poison the UI)
+// from install-time errors (e.g. signature validation on unsigned builds).
 autoUpdater.on('error', (err) => {
   console.error('[Electron] Auto-updater error:', err.message);
   if (mainWindow && !mainWindow.isDestroyed()) {
-    mainWindow.webContents.send('updater:error', err.message);
+    mainWindow.webContents.send('updater:error', {
+      phase: 'download',
+      message: err.message
+    });
   }
 });
 
@@ -704,15 +731,25 @@ ipcMain.on('updater:install', () => {
   setTimeout(() => {
     console.warn('[Electron] quitAndInstall did not exit — sending error to renderer');
     if (mainWindow && !mainWindow.isDestroyed()) {
-      mainWindow.webContents.send('updater:error',
-        'Update install failed — the app may not be code-signed');
+      mainWindow.webContents.send('updater:error', {
+        phase: 'install',
+        message: 'Update install failed — the app may not be code-signed'
+      });
     }
   }, 3000);
 });
 
-// Let renderer check if an update was already downloaded (survives page refresh)
+// Let renderer check if an update is already known (survives page refresh).
+// Returns the downloaded update first; otherwise falls back to an available
+// (not-yet-downloaded) release so the toast can still show "Downloading…".
 ipcMain.handle('updater:check-pending', () => {
-  return pendingUpdateInfo;
+  if (pendingUpdateInfo) {
+    return { ...pendingUpdateInfo, status: 'downloaded' };
+  }
+  if (availableUpdateInfo) {
+    return { ...availableUpdateInfo, status: 'available' };
+  }
+  return null;
 });
 
 // Fallback: open GitHub releases page for manual download

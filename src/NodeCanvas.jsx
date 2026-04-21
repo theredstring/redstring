@@ -4402,11 +4402,13 @@ function NodeCanvas() {
     }
 
     // PAN path — every non-modifier wheel event pans.
+    // Alt/Option held: translate vertical wheel motion into horizontal pan.
+    // Useful for mouse users whose wheel only scrolls vertically.
     e.stopPropagation();
     isPanningOrZooming.current = true;
     panSourceRef.current = 'wheel';
-    const dx = -deltaX * PAN_DRAG_SENSITIVITY;
-    const dy = -deltaY * PAN_DRAG_SENSITIVITY;
+    const dx = e.altKey ? -deltaY * PAN_DRAG_SENSITIVITY : -deltaX * PAN_DRAG_SENSITIVITY;
+    const dy = e.altKey ? 0 : -deltaY * PAN_DRAG_SENSITIVITY;
     const currentCanvasWidth = canvasSize.width * zoomLevelRef.current;
     const currentCanvasHeight = canvasSize.height * zoomLevelRef.current;
     const minX = viewportSize.width - currentCanvasWidth;
