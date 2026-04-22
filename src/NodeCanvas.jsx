@@ -144,7 +144,7 @@ const TRACKPAD_PAN_MOMENTUM_BOOST = 1.1;        // marginally higher boost for p
 
 function NodeCanvas() {
   // CULLING FLAG - viewport culling for nodes and edges
-  const ENABLE_CULLING = true;
+  const ENABLE_CULLING = false;
 
   // TEMPORARY DIAGNOSTIC - zoom flicker root-cause investigation.
   // Remove after culprit identified. See /Users/granteubanks/.claude/plans/sleepy-snacking-mist.md

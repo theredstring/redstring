@@ -54,16 +54,28 @@ export function calculateSelfLoopPath(nodeX, nodeY, nodeW, nodeH, curveInfo) {
   const midY = (anchorA.y + anchorB.y) / 2;
 
   const centerOffset = Math.sqrt(Math.max(0, R * R - chordHalfLen * chordHalfLen));
+  // Loop-circle center sits on the OUTWARD side of the chord. The major arc (large-arc=1)
+  // lies on the same side as the center, so the arc bulges outward away from the node.
   const loopCx = midX + centerOffset * outX;
   const loopCy = midY + centerOffset * outY;
 
-  // Major arc from A outward to B. SVG: large-arc-flag=1, sweep-flag=0 gives the arc on the
-  // outward side (CCW in screen terms).
-  const path = `M ${anchorA.x},${anchorA.y} A ${R},${R} 0 1,0 ${anchorB.x},${anchorB.y}`;
+  const path = `M ${anchorA.x},${anchorA.y} A ${R},${R} 0 1,1 ${anchorB.x},${anchorB.y}`;
 
-  // Arrow at an anchor points INTO the node along the line from anchor to corner center.
-  const arrowAngleA = Math.atan2(cornerCy - anchorA.y, cornerCx - anchorA.x) * (180 / Math.PI);
-  const arrowAngleB = Math.atan2(cornerCy - anchorB.y, cornerCx - anchorB.x) * (180 / Math.PI);
+  // Arrow direction = tangent to the loop circle at the anchor, oriented so the tip points
+  // toward the node interior (the direction the arc is traveling as it re-enters the node).
+  // Path is traversed A → outward apex → B (CW in screen, sweep-flag=1). At B, continuing CW
+  // past B would dive into the minor arc, i.e. into the node — that's the arrow-tip direction.
+  // At A, continuing CW past A would leave the node (outward), so the into-node direction is
+  // the REVERSE of the CW tangent.
+  const tangentAtAnchorCW = (ax, ay) => {
+    const rx = ax - loopCx;
+    const ry = ay - loopCy;
+    return { tx: -ry, ty: rx };
+  };
+  const tA = tangentAtAnchorCW(anchorA.x, anchorA.y);
+  const tB = tangentAtAnchorCW(anchorB.x, anchorB.y);
+  const arrowAngleA = Math.atan2(-tA.ty, -tA.tx) * (180 / Math.PI);
+  const arrowAngleB = Math.atan2(tB.ty, tB.tx) * (180 / Math.PI);
 
   const wedgeHalfAngle = Math.asin(Math.min(1, chordHalfLen / R));
 
