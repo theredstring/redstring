@@ -74,8 +74,8 @@ export function calculateSelfLoopPath(nodeX, nodeY, nodeW, nodeH, curveInfo) {
   };
   const tA = tangentAtAnchorCW(anchorA.x, anchorA.y);
   const tB = tangentAtAnchorCW(anchorB.x, anchorB.y);
-  const arrowAngleA = Math.atan2(-tA.ty, -tA.tx) * (180 / Math.PI);
-  const arrowAngleB = Math.atan2(tB.ty, tB.tx) * (180 / Math.PI);
+  const arrowAngleA = Math.atan2(-tA.ty, -tA.tx) * (180 / Math.PI) + 15;
+  const arrowAngleB = Math.atan2(tB.ty, tB.tx) * (180 / Math.PI) - 15;
 
   const wedgeHalfAngle = Math.asin(Math.min(1, chordHalfLen / R));
 
