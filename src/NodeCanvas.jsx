@@ -8674,17 +8674,25 @@ function NodeCanvas() {
                           const isHovered = !draggingNodeInfo && hoveredEdgeInfo?.edgeId === edge.id;
                           const isSelected = selectedEdgeId === edge.id || selectedEdgeIds.has(edge.id);
                           let selfColor = sourceNode.color || NODE_DEFAULT_COLOR;
+                          let selfConnectionName = 'Connection';
                           if (edge.definitionNodeIds && edge.definitionNodeIds.length > 0) {
                             const defProto = nodePrototypesMap.get(edge.definitionNodeIds[0]);
-                            if (defProto) selfColor = defProto.color || selfColor;
+                            if (defProto) {
+                              selfColor = defProto.color || selfColor;
+                              selfConnectionName = defProto.name || selfConnectionName;
+                            }
                           } else if (edge.typeNodeId) {
                             if (edge.typeNodeId === 'base-connection-prototype') {
                               selfColor = '#000000';
                             } else {
                               const proto = edgePrototypesMap.get(edge.typeNodeId);
-                              if (proto) selfColor = proto.color || selfColor;
+                              if (proto) {
+                                selfColor = proto.color || selfColor;
+                                selfConnectionName = proto.name || selfConnectionName;
+                              }
                             }
                           }
+                          const selfFontSize = 24 * (textSettings?.fontSize || 1);
                           return (
                             <SelfLoopEdge
                               key={`edge-${edge.id}`}
@@ -8702,6 +8710,9 @@ function NodeCanvas() {
                               setLongPressingInstanceId={setLongPressingInstanceId}
                               setDrawingConnectionFrom={setDrawingConnectionFrom}
                               handleEdgePointerDownTouch={handleEdgePointerDownTouch}
+                              connectionName={selfConnectionName}
+                              connectionFontSize={selfFontSize}
+                              placedLabelsRef={placedLabelsRef}
                             />
                           );
                         }
@@ -10011,17 +10022,25 @@ function NodeCanvas() {
                           const isHovered = !draggingNodeInfo && hoveredEdgeInfo?.edgeId === edge.id;
                           const isSelected = selectedEdgeId === edge.id || selectedEdgeIds.has(edge.id);
                           let selfColor = sourceNode.color || NODE_DEFAULT_COLOR;
+                          let selfConnectionName = 'Connection';
                           if (edge.definitionNodeIds && edge.definitionNodeIds.length > 0) {
                             const defProto = nodePrototypesMap.get(edge.definitionNodeIds[0]);
-                            if (defProto) selfColor = defProto.color || selfColor;
+                            if (defProto) {
+                              selfColor = defProto.color || selfColor;
+                              selfConnectionName = defProto.name || selfConnectionName;
+                            }
                           } else if (edge.typeNodeId) {
                             if (edge.typeNodeId === 'base-connection-prototype') {
                               selfColor = '#000000';
                             } else {
                               const proto = edgePrototypesMap.get(edge.typeNodeId);
-                              if (proto) selfColor = proto.color || selfColor;
+                              if (proto) {
+                                selfColor = proto.color || selfColor;
+                                selfConnectionName = proto.name || selfConnectionName;
+                              }
                             }
                           }
+                          const selfFontSize = 24 * (textSettings?.fontSize || 1);
                           return (
                             <SelfLoopEdge
                               key={`edge-${edge.id}`}
@@ -10039,6 +10058,9 @@ function NodeCanvas() {
                               setLongPressingInstanceId={setLongPressingInstanceId}
                               setDrawingConnectionFrom={setDrawingConnectionFrom}
                               handleEdgePointerDownTouch={handleEdgePointerDownTouch}
+                              connectionName={selfConnectionName}
+                              connectionFontSize={selfFontSize}
+                              placedLabelsRef={placedLabelsRef}
                             />
                           );
                         }

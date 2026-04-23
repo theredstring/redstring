@@ -1,5 +1,7 @@
 import React from 'react';
 import { calculateSelfLoopPath } from '../../utils/canvas/selfLoopUtils.js';
+import { estimateTextWidth } from '../../utils/canvas/edgeLabelPlacement.js';
+import { getLightHueText, getDarkHueText } from '../../utils/colorUtils.js';
 
 const SelfLoopEdge = ({
   edge,
@@ -16,6 +18,9 @@ const SelfLoopEdge = ({
   setLongPressingInstanceId,
   setDrawingConnectionFrom,
   handleEdgePointerDownTouch,
+  connectionName,
+  connectionFontSize,
+  placedLabelsRef,
 }) => {
   const arrowsToward = edge.directionality?.arrowsToward instanceof Set
     ? edge.directionality.arrowsToward
@@ -185,6 +190,44 @@ const SelfLoopEdge = ({
 
       {isHovered && !hasArrow && renderDot(loop.anchorB)}
       {isHovered && renderDot(loop.anchorA)}
+
+      {showConnectionNames && connectionName && (() => {
+        const fontSize = connectionFontSize || 24;
+        // Place label at the arc apex (equivalent to midpoint of a straight edge).
+        const lx = loop.loopCx + loop.radius * Math.cos(loop.outwardAngle);
+        const ly = loop.loopCy + loop.radius * Math.sin(loop.outwardAngle);
+
+        if (placedLabelsRef?.current) {
+          const halfW = estimateTextWidth(connectionName, fontSize) / 2;
+          const halfH = (fontSize * 1.1) / 2;
+          placedLabelsRef.current.set(edge.id, {
+            rect: { minX: lx - halfW, maxX: lx + halfW, minY: ly - halfH, maxY: ly + halfH },
+            position: { x: lx, y: ly, angle: 0 },
+          });
+        }
+
+        return (
+          <g>
+            <text
+              x={lx}
+              y={ly}
+              fill={getLightHueText(edgeColor)}
+              fontSize={fontSize}
+              fontWeight="bold"
+              textAnchor="middle"
+              dominantBaseline="middle"
+              stroke={getDarkHueText(edgeColor)}
+              strokeWidth="8"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              paintOrder="stroke fill"
+              style={{ pointerEvents: 'none', fontFamily: "'EmOne', sans-serif" }}
+            >
+              {connectionName}
+            </text>
+          </g>
+        );
+      })()}
     </g>
   );
 };

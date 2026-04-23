@@ -50,25 +50,36 @@ const HoverVisionAid = ({
   if (hasConnection) {
     // 1. Prepare nodes with REAL dimensions (sync with Control Panel)
     // Use isPreviewing=false to get standard node geometry
+    const isSelfLoop = hoveredConnection.source.id === hoveredConnection.target.id;
     const sourceDims = getNodeDimensions(hoveredConnection.source, false);
     const targetDims = getNodeDimensions(hoveredConnection.target, false);
 
-    const nodes = [
-      {
-        ...hoveredConnection.source,
-        x: 0,
-        y: 0,
-        width: Math.max(sourceDims.currentWidth, 220),
-        height: Math.max(sourceDims.currentHeight, 96)
-      },
-      {
-        ...hoveredConnection.target,
-        x: 0,
-        y: 0,
-        width: Math.max(targetDims.currentWidth, 220),
-        height: Math.max(targetDims.currentHeight, 96)
-      }
-    ];
+    const nodes = isSelfLoop
+      ? [
+          {
+            ...hoveredConnection.source,
+            x: 0,
+            y: 0,
+            width: Math.max(sourceDims.currentWidth, 220),
+            height: Math.max(sourceDims.currentHeight, 96)
+          }
+        ]
+      : [
+          {
+            ...hoveredConnection.source,
+            x: 0,
+            y: 0,
+            width: Math.max(sourceDims.currentWidth, 220),
+            height: Math.max(sourceDims.currentHeight, 96)
+          },
+          {
+            ...hoveredConnection.target,
+            x: 0,
+            y: 0,
+            width: Math.max(targetDims.currentWidth, 220),
+            height: Math.max(targetDims.currentHeight, 96)
+          }
+        ];
 
     const connections = [
       {
@@ -84,8 +95,12 @@ const HoverVisionAid = ({
     ];
 
     // 2. Port sizing formulas EXACTLY from UnifiedBottomControlPanel.jsx
+    // Self-loops render as two side-by-side copies inside UniversalNodeRenderer,
+    // so budget width for a 2-node layout even though `nodes` holds one entry.
     const baseSpacing = 200;
-    const nodeSpacing = nodes.reduce((sum, n) => sum + (n.width * 0.4), 0) + (nodes.length * 90);
+    const layoutNodeCount = isSelfLoop ? 2 : nodes.length;
+    const nodeSpacing = nodes.reduce((sum, n) => sum + (n.width * 0.4), 0) * (isSelfLoop ? 2 : 1)
+                      + (layoutNodeCount * 90);
     
     const longestConnectionLabelWidth = connections.reduce((max, conn) => {
       const width = measureTextWidth(conn.connectionName, connectionLabelFont);

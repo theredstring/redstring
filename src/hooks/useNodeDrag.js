@@ -4,6 +4,7 @@ import { getNodeDimensions } from '../utils.js';
 import useHistoryStore from '../store/historyStore.js';
 import { getVisualConnectionEndpoints } from '../utils/canvas/nodeHitbox.js';
 import { calculateParallelEdgePath, getPointOnQuadraticBezier } from '../utils/canvas/parallelEdgeUtils.js';
+import { calculateSelfLoopPath } from '../utils/canvas/selfLoopUtils.js';
 
 // Movement Zoom-Out constants
 const DRAG_ZOOM_MIN = 0.3;
@@ -98,6 +99,13 @@ export const useNodeDrag = ({
   const actualZoomedOutPanRef = useRef(null);
   const preDragPanOffsetRef = useRef(null);
   const restoreInProgressRef = useRef(false);
+
+  // Holds the previous drag's performCleanup while the zoom-restore animation
+  // runs. If a new drag starts before the animation completes, the animation
+  // RAF is cancelled and its onComplete never fires — leaving stale drag
+  // positions in dragPositionsRef that leak into the next drag's finalUpdates.
+  // The new drag's start forces this cleanup to run synchronously.
+  const pendingZoomRestoreCleanupRef = useRef(null);
 
   const zoomAnimationRef = useRef({
     active: false,
@@ -368,6 +376,27 @@ export const useNodeDrag = ({
 
       const sDims = curBaseDims.get(edge.sourceId) || getNodeDimensions(sStored, false, null);
       const dDims = curBaseDims.get(edge.destinationId) || getNodeDimensions(dStored, false, null);
+
+      // Self-loop: recompute arc from the moving node's current drag position.
+      if (edge.sourceId === edge.destinationId) {
+        const loop = calculateSelfLoopPath(sPos.x, sPos.y, sDims.currentWidth, sDims.currentHeight, curCurveInfo.get(edgeId));
+        const apexX = loop.loopCx + loop.radius * Math.cos(loop.outwardAngle);
+        const apexY = loop.loopCy + loop.radius * Math.sin(loop.outwardAngle);
+        edgeEls.forEach(edgeEl => {
+          const paths = edgeEl.querySelectorAll('path');
+          paths.forEach(p => p.setAttribute('d', loop.path));
+          const arrowG = edgeEl.querySelector('[data-arrow="self"]');
+          if (arrowG) {
+            arrowG.setAttribute('transform', `translate(${loop.anchorB.x}, ${loop.anchorB.y}) rotate(${loop.arrowAngleB + 90})`);
+          }
+          const textEls = edgeEl.querySelectorAll('text');
+          textEls.forEach(t => {
+            t.setAttribute('x', apexX);
+            t.setAttribute('y', apexY);
+          });
+        });
+        return;
+      }
 
       // Create virtual nodes with updated positions for endpoint calculation
       const virtualSource = { ...sStored, x: sPos.x, y: sPos.y };
@@ -710,9 +739,15 @@ export const useNodeDrag = ({
   // restores the correct drag-driven attributes. Fast path: no-op unless a
   // drag is actually in flight.
   useLayoutEffect(() => {
-    if (!draggingNodeInfoRef.current) return;
+    const current = draggingNodeInfoRef.current;
+    if (!current) return;
     const last = pendingDragUpdate.current;
     if (!last) return;
+    // The pendingDragUpdate carries its own draggingNodeInfo snapshot. If it's
+    // from a previous drag (left over when a new drag starts on the same
+    // commit cycle), re-applying it would write the previous drag's node back
+    // into dragPositionsRef and teleport it on release.
+    if (last.draggingNodeInfo !== current) return;
     const { clientX, clientY, draggingNodeInfo: info } = last;
     performDragUpdateRef.current(
       clientX, clientY,
@@ -911,6 +946,12 @@ export const useNodeDrag = ({
     dragEdgeElsRef.current.clear();
     dragGroupElsRef.current.clear();
     dragGroupMetaRef.current.clear();
+    // The post-commit re-apply effect (useLayoutEffect near the top of this
+    // hook) reads pendingDragUpdate unconditionally whenever draggingNodeInfoRef
+    // is truthy. If we don't clear it here, the next drag's first commit will
+    // fire this effect with the PREVIOUS drag's `draggingNodeInfo`, writing
+    // the old node back into dragPositionsRef and teleporting it on release.
+    pendingDragUpdate.current = null;
 
     // Double-rAF: first frame lets React commit + paint with the new stored
     // positions; second frame restores normal transition behavior for any
@@ -925,10 +966,34 @@ export const useNodeDrag = ({
   }, []);
 
   // ---------------------------------------------------------------------------
+  // Finalize a prior drag whose zoom-restore animation was cancelled mid-flight
+  // by a new drag starting. The cancelled RAF drops its onComplete, so the
+  // prior drag's positions never flush to the store and dragPositionsRef stays
+  // populated — which causes the next drag's finalUpdates to include stale
+  // entries and teleport the previously-dragged node on release.
+  // ---------------------------------------------------------------------------
+  const flushPendingZoomRestoreCleanup = useCallback(() => {
+    const cleanup = pendingZoomRestoreCleanupRef.current;
+    if (!cleanup) return;
+    pendingZoomRestoreCleanupRef.current = null;
+    if (zoomAnimationRef.current.animationId) {
+      cancelAnimationFrame(zoomAnimationRef.current.animationId);
+      zoomAnimationRef.current.active = false;
+      zoomAnimationRef.current.animationId = null;
+      isAnimatingZoomRef.current = false;
+    }
+    cleanup();
+    // Defense against the drag-zoom animation consuming a stale pendingDragUpdate
+    // on its first step (before any handleDragMove has run for the new drag).
+    pendingDragUpdate.current = null;
+  }, []);
+
+  // ---------------------------------------------------------------------------
   // Start Drag for Node (single or multi-select)
   // ---------------------------------------------------------------------------
   const startDragForNode = useCallback((nodeData, clientX, clientY) => {
     if (!nodeData || !activeGraphId) return false;
+    flushPendingZoomRestoreCleanup();
     const instanceId = nodeData.id;
 
     // Collect all node IDs that will be dragged (for DOM caching)
@@ -987,7 +1052,7 @@ export const useNodeDrag = ({
     // Cache DOM elements
     cacheDOMElements([instanceId]);
     return true;
-  }, [activeGraphId, selectedInstanceIds, nodes, nodeById, panOffsetRef, zoomLevelRef, canvasSize.offsetX, canvasSize.offsetY, containerRef, storeActions, triggerDragZoomOut, cacheDOMElements]);
+  }, [activeGraphId, selectedInstanceIds, nodes, nodeById, panOffsetRef, zoomLevelRef, canvasSize.offsetX, canvasSize.offsetY, containerRef, storeActions, triggerDragZoomOut, cacheDOMElements, flushPendingZoomRestoreCleanup]);
 
   // Ref for long-press timeout to always use latest startDragForNode
   const startDragForNodeRef = useRef(startDragForNode);
@@ -997,6 +1062,7 @@ export const useNodeDrag = ({
   // Start Group Drag (from group label mousedown)
   // ---------------------------------------------------------------------------
   const startGroupDrag = useCallback((groupId, memberOffsets, clientX, clientY) => {
+    flushPendingZoomRestoreCleanup();
     setDraggingNodeInfo({ groupId, memberOffsets });
     dragHistoryRecordedRef.current = false;
     triggerDragZoomOut(clientX, clientY);
@@ -1004,7 +1070,7 @@ export const useNodeDrag = ({
     // Cache DOM elements for all group members
     const memberIds = memberOffsets.map(m => m.id);
     cacheDOMElements(memberIds);
-  }, [triggerDragZoomOut, cacheDOMElements]);
+  }, [triggerDragZoomOut, cacheDOMElements, flushPendingZoomRestoreCleanup]);
 
   // ---------------------------------------------------------------------------
   // Cancel Drag (for touch cancel, escape key, etc.)
@@ -1244,10 +1310,20 @@ export const useNodeDrag = ({
       const clampedTargetPanX = Math.min(0, Math.max(targetPanX, minPanX));
       const clampedTargetPanY = Math.min(0, Math.max(targetPanY, minPanY));
 
-      // Cleanup fires AFTER zoom animation completes — no visual gap
-      animateZoomAndPanToTarget(targetZoom, { x: clampedTargetPanX, y: clampedTargetPanY }, currentZoom, currentPan, () => {
+      // Cleanup fires AFTER zoom animation completes — no visual gap.
+      // Park the cleanup on a ref so a new drag starting mid-animation can
+      // force it to run synchronously (otherwise the cancelled RAF drops it
+      // and stale positions leak into the next drag's finalUpdates).
+      pendingZoomRestoreCleanupRef.current = () => {
         performCleanup();
         restoreInProgressRef.current = false;
+      };
+      animateZoomAndPanToTarget(targetZoom, { x: clampedTargetPanX, y: clampedTargetPanY }, currentZoom, currentPan, () => {
+        const cb = pendingZoomRestoreCleanupRef.current;
+        if (cb) {
+          pendingZoomRestoreCleanupRef.current = null;
+          cb();
+        }
       });
 
       setPreDragZoomLevel(null);

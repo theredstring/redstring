@@ -1,5 +1,5 @@
-const SELF_LOOP_BASE_RADIUS = 45;
-const SELF_LOOP_STEP_RADIUS = 32;
+const SELF_LOOP_BASE_RADIUS = 70;
+const SELF_LOOP_STEP_RADIUS = 35;
 const SELF_LOOP_HALF_GAP_DEG = 45;
 
 export function getSelfLoopRadius(pairIndex = 0) {

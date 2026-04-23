@@ -292,8 +292,25 @@ const UniversalNodeRenderer = ({
       return { scaledNodes: [], scaledConnections: [], transform: { scale: 1, offsetX: 0, offsetY: 0 } };
     }
 
+    // Self-loop handling: for connections where source === destination, duplicate the node
+    // and remap the destination to the duplicate so the existing two-node layout/render path
+    // shows "a node connected to itself" as two side-by-side copies.
+    const effectiveNodes = [...nodes];
+    const effectiveConnections = connections.map((conn, i) => {
+      const src = conn.sourceId;
+      const dst = conn.destinationId ?? conn.targetId;
+      if (src && dst && src === dst) {
+        const original = effectiveNodes.find(n => n.id === src);
+        if (!original) return conn;
+        const dupId = `${src}__selfloop_dup_${conn.id ?? i}`;
+        effectiveNodes.push({ ...original, id: dupId });
+        return { ...conn, destinationId: dupId, _originalDestinationId: dst, _isSelfLoop: true };
+      }
+      return conn;
+    });
+
     // If nodes don't have positions, get them from instances
-    const nodesWithPositions = nodes.map((node, index) => {
+    const nodesWithPositions = effectiveNodes.map((node, index) => {
       let x, y, width, height;
 
       if (node.x !== undefined && node.y !== undefined) {
@@ -407,13 +424,14 @@ const UniversalNodeRenderer = ({
         };
       });
 
-      const scaledConnections = connections.map(conn => {
+      const scaledConnections = effectiveConnections.map(conn => {
         const sourceNode = scaledNodes.find(n => n.id === conn.sourceId);
         const targetNode = scaledNodes.find(n => n.id === (conn.destinationId || conn.targetId));
         if (!sourceNode || !targetNode) return null;
         const arrowsToward = conn.directionality?.arrowsToward || new Set();
+        const arrowTargetId = conn._originalDestinationId ?? (conn.destinationId || conn.targetId);
         const hasSourceArrow = arrowsToward.has(conn.sourceId);
-        const hasTargetArrow = arrowsToward.has(conn.destinationId || conn.targetId);
+        const hasTargetArrow = arrowsToward.has(arrowTargetId);
         const { path, sourcePoint, targetPoint } = calculateConnectionPath(
           sourceNode,
           targetNode,
@@ -475,7 +493,7 @@ const UniversalNodeRenderer = ({
     }));
 
     // Process connections
-    const scaledConnections = connections.map(conn => {
+    const scaledConnections = effectiveConnections.map(conn => {
       const sourceNode = scaledNodes.find(n => n.id === conn.sourceId);
       const targetNode = scaledNodes.find(n => n.id === (conn.destinationId || conn.targetId));
 
@@ -483,8 +501,9 @@ const UniversalNodeRenderer = ({
 
       // Calculate arrow states first
       const arrowsToward = conn.directionality?.arrowsToward || new Set();
+      const arrowTargetId = conn._originalDestinationId ?? (conn.destinationId || conn.targetId);
       const hasSourceArrow = arrowsToward.has(conn.sourceId);
-      const hasTargetArrow = arrowsToward.has(conn.destinationId || conn.targetId);
+      const hasTargetArrow = arrowsToward.has(arrowTargetId);
 
       // Calculate connection path with arrow awareness
       const { path, sourcePoint, targetPoint } = calculateConnectionPath(
@@ -773,7 +792,7 @@ const UniversalNodeRenderer = ({
                   <g
                     transform={`translate(${arrowX}, ${arrowY}) rotate(${destArrowAngle + 90})`}
                     style={{ cursor: interactive ? 'pointer' : 'default' }}
-                    onClick={interactive ? (e) => { e.stopPropagation(); onToggleArrow?.(conn.id, conn.targetId || conn.destinationId); } : undefined}
+                    onClick={interactive ? (e) => { e.stopPropagation(); onToggleArrow?.(conn.id, conn._originalDestinationId ?? (conn.targetId || conn.destinationId)); } : undefined}
                   >
                     {/* Glow applied on parent <g> for unified effect */}
                     {/* Main arrow */}
@@ -799,7 +818,7 @@ const UniversalNodeRenderer = ({
                       }}
                       onClick={(e) => {
                         e.stopPropagation();
-                        onToggleArrow?.(conn.id, conn.targetId || conn.destinationId);
+                        onToggleArrow?.(conn.id, conn._originalDestinationId ?? (conn.targetId || conn.destinationId));
                       }}
                     />
                   </g>
@@ -915,7 +934,7 @@ const UniversalNodeRenderer = ({
                           onClick={(e) => {
                             e.preventDefault();
                             e.stopPropagation();
-                            onToggleArrow?.(conn.id, conn.targetId || conn.destinationId);
+                            onToggleArrow?.(conn.id, conn._originalDestinationId ?? (conn.targetId || conn.destinationId));
                           }}
                           onMouseLeave={() => handleConnectionMouseLeave(conn)}
                         />
@@ -934,7 +953,7 @@ const UniversalNodeRenderer = ({
                           onClick={(e) => {
                             e.preventDefault();
                             e.stopPropagation();
-                            onToggleArrow?.(conn.id, conn.targetId || conn.destinationId);
+                            onToggleArrow?.(conn.id, conn._originalDestinationId ?? (conn.targetId || conn.destinationId));
                           }}
                           onMouseLeave={() => handleConnectionMouseLeave(conn)}
                         />

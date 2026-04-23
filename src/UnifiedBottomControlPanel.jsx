@@ -538,7 +538,13 @@ const UnifiedBottomControlPanel = ({
 
               // Dynamic sizing based on actual content needs with reasonable maximum
               const baseSpacing = mobileState.isMobilePortrait ? 180 : 200; // Reduced base width
-              const nodeSpacing = nodes.length * (mobileState.isMobilePortrait ? 80 : 90); // Reduced per-node spacing
+              // Self-loops render as two side-by-side copies in UniversalNodeRenderer; budget width accordingly.
+              const selfLoopCount = connections.reduce(
+                (n, c) => n + (c.sourceId && c.destinationId && c.sourceId === c.destinationId ? 1 : 0),
+                0
+              );
+              const layoutNodeCount = nodes.length + selfLoopCount;
+              const nodeSpacing = layoutNodeCount * (mobileState.isMobilePortrait ? 80 : 90); // Reduced per-node spacing
 
               const connectionLabelFont = mobileState.isMobilePortrait
                 ? '22px "EmOne", sans-serif'
