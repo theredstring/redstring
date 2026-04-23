@@ -991,14 +991,14 @@ function NodeCanvas() {
       const prev = prevMap.get(id);
       // Reuse old reference if nothing meaningful changed
       if (prev &&
-          prev.x === instance.x && prev.y === instance.y &&
-          prev.scale === instance.scale &&
-          prev.prototypeId === instance.prototypeId &&
-          prev.name === prototype.name &&
-          prev.color === prototype.color &&
-          prev.thumbnailSrc === effectiveThumb &&
-          prev.description === prototype.description &&
-          prev.definitionGraphIds === prototype.definitionGraphIds) {
+        prev.x === instance.x && prev.y === instance.y &&
+        prev.scale === instance.scale &&
+        prev.prototypeId === instance.prototypeId &&
+        prev.name === prototype.name &&
+        prev.color === prototype.color &&
+        prev.thumbnailSrc === effectiveThumb &&
+        prev.description === prototype.description &&
+        prev.definitionGraphIds === prototype.definitionGraphIds) {
         result.push(prev);
         newMap.set(id, prev);
       } else {
@@ -1208,7 +1208,7 @@ function NodeCanvas() {
           storeActions.setUniverseLoaded(true, false);
           storeActions.setLeftPanelExpanded(true);
           setShowStorageSetupModal(false); // Close setup modal if it was accidentally opened
-          
+
           if (typeof window !== 'undefined') {
             localStorage.setItem(getStorageKey('redstring-welcome-seen'), 'true');
           }
@@ -4211,7 +4211,7 @@ function NodeCanvas() {
     for (const [anchorId, info] of anchorPositionUpdatesRef.current.entries()) {
       // info: { x: labelX, y: labelY, width: labelWidth, height: labelHeight, groupId }
       if (canvasX >= info.x && canvasX <= info.x + info.width &&
-          canvasY >= info.y && canvasY <= info.y + info.height) {
+        canvasY >= info.y && canvasY <= info.y + info.height) {
         return { anchorInstanceId: anchorId, groupId: info.groupId };
       }
     }
@@ -12475,7 +12475,7 @@ function NodeCanvas() {
             setSelfLoopDialog(null);
           }}
           title="Self-referential connection?"
-          message="Connect this node to itself?"
+          message="Connect this Thing to itself?"
           confirmLabel="Connect"
           cancelLabel="Cancel"
           variant="default"

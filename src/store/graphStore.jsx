@@ -323,7 +323,14 @@ const saveCoordinatorMiddleware = (config) => {
         clearTimeout(pendingNotification);
       }
 
-      batchedContext = { ...batchedContext, ...changeContext };
+      const isMeaningfulType = (t) => t && t !== 'viewport' && t !== 'unknown';
+      batchedContext = {
+        ...batchedContext,
+        ...changeContext,
+        type: isMeaningfulType(batchedContext.type) && !isMeaningfulType(changeContext.type)
+          ? batchedContext.type
+          : changeContext.type,
+      };
 
       pendingNotification = setTimeout(async () => {
         try {
