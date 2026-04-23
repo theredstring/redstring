@@ -108,6 +108,7 @@ export default function UpdateToast() {
         <PanelIconButton
           icon={isInstallFailed ? ExternalLink : RotateCcw}
           size={15}
+          color="#DEDADA"
           onClick={handleAction}
           disabled={!isReady && !isInstallFailed}
           title={
@@ -118,10 +119,12 @@ export default function UpdateToast() {
                 : 'Downloading update…'
           }
           variant="outline"
+          style={{ borderColor: 'rgba(222, 218, 218, 0.4)' }}
         />
         <PanelIconButton
           icon={X}
           size={15}
+          color="#DEDADA"
           onClick={handleDismiss}
           title="Dismiss"
           variant="ghost"

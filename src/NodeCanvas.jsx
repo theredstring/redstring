@@ -35,7 +35,7 @@ import * as fileStorage from './store/fileStorage.js';
 import * as folderPersistence from './services/folderPersistence.js';
 import workspaceService from './services/WorkspaceService.js';
 import universeManagerService from './services/universeManagerService.js';
-import { pickFolder, getFileInFolder, listFilesInFolder, writeFile } from './utils/fileAccessAdapter.js';
+import { pickFolder, getFileInFolder, listFilesInFolder, readFile, writeFile } from './utils/fileAccessAdapter.js';
 import AutoGraphModal from './components/AutoGraphModal';
 import ForceSimulationModal from './components/ForceSimulationModal';
 import { parseInputData, generateGraph } from './services/autoGraphGenerator';
@@ -1281,26 +1281,53 @@ function NodeCanvas() {
       let hasCompletedOnboarding = false;
       try {
         if (typeof window !== 'undefined') {
-          welcomeSeenVar = localStorage.getItem(getStorageKey('redstring-welcome-seen')) === 'true';
+          // Check scoped key first, then unscoped fallback. The unscoped key
+          // survives session/test-mode changes and any future key rename —
+          // critical for app updates where scoped lookups could miss.
+          const scopedSeen = localStorage.getItem(getStorageKey('redstring-welcome-seen')) === 'true';
+          const unscopedSeen = localStorage.getItem('redstring-welcome-seen') === 'true';
+          welcomeSeenVar = scopedSeen || unscopedSeen;
           const fp = localStorage.getItem(getStorageKey('redstring_workspace_folder_path'));
           hasCompletedOnboarding = welcomeSeenVar || !!fp;
         }
       } catch { }
 
-      // If neither flag is set, check the backend — if the user already has
-      // universes, they've clearly onboarded before. This self-heals cases
+      // Additional onboarded signal: workspaceService already has an active
+      // universe configured. Catches the case where localStorage welcome flag
+      // was lost but WorkspaceService config survived.
+      if (!hasCompletedOnboarding) {
+        try {
+          if (workspaceService?.config?.activeUniverse) {
+            hasCompletedOnboarding = true;
+          }
+        } catch { }
+      }
+
+      // If still not marked onboarded, wait for universeBackend to finish
+      // initializing, then check if universes exist. This self-heals cases
       // where localStorage was cleared (new machine, browser reset, a
       // version bump that moved a key) but universe state survived.
+      //
+      // CRITICAL: awaiting initialize() prevents a race where the effect
+      // evaluates before universes are loaded, sees an empty list, and
+      // falsely triggers onboarding — which could then overwrite the
+      // user's existing universe if they click "Create Universe".
       if (!hasCompletedOnboarding) {
         try {
           const mod = await import('./services/universeBackend.js');
-          const existing = mod.default?.getAllUniverses?.() || [];
+          const backend = mod.default;
+          if (backend?.initialize && !backend.isInitialized) {
+            await backend.initialize();
+          }
+          const existing = backend?.getAllUniverses?.() || [];
           if (existing.length > 0) {
             hasCompletedOnboarding = true;
-            // Self-heal: re-write the flag so future cold starts short-circuit.
+            // Self-heal: write both scoped + unscoped so future cold starts
+            // short-circuit regardless of session/test-mode state.
             if (typeof window !== 'undefined' && !welcomeSeenVar) {
               try {
                 localStorage.setItem(getStorageKey('redstring-welcome-seen'), 'true');
+                localStorage.setItem('redstring-welcome-seen', 'true');
               } catch { }
             }
           }
@@ -12278,9 +12305,11 @@ function NodeCanvas() {
       <StorageSetupModal
         isVisible={showStorageSetupModal}
         onClose={() => {
-          // Persist dismissal so the onboarding doesn't reappear
+          // Persist dismissal so the onboarding doesn't reappear. Write both
+          // scoped + unscoped so the flag survives version/session changes.
           try {
             localStorage.setItem(getStorageKey('redstring-welcome-seen'), 'true');
+            localStorage.setItem('redstring-welcome-seen', 'true');
           } catch { }
           setShowStorageSetupModal(false);
         }}
@@ -12302,21 +12331,42 @@ function NodeCanvas() {
                 nodeDefinitionIndices: new Map()
               };
 
-              // Create the file in the folder
+              // SAFETY: Check whether a universe file with this name already
+              // exists in the folder before writing. If it does and has real
+              // content, link to it instead of overwriting — onboarding must
+              // never clobber an existing universe (e.g. if the user lost the
+              // welcome-seen flag after an app update and re-ran the flow).
+              let existingContent = null;
+              try {
+                const probeResult = await getFileInFolder(folderPath, filename, false);
+                const probeHandle = probeResult?.handle || probeResult;
+                if (probeHandle) {
+                  const text = await readFile(probeHandle);
+                  if (text && text.trim().length > 0) {
+                    existingContent = text;
+                  }
+                }
+              } catch {
+                // File doesn't exist — normal case, will create below.
+              }
+
               const fileHandleResult = await getFileInFolder(folderPath, filename, true);
               const fileHandle = fileHandleResult.handle || fileHandleResult;
 
-              // Write initial empty state to the file
-              await writeFile(fileHandle, JSON.stringify({
-                version: "1.0",
-                nodes: [],
-                edges: [],
-                graphs: [{ id: 'root', name: 'Root', nodes: [], edges: [] }],
-                prototypes: [],
-                metadata: { name: safeName, created: new Date().toISOString() }
-              }, null, 2));
-
-              console.log('[NodeCanvas] Created universe file:', filename);
+              if (existingContent) {
+                console.log('[NodeCanvas] Found existing universe file; linking without overwrite:', filename);
+              } else {
+                // Write initial empty state to the new/empty file
+                await writeFile(fileHandle, JSON.stringify({
+                  version: "1.0",
+                  nodes: [],
+                  edges: [],
+                  graphs: [{ id: 'root', name: 'Root', nodes: [], edges: [] }],
+                  prototypes: [],
+                  metadata: { name: safeName, created: new Date().toISOString() }
+                }, null, 2));
+                console.log('[NodeCanvas] Created universe file:', filename);
+              }
 
               // 3. Create Universe in universeManagerService so it appears in UniversesList
               const result = await universeManagerService.createUniverse(safeName, {
@@ -12359,9 +12409,10 @@ function NodeCanvas() {
               workspaceService.config.lastOpened = Date.now();
               await workspaceService.saveConfig();
 
-              // 7. Mark onboarding as complete
+              // 7. Mark onboarding as complete (scoped + unscoped for durability)
               if (typeof window !== 'undefined') {
                 localStorage.setItem(getStorageKey('redstring-welcome-seen'), 'true');
+                localStorage.setItem('redstring-welcome-seen', 'true');
               }
 
               // 8. Close modal and open Panel
@@ -12393,9 +12444,10 @@ function NodeCanvas() {
           try {
             console.log('[NodeCanvas] User selected browser storage option');
 
-            // Mark onboarding as complete
+            // Mark onboarding as complete (scoped + unscoped for durability)
             if (typeof window !== 'undefined') {
               localStorage.setItem(getStorageKey('redstring-welcome-seen'), 'true');
+              localStorage.setItem('redstring-welcome-seen', 'true');
             }
 
             // Close storage setup modal
