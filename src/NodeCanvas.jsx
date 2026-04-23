@@ -2091,11 +2091,19 @@ function NodeCanvas() {
   // synchronously (without waiting for settled-state debounce).
   // Depend on the underlying ref object (stable across renders), NOT `transform`
   // itself (which is a fresh object literal each render).
+  //
+  // When culling is disabled the visible set is static w.r.t. pan/zoom, so we
+  // skip runCulling on transform changes and fire only the glow update. The
+  // reactive effect below still invokes runCulling on data changes.
   const onTransformChangeRef = transform.onTransformChangeRef;
   useEffect(() => {
-    onTransformChangeRef.current = runCulling;
+    if (ENABLE_CULLING) {
+      onTransformChangeRef.current = runCulling;
+    } else {
+      onTransformChangeRef.current = () => { glowUpdateRef.current?.(); };
+    }
     return () => { onTransformChangeRef.current = null; };
-  }, [onTransformChangeRef, runCulling]);
+  }, [onTransformChangeRef, runCulling, ENABLE_CULLING]);
 
   // Unmount cleanup for any in-flight culling RAF.
   useEffect(() => {
