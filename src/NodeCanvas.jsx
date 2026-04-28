@@ -8549,7 +8549,7 @@ function NodeCanvas() {
                             y1={startY}
                             x2={x}
                             y2={endY}
-                            stroke="#979090"
+                            stroke={theme.darkMode ? "#3F3A3A" : "#979090"}
                             strokeWidth="0.75"
                             vectorEffect="non-scaling-stroke"
                           />
@@ -8565,7 +8565,7 @@ function NodeCanvas() {
                             y1={y}
                             x2={endX}
                             y2={y}
-                            stroke="#979090"
+                            stroke={theme.darkMode ? "#3F3A3A" : "#979090"}
                             strokeWidth="0.75"
                             vectorEffect="non-scaling-stroke"
                           />

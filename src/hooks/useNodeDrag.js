@@ -524,17 +524,36 @@ export const useNodeDrag = ({
         // Manhattan/clean arrows: stay at pre-drag positions (port logic is too complex to replicate)
 
         // --- Update edge labels ---
+        // Centering must match the React render path exactly: place the label
+        // at the apex of the VISIBLE (border-clipped) segment, not the
+        // center-to-center line. Otherwise, on drop, the label snaps to the
+        // visible-segment apex and visibly shifts. NodeCanvas does this same
+        // calculation around line 9118: getVisualConnectionEndpoints +
+        // calculateParallelEdgePath on those visible endpoints.
         const textEls = edgeEl.querySelectorAll('text');
         if (textEls.length > 0) {
+          const visibleEndpoints = getVisualConnectionEndpoints(
+            virtualSource, virtualDest, sDims, dDims,
+            curSelectedIds.has(edge.sourceId),
+            curSelectedIds.has(edge.destinationId)
+          );
+          const labelPlacementPath = calculateParallelEdgePath(
+            visibleEndpoints.x1, visibleEndpoints.y1,
+            visibleEndpoints.x2, visibleEndpoints.y2,
+            curveInfo
+          );
           let midX, midY, labelAngle;
-          if (useCurve && parallelPath.apexX != null) {
-            midX = parallelPath.apexX;
-            midY = parallelPath.apexY;
-            labelAngle = parallelPath.labelAngle || 0;
+          if (labelPlacementPath.apexX != null) {
+            midX = labelPlacementPath.apexX;
+            midY = labelPlacementPath.apexY;
+            labelAngle = labelPlacementPath.labelAngle || 0;
           } else {
-            midX = (endpoints.x1 + endpoints.x2) / 2;
-            midY = (endpoints.y1 + endpoints.y2) / 2;
-            labelAngle = Math.atan2(endpoints.y2 - endpoints.y1, endpoints.x2 - endpoints.x1) * (180 / Math.PI);
+            midX = (visibleEndpoints.x1 + visibleEndpoints.x2) / 2;
+            midY = (visibleEndpoints.y1 + visibleEndpoints.y2) / 2;
+            labelAngle = Math.atan2(
+              visibleEndpoints.y2 - visibleEndpoints.y1,
+              visibleEndpoints.x2 - visibleEndpoints.x1
+            ) * (180 / Math.PI);
           }
           const adj = (labelAngle > 90 || labelAngle < -90) ? labelAngle + 180 : labelAngle;
           textEls.forEach(t => {
@@ -1028,11 +1047,8 @@ export const useNodeDrag = ({
       dragHistoryRecordedRef.current = false;
       triggerDragZoomOut(clientX, clientY);
 
-      // Don't bump scale during drag — visual size must match drop size so the
-      // node doesn't appear to shrink/shift on release. Drop-shadow on
-      // .node.dragging (Node.css) provides the lift feedback instead.
       selectedInstanceIds.forEach(id => {
-        storeActions.updateNodeInstance(activeGraphId, id, draft => { draft.scale = 1; }, { isDragging: true, phase: 'start', ignore: true });
+        storeActions.updateNodeInstance(activeGraphId, id, draft => { draft.scale = 1.15; }, { isDragging: true, phase: 'start', ignore: true });
       });
 
       // Cache DOM elements for all dragged nodes
@@ -1050,7 +1066,7 @@ export const useNodeDrag = ({
 
     dragHistoryRecordedRef.current = false;
     triggerDragZoomOut(clientX, clientY);
-    storeActions.updateNodeInstance(activeGraphId, instanceId, draft => { draft.scale = 1; }, { isDragging: true, phase: 'start', ignore: true });
+    storeActions.updateNodeInstance(activeGraphId, instanceId, draft => { draft.scale = 1.15; }, { isDragging: true, phase: 'start', ignore: true });
 
     // Cache DOM elements
     cacheDOMElements([instanceId]);
