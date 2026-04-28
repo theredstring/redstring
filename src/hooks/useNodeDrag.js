@@ -1028,8 +1028,11 @@ export const useNodeDrag = ({
       dragHistoryRecordedRef.current = false;
       triggerDragZoomOut(clientX, clientY);
 
+      // Don't bump scale during drag — visual size must match drop size so the
+      // node doesn't appear to shrink/shift on release. Drop-shadow on
+      // .node.dragging (Node.css) provides the lift feedback instead.
       selectedInstanceIds.forEach(id => {
-        storeActions.updateNodeInstance(activeGraphId, id, draft => { draft.scale = 1.15; }, { isDragging: true, phase: 'start', ignore: true });
+        storeActions.updateNodeInstance(activeGraphId, id, draft => { draft.scale = 1; }, { isDragging: true, phase: 'start', ignore: true });
       });
 
       // Cache DOM elements for all dragged nodes
@@ -1047,7 +1050,7 @@ export const useNodeDrag = ({
 
     dragHistoryRecordedRef.current = false;
     triggerDragZoomOut(clientX, clientY);
-    storeActions.updateNodeInstance(activeGraphId, instanceId, draft => { draft.scale = 1.15; }, { isDragging: true, phase: 'start', ignore: true });
+    storeActions.updateNodeInstance(activeGraphId, instanceId, draft => { draft.scale = 1; }, { isDragging: true, phase: 'start', ignore: true });
 
     // Cache DOM elements
     cacheDOMElements([instanceId]);
