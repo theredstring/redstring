@@ -1,7 +1,7 @@
 {
   "name": "redstring",
   "private": true,
-  "version": "0.3.10",
+  "version": "0.3.11",
   "author": "Grant Eubanks <grant.w.eubanks@gmail.com>",
   "description": "Redstring - A semantic knowledge graph application with visual node-based interface, RDF integration, and AI-powered knowledge discovery",
   "license": "MIT",

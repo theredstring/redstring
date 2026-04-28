@@ -154,6 +154,11 @@ function NodeCanvas() {
   const theme = useTheme();
 
   const svgRef = useRef(null);
+  // Per-frame pan/zoom transform is written to this <g> element via SVG's
+  // transform attribute (NOT to the outer <svg>'s style.transform). Keeps the
+  // outer <svg> off the GPU compositor path so a 100k SVG can't trigger
+  // tile-raster-on-scale flicker.
+  const contentGroupRef = useRef(null);
   const wrapperRef = useRef(null);
   const containerRef = useRef(null);
   const suppressNextMouseDownRef = useRef(false);
@@ -1515,23 +1520,23 @@ function NodeCanvas() {
     return () => window.removeEventListener('resize', handleResize);
   }, []);
 
-  // Large fixed canvas - stable coordinate system
+  // Large fixed canvas - stable coordinate system. Stays a constant so all
+  // downstream world-coord math (spawning, drag-zoom anchors, AbstractionCarousel
+  // positioning, hit testing, navigation) remains consistent. The SVG element's
+  // intrinsic 100k size is fine because the per-frame pan/zoom transform is
+  // applied to a child <g> via the SVG render path (see useCanvasTransform),
+  // so the outer <svg> is never CSS-transformed and never tries to GPU-promote
+  // a 100k compositor layer.
   const canvasSize = useMemo(() => {
-    // Use a very large fixed canvas that can accommodate any reasonable usage
-    const canvasWidth = 100000;  // 100k x 100k - huge but finite
+    const canvasWidth = 100000;
     const canvasHeight = 100000;
-
-    // Center the canvas so (0,0) is in the middle
-    const offsetX = -canvasWidth / 2;   // -50000
-    const offsetY = -canvasHeight / 2;  // -50000
-
     return {
       width: canvasWidth,
       height: canvasHeight,
-      offsetX,
-      offsetY
+      offsetX: -canvasWidth / 2,
+      offsetY: -canvasHeight / 2,
     };
-  }, []); // Fixed - never changes
+  }, []);
 
   const canvasSizeRef = useRef(canvasSize);
   useEffect(() => {
@@ -1541,7 +1546,7 @@ function NodeCanvas() {
   // --- DOM-bypass pan/zoom (Phase 1 perf refactor) ---
   // panRef/zoomRef are the authoritative values; DOM is updated directly.
   // settledPan/settledZoom are React state that updates ~150ms after interaction stops.
-  const transform = useCanvasTransform(svgRef, canvasSize);
+  const transform = useCanvasTransform(svgRef, contentGroupRef, canvasSize);
   const panOffsetRef = transform.panRef;     // alias for existing code
   const zoomLevelRef = transform.zoomRef;    // alias for existing code
   const setPanOffset = transform.setPan;     // drop-in alias for migration
@@ -1659,6 +1664,22 @@ function NodeCanvas() {
   const isEdgePanningRef = nodeDrag.isEdgePanningRef;
   const startDragForNode = nodeDrag.startDragForNode;
   const startDragForNodeRef = nodeDrag.startDragForNodeRef;
+
+  // Invalidate the connection-label placement cache when a drag ends. The
+  // cache (placedLabelsRef) is consulted in the !draggingNodeInfo branch and
+  // can hold stale placements based on pre-snap positions when grid snap is on
+  // — drag terminates before another React render gets to recompute placement
+  // for the snapped commit position. Clearing here forces the next render to
+  // recompute against the committed (post-snap) node positions.
+  const wasDraggingForLabelsRef = useRef(false);
+  useEffect(() => {
+    if (draggingNodeInfo) {
+      wasDraggingForLabelsRef.current = true;
+    } else if (wasDraggingForLabelsRef.current) {
+      wasDraggingForLabelsRef.current = false;
+      placedLabelsRef.current.clear();
+    }
+  }, [draggingNodeInfo]);
 
   // --- Grid Snapping Helper (kept for non-drag uses like node creation, orbit, plus sign) ---
   const snapToGridAnimated = (mouseX, mouseY, nodeWidth, nodeHeight, currentPos) => {
@@ -8147,8 +8168,6 @@ function NodeCanvas() {
                 width={canvasSize.width}
                 height={canvasSize.height}
                 style={{
-                  transformOrigin: '0 0',
-                  willChange: 'transform',
                   opacity: 1,
                   pointerEvents: 'auto',
                   overflow: 'visible',
@@ -8158,6 +8177,8 @@ function NodeCanvas() {
                 onMouseMove={handleMouseMove}
               // Remove pointerDown preventDefault to avoid interfering with gestures
               >
+                {/* Pan/zoom transform is written to this <g> via SVG attribute. */}
+                <g ref={contentGroupRef}>
                 {/* Cluster Hulls Layer (Debug) */}
                 {showClusterHulls && (() => {
                   const geometries = getClusterGeometries(hydratedNodes, edges);
@@ -8362,7 +8383,6 @@ function NodeCanvas() {
                           fill={isNodeGroup ? "none" : theme.canvas.bg}
                           stroke={isNodeGroup ? "none" : strokeColor}
                           strokeWidth={isNodeGroup ? 0 : 6}
-                          vectorEffect="non-scaling-stroke"
                           style={{
                             transform: isGroupDragging ? `scale(1.08)` : 'scale(1)',
                             transformOrigin: `${labelX + labelWidth / 2}px ${labelY + labelHeight / 2}px`,
@@ -8486,7 +8506,7 @@ function NodeCanvas() {
                           <rect x={rectX} y={rectY} width={rectW} height={rectH}
                             rx={nodeGroupCornerR} ry={nodeGroupCornerR}
                             fill="none" stroke={strokeColor} strokeWidth={12}
-                            strokeDasharray="16 12" vectorEffect="non-scaling-stroke" />
+                            strokeDasharray="16 12" />
                           {titleLabel}
                         </g>
                       );
@@ -8508,13 +8528,17 @@ function NodeCanvas() {
                     {/* Thin line grid for 'always' using individual lines for better zoom handling */}
                     {gridMode === 'always' && (() => {
                       const lines = [];
-                      // Account for canvas offset in grid calculations
-                      const viewMinX = (-panOffset.x / zoomLevel) + canvasSize.offsetX;
-                      const viewMinY = (-panOffset.y / zoomLevel) + canvasSize.offsetY;
-                      const startX = Math.floor(viewMinX / gridSize) * gridSize - gridSize * 5;
-                      const startY = Math.floor(viewMinY / gridSize) * gridSize - gridSize * 5;
-                      const endX = startX + (viewportSize.width / zoomLevel) + gridSize * 10;
-                      const endY = startY + (viewportSize.height / zoomLevel) + gridSize * 10;
+                      // Render the grid across the full canvas. The SVG
+                      // renderer culls off-viewport lines during paint, so
+                      // visible cost scales with viewport, not canvas. Doing
+                      // it this way means the grid does NOT depend on the
+                      // (settled, lagging) panOffset/zoomLevel — so during
+                      // continuous keyboard pan/zoom, new viewport regions
+                      // already have grid lines instead of needing a settle.
+                      const startX = Math.floor(canvasSize.offsetX / gridSize) * gridSize;
+                      const startY = Math.floor(canvasSize.offsetY / gridSize) * gridSize;
+                      const endX = canvasSize.offsetX + canvasSize.width;
+                      const endY = canvasSize.offsetY + canvasSize.height;
 
                       // Vertical lines
                       for (let x = startX; x <= endX; x += gridSize) {
@@ -8525,7 +8549,7 @@ function NodeCanvas() {
                             y1={startY}
                             x2={x}
                             y2={endY}
-                            stroke="#716C6C"
+                            stroke="#979090"
                             strokeWidth="0.75"
                             vectorEffect="non-scaling-stroke"
                           />
@@ -8541,7 +8565,7 @@ function NodeCanvas() {
                             y1={y}
                             x2={endX}
                             y2={y}
-                            stroke="#716C6C"
+                            stroke="#979090"
                             strokeWidth="0.75"
                             vectorEffect="non-scaling-stroke"
                           />
@@ -11814,6 +11838,7 @@ function NodeCanvas() {
                     onComplete={handleVideoAnimationComplete}
                   />
                 )}
+                </g>
               </svg>
               <HoverVisionAid
                 headerHeight={HEADER_HEIGHT}

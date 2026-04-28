@@ -14,7 +14,7 @@ import { useRef, useState, useCallback } from 'react';
 
 const SETTLE_DELAY = 150; // ms of inactivity before settled state updates
 
-export function useCanvasTransform(svgRef, canvasSize) {
+export function useCanvasTransform(svgRef, contentGroupRef, canvasSize) {
   const panRef = useRef({ x: 0, y: 0 });
   const zoomRef = useRef(1);
 
@@ -28,27 +28,31 @@ export function useCanvasTransform(svgRef, canvasSize) {
   // settled-state debounce. Consumers assign via `transform.onTransformChangeRef.current = fn`.
   const onTransformChangeRef = useRef(null);
 
-  // Write transform directly to SVG DOM element — no React involved.
+  // Write transform directly to the content <g> element via SVG's native
+  // transform attribute (not the outer <svg>'s CSS style.transform). This
+  // keeps the SVG itself off the GPU compositor's CSS-transform path — the
+  // browser's SVG renderer applies the transform during paint, so scale
+  // changes don't invalidate a tile cache the way a 100k CSS-transformed
+  // layer would.
   const applyTransform = useCallback(() => {
-    const svg = svgRef.current;
-    if (!svg) return;
+    const g = contentGroupRef.current;
+    if (!g) return;
     const p = panRef.current;
     const z = zoomRef.current;
     const cs = canvasSize;
     const tx = p.x - cs.offsetX * z;
     const ty = p.y - cs.offsetY * z;
-    // TEMPORARY DIAGNOSTIC — zoom flicker investigation (H1: invalid transform string)
-    // If any input is NaN/Infinity, the resulting CSS transform is invalid and
-    // browsers drop the transform entirely → content snaps to natural coords → blank.
     if (!Number.isFinite(tx) || !Number.isFinite(ty) || !Number.isFinite(z)) {
-      console.warn('[flicker:transform] invalid transform values', {
+      console.warn('[transform] invalid values', {
         px: p.x, py: p.y, z,
         csOffX: cs?.offsetX, csOffY: cs?.offsetY,
         tx, ty,
       });
+      return;
     }
-    svg.style.transform = `translate(${tx}px, ${ty}px) scale(${z})`;
-  }, [svgRef, canvasSize]);
+    // SVG transform attribute: spaces between args, no `px` units.
+    g.setAttribute('transform', `translate(${tx} ${ty}) scale(${z})`);
+  }, [contentGroupRef, canvasSize]);
 
   // Schedule a deferred React state update when interaction settles.
   const scheduleSettle = useCallback(() => {
