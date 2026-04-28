@@ -8971,11 +8971,24 @@ function NodeCanvas() {
                             endY = y2;
                           }
                         } else {
-                          // Use intersection-based positioning for other routing modes
-                          startX = shouldShortenSource ? (sourceIntersection?.x || x1) : x1;
-                          startY = shouldShortenSource ? (sourceIntersection?.y || y1) : y1;
-                          endX = shouldShortenDest ? (destIntersection?.x || x2) : x2;
-                          endY = shouldShortenDest ? (destIntersection?.y || y2) : y2;
+                          // Use intersection-based positioning for other routing modes.
+                          // Visible LINE endpoint uses the 4px-inset variant so the round
+                          // line cap (strokeLinecap="round", strokeWidth=6 → cap radius 3)
+                          // stops cleanly behind the arrow polygon's flat base. Arrow
+                          // placement still uses sourceIntersection/destIntersection (no
+                          // inset) downstream, so the arrow tip anchors at the literal
+                          // border.
+                          const insetLineEndpoints = (shouldShortenSource || shouldShortenDest)
+                            ? getVisualConnectionEndpoints(
+                                sourceNode, destNode, sNodeDims, eNodeDims,
+                                selectedInstanceIds.has(sourceNode.id),
+                                selectedInstanceIds.has(destNode.id)
+                              )
+                            : null;
+                          startX = shouldShortenSource ? (insetLineEndpoints?.x1 ?? sourceIntersection?.x ?? x1) : x1;
+                          startY = shouldShortenSource ? (insetLineEndpoints?.y1 ?? sourceIntersection?.y ?? y1) : y1;
+                          endX = shouldShortenDest ? (insetLineEndpoints?.x2 ?? destIntersection?.x ?? x2) : x2;
+                          endY = shouldShortenDest ? (insetLineEndpoints?.y2 ?? destIntersection?.y ?? y2) : y2;
                         }
 
                         // Predeclare Manhattan path info for safe use below
@@ -10319,11 +10332,24 @@ function NodeCanvas() {
                             endY = y2;
                           }
                         } else {
-                          // Use intersection-based positioning for other routing modes
-                          startX = shouldShortenSource ? (sourceIntersection?.x || x1) : x1;
-                          startY = shouldShortenSource ? (sourceIntersection?.y || y1) : y1;
-                          endX = shouldShortenDest ? (destIntersection?.x || x2) : x2;
-                          endY = shouldShortenDest ? (destIntersection?.y || y2) : y2;
+                          // Use intersection-based positioning for other routing modes.
+                          // Visible LINE endpoint uses the 4px-inset variant so the round
+                          // line cap (strokeLinecap="round", strokeWidth=6 → cap radius 3)
+                          // stops cleanly behind the arrow polygon's flat base. Arrow
+                          // placement still uses sourceIntersection/destIntersection (no
+                          // inset) downstream, so the arrow tip anchors at the literal
+                          // border.
+                          const insetLineEndpoints = (shouldShortenSource || shouldShortenDest)
+                            ? getVisualConnectionEndpoints(
+                                sourceNode, destNode, sNodeDims, eNodeDims,
+                                selectedInstanceIds.has(sourceNode.id),
+                                selectedInstanceIds.has(destNode.id)
+                              )
+                            : null;
+                          startX = shouldShortenSource ? (insetLineEndpoints?.x1 ?? sourceIntersection?.x ?? x1) : x1;
+                          startY = shouldShortenSource ? (insetLineEndpoints?.y1 ?? sourceIntersection?.y ?? y1) : y1;
+                          endX = shouldShortenDest ? (insetLineEndpoints?.x2 ?? destIntersection?.x ?? x2) : x2;
+                          endY = shouldShortenDest ? (insetLineEndpoints?.y2 ?? destIntersection?.y ?? y2) : y2;
                         }
 
                         // Predeclare Manhattan path info for safe use below
