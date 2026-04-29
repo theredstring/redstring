@@ -215,6 +215,26 @@ const RepositorySelectionModal = ({
 
       const createdRepo = await response.json();
 
+      // Tag with `redstring-universe` topic so the public ecosystem is discoverable
+      // via git-provider topic search (e.g. GitHub's search API). Best-effort —
+      // failure to set topics must not break repo creation.
+      try {
+        const ownerLogin = createdRepo.owner?.login || createdRepo.owner?.name;
+        if (ownerLogin && createdRepo.name) {
+          await fetch(`https://api.github.com/repos/${ownerLogin}/${createdRepo.name}/topics`, {
+            method: 'PUT',
+            headers: {
+              'Authorization': `token ${token}`,
+              'Accept': 'application/vnd.github+json',
+              'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ names: ['redstring-universe'] })
+          });
+        }
+      } catch (topicErr) {
+        console.warn('[RepositorySelectionModal] Failed to set redstring-universe topic:', topicErr);
+      }
+
       setRepositories((prev) => [createdRepo, ...prev]);
       onAddToManagedList?.({
         owner: createdRepo.owner?.login || createdRepo.owner?.name || createdRepo.owner,
