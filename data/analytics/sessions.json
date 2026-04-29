@@ -1,14 +1,14 @@
 {
   "40483299": {
-    "id": "session-1775784104179-oc5bmkgl",
+    "id": "session-1777432389135-kj4e33u4",
     "userId": "40483299",
     "userLogin": "grantiguess",
-    "startedAt": 1775784104179,
-    "lastActivity": 1775784104179,
-    "activityCount": 1,
+    "startedAt": 1777432389135,
+    "lastActivity": 1777432397181,
+    "activityCount": 2,
     "ip": "::1",
-    "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Redstring/0.3.5 Chrome/142.0.7444.226 Electron/39.2.6 Safari/537.36",
-    "endedAt": 1775784104179
+    "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Redstring/0.3.11 Chrome/142.0.7444.226 Electron/39.2.6 Safari/537.36",
+    "endedAt": 1777432397181
   },
   "230064616": {
     "id": "session-1776782736967-a5age9he",
