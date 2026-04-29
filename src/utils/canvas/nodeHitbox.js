@@ -4,6 +4,13 @@
  * line-node intersection, and visual connection endpoint resolution.
  */
 
+import { NODE_CORNER_RADIUS } from '../../constants.js';
+
+// Visual corner radius of the inner rendered rect (Node.jsx: rx={NODE_CORNER_RADIUS - 6}).
+// Connection endpoints must hug this rounded edge or they'll stick out past the arrowhead/dot
+// when the connection enters the node at a corner.
+const VISUAL_CORNER_RADIUS = NODE_CORNER_RADIUS - 6;
+
 /**
  * Calculate exact visual hitbox bounds for a node
  * Accounts for base dimensions, visual inset, and selection stroke extension
@@ -31,16 +38,19 @@ export const getNodeHitbox = (node, dims, isSelected = false) => {
 };
 
 /**
- * Calculate intersection point of a line with a rectangular node bounds
- * Uses ray-AABB (Axis-Aligned Bounding Box) intersection
+ * Calculate intersection point of a line with a node's visual bounds
+ * For inside-out rays (the connection-endpoint case), this is corner-aware:
+ * if the AABB exit lands inside a corner square, the ray is re-intersected
+ * with the corresponding corner arc so the endpoint sits on the rounded edge
+ * rather than the squared-off AABB corner.
  *
  * @param {number} x1, y1 - Line start point (ray origin)
  * @param {number} x2, y2 - Line end point (defines ray direction)
  * @param {Object} hitbox - Node hitbox { minX, minY, maxX, maxY }
- * @param {number} cornerRadius - Corner radius for visual accuracy (default 40px)
+ * @param {number} cornerRadius - Visual corner radius (defaults to NODE_CORNER_RADIUS - 6)
  * @returns {Object} { x, y } - Intersection point, or center if line starts inside
  */
-export const getLineNodeIntersection = (x1, y1, x2, y2, hitbox, cornerRadius = 40) => {
+export const getLineNodeIntersection = (x1, y1, x2, y2, hitbox, cornerRadius = VISUAL_CORNER_RADIUS) => {
   const { minX, minY, maxX, maxY } = hitbox;
 
   // Calculate rectangle center (fallback if line starts inside)
@@ -56,18 +66,19 @@ export const getLineNodeIntersection = (x1, y1, x2, y2, hitbox, cornerRadius = 4
     return { x: centerX, y: centerY };
   }
 
+  // Cap corner radius so it fits the rect (SVG also clamps rx to halfWidth/halfHeight)
+  const r = Math.max(0, Math.min(cornerRadius, (maxX - minX) / 2, (maxY - minY) / 2));
+
   // Check if start point is inside the rectangle
   const startInside = x1 >= minX && x1 <= maxX && y1 >= minY && y1 <= maxY;
 
   if (startInside) {
-    // Ray starts inside - find exit point
-    // Calculate intersection parameters for all four sides
+    // Ray starts inside - find AABB exit point first
     const tRight = dx !== 0 ? (maxX - x1) / dx : Infinity;
     const tLeft = dx !== 0 ? (minX - x1) / dx : Infinity;
     const tBottom = dy !== 0 ? (maxY - y1) / dy : Infinity;
     const tTop = dy !== 0 ? (minY - y1) / dy : Infinity;
 
-    // Find smallest positive t (closest exit point in ray direction)
     const validT = [tRight, tLeft, tBottom, tTop].filter(t => t > 0.001);
 
     if (validT.length === 0) {
@@ -75,10 +86,43 @@ export const getLineNodeIntersection = (x1, y1, x2, y2, hitbox, cornerRadius = 4
     }
 
     const tExit = Math.min(...validT);
-    return {
-      x: x1 + dx * tExit,
-      y: y1 + dy * tExit
-    };
+    const exitX = x1 + dx * tExit;
+    const exitY = y1 + dy * tExit;
+
+    if (r <= 0.001) {
+      return { x: exitX, y: exitY };
+    }
+
+    // If the AABB exit lands inside one of the four corner squares, the actual
+    // rounded edge is closer to the center — re-intersect with that corner's arc.
+    let cornerCx = null;
+    let cornerCy = null;
+    if (exitX > maxX - r && exitY > maxY - r) {
+      cornerCx = maxX - r; cornerCy = maxY - r;
+    } else if (exitX < minX + r && exitY > maxY - r) {
+      cornerCx = minX + r; cornerCy = maxY - r;
+    } else if (exitX > maxX - r && exitY < minY + r) {
+      cornerCx = maxX - r; cornerCy = minY + r;
+    } else if (exitX < minX + r && exitY < minY + r) {
+      cornerCx = minX + r; cornerCy = minY + r;
+    }
+
+    if (cornerCx === null) {
+      return { x: exitX, y: exitY };
+    }
+
+    // Ray-circle intersection: |(x1,y1) + t*(dx,dy) - (cornerCx,cornerCy)|² = r²
+    const ex = x1 - cornerCx;
+    const ey = y1 - cornerCy;
+    const a = dx * dx + dy * dy;
+    const b = 2 * (ex * dx + ey * dy);
+    const c = ex * ex + ey * ey - r * r;
+    const disc = b * b - 4 * a * c;
+    if (disc < 0) return { x: exitX, y: exitY };
+    const sqrtDisc = Math.sqrt(disc);
+    const t2 = (-b + sqrtDisc) / (2 * a); // far root = exit when ray starts inside
+    if (t2 <= 0.001) return { x: exitX, y: exitY };
+    return { x: x1 + dx * t2, y: y1 + dy * t2 };
   } else {
     // Ray starts outside - find entry point
     // Calculate intersection parameters for all four sides
