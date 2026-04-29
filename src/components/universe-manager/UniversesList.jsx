@@ -337,7 +337,8 @@ const UniversesList = ({
                 <div style={{
                   position: 'absolute',
                   top: '100%',
-                  right: 0,
+                  left: isHeaderSlim ? 0 : 'auto',
+                  right: isHeaderSlim ? 'auto' : 0,
                   marginTop: 4,
                   backgroundColor: theme.canvas.bg,
 

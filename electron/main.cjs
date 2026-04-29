@@ -328,7 +328,7 @@ function createMenu() {
           }
         },
         { type: 'separator' },
-        isMac ? { role: 'close' } : { role: 'quit' }
+        isMac ? { role: 'close', accelerator: '' } : { role: 'quit' }
       ]
     },
     {
@@ -378,7 +378,7 @@ function createMenu() {
           { type: 'separator' },
           { role: 'window' }
         ] : [
-          { role: 'close' }
+          { role: 'close', accelerator: '' }
         ])
       ]
     },
