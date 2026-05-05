@@ -25,7 +25,7 @@ import { getPrototypeIdFromItem } from './utils/abstraction.js';
 import { copySelection, pasteClipboard } from './utils/clipboard.js';
 import { analyzeNodeDistribution, getClusterBoundingBox } from './utils/clusterAnalysis.js';
 import { v4 as uuidv4 } from 'uuid'; // Import UUID generator
-import { Edit3, Trash2, Link, Package, PackageOpen, Expand, ArrowUpFromDot, Triangle, Layers, ArrowLeft, SendToBack, ArrowBigRightDash, Palette, Orbit, Bookmark, Plus, CornerUpLeft, CornerDownLeft, Merge, Undo2, Clock, LayoutGrid } from 'lucide-react'; // Icons for PieMenu
+import { Edit3, Trash2, Link, Package, PackageOpen, Expand, ArrowUpFromDot, Triangle, Layers, ArrowLeft, SendToBack, ArrowBigRightDash, Palette, Orbit, Bookmark, Plus, CornerUpLeft, CornerDownLeft, Merge, Undo2, Clock, LayoutGrid, MoveVertical } from 'lucide-react'; // Icons for PieMenu
 import ColorPicker from './ColorPicker';
 import { useDrop } from 'react-dnd';
 import { fetchOrbitCandidatesForPrototype, dedupeAndPartitionOrbit } from './services/orbitResolver.js';
@@ -78,6 +78,7 @@ import {
   TRACKPAD_ZOOM_SENSITIVITY,
   PAN_DRAG_SENSITIVITY,
   SMOOTH_MOUSE_WHEEL_ZOOM_SENSITIVITY,
+  MIDDLE_MOUSE_ZOOM_SENSITIVITY,
   NODE_DEFAULT_COLOR,
   CONNECTION_DEFAULT_COLOR,
   MODAL_CLOSE_ICON_SIZE,
@@ -3294,6 +3295,24 @@ function NodeCanvas() {
   const startedOnNode = useRef(false);
   const longPressTimeout = useRef(null);
   const mouseInsideNode = useRef(true);
+  // Middle-mouse zoom gesture: when active, vertical drag zooms anchored at the mousedown point.
+  // Middle-click on a node (no drag) opens its right-panel tab.
+  // Uses Pointer Lock so the cursor stays pinned at the click point instead of drifting off-canvas.
+  const middleMouseZoomRef = useRef(null);
+  const [middleZoomAnchor, setMiddleZoomAnchor] = useState(null);
+
+  // If pointer lock exits unexpectedly (e.g. Escape, focus loss), abort the gesture cleanly.
+  useEffect(() => {
+    const onLockChange = () => {
+      if (!document.pointerLockElement && middleMouseZoomRef.current) {
+        middleMouseZoomRef.current = null;
+        isPanningOrZooming.current = false;
+        setMiddleZoomAnchor(null);
+      }
+    };
+    document.addEventListener('pointerlockchange', onLockChange);
+    return () => document.removeEventListener('pointerlockchange', onLockChange);
+  }, []);
   const panelRef = useRef(null); // Ref for Right Panel (if needed for openNodeTab)
   const leftPanelRef = useRef(null); // Ref for Left Panel
 
@@ -4367,6 +4386,24 @@ function NodeCanvas() {
       try { e.preventDefault(); } catch { }
       return;
     }
+    // Cmd/Ctrl + middle-button on a node: arm the zoom-by-drag gesture; if released without
+    // moving, mouseup opens the panel tab (treating it like a double-click on a node).
+    if (e && e.button === 1 && (isMac ? e.metaKey : e.ctrlKey)) {
+      try { e.preventDefault(); } catch { }
+      stopPanMomentum();
+      if (isPaused || !activeGraphId) return;
+      middleMouseZoomRef.current = {
+        anchorX: e.clientX,
+        anchorY: e.clientY,
+        moved: false,
+        nodePrototypeId: nodeData.prototypeId,
+        nodeName: nodeData.name,
+      };
+      isPanningOrZooming.current = true;
+      setMiddleZoomAnchor({ x: e.clientX, y: e.clientY });
+      try { containerRef.current?.requestPointerLock?.({ unadjustedMovement: true }); } catch { }
+      return;
+    }
     stopPanMomentum();
     if (isPaused || !activeGraphId) return;
 
@@ -4722,6 +4759,35 @@ function NodeCanvas() {
     mousePositionRef.current = { x: e.clientX, y: e.clientY };
 
     if (isPaused || !activeGraphId) return;
+
+    // Middle-mouse zoom: vertical drag → zoom, anchored at the original mousedown point.
+    // Pointer-locked, so use raw movementY (clientY is frozen) and drive zoom anchored at anchorX/Y.
+    // Drag up (negative dy) zooms in; drag down zooms out, matching wheel convention.
+    if (middleMouseZoomRef.current) {
+      const state = middleMouseZoomRef.current;
+      const dy = e.movementY || 0;
+      const dx = e.movementX || 0;
+      if (Math.abs(dx) + Math.abs(dy) > 0) state.moved = true;
+      if (Math.abs(dy) < 0.5 || draggingNodeInfo || isAnimatingZoomRef.current || !containerRef.current) return;
+      const rect = containerRef.current.getBoundingClientRect();
+      const anchorMouseX = state.anchorX - rect.left;
+      const anchorMouseY = state.anchorY - rect.top;
+      const zoomDelta = dy * MIDDLE_MOUSE_ZOOM_SENSITIVITY;
+      const opId = ++zoomOpIdRef.current;
+      try {
+        const result = await canvasWorker.calculateZoom({
+          deltaY: zoomDelta,
+          currentZoom: zoomLevelRef.current,
+          mousePos: { x: anchorMouseX, y: anchorMouseY },
+          panOffset: panOffsetRef.current,
+          viewportSize, canvasSize, MIN_ZOOM, MAX_ZOOM,
+        });
+        if (opId === zoomOpIdRef.current) {
+          setPanAndZoom(result.panOffset, result.zoomLevel);
+        }
+      } catch { /* ignore */ }
+      return;
+    }
 
     // Avoid per-frame logging during drag; logs removed for performance
 
@@ -5217,6 +5283,24 @@ function NodeCanvas() {
       try { e.preventDefault(); e.stopPropagation(); } catch { }
       return;
     }
+    // Cmd/Ctrl + middle-button: start the zoom-by-drag gesture, suppressing browser autoscroll.
+    // Plain middle-button falls through to the regular pan path.
+    if (e && e.button === 1 && (isMac ? e.metaKey : e.ctrlKey)) {
+      try { e.preventDefault(); e.stopPropagation(); } catch { }
+      stopPanMomentum();
+      if (isPaused || !activeGraphId || abstractionCarouselVisible) return;
+      middleMouseZoomRef.current = {
+        anchorX: e.clientX,
+        anchorY: e.clientY,
+        moved: false,
+        nodePrototypeId: null,
+        nodeName: null,
+      };
+      isPanningOrZooming.current = true;
+      setMiddleZoomAnchor({ x: e.clientX, y: e.clientY });
+      try { containerRef.current?.requestPointerLock?.({ unadjustedMovement: true }); } catch { }
+      return;
+    }
     stopPanMomentum();
     if (isPaused || !activeGraphId || abstractionCarouselVisible) return;
     // On touch/mobile: allow two-finger pan to bypass resizer/canvas checks
@@ -5273,6 +5357,21 @@ function NodeCanvas() {
   async function handleMouseUp(e) {
 
     // console.log('[Mouse Up] Called, history length:', panVelocityHistoryRef.current.length, 'Stack:', new Error().stack.split('\n').slice(1, 4).join('\n'));
+
+    // Middle-mouse release: end the zoom gesture. If it never moved and started on a node,
+    // treat it like a double-click and open that node's right-panel tab.
+    if (middleMouseZoomRef.current) {
+      const state = middleMouseZoomRef.current;
+      middleMouseZoomRef.current = null;
+      isPanningOrZooming.current = false;
+      setMiddleZoomAnchor(null);
+      try { document.exitPointerLock?.(); } catch { }
+      if (!state.moved && state.nodePrototypeId) {
+        storeActions.openRightPanelNodeTab(state.nodePrototypeId, state.nodeName);
+        if (!rightPanelExpanded) storeActions.setRightPanelExpanded(true);
+      }
+      return;
+    }
 
     if (isPaused || !activeGraphId) return;
     clearTimeout(longPressTimeout.current);
