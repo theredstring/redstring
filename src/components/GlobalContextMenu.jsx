@@ -30,15 +30,23 @@ const GlobalContextMenu = () => {
       }
     };
 
-    // Global right-click handler
+    // Global right-click / long-press handler
     const handleGlobalRightClick = (e) => {
-      // Check if the right-click happened on an element with context menu handling
-      const hasLocalContextMenu = e.target.closest('[data-has-context-menu]');
-      
+      const target = e.target;
+
+      // Preserve OS-level context menus on editable text (copy/paste, spellcheck, etc.)
+      if (target && target.closest && target.closest('input, textarea, [contenteditable="true"], [contenteditable=""], [contenteditable="plaintext-only"]')) {
+        return;
+      }
+
+      // Suppress the browser's native context menu everywhere else, including touch
+      // long-press. Elements marked data-has-context-menu still receive React's
+      // onContextMenu and may open a custom menu via showContextMenu().
+      e.preventDefault();
+
+      const hasLocalContextMenu = target && target.closest && target.closest('[data-has-context-menu]');
       if (!hasLocalContextMenu) {
-        e.preventDefault();
-        // If there was already a menu open, just close it instead of showing "No Tools Here..."
-        // This prevents the menu from sticking when right-clicking elsewhere
+        // Close any open custom menu when right-clicking outside its trigger region
         setContextMenu(null);
       }
     };

@@ -98,10 +98,6 @@ const SettingsModal = ({ isVisible, onClose }) => {
   };
 
   const sections = {
-    ai: {
-      title: 'AI & API Keys',
-      content: <AISection />
-    },
     display: {
       title: 'Display',
       content: (
@@ -275,6 +271,10 @@ const SettingsModal = ({ isVisible, onClose }) => {
           </div>
         </div>
       )
+    },
+    ai: {
+      title: 'AI & API Keys',
+      content: <AISection />
     },
     about: {
       title: 'About',

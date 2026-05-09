@@ -2387,6 +2387,9 @@ function NodeCanvas() {
 
     const graphName = graph.name || 'Unnamed graph';
     lines.push(`- Graph name: "${graphName}"`);
+    if (graph.id) {
+      lines.push(`- Graph ID: ${graph.id} (pass this exact value as targetGraphId in tool calls — never guess by name)`);
+    }
 
     const graphDesc = (graph.description || '').trim();
     if (graphDesc) {
@@ -2766,6 +2769,7 @@ function NodeCanvas() {
     // Find an existing empty definition graph (if any), so the wizard can populate it instead of creating a new one
     const defIds = Array.isArray(prototype.definitionGraphIds) ? prototype.definitionGraphIds : [];
     let existingEmptyDefGraphName = null;
+    let existingEmptyDefGraphId = null;
     for (const gid of defIds) {
       const g = graphs.get(gid);
       if (!g) continue;
@@ -2774,6 +2778,7 @@ function NodeCanvas() {
         : (g.instances ? Object.keys(g.instances).length : 0);
       if (instCount === 0) {
         existingEmptyDefGraphName = g.name || gid;
+        existingEmptyDefGraphId = gid;
         break;
       }
     }
@@ -2823,7 +2828,7 @@ function NodeCanvas() {
     const lines = [];
     lines.push(`I need help defining the components of the node "${protoName}" in graph "${activeGraphName}".`);
     if (existingEmptyDefGraphName) {
-      lines.push(`There is already an empty definition graph for this node: "${existingEmptyDefGraphName}". You should populate that graph (do NOT create a new one).`);
+      lines.push(`There is already an empty definition graph for this node: "${existingEmptyDefGraphName}" (id: ${existingEmptyDefGraphId}). You should populate that graph (do NOT create a new one).`);
     } else {
       lines.push(`This node has no definition graph yet — create a new one and populate it.`);
     }
@@ -2877,7 +2882,7 @@ function NodeCanvas() {
       lines.push('');
       lines.push('Tool-call rules (important):');
       if (existingEmptyDefGraphName) {
-        lines.push(`- The empty definition graph "${existingEmptyDefGraphName}" already exists. Use expandGraph with targetGraphId set to that graph to populate it. Do NOT create a new definition graph.`);
+        lines.push(`- The empty definition graph "${existingEmptyDefGraphName}" already exists. Use expandGraph with targetGraphId="${existingEmptyDefGraphId}" (the EXACT id, not the name) to populate it. Do NOT create a new definition graph.`);
         lines.push('- expandGraph edges accept a simple `type` string. Example edge:');
         lines.push('    { "source": "Axioms", "target": "Logical Constraints", "type": "Establishes" }');
       } else {
@@ -2896,7 +2901,7 @@ function NodeCanvas() {
       // earlier instruction block.
       lines.push('Tool to use this time:');
       if (existingEmptyDefGraphName) {
-        lines.push(`- expandGraph with targetGraphId pointing at the empty definition graph "${existingEmptyDefGraphName}".`);
+        lines.push(`- expandGraph with targetGraphId="${existingEmptyDefGraphId}" (the empty definition graph "${existingEmptyDefGraphName}" — pass the exact id, not the name).`);
       } else {
         lines.push(`- populateDefinitionGraph with nodeName="${protoName}" (creates + populates in one call).`);
       }

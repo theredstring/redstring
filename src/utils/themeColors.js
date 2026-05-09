@@ -39,9 +39,9 @@ export const LIGHT_THEME = {
       border: 'rgba(21,101,192,0.4)'
     },
     success: {
-      bg: 'rgba(46,125,50,0.08)',
-      text: '#2e7d32',
-      border: 'rgba(46,125,50,0.4)'
+      bg: '#354702',
+      text: '#E7E79E',
+      border: '#354702'
     }
   }
 };
@@ -79,9 +79,9 @@ export const DARK_THEME = {
       border: 'rgba(3,169,244,0.4)'
     },
     success: {
-      bg: 'rgba(76,175,80,0.15)',
-      text: '#a5d6a7',
-      border: 'rgba(76,175,80,0.4)'
+      bg: '#E7E79E',
+      text: '#354702',
+      border: '#E7E79E'
     }
   }
 };

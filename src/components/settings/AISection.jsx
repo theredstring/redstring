@@ -364,63 +364,22 @@ const AISection = () => {
 
   return (
     <div>
-      {/* Wizard Behavior */}
-      <div className="settings-section-subtitle">Wizard Behavior</div>
-      <div className="settings-row">
-        <div className="settings-row-label">
-          Connection Wizard
-          <div className="settings-row-description">
-            What should happen when you click "Ask The Wizard" on a connection
-          </div>
-        </div>
-        <div className="settings-option-group">
-          {[
-            { label: 'Ask each time', value: 'ask' },
-            { label: 'New conversation', value: 'new' },
-            { label: 'Add to current', value: 'current' }
-          ].map(opt => (
-            <button
-              key={opt.value}
-              className={`settings-option-btn ${wizardConnectionPref === opt.value ? 'active' : ''}`}
-              onClick={() => handleWizardPrefChange(opt.value)}
-            >
-              {opt.label}
-            </button>
-          ))}
-        </div>
-      </div>
-      <div className="settings-row">
-        <div className="settings-row-label">
-          Define Node Wizard
-          <div className="settings-row-description">
-            What should happen when you click "Ask The Wizard" on a node with no components
-          </div>
-        </div>
-        <div className="settings-option-group">
-          {[
-            { label: 'Ask each time', value: 'ask' },
-            { label: 'New conversation', value: 'new' },
-            { label: 'Add to current', value: 'current' }
-          ].map(opt => (
-            <button
-              key={opt.value}
-              className={`settings-option-btn ${wizardNodePref === opt.value ? 'active' : ''}`}
-              onClick={() => handleWizardNodePrefChange(opt.value)}
-            >
-              {opt.label}
-            </button>
-          ))}
-        </div>
-      </div>
-
-      <hr className="settings-section-divider" />
+      <div className="settings-section-subtitle">API Configuration</div>
 
       {/* Existing Key Status */}
       {existingKeyInfo && (
         <>
           <div className="settings-row">
             <div className="settings-row-label">
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: theme.alert.success.text }}>
+              <div style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '8px',
+                backgroundColor: theme.alert.success.bg,
+                color: theme.alert.success.text,
+                padding: '6px 10px',
+                borderRadius: '6px'
+              }}>
                 <CheckCircle size={16} />
                 <span>API Key Configured</span>
               </div>
@@ -479,8 +438,6 @@ const AISection = () => {
               </button>
             </div>
           </div>
-
-          <hr className="settings-section-divider" />
         </>
       )}
 
@@ -886,17 +843,59 @@ const AISection = () => {
         </div>
       )}
 
-      {/* Security Notice */}
-      <div style={{
-        fontSize: '0.7rem',
-        color: theme.alert.warning.text,
-        backgroundColor: theme.alert.warning.bg,
-        padding: '10px',
-        borderRadius: '6px',
-        marginTop: '20px',
-        borderLeft: `3px solid ${theme.alert.warning.border}`
-      }}>
-        <strong>Note:</strong> API key stored locally in browser localStorage (obfuscated, not encrypted)
+      <div className="settings-row-description" style={{ marginTop: '12px', marginBottom: '4px' }}>
+        API key stored locally in browser localStorage (obfuscated but not encrypted)
+      </div>
+
+      <hr className="settings-section-divider" />
+
+      {/* Wizard Behavior */}
+      <div className="settings-section-subtitle">Wizard Behavior</div>
+      <div className="settings-row">
+        <div className="settings-row-label">
+          Connection Wizard
+          <div className="settings-row-description">
+            What should happen when you click "Ask The Wizard" on a connection
+          </div>
+        </div>
+        <div className="settings-option-group settings-option-group--stacked">
+          {[
+            { label: 'Ask each time', value: 'ask' },
+            { label: 'New conversation', value: 'new' },
+            { label: 'Add to current', value: 'current' }
+          ].map(opt => (
+            <button
+              key={opt.value}
+              className={`settings-option-btn ${wizardConnectionPref === opt.value ? 'active' : ''}`}
+              onClick={() => handleWizardPrefChange(opt.value)}
+            >
+              {opt.label}
+            </button>
+          ))}
+        </div>
+      </div>
+      <div className="settings-row">
+        <div className="settings-row-label">
+          Define Node Wizard
+          <div className="settings-row-description">
+            What should happen when you click "Ask The Wizard" on a node with no components
+          </div>
+        </div>
+        <div className="settings-option-group settings-option-group--stacked">
+          {[
+            { label: 'Ask each time', value: 'ask' },
+            { label: 'New conversation', value: 'new' },
+            { label: 'Add to current', value: 'current' }
+          ].map(opt => (
+            <button
+              key={opt.value}
+              className={`settings-option-btn ${wizardNodePref === opt.value ? 'active' : ''}`}
+              onClick={() => handleWizardNodePrefChange(opt.value)}
+            >
+              {opt.label}
+            </button>
+          ))}
+        </div>
       </div>
     </div>
   );

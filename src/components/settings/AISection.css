@@ -46,13 +46,13 @@
 }
 
 .ai-btn-primary {
-  background: #059669;
-  color: #fff;
-  border-color: #059669;
+  background: #354702;
+  color: #E7E79E;
+  border-color: #354702;
 }
 
 .ai-btn-primary:hover:not(:disabled) {
-  background: #047857;
+  background: #2a3902;
 }
 
 .ai-btn-secondary {
@@ -102,6 +102,16 @@
   color: #6a6464;
 }
 
+.settings-dark .ai-btn-primary {
+  background: #E7E79E;
+  color: #354702;
+  border-color: #E7E79E;
+}
+
+.settings-dark .ai-btn-primary:hover:not(:disabled) {
+  background: #d4d488;
+}
+
 .settings-dark .ai-btn-secondary {
   background: #6a6464;
   color: #DEDADA;
@@ -121,6 +131,18 @@
 
 .settings-dark .ai-btn-danger:hover:not(:disabled) {
   background: rgba(211, 47, 47, 0.25);
+}
+
+/* Vertical, right-aligned option group (used for wizard behavior) */
+.settings-option-group--stacked {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 4px;
+  min-width: 180px;
+}
+
+.settings-option-group--stacked .settings-option-btn {
+  text-align: right;
 }
 
 /* Responsive */
