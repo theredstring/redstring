@@ -11,11 +11,12 @@ const DEBUG_STORAGE_KEYS = {
   LOG_LEVEL: 'redstring_debug_log_level',
   ENABLE_WIZARD: 'redstring_debug_enable_wizard',
   SHOW_NODE_HITBOXES: 'redstring_debug_show_node_hitboxes',
-  WIZARD_CONNECTION_PREF: 'redstring_wizard_connection_pref'
+  WIZARD_CONNECTION_PREF: 'redstring_wizard_connection_pref',
+  WIZARD_NODE_PREF: 'redstring_wizard_node_pref'
 };
 
-// Allowed values for wizardConnectionPref
-const WIZARD_CONNECTION_PREF_VALUES = ['ask', 'new', 'current'];
+// Allowed values for wizard tri-state preferences
+const WIZARD_PREF_VALUES = ['ask', 'new', 'current'];
 
 const hasBrowserWindow = typeof window !== 'undefined';
 const hasLocalStorage = hasBrowserWindow && typeof window.localStorage !== 'undefined';
@@ -45,7 +46,8 @@ class DebugConfig {
         logLevel: 'info',
         enableWizard: true,
         showNodeHitboxes: false,
-        wizardConnectionPref: 'ask'
+        wizardConnectionPref: 'ask',
+        wizardNodePref: 'ask'
       };
       this.isInitialized = true;
       return;
@@ -54,6 +56,7 @@ class DebugConfig {
     try {
       // Load existing debug settings from localStorage
       const storedConnectionPref = this.getStringSetting(DEBUG_STORAGE_KEYS.WIZARD_CONNECTION_PREF, 'ask');
+      const storedNodePref = this.getStringSetting(DEBUG_STORAGE_KEYS.WIZARD_NODE_PREF, 'ask');
       this.config = {
         disableLocalStorage: this.getBooleanSetting(DEBUG_STORAGE_KEYS.DISABLE_LOCAL_STORAGE, false),
         debugMode: this.getBooleanSetting(DEBUG_STORAGE_KEYS.DEBUG_MODE, false),
@@ -61,7 +64,8 @@ class DebugConfig {
         logLevel: this.getStringSetting(DEBUG_STORAGE_KEYS.LOG_LEVEL, 'info'),
         enableWizard: this.getBooleanSetting(DEBUG_STORAGE_KEYS.ENABLE_WIZARD, true),
         showNodeHitboxes: this.getBooleanSetting(DEBUG_STORAGE_KEYS.SHOW_NODE_HITBOXES, false),
-        wizardConnectionPref: WIZARD_CONNECTION_PREF_VALUES.includes(storedConnectionPref) ? storedConnectionPref : 'ask'
+        wizardConnectionPref: WIZARD_PREF_VALUES.includes(storedConnectionPref) ? storedConnectionPref : 'ask',
+        wizardNodePref: WIZARD_PREF_VALUES.includes(storedNodePref) ? storedNodePref : 'ask'
       };
 
       // Check URL parameters for debug overrides
@@ -104,7 +108,8 @@ class DebugConfig {
         logLevel: 'info',
         enableWizard: false,
         showNodeHitboxes: false,
-        wizardConnectionPref: 'ask'
+        wizardConnectionPref: 'ask',
+        wizardNodePref: 'ask'
       };
       this.isInitialized = true;
     }
@@ -187,7 +192,13 @@ class DebugConfig {
   // Wizard connection preference: 'ask' (default), 'new', or 'current'
   getWizardConnectionPref() {
     const v = this.config.wizardConnectionPref;
-    return WIZARD_CONNECTION_PREF_VALUES.includes(v) ? v : 'ask';
+    return WIZARD_PREF_VALUES.includes(v) ? v : 'ask';
+  }
+
+  // Wizard node-definition preference: 'ask' (default), 'new', or 'current'
+  getWizardNodePref() {
+    const v = this.config.wizardNodePref;
+    return WIZARD_PREF_VALUES.includes(v) ? v : 'ask';
   }
 
   // Enable/disable local storage (for debugging)
@@ -245,11 +256,20 @@ class DebugConfig {
 
   // Set wizard connection preference: 'ask' | 'new' | 'current'
   setWizardConnectionPref(value) {
-    const next = WIZARD_CONNECTION_PREF_VALUES.includes(value) ? value : 'ask';
+    const next = WIZARD_PREF_VALUES.includes(value) ? value : 'ask';
     this.config.wizardConnectionPref = next;
     this.setSetting(DEBUG_STORAGE_KEYS.WIZARD_CONNECTION_PREF, next);
     this.notifyListeners();
     console.log(`[DebugConfig] Wizard connection pref set to: ${next}`);
+  }
+
+  // Set wizard node-definition preference: 'ask' | 'new' | 'current'
+  setWizardNodePref(value) {
+    const next = WIZARD_PREF_VALUES.includes(value) ? value : 'ask';
+    this.config.wizardNodePref = next;
+    this.setSetting(DEBUG_STORAGE_KEYS.WIZARD_NODE_PREF, next);
+    this.notifyListeners();
+    console.log(`[DebugConfig] Wizard node pref set to: ${next}`);
   }
 
   // Clear all debug settings
@@ -262,7 +282,8 @@ class DebugConfig {
         logLevel: 'info',
         enableWizard: false,
         showNodeHitboxes: false,
-        wizardConnectionPref: 'ask'
+        wizardConnectionPref: 'ask',
+        wizardNodePref: 'ask'
       };
       this.notifyListeners();
       return;
@@ -280,7 +301,8 @@ class DebugConfig {
         logLevel: 'info',
         enableWizard: false,
         showNodeHitboxes: false,
-        wizardConnectionPref: 'ask'
+        wizardConnectionPref: 'ask',
+        wizardNodePref: 'ask'
       };
 
       this.notifyListeners();
@@ -382,6 +404,8 @@ export const isGitOnlyForced = () => debugConfig.isGitOnlyForced();
 export const isWizardEnabled = () => debugConfig.isWizardEnabled();
 export const getWizardConnectionPref = () => debugConfig.getWizardConnectionPref();
 export const setWizardConnectionPref = (value) => debugConfig.setWizardConnectionPref(value);
+export const getWizardNodePref = () => debugConfig.getWizardNodePref();
+export const setWizardNodePref = (value) => debugConfig.setWizardNodePref(value);
 export const getDebugConfig = () => debugConfig.getConfig();
 
 export default debugConfig;

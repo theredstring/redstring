@@ -33,21 +33,35 @@ const AISection = () => {
   const [wizardConnectionPref, setWizardConnectionPref] = useState(() => {
     try { return debugConfig.getWizardConnectionPref(); } catch { return 'ask'; }
   });
+  const [wizardNodePref, setWizardNodePrefLocal] = useState(() => {
+    try { return debugConfig.getWizardNodePref(); } catch { return 'ask'; }
+  });
 
   useEffect(() => {
     const handler = (newConfig) => {
-      const next = newConfig?.wizardConnectionPref;
-      if (next && next !== wizardConnectionPref) {
-        setWizardConnectionPref(next);
+      const nextConn = newConfig?.wizardConnectionPref;
+      if (nextConn && nextConn !== wizardConnectionPref) {
+        setWizardConnectionPref(nextConn);
+      }
+      const nextNode = newConfig?.wizardNodePref;
+      if (nextNode && nextNode !== wizardNodePref) {
+        setWizardNodePrefLocal(nextNode);
       }
     };
     return debugConfig.addListener(handler);
-  }, [wizardConnectionPref]);
+  }, [wizardConnectionPref, wizardNodePref]);
 
   const handleWizardPrefChange = (value) => {
     setWizardConnectionPref(value);
     try { debugConfig.setWizardConnectionPref(value); } catch (err) {
       console.error('Failed to persist wizard connection pref:', err);
+    }
+  };
+
+  const handleWizardNodePrefChange = (value) => {
+    setWizardNodePrefLocal(value);
+    try { debugConfig.setWizardNodePref(value); } catch (err) {
+      console.error('Failed to persist wizard node pref:', err);
     }
   };
 
@@ -369,6 +383,29 @@ const AISection = () => {
               key={opt.value}
               className={`settings-option-btn ${wizardConnectionPref === opt.value ? 'active' : ''}`}
               onClick={() => handleWizardPrefChange(opt.value)}
+            >
+              {opt.label}
+            </button>
+          ))}
+        </div>
+      </div>
+      <div className="settings-row">
+        <div className="settings-row-label">
+          Define Node Wizard
+          <div className="settings-row-description">
+            What should happen when you click "Ask The Wizard" on a node with no components
+          </div>
+        </div>
+        <div className="settings-option-group">
+          {[
+            { label: 'Ask each time', value: 'ask' },
+            { label: 'New conversation', value: 'new' },
+            { label: 'Add to current', value: 'current' }
+          ].map(opt => (
+            <button
+              key={opt.value}
+              className={`settings-option-btn ${wizardNodePref === opt.value ? 'active' : ''}`}
+              onClick={() => handleWizardNodePrefChange(opt.value)}
             >
               {opt.label}
             </button>
