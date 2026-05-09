@@ -2417,6 +2417,20 @@ function NodeCanvas() {
       return proto?.name || inst.name || 'Node';
     };
 
+    const nodeContextForInstance = (instId) => {
+      if (!instances) return null;
+      const inst = instances.get(instId);
+      if (!inst) return null;
+      const proto = nodePrototypesMap.get(inst.prototypeId);
+      if (!proto) return null;
+      const typeProto = proto.typeNodeId ? nodePrototypesMap.get(proto.typeNodeId) : null;
+      return {
+        name: proto.name || 'Node',
+        description: (proto.description || '').trim(),
+        typeName: typeProto?.name || null
+      };
+    };
+
     // Connection prototypes already used in the active graph
     const activeGraphTypeIds = new Set();
     if (activeGraph?.edges) {
