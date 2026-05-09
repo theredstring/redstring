@@ -2503,6 +2503,27 @@ function NodeCanvas() {
     lines.push('');
     lines.push(`Selected connection${edges.length === 1 ? '' : 's'}:`);
     lines.push(...edgeLines);
+
+    // Per-endpoint context (descriptions + types). Dedupe instances across selected edges.
+    const seenEndpointInstances = new Set();
+    const endpointContextLines = [];
+    edges.forEach((edge) => {
+      [edge.sourceId, edge.destinationId || edge.targetId].forEach((iid) => {
+        if (!iid || seenEndpointInstances.has(iid)) return;
+        seenEndpointInstances.add(iid);
+        const ctx = nodeContextForInstance(iid);
+        if (!ctx) return;
+        const desc = ctx.description ? ` — ${ctx.description}` : ' — (no description)';
+        const typePart = ctx.typeName ? ` [type: "${ctx.typeName}"]` : '';
+        endpointContextLines.push(`- "${ctx.name}"${typePart}${desc}`);
+      });
+    });
+    if (endpointContextLines.length > 0) {
+      lines.push('');
+      lines.push('What the endpoint nodes are:');
+      lines.push(...endpointContextLines);
+    }
+
     if (siblings.length > 0) {
       lines.push('');
       lines.push('Other connections that already exist between the same endpoints in this graph:');
@@ -2528,6 +2549,10 @@ function NodeCanvas() {
     lines.push('- Strongly prefer reusing an existing connection prototype, especially one already used in this graph.');
     lines.push('- Only create a NEW connection prototype if no existing prototype fits. If you must create one, give it a clear name and a description that explains the relationship.');
     lines.push('- If a new node is genuinely needed to define the relationship, create it and use its description to clarify novel terms.');
+    lines.push('');
+    lines.push('Before applying changes (only if needed):');
+    lines.push('- If the endpoint descriptions and connection-prototype catalog above already give you enough to choose, proceed directly.');
+    lines.push('- If you genuinely need more context (e.g., the endpoints are unfamiliar concepts or the existing prototype names are ambiguous), FIRST call search / searchNodes / searchConnections / readGraph / inspectPrototype before mutating. Skip this step otherwise — do not call read tools just to be thorough.');
     lines.push('');
     lines.push('Tool-call rules (important):');
     edges.forEach((edge, idx) => {
@@ -2734,6 +2759,36 @@ function NodeCanvas() {
       send();
     }
   }, [buildWizardNodeDefinitionPrompt, storeActions]);
+
+  // Listen for "Ask The Wizard" requests dispatched from the right panel's empty-components row.
+  // Routes through the same pref-aware flow used by the bottom control panel button.
+  useEffect(() => {
+    if (typeof window === 'undefined') return undefined;
+    const handler = (e) => {
+      const protoId = e?.detail?.prototypeId;
+      if (!protoId) return;
+      const proto = useGraphStore.getState().nodePrototypes.get(protoId);
+      if (!proto) {
+        console.error('[NodeCanvas] rs-ask-wizard-define-node: prototype not found:', protoId);
+        return;
+      }
+      const pref = (() => {
+        try { return debugConfig.getWizardNodePref(); } catch { return 'ask'; }
+      })();
+      if (pref === 'new') {
+        openNodeWizardWithPrompt(proto, { newConversation: true });
+        return;
+      }
+      if (pref === 'current') {
+        openNodeWizardWithPrompt(proto, { newConversation: false });
+        return;
+      }
+      setAskWizardNodeDontAskAgain(false);
+      setAskWizardNodeDialog({ prototype: proto });
+    };
+    window.addEventListener('rs-ask-wizard-define-node', handler);
+    return () => window.removeEventListener('rs-ask-wizard-define-node', handler);
+  }, [openNodeWizardWithPrompt]);
 
   // Pie menu color picker state
   const [pieMenuColorPickerVisible, setPieMenuColorPickerVisible] = useState(false);

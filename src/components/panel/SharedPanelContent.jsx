@@ -1,10 +1,11 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useDrag } from 'react-dnd';
 import { getEmptyImage } from 'react-dnd-html5-backend';
-import { Palette, ArrowUpFromDot, ImagePlus, BookOpen, ExternalLink, Trash2, Bookmark, TextSearch } from 'lucide-react';
+import { Palette, ArrowUpFromDot, ImagePlus, BookOpen, ExternalLink, Trash2, Bookmark, TextSearch, Sparkles } from 'lucide-react';
 import { NODE_CORNER_RADIUS, NODE_DEFAULT_COLOR } from '../../constants.js';
 import { getTextColor } from '../../utils/colorUtils';
 import { useTheme } from '../../hooks/useTheme.js';
+import debugConfig from '../../utils/debugConfig.js';
 import CollapsibleSection from '../CollapsibleSection.jsx';
 import SemanticEditor from '../SemanticEditor.jsx';
 import ConnectionBrowser from '../ConnectionBrowser.jsx';
@@ -1222,6 +1223,13 @@ const SharedPanelContent = ({
   const accentBgLight = theme.darkMode ? 'rgba(192,145,145,0.1)' : 'rgba(139,0,0,0.05)';
   const [isEditingBio, setIsEditingBio] = useState(false);
   const [tempBio, setTempBio] = useState('');
+  const [wizardEnabled, setWizardEnabled] = useState(() => {
+    try { return debugConfig.isWizardEnabled(); } catch { return false; }
+  });
+  useEffect(() => {
+    const handler = (cfg) => setWizardEnabled(!!cfg?.enableWizard);
+    return debugConfig.addListener(handler);
+  }, []);
   const [isEditingTitle, setIsEditingTitle] = useState(false);
   const [tempTitle, setTempTitle] = useState('');
   const isSavingBioRef = useRef(false);
@@ -2047,16 +2055,51 @@ const SharedPanelContent = ({
             ))}
           </div>
         ) : (
-          <div style={{
-            marginRight: '15px',
-            color: theme.canvas.textSecondary,
-            fontSize: '0.9rem',
-            fontFamily: "'EmOne', sans-serif",
-            textAlign: 'left',
-            padding: '20px 0 20px 15px'
-          }}>
-            No components in this {isHomeTab ? 'graph' : 'definition'}.
-          </div>
+          <>
+            <div style={{
+              marginRight: '15px',
+              color: theme.canvas.textSecondary,
+              fontSize: '0.9rem',
+              fontFamily: "'EmOne', sans-serif",
+              textAlign: 'left',
+              padding: '20px 0 20px 15px'
+            }}>
+              No components in this {isHomeTab ? 'graph' : 'definition'}.
+            </div>
+            {!isHomeTab && wizardEnabled && nodeData?.id && (
+              <button
+                onClick={() => {
+                  try {
+                    window.dispatchEvent(new CustomEvent('rs-ask-wizard-define-node', {
+                      detail: { prototypeId: nodeData.id }
+                    }));
+                  } catch (err) {
+                    console.error('[SharedPanelContent] Failed to dispatch ask-wizard-define-node:', err);
+                  }
+                }}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                  padding: '6px 10px',
+                  border: `1px solid ${accentColor}`,
+                  borderRadius: '6px',
+                  background: 'transparent',
+                  color: accentColor,
+                  fontFamily: "'EmOne', sans-serif",
+                  fontSize: '11px',
+                  cursor: 'pointer',
+                  fontWeight: 'bold',
+                  textAlign: 'left',
+                  marginLeft: '15px',
+                  marginBottom: '10px'
+                }}
+              >
+                <Sparkles size={12} />
+                Ask The Wizard
+              </button>
+            )}
+          </>
         )}
       </CollapsibleSection>
 
