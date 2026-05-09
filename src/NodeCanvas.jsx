@@ -2512,6 +2512,15 @@ function NodeCanvas() {
     lines.push('- Only create a NEW connection prototype if no existing prototype fits. If you must create one, give it a clear name and a description that explains the relationship.');
     lines.push('- If a new node is genuinely needed to define the relationship, create it and use its description to clarify novel terms.');
     lines.push('');
+    lines.push('Tool-call rules (important):');
+    edges.forEach((edge, idx) => {
+      const sourceName = nodeLabelForInstance(edge.sourceId);
+      const targetName = nodeLabelForInstance(edge.destinationId || edge.targetId);
+      lines.push(`- Connection ${idx + 1}: identify with sourceName="${sourceName}" and targetName="${targetName}".`);
+    });
+    lines.push('- To modify a connection, call updateEdge or replaceEdges with the source and target NODE NAMES above.');
+    lines.push('- To remove a connection, call deleteEdge with sourceName and targetName. DO NOT pass an edgeId — edge IDs are not visible to you and any value you supply will be ignored.');
+    lines.push('');
     lines.push('Please review the selected connection(s) and recommend a concrete action.');
 
     return lines.join('\n');

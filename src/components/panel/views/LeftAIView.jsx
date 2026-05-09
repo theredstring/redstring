@@ -347,6 +347,26 @@ function applyOffscreenLayout(graphId) {
  * ║  handler needed! Just add your handler here and it works everywhere.   ║
  * ╚══════════════════════════════════════════════════════════════════════════╝
  */
+// Surface a wizard tool failure to the UI. Listeners in LeftAIView render an
+// inline warning in the active conversation so the user can see when a tool
+// call silently no-op'd (e.g., hallucinated edge id, missing source/target).
+function dispatchWizardToolFailed(tool, reason, result) {
+  if (typeof window === 'undefined') return;
+  try {
+    window.dispatchEvent(new CustomEvent('rs-wizard-tool-failed', {
+      detail: {
+        tool,
+        reason,
+        sourceName: result?.sourceName || null,
+        targetName: result?.targetName || null,
+        edgeId: result?.edgeId || null
+      }
+    }));
+  } catch (err) {
+    console.error('[Wizard] Failed to dispatch rs-wizard-tool-failed:', err);
+  }
+}
+
 function applyToolResultToStore(toolName, result, toolCallId) {
   console.log('[Wizard] applyToolResultToStore called:', toolName, 'action:', result?.action, 'hasSpec:', !!result?.spec);
   if (!result || result.error) {
@@ -416,10 +436,10 @@ function applyToolResultToStore(toolName, result, toolCallId) {
       : null;
 
     if (!realProtoId) {
+      // Take LAST match — old prototypes accumulate in Maps and FIRST match would pick a stale one
       for (const [protoId, proto] of store.nodePrototypes) {
         if ((proto.name || '').toLowerCase().trim() === lookupName) {
           realProtoId = protoId;
-          break;
         }
       }
     }
@@ -504,11 +524,16 @@ function applyToolResultToStore(toolName, result, toolCallId) {
     const graphId = result.graphId || store.activeGraphId;
     console.log('[Wizard] Applying updateEdge to store:', result.sourceName, '→', result.targetName);
     if (!graphId) {
-      console.error('[Wizard] updateEdge: No active graph ID');
+      console.error('[Wizard] FAILED: updateEdge: No active graph ID');
+      dispatchWizardToolFailed('updateEdge', 'No active graph ID', result);
       return;
     }
     const graph = store.graphs.get(graphId);
-    if (!graph) return;
+    if (!graph) {
+      console.error('[Wizard] FAILED: updateEdge: Graph not found:', graphId);
+      dispatchWizardToolFailed('updateEdge', `Graph not found: ${graphId}`, result);
+      return;
+    }
 
     let sourceInstId = result.sourceId && graph.instances.has(result.sourceId) ? result.sourceId : null;
     let targetInstId = result.targetId && graph.instances.has(result.targetId) ? result.targetId : null;
@@ -526,7 +551,12 @@ function applyToolResultToStore(toolName, result, toolCallId) {
     }
 
     if (!sourceInstId || !targetInstId) {
-      console.error('[Wizard] updateEdge: Could not resolve source/target instances:', result.sourceName, result.targetName);
+      console.error('[Wizard] FAILED: updateEdge: Could not resolve source/target instances:', result.sourceName, result.targetName);
+      dispatchWizardToolFailed(
+        'updateEdge',
+        `Could not find nodes "${result.sourceName || '?'}" and "${result.targetName || '?'}" in the active graph.`,
+        result
+      );
       return;
     }
 
@@ -544,17 +574,22 @@ function applyToolResultToStore(toolName, result, toolCallId) {
     }
 
     if (!realEdgeId) {
-      console.error('[Wizard] updateEdge: Edge not found between instances:', sourceInstId, targetInstId);
+      console.error('[Wizard] FAILED: updateEdge: Edge not found between instances:', sourceInstId, targetInstId);
+      dispatchWizardToolFailed(
+        'updateEdge',
+        `No connection exists between "${result.sourceName || sourceInstId}" and "${result.targetName || targetInstId}". Create one first or pick a different pair of nodes.`,
+        result
+      );
       return;
     }
 
     let protoIdToLink = null;
     if (result.updates.type) {
       const typeLookup = result.updates.type.toLowerCase().trim();
+      // Take LAST match — old prototypes accumulate in Maps and FIRST match would pick a stale one
       for (const [id, proto] of store.nodePrototypes) {
         if ((proto.name || '').toLowerCase().trim() === typeLookup) {
           protoIdToLink = id;
-          break;
         }
       }
 
@@ -595,57 +630,90 @@ function applyToolResultToStore(toolName, result, toolCallId) {
     return;
   }
 
-  // Handle deleteEdge — resolve by edge ID or by source/target names
+  // Handle deleteEdge — verify edgeId, then fall through to source/target name resolution
   if (result.action === 'deleteEdge') {
     const graphId = result.graphId || store.activeGraphId;
     console.log('[Wizard] Applying deleteEdge to store');
     if (!graphId) {
       console.error('[Wizard] deleteEdge: No active graph ID');
+      dispatchWizardToolFailed('deleteEdge', 'No active graph ID', result);
       return;
     }
-    // If we have an edge ID, delete directly
+    const graph = store.graphs.get(graphId);
+    if (!graph) {
+      console.error('[Wizard] deleteEdge: Graph not found:', graphId);
+      dispatchWizardToolFailed('deleteEdge', `Graph not found: ${graphId}`, result);
+      return;
+    }
+
+    // Try edge-ID path first, but ONLY if it points at a real edge in this graph.
+    // The model frequently hallucinates edge IDs, so we never trust it blindly.
     if (result.edgeId) {
-      store.removeEdge(result.edgeId);
-      console.log('[Wizard] Successfully deleted edge by ID:', result.edgeId);
+      const edgeIdsList = Array.isArray(graph.edgeIds) ? graph.edgeIds : Array.from(graph.edgeIds || []);
+      const edgeExists = !!store.edges.get(result.edgeId) && edgeIdsList.includes(result.edgeId);
+      if (edgeExists) {
+        store.removeEdge(result.edgeId);
+        console.log('[Wizard] Successfully deleted edge by verified ID:', result.edgeId);
+        return;
+      }
+      console.warn('[Wizard] deleteEdge: edgeId did not match a real edge, falling back to name resolution:', result.edgeId);
+    }
+
+    // Fall back to source/target name (or instance id) resolution
+    if (!result.sourceName && !result.targetName && !result.sourceId && !result.targetId) {
+      console.error('[Wizard] FAILED: deleteEdge: No verified edgeId and no sourceName/targetName provided');
+      dispatchWizardToolFailed(
+        'deleteEdge',
+        'No usable edgeId, and no source/target node names were provided. Pass sourceName and targetName for the connection you want to remove.',
+        result
+      );
       return;
     }
-    // Otherwise try to find edge by source/target names/ids
-    if ((result.sourceName && result.targetName) || (result.sourceId && result.targetId)) {
-      const graph = store.graphs.get(graphId);
-      if (!graph) return;
 
-      let srcInstId = result.sourceId && graph.instances.has(result.sourceId) ? result.sourceId : null;
-      let tgtInstId = result.targetId && graph.instances.has(result.targetId) ? result.targetId : null;
+    let srcInstId = result.sourceId && graph.instances.has(result.sourceId) ? result.sourceId : null;
+    let tgtInstId = result.targetId && graph.instances.has(result.targetId) ? result.targetId : null;
 
-      if (!srcInstId || !tgtInstId) {
-        const srcLower = (result.sourceName || '').toLowerCase().trim();
-        const tgtLower = (result.targetName || '').toLowerCase().trim();
-        // Build name→instanceId map
-        const nameToInstId = new Map();
-        for (const [instId, inst] of graph.instances) {
-          const proto = store.nodePrototypes.get(inst.prototypeId);
-          const name = (proto?.name || '').toLowerCase().trim();
-          if (name) nameToInstId.set(name, instId);
-        }
-        if (!srcInstId) srcInstId = nameToInstId.get(srcLower);
-        if (!tgtInstId) tgtInstId = nameToInstId.get(tgtLower);
+    if (!srcInstId || !tgtInstId) {
+      const srcLower = (result.sourceName || '').toLowerCase().trim();
+      const tgtLower = (result.targetName || '').toLowerCase().trim();
+      // Build name→instanceId map
+      const nameToInstId = new Map();
+      for (const [instId, inst] of graph.instances) {
+        const proto = store.nodePrototypes.get(inst.prototypeId);
+        const name = (proto?.name || '').toLowerCase().trim();
+        if (name) nameToInstId.set(name, instId);
       }
-
-      if (srcInstId && tgtInstId) {
-        for (const edgeId of (graph.edgeIds || [])) {
-          const edge = store.edges.get(edgeId);
-          if (edge && (
-            (edge.sourceId === srcInstId && edge.destinationId === tgtInstId) ||
-            (edge.sourceId === tgtInstId && edge.destinationId === srcInstId)
-          )) {
-            store.removeEdge(edgeId);
-            console.log('[Wizard] Successfully deleted edge between:', srcInstId, 'and', tgtInstId);
-            return;
-          }
-        }
-      }
-      console.warn('[Wizard] deleteEdge: Could not find edge between', result.sourceName, 'and', result.targetName);
+      if (!srcInstId) srcInstId = nameToInstId.get(srcLower);
+      if (!tgtInstId) tgtInstId = nameToInstId.get(tgtLower);
     }
+
+    if (srcInstId && tgtInstId) {
+      for (const edgeId of (graph.edgeIds || [])) {
+        const edge = store.edges.get(edgeId);
+        if (edge && (
+          (edge.sourceId === srcInstId && edge.destinationId === tgtInstId) ||
+          (edge.sourceId === tgtInstId && edge.destinationId === srcInstId)
+        )) {
+          store.removeEdge(edgeId);
+          console.log('[Wizard] Successfully deleted edge between:', srcInstId, 'and', tgtInstId);
+          return;
+        }
+      }
+      console.error('[Wizard] FAILED: deleteEdge: Source/target instances resolved but no edge exists between them:', result.sourceName, '↔', result.targetName);
+      dispatchWizardToolFailed(
+        'deleteEdge',
+        `No connection exists between "${result.sourceName || srcInstId}" and "${result.targetName || tgtInstId}".`,
+        result
+      );
+      return;
+    }
+
+    console.error('[Wizard] FAILED: deleteEdge: Could not resolve nodes:', result.sourceName, result.targetName);
+    dispatchWizardToolFailed(
+      'deleteEdge',
+      `Could not find nodes "${result.sourceName || '?'}" and "${result.targetName || '?'}" in the active graph.`,
+      result
+    );
     return;
   }
 
@@ -654,11 +722,16 @@ function applyToolResultToStore(toolName, result, toolCallId) {
     const graphId = result.graphId || store.activeGraphId;
     console.log('[Wizard] Applying replaceEdges to store:', result.edgeCount, 'replacements');
     if (!graphId) {
-      console.error('[Wizard] replaceEdges: No active graph ID');
+      console.error('[Wizard] FAILED: replaceEdges: No active graph ID');
+      dispatchWizardToolFailed('replaceEdges', 'No active graph ID', result);
       return;
     }
     const graph = store.graphs.get(graphId);
-    if (!graph) return;
+    if (!graph) {
+      console.error('[Wizard] FAILED: replaceEdges: Graph not found:', graphId);
+      dispatchWizardToolFailed('replaceEdges', `Graph not found: ${graphId}`, result);
+      return;
+    }
 
     // Build name → instanceId map
     const nameToInstId = new Map();
@@ -669,6 +742,7 @@ function applyToolResultToStore(toolName, result, toolCallId) {
     }
 
     const newEdges = []; // Edges to create (no existing edge found)
+    const unresolvedPairs = []; // Track failures so we can surface them after the loop
 
     for (const replacement of (result.replacements || [])) {
       let srcInstId = replacement.sourceId && graph.instances.has(replacement.sourceId) ? replacement.sourceId : null;
@@ -682,7 +756,8 @@ function applyToolResultToStore(toolName, result, toolCallId) {
       }
 
       if (!srcInstId || !tgtInstId) {
-        console.warn('[Wizard] replaceEdges: Could not resolve:', replacement.source, '→', replacement.target);
+        console.error('[Wizard] FAILED: replaceEdges: Could not resolve:', replacement.source, '→', replacement.target);
+        unresolvedPairs.push(`"${replacement.source || '?'}" → "${replacement.target || '?'}"`);
         continue;
       }
 
@@ -706,10 +781,10 @@ function applyToolResultToStore(toolName, result, toolCallId) {
         // Find or create the connection definition prototype
         let protoIdToLink = null;
         const typeLookup = typeName.toLowerCase().trim();
+        // Take LAST match — old prototypes accumulate in Maps and FIRST match would pick a stale one
         for (const [id, proto] of store.nodePrototypes) {
           if ((proto.name || '').toLowerCase().trim() === typeLookup) {
             protoIdToLink = id;
-            break;
           }
         }
 
@@ -771,6 +846,14 @@ function applyToolResultToStore(toolName, result, toolCallId) {
 
     console.log('[Wizard] replaceEdges: Completed. Updated existing + created', newEdges.length, 'new edges');
     try { store.cleanupOrphanedData(); } catch (e) { console.warn('[Wizard] cleanupOrphanedData failed:', e); }
+
+    if (unresolvedPairs.length > 0) {
+      dispatchWizardToolFailed(
+        'replaceEdges',
+        `Could not resolve ${unresolvedPairs.length} of ${result.edgeCount} pair${result.edgeCount === 1 ? '' : 's'}: ${unresolvedPairs.join(', ')}. Make sure the source and target nodes exist in the active graph.`,
+        result
+      );
+    }
     return;
   }
 
@@ -1136,11 +1219,11 @@ function applyToolResultToStore(toolName, result, toolCallId) {
       if (n.type) {
         const tLower = n.type.toLowerCase().trim();
         if (!typeMap.has(tLower)) {
+          // Take LAST match — old prototypes accumulate in Maps and FIRST match would pick a stale one
           let existingProtoId = null;
           for (const [pid, proto] of store.nodePrototypes) {
             if ((proto.name || '').toLowerCase().trim() === tLower) {
               existingProtoId = pid;
-              break;
             }
           }
           if (existingProtoId) {
@@ -1292,12 +1375,12 @@ function applyToolResultToStore(toolName, result, toolCallId) {
       if (n.type) {
         const tLower = n.type.toLowerCase().trim();
         if (!typeMap.has(tLower)) {
-          // Check if it already exists in the store
+          // Check if it already exists in the store. Take LAST match — old prototypes accumulate
+          // in Maps and FIRST match would pick a stale one from a prior session.
           let existingProtoId = null;
           for (const [pid, proto] of store.nodePrototypes) {
             if ((proto.name || '').toLowerCase().trim() === tLower) {
               existingProtoId = pid;
-              break;
             }
           }
           if (existingProtoId) {
@@ -1402,11 +1485,11 @@ function applyToolResultToStore(toolName, result, toolCallId) {
       if (n.type) {
         const tLower = n.type.toLowerCase().trim();
         if (!typeMap.has(tLower)) {
+          // Take LAST match — old prototypes accumulate in Maps and FIRST match would pick a stale one
           let existingProtoId = null;
           for (const [pid, proto] of store.nodePrototypes) {
             if ((proto.name || '').toLowerCase().trim() === tLower) {
               existingProtoId = pid;
-              break;
             }
           }
           if (existingProtoId) {
@@ -1501,12 +1584,12 @@ function applyToolResultToStore(toolName, result, toolCallId) {
       if (n.type) {
         const tLower = n.type.toLowerCase().trim();
         if (!typeMap.has(tLower)) {
-          // Check if it already exists in the store
+          // Check if it already exists in the store. Take LAST match — old prototypes accumulate
+          // in Maps and FIRST match would pick a stale one from a prior session.
           let existingProtoId = null;
           for (const [pid, proto] of store.nodePrototypes) {
             if ((proto.name || '').toLowerCase().trim() === tLower) {
               existingProtoId = pid;
-              break;
             }
           }
           if (existingProtoId) {
@@ -2620,14 +2703,38 @@ const LeftAIView = ({ compact = false,
       handleNewConversation();
     };
 
+    const handleToolFailed = (e) => {
+      const detail = e?.detail || {};
+      const tool = detail.tool || 'tool';
+      const reason = detail.reason || 'no further detail';
+      const parts = [`⚠️ The "${tool}" call did not apply: ${reason}`];
+      if (detail.sourceName || detail.targetName) {
+        parts.push(`(source: ${detail.sourceName || '?'}, target: ${detail.targetName || '?'})`);
+      }
+      const content = parts.join(' ');
+      setMessages(prev => ([
+        ...prev,
+        {
+          id: `wizard-tool-failed-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+          sender: 'system',
+          content,
+          timestamp: new Date().toISOString(),
+          metadata: { kind: 'tool-failure-warning', ...detail },
+          toolCalls: []
+        }
+      ]));
+    };
+
     window.addEventListener('rs-send-wizard-message', handleSendWizardMsg);
     window.addEventListener('rs-switch-wizard-tab', handleSwitchTab);
     window.addEventListener('rs-new-wizard-tab', handleNewTab);
+    window.addEventListener('rs-wizard-tool-failed', handleToolFailed);
 
     return () => {
       window.removeEventListener('rs-send-wizard-message', handleSendWizardMsg);
       window.removeEventListener('rs-switch-wizard-tab', handleSwitchTab);
       window.removeEventListener('rs-new-wizard-tab', handleNewTab);
+      window.removeEventListener('rs-wizard-tool-failed', handleToolFailed);
     };
   }, [conversations, activeConversationId, hasAPIKey, isConnected, isProcessing, activeGraphId]);
 

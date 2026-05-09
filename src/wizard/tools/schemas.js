@@ -78,7 +78,7 @@ export function getToolDefinitions(options = {}) {
         },
         {
             name: 'updateEdge',
-            description: 'Update the properties of an existing connection between two nodes. Use node names to identify the edge.',
+            description: 'Update the properties of an existing connection between two nodes. Identify the edge by source and target NODE NAMES — never pass an edge ID, those are not visible to you and will be ignored.',
             parameters: {
                 type: 'object',
                 properties: {
@@ -93,13 +93,13 @@ export function getToolDefinitions(options = {}) {
         },
         {
             name: 'deleteEdge',
-            description: 'Remove a connection between nodes. Can use edge ID or source/target node names.',
+            description: 'Remove a connection between nodes. ALWAYS provide sourceName and targetName — edgeId is only used if it matches a real edge in the active graph, otherwise it is ignored and the name fallback runs.',
             parameters: {
                 type: 'object',
                 properties: {
-                    edgeId: { type: 'string', description: 'The edge ID to delete (if known)' },
-                    sourceName: { type: 'string', description: 'Name of the source node' },
-                    targetName: { type: 'string', description: 'Name of the target node' },
+                    edgeId: { type: 'string', description: 'Optional. Only used if it matches a real edge in the active graph; otherwise ignored. Prefer sourceName + targetName.' },
+                    sourceName: { type: 'string', description: 'Name of the source node (recommended primary identifier).' },
+                    targetName: { type: 'string', description: 'Name of the target node (recommended primary identifier).' },
                     targetGraphId: { type: 'string', description: 'Graph to target (default: active).' }
                 },
                 required: []
