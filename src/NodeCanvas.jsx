@@ -2443,7 +2443,8 @@ function NodeCanvas() {
     return lines;
   }, []);
 
-  const buildWizardConnectionPrompt = useCallback((edges) => {
+  const buildWizardConnectionPrompt = useCallback((edges, opts = {}) => {
+    const includeInstructions = opts.includeInstructions === 'short' ? 'short' : 'full';
     const st = useGraphStore.getState();
     const graphs = st.graphs;
     const nodePrototypesMap = st.nodePrototypes;
@@ -2629,28 +2630,61 @@ function NodeCanvas() {
       allConnectionTypes.forEach((entry) => lines.push(`- ${entry}`));
     }
     lines.push('');
-    lines.push('Goals:');
-    lines.push('- The usual goal is to REPLACE the current connection type with a more specific, semantically accurate one — but if the current type genuinely fits, leave it.');
-    lines.push('- Strongly prefer reusing an existing connection prototype, especially one already used in this graph.');
-    lines.push('- Only create a NEW connection prototype if no existing prototype fits. If you must create one, give it a clear name and a description that explains the relationship.');
-    lines.push('- If a new node is genuinely needed to define the relationship, create it and use its description to clarify novel terms.');
-    lines.push('');
-    lines.push('Before applying changes (only if needed):');
-    lines.push('- If the endpoint descriptions and connection-prototype catalog above already give you enough to choose, proceed directly.');
-    lines.push('- If you genuinely need more context (e.g., the endpoints are unfamiliar concepts or the existing prototype names are ambiguous), FIRST call search / searchNodes / searchConnections / readGraph / inspectPrototype before mutating. Skip this step otherwise — do not call read tools just to be thorough.');
-    lines.push('');
-    lines.push('Tool-call rules (important):');
-    edges.forEach((edge, idx) => {
-      const sourceName = nodeLabelForInstance(edge.sourceId);
-      const targetName = nodeLabelForInstance(edge.destinationId || edge.targetId);
-      lines.push(`- Connection ${idx + 1}: identify with sourceName="${sourceName}" and targetName="${targetName}".`);
-    });
-    lines.push('- To modify a connection, call updateEdge or replaceEdges with the source and target NODE NAMES above.');
-    lines.push('- To remove a connection, call deleteEdge with sourceName and targetName. DO NOT pass an edgeId — edge IDs are not visible to you and any value you supply will be ignored.');
-    lines.push('');
-    lines.push('Please review the selected connection(s) and recommend a concrete action.');
+    if (includeInstructions === 'full') {
+      lines.push('Goals:');
+      lines.push('- The usual goal is to REPLACE the current connection type with a more specific, semantically accurate one — but if the current type genuinely fits, leave it.');
+      lines.push('- Strongly prefer reusing an existing connection prototype, especially one already used in this graph.');
+      lines.push('- Only create a NEW connection prototype if no existing prototype fits. If you must create one, give it a clear name and a description that explains the relationship.');
+      lines.push('- If a new node is genuinely needed to define the relationship, create it and use its description to clarify novel terms.');
+      lines.push('');
+      lines.push('Before applying changes (only if needed):');
+      lines.push('- If the endpoint descriptions and connection-prototype catalog above already give you enough to choose, proceed directly.');
+      lines.push('- If you genuinely need more context (e.g., the endpoints are unfamiliar concepts or the existing prototype names are ambiguous), FIRST call search / searchNodes / searchConnections / readGraph / inspectPrototype before mutating. Skip this step otherwise — do not call read tools just to be thorough.');
+      lines.push('');
+      lines.push('Tool-call rules (important):');
+      edges.forEach((edge, idx) => {
+        const sourceName = nodeLabelForInstance(edge.sourceId);
+        const targetName = nodeLabelForInstance(edge.destinationId || edge.targetId);
+        lines.push(`- Connection ${idx + 1}: identify with sourceName="${sourceName}" and targetName="${targetName}".`);
+      });
+      lines.push('- To modify a connection, call updateEdge or replaceEdges with the source and target NODE NAMES above.');
+      lines.push('- To remove a connection, call deleteEdge with sourceName and targetName. DO NOT pass an edgeId — edge IDs are not visible to you and any value you supply will be ignored.');
+      lines.push('');
+      lines.push('Please review the selected connection(s) and recommend a concrete action.');
+    } else {
+      // Short mode — instructions were already given earlier in this conversation, so emit
+      // only the per-call identifiers and a one-line reminder.
+      lines.push('Identifiers for this call:');
+      edges.forEach((edge, idx) => {
+        const sourceName = nodeLabelForInstance(edge.sourceId);
+        const targetName = nodeLabelForInstance(edge.destinationId || edge.targetId);
+        lines.push(`- Connection ${idx + 1}: sourceName="${sourceName}", targetName="${targetName}".`);
+      });
+      lines.push('');
+      lines.push('(Reminder: same goals, search-first guidance, and tool-call rules as the previous Ask The Wizard message in this conversation. Use sourceName/targetName, never edge IDs.)');
+    }
 
-    return lines.join('\n');
+    // Build a short subject label and summary (used for the chat-side chip + history replay,
+    // so subsequent turns don't replay the full prompt).
+    let subjectLabel;
+    let summary;
+    if (edges.length === 1) {
+      const onlyEdge = edges[0];
+      const sName = nodeLabelForInstance(onlyEdge.sourceId);
+      const tName = nodeLabelForInstance(onlyEdge.destinationId || onlyEdge.targetId);
+      subjectLabel = `"${sName}" → "${tName}"`;
+      summary = `Refine connection: ${subjectLabel}`;
+    } else {
+      subjectLabel = `${edges.length} connections`;
+      summary = `Refine ${edges.length} connections in graph "${activeGraphName}"`;
+    }
+
+    return {
+      message: lines.join('\n'),
+      summary,
+      action: 'refine-connections',
+      subjectLabel
+    };
   }, []);
 
   const openWizardWithPrompt = useCallback((edges, { newConversation }) => {
@@ -2660,11 +2694,40 @@ function NodeCanvas() {
     } catch {}
     setLeftPanelInitialView('ai');
 
-    const message = buildWizardConnectionPrompt(edges);
+    // New conversations always start with full instructions. For "Add to current",
+    // skip the instruction block if this conversation already saw a refine-connections action.
+    const includeInstructions = (() => {
+      if (newConversation) return 'full';
+      try {
+        return (typeof window !== 'undefined' && window.__rs_wizardConversationHasAction?.('refine-connections'))
+          ? 'short'
+          : 'full';
+      } catch {
+        return 'full';
+      }
+    })();
+
+    const built = buildWizardConnectionPrompt(edges, { includeInstructions });
+    // Backwards compatibility: if the builder ever returned a bare string in the future
+    const message = typeof built === 'string' ? built : built.message;
+    const summary = typeof built === 'string' ? null : built.summary;
+    const action = typeof built === 'string' ? null : built.action;
+    const subjectLabel = typeof built === 'string' ? null : built.subjectLabel;
 
     const send = () => {
       try {
-        window.dispatchEvent(new CustomEvent('rs-send-wizard-message', { detail: { message } }));
+        const detail = { message };
+        if (summary) {
+          detail.displayContent = summary;
+          detail.replayContent = summary;
+          detail.displayMetadata = {
+            kind: 'wizard-action-chip',
+            action,
+            label: subjectLabel,
+            fullPrompt: message
+          };
+        }
+        window.dispatchEvent(new CustomEvent('rs-send-wizard-message', { detail }));
       } catch (err) {
         console.error('[NodeCanvas] Failed to dispatch wizard message:', err);
       }
@@ -2683,8 +2746,9 @@ function NodeCanvas() {
     }
   }, [buildWizardConnectionPrompt, storeActions]);
 
-  const buildWizardNodeDefinitionPrompt = useCallback((prototype) => {
+  const buildWizardNodeDefinitionPrompt = useCallback((prototype, opts = {}) => {
     if (!prototype) return '';
+    const includeInstructions = opts.includeInstructions === 'short' ? 'short' : 'full';
     const st = useGraphStore.getState();
     const graphs = st.graphs;
     const nodePrototypesMap = st.nodePrototypes;
@@ -2800,33 +2864,55 @@ function NodeCanvas() {
       }
     }
     lines.push('');
-    lines.push('Goals:');
-    lines.push('- Populate the definition graph with the components or compositional structure of this node — the parts/members/sub-concepts that compose it.');
-    lines.push('- The components should reflect what this node IS made of (compositional), not what it RELATES to. Use the description, type, and existing connections as evidence.');
-    lines.push('- Add edges between the components when their relationship is genuinely meaningful and well-known. Prefer reusing existing connection prototypes from the project where possible.');
-    lines.push('- If a component is novel, you may create a new node for it and use its description to clarify the term.');
-    lines.push('');
-    lines.push('Before applying changes (only if needed):');
-    lines.push('- If you genuinely lack information about what "this node" is composed of, FIRST call search / searchNodes / readGraph to learn more about the project. Skip this step if the description and connections above already give you enough to proceed.');
-    lines.push('- You may also call inspectPrototype, getPrototype, or querySparql for additional context if relevant — but only if you actually need more info.');
-    lines.push('');
-    lines.push('Tool-call rules (important):');
-    if (existingEmptyDefGraphName) {
-      lines.push(`- The empty definition graph "${existingEmptyDefGraphName}" already exists. Use expandGraph with targetGraphId set to that graph to populate it. Do NOT create a new definition graph.`);
-      lines.push('- expandGraph edges accept a simple `type` string. Example edge:');
-      lines.push('    { "source": "Axioms", "target": "Logical Constraints", "type": "Establishes" }');
+    if (includeInstructions === 'full') {
+      lines.push('Goals:');
+      lines.push('- Populate the definition graph with the components or compositional structure of this node — the parts/members/sub-concepts that compose it.');
+      lines.push('- The components should reflect what this node IS made of (compositional), not what it RELATES to. Use the description, type, and existing connections as evidence.');
+      lines.push('- Add edges between the components when their relationship is genuinely meaningful and well-known. Prefer reusing existing connection prototypes from the project where possible.');
+      lines.push('- If a component is novel, you may create a new node for it and use its description to clarify the term.');
+      lines.push('');
+      lines.push('Before applying changes (only if needed):');
+      lines.push('- If you genuinely lack information about what "this node" is composed of, FIRST call search / searchNodes / readGraph to learn more about the project. Skip this step if the description and connections above already give you enough to proceed.');
+      lines.push('- You may also call inspectPrototype, getPrototype, or querySparql for additional context if relevant — but only if you actually need more info.');
+      lines.push('');
+      lines.push('Tool-call rules (important):');
+      if (existingEmptyDefGraphName) {
+        lines.push(`- The empty definition graph "${existingEmptyDefGraphName}" already exists. Use expandGraph with targetGraphId set to that graph to populate it. Do NOT create a new definition graph.`);
+        lines.push('- expandGraph edges accept a simple `type` string. Example edge:');
+        lines.push('    { "source": "Axioms", "target": "Logical Constraints", "type": "Establishes" }');
+      } else {
+        lines.push(`- Use populateDefinitionGraph (single composite call) with nodeName="${protoName}". This both creates the definition graph and fills it in one step.`);
+        lines.push('- For populateDefinitionGraph edges: provide EITHER a `type` string OR a `definitionNode` object — never both, never neither. The simple shape is fine; only use `definitionNode` if you want to attach a description/color to the connection type.');
+        lines.push('    Simple shape:    { "source": "Axioms", "target": "Logical Constraints", "type": "Establishes" }');
+        lines.push('    Richer shape:    { "source": "Axioms", "target": "Logical Constraints", "definitionNode": { "name": "Establishes", "description": "Foundational relationship where axioms set the basis for logical constraints." } }');
+      }
+      lines.push('- Do NOT pass node IDs you have not seen in the data above. Use node names exactly as provided.');
+      lines.push('- The image of the node is intentionally not provided and is irrelevant here.');
+      lines.push('');
+      lines.push('Please review the context and either populate this node\'s definition with components, or — if you genuinely need more information first — call a search/read tool, then proceed.');
     } else {
-      lines.push(`- Use populateDefinitionGraph (single composite call) with nodeName="${protoName}". This both creates the definition graph and fills it in one step.`);
-      lines.push('- For populateDefinitionGraph edges: provide EITHER a `type` string OR a `definitionNode` object — never both, never neither. The simple shape is fine; only use `definitionNode` if you want to attach a description/color to the connection type.');
-      lines.push('    Simple shape:    { "source": "Axioms", "target": "Logical Constraints", "type": "Establishes" }');
-      lines.push('    Richer shape:    { "source": "Axioms", "target": "Logical Constraints", "definitionNode": { "name": "Establishes", "description": "Foundational relationship where axioms set the basis for logical constraints." } }');
+      // Short mode — instructions were already given earlier in this conversation; emit only
+      // the per-call "which tool" pointer plus a compact reminder that ties back to that
+      // earlier instruction block.
+      lines.push('Tool to use this time:');
+      if (existingEmptyDefGraphName) {
+        lines.push(`- expandGraph with targetGraphId pointing at the empty definition graph "${existingEmptyDefGraphName}".`);
+      } else {
+        lines.push(`- populateDefinitionGraph with nodeName="${protoName}" (creates + populates in one call).`);
+      }
+      lines.push('');
+      lines.push('(Reminder: same compositional-components goal, search-first guidance, and edge-shape rules as the previous Ask The Wizard message in this conversation. Use node names, never IDs.)');
     }
-    lines.push('- Do NOT pass node IDs you have not seen in the data above. Use node names exactly as provided.');
-    lines.push('- The image of the node is intentionally not provided and is irrelevant here.');
-    lines.push('');
-    lines.push('Please review the context and either populate this node\'s definition with components, or — if you genuinely need more information first — call a search/read tool, then proceed.');
 
-    return lines.join('\n');
+    const subjectLabel = `"${protoName}"`;
+    const summary = `Define components of ${subjectLabel}`;
+
+    return {
+      message: lines.join('\n'),
+      summary,
+      action: 'define-node',
+      subjectLabel
+    };
   }, []);
 
   const openNodeWizardWithPrompt = useCallback((prototype, { newConversation }) => {
@@ -2836,12 +2922,41 @@ function NodeCanvas() {
     } catch {}
     setLeftPanelInitialView('ai');
 
-    const message = buildWizardNodeDefinitionPrompt(prototype);
+    // New conversations always start with full instructions. For "Add to current",
+    // skip the instruction block if this conversation already saw a define-node action.
+    const includeInstructions = (() => {
+      if (newConversation) return 'full';
+      try {
+        return (typeof window !== 'undefined' && window.__rs_wizardConversationHasAction?.('define-node'))
+          ? 'short'
+          : 'full';
+      } catch {
+        return 'full';
+      }
+    })();
+
+    const built = buildWizardNodeDefinitionPrompt(prototype, { includeInstructions });
+    if (!built) return;
+    const message = typeof built === 'string' ? built : built.message;
     if (!message) return;
+    const summary = typeof built === 'string' ? null : built.summary;
+    const action = typeof built === 'string' ? null : built.action;
+    const subjectLabel = typeof built === 'string' ? null : built.subjectLabel;
 
     const send = () => {
       try {
-        window.dispatchEvent(new CustomEvent('rs-send-wizard-message', { detail: { message } }));
+        const detail = { message };
+        if (summary) {
+          detail.displayContent = summary;
+          detail.replayContent = summary;
+          detail.displayMetadata = {
+            kind: 'wizard-action-chip',
+            action,
+            label: subjectLabel,
+            fullPrompt: message
+          };
+        }
+        window.dispatchEvent(new CustomEvent('rs-send-wizard-message', { detail }));
       } catch (err) {
         console.error('[NodeCanvas] Failed to dispatch wizard message:', err);
       }

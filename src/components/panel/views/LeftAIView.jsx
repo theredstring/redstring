@@ -9,6 +9,7 @@ import { bridgeFetch, bridgeEventSource } from '../../../services/bridgeConfig.j
 import StandardDivider from '../../StandardDivider.jsx';
 import { HEADER_HEIGHT, NODE_DEFAULT_COLOR } from '../../../constants.js';
 import ToolCallCard from '../../ToolCallCard.jsx';
+import WizardActionChip from '../../wizard/WizardActionChip.jsx';
 import ConfirmDialog from '../../shared/ConfirmDialog.jsx';
 import { DRUID_SYSTEM_PROMPT } from '../../../services/agent/DruidPrompt.js';
 import useGraphStore from '../../../store/graphStore.jsx';
@@ -2686,10 +2687,28 @@ const LeftAIView = ({ compact = false,
     // but the `useEffect` above for SSE only runs once. We'll use refs or simply update these getters
     window.__rs_getTabs = () => ({ conversations, activeConversationId });
     window.__rs_getWizardStatus = () => ({ hasAPIKey, isConnected, isProcessing, activeGraphId });
+    // Lets dispatchers (e.g., NodeCanvas Ask The Wizard) check whether this conversation
+    // already saw a wizard-action-chip of a given action so they can ship a shorter prompt
+    // instead of repeating the full instructions block.
+    window.__rs_wizardConversationHasAction = (action) => {
+      if (!action) return false;
+      try {
+        return messages.some(m => m?.metadata?.kind === 'wizard-action-chip' && m?.metadata?.action === action);
+      } catch {
+        return false;
+      }
+    };
 
     const handleSendWizardMsg = (e) => {
       if (e.detail && typeof e.detail.message === 'string') {
-        handleSendMessage(e.detail.message);
+        const opts = (e.detail.displayContent || e.detail.replayContent || e.detail.displayMetadata)
+          ? {
+              displayContent: e.detail.displayContent,
+              displayMetadata: e.detail.displayMetadata,
+              replayContent: e.detail.replayContent
+            }
+          : undefined;
+        handleSendMessage(e.detail.message, opts);
       }
     };
 
@@ -3147,9 +3166,16 @@ const LeftAIView = ({ compact = false,
     }
   };
 
-  const handleSendMessage = async (overrideInput) => {
+  const handleSendMessage = async (overrideInput, sendOptions) => {
     const inputToUse = typeof overrideInput === 'string' ? overrideInput : currentInput;
     if ((!inputToUse.trim() && pendingAttachments.length === 0) || isProcessing) return;
+    // Optional display-override path used by programmatic dispatchers (e.g., the Ask The Wizard
+    // chip). When set, the UI shows displayContent (a short summary) and the LLM's
+    // conversation-history replay uses replayContent (defaults to displayContent), while the
+    // model still receives the full overrideInput on this turn as the actual user payload.
+    const displayContent = sendOptions?.displayContent;
+    const displayMetadata = sendOptions?.displayMetadata;
+    const replayContent = sendOptions?.replayContent ?? displayContent;
 
     // Trigger active mode for faster polling
     if (window.redstringStoreActions && window.redstringStoreActions._markActive) {
@@ -3270,7 +3296,18 @@ const LeftAIView = ({ compact = false,
         return block;
       });
     }
-    addMessage('user', userMessage, Object.keys(messageMetadata).length > 0 ? messageMetadata : undefined);
+    // If a display override is provided, the chat shows the short summary and the
+    // conversation-history replay also uses the short summary — the rich overrideInput
+    // is only sent to the model on THIS turn as the user payload (handleAutonomousAgent below).
+    if (displayContent) {
+      const overrideMetadata = { ...messageMetadata, ...(displayMetadata || {}) };
+      if (replayContent != null) {
+        overrideMetadata.contentBlocksForHistory = replayContent;
+      }
+      addMessage('user', displayContent, overrideMetadata);
+    } else {
+      addMessage('user', userMessage, Object.keys(messageMetadata).length > 0 ? messageMetadata : undefined);
+    }
     setCurrentInput('');
     setPendingAttachments([]);
     setIsProcessing(true);
@@ -4435,6 +4472,24 @@ const LeftAIView = ({ compact = false,
             {messages.map((message, idx) => {
               const prevMessage = idx > 0 ? messages[idx - 1] : null;
               const isNewSection = prevMessage && prevMessage.sender !== message.sender;
+
+              // Programmatic Ask The Wizard actions render as a compact right-aligned card
+              // visually identical to the AI's tool-call cards (just on the user side).
+              // No avatar, no bubble — the card itself is the message.
+              if (message.metadata?.kind === 'wizard-action-chip') {
+                return (
+                  <div
+                    key={message.id}
+                    style={{
+                      alignSelf: 'flex-end',
+                      maxWidth: '85%',
+                      marginTop: isNewSection ? '24px' : '8px'
+                    }}
+                  >
+                    <WizardActionChip message={message} />
+                  </div>
+                );
+              }
 
               return (
                 <div
