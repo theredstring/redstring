@@ -2378,6 +2378,71 @@ function NodeCanvas() {
     return unsubscribe;
   }, []);
 
+  // Shared helper used by both wizard prompts to emit an "About this graph" block.
+  // Returns an array of lines (already prefixed with bullets) — caller handles surrounding header/blank lines.
+  const buildGraphContextLines = useCallback((graph, nodePrototypesMap, opts = {}) => {
+    if (!graph) return [];
+    const { excludePrototypeIds = new Set(), maxOtherNodes = 25 } = opts;
+    const lines = [];
+
+    const graphName = graph.name || 'Unnamed graph';
+    lines.push(`- Graph name: "${graphName}"`);
+
+    const graphDesc = (graph.description || '').trim();
+    if (graphDesc) {
+      lines.push(`- Graph description: ${graphDesc}`);
+    }
+
+    // Parent / defining node — graphs can be definitions of an outer prototype.
+    const definingIds = Array.isArray(graph.definingNodeIds) ? graph.definingNodeIds : [];
+    if (definingIds.length > 0) {
+      const definingProtos = definingIds
+        .map((id) => nodePrototypesMap.get(id))
+        .filter(Boolean);
+      if (definingProtos.length > 0) {
+        const parts = definingProtos.map((p) => {
+          const desc = (p.description || '').trim();
+          return desc
+            ? `"${p.name || 'Node'}" (${desc.length > 160 ? desc.slice(0, 160) + '…' : desc})`
+            : `"${p.name || 'Node'}"`;
+        });
+        lines.push(`- This graph is the definition of: ${parts.join(', ')}`);
+      }
+    }
+
+    // Other nodes present in the graph (deduped by prototype name, optionally excluding callers' focus prototypes)
+    const instances = graph.instances;
+    const seenProtoNames = new Set();
+    const otherNodes = [];
+    if (instances) {
+      const iter = instances instanceof Map ? instances.values() : Object.values(instances);
+      for (const inst of iter) {
+        if (!inst) continue;
+        if (excludePrototypeIds.has(inst.prototypeId)) continue;
+        const proto = nodePrototypesMap.get(inst.prototypeId);
+        const name = proto?.name;
+        if (!name) continue;
+        const key = name.toLowerCase().trim();
+        if (seenProtoNames.has(key)) continue;
+        seenProtoNames.add(key);
+        otherNodes.push(name);
+      }
+    }
+    const instanceCount = instances instanceof Map
+      ? instances.size
+      : (instances ? Object.keys(instances).length : 0);
+    const edgeCount = Array.isArray(graph.edgeIds) ? graph.edgeIds.length : 0;
+    lines.push(`- Graph size: ${instanceCount} instance${instanceCount === 1 ? '' : 's'}, ${edgeCount} connection${edgeCount === 1 ? '' : 's'}.`);
+
+    if (otherNodes.length > 0) {
+      const sample = otherNodes.slice(0, maxOtherNodes);
+      const more = otherNodes.length > maxOtherNodes ? ` (+${otherNodes.length - maxOtherNodes} more)` : '';
+      lines.push(`- Other prototypes present in the graph: ${sample.map((n) => `"${n}"`).join(', ')}${more}.`);
+    }
+
+    return lines;
+  }, []);
+
   const buildWizardConnectionPrompt = useCallback((edges) => {
     const st = useGraphStore.getState();
     const graphs = st.graphs;
@@ -2500,6 +2565,26 @@ function NodeCanvas() {
 
     const lines = [];
     lines.push(`I need help refining ${edges.length === 1 ? 'a connection' : `${edges.length} connections`} in graph "${activeGraphName}".`);
+
+    // Endpoint prototype IDs — exclude these from the "other prototypes in graph" listing
+    // (their descriptions are surfaced separately below in the endpoint context block).
+    const endpointProtoIds = new Set();
+    if (instances) {
+      edges.forEach((edge) => {
+        [edge.sourceId, edge.destinationId || edge.targetId].forEach((iid) => {
+          if (!iid) return;
+          const inst = instances.get(iid);
+          if (inst?.prototypeId) endpointProtoIds.add(inst.prototypeId);
+        });
+      });
+    }
+    const graphCtxLines = buildGraphContextLines(activeGraph, nodePrototypesMap, { excludePrototypeIds: endpointProtoIds });
+    if (graphCtxLines.length > 0) {
+      lines.push('');
+      lines.push('About this graph:');
+      lines.push(...graphCtxLines);
+    }
+
     lines.push('');
     lines.push(`Selected connection${edges.length === 1 ? '' : 's'}:`);
     lines.push(...edgeLines);
@@ -2678,6 +2763,15 @@ function NodeCanvas() {
     } else {
       lines.push(`This node has no definition graph yet — create a new one and populate it.`);
     }
+
+    // Surrounding graph context (the graph in which the node lives) — exclude the focus node itself
+    const graphCtxLines = buildGraphContextLines(activeGraph, nodePrototypesMap, { excludePrototypeIds: new Set([prototype.id]) });
+    if (graphCtxLines.length > 0) {
+      lines.push('');
+      lines.push('About the surrounding graph (where this node currently lives):');
+      lines.push(...graphCtxLines);
+    }
+
     lines.push('');
     lines.push('What we know about this node:');
     lines.push(`- Name: "${protoName}"`);
