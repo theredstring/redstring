@@ -43,10 +43,10 @@ const SettingsModal = ({ isVisible, onClose }) => {
   }, []);
 
   // Pull live state from the store for reactive rendering
-  const gridMode = useGraphStore(s => s.gridMode);
-  const gridSize = useGraphStore(s => s.gridSize);
-  const dragZoomEnabled = useGraphStore(s => s.dragZoomEnabled);
-  const dragZoomAmount = useGraphStore(s => s.dragZoomAmount);
+  const gridMode = useGraphStore(s => s.gridSettings?.mode);
+  const gridSize = useGraphStore(s => s.gridSettings?.size);
+  const dragZoomEnabled = useGraphStore(s => s.dragZoomSettings?.enabled);
+  const dragZoomAmount = useGraphStore(s => s.dragZoomSettings?.zoomAmount);
   const textSettings = useGraphStore(s => s.textSettings);
   const keyboardSettings = useGraphStore(s => s.keyboardSettings);
   const routingStyle = useGraphStore(s => s.routingStyle);
