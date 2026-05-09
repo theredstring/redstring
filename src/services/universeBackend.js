@@ -1183,13 +1183,39 @@ class UniverseBackend {
   async _doInitialize() {
     umLog('[UniverseBackend] Initializing backend service...');
 
+    // Watchdog: if init stalls past 12s for any reason, release the loading
+    // gate so the UI never gets permanently stuck. Cleared on normal completion.
+    // Imports the store directly to handle the case where setupStoreOperations
+    // itself is what's hanging.
+    let initWatchdogFired = false;
+    const initWatchdog = setTimeout(async () => {
+      initWatchdogFired = true;
+      umWarn('[UniverseBackend] Init watchdog fired after 12s — forcing UI loaded');
+      try {
+        if (this.storeOperations?.setUniverseLoaded) {
+          this.storeOperations.setUniverseLoaded(true, false);
+        } else {
+          const { default: useGraphStore } = await import('../store/graphStore.jsx');
+          useGraphStore.getState().setUniverseLoaded?.(true, false);
+        }
+      } catch (e) {
+        umError('[UniverseBackend] Watchdog failed to release UI loading gate:', e);
+      }
+    }, 12000);
 
     try {
       umLog('[UniverseBackend] Ensuring auth state is loaded...');
 
-      await persistentAuth.ensureAuthStateLoaded().catch(err => {
-        umWarn('[UniverseBackend] Failed to load auth state:', err);
-      });
+      // 3s ceiling — auth can finish lazily; first paint shouldn't depend on it.
+      await Promise.race([
+        persistentAuth.ensureAuthStateLoaded().catch(err => {
+          umWarn('[UniverseBackend] Failed to load auth state:', err);
+        }),
+        new Promise(resolve => setTimeout(() => {
+          umWarn('[UniverseBackend] Auth state load timed out after 3s; continuing');
+          resolve();
+        }, 3000))
+      ]);
 
 
       umLog('[UniverseBackend] Getting authentication status...');
@@ -1233,8 +1259,17 @@ class UniverseBackend {
         umLog(`[UniverseBackend] Loading active universe into store: ${activeUniverse.name || activeUniverse.slug}`);
         try {
           if (this.restoreHandlesPromise) {
+            // 3s ceiling — file handles can finish restoring in background.
+            // Electron IPC calls inside restoreFileHandles have no per-call timeout,
+            // so a hung IPC could otherwise strand the loading screen.
             try {
-              await this.restoreHandlesPromise;
+              await Promise.race([
+                this.restoreHandlesPromise,
+                new Promise(resolve => setTimeout(() => {
+                  umWarn('[UniverseBackend] File handle restore exceeded 3s; continuing in background');
+                  resolve();
+                }, 3000))
+              ]);
             } catch (restoreError) {
               umWarn('[UniverseBackend] Waiting for file handle restoration failed:', restoreError);
             }
@@ -1382,6 +1417,11 @@ class UniverseBackend {
       umError('[UniverseBackend] Failed to initialize backend:', error);
       this.notifyStatus('error', `Backend initialization failed: ${error.message}`);
       throw error;
+    } finally {
+      clearTimeout(initWatchdog);
+      if (initWatchdogFired) {
+        umLog('[UniverseBackend] Init completed after watchdog had already released UI');
+      }
     }
   }
 
