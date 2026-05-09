@@ -1227,6 +1227,7 @@ const SharedPanelContent = ({
   const isSavingBioRef = useRef(false);
   const wikiSearchRef = useRef(null);
   const [wikiIsSearching, setWikiIsSearching] = useState(false);
+  const cachedImage = useImageCache(state => (nodeData?.id ? state.images[nodeData.id] : null));
 
   // Auto-enrich external links (but not bio descriptions) on mount if none exist
   useEffect(() => {
@@ -1700,9 +1701,12 @@ const SharedPanelContent = ({
                 borderRadius: '6px'
               }}>
                 <img
-                  src={nodeData.imageSrc || (nodeData.semanticMetadata?.wikipediaThumbnail
-                    ? nodeData.semanticMetadata.wikipediaThumbnail.replace(/\/(\d+)px-/, '/1200px-')
-                    : nodeData.semanticMetadata?.wikipediaOriginalImage)}
+                  src={
+                    nodeData.imageSrc ||
+                    nodeData.semanticMetadata?.wikipediaOriginalImage ||
+                    cachedImage?.thumbnailSrc ||
+                    nodeData.semanticMetadata?.wikipediaThumbnail
+                  }
                   alt={nodeData.name}
                   loading="lazy"
                   style={{

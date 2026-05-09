@@ -197,9 +197,30 @@ const saveCoordinatorMiddleware = (config) => {
     return saveCoordinator;
   };
 
+  // In-memory data-collapse tripwire. Snapshots data sizes before/after each
+  // `set()` and logs a stack trace if user data has catastrophically shrunk
+  // (e.g. nodes went from 50 to 0). Catches surprise resets, broken HMR
+  // restores, or any code path that silently wipes the store. Lets the user
+  // see WHO cleared the state instead of just discovering an empty file later.
+  const countUserData = (state) => {
+    if (!state) return { nodes: 0, graphs: 0 };
+    let nodes = 0;
+    if (state.nodePrototypes instanceof Map) {
+      for (const id of state.nodePrototypes.keys()) {
+        if (id !== 'base-thing-prototype' && id !== 'base-connection-prototype') nodes++;
+      }
+    }
+    const graphs = state.graphs instanceof Map ? state.graphs.size : 0;
+    return { nodes, graphs };
+  };
+
   return (set, get, api) => {
     // Enhance the set function to track change context and capture patches
     const enhancedSet = (...args) => {
+      // 0. Snapshot for collapse detection
+      let preCounts = null;
+      try { preCounts = countUserData(get()); } catch (_) { /* non-fatal */ }
+
       // 1. Capture patches via the global listener (hooked into our custom produce wrapper)
       let currentPatches = null;
       let currentInverse = null;
@@ -210,6 +231,28 @@ const saveCoordinatorMiddleware = (config) => {
 
       // 2. Execute the state update
       set(...args);
+
+      // 2a. Collapse detection. We allow load and reset contexts to legitimately
+      // wipe state. Anything else getting flagged is suspicious — print a stack
+      // trace so the offending code path is identifiable.
+      try {
+        if (preCounts) {
+          const postCounts = countUserData(get());
+          const ctxType = changeContext?.type || 'unknown';
+          const allowedToWipe = ctxType === 'load' || ctxType === 'reset' || ctxType === 'clear-universe';
+          const collapsed = !allowedToWipe && (
+            (preCounts.nodes >= 5 && postCounts.nodes <= Math.max(2, Math.floor(preCounts.nodes * 0.1))) ||
+            (preCounts.graphs >= 1 && postCounts.graphs === 0)
+          );
+          if (collapsed) {
+            console.error(
+              '[graphStore] ⚠ DATA COLLAPSE detected in set()',
+              { before: preCounts, after: postCounts, changeContext },
+              new Error('stack-trace-for-collapse').stack
+            );
+          }
+        }
+      } catch (_) { /* non-fatal — never let the tripwire itself break the store */ }
 
       // 3. Initialize cleanup and reset listener immediately
       patchListener = null;
