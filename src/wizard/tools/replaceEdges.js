@@ -6,6 +6,8 @@
  * This is the correct tool for "refine connections" workflows.
  */
 
+import { resolveGraphId } from './resolveGraphId.js';
+
 /**
  * Convert string to Title Case
  */
@@ -43,8 +45,11 @@ export async function replaceEdges(args, graphState, cid, ensureSchedulerStarted
         throw new Error('At least one edge is required');
     }
 
-    const { activeGraphId } = graphState;
-    const graphId = targetGraphId || activeGraphId;
+    const { activeGraphId, graphs = [] } = graphState;
+    // Resolve targetGraphId tolerantly — the model frequently passes a graph NAME
+    // here. Disambiguation favors the active graph and parent-graph lineage.
+    const resolved = targetGraphId ? resolveGraphId(targetGraphId, graphs, { activeGraphId }) : null;
+    const graphId = resolved || activeGraphId;
 
     if (!graphId) {
         throw new Error('No target graph specified and no active graph available.');

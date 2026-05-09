@@ -53,7 +53,7 @@ export async function updateEdge(args, graphState, cid, ensureSchedulerStarted) 
     }
 
     const { nodePrototypes = [], graphs = [], activeGraphId } = graphState;
-    const graphId = resolveGraphId(targetGraphId, graphs) || activeGraphId;
+    const graphId = resolveGraphId(targetGraphId, graphs, { activeGraphId }) || activeGraphId;
 
     if (!graphId) {
         throw new Error('No target graph specified and no active graph available.');

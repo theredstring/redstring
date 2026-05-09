@@ -2,6 +2,8 @@
  * deleteEdge - Remove a connection between nodes
  */
 
+import { resolveGraphId } from './resolveGraphId.js';
+
 /**
  * Resolve an edge by source/target names or edge name
  */
@@ -29,8 +31,11 @@ export async function deleteEdge(args, graphState, cid, ensureSchedulerStarted) 
     throw new Error('edgeId or sourceName/targetName is required');
   }
 
-  const { activeGraphId } = graphState;
-  const graphId = targetGraphId || activeGraphId;
+  const { activeGraphId, graphs = [] } = graphState;
+  // Resolve targetGraphId tolerantly — accept a graph NAME and disambiguate
+  // toward the active graph / its parent-graph lineage.
+  const resolved = targetGraphId ? resolveGraphId(targetGraphId, graphs, { activeGraphId }) : null;
+  const graphId = resolved || activeGraphId;
 
   if (!graphId) {
     throw new Error('No target graph specified and no active graph available.');

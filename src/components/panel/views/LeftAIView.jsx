@@ -10,6 +10,7 @@ import StandardDivider from '../../StandardDivider.jsx';
 import { HEADER_HEIGHT, NODE_DEFAULT_COLOR } from '../../../constants.js';
 import ToolCallCard from '../../ToolCallCard.jsx';
 import WizardActionChip from '../../wizard/WizardActionChip.jsx';
+import { resolveGraphId } from '../../../wizard/tools/resolveGraphId.js';
 import ConfirmDialog from '../../shared/ConfirmDialog.jsx';
 import { DRUID_SYSTEM_PROMPT } from '../../../services/agent/DruidPrompt.js';
 import useGraphStore from '../../../store/graphStore.jsx';
@@ -522,14 +523,23 @@ function applyToolResultToStore(toolName, result, toolCallId) {
 
   // Handle updateEdge — resolve by source/target names
   if (result.action === 'updateEdge') {
-    const graphId = result.graphId || store.activeGraphId;
+    let graphId = result.graphId || store.activeGraphId;
     console.log('[Wizard] Applying updateEdge to store:', result.sourceName, '→', result.targetName);
     if (!graphId) {
       console.error('[Wizard] FAILED: updateEdge: No active graph ID');
       dispatchWizardToolFailed('updateEdge', 'No active graph ID', result);
       return;
     }
-    const graph = store.graphs.get(graphId);
+    let graph = store.graphs.get(graphId);
+    if (!graph && result.graphId) {
+      // The model may have passed a graph NAME instead of an ID — try a name-based
+      // fallback that prefers the active graph and parent-graph lineage.
+      const resolved = resolveGraphId(result.graphId, store.graphs, { activeGraphId: store.activeGraphId });
+      if (resolved && resolved !== graphId) {
+        graphId = resolved;
+        graph = store.graphs.get(graphId);
+      }
+    }
     if (!graph) {
       console.error('[Wizard] FAILED: updateEdge: Graph not found:', graphId);
       dispatchWizardToolFailed('updateEdge', `Graph not found: ${graphId}`, result);
@@ -633,14 +643,22 @@ function applyToolResultToStore(toolName, result, toolCallId) {
 
   // Handle deleteEdge — verify edgeId, then fall through to source/target name resolution
   if (result.action === 'deleteEdge') {
-    const graphId = result.graphId || store.activeGraphId;
+    let graphId = result.graphId || store.activeGraphId;
     console.log('[Wizard] Applying deleteEdge to store');
     if (!graphId) {
       console.error('[Wizard] deleteEdge: No active graph ID');
       dispatchWizardToolFailed('deleteEdge', 'No active graph ID', result);
       return;
     }
-    const graph = store.graphs.get(graphId);
+    let graph = store.graphs.get(graphId);
+    if (!graph && result.graphId) {
+      // Model may have passed a graph NAME — fall back to name resolution.
+      const resolved = resolveGraphId(result.graphId, store.graphs, { activeGraphId: store.activeGraphId });
+      if (resolved && resolved !== graphId) {
+        graphId = resolved;
+        graph = store.graphs.get(graphId);
+      }
+    }
     if (!graph) {
       console.error('[Wizard] deleteEdge: Graph not found:', graphId);
       dispatchWizardToolFailed('deleteEdge', `Graph not found: ${graphId}`, result);
@@ -720,14 +738,23 @@ function applyToolResultToStore(toolName, result, toolCallId) {
 
   // Handle replaceEdges — find existing edges and update them, or create new ones
   if (result.action === 'replaceEdges') {
-    const graphId = result.graphId || store.activeGraphId;
+    let graphId = result.graphId || store.activeGraphId;
     console.log('[Wizard] Applying replaceEdges to store:', result.edgeCount, 'replacements');
     if (!graphId) {
       console.error('[Wizard] FAILED: replaceEdges: No active graph ID');
       dispatchWizardToolFailed('replaceEdges', 'No active graph ID', result);
       return;
     }
-    const graph = store.graphs.get(graphId);
+    let graph = store.graphs.get(graphId);
+    if (!graph && result.graphId) {
+      // Model may have passed a graph NAME — fall back to name resolution that
+      // disambiguates toward the active graph and parent-graph lineage.
+      const resolved = resolveGraphId(result.graphId, store.graphs, { activeGraphId: store.activeGraphId });
+      if (resolved && resolved !== graphId) {
+        graphId = resolved;
+        graph = store.graphs.get(graphId);
+      }
+    }
     if (!graph) {
       console.error('[Wizard] FAILED: replaceEdges: Graph not found:', graphId);
       dispatchWizardToolFailed('replaceEdges', `Graph not found: ${graphId}`, result);
