@@ -1,10 +1,15 @@
 import React, { useState, useEffect } from 'react';
 import ContextMenu from './ContextMenu';
+import { likelyTouch } from '../utils/inputDeviceAnalysis';
 
 // Global context menu manager
 let globalContextMenuManager = null;
 
 export const showContextMenu = (x, y, options = []) => {
+  // On touch devices the long-press gesture fires `contextmenu`, but users expect
+  // long-press-and-drag to move things — not pop up a menu. Suppress the custom
+  // menu entirely on touch; right-click on desktop still works.
+  if (likelyTouch()) return;
   if (globalContextMenuManager) {
     globalContextMenuManager.showMenu(x, y, options);
   }
