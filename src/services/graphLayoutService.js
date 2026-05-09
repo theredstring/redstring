@@ -1,9 +1,11 @@
 /**
  * Graph Layout Service - Redesigned 2025
- * 
+ *
  * Clean, robust force-directed layout with proper cluster separation.
  * Focuses on predictability, spaciousness, and preventing node overlap.
  */
+
+import { GROUP_LAYOUT_CONSTANTS } from './groupLayout.js';
 
 // ============================================================================
 // UTILITY FUNCTIONS
@@ -11,6 +13,103 @@
 
 const clamp = (value, min, max) => Math.max(min, Math.min(max, value));
 export const MAX_LAYOUT_SCALE_MULTIPLIER = 1.6;
+
+/**
+ * Build the implicit group containment hierarchy from member-set subset
+ * relationships. B is a strict child of A iff B.memberInstanceIds ⊊
+ * A.memberInstanceIds. We pick each group's *direct* parent as the smallest
+ * strict ancestor (transitive reduction). Sibling/peer groups (overlapping
+ * but neither contains the other) get no parent-child relation here — those
+ * are handled separately by the existing centroid fallback.
+ */
+function buildGroupContainmentHierarchy(groups) {
+  const groupsById = new Map();
+  const memberSets = new Map();
+  for (const g of groups) {
+    groupsById.set(g.id, g);
+    memberSets.set(g.id, new Set(g.memberInstanceIds || []));
+  }
+
+  const directParentOf = new Map();
+  const childrenOf = new Map();
+  groups.forEach(g => childrenOf.set(g.id, []));
+
+  for (const child of groups) {
+    const childMembers = memberSets.get(child.id);
+    if (childMembers.size === 0) continue;
+
+    let bestParent = null;
+    let bestParentSize = Infinity;
+
+    for (const candidate of groups) {
+      if (candidate.id === child.id) continue;
+      const candMembers = memberSets.get(candidate.id);
+      if (candMembers.size <= childMembers.size) continue;
+      let isSuperset = true;
+      for (const m of childMembers) {
+        if (!candMembers.has(m)) { isSuperset = false; break; }
+      }
+      if (!isSuperset) continue;
+      if (candMembers.size < bestParentSize) {
+        bestParent = candidate.id;
+        bestParentSize = candMembers.size;
+      }
+    }
+
+    if (bestParent) {
+      directParentOf.set(child.id, bestParent);
+      childrenOf.get(bestParent).push(child.id);
+    }
+  }
+
+  // Topological order: leaves first (groups with no children come first).
+  const topo = [];
+  const remainingChildren = new Map();
+  groups.forEach(g => remainingChildren.set(g.id, [...childrenOf.get(g.id)]));
+  const queue = groups.filter(g => remainingChildren.get(g.id).length === 0).map(g => g.id);
+  while (queue.length > 0) {
+    const id = queue.shift();
+    topo.push(id);
+    const parent = directParentOf.get(id);
+    if (parent) {
+      const list = remainingChildren.get(parent);
+      const idx = list.indexOf(id);
+      if (idx !== -1) list.splice(idx, 1);
+      if (list.length === 0) queue.push(parent);
+    }
+  }
+
+  const topLevelGroupIds = groups.filter(g => !directParentOf.has(g.id)).map(g => g.id);
+
+  return { groupsById, memberSets, directParentOf, childrenOf, topo, topLevelGroupIds };
+}
+
+/**
+ * Compute a group's visual bounding box from its laid-out member positions,
+ * folding the title bar overhang for node-groups. Mirrors the math in
+ * services/groupLayout.js so meta-positioning sees the same rect a renderer
+ * would draw.
+ */
+function deriveGroupVisualBounds(group, bbox, gridSize, measureLabelWidth) {
+  const C = GROUP_LAYOUT_CONSTANTS;
+  const memberPad = Math.max(24, Math.round((gridSize ?? 100) * 0.2));
+  const margin = memberPad + C.innerCanvasBorder;
+  const rectX = bbox.minX - margin;
+  const rectY = bbox.minY - margin;
+  const rectW = (bbox.maxX - bbox.minX) + margin * 2;
+  const rectH = (bbox.maxY - bbox.minY) + margin * 2;
+  const labelHeight = Math.max(80, C.fontSize * 1.4 + C.titlePaddingVertical * 2);
+  const measured = measureLabelWidth ? measureLabelWidth(group.name || 'Group') : (group.name || 'Group').length * 12;
+  const labelWidth = Math.min(1000, Math.max(100, measured + C.titlePaddingHorizontal * 2 + C.strokeWidth * 2));
+  const labelX = rectX + (rectW - labelWidth) / 2;
+  const labelY = rectY - labelHeight - C.titleToCanvasGap;
+  const isNodeGroup = !!group.linkedNodePrototypeId;
+  const vTop = isNodeGroup ? labelY - C.titleTopMargin : labelY;
+  const vLeft = Math.min(rectX, labelX);
+  const vRight = Math.max(rectX + rectW, labelX + labelWidth);
+  const vBottom = rectY + rectH;
+  return { x: vLeft, y: vTop, w: vRight - vLeft, h: vBottom - vTop };
+}
 
 /**
  * Find connected components (clusters) in the graph
@@ -571,85 +670,198 @@ function groupSeparatedLayout(nodes, edges, options = {}) {
     });
   });
 
-  // Nodes in multiple groups get excluded from per-group layouts and placed between groups later
-  const multiGroupNodeIds = new Set();
+  // Implicit containment hierarchy from member-set subsets.
+  const hierarchy = buildGroupContainmentHierarchy(groups);
+
+  // For each node belonging to one or more groups: pick the *innermost* group
+  // (the smallest one — equivalent to the deepest in the containment chain).
+  // If multiple groups tie at minimum size and aren't in a containment chain,
+  // it's a peer-conflict node — handled like a multi-group node.
+  const innermostGroupOf = new Map(); // nodeId -> groupId | null (peer-conflict)
+  const peerConflictNodes = new Set();
   nodeToGroups.forEach((groupIds, nodeId) => {
-    if (groupIds.size > 1) multiGroupNodeIds.add(nodeId);
+    if (groupIds.size === 0) return;
+    if (groupIds.size === 1) {
+      innermostGroupOf.set(nodeId, [...groupIds][0]);
+      return;
+    }
+    let smallest = null;
+    let smallestSize = Infinity;
+    for (const gid of groupIds) {
+      const sz = hierarchy.memberSets.get(gid)?.size ?? 0;
+      if (sz < smallestSize) { smallest = gid; smallestSize = sz; }
+    }
+    // Verify chosen "smallest" is contained in every other group the node belongs to.
+    let isStrictlyInnermost = true;
+    for (const gid of groupIds) {
+      if (gid === smallest) continue;
+      const containerMembers = hierarchy.memberSets.get(gid);
+      const innerMembers = hierarchy.memberSets.get(smallest);
+      let allIn = true;
+      for (const m of innerMembers) {
+        if (!containerMembers.has(m)) { allIn = false; break; }
+      }
+      if (!allIn) { isStrictlyInnermost = false; break; }
+    }
+    if (isStrictlyInnermost) {
+      innermostGroupOf.set(nodeId, smallest);
+    } else {
+      peerConflictNodes.add(nodeId);
+    }
   });
 
   const ungroupedNodes = nodes.filter(n => !nodeToGroups.has(n.id));
 
-  // ---- Phase 1: Layout each group independently ----
+  // ---- Phase 1: Layout each group leaves-first, substituting child groups
+  // with synthetic rigid blocks sized by the child's visual bounds. ----
   const groupLayouts = new Map();
 
-  groups.forEach(group => {
-    // Exclude multi-group nodes from individual group layouts to avoid duplicate positioning
-    const memberIds = new Set(
-      (group.memberInstanceIds || []).filter(id => !multiGroupNodeIds.has(id))
+  for (const gId of hierarchy.topo) {
+    const group = hierarchy.groupsById.get(gId);
+    if (!group) continue;
+    const childIds = hierarchy.childrenOf.get(gId) || [];
+
+    // Direct members: members of this group whose innermost group IS this group.
+    // Excludes members whose innermost is a child (they're inside a rigid block).
+    const directMemberIds = (group.memberInstanceIds || []).filter(id => {
+      if (peerConflictNodes.has(id)) return false;
+      return innermostGroupOf.get(id) === gId;
+    });
+    const directMemberNodes = directMemberIds.map(id => nodeById.get(id)).filter(Boolean);
+
+    // Synthetic block nodes for each direct child group.
+    const blockNodes = [];
+    const blockToChildId = new Map();
+    for (const cid of childIds) {
+      const cl = groupLayouts.get(cid);
+      if (!cl) continue;
+      const blockId = `__block__${cid}`;
+      blockNodes.push({
+        id: blockId,
+        width: cl.visualBounds.w,
+        height: cl.visualBounds.h,
+      });
+      blockToChildId.set(blockId, cid);
+    }
+
+    if (directMemberNodes.length + blockNodes.length === 0) continue;
+
+    // Map each child's actual member ID to its synthetic block ID for edge routing.
+    const memberToBlockId = new Map();
+    for (const cid of childIds) {
+      const cMembers = hierarchy.memberSets.get(cid);
+      if (!cMembers) continue;
+      cMembers.forEach(m => memberToBlockId.set(m, `__block__${cid}`));
+    }
+
+    const directMemberSet = new Set(directMemberIds);
+    const intraEdges = [];
+    for (const e of edges) {
+      const srcEntity = directMemberSet.has(e.sourceId)
+        ? e.sourceId
+        : memberToBlockId.get(e.sourceId);
+      const dstEntity = directMemberSet.has(e.destinationId)
+        ? e.destinationId
+        : memberToBlockId.get(e.destinationId);
+      if (!srcEntity || !dstEntity || srcEntity === dstEntity) continue;
+      intraEdges.push({ sourceId: srcEntity, destinationId: dstEntity });
+    }
+
+    const totalEntities = directMemberNodes.length + blockNodes.length;
+    const subSize = Math.max(800, Math.sqrt(totalEntities) * 500);
+
+    const positions = forceDirectedLayout(
+      [...directMemberNodes, ...blockNodes],
+      intraEdges,
+      {
+        width: subSize,
+        height: subSize,
+        padding: 100,
+        groups: [],
+        layoutScale: options.layoutScale,
+        layoutScaleMultiplier: options.layoutScaleMultiplier,
+        iterationPreset: options.iterationPreset,
+        repulsionStrength: config.repulsionStrength,
+        attractionStrength: config.attractionStrength,
+        stiffness: config.stiffness,
+        edgeAvoidance: config.edgeAvoidance,
+      }
     );
-    const memberNodes = [...memberIds].map(id => nodeById.get(id)).filter(Boolean);
-    if (memberNodes.length === 0) return;
 
-    // Edges entirely within this group (both endpoints must be single-group members)
-    const intraEdges = edges.filter(e => memberIds.has(e.sourceId) && memberIds.has(e.destinationId));
-
-    // Size sub-canvas based on member count
-    const subSize = Math.max(800, Math.sqrt(memberNodes.length) * 500);
-
-    // Run isolated force layout for this group (groups: [] prevents recursion)
-    const positions = forceDirectedLayout(memberNodes, intraEdges, {
-      width: subSize,
-      height: subSize,
-      padding: 100,
-      groups: [],
-      layoutScale: options.layoutScale,
-      layoutScaleMultiplier: options.layoutScaleMultiplier,
-      iterationPreset: options.iterationPreset,
-      repulsionStrength: config.repulsionStrength,
-      attractionStrength: config.attractionStrength,
-      stiffness: config.stiffness,
-      edgeAvoidance: config.edgeAvoidance,
+    // Compose final positions for every node "owned" by this group's layout.
+    const composedPositions = new Map();
+    directMemberIds.forEach(mid => {
+      const p = positions.get(mid);
+      if (p) composedPositions.set(mid, { x: p.x, y: p.y });
+    });
+    childIds.forEach(cid => {
+      const blockPos = positions.get(`__block__${cid}`);
+      const cl = groupLayouts.get(cid);
+      if (!blockPos || !cl) return;
+      const dx = blockPos.x - cl.centerX;
+      const dy = blockPos.y - cl.centerY;
+      cl.positions.forEach((pos, mid) => {
+        composedPositions.set(mid, { x: pos.x + dx, y: pos.y + dy });
+      });
     });
 
-    // Calculate bounding box
     let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
-    positions.forEach((pos, id) => {
-      const node = nodeById.get(id);
+    composedPositions.forEach((pos, mid) => {
+      const node = nodeById.get(mid);
       const w = node?.width || 150;
       const h = node?.height || 100;
-      minX = Math.min(minX, pos.x);
-      minY = Math.min(minY, pos.y);
-      maxX = Math.max(maxX, pos.x + w);
-      maxY = Math.max(maxY, pos.y + h);
+      if (pos.x < minX) minX = pos.x;
+      if (pos.y < minY) minY = pos.y;
+      if (pos.x + w > maxX) maxX = pos.x + w;
+      if (pos.y + h > maxY) maxY = pos.y + h;
     });
+    if (!isFinite(minX)) continue;
 
-    groupLayouts.set(group.id, {
-      positions,
+    const visualBounds = deriveGroupVisualBounds(
+      group,
+      { minX, minY, maxX, maxY },
+      options.gridSize,
+      options.measureLabelWidth,
+    );
+
+    groupLayouts.set(gId, {
+      positions: composedPositions,
       width: maxX - minX,
       height: maxY - minY,
+      visualBounds,
       centerX: (minX + maxX) / 2,
-      centerY: (minY + maxY) / 2
+      centerY: (minY + maxY) / 2,
     });
-  });
+  }
 
   if (groupLayouts.size === 0) {
     // No groups had members - fall back to standard layout
     return forceDirectedLayout(nodes, edges, { ...options, groups: [] });
   }
 
-  // ---- Phase 2: Group-level force-directed layout ----
-  // Treat groups as large meta-nodes — same physics engine at a higher scale.
-  // Cross-group edges become meta-edges so connected groups naturally attract.
+  // Multi-group nodes that the existing fallback expects: peer-conflict nodes
+  // (kept for backwards-compat with the centroid placement at line ~734).
+  const multiGroupNodeIds = peerConflictNodes;
+
+  // ---- Phase 2: Group-level force-directed layout (top-level groups only) ----
+  // Children of nested groups are already placed inside their parent's
+  // composed layout via the rigid-block substitution above; only top-level
+  // groups need meta-positioning relative to each other.
 
   const ungroupedSet = new Set(ungroupedNodes.map(n => n.id));
+  const topLevelLayoutEntries = hierarchy.topLevelGroupIds
+    .map(gId => [gId, groupLayouts.get(gId)])
+    .filter(([, layout]) => layout);
 
-  // Build meta-nodes sized by each group's bounding box
+  // Build meta-nodes sized by each top-level group's *visual* bounds (which
+  // include the title-bar overhang for node-groups), plus padding. This
+  // prevents node-group titles from intruding into a neighbor's region.
   const metaNodes = [];
-  groupLayouts.forEach((layout, gId) => {
+  topLevelLayoutEntries.forEach(([gId, layout]) => {
     metaNodes.push({
       id: gId,
-      width: layout.width + 200,
-      height: layout.height + 200,
+      width: layout.visualBounds.w + 200,
+      height: layout.visualBounds.h + 200,
       x: 0, y: 0
     });
   });
@@ -664,19 +876,30 @@ function groupSeparatedLayout(nodes, edges, options = {}) {
     });
   }
 
-  // Build meta-edges from cross-group node connections
-  // More cross-connections between two groups → stronger pull (multiple springs)
+  // Build meta-edges from cross-group node connections.
+  // For nested groups we walk each membership up to its top-level ancestor —
+  // only top-level groups participate in meta-positioning.
+  const topLevelOf = (gid) => {
+    let cur = gid;
+    while (hierarchy.directParentOf.get(cur)) {
+      cur = hierarchy.directParentOf.get(cur);
+    }
+    return cur;
+  };
   const metaEdgePairs = new Map(); // "gA|gB" -> count
   const getNodeMetaGroups = (nodeId) => {
     const gs = nodeToGroups.get(nodeId);
-    if (gs && gs.size > 0) return [...gs];
+    if (gs && gs.size > 0) {
+      const tops = new Set();
+      for (const gid of gs) tops.add(topLevelOf(gid));
+      return [...tops];
+    }
     if (ungroupedSet.has(nodeId)) return ['__ungrouped__'];
     return [];
   };
   edges.forEach(e => {
     const srcGroups = getNodeMetaGroups(e.sourceId);
     const dstGroups = getNodeMetaGroups(e.destinationId);
-    // Create meta-edges for all cross-group pairs
     srcGroups.forEach(gSrc => {
       dstGroups.forEach(gDst => {
         if (gSrc === gDst) return;
@@ -685,13 +908,15 @@ function groupSeparatedLayout(nodes, edges, options = {}) {
       });
     });
   });
-  // Multi-group nodes also imply affinity between their groups
+  // Peer-conflict nodes (multi-group, no containment chain) → strong affinity
+  // between their top-level groups.
   multiGroupNodeIds.forEach(nodeId => {
     const gs = [...(nodeToGroups.get(nodeId) || [])];
-    for (let i = 0; i < gs.length; i++) {
-      for (let j = i + 1; j < gs.length; j++) {
-        const key = [gs[i], gs[j]].sort().join('|');
-        metaEdgePairs.set(key, (metaEdgePairs.get(key) || 0) + 2); // Strong affinity
+    const tops = [...new Set(gs.map(topLevelOf))];
+    for (let i = 0; i < tops.length; i++) {
+      for (let j = i + 1; j < tops.length; j++) {
+        const key = [tops[i], tops[j]].sort().join('|');
+        metaEdgePairs.set(key, (metaEdgePairs.get(key) || 0) + 2);
       }
     }
   });
@@ -730,15 +955,18 @@ function groupSeparatedLayout(nodes, edges, options = {}) {
     });
   });
 
-  // Place multi-group nodes at the centroid of their groups
+  // Place peer-conflict nodes at the centroid of their groups' top-level
+  // ancestors (metaPositions is keyed by top-level group IDs).
   multiGroupNodeIds.forEach(nodeId => {
     const node = nodeById.get(nodeId);
     if (!node) return;
     const gs = nodeToGroups.get(nodeId);
     if (!gs) return;
     let sumX = 0, sumY = 0, gCount = 0;
-    gs.forEach(gId => {
-      const metaPos = metaPositions.get(gId);
+    const tops = new Set();
+    gs.forEach(gId => tops.add(topLevelOf(gId)));
+    tops.forEach(topId => {
+      const metaPos = metaPositions.get(topId);
       if (metaPos) { sumX += metaPos.x; sumY += metaPos.y; gCount++; }
     });
     if (gCount > 0) {

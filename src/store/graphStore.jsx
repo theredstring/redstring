@@ -4045,7 +4045,29 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
         });
       }
 
-      console.log(`[Store cleanupOrphanedData] Cleanup complete. Removed ${orphanedPrototypes.length} prototypes, ${orphanedGraphs.length} graphs, ${orphanedEdges.length} edges.`);
+      // Step 7: Sweep orphan member IDs from group memberInstanceIds.
+      // The canonical delete paths (removeNodeInstance, removeMultipleNodeInstances)
+      // already prune memberInstanceIds, but older .redstring saves and any
+      // non-canonical mutation paths (e.g. wizard/MCP tools) can leave stale IDs.
+      // Without this sweep, drag-time bounds explode toward (0,0) when an orphan
+      // ID is read.
+      let totalOrphanMembers = 0;
+      for (const [, graph] of draft.graphs.entries()) {
+        if (!graph.groups || !graph.instances) continue;
+        const liveInstanceIds = graph.instances;
+        for (const [groupId, group] of graph.groups.entries()) {
+          if (!Array.isArray(group.memberInstanceIds) || group.memberInstanceIds.length === 0) continue;
+          const before = group.memberInstanceIds.length;
+          group.memberInstanceIds = group.memberInstanceIds.filter(id => liveInstanceIds.has(id));
+          const removed = before - group.memberInstanceIds.length;
+          if (removed > 0) {
+            totalOrphanMembers += removed;
+            console.log(`[Store cleanupOrphanedData] Removed ${removed} orphan member IDs from group ${groupId}`);
+          }
+        }
+      }
+
+      console.log(`[Store cleanupOrphanedData] Cleanup complete. Removed ${orphanedPrototypes.length} prototypes, ${orphanedGraphs.length} graphs, ${orphanedEdges.length} edges, ${totalOrphanMembers} orphan group members.`);
     })),
 
     // Restore from last session (automatic) - now only returns universe file data

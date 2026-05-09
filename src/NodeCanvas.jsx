@@ -40,6 +40,7 @@ import AutoGraphModal from './components/AutoGraphModal';
 import ForceSimulationModal from './components/ForceSimulationModal';
 import { parseInputData, generateGraph } from './services/autoGraphGenerator';
 import { applyLayout, getClusterGeometries, FORCE_LAYOUT_DEFAULTS } from './services/graphLayoutService.js';
+import { computeGroupLayout, GROUP_LAYOUT_CONSTANTS } from './services/groupLayout.js';
 import { NavigationMode, calculateNavigationParams, navigateAfterLayout } from './services/canvasNavigationService.js';
 import { debugLogSync } from './utils/debugLogger.js';
 import { getNodeHitbox, getVisualConnectionEndpoints } from './utils/canvas/nodeHitbox.js';
@@ -1124,6 +1125,8 @@ function NodeCanvas() {
 
   // Groups-by-node mapping for DOM-bypass group drag
   const groupsByNodeIdRef = useRef(new Map());
+  // Direct groupId -> group reference Map for the helper-driven drag-bounds path
+  const groupsByIdRef = useRef(new Map());
   useEffect(() => {
     const map = new Map();
     const graphData = activeGraphId ? graphsMap.get(activeGraphId) : null;
@@ -1137,6 +1140,7 @@ function NodeCanvas() {
       });
     }
     groupsByNodeIdRef.current = map;
+    groupsByIdRef.current = graphData?.groups || new Map();
   }, [activeGraphId, graphsMap]);
 
   // Clipboard ref for copy/paste operations
@@ -1654,6 +1658,7 @@ function NodeCanvas() {
     enableAutoRoutingRef,
     routingStyleRef,
     groupsByNodeIdRef,
+    groupsByIdRef,
   });
   // Aliases for 1:1 replacement of old local state/refs
   const draggingNodeInfo = nodeDrag.draggingNodeInfo;
@@ -2716,7 +2721,8 @@ function NodeCanvas() {
   useEffect(() => {
     const nodesSelected = selectedInstanceIds.size > 0;
     const edgeSelected = selectedEdgeId !== null || selectedEdgeIds.size > 0;
-    const shouldShow = Boolean(nodesSelected && !edgeSelected && !abstractionCarouselVisible && !connectionNamePrompt.visible && !semanticOrbitActive);
+    const isBoxSelecting = selectionStart !== null;
+    const shouldShow = Boolean(nodesSelected && !edgeSelected && !abstractionCarouselVisible && !connectionNamePrompt.visible && !semanticOrbitActive && !isBoxSelecting);
     if (shouldShow) {
       setNodeControlPanelShouldShow(true);
       setNodeControlPanelVisible(true);
@@ -2730,7 +2736,7 @@ function NodeCanvas() {
     } else if (!shouldShow && nodeControlPanelVisible) {
       setNodeControlPanelVisible(false);
     }
-  }, [selectedInstanceIds, selectedEdgeId, selectedEdgeIds, abstractionCarouselVisible, connectionNamePrompt.visible, nodeControlPanelVisible, semanticOrbitActive]);
+  }, [selectedInstanceIds, selectedEdgeId, selectedEdgeIds, abstractionCarouselVisible, connectionNamePrompt.visible, nodeControlPanelVisible, semanticOrbitActive, selectionStart]);
 
   // --- Connection Control Panel Management ---
   useEffect(() => {
@@ -8326,69 +8332,76 @@ function NodeCanvas() {
 
                   const regularGroupElements = [];
 
+                  // Build layout context once for the whole pass. computeGroupLayout uses
+                  // this for both bbox math (orphan-skipping, nested overhang) and label
+                  // sizing. Shared cache means each group's layout is computed once even
+                  // when referenced as a child by multiple parents.
+                  const layoutNodesById = new Map();
+                  for (let i = 0; i < hydratedNodes.length; i++) {
+                    const n = hydratedNodes[i];
+                    layoutNodesById.set(n.id, { id: n.id, x: n.x, y: n.y });
+                  }
+                  const layoutContext = {
+                    nodesById: layoutNodesById,
+                    dimsById: baseDimsById,
+                    groupsById: graphData.groups,
+                    groupsByMemberId: groupsByNodeIdRef.current,
+                    gridSize,
+                    measureLabelWidth: (text) => getTextWidth(text || 'Group', `bold ${GROUP_LAYOUT_CONSTANTS.fontSize}px "EmOne", sans-serif`),
+                    _cache: new Map(),
+                  };
+
+                  // Downstream JSX still references GROUP_SPACING (e.g. innerCanvasBorder
+                  // for the inner-canvas inset rect). Keep an alias.
+                  const GROUP_SPACING = GROUP_LAYOUT_CONSTANTS;
+
                   groups.forEach(group => {
-                    // Compute bounding box of member nodes with margin
                     const memberIdSet = new Set(group.memberInstanceIds);
                     const members = hydratedNodes.filter(n => memberIdSet.has(n.id));
                     if (!members.length) return;
-                    // Single pass to compute bounding box (avoids multiple .map + Math.min/max spread)
-                    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
-                    for (let i = 0; i < members.length; i++) {
-                      const n = members[i];
-                      const d = baseDimsById.get(n.id) || getNodeDimensions(n, false, null);
-                      if (n.x < minX) minX = n.x;
-                      if (n.y < minY) minY = n.y;
-                      const r = n.x + d.currentWidth;
-                      const b = n.y + d.currentHeight;
-                      if (r > maxX) maxX = r;
-                      if (b > maxY) maxY = b;
-                    }
 
-                    // GROUP LAYOUT CONSTANTS - consolidated for easier adjustment
-                    const GROUP_SPACING = {
-                      memberBoundaryPadding: Math.max(24, Math.round(gridSize * 0.2)),
-                      innerCanvasBorder: 32,
-                      titleToCanvasGap: 24,
-                      titlePaddingVertical: 12,
-                      titlePaddingHorizontal: 32,
-                      titleTopMargin: 24,
-                      titleBottomMargin: 24,
-                      cornerRadius: 12,
-                      nodeGroupCornerRadius: 24,
-                      strokeWidth: 2,
-                      fontSize: 36,
-                    };
+                    // When this group's name is being edited, measure against the in-flight
+                    // text so the label rect tracks keystrokes — pass an override-named
+                    // shallow copy to keep the helper pure.
+                    const groupForLayout = (editingGroupId === group.id)
+                      ? { ...group, name: tempGroupName }
+                      : group;
+                    const layout = computeGroupLayout(groupForLayout, layoutContext);
+                    if (!layout.ok) return;
 
-                    const margin = GROUP_SPACING.memberBoundaryPadding + GROUP_SPACING.innerCanvasBorder;
-                    const rectX = minX - margin;
-                    const rectY = minY - margin;
-                    const rectW = (maxX - minX) + margin * 2;
-                    const rectH = (maxY - minY) + margin * 2;
-                    const nodeGroupCornerR = GROUP_SPACING.nodeGroupCornerRadius;
+                    const { rect, label, nodeGroupRect, innerCanvasY, isNodeGroup } = layout;
+                    const rectX = rect.x, rectY = rect.y, rectW = rect.w, rectH = rect.h;
+                    const labelX = label.x, labelY = label.y;
+                    const labelWidth = label.w, labelHeight = label.h;
+                    const nodeGroupRectY = nodeGroupRect.y, nodeGroupRectH = nodeGroupRect.h;
+
+                    const nodeGroupCornerR = GROUP_LAYOUT_CONSTANTS.nodeGroupCornerRadius;
                     const strokeColor = group.color || '#8B0000';
-                    const fontSize = GROUP_SPACING.fontSize;
-                    const labelPaddingVertical = GROUP_SPACING.titlePaddingVertical;
-                    const labelPaddingHorizontal = GROUP_SPACING.titlePaddingHorizontal;
-                    const strokeWidth = GROUP_SPACING.strokeWidth;
+                    const fontSize = GROUP_LAYOUT_CONSTANTS.fontSize;
 
                     const currentText = editingGroupId === group.id ? tempGroupName : (group.name || 'Group');
-                    const measuredTextWidth = getTextWidth(currentText, `bold ${fontSize}px "EmOne", sans-serif`);
-                    const labelWidth = Math.min(1000, Math.max(100, measuredTextWidth + (labelPaddingHorizontal * 2) + (strokeWidth * 2)));
-                    const labelHeight = Math.max(80, fontSize * 1.4 + (labelPaddingVertical * 2));
-                    const labelX = rectX + (rectW - labelWidth) / 2;
-                    const labelY = rectY - labelHeight - GROUP_SPACING.titleToCanvasGap;
                     const labelText = group.name || 'Group';
                     const isGroupDragging = draggingNodeInfo?.groupId === group.id;
 
-                    const isNodeGroup = !!group.linkedNodePrototypeId;
                     const nodeGroupPrototype = isNodeGroup ? nodePrototypesMap.get(group.linkedNodePrototypeId) : null;
                     const nodeGroupColor = nodeGroupPrototype?.color || strokeColor;
 
-                    const nodeGroupTopMargin = GROUP_SPACING.titleTopMargin;
-                    const nodeGroupBottomMargin = GROUP_SPACING.titleBottomMargin;
-                    const nodeGroupRectY = isNodeGroup ? labelY - nodeGroupTopMargin : rectY;
-                    const nodeGroupRectH = isNodeGroup ? (rectY + rectH) - (labelY - nodeGroupTopMargin) : rectH;
-                    const innerCanvasY = isNodeGroup ? (labelY + labelHeight + nodeGroupBottomMargin) : (rectY + GROUP_SPACING.innerCanvasBorder);
+                    if (typeof window !== 'undefined' && window.__groupBoundsDebug) {
+                      console.log('[GROUP-STATIC]', {
+                        groupId: group.id,
+                        name: group.name,
+                        isNodeGroup,
+                        memberIdsInStore: group.memberInstanceIds,
+                        membersResolved: members.map(m => ({ id: m.id, x: Math.round(m.x), y: Math.round(m.y) })),
+                        droppedFromHydration: layout.droppedOrphanIds,
+                        anchorInstanceId: group.anchorInstanceId || null,
+                        bbox: { minX: Math.round(layout.bbox.minX), minY: Math.round(layout.bbox.minY), maxX: Math.round(layout.bbox.maxX), maxY: Math.round(layout.bbox.maxY) },
+                        rect: { x: Math.round(rectX), y: Math.round(rectY), w: Math.round(rectW), h: Math.round(rectH) },
+                        nodeGroupRect: { y: Math.round(nodeGroupRectY), h: Math.round(nodeGroupRectH) },
+                        label: { x: Math.round(labelX), y: Math.round(labelY), w: Math.round(labelWidth), h: Math.round(labelHeight) },
+                        nestedContributors: layout.nestedContributors,
+                      });
+                    }
 
                     const groupScale = isGroupDragging ? 1.05 : 1;
                     const centerX = rectX + rectW / 2;

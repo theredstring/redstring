@@ -5,6 +5,8 @@ import useHistoryStore from '../store/historyStore.js';
 import { getVisualConnectionEndpoints } from '../utils/canvas/nodeHitbox.js';
 import { calculateParallelEdgePath, getPointOnQuadraticBezier } from '../utils/canvas/parallelEdgeUtils.js';
 import { calculateSelfLoopPath } from '../utils/canvas/selfLoopUtils.js';
+import { computeGroupLayout, GROUP_LAYOUT_CONSTANTS } from '../services/groupLayout.js';
+import { measureTextWidth as pretextMeasureTextWidth } from '../services/textMeasurement.js';
 
 // Movement Zoom-Out constants
 const DRAG_ZOOM_MIN = 0.3;
@@ -73,6 +75,7 @@ export const useNodeDrag = ({
   enableAutoRoutingRef,
   routingStyleRef,
   groupsByNodeIdRef,
+  groupsByIdRef,
 }) => {
   // ---------------------------------------------------------------------------
   // State & Refs
@@ -574,6 +577,7 @@ export const useNodeDrag = ({
     if (dragGroupMetaRef.current.size === 0) return;
 
     const groupsByNode = groupsByNodeIdRef.current;
+    const groupsById = groupsByIdRef?.current || new Map();
     const affectedGroupIds = new Set();
     movedNodeIds.forEach(nodeId => {
       const groups = groupsByNode.get(nodeId);
@@ -584,46 +588,76 @@ export const useNodeDrag = ({
     const curNodeById = nodeByIdRef.current;
     const curBaseDims = baseDimsByIdRef.current;
     const dragPos = dragPositionsRef.current;
+    const C = GROUP_LAYOUT_CONSTANTS;
+    const innerCanvasBorder = C.innerCanvasBorder;
 
-    // GROUP_SPACING must match NodeCanvas render (lines 8176-8190)
-    const memberBoundaryPadding = Math.max(24, Math.round(gridSize * 0.2));
-    const innerCanvasBorder = 32;
-    const margin = memberBoundaryPadding + innerCanvasBorder;
-    const titleToCanvasGap = 24;
-    const titleTopMargin = 24;
-    const titleBottomMargin = 24;
+    // Duck-typed nodesById for the helper: overlay live drag positions on top of
+    // the stored snapshot. The helper only reads `.id`, `.x`, `.y`, so returning
+    // either a tiny synth object or the original stored node is fine.
+    const dragNodesById = {
+      get(id) {
+        const dp = dragPos.get(id);
+        if (dp) return { id, x: dp.x, y: dp.y };
+        return curNodeById.get(id);
+      }
+    };
+
+    // Shared cache across all groups in this frame so multi-parent containment
+    // doesn't recompute the same child layout repeatedly.
+    const layoutContext = {
+      nodesById: dragNodesById,
+      dimsById: curBaseDims,
+      groupsById,
+      groupsByMemberId: groupsByNode,
+      gridSize,
+      measureLabelWidth: (text) => pretextMeasureTextWidth(text || 'Group', `bold ${C.fontSize}px "EmOne", sans-serif`),
+      _cache: new Map(),
+    };
 
     affectedGroupIds.forEach(groupId => {
       const meta = dragGroupMetaRef.current.get(groupId);
       if (!meta) return;
+      const group = groupsById.get(groupId);
+      if (!group) return;
 
-      // Compute bounding box from all member positions (drag or store)
-      let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
-      meta.memberIds.forEach(id => {
-        const dp = dragPos.get(id);
-        const stored = curNodeById.get(id);
-        const px = dp ? dp.x : (stored?.x ?? 0);
-        const py = dp ? dp.y : (stored?.y ?? 0);
-        const dims = curBaseDims.get(id) || { currentWidth: 200, currentHeight: 150 };
-        if (px < minX) minX = px;
-        if (py < minY) minY = py;
-        if (px + dims.currentWidth > maxX) maxX = px + dims.currentWidth;
-        if (py + dims.currentHeight > maxY) maxY = py + dims.currentHeight;
-      });
-      if (!isFinite(minX)) return;
+      const layout = computeGroupLayout(group, layoutContext);
+      if (!layout || !layout.ok) return;
 
-      const rectX = minX - margin;
-      const rectY = minY - margin;
-      const rectW = (maxX - minX) + margin * 2;
-      const rectH = (maxY - minY) + margin * 2;
+      const { rect, label, nodeGroupRect, innerCanvasY } = layout;
+      const rectX = rect.x, rectY = rect.y, rectW = rect.w, rectH = rect.h;
+      const labelX = label.x, labelY = label.y;
+      const groupLabelWidth = label.w, groupLabelHeight = label.h;
 
-      // Shared label dims at the group level (bg sub has no label child of its
-      // own, so it must borrow from the title/regular sub to compute the
-      // header strip correctly).
-      const groupLabelWidth = meta.labelWidth || 0;
-      const groupLabelHeight = meta.labelHeight || 0;
-      const labelY = rectY - groupLabelHeight - titleToCanvasGap;
-      const labelX = rectX + (rectW - groupLabelWidth) / 2;
+      if (typeof window !== 'undefined' && window.__groupBoundsDebug) {
+        const now = performance.now();
+        if (!window.__groupBoundsDebugLastLog) window.__groupBoundsDebugLastLog = new Map();
+        const last = window.__groupBoundsDebugLastLog.get(groupId) || 0;
+        if (now - last > 250) {
+          window.__groupBoundsDebugLastLog.set(groupId, now);
+          const memberStates = meta.memberIds.map(id => {
+            const dp = dragPos.get(id);
+            const stored = curNodeById.get(id);
+            return {
+              id,
+              hasDragPos: !!dp,
+              hasStored: !!stored,
+              x: Math.round(dp ? dp.x : (stored?.x ?? 0)),
+              y: Math.round(dp ? dp.y : (stored?.y ?? 0)),
+              fellBackToZero: !dp && !stored,
+            };
+          });
+          console.log('[GROUP-DRAG]', {
+            groupId,
+            metaMemberIds: meta.memberIds,
+            memberStates,
+            droppedOrphanIds: layout.droppedOrphanIds,
+            bbox: { minX: Math.round(layout.bbox.minX), minY: Math.round(layout.bbox.minY), maxX: Math.round(layout.bbox.maxX), maxY: Math.round(layout.bbox.maxY) },
+            rect: { x: Math.round(rectX), y: Math.round(rectY), w: Math.round(rectW), h: Math.round(rectH) },
+            label: { x: Math.round(labelX), y: Math.round(labelY), w: groupLabelWidth, h: groupLabelHeight },
+            nestedContributors: layout.nestedContributors,
+          });
+        }
+      }
 
       meta.elements.forEach(sub => {
         // Clear CSS transform — use raw attribute positioning instead
@@ -631,17 +665,12 @@ export const useNodeDrag = ({
         sub.el.style.transformOrigin = '';
 
         if (sub.type === 'regular') {
-          // Outline rect
           if (sub.directRects[0]) {
             sub.directRects[0].setAttribute('x', rectX);
             sub.directRects[0].setAttribute('y', rectY);
             sub.directRects[0].setAttribute('width', rectW);
             sub.directRects[0].setAttribute('height', rectH);
           }
-          // Label position (centered above group). Also sync the label rect's
-          // transform-origin — JSX computes it from the render-time labelX/Y,
-          // which goes stale during drag and makes the scale(1.08) pop-up
-          // scale from the wrong pivot.
           if (sub.labelRect) {
             sub.labelRect.setAttribute('x', labelX);
             sub.labelRect.setAttribute('y', labelY);
@@ -652,28 +681,21 @@ export const useNodeDrag = ({
             }
           }
         } else if (sub.type === 'bg') {
-          // Thing-group background: outer rect + inner canvas rect.
-          // Must mirror render math: outer spans from (labelY - titleTopMargin)
-          // to (rectY + rectH); inner starts at (labelY + labelHeight + titleBottomMargin).
-          const ngRectY = labelY - titleTopMargin;
-          const ngRectH = (rectY + rectH) - ngRectY;
-          const innerY = labelY + groupLabelHeight + titleBottomMargin;
+          // Node-group background: outer rect spans the title-included box;
+          // inner canvas inset starts below the label.
           if (sub.directRects[0]) {
             sub.directRects[0].setAttribute('x', rectX);
-            sub.directRects[0].setAttribute('y', ngRectY);
+            sub.directRects[0].setAttribute('y', nodeGroupRect.y);
             sub.directRects[0].setAttribute('width', rectW);
-            sub.directRects[0].setAttribute('height', ngRectH);
+            sub.directRects[0].setAttribute('height', nodeGroupRect.h);
           }
           if (sub.directRects[1]) {
             sub.directRects[1].setAttribute('x', rectX + innerCanvasBorder);
-            sub.directRects[1].setAttribute('y', innerY);
+            sub.directRects[1].setAttribute('y', innerCanvasY);
             sub.directRects[1].setAttribute('width', rectW - innerCanvasBorder * 2);
-            sub.directRects[1].setAttribute('height', (rectY + rectH) - innerY - innerCanvasBorder);
+            sub.directRects[1].setAttribute('height', (rectY + rectH) - innerCanvasY - innerCanvasBorder);
           }
         } else if (sub.type === 'title') {
-          // Thing-group title label — keep the label rect, its scale-pop
-          // transform-origin, and the label text all in sync with the new
-          // bbox-derived labelX/labelY.
           if (sub.labelRect) {
             sub.labelRect.setAttribute('x', labelX);
             sub.labelRect.setAttribute('y', labelY);
@@ -686,7 +708,7 @@ export const useNodeDrag = ({
         }
       });
     });
-  }, [groupsByNodeIdRef, nodeByIdRef, baseDimsByIdRef, gridSize]);
+  }, [groupsByNodeIdRef, groupsByIdRef, nodeByIdRef, baseDimsByIdRef, gridSize]);
 
   // ---------------------------------------------------------------------------
   // Core DOM Drag Update (replaces performDragUpdate — writes to DOM, not store)
