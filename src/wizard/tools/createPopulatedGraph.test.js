@@ -106,7 +106,7 @@ describe('createPopulatedGraph', () => {
     expect(result.spec.nodes[0].description).toBe('');
   });
 
-  it('throws error when edge is missing definitionNode', async () => {
+  it('throws error when edge has neither definitionNode nor type', async () => {
     const graphState = {
       graphs: [],
       nodePrototypes: []
@@ -128,7 +128,36 @@ describe('createPopulatedGraph', () => {
         mockCid,
         mockEnsureSchedulerStarted
       )
-    ).rejects.toThrow('Edge 1 (Node One → Node Two) is missing required field \'definitionNode\'');
+    ).rejects.toThrow('Edge 1 (Node One → Node Two) needs a connection type');
+  });
+
+  it('accepts edges with only a type string (auto-promoted to definitionNode)', async () => {
+    const graphState = {
+      graphs: [],
+      nodePrototypes: []
+    };
+
+    const result = await createPopulatedGraph(
+      {
+        name: 'Test Graph',
+        nodes: [
+          { name: 'Node One' },
+          { name: 'Node Two' }
+        ],
+        edges: [
+          { source: 'Node One', target: 'Node Two', type: 'Connects To' }
+        ]
+      },
+      graphState,
+      mockCid,
+      mockEnsureSchedulerStarted
+    );
+
+    expect(result.action).toBe('createPopulatedGraph');
+    expect(result.spec.edges).toHaveLength(1);
+    expect(result.spec.edges[0].type).toBe('Connects To');
+    expect(result.spec.edges[0].definitionNode).toBeTruthy();
+    expect(result.spec.edges[0].definitionNode.name).toBe('Connects To');
   });
 
   it('uses empty description for graph when not provided', async () => {

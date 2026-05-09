@@ -299,9 +299,10 @@ export function getToolDefinitions(options = {}) {
                                     enum: ['unidirectional', 'bidirectional', 'none', 'reverse'],
                                     description: 'Arrow direction: unidirectional (→), bidirectional (↔), none (—), reverse (←). Default: unidirectional'
                                 },
+                                type: { type: 'string', description: 'Connection type name (e.g., "Loves", "Parent Of"). Simpler alternative to definitionNode — provide either this OR definitionNode.' },
                                 definitionNode: {
                                     type: 'object',
-                                    description: 'Defines the connection type. Use Title Case for name.',
+                                    description: 'Defines the connection type with extra metadata. Use Title Case for name. Provide this OR a `type` string.',
                                     properties: {
                                         name: { type: 'string', description: 'Connection type name in Title Case (e.g., "Loves", "Parent Of", "Orbits")' },
                                         color: { type: 'string', description: COLOR_DESC },
@@ -310,7 +311,7 @@ export function getToolDefinitions(options = {}) {
                                     required: ['name']
                                 }
                             },
-                            required: ['source', 'target', 'definitionNode']
+                            required: ['source', 'target']
                         }
                     },
                     groups: {
@@ -451,7 +452,7 @@ export function getToolDefinitions(options = {}) {
                     },
                     edges: {
                         type: 'array',
-                        description: 'Array of edges to create inside the definition graph — you can have multiple edges between the same pair with different definitionNodes. Highly recommended unless creating a simple Set or Collection. Every edge MUST have a definitionNode.',
+                        description: 'Array of edges to create inside the definition graph — you can have multiple edges between the same pair with different connection types. Highly recommended unless creating a simple Set or Collection. Every edge needs a connection type — provide EITHER a `type` string (simpler) OR a `definitionNode` object (richer, with description/color).',
                         items: {
                             type: 'object',
                             properties: {
@@ -462,10 +463,10 @@ export function getToolDefinitions(options = {}) {
                                     enum: ['unidirectional', 'bidirectional', 'none', 'reverse'],
                                     description: 'Arrow direction: unidirectional (→), bidirectional (↔), none (—), reverse (←). Default: unidirectional'
                                 },
-                                type: { type: 'string', description: 'Relationship type' },
+                                type: { type: 'string', description: 'Connection type name (e.g., "Loves", "Parent Of"). Simpler alternative to definitionNode — provide either this OR definitionNode.' },
                                 definitionNode: {
                                     type: 'object',
-                                    description: 'Defines what this connection type means.',
+                                    description: 'Defines the connection type with extra metadata. Provide this OR a `type` string.',
                                     properties: {
                                         name: { type: 'string', description: 'Connection type name in Title Case (e.g., "Loves", "Parent Of", "Orbits")' },
                                         color: { type: 'string', description: COLOR_DESC },

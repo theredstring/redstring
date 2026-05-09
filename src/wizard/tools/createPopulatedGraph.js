@@ -71,19 +71,20 @@ export async function createPopulatedGraph(args, graphState, cid, ensureSchedule
   // Validate edges: strip any that reference nodes not in the nodes array
   const { validEdges, droppedEdges } = validateEdges(nodeSpecs, edges || []);
 
-  // Strict validation: require definitionNode on all edges
+  // Validation: each edge needs SOMETHING describing its connection type.
+  // Accepted shapes (in order of preference):
+  //   1. definitionNode: { name, color?, description? }    — preferred
+  //   2. type: "<string>"                                  — auto-promoted to definitionNode
+  // If both are missing or empty, error out so the LLM can self-correct.
   for (let i = 0; i < validEdges.length; i++) {
     const e = validEdges[i];
-    if (!e.definitionNode || typeof e.definitionNode !== 'object') {
+    const hasDefNode = e.definitionNode && typeof e.definitionNode === 'object' && typeof e.definitionNode.name === 'string' && e.definitionNode.name.trim().length > 0;
+    const hasTypeString = typeof e.type === 'string' && e.type.trim().length > 0;
+    if (!hasDefNode && !hasTypeString) {
       throw new Error(
-        `Edge ${i + 1} (${e.source} → ${e.target}) is missing required field 'definitionNode'. ` +
-        `Check for typos in your JSON - did you write 'definition,Node' or 'definitionnode' instead of 'definitionNode'?`
-      );
-    }
-    if (!e.definitionNode.name) {
-      throw new Error(
-        `Edge ${i + 1} (${e.source} → ${e.target}): definitionNode must have a 'name' property. ` +
-        `Example: definitionNode: { name: "Connects To", description: "..." }`
+        `Edge ${i + 1} (${e.source} → ${e.target}) needs a connection type. ` +
+        `Provide either a 'type' string (e.g., type: "Establishes") or a 'definitionNode' object (e.g., definitionNode: { name: "Establishes", description: "..." }). ` +
+        `Both shapes are accepted.`
       );
     }
   }

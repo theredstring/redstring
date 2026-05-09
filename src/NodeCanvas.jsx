@@ -2719,8 +2719,13 @@ function NodeCanvas() {
     lines.push('Tool-call rules (important):');
     if (existingEmptyDefGraphName) {
       lines.push(`- The empty definition graph "${existingEmptyDefGraphName}" already exists. Use expandGraph with targetGraphId set to that graph to populate it. Do NOT create a new definition graph.`);
+      lines.push('- expandGraph edges accept a simple `type` string. Example edge:');
+      lines.push('    { "source": "Axioms", "target": "Logical Constraints", "type": "Establishes" }');
     } else {
       lines.push(`- Use populateDefinitionGraph (single composite call) with nodeName="${protoName}". This both creates the definition graph and fills it in one step.`);
+      lines.push('- For populateDefinitionGraph edges: provide EITHER a `type` string OR a `definitionNode` object — never both, never neither. The simple shape is fine; only use `definitionNode` if you want to attach a description/color to the connection type.');
+      lines.push('    Simple shape:    { "source": "Axioms", "target": "Logical Constraints", "type": "Establishes" }');
+      lines.push('    Richer shape:    { "source": "Axioms", "target": "Logical Constraints", "definitionNode": { "name": "Establishes", "description": "Foundational relationship where axioms set the basis for logical constraints." } }');
     }
     lines.push('- Do NOT pass node IDs you have not seen in the data above. Use node names exactly as provided.');
     lines.push('- The image of the node is intentionally not provided and is irrelevant here.');
