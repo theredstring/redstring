@@ -978,7 +978,8 @@ const UniversesList = ({
                                       </div>
                                     )}
 
-                                    {localFile.fileHandleStatus === 'needs_reconnect' && (
+                                    {(localFile.fileHandleStatus === 'needs_reconnect' ||
+                                      (!!localFile.unavailableReason && localFile.fileHandleStatus !== 'permission_needed' && localFile.fileHandleStatus !== 'connected')) && (
                                       <div
                                         style={{
                                           marginTop: 6,
@@ -995,20 +996,25 @@ const UniversesList = ({
                                           flexWrap: 'wrap'
                                         }}
                                       >
-                                        <span>Reconnect this file to continue saving locally.</span>
+                                        <span style={{ flex: '1 1 60%', minWidth: 0, wordBreak: 'break-word' }}>
+                                          {localFile.reconnectMessage || localFile.unavailableReason || 'Reconnect this file to continue saving locally.'}
+                                        </span>
                                         {onLinkLocalFile && (
                                             <PanelIconButton
                                               icon={RotateCcw}
                                               label="Reconnect"
-                                              variant="outline"
+                                              variant="solid"
                                               size={12}
                                               style={{
                                                 fontSize: '0.62rem',
-                                                padding: '2px 8px',
-                                                borderColor: theme.canvas.brand,
-                                                color: theme.canvas.brand
+                                                padding: '4px 10px',
+                                                backgroundColor: theme.alert.error.text,
+                                                borderColor: theme.alert.error.text,
+                                                color: '#fff',
+                                                flexShrink: 0
                                               }}
                                               onClick={(e) => {
+                                                e.preventDefault();
                                                 e.stopPropagation();
                                                 onLinkLocalFile(universe.slug);
                                               }}

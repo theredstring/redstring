@@ -32,6 +32,13 @@ class SaveCoordinator {
     this.lastChangeContext = {};
     this.saveTimer = null; // Single timer for all changes
 
+    // CRITICAL data-loss guard: do NOT save anything until we have observed at
+    // least one explicit `load` change context. Otherwise, when the universe
+    // load times out (e.g. slow disk / Git fetch), the store still contains
+    // default empty state, and any incidental change would otherwise overwrite
+    // the user's file with that empty state.
+    this.hasLoadedFromFile = false;
+
     // Drag performance optimization
     this._lastDragLogTime = 0; // Throttle console logs during drag
     this._lastInteractionEndTime = 0; // Track when interaction ended for cooldown
@@ -225,6 +232,24 @@ class SaveCoordinator {
         if (this.workerTimer) {
           clearTimeout(this.workerTimer);
           this.workerTimer = null;
+        }
+        // Now we have a real loaded baseline — saves are safe from this point.
+        this.hasLoadedFromFile = true;
+        return;
+      }
+
+      // CRITICAL data-loss guard: block any save attempt before a load has
+      // happened, but only when the universe is *expected* to have a loaded
+      // file. Brand-new universes (`hasUniverseFile === false`) never had data
+      // to load and must still auto-save normally.
+      // Default empty store state must never be allowed to overwrite the
+      // user's file when the active load timed out or failed silently.
+      if (!this.hasLoadedFromFile && newState?.hasUniverseFile === true) {
+        this.nextStateToProcess = newState;
+        this.lastChangeContext = changeContext;
+        if (!this._loggedLoadGuard) {
+          console.warn('[SaveCoordinator] Save blocked: no load has completed yet, but universe has hasUniverseFile=true. Refusing to overwrite file with current store state.');
+          this._loggedLoadGuard = true;
         }
         return;
       }
@@ -558,6 +583,10 @@ class SaveCoordinator {
     this.pendingRedstringData = null;
     this.lastState = null;
     this.isDirty = false;
+    // Reset the data-loss guard. The new universe's load needs to happen
+    // before saves are allowed again.
+    this.hasLoadedFromFile = false;
+    this._loggedLoadGuard = false;
   }
 
   // Check if there are unsaved changes (for immediate UI feedback)

@@ -4178,6 +4178,46 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
           edges: storeState.edges?.size || 0
         });
 
+        // Sanitize and recover activeGraphId / openGraphIds:
+        //   - drop dangling references to graphs that don't exist
+        //   - if activeGraphId is missing/dangling but valid open or saved graphs
+        //     remain, pick one so the canvas doesn't render the empty state
+        //     (the "loaded but unlinked" pattern)
+        try {
+          const graphsMap = storeState.graphs;
+          const graphExists = (id) => !!(id && graphsMap && (graphsMap instanceof Map ? graphsMap.has(id) : graphsMap[id]));
+
+          if (Array.isArray(storeState.openGraphIds)) {
+            storeState.openGraphIds = storeState.openGraphIds.filter(graphExists);
+          } else {
+            storeState.openGraphIds = [];
+          }
+
+          if (!graphExists(storeState.activeGraphId)) {
+            const firstOpen = storeState.openGraphIds[0];
+            if (firstOpen) {
+              storeState.activeGraphId = firstOpen;
+            } else if (graphsMap) {
+              const firstGraphId = graphsMap instanceof Map
+                ? graphsMap.keys().next().value
+                : Object.keys(graphsMap)[0];
+              if (firstGraphId) {
+                storeState.activeGraphId = firstGraphId;
+                if (!storeState.openGraphIds.includes(firstGraphId)) {
+                  storeState.openGraphIds = [firstGraphId, ...storeState.openGraphIds];
+                }
+                console.log(`[graphStore] activeGraphId was null/dangling — recovered to ${firstGraphId}`);
+              } else {
+                storeState.activeGraphId = null;
+              }
+            } else {
+              storeState.activeGraphId = null;
+            }
+          }
+        } catch (e) {
+          console.warn('[graphStore] Failed to recover activeGraphId during load:', e);
+        }
+
         // Mark this as a load operation so SaveCoordinator doesn't treat it as a new edit
         api.setChangeContext({ type: 'load' });
 

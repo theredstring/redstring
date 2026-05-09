@@ -1348,9 +1348,21 @@ class UniverseBackend {
                   } catch (e) {
                     umWarn('[UniverseBackend] Background universe load failed to apply:', e);
                   }
+                } else if (!bgState) {
+                  // bgLoad resolved with no data — file was unavailable. Surface
+                  // it so the user knows the universe is loaded-but-empty rather
+                  // than stuck. This also flags the data-loss guard in
+                  // SaveCoordinator to keep blocking saves.
+                  umError('[UniverseBackend] Background load returned no state — universe data not loaded');
+                  this.notifyStatus('warning', `Could not load ${activeUniverse.name}. Reconnect the file or reload to retry.`);
+                  this.storeOperations?.setUniverseError?.(`Could not load ${activeUniverse.name}. Reconnect the linked file or reload to retry.`);
                 }
               })
-              .catch((e) => umWarn('[UniverseBackend] Background universe load failed:', e));
+              .catch((e) => {
+                umError('[UniverseBackend] Background universe load failed:', e);
+                this.notifyStatus('warning', `Could not load ${activeUniverse.name}: ${e?.message || 'unknown error'}. Reconnect or reload.`);
+                this.storeOperations?.setUniverseError?.(e?.message || 'Failed to load universe in background.');
+              });
             // Proceed with init; status already updated
           } else if (timedResult && this.storeOperations?.loadUniverseFromFile) {
             const storeState = timedResult;
