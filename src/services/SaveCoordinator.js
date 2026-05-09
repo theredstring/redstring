@@ -39,6 +39,13 @@ class SaveCoordinator {
     // the user's file with that empty state.
     this.hasLoadedFromFile = false;
 
+    // High-water mark for catastrophic-shrinkage detection. Set on successful
+    // load and after each accepted save. If a save would reduce data well below
+    // this baseline (e.g. due to HMR re-creating an empty store, or a buggy
+    // reset path), we refuse it instead of overwriting the file. The user can
+    // always intentionally clear data via `forceSave` which bypasses this.
+    this.dataBaseline = { nodes: 0, graphs: 0 };
+
     // Drag performance optimization
     this._lastDragLogTime = 0; // Throttle console logs during drag
     this._lastInteractionEndTime = 0; // Track when interaction ended for cooldown
@@ -235,6 +242,12 @@ class SaveCoordinator {
         }
         // Now we have a real loaded baseline — saves are safe from this point.
         this.hasLoadedFromFile = true;
+        // Capture the data baseline we just loaded so we can detect a
+        // catastrophic shrinkage on subsequent saves.
+        try {
+          const counts = this._countDataItems(newState);
+          this.dataBaseline = counts;
+        } catch (_) { /* non-fatal */ }
         return;
       }
 
@@ -380,6 +393,34 @@ class SaveCoordinator {
     const pendingRedstringData = this.pendingRedstringData;
     const pendingHash = this.pendingHash;
 
+    // Catastrophic-shrinkage guard. Refuse to save if the new state has
+    // collapsed to near-empty while the baseline had real data. This catches
+    // HMR re-instantiating an empty store, accidental reset paths, and other
+    // surprise-empty states. forceSave() (user-triggered) bypasses this.
+    try {
+      const current = this._countDataItems(state);
+      const baseline = this.dataBaseline || { nodes: 0, graphs: 0 };
+      const baselineNodes = baseline.nodes || 0;
+      const baselineGraphs = baseline.graphs || 0;
+      const collapsed = (
+        (baselineNodes >= 5 && current.nodes <= Math.max(2, Math.floor(baselineNodes * 0.1))) ||
+        (baselineGraphs >= 1 && current.graphs === 0)
+      );
+      if (collapsed) {
+        console.warn('[SaveCoordinator] Refusing to save: data appears catastrophically reduced', {
+          baseline,
+          current,
+          message: 'If this was intentional, use forceSave() (e.g. via "Save Now" in the UI).'
+        });
+        this.notifyStatus('warning', 'Save blocked: data shrank unexpectedly. Reload to recover, or use Save Now to confirm.');
+        // Don't clear pending — leave state as-is so a future legitimate save can fire.
+        this.isSaving = false;
+        return;
+      }
+    } catch (e) {
+      console.warn('[SaveCoordinator] Shrinkage check failed (continuing with save):', e);
+    }
+
     // Mark as saving immediately
     this.isSaving = true;
     // console.log('[SaveCoordinator] Executing save (non-blocking)');
@@ -411,7 +452,20 @@ class SaveCoordinator {
             this.lastSaveHash = pendingHash;
             this.pendingHash = null;
           }
-          
+
+          // Update the data baseline now that this state has been written to
+          // disk — used by the shrinkage guard on future saves.
+          try {
+            const counts = this._countDataItems(state);
+            // Only ratchet up the baseline; never reduce it via successful
+            // saves of smaller datasets, because we'd otherwise lose the
+            // protection threshold over time.
+            this.dataBaseline = {
+              nodes: Math.max(this.dataBaseline?.nodes || 0, counts.nodes),
+              graphs: Math.max(this.dataBaseline?.graphs || 0, counts.graphs)
+            };
+          } catch (_) { /* non-fatal */ }
+
           // Clear dirty flag and pending data
           this.isDirty = false;
           this.pendingString = null;
@@ -473,7 +527,16 @@ class SaveCoordinator {
       this.pendingRedstringData = null;
       this.pendingHash = null;
       this.isSaving = false;
-      
+
+      // Force save is user-triggered intent — accept the new shape as the
+      // baseline (whether it grew, shrank, or cleared). Otherwise the next
+      // automatic save would be blocked by the shrinkage guard against the
+      // old high-water mark.
+      try {
+        this.dataBaseline = this._countDataItems(state);
+        this.hasLoadedFromFile = true;
+      } catch (_) { /* non-fatal */ }
+
       this.notifyStatus('success', 'Force save completed');
       return true;
 
@@ -573,6 +636,30 @@ class SaveCoordinator {
     }
   }
 
+  // Count "real" data items (excluding the always-present base prototypes
+  // like base-thing-prototype / base-connection-prototype) so the shrinkage
+  // guard doesn't mis-trigger on a brand-new universe.
+  _countDataItems(state) {
+    if (!state) return { nodes: 0, graphs: 0 };
+    let nodes = 0;
+    if (state.nodePrototypes instanceof Map) {
+      for (const id of state.nodePrototypes.keys()) {
+        if (id !== 'base-thing-prototype' && id !== 'base-connection-prototype') nodes++;
+      }
+    } else if (state.nodePrototypes && typeof state.nodePrototypes === 'object') {
+      for (const id of Object.keys(state.nodePrototypes)) {
+        if (id !== 'base-thing-prototype' && id !== 'base-connection-prototype') nodes++;
+      }
+    }
+    let graphs = 0;
+    if (state.graphs instanceof Map) {
+      graphs = state.graphs.size;
+    } else if (state.graphs && typeof state.graphs === 'object') {
+      graphs = Object.keys(state.graphs).length;
+    }
+    return { nodes, graphs };
+  }
+
   // Cancel all pending saves and clear stale state.
   // Used during universe switching/deletion to prevent cross-contamination.
   cancelPendingSaves() {
@@ -587,6 +674,7 @@ class SaveCoordinator {
     // before saves are allowed again.
     this.hasLoadedFromFile = false;
     this._loggedLoadGuard = false;
+    this.dataBaseline = { nodes: 0, graphs: 0 };
   }
 
   // Check if there are unsaved changes (for immediate UI feedback)
@@ -612,3 +700,40 @@ class SaveCoordinator {
 // Export singleton instance
 export const saveCoordinator = new SaveCoordinator();
 export default saveCoordinator;
+
+// ===========================================================================
+// HMR state preservation
+// ---------------------------------------------------------------------------
+// On hot reload this module re-instantiates a fresh SaveCoordinator with
+// `hasLoadedFromFile: false` and zeroed `dataBaseline`. Without preservation,
+// the data-loss guard would correctly block saves but the baseline would be
+// lost, and any save status state (isEnabled, etc.) would also reset. We
+// transfer the critical guard fields across HMR boundaries.
+// ===========================================================================
+if (typeof import.meta !== 'undefined' && import.meta.hot) {
+  try {
+    const cached = import.meta.hot.data?.saveCoordinatorGuard;
+    if (cached) {
+      saveCoordinator.hasLoadedFromFile = !!cached.hasLoadedFromFile;
+      saveCoordinator.dataBaseline = cached.dataBaseline || { nodes: 0, graphs: 0 };
+      saveCoordinator.lastSaveHash = cached.lastSaveHash || null;
+      console.log('[SaveCoordinator HMR] Restored guard state across hot reload', {
+        hasLoadedFromFile: saveCoordinator.hasLoadedFromFile,
+        dataBaseline: saveCoordinator.dataBaseline
+      });
+    }
+    import.meta.hot.dispose((data) => {
+      try {
+        data.saveCoordinatorGuard = {
+          hasLoadedFromFile: saveCoordinator.hasLoadedFromFile,
+          dataBaseline: saveCoordinator.dataBaseline,
+          lastSaveHash: saveCoordinator.lastSaveHash
+        };
+      } catch (e) {
+        console.warn('[SaveCoordinator HMR] Failed to capture guard state:', e);
+      }
+    });
+  } catch (e) {
+    console.warn('[SaveCoordinator HMR] HMR setup failed:', e);
+  }
+}

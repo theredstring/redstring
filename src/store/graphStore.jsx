@@ -4742,6 +4742,60 @@ export const getNodeTypesInHierarchy = (nodeId) => (state) => {
 // Export the store hook
 export default useGraphStore;
 
+// ===========================================================================
+// HMR state preservation
+// ---------------------------------------------------------------------------
+// In Vite dev (electron:dev / vite dev), editing this module triggers HMR.
+// Without explicit handling, the new module instance starts with default
+// empty state, and any subscribers from the old instance see the data
+// disappear from under them — which can lead to the SaveCoordinator
+// snapshotting an empty state and overwriting the user's file.
+//
+// We:
+//   1) Cache the current state into `import.meta.hot.data` on dispose
+//   2) Restore it into the freshly-created store on the next module init
+//   3) Re-emit a `load` change context so the SaveCoordinator's data-loss
+//      guard treats this as a real load and unblocks saves with a correct
+//      baseline (instead of seeing default empty state)
+// ===========================================================================
+if (typeof import.meta !== 'undefined' && import.meta.hot) {
+  try {
+    const cached = import.meta.hot.data?.graphStoreState;
+    if (cached) {
+      try {
+        useGraphStore.setState(cached, false);
+        // Re-establish baseline in SaveCoordinator. We do this lazily so we
+        // don't pull in SaveCoordinator at module top-level (it has its own
+        // HMR concerns).
+        Promise.resolve().then(async () => {
+          try {
+            const { saveCoordinator } = await import('../backend/sync/index.js');
+            if (saveCoordinator?.onStateChange) {
+              saveCoordinator.onStateChange(useGraphStore.getState(), { type: 'load' });
+            }
+          } catch (_) { /* best-effort */ }
+        });
+        console.log('[graphStore HMR] Restored prior state across hot reload');
+      } catch (e) {
+        console.warn('[graphStore HMR] Failed to restore state:', e);
+      }
+    }
+
+    import.meta.hot.dispose((data) => {
+      try {
+        // Snapshot the current state so the next module instance can adopt it.
+        // Maps and Sets serialize as references in the HMR data dict, which is
+        // exactly what we need (in-memory transfer, no JSON round-trip).
+        data.graphStoreState = useGraphStore.getState();
+      } catch (e) {
+        console.warn('[graphStore HMR] Failed to capture state before reload:', e);
+      }
+    });
+  } catch (e) {
+    console.warn('[graphStore HMR] HMR setup failed:', e);
+  }
+}
+
 // Auto-save is now handled by the fileStorage module directly with enableAutoSave()
 // This file has been refactored to use a prototype/instance model.
 // - The global `nodes` map is now `nodePrototypes`.

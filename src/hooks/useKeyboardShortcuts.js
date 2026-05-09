@@ -17,18 +17,24 @@ export const useKeyboardShortcuts = () => {
     };
 
     // Heartbeat timers for movement keys held while Meta/Ctrl is down.
-    // Each keydown (including OS auto-repeat) refreshes the key's timer; if
-    // no repeat fires within HEARTBEAT_MS, we treat the key as released even
-    // though no keyup arrived. macOS auto-repeat is ~30ms, so 150ms is a
-    // generous threshold that won't trip during a normal hold.
-    const HEARTBEAT_MS = 150;
+    // macOS suppresses keyup for non-modifier keys during a Meta-hold, so we
+    // detect release by watching for the absence of keydown auto-repeat. The
+    // OS has a long initial repeat delay (~400ms by default) followed by a
+    // fast repeat rate (~30ms). A single timeout can't cover both: short
+    // enough to feel responsive on release, but long enough to survive the
+    // initial pre-repeat gap. So we use two stages:
+    //   - INITIAL: 700ms — covers OS initial-repeat-delay before first repeat
+    //   - REPEAT: 150ms — fast release detection once we've seen a repeat
+    const HEARTBEAT_INITIAL_MS = 700;
+    const HEARTBEAT_REPEAT_MS = 150;
     const heartbeatTimers = {};
-    const refreshHeartbeat = (key) => {
+    const refreshHeartbeat = (key, isRepeat) => {
       if (heartbeatTimers[key]) clearTimeout(heartbeatTimers[key]);
+      const ms = isRepeat ? HEARTBEAT_REPEAT_MS : HEARTBEAT_INITIAL_MS;
       heartbeatTimers[key] = setTimeout(() => {
         keysPressed.current[key] = false;
         delete heartbeatTimers[key];
-      }, HEARTBEAT_MS);
+      }, ms);
     };
     const cancelHeartbeat = (key) => {
       if (heartbeatTimers[key]) {
@@ -64,18 +70,21 @@ export const useKeyboardShortcuts = () => {
         // already held — those keys' original keydowns fired without the
         // modifier, so they have no heartbeat yet, and their keyup will be
         // suppressed if the user releases them while the modifier is held.
+        // Use the long timeout: we don't know when the next OS repeat will
+        // arrive, and we want to survive the initial-repeat-delay gap.
         if (key === 'Meta' || key === 'Control') {
           for (const k of MOVEMENT_KEYS) {
-            if (keysPressed.current[k]) refreshHeartbeat(k);
+            if (keysPressed.current[k]) refreshHeartbeat(k, false);
           }
         }
 
         // While Meta/Ctrl is held, keyup will not fire for this movement key
         // when the user releases it. Use OS auto-repeat as a heartbeat: each
         // repeat refreshes the timer, and if it expires we know the key has
-        // actually been released.
+        // actually been released. e.repeat tells us whether this is the
+        // initial press (long timeout) or an OS auto-repeat (short timeout).
         if ((e.metaKey || e.ctrlKey) && MOVEMENT_KEYS.includes(key)) {
-          refreshHeartbeat(key);
+          refreshHeartbeat(key, e.repeat === true);
         }
 
         // Prevent default behavior for navigation keys to avoid page scrolling
