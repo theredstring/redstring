@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useMemo, useRef, useCallback } from 'react';
-import { Trash2, Plus, ArrowUpFromDot, ArrowRight, ChevronLeft, ChevronRight, PackageOpen, Layers, Edit3, Bookmark, Palette, Orbit, Group, Ungroup, SquarePlus, Combine, Maximize2, Minimize2 } from 'lucide-react';
+import { Trash2, Plus, ArrowUpFromDot, ArrowRight, ChevronLeft, ChevronRight, PackageOpen, Layers, Edit3, Bookmark, Palette, Orbit, Group, Ungroup, SquarePlus, Combine, Maximize2, Minimize2, Sparkles } from 'lucide-react';
 import UniversalNodeRenderer from './UniversalNodeRenderer';
 import { RENDERER_PRESETS } from './UniversalNodeRenderer.presets';
 import { useTheme } from './hooks/useTheme.js';
@@ -111,6 +111,10 @@ const UnifiedBottomControlPanel = ({
   onAdd,
   onUp,
   onOpenInPanel,
+
+  // Connection-mode wizard handler
+  onAskWizard,
+  wizardEnabled = false,
 
   // Additional node action handlers
   onDecompose,
@@ -907,6 +911,17 @@ const UnifiedBottomControlPanel = ({
                 >
                   <ArrowRight size={iconSize} />
                 </div>
+                {wizardEnabled && onAskWizard && (
+                  <div
+                    className="piemenu-button"
+                    onClick={onAskWizard}
+                    title="Ask The Wizard"
+                    onMouseEnter={() => triggerActionHover('control-ask-wizard', 'Ask The Wizard')}
+                    onMouseLeave={clearActionHover}
+                  >
+                    <Sparkles size={iconSize} />
+                  </div>
+                )}
               </>
             )}
           </div>

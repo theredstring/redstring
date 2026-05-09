@@ -13,7 +13,9 @@ const ConnectionControlPanel = ({
   onClose,
   onOpenConnectionDialog,
   onStartHurtleAnimationFromPanel,
-  onActionHoverChange
+  onActionHoverChange,
+  onAskWizard,
+  wizardEnabled = false
 }) => {
   const edgePrototypesMap = useGraphStore((state) => state.edgePrototypes);
   const nodePrototypesMap = useGraphStore((state) => state.nodePrototypes);
@@ -245,6 +247,13 @@ const ConnectionControlPanel = ({
     }
   };
 
+  const handleAskWizard = () => {
+    if (!onAskWizard) return;
+    const edges = selectedEdge ? [selectedEdge] : selectedEdges;
+    if (!edges || edges.length === 0) return;
+    onAskWizard(edges);
+  };
+
   return (
     <UnifiedBottomControlPanel
       mode="connections"
@@ -252,18 +261,20 @@ const ConnectionControlPanel = ({
       typeListOpen={typeListOpen}
       className={className}
       onAnimationComplete={onAnimationComplete}
-      
+
       // Connection mode props
       triples={triples}
       onToggleLeftArrow={handleToggleLeftArrow}
       onToggleRightArrow={handleToggleRightArrow}
       onPredicateClick={handlePredicateClick}
-      
+
       // Pie menu button handlers
       onDelete={handleDelete}
       onAdd={handleAdd}
       onUp={handleUp}
       onOpenInPanel={handleOpenInPanel}
+      onAskWizard={handleAskWizard}
+      wizardEnabled={wizardEnabled}
       onActionHoverChange={onActionHoverChange}
     />
   );

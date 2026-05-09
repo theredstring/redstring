@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Eye, EyeOff, CheckCircle, AlertCircle, Trash2 } from 'lucide-react';
 import { useTheme } from '../../hooks/useTheme.js';
 import apiKeyManager from '../../services/apiKeyManager.js';
+import debugConfig from '../../utils/debugConfig.js';
 import './AISection.css';
 
 /**
@@ -29,6 +30,26 @@ const AISection = () => {
   const [selectedPreset, setSelectedPreset] = useState(null);
   const [connectionTestResult, setConnectionTestResult] = useState(null);
   const [isTestingConnection, setIsTestingConnection] = useState(false);
+  const [wizardConnectionPref, setWizardConnectionPref] = useState(() => {
+    try { return debugConfig.getWizardConnectionPref(); } catch { return 'ask'; }
+  });
+
+  useEffect(() => {
+    const handler = (newConfig) => {
+      const next = newConfig?.wizardConnectionPref;
+      if (next && next !== wizardConnectionPref) {
+        setWizardConnectionPref(next);
+      }
+    };
+    return debugConfig.addListener(handler);
+  }, [wizardConnectionPref]);
+
+  const handleWizardPrefChange = (value) => {
+    setWizardConnectionPref(value);
+    try { debugConfig.setWizardConnectionPref(value); } catch (err) {
+      console.error('Failed to persist wizard connection pref:', err);
+    }
+  };
 
   const providers = apiKeyManager.getCommonProviders();
   const providerModels = apiKeyManager.getModelsForProvider(provider);
@@ -329,6 +350,34 @@ const AISection = () => {
 
   return (
     <div>
+      {/* Wizard Behavior */}
+      <div className="settings-section-subtitle">Wizard Behavior</div>
+      <div className="settings-row">
+        <div className="settings-row-label">
+          Connection Wizard
+          <div className="settings-row-description">
+            What should happen when you click "Ask The Wizard" on a connection
+          </div>
+        </div>
+        <div className="settings-option-group">
+          {[
+            { label: 'Ask each time', value: 'ask' },
+            { label: 'New conversation', value: 'new' },
+            { label: 'Add to current', value: 'current' }
+          ].map(opt => (
+            <button
+              key={opt.value}
+              className={`settings-option-btn ${wizardConnectionPref === opt.value ? 'active' : ''}`}
+              onClick={() => handleWizardPrefChange(opt.value)}
+            >
+              {opt.label}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <hr className="settings-section-divider" />
+
       {/* Existing Key Status */}
       {existingKeyInfo && (
         <>

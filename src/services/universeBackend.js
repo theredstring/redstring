@@ -1416,6 +1416,23 @@ class UniverseBackend {
     } catch (error) {
       umError('[UniverseBackend] Failed to initialize backend:', error);
       this.notifyStatus('error', `Backend initialization failed: ${error.message}`);
+      // Release the loading gate so user sees the Reload / Go to Universes
+      // escape hatches instead of a stuck spinner.
+      try {
+        if (this.storeOperations?.setUniverseError) {
+          this.storeOperations.setUniverseError(error?.message || 'Initialization failed');
+        } else {
+          const { default: useGraphStore } = await import('../store/graphStore.jsx');
+          const s = useGraphStore.getState();
+          if (typeof s.setUniverseError === 'function') {
+            s.setUniverseError(error?.message || 'Initialization failed');
+          } else if (typeof s.setUniverseLoaded === 'function') {
+            s.setUniverseLoaded(true, false);
+          }
+        }
+      } catch (releaseErr) {
+        umError('[UniverseBackend] Failed to release loading gate after init error:', releaseErr);
+      }
       throw error;
     } finally {
       clearTimeout(initWatchdog);
@@ -4219,6 +4236,99 @@ class UniverseBackend {
     const freshStatus = persistentAuth.getAuthStatus();
     this.authStatus = freshStatus;
     return freshStatus;
+  }
+
+  /**
+   * Re-verify the active universe's file handle and auth state.
+   * Called on tab visibility change / window focus to catch state that has
+   * gone stale during sleep, idle, or token expiry. Safe to call repeatedly
+   * — does no work if init hasn't completed or no active universe.
+   *
+   * Returns a summary { fileHandleOk, authOk, issues: string[] }.
+   */
+  async revalidateOnFocus() {
+    if (!this.isInitialized) return { fileHandleOk: null, authOk: null, issues: [] };
+    if (this._revalidating) return this._revalidating;
+
+    this._revalidating = (async () => {
+      const issues = [];
+      let fileHandleOk = null;
+      let authOk = null;
+
+      try {
+        const universe = this.getActiveUniverse();
+        if (!universe) return { fileHandleOk, authOk, issues };
+
+        // 1) File handle re-verification (if local file enabled)
+        if (universe.localFile?.enabled) {
+          const handle = this.fileHandles.get(universe.slug);
+          if (handle) {
+            try {
+              const access = await Promise.race([
+                verifyFileHandleAccess(handle),
+                new Promise(resolve => setTimeout(() => resolve(null), 2000))
+              ]);
+              if (access === null) {
+                issues.push('File handle check timed out');
+                fileHandleOk = false;
+              } else if (!access.isValid) {
+                fileHandleOk = false;
+                if (access.reason === 'permission_denied' || access.needsPermissionPrompt) {
+                  issues.push('File access permission lost — click Reconnect to restore.');
+                  await this.updateLocalFileState(universe, {
+                    fileHandleStatus: 'permission_needed',
+                    reconnectMessage: 'Grant file access permission to resume saving.',
+                    unavailableReason: 'Grant file access permission to resume saving.'
+                  });
+                } else if (access.reason === 'file_missing') {
+                  issues.push('Local file moved or deleted — click Reconnect to relink.');
+                  await this.updateLocalFileState(universe, {
+                    fileHandleStatus: 'needs_reconnect',
+                    hadFileHandle: false,
+                    reconnectMessage: 'Local file not found. Reconnect the file to continue.',
+                    unavailableReason: 'Local file not found. Reconnect the file to continue.'
+                  });
+                } else {
+                  issues.push(`Local file unavailable (${access.reason || 'unknown'}).`);
+                }
+              } else {
+                fileHandleOk = true;
+              }
+            } catch (e) {
+              umWarn('[UniverseBackend] File handle revalidation failed:', e);
+              issues.push('File handle check failed');
+              fileHandleOk = false;
+            }
+          }
+        }
+
+        // 2) Auth re-check (if git enabled)
+        if (universe.gitRepo?.enabled && universe.gitRepo?.linkedRepo) {
+          try {
+            const fresh = persistentAuth.getAuthStatus();
+            this.authStatus = fresh;
+            authOk = !!(fresh?.isAuthenticated || persistentAuth.hasValidTokens?.());
+            if (!authOk) {
+              issues.push('GitHub session expired — sign in again to resume sync.');
+            }
+          } catch (e) {
+            umWarn('[UniverseBackend] Auth revalidation failed:', e);
+            authOk = false;
+            issues.push('Auth check failed');
+          }
+        }
+
+        if (issues.length > 0) {
+          this.notifyStatus('warning', issues.join(' '));
+        }
+
+        return { fileHandleOk, authOk, issues };
+      } finally {
+        this._revalidating = null;
+      }
+    })();
+
+    return this._revalidating;
   }
 
   /**

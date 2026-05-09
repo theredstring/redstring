@@ -13,6 +13,10 @@ export default function UniverseManagerBootstrap({ enableEagerInit = false }) {
   const commandListenerRef = useRef(null);
   const backendInitPromiseRef = useRef(null);
   const backendStatusUnsubscribeRef = useRef(null);
+  const visibilityHandlerRef = useRef(null);
+  const focusHandlerRef = useRef(null);
+  const lastRevalidateAtRef = useRef(0);
+  const lastHiddenAtRef = useRef(0);
 
   useEffect(() => {
     if (initRef.current) return;
@@ -205,6 +209,55 @@ export default function UniverseManagerBootstrap({ enableEagerInit = false }) {
     commandListenerRef.current = handleBackendCommand;
     window.addEventListener('universe-backend-command', handleBackendCommand);
 
+    // Re-validate file handles + auth when the user returns to the tab.
+    // Catches state that goes stale during sleep, idle, or token expiry —
+    // the "comes back, only fix is refresh" pattern.
+    const REVALIDATE_DEBOUNCE_MS = 5000;
+    const HIDDEN_THRESHOLD_MS = 30000; // skip cheap tab-flips
+    const triggerRevalidate = (source) => {
+      const backend = backendRef.current;
+      if (!backend || !backend.isInitialized) return;
+
+      const now = Date.now();
+      if (now - lastRevalidateAtRef.current < REVALIDATE_DEBOUNCE_MS) return;
+
+      // Only revalidate if we were hidden long enough to matter, OR this is
+      // an explicit window.focus event (covers desktop wake-from-sleep).
+      const hiddenDuration = lastHiddenAtRef.current ? now - lastHiddenAtRef.current : 0;
+      if (source === 'visibility' && hiddenDuration < HIDDEN_THRESHOLD_MS) return;
+
+      lastRevalidateAtRef.current = now;
+      try {
+        backend.revalidateOnFocus?.()
+          .then((result) => {
+            if (result?.issues?.length) {
+              console.warn('[UniverseManagerBootstrap] Revalidation found issues:', result.issues);
+            }
+          })
+          .catch((err) => {
+            console.warn('[UniverseManagerBootstrap] Revalidation failed:', err);
+          });
+      } catch (err) {
+        console.warn('[UniverseManagerBootstrap] Revalidation threw:', err);
+      }
+    };
+
+    const handleVisibility = () => {
+      if (document.visibilityState === 'hidden') {
+        lastHiddenAtRef.current = Date.now();
+        return;
+      }
+      if (document.visibilityState === 'visible') {
+        triggerRevalidate('visibility');
+      }
+    };
+    const handleFocus = () => triggerRevalidate('focus');
+
+    visibilityHandlerRef.current = handleVisibility;
+    focusHandlerRef.current = handleFocus;
+    document.addEventListener('visibilitychange', handleVisibility);
+    window.addEventListener('focus', handleFocus);
+
     console.log('[UniverseManagerBootstrap] Event bridge ready (backend will load on first command)');
 
     // If eager init is enabled, start loading the backend immediately
@@ -222,8 +275,16 @@ export default function UniverseManagerBootstrap({ enableEagerInit = false }) {
       if (commandListenerRef.current) {
         window.removeEventListener('universe-backend-command', commandListenerRef.current);
       }
+      if (visibilityHandlerRef.current) {
+        document.removeEventListener('visibilitychange', visibilityHandlerRef.current);
+      }
+      if (focusHandlerRef.current) {
+        window.removeEventListener('focus', focusHandlerRef.current);
+      }
       backendRef.current = null;
       commandListenerRef.current = null;
+      visibilityHandlerRef.current = null;
+      focusHandlerRef.current = null;
       backendInitPromiseRef.current = null;
       if (backendStatusUnsubscribeRef.current) {
         try {

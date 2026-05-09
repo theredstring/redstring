@@ -11,16 +11,22 @@ const CanvasConfirmDialog = ({
   onClose,
   onConfirm,
   onCancel = null,
+  onSecondaryConfirm = null,
   title,
   message,
   confirmLabel = 'Confirm',
   cancelLabel = 'Cancel',
+  secondaryConfirmLabel = null,
   variant = 'default', // 'default', 'danger', 'warning', 'info'
   showIcon = true,
   position = { x: 0, y: 0 }, // Canvas coordinates
   containerRect = null, // Bounding rect for positioning
   panOffset = { x: 0, y: 0 },
-  zoomLevel = 1
+  zoomLevel = 1,
+  showDontAskAgain = false,
+  dontAskAgainChecked = false,
+  onDontAskAgainChange = null,
+  dontAskAgainLabel = "Don't ask me again"
 }) => {
   const theme = useTheme();
   if (!isOpen || !containerRect) return null;
@@ -40,7 +46,8 @@ const CanvasConfirmDialog = ({
   };
 
   const buttonStyle = (isPrimary) => ({
-    padding: '8px 16px',
+    padding: '4px 14px',
+    lineHeight: 1.2,
     borderRadius: 6,
     fontSize: '0.85rem',
     fontWeight: 600,
@@ -163,57 +170,145 @@ const CanvasConfirmDialog = ({
         <div
           style={{
             display: 'flex',
-            gap: 10,
-            padding: '12px 18px',
+            flexDirection: 'column',
+            alignItems: 'center',
+            gap: 8,
+            padding: '8px 18px',
             borderTop: `2px solid ${theme.canvas.textPrimary}`,
             backgroundColor: theme.canvas.border,
-            justifyContent: 'flex-end',
             borderBottomLeftRadius: '12px',
             borderBottomRightRadius: '12px'
           }}
         >
-          <button
-            onClick={() => {
-              if (onCancel) {
-                onCancel();
-              }
-              onClose();
-            }}
-            style={buttonStyle(false)}
-            onMouseEnter={(e) => {
-              e.currentTarget.style.backgroundColor = theme.darkMode ? 'rgba(38, 0, 0, 0.2)' : 'rgba(38, 0, 0, 0.1)';
-            }}
-            onMouseLeave={(e) => {
-              e.currentTarget.style.backgroundColor = 'transparent';
+          <div
+            style={{
+              display: 'flex',
+              gap: 6,
+              alignItems: 'center',
+              justifyContent: showDontAskAgain ? 'center' : 'flex-end',
+              flexWrap: 'wrap',
+              width: showDontAskAgain ? '100%' : 'auto',
+              alignSelf: showDontAskAgain ? 'stretch' : 'flex-end'
             }}
           >
-            {cancelLabel}
-          </button>
-          <button
-            onClick={() => {
-              onConfirm();
-              onClose();
-            }}
-            style={buttonStyle(true)}
-            onMouseEnter={(e) => {
-              if (variant === 'danger') {
-                e.currentTarget.style.backgroundColor = '#5A0000';
-              } else {
-                e.currentTarget.style.backgroundColor = '#1a0000';
-                if (theme.darkMode) {
-                  e.currentTarget.style.color = theme.canvas.textPrimary;
+            <button
+              onClick={() => {
+                if (onCancel) {
+                  onCancel();
                 }
-              }
-            }}
-            onMouseLeave={(e) => {
-              e.currentTarget.style.backgroundColor = variant === 'danger' ? theme.accent.secondary : theme.canvas.textPrimary;
-              if (variant !== 'danger' && theme.darkMode) {
-                e.currentTarget.style.color = theme.canvas.bg;
-              }
-            }}
-          >
-            {confirmLabel}
-          </button>
+                onClose();
+              }}
+              style={buttonStyle(false)}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.backgroundColor = theme.darkMode ? 'rgba(38, 0, 0, 0.2)' : 'rgba(38, 0, 0, 0.1)';
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.backgroundColor = 'transparent';
+              }}
+            >
+              {cancelLabel}
+            </button>
+            {secondaryConfirmLabel && onSecondaryConfirm && (
+              <button
+                onClick={() => {
+                  onSecondaryConfirm();
+                  onClose();
+                }}
+                style={buttonStyle(false)}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.backgroundColor = theme.darkMode ? 'rgba(38, 0, 0, 0.2)' : 'rgba(38, 0, 0, 0.1)';
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.backgroundColor = 'transparent';
+                }}
+              >
+                {secondaryConfirmLabel}
+              </button>
+            )}
+            <button
+              onClick={() => {
+                onConfirm();
+                onClose();
+              }}
+              style={buttonStyle(true)}
+              onMouseEnter={(e) => {
+                if (variant === 'danger') {
+                  e.currentTarget.style.backgroundColor = '#5A0000';
+                } else {
+                  e.currentTarget.style.backgroundColor = '#1a0000';
+                  if (theme.darkMode) {
+                    e.currentTarget.style.color = theme.canvas.textPrimary;
+                  }
+                }
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.backgroundColor = variant === 'danger' ? theme.accent.secondary : theme.canvas.textPrimary;
+                if (variant !== 'danger' && theme.darkMode) {
+                  e.currentTarget.style.color = theme.canvas.bg;
+                }
+              }}
+            >
+              {confirmLabel}
+            </button>
+          </div>
+          {showDontAskAgain && (
+            <label
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 8,
+                fontSize: '0.78rem',
+                color: theme.canvas.textPrimary,
+                cursor: 'pointer',
+                userSelect: 'none',
+                fontFamily: "'EmOne', sans-serif"
+              }}
+            >
+              <span
+                style={{
+                  position: 'relative',
+                  width: 16,
+                  height: 16,
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  borderRadius: 3,
+                  border: `1.5px solid ${theme.canvas.textPrimary}`,
+                  backgroundColor: dontAskAgainChecked ? '#7A0000' : 'transparent',
+                  transition: 'background-color 0.15s'
+                }}
+              >
+                <input
+                  type="checkbox"
+                  checked={!!dontAskAgainChecked}
+                  onChange={(e) => onDontAskAgainChange?.(e.target.checked)}
+                  style={{
+                    position: 'absolute',
+                    inset: 0,
+                    opacity: 0,
+                    margin: 0,
+                    cursor: 'pointer'
+                  }}
+                />
+                {dontAskAgainChecked && (
+                  <svg
+                    width="11"
+                    height="11"
+                    viewBox="0 0 12 12"
+                    fill="none"
+                    stroke="#DEDADA"
+                    strokeWidth="2.2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    style={{ pointerEvents: 'none' }}
+                  >
+                    <polyline points="2.5,6.5 5,9 9.5,3.5" />
+                  </svg>
+                )}
+              </span>
+              {dontAskAgainLabel}
+            </label>
+          )}
         </div>
       </div>
     </div>

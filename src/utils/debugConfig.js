@@ -10,8 +10,12 @@ const DEBUG_STORAGE_KEYS = {
   FORCE_GIT_ONLY: 'redstring_debug_force_git_only',
   LOG_LEVEL: 'redstring_debug_log_level',
   ENABLE_WIZARD: 'redstring_debug_enable_wizard',
-  SHOW_NODE_HITBOXES: 'redstring_debug_show_node_hitboxes'
+  SHOW_NODE_HITBOXES: 'redstring_debug_show_node_hitboxes',
+  WIZARD_CONNECTION_PREF: 'redstring_wizard_connection_pref'
 };
+
+// Allowed values for wizardConnectionPref
+const WIZARD_CONNECTION_PREF_VALUES = ['ask', 'new', 'current'];
 
 const hasBrowserWindow = typeof window !== 'undefined';
 const hasLocalStorage = hasBrowserWindow && typeof window.localStorage !== 'undefined';
@@ -40,7 +44,8 @@ class DebugConfig {
         forceGitOnly: false,
         logLevel: 'info',
         enableWizard: true,
-        showNodeHitboxes: false
+        showNodeHitboxes: false,
+        wizardConnectionPref: 'ask'
       };
       this.isInitialized = true;
       return;
@@ -48,13 +53,15 @@ class DebugConfig {
 
     try {
       // Load existing debug settings from localStorage
+      const storedConnectionPref = this.getStringSetting(DEBUG_STORAGE_KEYS.WIZARD_CONNECTION_PREF, 'ask');
       this.config = {
         disableLocalStorage: this.getBooleanSetting(DEBUG_STORAGE_KEYS.DISABLE_LOCAL_STORAGE, false),
         debugMode: this.getBooleanSetting(DEBUG_STORAGE_KEYS.DEBUG_MODE, false),
         forceGitOnly: this.getBooleanSetting(DEBUG_STORAGE_KEYS.FORCE_GIT_ONLY, false),
         logLevel: this.getStringSetting(DEBUG_STORAGE_KEYS.LOG_LEVEL, 'info'),
         enableWizard: this.getBooleanSetting(DEBUG_STORAGE_KEYS.ENABLE_WIZARD, true),
-        showNodeHitboxes: this.getBooleanSetting(DEBUG_STORAGE_KEYS.SHOW_NODE_HITBOXES, false)
+        showNodeHitboxes: this.getBooleanSetting(DEBUG_STORAGE_KEYS.SHOW_NODE_HITBOXES, false),
+        wizardConnectionPref: WIZARD_CONNECTION_PREF_VALUES.includes(storedConnectionPref) ? storedConnectionPref : 'ask'
       };
 
       // Check URL parameters for debug overrides
@@ -96,7 +103,8 @@ class DebugConfig {
         forceGitOnly: false,
         logLevel: 'info',
         enableWizard: false,
-        showNodeHitboxes: false
+        showNodeHitboxes: false,
+        wizardConnectionPref: 'ask'
       };
       this.isInitialized = true;
     }
@@ -176,6 +184,12 @@ class DebugConfig {
     return this.config.showNodeHitboxes || false;
   }
 
+  // Wizard connection preference: 'ask' (default), 'new', or 'current'
+  getWizardConnectionPref() {
+    const v = this.config.wizardConnectionPref;
+    return WIZARD_CONNECTION_PREF_VALUES.includes(v) ? v : 'ask';
+  }
+
   // Enable/disable local storage (for debugging)
   setLocalStorageDisabled(disabled) {
     this.config.disableLocalStorage = disabled;
@@ -229,6 +243,15 @@ class DebugConfig {
     console.log(`[DebugConfig] Node hitboxes ${enabled ? 'ENABLED' : 'DISABLED'}`);
   }
 
+  // Set wizard connection preference: 'ask' | 'new' | 'current'
+  setWizardConnectionPref(value) {
+    const next = WIZARD_CONNECTION_PREF_VALUES.includes(value) ? value : 'ask';
+    this.config.wizardConnectionPref = next;
+    this.setSetting(DEBUG_STORAGE_KEYS.WIZARD_CONNECTION_PREF, next);
+    this.notifyListeners();
+    console.log(`[DebugConfig] Wizard connection pref set to: ${next}`);
+  }
+
   // Clear all debug settings
   reset() {
     if (!this.storage) {
@@ -238,7 +261,8 @@ class DebugConfig {
         forceGitOnly: false,
         logLevel: 'info',
         enableWizard: false,
-        showNodeHitboxes: false
+        showNodeHitboxes: false,
+        wizardConnectionPref: 'ask'
       };
       this.notifyListeners();
       return;
@@ -255,11 +279,12 @@ class DebugConfig {
         forceGitOnly: false,
         logLevel: 'info',
         enableWizard: false,
-        showNodeHitboxes: false
+        showNodeHitboxes: false,
+        wizardConnectionPref: 'ask'
       };
 
       this.notifyListeners();
-      console.log('[DebugConfig] All debug settings cleared');
+      console.log('[DebugConfig] All debug settings cleared, wizard connection preference reset');
     } catch (error) {
       console.error('[DebugConfig] Failed to reset:', error);
     }
@@ -355,6 +380,8 @@ export const isLocalStorageDisabled = () => debugConfig.isLocalStorageDisabled()
 export const isDebugMode = () => debugConfig.isDebugMode();
 export const isGitOnlyForced = () => debugConfig.isGitOnlyForced();
 export const isWizardEnabled = () => debugConfig.isWizardEnabled();
+export const getWizardConnectionPref = () => debugConfig.getWizardConnectionPref();
+export const setWizardConnectionPref = (value) => debugConfig.setWizardConnectionPref(value);
 export const getDebugConfig = () => debugConfig.getConfig();
 
 export default debugConfig;

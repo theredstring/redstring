@@ -2361,6 +2361,192 @@ function NodeCanvas() {
   // Add to group dialog state
   const [addToGroupDialog, setAddToGroupDialog] = useState(null); // { nodeId, groupId, groupName, isNodeGroup, position }
 
+  // Ask The Wizard dialog state (for connection control panel)
+  const [askWizardDialog, setAskWizardDialog] = useState(null); // { edges }
+  const [askWizardDontAskAgain, setAskWizardDontAskAgain] = useState(false);
+  const [wizardEnabled, setWizardEnabled] = useState(() => {
+    try { return debugConfig.isWizardEnabled(); } catch { return false; }
+  });
+  useEffect(() => {
+    const handler = (newConfig) => {
+      setWizardEnabled(!!newConfig?.enableWizard);
+    };
+    const unsubscribe = debugConfig.addListener(handler);
+    return unsubscribe;
+  }, []);
+
+  const buildWizardConnectionPrompt = useCallback((edges) => {
+    const st = useGraphStore.getState();
+    const graphs = st.graphs;
+    const nodePrototypesMap = st.nodePrototypes;
+    const activeId = st.activeGraphId;
+    const activeGraph = activeId ? graphs.get(activeId) : null;
+    const activeGraphName = activeGraph?.name || 'the active graph';
+    const instances = activeGraph?.instances;
+
+    const resolveTypeForEdge = (edge) => {
+      if (edge?.definitionNodeIds && edge.definitionNodeIds.length > 0) {
+        const def = nodePrototypesMap.get(edge.definitionNodeIds[0]);
+        return {
+          id: edge.definitionNodeIds[0],
+          name: def?.name || 'Connection',
+          isDefault: false,
+          source: 'definitionNodeIds'
+        };
+      }
+      if (edge?.typeNodeId) {
+        const proto = nodePrototypesMap.get(edge.typeNodeId);
+        return {
+          id: edge.typeNodeId,
+          name: proto?.name || 'Connection',
+          isDefault: edge.typeNodeId === 'base-connection-prototype',
+          source: 'typeNodeId'
+        };
+      }
+      return { id: 'base-connection-prototype', name: 'Connection', isDefault: true, source: 'fallback' };
+    };
+
+    const nodeLabelForInstance = (instId) => {
+      if (!instances) return `instance ${instId}`;
+      const inst = instances.get(instId);
+      if (!inst) return `instance ${instId}`;
+      const proto = nodePrototypesMap.get(inst.prototypeId);
+      return proto?.name || inst.name || 'Node';
+    };
+
+    // Connection prototypes already used in the active graph
+    const activeGraphTypeIds = new Set();
+    if (activeGraph?.edges) {
+      activeGraph.edges.forEach((edge) => {
+        const t = resolveTypeForEdge(edge);
+        if (t.id) activeGraphTypeIds.add(t.id);
+      });
+    }
+    const activeGraphConnectionTypes = Array.from(activeGraphTypeIds)
+      .map((id) => {
+        const proto = nodePrototypesMap.get(id);
+        return proto?.name ? `"${proto.name}"` : null;
+      })
+      .filter(Boolean);
+
+    // All connection prototypes used anywhere in the project
+    const allTypeIds = new Set();
+    graphs.forEach((g) => {
+      g?.edges?.forEach((edge) => {
+        const t = resolveTypeForEdge(edge);
+        if (t.id) allTypeIds.add(t.id);
+      });
+    });
+    const allConnectionTypes = Array.from(allTypeIds)
+      .map((id) => {
+        const proto = nodePrototypesMap.get(id);
+        if (!proto) return null;
+        const desc = proto.description ? ` — ${proto.description.slice(0, 120)}` : '';
+        return `"${proto.name}"${desc}`;
+      })
+      .filter(Boolean);
+
+    // Sibling connections between the same endpoint pairs (across both directions) in active graph
+    const targetEdgeIds = new Set(edges.map((e) => e.id));
+    const pairKey = (a, b) => [a, b].sort().join('::');
+    const targetPairs = new Set(
+      edges.map((e) => pairKey(e.sourceId, e.destinationId || e.targetId))
+    );
+    const siblings = [];
+    if (activeGraph?.edges) {
+      activeGraph.edges.forEach((edge) => {
+        if (targetEdgeIds.has(edge.id)) return;
+        const k = pairKey(edge.sourceId, edge.destinationId || edge.targetId);
+        if (!targetPairs.has(k)) return;
+        const t = resolveTypeForEdge(edge);
+        siblings.push(
+          `- "${nodeLabelForInstance(edge.sourceId)}" --[${t.name}${t.isDefault ? ' (default)' : ''}]--> "${nodeLabelForInstance(edge.destinationId || edge.targetId)}"`
+        );
+      });
+    }
+
+    const edgeLines = edges.map((edge, idx) => {
+      const t = resolveTypeForEdge(edge);
+      const sourceName = nodeLabelForInstance(edge.sourceId);
+      const targetName = nodeLabelForInstance(edge.destinationId || edge.targetId);
+      const arrowsToward = edge.directionality?.arrowsToward;
+      let dir = 'undirected';
+      if (arrowsToward && typeof arrowsToward.has === 'function') {
+        const toSource = arrowsToward.has(edge.sourceId);
+        const toTarget = arrowsToward.has(edge.destinationId || edge.targetId);
+        if (toSource && toTarget) dir = 'bidirectional';
+        else if (toTarget) dir = 'source → target';
+        else if (toSource) dir = 'target → source';
+      }
+      return `${idx + 1}. "${sourceName}" --[${t.name}${t.isDefault ? ' (default Connection — undefined type)' : ''}]--> "${targetName}" (${dir})`;
+    });
+
+    const lines = [];
+    lines.push(`I need help refining ${edges.length === 1 ? 'a connection' : `${edges.length} connections`} in graph "${activeGraphName}".`);
+    lines.push('');
+    lines.push(`Selected connection${edges.length === 1 ? '' : 's'}:`);
+    lines.push(...edgeLines);
+    if (siblings.length > 0) {
+      lines.push('');
+      lines.push('Other connections that already exist between the same endpoints in this graph:');
+      lines.push(...siblings);
+    } else {
+      lines.push('');
+      lines.push('No other connections exist between the same endpoints in this graph.');
+    }
+    lines.push('');
+    if (activeGraphConnectionTypes.length > 0) {
+      lines.push(`Connection prototypes already used in this graph (prefer reusing one of these): ${activeGraphConnectionTypes.join(', ')}.`);
+    } else {
+      lines.push('No connection prototypes are currently used in this graph other than the default "Connection".');
+    }
+    if (allConnectionTypes.length > 0) {
+      lines.push('');
+      lines.push('All connection prototypes used anywhere in the project:');
+      allConnectionTypes.forEach((entry) => lines.push(`- ${entry}`));
+    }
+    lines.push('');
+    lines.push('Goals:');
+    lines.push('- The usual goal is to REPLACE the current connection type with a more specific, semantically accurate one — but if the current type genuinely fits, leave it.');
+    lines.push('- Strongly prefer reusing an existing connection prototype, especially one already used in this graph.');
+    lines.push('- Only create a NEW connection prototype if no existing prototype fits. If you must create one, give it a clear name and a description that explains the relationship.');
+    lines.push('- If a new node is genuinely needed to define the relationship, create it and use its description to clarify novel terms.');
+    lines.push('');
+    lines.push('Please review the selected connection(s) and recommend a concrete action.');
+
+    return lines.join('\n');
+  }, []);
+
+  const openWizardWithPrompt = useCallback((edges, { newConversation }) => {
+    if (!edges || edges.length === 0) return;
+    try {
+      storeActions.setLeftPanelExpanded(true);
+    } catch {}
+    setLeftPanelInitialView('ai');
+
+    const message = buildWizardConnectionPrompt(edges);
+
+    const send = () => {
+      try {
+        window.dispatchEvent(new CustomEvent('rs-send-wizard-message', { detail: { message } }));
+      } catch (err) {
+        console.error('[NodeCanvas] Failed to dispatch wizard message:', err);
+      }
+    };
+
+    if (newConversation) {
+      try {
+        window.dispatchEvent(new CustomEvent('rs-new-wizard-tab'));
+      } catch (err) {
+        console.error('[NodeCanvas] Failed to dispatch new wizard tab event:', err);
+      }
+      // Allow LeftAIView's handleNewConversation to run before sending the message
+      setTimeout(send, 0);
+    } else {
+      send();
+    }
+  }, [buildWizardConnectionPrompt, storeActions]);
+
   // Pie menu color picker state
   const [pieMenuColorPickerVisible, setPieMenuColorPickerVisible] = useState(false);
   const [pieMenuColorPickerPosition, setPieMenuColorPickerPosition] = useState({ x: 0, y: 0 });
@@ -8165,43 +8351,72 @@ function NodeCanvas() {
                   </div>
 
                   {/* Escape hatch for stuck loading states */}
-                  <button
-                    onClick={() => {
-                      storeActions.setUniverseLoaded(true, false);
-                      storeActions.setLeftPanelExpanded(true);
-                      setTimeout(() => {
-                        if (leftPanelRef.current) {
-                          leftPanelRef.current.setActiveView('federation');
-                        }
-                      }, 100);
-                    }}
-                    style={{
-                      marginTop: '24px',
-                      background: 'transparent',
-                      border: `1px solid ${theme.canvas.border}`,
-                      color: theme.canvas.textSecondary,
-                      padding: '8px 16px',
-                      borderRadius: '4px',
-                      cursor: 'pointer',
-                      fontSize: '0.9rem',
-                      fontFamily: "'EmOne', sans-serif",
-                      transition: 'all 0.2s ease',
-                      pointerEvents: 'auto',
-                      opacity: 0.7
-                    }}
-                    onMouseOver={(e) => {
-                      e.target.style.borderColor = theme.canvas.textSecondary;
-                      e.target.style.color = theme.canvas.textPrimary;
-                      e.target.style.opacity = 1;
-                    }}
-                    onMouseOut={(e) => {
-                      e.target.style.borderColor = theme.canvas.border;
-                      e.target.style.color = theme.canvas.textSecondary;
-                      e.target.style.opacity = 0.7;
-                    }}
-                  >
-                    Go to Universes
-                  </button>
+                  <div style={{ marginTop: '24px', display: 'flex', flexDirection: 'column', gap: '8px', alignItems: 'center' }}>
+                    <button
+                      onClick={() => {
+                        storeActions.setUniverseLoaded(true, false);
+                        storeActions.setLeftPanelExpanded(true);
+                        setTimeout(() => {
+                          if (leftPanelRef.current) {
+                            leftPanelRef.current.setActiveView('federation');
+                          }
+                        }, 100);
+                      }}
+                      style={{
+                        background: 'transparent',
+                        border: `1px solid ${theme.canvas.border}`,
+                        color: theme.canvas.textSecondary,
+                        padding: '8px 16px',
+                        borderRadius: '4px',
+                        cursor: 'pointer',
+                        fontSize: '0.9rem',
+                        fontFamily: "'EmOne', sans-serif",
+                        transition: 'all 0.2s ease',
+                        pointerEvents: 'auto',
+                        opacity: 0.7
+                      }}
+                      onMouseOver={(e) => {
+                        e.target.style.borderColor = theme.canvas.textSecondary;
+                        e.target.style.color = theme.canvas.textPrimary;
+                        e.target.style.opacity = 1;
+                      }}
+                      onMouseOut={(e) => {
+                        e.target.style.borderColor = theme.canvas.border;
+                        e.target.style.color = theme.canvas.textSecondary;
+                        e.target.style.opacity = 0.7;
+                      }}
+                    >
+                      Go to Universes
+                    </button>
+                    <button
+                      onClick={() => window.location.reload()}
+                      style={{
+                        background: 'transparent',
+                        border: `1px solid ${theme.canvas.border}`,
+                        color: theme.canvas.textSecondary,
+                        padding: '8px 16px',
+                        borderRadius: '4px',
+                        cursor: 'pointer',
+                        fontSize: '0.9rem',
+                        fontFamily: "'EmOne', sans-serif",
+                        transition: 'all 0.2s ease',
+                        pointerEvents: 'auto',
+                        opacity: 0.7
+                      }}
+                      onMouseOver={(e) => {
+                        e.target.style.borderColor = theme.canvas.textSecondary;
+                        e.target.style.color = theme.canvas.textPrimary;
+                        e.target.style.opacity = 1;
+                      }}
+                      onMouseOut={(e) => {
+                        e.target.style.borderColor = theme.canvas.border;
+                        e.target.style.color = theme.canvas.textSecondary;
+                        e.target.style.opacity = 0.7;
+                      }}
+                    >
+                      Reload
+                    </button>
+                  </div>
                 </div>
               </div>
 
@@ -12370,6 +12585,22 @@ function NodeCanvas() {
             }}
             onStartHurtleAnimationFromPanel={startHurtleAnimationFromPanel}
             onActionHoverChange={handlePieMenuHoverChange}
+            onAskWizard={(edges) => {
+              const pref = (() => {
+                try { return debugConfig.getWizardConnectionPref(); } catch { return 'ask'; }
+              })();
+              if (pref === 'new') {
+                openWizardWithPrompt(edges, { newConversation: true });
+                return;
+              }
+              if (pref === 'current') {
+                openWizardWithPrompt(edges, { newConversation: false });
+                return;
+              }
+              setAskWizardDontAskAgain(false);
+              setAskWizardDialog({ edges });
+            }}
+            wizardEnabled={wizardEnabled}
           />
         )
       }
@@ -12675,6 +12906,50 @@ function NodeCanvas() {
             cancelLabel="Cancel"
             variant="default"
             position={addToGroupDialog.position}
+            containerRect={containerRef.current?.getBoundingClientRect()}
+            panOffset={panOffset}
+            zoomLevel={zoomLevel}
+          />
+        )
+      }
+
+      {/* Ask The Wizard dialog (connection control panel) */}
+      {
+        askWizardDialog && (
+          <CanvasConfirmDialog
+            isOpen={true}
+            onClose={() => setAskWizardDialog(null)}
+            onConfirm={() => {
+              const edges = askWizardDialog.edges;
+              const remember = askWizardDontAskAgain;
+              setAskWizardDialog(null);
+              if (remember) {
+                try { debugConfig.setWizardConnectionPref('new'); } catch {}
+              }
+              openWizardWithPrompt(edges, { newConversation: true });
+            }}
+            onSecondaryConfirm={() => {
+              const edges = askWizardDialog.edges;
+              const remember = askWizardDontAskAgain;
+              setAskWizardDialog(null);
+              if (remember) {
+                try { debugConfig.setWizardConnectionPref('current'); } catch {}
+              }
+              openWizardWithPrompt(edges, { newConversation: false });
+            }}
+            title="Ask The Wizard"
+            message={
+              askWizardDialog.edges.length > 1
+                ? `Open the AI Wizard to refine these ${askWizardDialog.edges.length} connections?`
+                : 'Open the AI Wizard to refine this connection?'
+            }
+            confirmLabel="New conversation"
+            secondaryConfirmLabel="Add to current"
+            cancelLabel="Cancel"
+            variant="info"
+            showDontAskAgain={true}
+            dontAskAgainChecked={askWizardDontAskAgain}
+            onDontAskAgainChange={setAskWizardDontAskAgain}
             containerRect={containerRef.current?.getBoundingClientRect()}
             panOffset={panOffset}
             zoomLevel={zoomLevel}
