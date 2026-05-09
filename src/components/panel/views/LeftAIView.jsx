@@ -349,6 +349,21 @@ function applyOffscreenLayout(graphId) {
  * ║  handler needed! Just add your handler here and it works everywhere.   ║
  * ╚══════════════════════════════════════════════════════════════════════════╝
  */
+// Deterministic, varied color per connection-type name. Hash → HSL hue with
+// fixed saturation/lightness so the same name always produces the same color
+// and different names get visually distinct ones. Same algorithm the server-
+// side wizard tools use, kept inline so the handler is self-contained.
+function generateConnectionColor(name) {
+  const s = String(name || '').trim();
+  if (!s) return '#708090'; // slategray fallback only when there's literally no name
+  let hash = 0;
+  for (let i = 0; i < s.length; i++) {
+    hash = s.charCodeAt(i) + ((hash << 5) - hash);
+  }
+  const hue = Math.abs(hash) % 360;
+  return `hsl(${hue}, 60%, 45%)`;
+}
+
 // Surface a wizard tool failure to the UI. Listeners in LeftAIView render an
 // inline warning in the active conversation so the user can see when a tool
 // call silently no-op'd (e.g., hallucinated edge id, missing source/target).
@@ -513,7 +528,7 @@ function applyToolResultToStore(toolName, result, toolCallId) {
         target: result.targetName,
         type: result.type || 'relates to',
         directionality: 'unidirectional',
-        definitionNode: result.type ? { name: result.type, color: '#708090' } : null
+        definitionNode: result.type ? { name: result.type, color: generateConnectionColor(result.type) } : null
       }]
     });
     console.log('[Wizard] Successfully created edge:', result.sourceName, '→', result.targetName);
@@ -609,7 +624,7 @@ function applyToolResultToStore(toolName, result, toolCallId) {
         store.addNodePrototype({
           id: protoIdToLink,
           name: result.updates.type,
-          color: '#708090',
+          color: generateConnectionColor(result.updates.type),
           description: '',
           typeNodeId: null,
           definitionGraphIds: []
@@ -821,7 +836,7 @@ function applyToolResultToStore(toolName, result, toolCallId) {
           store.addNodePrototype({
             id: protoIdToLink,
             name: typeName,
-            color: replacement.definitionNode?.color || '#708090',
+            color: replacement.definitionNode?.color || generateConnectionColor(typeName),
             description: replacement.definitionNode?.description || '',
             typeNodeId: null,
             definitionGraphIds: []
@@ -2801,8 +2816,19 @@ const LeftAIView = ({ compact = false,
   }, []);
 
   React.useEffect(() => {
-    // Auto-scroll to bottom when messages update
-    if (messagesEndRef.current) {
+    // Auto-scroll to bottom when messages update.
+    // Programmatic Ask The Wizard chips: teleport (instant), since the panel may
+    // have just expanded from a button click and we want the user to see their
+    // action immediately. Other messages: smooth scroll as before. We rAF the
+    // chip case so the layout is settled before measuring scroll position.
+    if (!messagesEndRef.current) return;
+    const last = messages[messages.length - 1];
+    const isWizardChip = last?.metadata?.kind === 'wizard-action-chip';
+    if (isWizardChip) {
+      requestAnimationFrame(() => {
+        messagesEndRef.current?.scrollIntoView({ behavior: 'auto', block: 'end' });
+      });
+    } else {
       messagesEndRef.current.scrollIntoView({ behavior: 'smooth' });
     }
   }, [messages]);
