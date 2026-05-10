@@ -431,14 +431,14 @@ function NodeCanvas() {
 
   // Render overlay resizer bars that sit just outside panels
   const renderPanelResizers = () => {
-    const barHeightPct = 0.25;
+    const barHeightPct = 0.33;
     const barHeight = `${Math.round(barHeightPct * 100)}%`;
     const HITBOX_WIDTH = 28; // wider invisible hitbox
     const VISIBLE_WIDTH = 6; // thin visible bar
     const extraHitboxPx = 24; // slightly taller than the visual bar
     const wrapperHeight = `calc(${barHeight} + ${extraHitboxPx}px)`;
     const wrapperMinHeight = 60 + extraHitboxPx;
-    const wrapperMaxHeight = 280 + extraHitboxPx;
+    const wrapperMaxHeight = 350 + extraHitboxPx;
     const wrapperCommon = {
       position: 'fixed',
       top: '50%',
@@ -461,7 +461,7 @@ function NodeCanvas() {
       width: VISIBLE_WIDTH,
       height: barHeight,
       minHeight: 60,
-      maxHeight: 280,
+      maxHeight: 350,
       borderRadius: 999,
       boxShadow: '0 1px 3px rgba(0,0,0,0.25)',
       transition: 'background-color 120ms ease, opacity 160ms ease'
@@ -469,7 +469,7 @@ function NodeCanvas() {
     const inset = 14; // spacing inside from panel edges
     const leftActive = isDraggingLeft.current || isHoveringLeftResizer;
     const rightActive = isDraggingRight.current || isHoveringRightResizer;
-    const baseColor = (active) => `rgba(38,0,0,${active ? 1 : 0.18})`;
+    const baseColor = (active) => darkMode ? `rgba(151,144,144,${active ? 1 : 0.18})` : `rgba(38,0,0,${active ? 1 : 0.18})`;
     const fadeOpacity = resizersVisible ? 1 : 0;
     const leftWrapperLeft = Math.max(0, (leftPanelWidth + inset) - (HITBOX_WIDTH / 2));
     const rightWrapperRight = Math.max(0, (rightPanelWidth + inset) - (HITBOX_WIDTH / 2));

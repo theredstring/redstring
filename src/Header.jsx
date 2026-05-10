@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { HEADER_HEIGHT } from './constants';
 import RedstringMenu from './RedstringMenu';
-import { Bookmark, Plus, ScanSearch, HelpCircle, Bug, Settings, Search } from 'lucide-react';
+import { Bookmark, Plus, ScanSearch, HelpCircle, Bug, Settings, Search, Menu, CircleX } from 'lucide-react';
 import { useTheme } from './hooks/useTheme.js';
 import HeaderGraphTab from './HeaderGraphTab';
 import { showContextMenu } from './components/GlobalContextMenu';
@@ -80,6 +80,8 @@ const Header = ({
 }) => {
   const theme = useTheme();
   const [isMenuOpen, setIsMenuOpen] = useState(false);
+  const [isHamburgerOpen, setIsHamburgerOpen] = useState(false);
+  const hamburgerWrapperRef = useRef(null);
   const [currentLogoIndex, setCurrentLogoIndex] = useState(0);
   const [isAnimating, setIsAnimating] = useState(false);
   const [imagesLoaded, setImagesLoaded] = useState(false);
@@ -106,9 +108,9 @@ const Header = ({
 
       const headerWidth = headerRef.current.offsetWidth;
 
-      // Left side buttons: menu + help + settings + all-things-search = 4 × HEADER_HEIGHT
-      // Right side buttons: search + plus + bookmark = 3 × HEADER_HEIGHT
-      const fixedButtonsWidth = 7 * HEADER_HEIGHT;
+      // Left side: menu logo only = 1 × HEADER_HEIGHT
+      // Right side: hamburger only = 1 × HEADER_HEIGHT (other buttons live in its dropdown)
+      const fixedButtonsWidth = 2 * HEADER_HEIGHT;
 
       // Generous padding for inactive tabs and breathing room (300px on each side)
       const generousPadding = 600;
@@ -238,6 +240,25 @@ const Header = ({
       }
     };
   }, []);
+
+  // Hamburger menu: close on outside click or Escape
+  useEffect(() => {
+    if (!isHamburgerOpen) return;
+    const handleOutside = (e) => {
+      if (hamburgerWrapperRef.current && !hamburgerWrapperRef.current.contains(e.target)) {
+        setIsHamburgerOpen(false);
+      }
+    };
+    const handleKey = (e) => {
+      if (e.key === 'Escape') setIsHamburgerOpen(false);
+    };
+    document.addEventListener('mousedown', handleOutside);
+    window.addEventListener('keydown', handleKey);
+    return () => {
+      document.removeEventListener('mousedown', handleOutside);
+      window.removeEventListener('keydown', handleKey);
+    };
+  }, [isHamburgerOpen]);
 
   const handleLogoContextMenu = (e) => {
     e.preventDefault();
@@ -654,187 +675,6 @@ const Header = ({
         />
       </div>
 
-      {/* Help Button - positioned after menu button */}
-      <div
-        title="Help & Guide"
-        style={{
-          position: 'absolute',
-          left: `${HEADER_HEIGHT + 10}px`,
-          top: 0,
-          height: `${HEADER_HEIGHT}px`,
-          width: `${HEADER_HEIGHT}px`,
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          cursor: 'pointer',
-          backgroundColor: 'transparent',
-          zIndex: 10002,
-          pointerEvents: 'auto'
-        }}
-        onClick={(e) => {
-          e.stopPropagation();
-          e.preventDefault();
-          console.log('Help button clicked');
-          window.dispatchEvent(new Event('openHelpModal'));
-        }}
-        onMouseEnter={(e) => {
-          const circle = e.currentTarget.querySelector('.header-btn-circle');
-          if (circle) {
-            circle.style.transform = 'scale(1.06)';
-            circle.style.boxShadow = '0 2px 6px rgba(0,0,0,0.15)';
-          }
-        }}
-        onMouseLeave={(e) => {
-          const circle = e.currentTarget.querySelector('.header-btn-circle');
-          if (circle) {
-            circle.style.transform = 'scale(1)';
-            circle.style.boxShadow = 'none';
-          }
-        }}
-      >
-        <div
-          className="header-btn-circle"
-          style={{
-            width: '36px',
-            height: '36px',
-            borderRadius: '50%',
-            backgroundColor: '#ffffff',
-            border: '3px solid #7A0000',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            transition: 'transform 120ms ease, box-shadow 120ms ease',
-            pointerEvents: 'auto'
-          }}
-        >
-          <HelpCircle
-            size={22}
-            color="#7A0000"
-            strokeWidth={3}
-          />
-        </div>
-      </div>
-
-      {/* Settings Button - positioned after help button */}
-      <div
-        title="Settings"
-        style={{
-          position: 'absolute',
-          left: `${HEADER_HEIGHT * 2 + 10}px`,
-          top: 0,
-          height: `${HEADER_HEIGHT}px`,
-          width: `${HEADER_HEIGHT}px`,
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          cursor: 'pointer',
-          backgroundColor: 'transparent',
-          zIndex: 10002,
-          pointerEvents: 'auto'
-        }}
-        onClick={(e) => {
-          e.stopPropagation();
-          e.preventDefault();
-          window.dispatchEvent(new Event('openSettingsModal'));
-        }}
-        onMouseEnter={(e) => {
-          const circle = e.currentTarget.querySelector('.header-btn-circle');
-          if (circle) {
-            circle.style.transform = 'scale(1.06)';
-            circle.style.boxShadow = '0 2px 6px rgba(0,0,0,0.15)';
-          }
-        }}
-        onMouseLeave={(e) => {
-          const circle = e.currentTarget.querySelector('.header-btn-circle');
-          if (circle) {
-            circle.style.transform = 'scale(1)';
-            circle.style.boxShadow = 'none';
-          }
-        }}
-      >
-        <div
-          className="header-btn-circle"
-          style={{
-            width: '36px',
-            height: '36px',
-            borderRadius: '50%',
-            backgroundColor: '#ffffff',
-            border: '3px solid #7A0000',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            transition: 'transform 120ms ease, box-shadow 120ms ease',
-            pointerEvents: 'auto'
-          }}
-        >
-          <Settings
-            size={20}
-            color="#7A0000"
-            strokeWidth={2.5}
-          />
-        </div>
-      </div>
-      
-      {/* All Things Search Button - positioned after settings button */}
-      <div
-        title="Search All Things"
-        style={{
-          position: 'absolute',
-          left: `${HEADER_HEIGHT * 3 + 10}px`,
-          top: 0,
-          height: `${HEADER_HEIGHT}px`,
-          width: `${HEADER_HEIGHT}px`,
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          cursor: 'pointer',
-          backgroundColor: 'transparent',
-          zIndex: 10002,
-          pointerEvents: 'auto'
-        }}
-        onClick={(e) => {
-          e.stopPropagation();
-          e.preventDefault();
-          onOpenAllThingsSearch?.();
-        }}
-        onMouseEnter={(e) => {
-          const circle = e.currentTarget.querySelector('.header-btn-circle');
-          if (circle) {
-            circle.style.transform = 'scale(1.06)';
-            circle.style.boxShadow = '0 2px 6px rgba(0,0,0,0.15)';
-          }
-        }}
-        onMouseLeave={(e) => {
-          const circle = e.currentTarget.querySelector('.header-btn-circle');
-          if (circle) {
-            circle.style.transform = 'scale(1)';
-            circle.style.boxShadow = 'none';
-          }
-        }}
-      >
-        <div
-          className="header-btn-circle"
-          style={{
-            width: '36px',
-            height: '36px',
-            borderRadius: '50%',
-            backgroundColor: '#ffffff',
-            border: '3px solid #7A0000',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            transition: 'transform 120ms ease, box-shadow 120ms ease',
-            pointerEvents: 'auto'
-          }}
-        >
-          <Search
-            size={20}
-            color="#7A0000"
-            strokeWidth={2.5}
-          />
-        </div>
-      </div>
-
       {/* Scrollable tabs container */}
       <div
         ref={tabsContainerRefCallback}
@@ -921,22 +761,21 @@ const Header = ({
 
 
 
-      {/* Bookmark Icon Button */}
-      {/* Right-side action buttons row */}
+      {/* Hamburger menu (right side): consolidates header actions into a vertical dropdown */}
       <div
+        ref={hamburgerWrapperRef}
         style={{
           position: 'absolute',
           right: 0,
           top: 0,
           height: `${HEADER_HEIGHT}px`,
-          display: 'flex',
-          alignItems: 'center',
-          gap: 0,
+          width: `${HEADER_HEIGHT}px`,
+          zIndex: 10003,
         }}
       >
-        {/* Search Button */}
+        {/* Hamburger trigger */}
         <div
-          title={activeGraph ? `Search ${activeGraph.name}` : 'Search Components'}
+          title={isHamburgerOpen ? 'Close menu' : 'Open menu'}
           style={{
             height: `${HEADER_HEIGHT}px`,
             width: `${HEADER_HEIGHT}px`,
@@ -944,10 +783,12 @@ const Header = ({
             alignItems: 'center',
             justifyContent: 'center',
             cursor: 'pointer',
-            backgroundColor: 'transparent'
+            backgroundColor: 'transparent',
+            pointerEvents: 'auto',
           }}
-          onClick={() => {
-            onOpenComponentSearch?.();
+          onClick={(e) => {
+            e.stopPropagation();
+            setIsHamburgerOpen(prev => !prev);
           }}
           onMouseEnter={(e) => {
             const circle = e.currentTarget.querySelector('.header-btn-circle');
@@ -975,121 +816,120 @@ const Header = ({
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
-              transition: 'transform 120ms ease, box-shadow 120ms ease'
+              position: 'relative',
+              transition: 'transform 120ms ease, box-shadow 120ms ease',
             }}
           >
-            <ScanSearch
+            <Menu
               size={22}
               color="#7A0000"
               strokeWidth={3}
+              style={{
+                position: 'absolute',
+                opacity: isHamburgerOpen ? 0 : 1,
+                transform: isHamburgerOpen ? 'rotate(90deg) scale(0.6)' : 'rotate(0deg) scale(1)',
+                transition: 'opacity 120ms ease, transform 160ms cubic-bezier(0.4, 0.0, 0.2, 1)',
+              }}
+            />
+            <CircleX
+              size={22}
+              color="#7A0000"
+              strokeWidth={3}
+              style={{
+                position: 'absolute',
+                opacity: isHamburgerOpen ? 1 : 0,
+                transform: isHamburgerOpen ? 'rotate(0deg) scale(1)' : 'rotate(-90deg) scale(0.6)',
+                transition: 'opacity 120ms ease, transform 160ms cubic-bezier(0.4, 0.0, 0.2, 1)',
+              }}
             />
           </div>
         </div>
 
-        {/* Plus Button */}
+        {/* Vertical dropdown */}
         <div
-          title="Create New Thing"
           style={{
-            height: `${HEADER_HEIGHT}px`,
+            position: 'absolute',
+            right: 0,
+            top: `${HEADER_HEIGHT}px`,
             width: `${HEADER_HEIGHT}px`,
             display: 'flex',
+            flexDirection: 'column',
             alignItems: 'center',
-            justifyContent: 'center',
-            cursor: 'pointer',
-            backgroundColor: 'transparent'
-          }}
-          onClick={() => {
-            onCreateNewThing?.();
-          }}
-          onMouseEnter={(e) => {
-            const circle = e.currentTarget.querySelector('.header-btn-circle');
-            if (circle) {
-              circle.style.transform = 'scale(1.06)';
-              circle.style.boxShadow = '0 2px 6px rgba(0,0,0,0.15)';
-            }
-          }}
-          onMouseLeave={(e) => {
-            const circle = e.currentTarget.querySelector('.header-btn-circle');
-            if (circle) {
-              circle.style.transform = 'scale(1)';
-              circle.style.boxShadow = 'none';
-            }
+            pointerEvents: isHamburgerOpen ? 'auto' : 'none',
+            zIndex: 10003,
           }}
         >
-          <div
-            className="header-btn-circle"
-            style={{
-              width: '36px',
-              height: '36px',
-              borderRadius: '50%',
-              backgroundColor: '#ffffff',
-              border: '3px solid #7A0000',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              transition: 'transform 120ms ease, box-shadow 120ms ease'
-            }}
-          >
-            <Plus
-              size={22}
-              color="#7A0000"
-              strokeWidth={3}
-            />
-          </div>
-        </div>
-
-        <div
-          title={bookmarkActive ? 'Remove Bookmark' : 'Add Bookmark'}
-          style={{
-            height: `${HEADER_HEIGHT}px`,
-            width: `${HEADER_HEIGHT}px`,
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            cursor: 'pointer',
-            backgroundColor: 'transparent'
-          }}
-          onClick={() => {
-            // Log the state received via props just before calling the callback
-            console.log('[Header Bookmark Click] bookmarkActive prop:', bookmarkActive);
-            onBookmarkToggle(); // Call the callback passed from NodeCanvas
-          }}
-          onMouseEnter={(e) => {
-            const circle = e.currentTarget.querySelector('.header-btn-circle');
-            if (circle) {
-              circle.style.transform = 'scale(1.06)';
-              circle.style.boxShadow = '0 2px 6px rgba(0,0,0,0.15)';
-            }
-          }}
-          onMouseLeave={(e) => {
-            const circle = e.currentTarget.querySelector('.header-btn-circle');
-            if (circle) {
-              circle.style.transform = 'scale(1)';
-              circle.style.boxShadow = 'none';
-            }
-          }}
-        >
-          <div
-            className="header-btn-circle"
-            style={{
-              width: '36px',
-              height: '36px',
-              borderRadius: '50%',
-              backgroundColor: '#ffffff',
-              border: '3px solid #7A0000',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              transition: 'transform 120ms ease, box-shadow 120ms ease'
-            }}
-          >
-            <Bookmark
-              size={22}
-              color="#7A0000"
-              fill={bookmarkActive ? '#7A0000' : 'none'}
-              strokeWidth={3}
-            />
-          </div>
+          {[
+            { key: 'help', Icon: HelpCircle, iconSize: 22, strokeWidth: 3, title: 'Help & Guide', onClick: () => window.dispatchEvent(new Event('openHelpModal')) },
+            { key: 'settings', Icon: Settings, iconSize: 20, strokeWidth: 2.5, title: 'Settings', onClick: () => window.dispatchEvent(new Event('openSettingsModal')) },
+            { key: 'all-search', Icon: Search, iconSize: 20, strokeWidth: 2.5, title: 'Search All Things', onClick: () => onOpenAllThingsSearch?.() },
+            { key: 'comp-search', Icon: ScanSearch, iconSize: 22, strokeWidth: 3, title: activeGraph ? `Search ${activeGraph.name}` : 'Search Components', onClick: () => onOpenComponentSearch?.() },
+            { key: 'plus', Icon: Plus, iconSize: 22, strokeWidth: 3, title: 'Create New Thing', onClick: () => onCreateNewThing?.() },
+            { key: 'bookmark', Icon: Bookmark, iconSize: 22, strokeWidth: 3, title: bookmarkActive ? 'Remove Bookmark' : 'Add Bookmark', onClick: () => onBookmarkToggle?.(), iconExtra: { fill: bookmarkActive ? '#7A0000' : 'none' } },
+          ].map((action, idx, arr) => {
+            const delay = isHamburgerOpen ? `${idx * 25}ms` : `${(arr.length - 1 - idx) * 25}ms`;
+            return (
+              <div
+                key={action.key}
+                title={action.title}
+                style={{
+                  height: `${HEADER_HEIGHT}px`,
+                  width: `${HEADER_HEIGHT}px`,
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  cursor: 'pointer',
+                  backgroundColor: 'transparent',
+                  opacity: isHamburgerOpen ? 1 : 0,
+                  transform: isHamburgerOpen ? 'translateY(0) scale(1)' : 'translateY(-12px) scale(0.85)',
+                  transition: 'opacity 140ms ease, transform 140ms ease',
+                  transitionDelay: delay,
+                  pointerEvents: isHamburgerOpen ? 'auto' : 'none',
+                }}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  action.onClick?.();
+                  setIsHamburgerOpen(false);
+                }}
+                onMouseEnter={(e) => {
+                  const circle = e.currentTarget.querySelector('.header-btn-circle');
+                  if (circle) {
+                    circle.style.transform = 'scale(1.06)';
+                    circle.style.boxShadow = '0 2px 6px rgba(0,0,0,0.15)';
+                  }
+                }}
+                onMouseLeave={(e) => {
+                  const circle = e.currentTarget.querySelector('.header-btn-circle');
+                  if (circle) {
+                    circle.style.transform = 'scale(1)';
+                    circle.style.boxShadow = 'none';
+                  }
+                }}
+              >
+                <div
+                  className="header-btn-circle"
+                  style={{
+                    width: '36px',
+                    height: '36px',
+                    borderRadius: '50%',
+                    backgroundColor: '#ffffff',
+                    border: '3px solid #7A0000',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    transition: 'transform 120ms ease, box-shadow 120ms ease',
+                  }}
+                >
+                  <action.Icon
+                    size={action.iconSize}
+                    color="#7A0000"
+                    strokeWidth={action.strokeWidth}
+                    {...(action.iconExtra || {})}
+                  />
+                </div>
+              </div>
+            );
+          })}
         </div>
       </div>
     </header>

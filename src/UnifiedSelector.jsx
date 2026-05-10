@@ -98,6 +98,7 @@ const UnifiedSelector = ({
 
   const scrollContainerRef = useRef(null);
   const touchHandledRef = useRef(false);
+  const cardTouchRef = useRef({ x: 0, y: 0, moved: false });
 
   // Handle wheel events for scrolling
   const handleWheel = useCallback((e) => {
@@ -442,8 +443,21 @@ const UnifiedSelector = ({
                           }
                         }}
                         onPointerDown={(e) => e.stopPropagation()}
+                        onTouchStart={(e) => {
+                          const t = e.touches[0];
+                          cardTouchRef.current = { x: t.clientX, y: t.clientY, moved: false };
+                        }}
+                        onTouchMove={(e) => {
+                          const t = e.touches[0];
+                          const dx = t.clientX - cardTouchRef.current.x;
+                          const dy = t.clientY - cardTouchRef.current.y;
+                          if (dx * dx + dy * dy > 100) {
+                            cardTouchRef.current.moved = true;
+                          }
+                        }}
                         onTouchEnd={(e) => {
                           e.stopPropagation();
+                          if (cardTouchRef.current.moved) return;
                           touchHandledRef.current = true;
                           onNodeSelect?.(prototype);
                           setTimeout(() => { touchHandledRef.current = false; }, 400);

@@ -7,7 +7,7 @@ import { useDarkMode } from '../hooks/useTheme';
  * - Low-opacity by default; increases on hover; full on active
  * - Touch and mouse friendly
  */
-const PanelResizerHandle = ({ side = 'right', onMouseDown, onTouchStart, isActive = false, offset = 12, heightRatio = 0.25 }) => {
+const PanelResizerHandle = ({ side = 'right', onMouseDown, onTouchStart, isActive = false, offset = 12, heightRatio = 0.33 }) => {
   const [isHover, setIsHover] = useState(false);
   const isDarkMode = useDarkMode();
 
@@ -21,7 +21,7 @@ const PanelResizerHandle = ({ side = 'right', onMouseDown, onTouchStart, isActiv
     width: 18,
     height: `${Math.round(heightRatio * 100)}%`,
     minHeight: 60,
-    maxHeight: 280,
+    maxHeight: 350,
     borderRadius: 999,
     backgroundColor: baseColor,
     cursor: 'col-resize',
