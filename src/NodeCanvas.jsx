@@ -9218,9 +9218,9 @@ function NodeCanvas() {
                                 }}
                                 autoFocus
                                 style={{
-                                  width: `calc(100% - ${labelPaddingHorizontal * 2}px)`,
-                                  height: `calc(100% - ${labelPaddingVertical * 2}px)`,
-                                  margin: `${labelPaddingVertical}px ${labelPaddingHorizontal}px`,
+                                  width: `calc(100% - ${GROUP_LAYOUT_CONSTANTS.titlePaddingHorizontal * 2}px)`,
+                                  height: `calc(100% - ${GROUP_LAYOUT_CONSTANTS.titlePaddingVertical * 2}px)`,
+                                  margin: `${GROUP_LAYOUT_CONSTANTS.titlePaddingVertical}px ${GROUP_LAYOUT_CONSTANTS.titlePaddingHorizontal}px`,
                                   fontSize: `${fontSize}px`,
                                   fontFamily: 'EmOne, sans-serif',
                                   fontWeight: 'bold',

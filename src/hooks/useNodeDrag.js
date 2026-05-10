@@ -133,7 +133,8 @@ export const useNodeDrag = ({
   // DOM-bypass drag state
   const dragPositionsRef = useRef(new Map());     // instanceId → {x, y}
   const dragNodeElsRef = useRef(new Map());       // instanceId → DOM <g> element
-  const dragEdgeElsRef = useRef(new Map());       // edgeId → DOM <g> element(s)
+  const dragEdgeElsRef = useRef(new Map());       // edgeId → [{el, paths, lines, arrows, selfArrow, texts}, ...]
+  const dragEdgeDataRef = useRef(new Map());      // edgeId → edge record (frozen at drag start)
   const dragGroupElsRef = useRef(new Map());      // groupId → DOM <g> element(s)
   const dragGroupMetaRef = useRef(new Map());     // groupId → { memberIds, elements[] }
 
@@ -153,6 +154,7 @@ export const useNodeDrag = ({
 
     dragNodeElsRef.current.clear();
     dragEdgeElsRef.current.clear();
+    dragEdgeDataRef.current.clear();
     dragGroupElsRef.current.clear();
 
     // Cache node <g> elements. Suppress the CSS transform transition inline
@@ -169,7 +171,11 @@ export const useNodeDrag = ({
       }
     });
 
-    // Cache edge <g> elements for all edges connected to dragged nodes
+    // Cache edge <g> elements for all edges connected to dragged nodes,
+    // along with their sub-elements (paths/lines/arrows/texts) and the edge
+    // data record. updateEdgesInDOM runs per frame; without this, it would
+    // call querySelectorAll 4-5 times per edge per frame and rebuild an O(N)
+    // edge index from edgesRef every frame — the dominant cost of group drag.
     const edgesByNode = edgesByNodeIdRef.current;
     const affectedEdgeIds = new Set();
     nodeIdSet.forEach(nodeId => {
@@ -177,12 +183,27 @@ export const useNodeDrag = ({
       if (edges) edges.forEach(eid => affectedEdgeIds.add(eid));
     });
 
+    const edgeDataIndex = new Map();
+    const allEdges = edgesRef.current;
+    for (let i = 0; i < allEdges.length; i++) {
+      const e = allEdges[i];
+      if (affectedEdgeIds.has(e.id)) edgeDataIndex.set(e.id, e);
+    }
+    dragEdgeDataRef.current = edgeDataIndex;
+
     affectedEdgeIds.forEach(edgeId => {
       // querySelectorAll returns all matches (edge appears in below + above blocks)
       const els = container.querySelectorAll(`[data-edge-id="${edgeId}"]`);
       if (els.length > 0) {
-        // Store all matching elements (edge may be in both above/below groups)
-        dragEdgeElsRef.current.set(edgeId, Array.from(els));
+        const cachedEls = Array.from(els).map(el => ({
+          el,
+          paths: Array.from(el.querySelectorAll('path')),
+          lines: Array.from(el.querySelectorAll('line')),
+          arrows: Array.from(el.querySelectorAll('[data-arrow]')),
+          selfArrow: el.querySelector('[data-arrow="self"]'),
+          texts: Array.from(el.querySelectorAll('text')),
+        }));
+        dragEdgeElsRef.current.set(edgeId, cachedEls);
       }
     });
 
@@ -271,20 +292,36 @@ export const useNodeDrag = ({
 
     // Group drag via label
     if (draggingInfo.groupId && Array.isArray(draggingInfo.memberOffsets)) {
-      return draggingInfo.memberOffsets.map(({ id, dx, dy }) => {
-        const node = nodeByIdRef.current.get(id);
-        const xRaw = mouseCanvasX - dx;
-        const yRaw = mouseCanvasY - dy;
-        if (!node || gridMode === 'off') {
-          return { instanceId: id, x: xRaw, y: yRaw };
-        }
-        const dims = getNodeDimensions(node, false, null);
+      const offsets = draggingInfo.memberOffsets;
+      if (gridMode === 'off' || offsets.length === 0) {
+        return offsets.map(({ id, dx, dy }) => ({
+          instanceId: id, x: mouseCanvasX - dx, y: mouseCanvasY - dy,
+        }));
+      }
+      // Snap as a rigid unit: derive a single snap delta from the first member
+      // (matching multi-node drag's primary-anchor snap) and translate every
+      // member by the same amount. Snapping each member independently breaks
+      // relative positioning and forces the bbox to thrash every frame, which
+      // is what made grid-enabled group drag feel laggy.
+      const anchor = offsets[0];
+      const anchorNode = nodeByIdRef.current.get(anchor.id);
+      let snapDx = 0, snapDy = 0;
+      if (anchorNode) {
+        const dims = getNodeDimensions(anchorNode, false, null);
+        const xRaw = mouseCanvasX - anchor.dx;
+        const yRaw = mouseCanvasY - anchor.dy;
         const centerX = xRaw + dims.currentWidth / 2;
         const centerY = yRaw + dims.currentHeight / 2;
         const snappedCenterX = Math.floor(centerX / gridSize) * gridSize;
         const snappedCenterY = Math.floor(centerY / gridSize) * gridSize;
-        return { instanceId: id, x: snappedCenterX - dims.currentWidth / 2, y: snappedCenterY - dims.currentHeight / 2 };
-      });
+        snapDx = (snappedCenterX - dims.currentWidth / 2) - xRaw;
+        snapDy = (snappedCenterY - dims.currentHeight / 2) - yRaw;
+      }
+      return offsets.map(({ id, dx, dy }) => ({
+        instanceId: id,
+        x: mouseCanvasX - dx + snapDx,
+        y: mouseCanvasY - dy + snapDy,
+      }));
     }
 
     // Multi-node drag
@@ -350,16 +387,8 @@ export const useNodeDrag = ({
     const isManhattanOrClean = enableAutoRoutingRef.current &&
       (routingStyleRef.current === 'manhattan' || routingStyleRef.current === 'clean');
 
-    // Build edge data index from ALL edges (not just visible) — edgesByNodeIdRef now
-    // spans all edges, so affectedEdgeIds may include edges that culled out. Looking
-    // them up here lets drag update any whose DOM element was cached at drag start,
-    // even if a subsequent culling pass would have excluded them from the visible set.
-    const allEdges = edgesRef.current;
-    const edgeDataMap = new Map();
-    for (let i = 0; i < allEdges.length; i++) {
-      const e = allEdges[i];
-      if (affectedEdgeIds.has(e.id)) edgeDataMap.set(e.id, e);
-    }
+    // Edge data index was built once at drag start; reuse it.
+    const edgeDataMap = dragEdgeDataRef.current;
 
     affectedEdgeIds.forEach(edgeId => {
       const edgeEls = dragEdgeElsRef.current.get(edgeId);
@@ -385,15 +414,12 @@ export const useNodeDrag = ({
         const loop = calculateSelfLoopPath(sPos.x, sPos.y, sDims.currentWidth, sDims.currentHeight, curCurveInfo.get(edgeId));
         const apexX = loop.loopCx + loop.radius * Math.cos(loop.outwardAngle);
         const apexY = loop.loopCy + loop.radius * Math.sin(loop.outwardAngle);
-        edgeEls.forEach(edgeEl => {
-          const paths = edgeEl.querySelectorAll('path');
+        edgeEls.forEach(({ paths, selfArrow, texts }) => {
           paths.forEach(p => p.setAttribute('d', loop.path));
-          const arrowG = edgeEl.querySelector('[data-arrow="self"]');
-          if (arrowG) {
-            arrowG.setAttribute('transform', `translate(${loop.anchorB.x}, ${loop.anchorB.y}) rotate(${loop.arrowAngleB + 90})`);
+          if (selfArrow) {
+            selfArrow.setAttribute('transform', `translate(${loop.anchorB.x}, ${loop.anchorB.y}) rotate(${loop.arrowAngleB + 90})`);
           }
-          const textEls = edgeEl.querySelectorAll('text');
-          textEls.forEach(t => {
+          texts.forEach(t => {
             t.setAttribute('x', apexX);
             t.setAttribute('y', apexY);
           });
@@ -447,11 +473,10 @@ export const useNodeDrag = ({
       );
 
       // Update each edge <g> element (may appear in both above/below blocks)
-      edgeEls.forEach(edgeEl => {
+      edgeEls.forEach(({ paths, lines, arrows: arrowGs, texts }) => {
         // --- Update edge geometry (paths + lines) ---
         if (parallelPath.type === 'line' && !useCurve) {
           // Straight edge: update <line> elements
-          const lines = edgeEl.querySelectorAll('line');
           lines.forEach(line => {
             line.setAttribute('x1', endpoints.x1);
             line.setAttribute('y1', endpoints.y1);
@@ -459,7 +484,6 @@ export const useNodeDrag = ({
             line.setAttribute('y2', endpoints.y2);
           });
           // Also update any <path> elements (glow, click target)
-          const paths = edgeEl.querySelectorAll('path');
           paths.forEach(path => {
             const d = path.getAttribute('d');
             // Only update paths that look like simple lines (M...L...) not complex routes
@@ -469,12 +493,10 @@ export const useNodeDrag = ({
           });
         } else {
           // Curved/parallel edge: update <path> elements
-          const paths = edgeEl.querySelectorAll('path');
           paths.forEach(path => {
             path.setAttribute('d', parallelPath.path);
           });
           // Also update any straight <line> elements that might exist as click targets
-          const lines = edgeEl.querySelectorAll('line');
           lines.forEach(line => {
             line.setAttribute('x1', endpoints.x1);
             line.setAttribute('y1', endpoints.y1);
@@ -485,7 +507,6 @@ export const useNodeDrag = ({
 
         // --- Update arrow positions ---
         if (!isManhattanOrClean) {
-          const arrowGs = edgeEl.querySelectorAll('[data-arrow]');
           if (arrowGs.length > 0) {
             if (useCurve && parallelPath.ctrlX != null) {
               // Curved: compute point on quadratic bezier at t near endpoints + tangent angle
@@ -533,8 +554,7 @@ export const useNodeDrag = ({
         // visible-segment apex and visibly shifts. NodeCanvas does this same
         // calculation around line 9118: getVisualConnectionEndpoints +
         // calculateParallelEdgePath on those visible endpoints.
-        const textEls = edgeEl.querySelectorAll('text');
-        if (textEls.length > 0) {
+        if (texts.length > 0) {
           const visibleEndpoints = getVisualConnectionEndpoints(
             virtualSource, virtualDest, sDims, dDims,
             curSelectedIds.has(edge.sourceId),
@@ -559,7 +579,7 @@ export const useNodeDrag = ({
             ) * (180 / Math.PI);
           }
           const adj = (labelAngle > 90 || labelAngle < -90) ? labelAngle + 180 : labelAngle;
-          textEls.forEach(t => {
+          texts.forEach(t => {
             t.setAttribute('x', midX);
             t.setAttribute('y', midY);
             t.setAttribute('transform', `rotate(${adj}, ${midX}, ${midY})`);
@@ -716,9 +736,6 @@ export const useNodeDrag = ({
   const performDOMDragUpdate = useCallback((clientX, clientY, currentPan, currentZoom, draggingInfo) => {
     if (!draggingInfo) return;
 
-    // Clear label placement cache during drag
-    placedLabelsRef.current = new Map();
-
     // Calculate mouse position in canvas coordinates
     const rect = containerRef.current.getBoundingClientRect();
     const mouseCanvasX = (clientX - rect.left - currentPan.x) / currentZoom + canvasSizeRef.current.offsetX;
@@ -728,17 +745,30 @@ export const useNodeDrag = ({
     const positionUpdates = computePositionUpdates(mouseCanvasX, mouseCanvasY, draggingInfo);
     if (positionUpdates.length === 0) return;
 
-    // Store positions in ref (for flush on drag end)
+    // Diff against last-applied positions. With grid snap engaged, the cursor
+    // moves smoothly but snapped positions only change when crossing a grid
+    // line — so most frames have zero changes and we can skip the per-node
+    // transform writes, edge endpoint recompute, and group bbox recompute
+    // entirely. Without this, group drag with grid on does ~10x the DOM work
+    // it needs to.
     const movedNodeIds = new Set();
     positionUpdates.forEach(({ instanceId, x, y }) => {
-      dragPositionsRef.current.set(instanceId, { x, y });
-      movedNodeIds.add(instanceId);
+      const prev = dragPositionsRef.current.get(instanceId);
+      if (!prev || prev.x !== x || prev.y !== y) {
+        dragPositionsRef.current.set(instanceId, { x, y });
+        movedNodeIds.add(instanceId);
+      }
     });
+    if (movedNodeIds.size === 0) return;
 
-    // Apply CSS translate deltas to node DOM elements
+    // Clear label placement cache only when something actually moved
+    placedLabelsRef.current = new Map();
+
+    // Apply CSS translate deltas to node DOM elements (only those that moved)
     const curNodeById = nodeByIdRef.current;
     const curBaseDims = baseDimsByIdRef.current;
     positionUpdates.forEach(({ instanceId, x, y }) => {
+      if (!movedNodeIds.has(instanceId)) return;
       const nodeEl = dragNodeElsRef.current.get(instanceId);
       if (!nodeEl) return;
 
@@ -985,6 +1015,7 @@ export const useNodeDrag = ({
     dragPositionsRef.current.clear();
     dragNodeElsRef.current.clear();
     dragEdgeElsRef.current.clear();
+    dragEdgeDataRef.current.clear();
     dragGroupElsRef.current.clear();
     dragGroupMetaRef.current.clear();
     // The post-commit re-apply effect (useLayoutEffect near the top of this
@@ -1032,10 +1063,22 @@ export const useNodeDrag = ({
   // ---------------------------------------------------------------------------
   // Start Drag for Node (single or multi-select)
   // ---------------------------------------------------------------------------
-  const startDragForNode = useCallback((nodeData, clientX, clientY) => {
+  // `presetOffset` (canvas-space) locks the grip-point to where the finger first
+  // landed on the node. Touch passes this from touchstart so finger-on-node
+  // stays consistent even though long-press waits 500ms before drag begins.
+  // Mouse passes 3 args and the offset is computed from clientX/Y as before.
+  const startDragForNode = useCallback((nodeData, clientX, clientY, presetOffset = null) => {
     if (!nodeData || !activeGraphId) return false;
     flushPendingZoomRestoreCleanup();
     const instanceId = nodeData.id;
+
+    // Prime mousePositionRef with the drag-start coords so the zoom-out
+    // animation's first frame anchors the node to the actual finger position.
+    // On mouse this happens via continuous mousemove updates; on touch nothing
+    // updates this ref until a window pointermove fires post-drag-start, so
+    // the first animation frame would otherwise read a stale value and yank
+    // the node off the grip-point until the next pointermove arrives.
+    mousePositionRef.current = { x: clientX, y: clientY };
 
     // Collect all node IDs that will be dragged (for DOM caching)
     const draggedIds = [];
@@ -1055,9 +1098,18 @@ export const useNodeDrag = ({
         }
       });
 
-      const rect = containerRef.current?.getBoundingClientRect();
-      const initMouseCanvasX = rect ? (clientX - rect.left - panOffsetRef.current.x) / zoomLevelRef.current + canvasSize.offsetX : 0;
-      const initMouseCanvasY = rect ? (clientY - rect.top - panOffsetRef.current.y) / zoomLevelRef.current + canvasSize.offsetY : 0;
+      let initMouseCanvasX, initMouseCanvasY;
+      if (presetOffset) {
+        // Synthesize initialMouseCanvas so (initialMouseCanvas - initialPrimaryPos) === presetOffset.
+        // performDOMDragUpdate's multi-node math (newPrimary = initialPrimaryPos + (mouse - initialMouseCanvas))
+        // then keeps the original grip-offset locked.
+        initMouseCanvasX = initialPrimaryPos.x + presetOffset.x;
+        initMouseCanvasY = initialPrimaryPos.y + presetOffset.y;
+      } else {
+        const rect = containerRef.current?.getBoundingClientRect();
+        initMouseCanvasX = rect ? (clientX - rect.left - panOffsetRef.current.x) / zoomLevelRef.current + canvasSize.offsetX : 0;
+        initMouseCanvasY = rect ? (clientY - rect.top - panOffsetRef.current.y) / zoomLevelRef.current + canvasSize.offsetY : 0;
+      }
 
       setDraggingNodeInfo({
         initialMouseCanvas: { x: initMouseCanvasX, y: initMouseCanvasY },
@@ -1079,11 +1131,16 @@ export const useNodeDrag = ({
     }
 
     // Single node drag
-    const rect = containerRef.current?.getBoundingClientRect();
-    if (!rect) return false;
-    const mouseCanvasX = (clientX - rect.left - panOffsetRef.current.x) / zoomLevelRef.current + canvasSize.offsetX;
-    const mouseCanvasY = (clientY - rect.top - panOffsetRef.current.y) / zoomLevelRef.current + canvasSize.offsetY;
-    const offset = { x: mouseCanvasX - nodeData.x, y: mouseCanvasY - nodeData.y };
+    let offset;
+    if (presetOffset) {
+      offset = { x: presetOffset.x, y: presetOffset.y };
+    } else {
+      const rect = containerRef.current?.getBoundingClientRect();
+      if (!rect) return false;
+      const mouseCanvasX = (clientX - rect.left - panOffsetRef.current.x) / zoomLevelRef.current + canvasSize.offsetX;
+      const mouseCanvasY = (clientY - rect.top - panOffsetRef.current.y) / zoomLevelRef.current + canvasSize.offsetY;
+      offset = { x: mouseCanvasX - nodeData.x, y: mouseCanvasY - nodeData.y };
+    }
     setDraggingNodeInfo({ instanceId, offset, initialPos: { x: nodeData.x, y: nodeData.y } });
 
     dragHistoryRecordedRef.current = false;
@@ -1166,6 +1223,33 @@ export const useNodeDrag = ({
     }
   }, [dragZoomSettings, zoomLevelRef, panOffsetRef, animateZoomToTarget]);
 
+  // Ref so the window-level effect below doesn't re-attach listeners every
+  // time handleDragMove rebuilds (e.g., dragZoomSettings change).
+  const handleDragMoveRef = useRef(handleDragMove);
+  useEffect(() => { handleDragMoveRef.current = handleDragMove; }, [handleDragMove]);
+
+  // ---------------------------------------------------------------------------
+  // Window-Scoped Drag Tracking
+  // ---------------------------------------------------------------------------
+  // Touch events stop firing on the original element once the finger leaves
+  // it, and pointer-capture / document-level touchmove fallbacks are
+  // unreliable across browsers and emulators. Once a drag is in flight,
+  // tracking lives at window scope: window pointermove fires for the active
+  // pointer regardless of which element is under it. This bypasses the entire
+  // element-routed event chain (touch → pointer → React → handleMouseMove)
+  // and feeds clientX/Y straight into the drag pipeline.
+  useEffect(() => {
+    if (!draggingNodeInfo) return;
+    const onPointerMove = (e) => {
+      if (typeof e.clientX !== 'number' || typeof e.clientY !== 'number') return;
+      // Keep edge-pan / zoom-anchor refs in sync with live pointer position.
+      mousePositionRef.current = { x: e.clientX, y: e.clientY };
+      handleDragMoveRef.current(e.clientX, e.clientY);
+    };
+    window.addEventListener('pointermove', onPointerMove, { passive: true });
+    return () => window.removeEventListener('pointermove', onPointerMove);
+  }, [draggingNodeInfo, mousePositionRef]);
+
   // ---------------------------------------------------------------------------
   // Handle Drag End (called from handleMouseUp in NodeCanvas)
   // Returns { draggedNodeIds, primaryNodeId, checkGroupDrop, wasGroupDrag }
@@ -1173,6 +1257,23 @@ export const useNodeDrag = ({
   const handleDragEnd = useCallback((clientX, clientY, graphsMap) => {
     const info = draggingNodeInfo;
     if (!info) return { draggedNodeIds: [], primaryNodeId: null, checkGroupDrop: false, wasGroupDrag: false };
+
+    // Snap drag state to the actual release position. The last pointermove can
+    // fire a few px before touchend, so dragPositionsRef + pendingDragUpdate
+    // hold the LAST-MOVE coords. But the zoom-restore animation below is
+    // anchored at the release coords — that mismatch is what causes the
+    // node and its edges to "glitch to a different spot" for a frame during
+    // and at the end of the 250ms restore. Re-run the drag update at the
+    // release coords so finalPositions, the JS-set DOM transforms, and the
+    // layoutEffect's reapply all agree on the drop point.
+    performDragUpdateRef.current(clientX, clientY, panOffsetRef.current, zoomLevelRef.current, info);
+    if (pendingDragUpdate.current) {
+      pendingDragUpdate.current = {
+        ...pendingDragUpdate.current,
+        clientX,
+        clientY,
+      };
+    }
 
     // --- Capture final positions (NOT flushed yet — deferred to performCleanup) ---
     const finalPositions = new Map(dragPositionsRef.current);
@@ -1258,21 +1359,31 @@ export const useNodeDrag = ({
       const mouseCanvasX = (clientX - rect.left - currentPan.x) / currentZoom + canvasSizeRef.current.offsetX;
       const mouseCanvasY = (clientY - rect.top - currentPan.y) / currentZoom + canvasSizeRef.current.offsetY;
 
-      const positionUpdates = info.memberOffsets.map(({ id, dx, dy }) => {
-        const node = nodeByIdRef.current.get(id);
-        const xRaw = mouseCanvasX - dx;
-        const yRaw = mouseCanvasY - dy;
-        if (!node) return { instanceId: id, x: xRaw, y: yRaw };
-        if (gridMode === 'off') return { instanceId: id, x: xRaw, y: yRaw };
-        const dims = getNodeDimensions(node, false, null);
-        const centerX = xRaw + dims.currentWidth / 2;
-        const centerY = yRaw + dims.currentHeight / 2;
-        const snappedCenterX = Math.floor(centerX / gridSize) * gridSize;
-        const snappedCenterY = Math.floor(centerY / gridSize) * gridSize;
-        const snappedX = snappedCenterX - (dims.currentWidth / 2);
-        const snappedY = snappedCenterY - (dims.currentHeight / 2);
-        return { instanceId: id, x: snappedX, y: snappedY };
-      });
+      // Match performDOMDragUpdate: rigid-unit snap so the committed positions
+      // reproduce exactly what the user saw at drop. Per-member independent
+      // snap here would shift members on release vs what was on screen.
+      const offsets = info.memberOffsets;
+      let snapDx = 0, snapDy = 0;
+      if (gridMode !== 'off' && offsets.length > 0) {
+        const anchor = offsets[0];
+        const anchorNode = nodeByIdRef.current.get(anchor.id);
+        if (anchorNode) {
+          const dims = getNodeDimensions(anchorNode, false, null);
+          const xRaw = mouseCanvasX - anchor.dx;
+          const yRaw = mouseCanvasY - anchor.dy;
+          const centerX = xRaw + dims.currentWidth / 2;
+          const centerY = yRaw + dims.currentHeight / 2;
+          const snappedCenterX = Math.floor(centerX / gridSize) * gridSize;
+          const snappedCenterY = Math.floor(centerY / gridSize) * gridSize;
+          snapDx = (snappedCenterX - dims.currentWidth / 2) - xRaw;
+          snapDy = (snappedCenterY - dims.currentHeight / 2) - yRaw;
+        }
+      }
+      const positionUpdates = offsets.map(({ id, dx, dy }) => ({
+        instanceId: id,
+        x: mouseCanvasX - dx + snapDx,
+        y: mouseCanvasY - dy + snapDy,
+      }));
 
       const graph = graphsMap?.get(activeGraphId);
       const groupName = graph?.groups?.get(info.groupId)?.name;
@@ -1302,22 +1413,25 @@ export const useNodeDrag = ({
 
       clearDOMTransforms();
 
+      // Reset scale 1.15 → 1 synchronously so it batches into the same React
+      // commit as the position flush above. Previously this was wrapped in
+      // setTimeout(0), which left the node rendered at its new position with
+      // scale 1.15 for one frame after the zoom-restore animation ended,
+      // then snapped to scale 1 on the next macrotask — the "slight pause" felt at drop.
       let finalizeSent = false;
-      setTimeout(() => {
-        instanceIdsToReset.forEach(id => {
-          const nodeExists = nodes.some(n => n.id === id);
-          if (nodeExists) {
-            const shouldFinalize = primaryFinalizeId ? id === primaryFinalizeId : !finalizeSent;
-            storeActions.updateNodeInstance(
-              activeGraphId,
-              id,
-              draft => { draft.scale = 1; },
-              { phase: 'end', isDragging: false, finalize: shouldFinalize, ignore: true }
-            );
-            if (shouldFinalize) finalizeSent = true;
-          }
-        });
-      }, 0);
+      instanceIdsToReset.forEach(id => {
+        const nodeExists = nodes.some(n => n.id === id);
+        if (nodeExists) {
+          const shouldFinalize = primaryFinalizeId ? id === primaryFinalizeId : !finalizeSent;
+          storeActions.updateNodeInstance(
+            activeGraphId,
+            id,
+            draft => { draft.scale = 1; },
+            { phase: 'end', isDragging: false, finalize: shouldFinalize, ignore: true }
+          );
+          if (shouldFinalize) finalizeSent = true;
+        }
+      });
 
       setDraggingNodeInfo(null);
       wasDraggingRef.current = true;

@@ -430,7 +430,7 @@ const AISection = () => {
           <div className="settings-row" style={{ borderBottom: 'none', paddingBottom: '0' }}>
             <div className="settings-row-label">Actions</div>
             <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
-              <button className="ai-action-btn ai-btn-secondary" onClick={beginEditConfiguration}>
+              <button className="ai-action-btn ai-btn-primary" onClick={beginEditConfiguration}>
                 Update
               </button>
               <button className="ai-action-btn ai-btn-danger" onClick={handleRemoveKey} disabled={isLoading}>

@@ -9,7 +9,7 @@ const TOUCH_PINCH_SENSITIVITY = 0.05;
 const TOUCH_PINCH_CENTER_SMOOTHING = 0.1;
 const MOVEMENT_THRESHOLD = 6;
 const TOUCH_MOVEMENT_THRESHOLD = 12; // Higher than mouse
-const LONG_PRESS_DURATION = 500;
+const LONG_PRESS_DURATION = 200;
 
 export const useCanvasTouch = ({
     containerRef,
@@ -104,6 +104,98 @@ export const useCanvasTouch = ({
         handleNodeTouchEndRef.current = handleNodeTouchEnd;
         handleNodeTouchCancelRef.current = handleNodeTouchCancel;
     });
+
+    // Window-scoped pointer tracking during connection-draw — mirror of the
+    // drag-time fix in useNodeDrag. Element-routed pointermove stops the
+    // moment the finger leaves the source node, so the connection's tip
+    // freezes mid-draw on touch. Window pointermove fires for the active
+    // pointer regardless of element, feeding the existing handleMouseMove
+    // pipeline (which already updates drawingConnectionFrom). The end
+    // counterparts finalize the connection (or clear it on empty space) —
+    // on touch the element-routed touchend/pointerup may not fire on a
+    // registered handler if the finger is far from the source node when
+    // released, leaving drawingConnectionFrom set forever otherwise.
+    //
+    // CAPTURE PHASE for end events: handleNodePointerUp / handleNodeTouchEnd
+    // call e.stopPropagation(), which kills any bubble-phase listener on the
+    // window. We need to fire BEFORE that, so capture: true.
+    //
+    // STABLE BOOLEAN dep: drawingConnectionFrom is updated to a new object on
+    // every move (currentX/Y change). Depending on the object directly would
+    // detach + reattach all four listeners on every move — a tiny but real
+    // window where a touch release could be missed. Convert to boolean so the
+    // effect re-runs only on truthy↔falsy transitions.
+    const handleMouseMoveRef = useRef(handleMouseMove);
+    useEffect(() => { handleMouseMoveRef.current = handleMouseMove; });
+    const handleMouseUpRef = useRef(handleMouseUp);
+    useEffect(() => { handleMouseUpRef.current = handleMouseUp; });
+    const isDrawingConnection = !!drawingConnectionFrom;
+    useEffect(() => {
+        if (!isDrawingConnection) return;
+        const onPointerMove = (e) => {
+            if (typeof e.clientX !== 'number' || typeof e.clientY !== 'number') return;
+            handleMouseMoveRef.current({
+                clientX: e.clientX,
+                clientY: e.clientY,
+                stopPropagation: () => { },
+                preventDefault: () => { }
+            });
+        };
+        const finalizeAt = (clientX, clientY, modifiers = {}) => {
+            // Provide both clientX/Y (mouse-shape) and changedTouches (touch-
+            // shape) since downstream code in handleMouseUp reads either.
+            handleMouseUpRef.current({
+                clientX,
+                clientY,
+                changedTouches: [{ clientX, clientY }],
+                stopPropagation: () => { },
+                preventDefault: () => { },
+                shiftKey: !!modifiers.shiftKey,
+                metaKey: !!modifiers.metaKey,
+                ctrlKey: !!modifiers.ctrlKey,
+            });
+        };
+        const onPointerUp = (e) => {
+            if (typeof e.clientX !== 'number' || typeof e.clientY !== 'number') return;
+            finalizeAt(e.clientX, e.clientY, e);
+        };
+        const onTouchEnd = (e) => {
+            const t = (e.changedTouches && e.changedTouches[0]) || (e.touches && e.touches[0]);
+            if (!t) return;
+            finalizeAt(t.clientX, t.clientY, e);
+        };
+        window.addEventListener('pointermove', onPointerMove, { passive: true });
+        // capture: true so handleNodePointerUp's stopPropagation can't block us.
+        window.addEventListener('pointerup', onPointerUp, true);
+        window.addEventListener('pointercancel', onPointerUp, true);
+        window.addEventListener('touchend', onTouchEnd, true);
+        window.addEventListener('touchcancel', onTouchEnd, true);
+        return () => {
+            window.removeEventListener('pointermove', onPointerMove);
+            window.removeEventListener('pointerup', onPointerUp, true);
+            window.removeEventListener('pointercancel', onPointerUp, true);
+            window.removeEventListener('touchend', onTouchEnd, true);
+            window.removeEventListener('touchcancel', onTouchEnd, true);
+        };
+    }, [isDrawingConnection]);
+
+    // Latest-value ref of drawingConnectionFrom so the touch long-press timer
+    // (captured at touchstart) can bail when connection-draw is in progress.
+    const drawingConnectionFromRef = useRef(drawingConnectionFrom);
+    useEffect(() => { drawingConnectionFromRef.current = drawingConnectionFrom; });
+
+    // Cancel the touch long-press timer the moment connection-draw starts.
+    // Without this, a slow finger movement (>6px but <12px) triggers
+    // connection-draw via the mouse path in NodeCanvas (which clears the
+    // mouse timer but not ours), and the touch timer then fires startDragForNode
+    // → triggerDragZoomOut concurrently with the active connection-draw.
+    useEffect(() => {
+        if (!drawingConnectionFrom) return;
+        if (touchState.current.longPressTimer) {
+            clearTimeout(touchState.current.longPressTimer);
+            touchState.current.longPressTimer = null;
+        }
+    }, [drawingConnectionFrom]);
 
     // --- Helpers ---
 
@@ -587,12 +679,18 @@ export const useCanvasTouch = ({
         touchState.current.longPressTimer = setTimeout(() => {
             const ts = touchState.current;
             if (!ts) return;
+            // Bail if a connection-draw is already in flight — the mouse path
+            // in handleMouseMove can start one between 6–12px of movement
+            // (mouse threshold vs touch threshold) without clearing this timer.
+            if (drawingConnectionFromRef.current) return;
             // Long press detected! Start node drag (matches mouse behavior)
             // Don't check hasMovedPastThreshold - we want to start drag even if already moving
             if (isMouseDown.current && ts.dragNodeId === instanceId && !ts.isDragging) {
                 // Set flag BEFORE starting drag to enable early exit path immediately
                 ts.isDragging = true;
-                const started = startDragForNode(nodeData, ts.currentPosition.x, ts.currentPosition.y);
+                // Pass touchstart-captured offset so the grip-point is locked to where
+                // the finger first landed (not where it drifted to during the 500ms wait).
+                const started = startDragForNode(nodeData, ts.currentPosition.x, ts.currentPosition.y, ts.dragOffset);
                 if (started) {
                     ts.longPressReady = false;
                     setSelectedNodeIdForPieMenu(null);
@@ -706,7 +804,9 @@ export const useCanvasTouch = ({
                 if (!touchState.current.isDragging) {
                     // Set flag BEFORE to enable early exit path immediately
                     touchState.current.isDragging = true;
-                    const dragStarted = startDragForNode(nodeData, touch.clientX, touch.clientY);
+                    // Use touchstart-captured offset so grip stays locked even though
+                    // the finger has moved past TOUCH_MOVEMENT_THRESHOLD by this point.
+                    const dragStarted = startDragForNode(nodeData, touch.clientX, touch.clientY, touchState.current.dragOffset);
                     if (!dragStarted) {
                         // Rollback if start failed
                         touchState.current.isDragging = false;
@@ -773,7 +873,10 @@ export const useCanvasTouch = ({
             nodeData: null
         };
 
-        setDraggingNodeInfo(null);
+        // Same reasoning as handleNodeTouchEnd — handleMouseUp above (when a
+        // drag/connection was in flight) handles deferred cleanup. If neither
+        // was active, draggingNodeInfo is already null and this would be a
+        // no-op. Calling cancelDrag would only fight the zoom-restore.
         mouseInsideNode.current = false;
         // Detach any outstanding document listeners
         if (docTouchListenersRef.current) {
@@ -829,7 +932,16 @@ export const useCanvasTouch = ({
         };
 
         // Handle tap vs drag
-        if (!touchState.current.hasMovedPastThreshold && touchState.current.dragNodeId === nodeData.id) {
+        // Treat as tap only if: no movement past threshold, no drag in flight,
+        // and no connection-draw in flight. A touch-and-hold without movement
+        // still arms the long-press timer at 200ms which calls startDragForNode
+        // and sets touchState.current.isDragging = true. Without the isDragging
+        // guard here, the held-then-released gesture would also select the node.
+        const wasDragOrConnection =
+            touchState.current.isDragging ||
+            !!draggingNodeInfo ||
+            drawingConnectionFromRef.current;
+        if (!touchState.current.hasMovedPastThreshold && !wasDragOrConnection && touchState.current.dragNodeId === nodeData.id) {
             // This was a tap, not a drag
             // Light haptic feedback for tap completion
             if (typeof navigator !== 'undefined' && navigator.vibrate) {
@@ -892,7 +1004,11 @@ export const useCanvasTouch = ({
             nodeData: null
         };
 
-        setDraggingNodeInfo(null);
+        // Do NOT call setDraggingNodeInfo(null) here — it routes to cancelDrag,
+        // which clears the drag CSS transforms before the zoom-restore animation
+        // completes, snapping the node back to its pre-drag store position for
+        // ~250ms before performCleanup flushes. handleMouseUp above already
+        // triggers handleDragEnd's deferred-cleanup pipeline.
         mouseInsideNode.current = false;
         // Detach listeners if pending
         if (docTouchListenersRef.current) {
