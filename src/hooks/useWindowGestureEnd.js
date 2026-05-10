@@ -28,6 +28,7 @@ export function useWindowGestureEnd(active, onEnd) {
         ctrlKey: !!modifiers?.ctrlKey,
         stopPropagation: () => {},
         preventDefault: () => {},
+        __source: 'window-capture',
       });
     };
 

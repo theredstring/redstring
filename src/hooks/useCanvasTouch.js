@@ -96,11 +96,6 @@ export const useCanvasTouch = ({
         // nodeData removed - use dragNodeId for fresh lookups to avoid stale closures
     });
 
-    const docTouchListenersRef = useRef(null);
-    const handleNodeTouchMoveRef = useRef(null);
-    const handleNodeTouchEndRef = useRef(null);
-    const handleNodeTouchCancelRef = useRef(null);
-
     // Track most recent node tap for double-tap detection (mirrors mouse e.detail===2)
     const lastNodeTapRef = useRef({ id: null, ts: 0 });
     // Pending single-tap selection — deferred so a second tap can cancel it
@@ -116,13 +111,6 @@ export const useCanvasTouch = ({
     // (fires 300ms after touchend) reads the latest value, not a stale closure.
     const selectedInstanceIdsRef = useRef(selectedInstanceIds);
     useEffect(() => { selectedInstanceIdsRef.current = selectedInstanceIds; });
-
-    // Update refs on every render to avoid stale closures in event listeners
-    useEffect(() => {
-        handleNodeTouchMoveRef.current = handleNodeTouchMove;
-        handleNodeTouchEndRef.current = handleNodeTouchEnd;
-        handleNodeTouchCancelRef.current = handleNodeTouchCancel;
-    });
 
     // Window-scoped pointer tracking for connection-draw and node-drag.
     // Element-routed events stop firing once the finger leaves the originating
@@ -164,12 +152,56 @@ export const useCanvasTouch = ({
 
     // Single window+capture release listener for both gestures.
     // handleMouseUp dispatches internally via drawingConnectionFrom /
-    // draggingNodeInfo state; its connectionCreationInProgressRef guard +
-    // (added) drag-finalization guard in NodeCanvas dedup against the
-    // element-level / document-level paths firing the same release.
+    // draggingNodeInfo state; the reentrancy guard in handleMouseUp dedups
+    // against React onTouchEnd / onMouseUp firing the same release.
     useWindowGestureEnd(hasActiveGesture, (releaseEvent) => {
         handleMouseUpRef.current(releaseEvent);
     });
+
+    // Reset touchState when an active gesture ends. handleNodeTouchEnd
+    // (React onTouchEnd) is the normal cleanup path, but during drag the
+    // node element is re-mounted into the dragging-render slot — touch
+    // events that originated on the original element may not deliver to
+    // any React handler. Without this effect, touchState.current.dragNodeId
+    // stays set from the previous drag and:
+    //   - handleTouchMoveCanvas's `if (... || touchState.current.dragNodeId)`
+    //     guard blocks subsequent canvas pan
+    //   - handleNodeTouchMove's threshold checks misread leftover state
+    // Watching draggingNodeInfo + drawingConnectionFrom transitions catches
+    // both drag-end and connection-draw-end paths.
+    const prevGestureActiveRef = useRef(false);
+    useEffect(() => {
+        const wasActive = prevGestureActiveRef.current;
+        const nowActive = hasActiveGesture;
+        prevGestureActiveRef.current = nowActive;
+        if (!wasActive || nowActive) return;
+        // Gesture just ended — reset all touch-input state so the next
+        // canvas pan / node touch starts from a clean slate.
+        if (touchState.current.longPressTimer) {
+            clearTimeout(touchState.current.longPressTimer);
+        }
+        if (touchState.current.nodeElement) {
+            try {
+                touchState.current.nodeElement.classList.remove('touch-active', 'long-press-active');
+            } catch { }
+        }
+        touchState.current = {
+            isDragging: false,
+            dragNodeId: null,
+            startTime: 0,
+            startPosition: { x: 0, y: 0 },
+            currentPosition: { x: 0, y: 0 },
+            hasMovedPastThreshold: false,
+            longPressTimer: null,
+            nodeElement: null,
+            longPressReady: false,
+            dragOffset: null
+        };
+        isMouseDown.current = false;
+        startedOnNode.current = false;
+        mouseInsideNode.current = false;
+        longPressingInstanceIdRef.current = null;
+    }, [hasActiveGesture]);
 
     // Latest-value ref of drawingConnectionFrom so the touch long-press timer
     // (captured at touchstart) can bail when connection-draw is in progress.
@@ -506,7 +538,8 @@ export const useCanvasTouch = ({
             clientX,
             clientY,
             preventDefault: () => { try { e.preventDefault(); } catch { } },
-            stopPropagation: () => { try { e.stopPropagation(); } catch { } }
+            stopPropagation: () => { try { e.stopPropagation(); } catch { } },
+            __source: 'canvas-touchend',
         };
         // Route to mouseUp to reuse inertia/glide for single-finger pan
         handleMouseUp(synthetic);
@@ -555,67 +588,12 @@ export const useCanvasTouch = ({
     };
 
     const handleNodeTouchStart = (nodeData, e) => {
-        // Attach document-level listeners only once per touch session
-        // Check if listeners are already attached to avoid duplicates
-        if (!docTouchListenersRef.current) {
-            try {
-                // Create dedicated listeners with fresh node lookups to avoid stale closures
-                // Resolve node by id from the closure-captured `nodes`. If the
-                // dragged node's React element was remounted into the dedicated
-                // dragging-node block during the drag, `nodes` is still that
-                // pre-drag snapshot and find() resolves it. Fall back to a
-                // stub `{ id }` so we still terminate the drag when the array
-                // was rebuilt without the dragged entry — without this fallback
-                // a finger lifted away from the node leaves the drag stuck.
-                const resolveDraggedNode = () => {
-                    const id = touchState.current.dragNodeId;
-                    if (!id) return null;
-                    return nodes.find(n => n.id === id) || { id };
-                };
-                const moveListener = (ev) => {
-                    const freshNodeData = resolveDraggedNode();
-                    if (!freshNodeData) return;
-                    if (handleNodeTouchMoveRef.current) {
-                        handleNodeTouchMoveRef.current(freshNodeData, ev);
-                    }
-                };
-                const endListener = (ev) => {
-                    const freshNodeData = resolveDraggedNode();
-                    if (freshNodeData && handleNodeTouchEndRef.current) {
-                        handleNodeTouchEndRef.current(freshNodeData, ev);
-                    }
-                    try {
-                        document.removeEventListener('touchmove', moveListener, { passive: false });
-                        document.removeEventListener('touchend', endListener, { passive: false });
-                        document.removeEventListener('touchcancel', cancelListener, { passive: false });
-                    } catch (err) {
-                        // ignore
-                    }
-                    docTouchListenersRef.current = null;
-                };
-                const cancelListener = (ev) => {
-                    const freshNodeData = resolveDraggedNode();
-                    if (freshNodeData && handleNodeTouchCancelRef.current) {
-                        handleNodeTouchCancelRef.current(freshNodeData, ev);
-                    }
-                    else if (freshNodeData && handleNodeTouchEndRef.current) {
-                        handleNodeTouchEndRef.current(freshNodeData, ev);
-                    }
-                    try {
-                        document.removeEventListener('touchmove', moveListener, { passive: false });
-                        document.removeEventListener('touchend', endListener, { passive: false });
-                        document.removeEventListener('touchcancel', cancelListener, { passive: false });
-                    } catch { }
-                    docTouchListenersRef.current = null;
-                };
-                document.addEventListener('touchmove', moveListener, { passive: false });
-                document.addEventListener('touchend', endListener, { passive: false });
-                document.addEventListener('touchcancel', cancelListener, { passive: false });
-                docTouchListenersRef.current = { moveListener, endListener, cancelListener };
-            } catch (err) {
-                // ignore
-            }
-        }
+        // Window-scoped move + end tracking lives in:
+        //   - useNodeDrag's window pointermove effect (handleDragMove)
+        //   - useWindowGestureEnd (window+capture pointerup/touchend)
+        // Both fire regardless of which element the finger is over, so the
+        // older document-level touchmove/touchend listeners that used to be
+        // attached here are redundant and have been removed.
         e.stopPropagation();
         if (isPaused || !activeGraphId) return;
 
@@ -873,10 +851,11 @@ export const useCanvasTouch = ({
         if (touchState.current.isDragging || drawingConnectionFrom) {
             // Synthesize a mouse up to clear drag state
             const synthetic = {
-                clientX: (e && e.changedTouches && e.changedTouches[0]?.clientX) || lastMousePosRef.current?.x || 0,
-                clientY: (e && e.changedTouches && e.changedTouches[0]?.clientY) || lastMousePosRef.current?.y || 0,
+                clientX: (e && e.changedTouches && e.changedTouches[0]?.clientX) || 0,
+                clientY: (e && e.changedTouches && e.changedTouches[0]?.clientY) || 0,
                 stopPropagation: () => { },
-                preventDefault: () => { }
+                preventDefault: () => { },
+                __source: 'node-touchcancel',
             };
             handleMouseUp(synthetic);
         }
@@ -901,16 +880,6 @@ export const useCanvasTouch = ({
         // was active, draggingNodeInfo is already null and this would be a
         // no-op. Calling cancelDrag would only fight the zoom-restore.
         mouseInsideNode.current = false;
-        // Detach any outstanding document listeners
-        if (docTouchListenersRef.current) {
-            const { moveListener, endListener, cancelListener } = docTouchListenersRef.current;
-            try {
-                document.removeEventListener('touchmove', moveListener, { passive: false });
-                document.removeEventListener('touchend', endListener, { passive: false });
-                document.removeEventListener('touchcancel', cancelListener, { passive: false });
-            } catch { }
-            docTouchListenersRef.current = null;
-        }
     };
 
     const handleNodeTouchEnd = (nodeData, e) => {
@@ -951,7 +920,8 @@ export const useCanvasTouch = ({
             clientX: touch.clientX,
             clientY: touch.clientY,
             stopPropagation: () => e.stopPropagation(),
-            preventDefault: () => e.preventDefault()
+            preventDefault: () => e.preventDefault(),
+            __source: 'node-touchend',
         };
 
         // Handle tap vs drag
@@ -1056,18 +1026,8 @@ export const useCanvasTouch = ({
         // which clears the drag CSS transforms before the zoom-restore animation
         // completes, snapping the node back to its pre-drag store position for
         // ~250ms before performCleanup flushes. handleMouseUp above already
-        // triggers handleDragEnd's deferred-cleanup pipeline.
+        // triggers handleDragEnd's cleanup-at-start pipeline.
         mouseInsideNode.current = false;
-        // Detach listeners if pending
-        if (docTouchListenersRef.current) {
-            const { moveListener, endListener, cancelListener } = docTouchListenersRef.current;
-            try {
-                document.removeEventListener('touchmove', moveListener, { passive: false });
-                document.removeEventListener('touchend', endListener, { passive: false });
-                document.removeEventListener('touchcancel', cancelListener, { passive: false });
-            } catch { }
-            docTouchListenersRef.current = null;
-        }
     };
 
     // Pointer -> Touch compatibility helpers (function declarations to avoid TDZ)

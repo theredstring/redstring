@@ -1683,6 +1683,7 @@ function NodeCanvas() {
   // Aliases for 1:1 replacement of old local state/refs
   const draggingNodeInfo = nodeDrag.draggingNodeInfo;
   const draggingNodeInfoRef = nodeDrag.draggingNodeInfoRef;
+  const dragPhaseRef = nodeDrag.dragPhaseRef;
   const isAnimatingZoomRef = nodeDrag.isAnimatingZoomRef;
   const longPressingInstanceId = nodeDrag.longPressingInstanceId;
   const setLongPressingInstanceId = nodeDrag.setLongPressingInstanceId;
@@ -3998,8 +3999,13 @@ function NodeCanvas() {
   const selectionBaseRef = useRef(new Set());
   const wasSelectionBox = useRef(false);
   const wasDrawingConnection = useRef(false);
-  const connectionCreationInProgressRef = useRef(false); // Guard against double edge creation from event bubbling
-  const dragFinalizationInProgressRef = useRef(false); // Guard against double drag-end from window-capture + element + document end paths
+  // Atomic re-entry guard for handleMouseUp. Multiple release paths
+  // (window+capture pointerup, React onMouseUp/onTouchEnd) can synchronously
+  // invoke handleMouseUp in the same tick — without this guard, connection
+  // creation, drag finalization, and selection-box logic all run twice.
+  // Set at top of handleMouseUp, cleared in finally. Replaces the older
+  // timeout-based connectionCreationInProgressRef + dragFinalizationInProgressRef.
+  const handleMouseUpInProgressRef = useRef(false);
   // Add refs for click vs double-click detection
   const clickTimeoutIdRef = useRef(null);
   const potentialClickNodeRef = useRef(null);
@@ -6049,14 +6055,21 @@ function NodeCanvas() {
       return;
     }
 
+    // Atomic re-entry guard. Without this, window-capture pointerup +
+    // React onMouseUp/onTouchEnd would all run this body in the same tick,
+    // double-finalizing connections, drags, and selection boxes.
+    if (handleMouseUpInProgressRef.current) return;
+    handleMouseUpInProgressRef.current = true;
+    try {
+
     if (isPaused || !activeGraphId) return;
     clearTimeout(longPressTimeout.current);
     setLongPressingInstanceId(null); // Clear ID
     mouseInsideNode.current = false;
 
-    // Finalize drawing connection - with guard against double execution from event bubbling
-    if (drawingConnectionFrom && !connectionCreationInProgressRef.current) {
-      connectionCreationInProgressRef.current = true; // Guard against bubbled duplicate calls
+    // Finalize drawing connection. Re-entry already guarded at top of
+    // handleMouseUp by handleMouseUpInProgressRef.
+    if (drawingConnectionFrom) {
       wasDrawingConnection.current = true; // Prevent PlusSign from appearing
       // Check nodes first, then fall back to group title areas
       let targetNodeData = nodes.find(n => !n.isGroupAnchor && isInsideNode(n, e.clientX, e.clientY));
@@ -6094,21 +6107,15 @@ function NodeCanvas() {
       }
       setDrawingConnectionFrom(null);
       connectionExitedSourceRef.current = false;
-      // Reset guard after a short delay to allow for the next connection drawing
-      setTimeout(() => { connectionCreationInProgressRef.current = false; }, 50);
     }
 
-    // Drag finalization (delegated to useNodeDrag hook)
-    // Guarded against double-fire: the window-capture release listener in
-    // useCanvasTouch fires first, then React onTouchEnd / document listeners
-    // can re-enter handleMouseUp with draggingNodeInfo still truthy (state
-    // hasn't flushed yet). Without this guard, handleDragEnd's else branch
-    // (when restoreInProgressRef is already set) runs performCleanup
-    // synchronously mid-zoom-restore animation, snapping the node back.
-    if (draggingNodeInfo && !dragFinalizationInProgressRef.current) {
-      dragFinalizationInProgressRef.current = true;
-      // Reset window long enough to outlast the zoom-restore animation (~250ms).
-      setTimeout(() => { dragFinalizationInProgressRef.current = false; }, 400);
+    // Drag finalization (delegated to useNodeDrag hook).
+    // Read from refs, not state: setDraggingNodeInfo's React commit may not
+    // have flushed by the time the window-capture pointerup arrives. The
+    // dragPhaseRef === 'dragging' check is also handleDragEnd's own atomic
+    // dedup, but we re-check here to skip the surrounding UI work too
+    // (group-drop dialog, ignoreCanvasClick).
+    if (draggingNodeInfoRef.current && dragPhaseRef.current === 'dragging') {
       // Any drag-release must suppress the synthetic canvas click the browser
       // fires immediately after mouseup — otherwise handleCanvasClick spawns
       // a plus sign at the drop point. The existing
@@ -6279,6 +6286,9 @@ function NodeCanvas() {
     // Reset mouseMoved.current immediately after mouse up logic is done
     // This prevents race condition with canvas click handler
     mouseMoved.current = false;
+    } finally {
+      handleMouseUpInProgressRef.current = false;
+    }
   };
   const handleMouseUpCanvas = (e) => {
     // Stop propagation to prevent duplicate handleMouseUp calls from parent container
