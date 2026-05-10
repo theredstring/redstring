@@ -1053,10 +1053,14 @@ export const useCanvasTouch = ({
     }
 
     function handleNodePointerMove(nodeData, e) {
-        if (e && e.pointerType && e.pointerType !== 'mouse') {
-            try { e.stopPropagation(); } catch { }
-            handleNodeTouchMove(nodeData, toSyntheticTouchEventFromPointer(e));
-        }
+        // Touch movement is handled via React onTouchMove on the node element.
+        // Touch events stick to the originating element across the whole
+        // gesture, but pointer events do not (and onPointerMove is unreliable
+        // for touch on SVG <g> in iOS Safari). Restricting this to non-touch
+        // pointer types (pen / stylus) avoids double-firing handleNodeTouchMove.
+        if (!e || !e.pointerType || e.pointerType === 'mouse' || e.pointerType === 'touch') return;
+        try { e.stopPropagation(); } catch { }
+        handleNodeTouchMove(nodeData, toSyntheticTouchEventFromPointer(e));
     }
 
     function handleNodePointerUp(nodeData, e) {

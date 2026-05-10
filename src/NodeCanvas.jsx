@@ -12325,6 +12325,7 @@ function NodeCanvas() {
                         onPointerUp={(e) => touch.handleNodePointerUp(node, e)}
                         onPointerCancel={(e) => touch.handleNodePointerCancel(node, e)}
                         onTouchStart={(e) => touch.handleNodeTouchStart(node, e)}
+                        onTouchMove={(e) => touch.handleNodeTouchMove(node, e)}
                         onTouchEnd={(e) => touch.handleNodeTouchEnd(node, e)}
                         onContextMenu={(e) => {
                           e.preventDefault();
@@ -12589,6 +12590,7 @@ function NodeCanvas() {
                                 onPointerUp={(e) => touch.handleNodePointerUp(activeNodeToRender, e)}
                                 onPointerCancel={(e) => touch.handleNodePointerCancel(activeNodeToRender, e)}
                                 onTouchStart={(e) => touch.handleNodeTouchStart(activeNodeToRender, e)}
+                                onTouchMove={(e) => touch.handleNodeTouchMove(activeNodeToRender, e)}
                                 onTouchEnd={(e) => touch.handleNodeTouchEnd(activeNodeToRender, e)}
                                 onContextMenu={(e) => {
                                   e.preventDefault();
@@ -12684,6 +12686,7 @@ function NodeCanvas() {
                               onPointerUp={(e) => touch.handleNodePointerUp(draggingNodeToRender, e)}
                               onPointerCancel={(e) => touch.handleNodePointerCancel(draggingNodeToRender, e)}
                               onTouchStart={(e) => touch.handleNodeTouchStart(draggingNodeToRender, e)}
+                              onTouchMove={(e) => touch.handleNodeTouchMove(draggingNodeToRender, e)}
                               onTouchEnd={(e) => touch.handleNodeTouchEnd(draggingNodeToRender, e)}
                               onContextMenu={(e) => {
                                 e.preventDefault();
