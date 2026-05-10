@@ -9179,6 +9179,119 @@ function NodeCanvas() {
                         onMouseLeave={() => {
                           clearTimeout(groupLongPressTimeout.current);
                         }}
+                        onTouchStart={(e) => {
+                          // Mirror onMouseDown for touch. Without this, touching a
+                          // group title only triggers canvas pan — the long-press
+                          // group-drag path never runs.
+                          e.stopPropagation();
+                          if (editingGroupId === group.id) return;
+                          if (!e.touches || e.touches.length !== 1) {
+                            // Multi-touch (pinch intent) — bail and let canvas handle it.
+                            clearTimeout(groupLongPressTimeout.current);
+                            return;
+                          }
+                          const touch = e.touches[0];
+                          const downX = touch.clientX;
+                          const downY = touch.clientY;
+                          if (isNodeGroup && group.anchorInstanceId) {
+                            isMouseDown.current = true;
+                            mouseDownPosition.current = { x: downX, y: downY };
+                            mouseMoved.current = false;
+                            mouseInsideNode.current = true;
+                            startedOnNode.current = true;
+                            setLongPressingInstanceId(group.anchorInstanceId);
+                          }
+                          clearTimeout(groupLongPressTimeout.current);
+
+                          // Document-level listeners so the drag survives the finger
+                          // leaving the title rect (it will, once dragging starts).
+                          const moveListener = (ev) => {
+                            const t = ev.touches?.[0];
+                            if (!t) return;
+                            if (ev.touches.length > 1) {
+                              // Second finger landed — abandon the group gesture.
+                              clearTimeout(groupLongPressTimeout.current);
+                              if (isNodeGroup && group.anchorInstanceId) setLongPressingInstanceId(null);
+                              cleanup();
+                              return;
+                            }
+                            // Cancel the long-press timer if finger moves past threshold
+                            // before the timer fires (matches mouseLeave behavior).
+                            if (!nodeDrag.draggingNodeInfoRef.current) {
+                              const dx = t.clientX - downX;
+                              const dy = t.clientY - downY;
+                              if (Math.hypot(dx, dy) > TOUCH_MOVEMENT_THRESHOLD) {
+                                clearTimeout(groupLongPressTimeout.current);
+                                if (isNodeGroup && group.anchorInstanceId) setLongPressingInstanceId(null);
+                              }
+                              return;
+                            }
+                            // Group drag is active — drive movement.
+                            handleMouseMove({
+                              clientX: t.clientX,
+                              clientY: t.clientY,
+                              preventDefault: () => { try { if (ev.cancelable) ev.preventDefault(); } catch { } },
+                              stopPropagation: () => { try { ev.stopPropagation(); } catch { } }
+                            });
+                          };
+                          const endListener = (ev) => {
+                            clearTimeout(groupLongPressTimeout.current);
+                            if (isNodeGroup && group.anchorInstanceId) setLongPressingInstanceId(null);
+                            const t = ev.changedTouches?.[0];
+                            const wasDragging = !!nodeDrag.draggingNodeInfoRef.current;
+                            cleanup();
+                            if (t && wasDragging) {
+                              handleMouseUp({
+                                clientX: t.clientX,
+                                clientY: t.clientY,
+                                changedTouches: ev.changedTouches,
+                                preventDefault: () => { try { if (ev.cancelable) ev.preventDefault(); } catch { } },
+                                stopPropagation: () => { try { ev.stopPropagation(); } catch { } }
+                              });
+                            }
+                          };
+                          const cleanup = () => {
+                            try {
+                              document.removeEventListener('touchmove', moveListener);
+                              document.removeEventListener('touchend', endListener);
+                              document.removeEventListener('touchcancel', endListener);
+                            } catch { }
+                          };
+                          document.addEventListener('touchmove', moveListener, { passive: true });
+                          document.addEventListener('touchend', endListener, { passive: true });
+                          document.addEventListener('touchcancel', endListener, { passive: true });
+
+                          groupLongPressTimeout.current = setTimeout(() => {
+                            if (drawingConnectionFrom) return;
+                            setLongPressingInstanceId(null);
+                            const rect = containerRef.current.getBoundingClientRect();
+                            const mouseCanvasX = (downX - rect.left - panOffsetRef.current.x) / zoomLevelRef.current + canvasSize.offsetX;
+                            const mouseCanvasY = (downY - rect.top - panOffsetRef.current.y) / zoomLevelRef.current + canvasSize.offsetY;
+                            const offsets = members.map(m => ({ id: m.id, dx: mouseCanvasX - m.x, dy: mouseCanvasY - m.y }));
+                            if (group.anchorInstanceId) {
+                              const anchorNode = nodes.find(n => n.id === group.anchorInstanceId);
+                              if (anchorNode) {
+                                offsets.push({ id: anchorNode.id, dx: mouseCanvasX - anchorNode.x, dy: mouseCanvasY - anchorNode.y });
+                              }
+                            }
+                            nodeDrag.startGroupDrag(group.id, offsets, downX, downY);
+                            if (typeof navigator !== 'undefined' && navigator.vibrate) {
+                              try { navigator.vibrate(50); } catch { }
+                            }
+                          }, LONG_PRESS_DURATION);
+                        }}
+                        onTouchEnd={() => {
+                          // Document-level endListener handles the real cleanup;
+                          // this is a defensive guard for the case where the
+                          // element-level event fires but the document one
+                          // somehow didn't (e.g. event-system quirk).
+                          clearTimeout(groupLongPressTimeout.current);
+                          if (isNodeGroup && group.anchorInstanceId) setLongPressingInstanceId(null);
+                        }}
+                        onTouchCancel={() => {
+                          clearTimeout(groupLongPressTimeout.current);
+                          if (isNodeGroup && group.anchorInstanceId) setLongPressingInstanceId(null);
+                        }}
                       >
                         <rect x={labelX} y={labelY} width={labelWidth} height={labelHeight} rx={20} ry={20}
                           fill={isNodeGroup ? "none" : theme.canvas.bg}

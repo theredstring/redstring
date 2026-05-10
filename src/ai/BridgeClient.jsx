@@ -1879,10 +1879,16 @@ const BridgeClient = () => {
 
       const now = Date.now();
       const timeSinceActivity = now - lastActivityRef.current;
-      const isIdle = timeSinceActivity > 60000; // 60 seconds idle
+      const isIdle = timeSinceActivity > 15000; // 15 seconds idle
+      const isDeeplyIdle = timeSinceActivity > 60000; // 60 seconds idle
 
-      // Fast poll (250ms) if active, slow poll (3s) if idle
-      const interval = isIdle ? 3000 : 250;
+      // Adaptive polling based on activity level
+      let interval = 500; // 500ms when active
+      if (isDeeplyIdle) {
+        interval = 5000; // 5s when completely idle
+      } else if (isIdle) {
+        interval = 2000; // 2s when getting idle
+      }
 
       await checkForBridgeUpdates();
 
