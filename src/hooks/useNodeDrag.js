@@ -301,13 +301,6 @@ export const useNodeDrag = ({
   const computePositionUpdates = useCallback((mouseCanvasX, mouseCanvasY, draggingInfo) => {
     if (!draggingInfo) return [];
 
-    // Suppress grid snap while the drag-zoom-out (or zoom-restore) animation is
-    // running. During those ~250ms the cursor's world coordinate is shifting
-    // every frame as zoom interpolates, so a fixed-cell snap target makes
-    // members teleport between cells. Once zoom settles, snap re-engages and
-    // members land on the grid in one final adjustment.
-    const snapActive = gridMode !== 'off' && !isAnimatingZoomRef.current;
-
     // Group drag via label — each member snaps to its own nearest grid cell
     // (preserves the multidrag-like feel). The frame-diff fast-path in
     // performDOMDragUpdate skips DOM work on frames where no member crossed
@@ -317,14 +310,14 @@ export const useNodeDrag = ({
         const node = nodeByIdRef.current.get(id);
         const xRaw = mouseCanvasX - dx;
         const yRaw = mouseCanvasY - dy;
-        if (!node || !snapActive) {
+        if (!node || gridMode === 'off') {
           return { instanceId: id, x: xRaw, y: yRaw };
         }
         const dims = getNodeDimensions(node, false, null);
         const centerX = xRaw + dims.currentWidth / 2;
         const centerY = yRaw + dims.currentHeight / 2;
-        const snappedCenterX = Math.floor(centerX / gridSize) * gridSize;
-        const snappedCenterY = Math.floor(centerY / gridSize) * gridSize;
+        const snappedCenterX = Math.round(centerX / gridSize) * gridSize;
+        const snappedCenterY = Math.round(centerY / gridSize) * gridSize;
         return { instanceId: id, x: snappedCenterX - dims.currentWidth / 2, y: snappedCenterY - dims.currentHeight / 2 };
       });
     }
@@ -337,7 +330,7 @@ export const useNodeDrag = ({
       let newPrimaryX = draggingInfo.initialPrimaryPos.x + dx;
       let newPrimaryY = draggingInfo.initialPrimaryPos.y + dy;
 
-      if (snapActive) {
+      if (gridMode !== 'off') {
         const primaryNode = nodeByIdRef.current.get(primaryInstanceId);
         if (primaryNode) {
           const dims = getNodeDimensions(primaryNode, false, null);
@@ -363,7 +356,7 @@ export const useNodeDrag = ({
     const dims = getNodeDimensions(node, false, null);
     let newX, newY;
 
-    if (snapActive) {
+    if (gridMode !== 'off') {
       const snapped = snapToGridAnimated(mouseCanvasX, mouseCanvasY, dims.currentWidth, dims.currentHeight, { x: node.x, y: node.y });
       newX = snapped.x;
       newY = snapped.y;
@@ -1382,8 +1375,8 @@ export const useNodeDrag = ({
         const dims = getNodeDimensions(node, false, null);
         const centerX = xRaw + dims.currentWidth / 2;
         const centerY = yRaw + dims.currentHeight / 2;
-        const snappedCenterX = Math.floor(centerX / gridSize) * gridSize;
-        const snappedCenterY = Math.floor(centerY / gridSize) * gridSize;
+        const snappedCenterX = Math.round(centerX / gridSize) * gridSize;
+        const snappedCenterY = Math.round(centerY / gridSize) * gridSize;
         return {
           instanceId: id,
           x: snappedCenterX - (dims.currentWidth / 2),

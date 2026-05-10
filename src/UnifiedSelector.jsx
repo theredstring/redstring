@@ -1,4 +1,5 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
+import { createPortal } from 'react-dom';
 import { X, Palette, Plus } from 'lucide-react';
 import { NODE_DEFAULT_COLOR, MODAL_CLOSE_ICON_SIZE } from './constants';
 import { getTextColor } from './utils/colorUtils';
@@ -56,7 +57,7 @@ const UnifiedSelector = ({
 
   const nodePrototypesMap = useGraphStore(state => state.nodePrototypes);
 
-  const bounds = useViewportBounds(leftPanelExpanded, rightPanelExpanded);
+  const bounds = useViewportBounds(false, false);
   const mobileState = useMobileDetection();
 
   const showDialog = (searchOnly || mode === 'node-creation' || mode === 'connection-creation' || mode === 'abstraction-node-creation' || mode === 'node-typing' || mode === 'node-group-creation');
@@ -169,12 +170,12 @@ const UnifiedSelector = ({
   const iconSize = isMobilePortrait ? 22 : 18;
   const closeIconSize = isMobilePortrait ? 22 : 18;
 
-  return (
+  const content = (
     <>
       <div
         style={{
           position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.3)',
-          backdropFilter: 'blur(2px)', WebkitBackdropFilter: 'blur(2px)', zIndex: 1000,
+          backdropFilter: 'blur(2px)', WebkitBackdropFilter: 'blur(2px)', zIndex: 999998,
           touchAction: 'manipulation'
         }}
         onPointerDown={(e) => e.stopPropagation()} // Stop propagation on backdrop too to prevent canvas panning
@@ -204,7 +205,7 @@ const UnifiedSelector = ({
           top: `${Math.round(bounds.y + outerMargin)}px`,
           width: `${Math.round(overlayWidth)}px`,
           height: `${Math.round(overlayHeight)}px`,
-          zIndex: 1001,
+          zIndex: 999999,
           display: 'flex',
           flexDirection: 'column',
           gap: isSmallScreen ? '12px' : '18px',
@@ -511,6 +512,8 @@ const UnifiedSelector = ({
       )}
     </>
   );
+
+  return createPortal(content, document.body);
 };
 
 export default UnifiedSelector;

@@ -168,9 +168,12 @@ export function snapToGrid(mouseX, mouseY, nodeWidth, nodeHeight, gridMode, grid
     return { x: mouseX, y: mouseY };
   }
 
-  // Snap to grid vertices - use Math.floor to ensure mouse snaps to grid line above
-  const nearestGridX = Math.floor(mouseX / gridSize) * gridSize;
-  const nearestGridY = Math.floor(mouseY / gridSize) * gridSize;
+  // Snap to grid vertices — Math.round picks the nearest line. Math.floor
+  // (the previous implementation) always biased toward the lower-left grid
+  // line, so a cursor near the right edge of a cell would still snap to the
+  // far-left line, producing an up-and-left "teleport" at drag start.
+  const nearestGridX = Math.round(mouseX / gridSize) * gridSize;
+  const nearestGridY = Math.round(mouseY / gridSize) * gridSize;
 
   // Calculate snapped position - center the node on the grid vertex
   // This ensures the node's center (where text is) aligns with grid intersections
