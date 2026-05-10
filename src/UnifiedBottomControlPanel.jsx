@@ -203,20 +203,23 @@ const UnifiedBottomControlPanel = ({
   // Mobile-responsive icon sizing
   const iconSize = mobileState.isMobilePortrait ? 16 : 18;
 
+  // Upper bound for any renderer containerWidth — keeps us from asking for more
+  // space than the viewport actually offers. Auto-updates on resize via useMobileDetection.
+  const viewportLimit = Math.max(260, mobileState.width - 24);
+
   const nodeRendererMetrics = useMemo(() => {
     if (!nodeDimensionEntries.length) {
       return {
         nodesForRenderer: [],
-        containerWidth: mobileState.isMobilePortrait ? Math.min(340, mobileState.width - 20) : 360,
+        containerWidth: Math.min(360, viewportLimit),
         containerHeight: 90,
         padding: 10
       };
     }
 
-    // Mobile-responsive sizing
-    const PADDING = mobileState.isMobilePortrait ? 8 : 10;
-    const BASE_CONTAINER_WIDTH = mobileState.isMobilePortrait ? Math.min(320, mobileState.width - 20) : 360;
-    const MAX_CONTAINER_WIDTH = mobileState.isMobilePortrait ? Math.min(480, mobileState.width - 16) : 520;
+    const PADDING = 10;
+    const BASE_CONTAINER_WIDTH = Math.min(360, viewportLimit);
+    const MAX_CONTAINER_WIDTH = Math.min(520, viewportLimit);
     const BASE_CONTAINER_HEIGHT = mobileState.isMobilePortrait ? 92 : 104;
     const ROW_HEIGHT_INCREMENT = mobileState.isMobilePortrait ? 56 : 64;
     const MAX_CONTAINER_HEIGHT = mobileState.isMobilePortrait ? 200 : 240;
@@ -328,7 +331,7 @@ const UnifiedBottomControlPanel = ({
       containerHeight,
       padding: PADDING
     };
-  }, [nodeDimensionEntries]);
+  }, [nodeDimensionEntries, viewportLimit, mobileState.isMobilePortrait]);
 
   const nodeGroupPrototype = useMemo(() => {
     if (!isNodeGroup || !selectedGroup?.linkedNodePrototypeId) return null;
@@ -361,18 +364,18 @@ const UnifiedBottomControlPanel = ({
   const nodeGroupRendererMetrics = useMemo(() => {
     if (!nodeGroupRendererNode) {
       return {
-        containerWidth: 340,
+        containerWidth: Math.min(340, viewportLimit),
         containerHeight: 120,
         padding: 16
       };
     }
 
     return {
-      containerWidth: Math.max(340, nodeGroupRendererNode.width + 80),
+      containerWidth: Math.min(viewportLimit, Math.max(280, nodeGroupRendererNode.width + 80)),
       containerHeight: Math.max(120, nodeGroupRendererNode.height + 40),
       padding: 16
     };
-  }, [nodeGroupRendererNode]);
+  }, [nodeGroupRendererNode, viewportLimit]);
 
   const handleNodeGroupDefinitionClick = useCallback(() => {
     if (!onDiveIntoDefinition) return;
@@ -410,18 +413,18 @@ const UnifiedBottomControlPanel = ({
   const groupRendererMetrics = useMemo(() => {
     if (!groupRendererNode) {
       return {
-        containerWidth: 320,
+        containerWidth: Math.min(320, viewportLimit),
         containerHeight: 110,
         padding: 16
       };
     }
 
     return {
-      containerWidth: Math.max(200, groupRendererNode.width + 48),
+      containerWidth: Math.min(viewportLimit, Math.max(200, groupRendererNode.width + 48)),
       containerHeight: Math.max(110, groupRendererNode.height + 20),
       padding: 8
     };
-  }, [groupRendererNode]);
+  }, [groupRendererNode, viewportLimit]);
 
   if (!shouldRender) return null;
 
@@ -544,15 +547,15 @@ const UnifiedBottomControlPanel = ({
                 };
               });
 
-              // Dynamic sizing based on actual content needs with reasonable maximum
-              const baseSpacing = mobileState.isMobilePortrait ? 180 : 200; // Reduced base width
+              // Dynamic sizing based on actual content needs, clamped to viewport.
+              const baseSpacing = 140;
               // Self-loops render as two side-by-side copies in UniversalNodeRenderer; budget width accordingly.
               const selfLoopCount = connections.reduce(
                 (n, c) => n + (c.sourceId && c.destinationId && c.sourceId === c.destinationId ? 1 : 0),
                 0
               );
               const layoutNodeCount = nodes.length + selfLoopCount;
-              const nodeSpacing = layoutNodeCount * (mobileState.isMobilePortrait ? 80 : 90); // Reduced per-node spacing
+              const nodeSpacing = layoutNodeCount * 70;
 
               const connectionLabelFont = mobileState.isMobilePortrait
                 ? '22px "EmOne", sans-serif'
@@ -564,23 +567,23 @@ const UnifiedBottomControlPanel = ({
               }, 0);
 
               const connectionLabelSpace = Math.max(
-                mobileState.isMobilePortrait ? 240 : 320,
-                Math.ceil(longestConnectionLabelWidth + (mobileState.isMobilePortrait ? 160 : 220))
+                220,
+                Math.ceil(longestConnectionLabelWidth + 180)
               );
 
-              // Calculate container width - as big as needed with sensible max
+              // Container width — never exceeds available viewport.
               const calculatedWidth = Math.min(
-                1600, // Allow longer connection labels while keeping a sensible maximum width
+                viewportLimit,
+                1600,
                 baseSpacing + nodeSpacing + connectionLabelSpace
               );
 
               const dynamicMinHorizontalSpacing = Math.max(
-                mobileState.isMobilePortrait ? 90 : 120,
-                Math.min(
-                  connectionLabelSpace - (mobileState.isMobilePortrait ? 60 : 80),
-                  mobileState.isMobilePortrait ? 320 : 380
-                )
+                80,
+                Math.min(connectionLabelSpace - 60, 380)
               );
+
+              const calculatedHeight = Math.min(180, Math.max(120, calculatedWidth * 0.32));
 
               return (
                 <UniversalNodeRenderer
@@ -588,7 +591,7 @@ const UnifiedBottomControlPanel = ({
                   nodes={nodes}
                   connections={connections}
                   containerWidth={calculatedWidth}
-                  containerHeight={mobileState.isMobilePortrait ? 160 : 180}
+                  containerHeight={calculatedHeight}
                   minHorizontalSpacing={dynamicMinHorizontalSpacing}
                   onNodeClick={onNodeClick}
                   onConnectionClick={onPredicateClick}
