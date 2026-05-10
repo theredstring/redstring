@@ -6087,6 +6087,13 @@ function NodeCanvas() {
 
     // Drag finalization (delegated to useNodeDrag hook)
     if (draggingNodeInfo) {
+      // Any drag-release must suppress the synthetic canvas click the browser
+      // fires immediately after mouseup — otherwise handleCanvasClick spawns
+      // a plus sign at the drop point. The existing
+      // `mouseMoved && !startedOnNode` guard further down doesn't catch
+      // thing-group drags (startedOnNode is true for those), so set the
+      // suppression unconditionally here.
+      ignoreCanvasClick.current = true;
       const clientX = e.clientX || (e.changedTouches && e.changedTouches[0] ? e.changedTouches[0].clientX : 0);
       const clientY = e.clientY || (e.changedTouches && e.changedTouches[0] ? e.changedTouches[0].clientY : 0);
       const dragResult = nodeDrag.handleDragEnd(clientX, clientY, graphsMap);
@@ -9008,6 +9015,58 @@ function NodeCanvas() {
                   );
                 })()}
 
+                {/* Grid overlay — rendered before groups/nodes/edges so it
+                    sits underneath them in z-order. SVG <pattern> tiles in the
+                    GPU paint layer (ONE <rect> instead of thousands of lines). */}
+                {(gridMode === 'always' || (gridMode === 'hover' && !!draggingNodeInfo)) && (() => {
+                  const dotR = Math.min(6, Math.max(3, gridSize * 0.06));
+                  const lineColor = theme.darkMode ? "#716C6C" : "#979090";
+                  const dotColor = theme.canvas.textPrimary;
+                  return (
+                    <g className="grid-overlay" pointerEvents="none">
+                      <defs>
+                        {gridMode === 'always' && (
+                          <pattern
+                            id="grid-lines-pattern"
+                            x={0}
+                            y={0}
+                            width={gridSize}
+                            height={gridSize}
+                            patternUnits="userSpaceOnUse"
+                          >
+                            <path
+                              d={`M ${gridSize} 0 L 0 0 0 ${gridSize}`}
+                              fill="none"
+                              stroke={lineColor}
+                              strokeWidth="0.75"
+                              vectorEffect="non-scaling-stroke"
+                            />
+                          </pattern>
+                        )}
+                        {gridMode === 'hover' && !!draggingNodeInfo && (
+                          <pattern
+                            id="grid-dots-pattern"
+                            x={0}
+                            y={0}
+                            width={gridSize}
+                            height={gridSize}
+                            patternUnits="userSpaceOnUse"
+                          >
+                            <circle cx={0} cy={0} r={dotR} fill={dotColor} opacity={0.3} />
+                          </pattern>
+                        )}
+                      </defs>
+                      <rect
+                        x={canvasSize.offsetX}
+                        y={canvasSize.offsetY}
+                        width={canvasSize.width}
+                        height={canvasSize.height}
+                        fill={`url(#${gridMode === 'always' ? 'grid-lines-pattern' : 'grid-dots-pattern'})`}
+                      />
+                    </g>
+                  );
+                })()}
+
                 {/* Groups Phase 1: Compute all group layouts, render regular group outlines.
                     Thing-group backgrounds and titles are stored in refs for rendering at higher z-levels. */}
                 {(() => {
@@ -9444,60 +9503,6 @@ function NodeCanvas() {
                     <g className="regular-groups-layer">{regularGroupElements}</g>
                   ) : null;
                 })()}
-                {/* Grid overlay — SVG <pattern> fills tile natively in the
-                    GPU paint layer, so we render ONE <rect> instead of
-                    thousands of <line>/<circle> JSX elements. This collapses
-                    the per-render reconciliation cost from O(canvasArea/gridSize²)
-                    to O(1) and removes the grid from drag-time SVG repaint. */}
-                {(gridMode === 'always' || (gridMode === 'hover' && !!draggingNodeInfo)) && (() => {
-                  const dotR = Math.min(6, Math.max(3, gridSize * 0.06));
-                  const lineColor = theme.darkMode ? "#3F3A3A" : "#979090";
-                  const dotColor = theme.canvas.textPrimary;
-                  return (
-                    <g className="grid-overlay" pointerEvents="none">
-                      <defs>
-                        {gridMode === 'always' && (
-                          <pattern
-                            id="grid-lines-pattern"
-                            x={0}
-                            y={0}
-                            width={gridSize}
-                            height={gridSize}
-                            patternUnits="userSpaceOnUse"
-                          >
-                            <path
-                              d={`M ${gridSize} 0 L 0 0 0 ${gridSize}`}
-                              fill="none"
-                              stroke={lineColor}
-                              strokeWidth="0.75"
-                              vectorEffect="non-scaling-stroke"
-                            />
-                          </pattern>
-                        )}
-                        {gridMode === 'hover' && !!draggingNodeInfo && (
-                          <pattern
-                            id="grid-dots-pattern"
-                            x={0}
-                            y={0}
-                            width={gridSize}
-                            height={gridSize}
-                            patternUnits="userSpaceOnUse"
-                          >
-                            <circle cx={0} cy={0} r={dotR} fill={dotColor} opacity={0.3} />
-                          </pattern>
-                        )}
-                      </defs>
-                      <rect
-                        x={canvasSize.offsetX}
-                        y={canvasSize.offsetY}
-                        width={canvasSize.width}
-                        height={canvasSize.height}
-                        fill={`url(#${gridMode === 'always' ? 'grid-lines-pattern' : 'grid-dots-pattern'})`}
-                      />
-                    </g>
-                  );
-                })()}
-
                 {/* Debug: Node Hitbox Visualization */}
                 {showNodeHitboxes && hydratedNodes.map(node => {
                   const dims = baseDimsById.get(node.id);
