@@ -1,5 +1,6 @@
 
 import { useRef, useEffect } from 'react';
+import { useWindowGestureEnd } from './useWindowGestureEnd';
 
 // Constants locally defined or passed? 
 // Some constants seem global. I should duplicates them or export/import them.
@@ -123,31 +124,27 @@ export const useCanvasTouch = ({
         handleNodeTouchCancelRef.current = handleNodeTouchCancel;
     });
 
-    // Window-scoped pointer tracking during connection-draw — mirror of the
-    // drag-time fix in useNodeDrag. Element-routed pointermove stops the
-    // moment the finger leaves the source node, so the connection's tip
-    // freezes mid-draw on touch. Window pointermove fires for the active
-    // pointer regardless of element, feeding the existing handleMouseMove
-    // pipeline (which already updates drawingConnectionFrom). The end
-    // counterparts finalize the connection (or clear it on empty space) —
-    // on touch the element-routed touchend/pointerup may not fire on a
-    // registered handler if the finger is far from the source node when
-    // released, leaving drawingConnectionFrom set forever otherwise.
+    // Window-scoped pointer tracking for connection-draw and node-drag.
+    // Element-routed events stop firing once the finger leaves the originating
+    // node (or it's unmounted/re-rendered into the dragging block), and
+    // bubble-phase document listeners can be short-circuited by element
+    // stopPropagation. Window-scoped means: window pointermove keeps the
+    // connection tip / drag position live regardless of which element is
+    // under the cursor; useWindowGestureEnd (capture phase) guarantees the
+    // release fires somewhere even if the finger ended up nowhere near the
+    // source node (e.g. grid-snap drift during a drag).
     //
-    // CAPTURE PHASE for end events: handleNodePointerUp / handleNodeTouchEnd
-    // call e.stopPropagation(), which kills any bubble-phase listener on the
-    // window. We need to fire BEFORE that, so capture: true.
-    //
-    // STABLE BOOLEAN dep: drawingConnectionFrom is updated to a new object on
-    // every move (currentX/Y change). Depending on the object directly would
-    // detach + reattach all four listeners on every move — a tiny but real
-    // window where a touch release could be missed. Convert to boolean so the
-    // effect re-runs only on truthy↔falsy transitions.
+    // STABLE BOOLEAN dep on the move effect: drawingConnectionFrom is updated
+    // to a new object on every move. Depending on the object directly would
+    // detach + reattach the listener on every move — a tiny but real window
+    // where a touch release could be missed.
     const handleMouseMoveRef = useRef(handleMouseMove);
     useEffect(() => { handleMouseMoveRef.current = handleMouseMove; });
     const handleMouseUpRef = useRef(handleMouseUp);
     useEffect(() => { handleMouseUpRef.current = handleMouseUp; });
     const isDrawingConnection = !!drawingConnectionFrom;
+    const isDraggingNode = !!draggingNodeInfo;
+    const hasActiveGesture = isDrawingConnection || isDraggingNode;
     useEffect(() => {
         if (!isDrawingConnection) return;
         const onPointerMove = (e) => {
@@ -159,43 +156,20 @@ export const useCanvasTouch = ({
                 preventDefault: () => { }
             });
         };
-        const finalizeAt = (clientX, clientY, modifiers = {}) => {
-            // Provide both clientX/Y (mouse-shape) and changedTouches (touch-
-            // shape) since downstream code in handleMouseUp reads either.
-            handleMouseUpRef.current({
-                clientX,
-                clientY,
-                changedTouches: [{ clientX, clientY }],
-                stopPropagation: () => { },
-                preventDefault: () => { },
-                shiftKey: !!modifiers.shiftKey,
-                metaKey: !!modifiers.metaKey,
-                ctrlKey: !!modifiers.ctrlKey,
-            });
-        };
-        const onPointerUp = (e) => {
-            if (typeof e.clientX !== 'number' || typeof e.clientY !== 'number') return;
-            finalizeAt(e.clientX, e.clientY, e);
-        };
-        const onTouchEnd = (e) => {
-            const t = (e.changedTouches && e.changedTouches[0]) || (e.touches && e.touches[0]);
-            if (!t) return;
-            finalizeAt(t.clientX, t.clientY, e);
-        };
         window.addEventListener('pointermove', onPointerMove, { passive: true });
-        // capture: true so handleNodePointerUp's stopPropagation can't block us.
-        window.addEventListener('pointerup', onPointerUp, true);
-        window.addEventListener('pointercancel', onPointerUp, true);
-        window.addEventListener('touchend', onTouchEnd, true);
-        window.addEventListener('touchcancel', onTouchEnd, true);
         return () => {
             window.removeEventListener('pointermove', onPointerMove);
-            window.removeEventListener('pointerup', onPointerUp, true);
-            window.removeEventListener('pointercancel', onPointerUp, true);
-            window.removeEventListener('touchend', onTouchEnd, true);
-            window.removeEventListener('touchcancel', onTouchEnd, true);
         };
     }, [isDrawingConnection]);
+
+    // Single window+capture release listener for both gestures.
+    // handleMouseUp dispatches internally via drawingConnectionFrom /
+    // draggingNodeInfo state; its connectionCreationInProgressRef guard +
+    // (added) drag-finalization guard in NodeCanvas dedup against the
+    // element-level / document-level paths firing the same release.
+    useWindowGestureEnd(hasActiveGesture, (releaseEvent) => {
+        handleMouseUpRef.current(releaseEvent);
+    });
 
     // Latest-value ref of drawingConnectionFrom so the touch long-press timer
     // (captured at touchstart) can bail when connection-draw is in progress.

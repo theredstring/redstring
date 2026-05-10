@@ -3999,6 +3999,7 @@ function NodeCanvas() {
   const wasSelectionBox = useRef(false);
   const wasDrawingConnection = useRef(false);
   const connectionCreationInProgressRef = useRef(false); // Guard against double edge creation from event bubbling
+  const dragFinalizationInProgressRef = useRef(false); // Guard against double drag-end from window-capture + element + document end paths
   // Add refs for click vs double-click detection
   const clickTimeoutIdRef = useRef(null);
   const potentialClickNodeRef = useRef(null);
@@ -6098,7 +6099,16 @@ function NodeCanvas() {
     }
 
     // Drag finalization (delegated to useNodeDrag hook)
-    if (draggingNodeInfo) {
+    // Guarded against double-fire: the window-capture release listener in
+    // useCanvasTouch fires first, then React onTouchEnd / document listeners
+    // can re-enter handleMouseUp with draggingNodeInfo still truthy (state
+    // hasn't flushed yet). Without this guard, handleDragEnd's else branch
+    // (when restoreInProgressRef is already set) runs performCleanup
+    // synchronously mid-zoom-restore animation, snapping the node back.
+    if (draggingNodeInfo && !dragFinalizationInProgressRef.current) {
+      dragFinalizationInProgressRef.current = true;
+      // Reset window long enough to outlast the zoom-restore animation (~250ms).
+      setTimeout(() => { dragFinalizationInProgressRef.current = false; }, 400);
       // Any drag-release must suppress the synthetic canvas click the browser
       // fires immediately after mouseup — otherwise handleCanvasClick spawns
       // a plus sign at the drop point. The existing

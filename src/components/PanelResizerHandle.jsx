@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { useDarkMode } from '../hooks/useTheme';
 
 /**
  * Vertical, mobile-friendly resizer handle styled like a pill/home bar.
@@ -8,9 +9,10 @@ import React, { useState } from 'react';
  */
 const PanelResizerHandle = ({ side = 'right', onMouseDown, onTouchStart, isActive = false, offset = 12, heightRatio = 0.25 }) => {
   const [isHover, setIsHover] = useState(false);
+  const isDarkMode = useDarkMode();
 
   const baseOpacity = isActive ? 1 : (isHover ? 0.22 : 0.10);
-  const baseColor = `rgba(38,0,0,${baseOpacity})`; // header maroon
+  const baseColor = isDarkMode ? `rgba(151,144,144,${baseOpacity})` : `rgba(38,0,0,${baseOpacity})`; // header maroon or #979090
 
   const style = {
     position: 'absolute',
