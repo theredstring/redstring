@@ -360,6 +360,11 @@ const ItemTypes = {
  */
 const MIN_PANEL_WIDTH = 100;
 const INITIAL_PANEL_WIDTH = 280; // Match NodeCanvas default
+// When window width is at/below this threshold, opening one panel closes the
+// other (handled in NodeCanvas) and the active panel auto-expands to fill the
+// available width except for the opposite-side toggle button.
+const EXCLUSIVE_PANEL_MODE_THRESHOLD = 1100;
+const PANEL_TOGGLE_BUTTON_WIDTH = 50; // Must match ToggleButton width
 
 // Feature flag: toggle visibility of the "All Things" tab in the left panel header
 const ENABLE_ALL_THINGS_TAB = false;
@@ -1207,7 +1212,11 @@ const Panel = memo(forwardRef(
       } else {
         newWidth = resizeStartWidth.current - dx;
       }
-      const maxWidth = window.innerWidth / 2;
+      // In exclusive panel mode the panel auto-fills available width up to the
+      // opposite-side toggle button; otherwise cap at half the viewport.
+      const maxWidth = window.innerWidth <= EXCLUSIVE_PANEL_MODE_THRESHOLD
+        ? Math.max(MIN_PANEL_WIDTH, window.innerWidth - PANEL_TOGGLE_BUTTON_WIDTH)
+        : window.innerWidth / 2;
       const clampedWidth = Math.max(MIN_PANEL_WIDTH, Math.min(newWidth, maxWidth));
       setPanelWidth(clampedWidth);
       setIsWideLayout(clampedWidth > 250);
@@ -1450,7 +1459,7 @@ const Panel = memo(forwardRef(
     }, [isAnimatingWidth]);
     // --- End Resize Handlers & related effects ---
 
-    // --- Determine Active View/Tab --- 
+    // --- Determine Active View/Tab ---
     const isUltraSlim = panelWidth <= 275;
     const [isWideLayout, setIsWideLayout] = useState(() => panelWidth > 250);
     // Get tabs reactively if side is 'right'

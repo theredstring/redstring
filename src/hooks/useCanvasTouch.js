@@ -9,7 +9,13 @@ const TOUCH_PINCH_SENSITIVITY = 0.05;
 const TOUCH_PINCH_CENTER_SMOOTHING = 0.1;
 const MOVEMENT_THRESHOLD = 6;
 const TOUCH_MOVEMENT_THRESHOLD = 12; // Higher than mouse
-const LONG_PRESS_DURATION = 200;
+// Touch long-press is longer than the mouse equivalent (200ms) — fingers
+// typically rest on the screen longer than a mouse click holds the button,
+// and a too-short long-press promotes innocent taps into accidental drags.
+// Must be >= NODE_DOUBLE_TAP_MS so a deliberate double-tap can't trip the
+// drag-start during the first hold.
+const LONG_PRESS_DURATION = 450;
+const NODE_DOUBLE_TAP_MS = 400;
 
 export const useCanvasTouch = ({
     containerRef,
@@ -70,6 +76,7 @@ export const useCanvasTouch = ({
     nodes,
     pinchRef,
     pinchSmoothingRef,
+    ignoreCanvasClick,
 }) => {
     // --- Refs moved to hook ---
     const lastTouchRef = useRef({ x: 0, y: 0 });
@@ -93,10 +100,21 @@ export const useCanvasTouch = ({
     const handleNodeTouchEndRef = useRef(null);
     const handleNodeTouchCancelRef = useRef(null);
 
+    // Track most recent node tap for double-tap detection (mirrors mouse e.detail===2)
+    const lastNodeTapRef = useRef({ id: null, ts: 0 });
+    // Pending single-tap selection — deferred so a second tap can cancel it
+    // before selection fires, matching the mouse CLICK_DELAY path.
+    const pendingNodeTapRef = useRef(null);
+
     const suppressMouseDownResetTimeoutRef = useRef(null);
 
     const longPressingInstanceIdRef = useRef(null);
     const touchMultiPanRef = useRef(false);
+
+    // Mirror selectedInstanceIds in a ref so the deferred single-tap selection
+    // (fires 300ms after touchend) reads the latest value, not a stale closure.
+    const selectedInstanceIdsRef = useRef(selectedInstanceIds);
+    useEffect(() => { selectedInstanceIdsRef.current = selectedInstanceIds; });
 
     // Update refs on every render to avoid stale closures in event listeners
     useEffect(() => {
@@ -551,6 +569,13 @@ export const useCanvasTouch = ({
                     setLastInteractionType('plus_sign_shown_touch');
                 }
             }
+            // Suppress the synthesized click that follows touchend — without
+            // this, handleCanvasClick re-runs after React has flushed the
+            // selection-clear above and sees an empty selection, which then
+            // spawns a plus sign even though the user only meant to tap-off.
+            if (ignoreCanvasClick) {
+                ignoreCanvasClick.current = true;
+            }
         }
         touchMultiPanRef.current = false;
     };
@@ -561,17 +586,27 @@ export const useCanvasTouch = ({
         if (!docTouchListenersRef.current) {
             try {
                 // Create dedicated listeners with fresh node lookups to avoid stale closures
+                // Resolve node by id from the closure-captured `nodes`. If the
+                // dragged node's React element was remounted into the dedicated
+                // dragging-node block during the drag, `nodes` is still that
+                // pre-drag snapshot and find() resolves it. Fall back to a
+                // stub `{ id }` so we still terminate the drag when the array
+                // was rebuilt without the dragged entry — without this fallback
+                // a finger lifted away from the node leaves the drag stuck.
+                const resolveDraggedNode = () => {
+                    const id = touchState.current.dragNodeId;
+                    if (!id) return null;
+                    return nodes.find(n => n.id === id) || { id };
+                };
                 const moveListener = (ev) => {
-                    const freshNodeData = nodes.find(n => n.id === touchState.current.dragNodeId);
-                    if (!freshNodeData || !touchState.current.dragNodeId) {
-                        return;
-                    }
+                    const freshNodeData = resolveDraggedNode();
+                    if (!freshNodeData) return;
                     if (handleNodeTouchMoveRef.current) {
                         handleNodeTouchMoveRef.current(freshNodeData, ev);
                     }
                 };
                 const endListener = (ev) => {
-                    const freshNodeData = nodes.find(n => n.id === touchState.current.dragNodeId);
+                    const freshNodeData = resolveDraggedNode();
                     if (freshNodeData && handleNodeTouchEndRef.current) {
                         handleNodeTouchEndRef.current(freshNodeData, ev);
                     }
@@ -585,7 +620,7 @@ export const useCanvasTouch = ({
                     docTouchListenersRef.current = null;
                 };
                 const cancelListener = (ev) => {
-                    const freshNodeData = nodes.find(n => n.id === touchState.current.dragNodeId);
+                    const freshNodeData = resolveDraggedNode();
                     if (freshNodeData && handleNodeTouchCancelRef.current) {
                         handleNodeTouchCancelRef.current(freshNodeData, ev);
                     }
@@ -628,6 +663,11 @@ export const useCanvasTouch = ({
 
         const instanceId = nodeData.id;
         const now = performance.now();
+        // If the user is mid-double-tap on this same node, the long-press
+        // timer below would otherwise turn the second tap into a drag if the
+        // finger lingers >200ms. Suppress it for this gesture.
+        const lastTap = lastNodeTapRef.current;
+        const isPotentialDoubleTap = lastTap.id === instanceId && (now - lastTap.ts) < NODE_DOUBLE_TAP_MS;
 
         const rect = containerRef.current?.getBoundingClientRect();
         let dragOffset = null;
@@ -675,6 +715,11 @@ export const useCanvasTouch = ({
         // Long-press fallback: begin NODE DRAG while finger is still down (mouse parity)
         if (touchState.current.longPressTimer) {
             clearTimeout(touchState.current.longPressTimer);
+        }
+        if (isPotentialDoubleTap) {
+            // Skip long-press timer entirely — this finger is the second tap
+            // of a double-tap and must not promote to a drag.
+            return;
         }
         touchState.current.longPressTimer = setTimeout(() => {
             const ts = touchState.current;
@@ -837,6 +882,10 @@ export const useCanvasTouch = ({
         isMouseDown.current = false;
         startedOnNode.current = false;
         setLongPressingInstanceId(null);
+        if (pendingNodeTapRef.current) {
+            clearTimeout(pendingNodeTapRef.current.timer);
+            pendingNodeTapRef.current = null;
+        }
 
         if (touchState.current.nodeElement) {
             touchState.current.nodeElement.classList.remove('touch-active', 'long-press-active');
@@ -950,35 +999,60 @@ export const useCanvasTouch = ({
                 } catch (e) { }
             }
 
-            // Handle double-tap for definition navigation
+            // Double-tap detection (mirrors mouse e.detail===2 path in
+            // handleNodeMouseDown): open the prototype's right-panel tab.
             const now = performance.now();
-            const timeSinceStart = now - touchState.current.startTime;
+            const lastTap = lastNodeTapRef.current;
+            const isDoubleTap = lastTap.id === nodeData.id && (now - lastTap.ts) < NODE_DOUBLE_TAP_MS;
 
-            if (timeSinceStart < 300) { // Quick tap
-                // Placeholder for future double-tap behavior
-            }
-
-            const wasSelected = selectedInstanceIds.has(nodeData.id);
-            setSelectedInstanceIds(prev => {
-                const newSelected = new Set(prev);
-                if (e.shiftKey || e.metaKey) {
-                    if (wasSelected) {
-                        newSelected.delete(nodeData.id);
-                    } else {
-                        newSelected.add(nodeData.id);
-                    }
-                } else {
-                    newSelected.clear();
-                    newSelected.add(nodeData.id);
+            if (isDoubleTap) {
+                lastNodeTapRef.current = { id: null, ts: 0 };
+                // Cancel the deferred selection from the first tap so the
+                // double-tap doesn't leave the node selected (mirrors mouse:
+                // e.detail===2 clears the pending click timeout).
+                if (pendingNodeTapRef.current) {
+                    clearTimeout(pendingNodeTapRef.current.timer);
+                    pendingNodeTapRef.current = null;
                 }
-                return newSelected;
-            });
-            // Also update store - important for sidebar updates
-            storeActions.updateNodeInstance(nodeData.id, { selected: !wasSelected });
+                if (storeActions?.openRightPanelNodeTab && nodeData.prototypeId) {
+                    storeActions.openRightPanelNodeTab(nodeData.prototypeId, nodeData.name);
+                }
+                if (typeof storeActions?.setRightPanelExpanded === 'function') {
+                    storeActions.setRightPanelExpanded(true);
+                }
+            } else {
+                lastNodeTapRef.current = { id: nodeData.id, ts: now };
 
-            // Handle pie menu on tap
-            if (!wasSelected) {
-                setSelectedNodeIdForPieMenu(nodeData.id);
+                // Defer selection so a follow-up tap on the same node within
+                // NODE_DOUBLE_TAP_MS can cancel it (mouse parity).
+                if (pendingNodeTapRef.current) {
+                    clearTimeout(pendingNodeTapRef.current.timer);
+                    pendingNodeTapRef.current = null;
+                }
+                const tapNodeId = nodeData.id;
+                const tapShift = !!e.shiftKey;
+                const tapMeta = !!e.metaKey;
+                const timer = setTimeout(() => {
+                    pendingNodeTapRef.current = null;
+                    const currentSelection = selectedInstanceIdsRef.current;
+                    const wasSelected = currentSelection.has(tapNodeId);
+                    setSelectedInstanceIds(prev => {
+                        const newSelected = new Set(prev);
+                        if (tapShift || tapMeta) {
+                            if (newSelected.has(tapNodeId)) newSelected.delete(tapNodeId);
+                            else newSelected.add(tapNodeId);
+                        } else {
+                            newSelected.clear();
+                            newSelected.add(tapNodeId);
+                        }
+                        return newSelected;
+                    });
+                    storeActions.updateNodeInstance(tapNodeId, { selected: !wasSelected });
+                    if (!wasSelected) {
+                        setSelectedNodeIdForPieMenu(tapNodeId);
+                    }
+                }, NODE_DOUBLE_TAP_MS);
+                pendingNodeTapRef.current = { timer, nodeId: tapNodeId };
             }
         } else {
             // Drag verification

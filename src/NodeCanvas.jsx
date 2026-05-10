@@ -123,6 +123,12 @@ import CanvasConfirmDialog from './components/shared/CanvasConfirmDialog.jsx';
 
 const SPAWNABLE_NODE = 'spawnable_node';
 
+// When the window is at or below this width, opening one panel closes the
+// other and the active panel auto-expands to fill available width up to the
+// opposite-side toggle button. Must match Panel.jsx.
+const EXCLUSIVE_PANEL_MODE_THRESHOLD = 1100;
+const PANEL_TOGGLE_BUTTON_WIDTH = 50; // Must match ToggleButton width
+
 // Platform detection (guarded for SSR)
 const userAgent = typeof navigator !== 'undefined' ? navigator.userAgent : '';
 const maxTouchPoints = typeof navigator !== 'undefined' ? navigator.maxTouchPoints : 0;
@@ -363,7 +369,12 @@ function NodeCanvas() {
   const applyResizeUpdate = () => {
     resizeRafRef.current = null;
     const clientX = latestResizeClientXRef.current;
-    const maxWidth = Math.max(240, Math.round(window.innerWidth / 2));
+    // In exclusive panel mode (narrow window), allow expansion up to the
+    // opposite-side toggle button. Otherwise cap at half the viewport.
+    const isExclusive = window.innerWidth <= EXCLUSIVE_PANEL_MODE_THRESHOLD;
+    const maxWidth = isExclusive
+      ? Math.max(MIN_WIDTH, window.innerWidth - PANEL_TOGGLE_BUTTON_WIDTH)
+      : Math.max(240, Math.round(window.innerWidth / 2));
     if (isDraggingLeft.current) {
       const dx = clientX - dragStartXRef.current;
       const w = Math.max(MIN_WIDTH, Math.min(startWidthRef.current + dx, maxWidth));
@@ -5380,6 +5391,7 @@ function NodeCanvas() {
     nodes,
     pinchRef,
     pinchSmoothingRef,
+    ignoreCanvasClick,
   });
 
   // Prevent native long-press context menu on touch devices (iOS/Android)
@@ -6952,7 +6964,7 @@ function NodeCanvas() {
     );
   };
 
-  const shouldPanelsBeExclusive = windowSize?.width ? windowSize.width <= 1100 : window.innerWidth <= 1100;
+  const shouldPanelsBeExclusive = (windowSize?.width ?? window.innerWidth) <= EXCLUSIVE_PANEL_MODE_THRESHOLD;
 
   const handleToggleRightPanel = useCallback(() => {
     const next = !rightPanelExpanded;
