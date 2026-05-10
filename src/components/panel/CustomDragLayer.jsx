@@ -77,7 +77,7 @@ const CustomDragLayer = () => {
     display: 'inline-flex',
     alignItems: 'center',
     padding: '0px 8px',
-    height: '40px', // Match tab height
+    height: '50px', // Match tab height
     maxWidth: '150px',
     // boxShadow: '0 4px 8px rgba(0,0,0,0.3)', // Removed shadow
     opacity: 0.9, // Slightly transparent

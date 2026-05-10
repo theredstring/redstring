@@ -220,7 +220,7 @@ header .editable-title-input {
 /* Adjust internal layout */
 .panel-tab-bar {
   flex-shrink: 0; /* Prevent tab bar from shrinking */
-  height: 40px; /* Explicit height */
+  height: 50px; /* Explicit height */
   overflow: hidden; /* Hide tabs that don't fit */
   background-color: #a0a0a0; /* Slightly different background for tab bar */
   padding: 0 10px; /* Padding for tab bar */

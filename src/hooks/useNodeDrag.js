@@ -132,7 +132,17 @@ export const useNodeDrag = ({
   const dragUpdateScheduled = useRef(false);
 
   // DOM-bypass drag state
-  const dragPositionsRef = useRef(new Map());     // instanceId → {x, y}
+  const dragPositionsRef = useRef(new Map());     // instanceId → {x, y} (latest computed)
+  // Tracks what's actually been written to the DOM, separate from
+  // dragPositionsRef. The post-commit useLayoutEffect clears this whenever
+  // React renders, because a static React commit overwrites the DOM with
+  // store-based positions for nodes/edges/labels — so the next drag tick
+  // must re-apply everything regardless of whether computed positions changed.
+  // Without this split, the frame-diff fast-path would skip restoring DOM
+  // after a commit (since computed positions match prev), leaving edge lines
+  // and labels stuck at the stored positions while the dragged group keeps
+  // moving via its own setTransform path.
+  const appliedPositionsRef = useRef(new Map());  // instanceId → {x, y} (last written to DOM)
   const dragNodeElsRef = useRef(new Map());       // instanceId → DOM <g> element
   const dragEdgeElsRef = useRef(new Map());       // edgeId → [{el, paths, lines, arrows, selfArrow, texts}, ...]
   const dragEdgeDataRef = useRef(new Map());      // edgeId → edge record (frozen at drag start)
@@ -291,6 +301,13 @@ export const useNodeDrag = ({
   const computePositionUpdates = useCallback((mouseCanvasX, mouseCanvasY, draggingInfo) => {
     if (!draggingInfo) return [];
 
+    // Suppress grid snap while the drag-zoom-out (or zoom-restore) animation is
+    // running. During those ~250ms the cursor's world coordinate is shifting
+    // every frame as zoom interpolates, so a fixed-cell snap target makes
+    // members teleport between cells. Once zoom settles, snap re-engages and
+    // members land on the grid in one final adjustment.
+    const snapActive = gridMode !== 'off' && !isAnimatingZoomRef.current;
+
     // Group drag via label — each member snaps to its own nearest grid cell
     // (preserves the multidrag-like feel). The frame-diff fast-path in
     // performDOMDragUpdate skips DOM work on frames where no member crossed
@@ -300,7 +317,7 @@ export const useNodeDrag = ({
         const node = nodeByIdRef.current.get(id);
         const xRaw = mouseCanvasX - dx;
         const yRaw = mouseCanvasY - dy;
-        if (!node || gridMode === 'off') {
+        if (!node || !snapActive) {
           return { instanceId: id, x: xRaw, y: yRaw };
         }
         const dims = getNodeDimensions(node, false, null);
@@ -320,7 +337,7 @@ export const useNodeDrag = ({
       let newPrimaryX = draggingInfo.initialPrimaryPos.x + dx;
       let newPrimaryY = draggingInfo.initialPrimaryPos.y + dy;
 
-      if (gridMode !== 'off') {
+      if (snapActive) {
         const primaryNode = nodeByIdRef.current.get(primaryInstanceId);
         if (primaryNode) {
           const dims = getNodeDimensions(primaryNode, false, null);
@@ -346,7 +363,7 @@ export const useNodeDrag = ({
     const dims = getNodeDimensions(node, false, null);
     let newX, newY;
 
-    if (gridMode !== 'off') {
+    if (snapActive) {
       const snapped = snapToGridAnimated(mouseCanvasX, mouseCanvasY, dims.currentWidth, dims.currentHeight, { x: node.x, y: node.y });
       newX = snapped.x;
       newY = snapped.y;
@@ -734,17 +751,19 @@ export const useNodeDrag = ({
     const positionUpdates = computePositionUpdates(mouseCanvasX, mouseCanvasY, draggingInfo);
     if (positionUpdates.length === 0) return;
 
-    // Diff against last-applied positions. With grid snap engaged, the cursor
-    // moves smoothly but snapped positions only change when crossing a grid
-    // line — so most frames have zero changes and we can skip the per-node
-    // transform writes, edge endpoint recompute, and group bbox recompute
-    // entirely. Without this, group drag with grid on does ~10x the DOM work
-    // it needs to.
+    // Diff against what's currently on DOM. With grid snap engaged, the
+    // cursor moves smoothly but snapped positions only change when crossing
+    // a grid line — so most frames need zero DOM work and we can skip per-node
+    // transform writes, edge endpoint recompute, and group bbox recompute.
+    // Critical: comparing against `appliedPositionsRef` (not just the latest
+    // computed positions) ensures we re-apply everything after a React commit
+    // overwrites the DOM with stale store-based positions — which is the bug
+    // that left edge lines/labels stuck at old coords during grid drag.
     const movedNodeIds = new Set();
     positionUpdates.forEach(({ instanceId, x, y }) => {
-      const prev = dragPositionsRef.current.get(instanceId);
+      dragPositionsRef.current.set(instanceId, { x, y });
+      const prev = appliedPositionsRef.current.get(instanceId);
       if (!prev || prev.x !== x || prev.y !== y) {
-        dragPositionsRef.current.set(instanceId, { x, y });
         movedNodeIds.add(instanceId);
       }
     });
@@ -777,6 +796,7 @@ export const useNodeDrag = ({
 
       nodeEl.style.transform = `translate(${deltaX}px, ${deltaY}px) scale(${nodeScale})`;
       nodeEl.style.transformOrigin = `${cx}px ${cy}px`;
+      appliedPositionsRef.current.set(instanceId, { x, y });
     });
 
     // Update connected edges in DOM
@@ -808,6 +828,10 @@ export const useNodeDrag = ({
     // commit cycle), re-applying it would write the previous drag's node back
     // into dragPositionsRef and teleport it on release.
     if (last.draggingNodeInfo !== current) return;
+    // React just committed and overwrote the DOM with stored-position values
+    // for nodes/edges/labels. Clear the applied-positions tracker so the
+    // re-apply below treats every node as "moved" and writes everything back.
+    appliedPositionsRef.current.clear();
     const { clientX, clientY, draggingNodeInfo: info } = last;
     performDragUpdateRef.current(
       clientX, clientY,
@@ -1002,6 +1026,7 @@ export const useNodeDrag = ({
       });
     });
     dragPositionsRef.current.clear();
+    appliedPositionsRef.current.clear();
     dragNodeElsRef.current.clear();
     dragEdgeElsRef.current.clear();
     dragEdgeDataRef.current.clear();

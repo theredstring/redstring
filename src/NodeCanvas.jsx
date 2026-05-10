@@ -9444,93 +9444,59 @@ function NodeCanvas() {
                     <g className="regular-groups-layer">{regularGroupElements}</g>
                   ) : null;
                 })()}
-                {/* Grid overlay (optimized) */}
-                {(gridMode === 'always' || (gridMode === 'hover' && !!draggingNodeInfo)) && (
-                  <g className="grid-overlay" pointerEvents="none">
-                    {/* Thin line grid for 'always' using individual lines for better zoom handling */}
-                    {gridMode === 'always' && (() => {
-                      const lines = [];
-                      // Render the grid across the full canvas. The SVG
-                      // renderer culls off-viewport lines during paint, so
-                      // visible cost scales with viewport, not canvas. Doing
-                      // it this way means the grid does NOT depend on the
-                      // (settled, lagging) panOffset/zoomLevel — so during
-                      // continuous keyboard pan/zoom, new viewport regions
-                      // already have grid lines instead of needing a settle.
-                      const startX = Math.floor(canvasSize.offsetX / gridSize) * gridSize;
-                      const startY = Math.floor(canvasSize.offsetY / gridSize) * gridSize;
-                      const endX = canvasSize.offsetX + canvasSize.width;
-                      const endY = canvasSize.offsetY + canvasSize.height;
-
-                      // Vertical lines
-                      for (let x = startX; x <= endX; x += gridSize) {
-                        lines.push(
-                          <line
-                            key={`grid-v-${x}`}
-                            x1={x}
-                            y1={startY}
-                            x2={x}
-                            y2={endY}
-                            stroke={theme.darkMode ? "#3F3A3A" : "#979090"}
-                            strokeWidth="0.75"
-                            vectorEffect="non-scaling-stroke"
-                          />
-                        );
-                      }
-
-                      // Horizontal lines
-                      for (let y = startY; y <= endY; y += gridSize) {
-                        lines.push(
-                          <line
-                            key={`grid-h-${y}`}
-                            x1={startX}
-                            y1={y}
-                            x2={endX}
-                            y2={y}
-                            stroke={theme.darkMode ? "#3F3A3A" : "#979090"}
-                            strokeWidth="0.75"
-                            vectorEffect="non-scaling-stroke"
-                          />
-                        );
-                      }
-
-                      return <g>{lines}</g>;
-                    })()}
-
-                    {/* Grid dots - only show when dragging nodes */}
-                    {gridMode === 'hover' && !!draggingNodeInfo && (
-                      <g>
-                        {(() => {
-                          const dots = [];
-                          // Account for canvas offset in grid calculations
-                          const viewMinX = (-panOffset.x / zoomLevel) + canvasSize.offsetX;
-                          const viewMinY = (-panOffset.y / zoomLevel) + canvasSize.offsetY;
-                          const startX = Math.floor(viewMinX / gridSize) * gridSize;
-                          const startY = Math.floor(viewMinY / gridSize) * gridSize;
-                          const endX = startX + (viewportSize.width / zoomLevel) + gridSize * 2;
-                          const endY = startY + (viewportSize.height / zoomLevel) + gridSize * 2;
-
-                          for (let x = startX; x <= endX; x += gridSize) {
-                            for (let y = startY; y <= endY; y += gridSize) {
-                              dots.push(
-                                <circle
-                                  key={`grid-dot-${x}-${y}`}
-                                  cx={x}
-                                  cy={y}
-                                  r={Math.min(6, Math.max(3, gridSize * 0.06))}
-                                  fill={theme.canvas.textPrimary}
-                                  opacity={0.3}
-                                  pointerEvents="none"
-                                />
-                              );
-                            }
-                          }
-                          return dots;
-                        })()}
-                      </g>
-                    )}
-                  </g>
-                )}
+                {/* Grid overlay — SVG <pattern> fills tile natively in the
+                    GPU paint layer, so we render ONE <rect> instead of
+                    thousands of <line>/<circle> JSX elements. This collapses
+                    the per-render reconciliation cost from O(canvasArea/gridSize²)
+                    to O(1) and removes the grid from drag-time SVG repaint. */}
+                {(gridMode === 'always' || (gridMode === 'hover' && !!draggingNodeInfo)) && (() => {
+                  const dotR = Math.min(6, Math.max(3, gridSize * 0.06));
+                  const lineColor = theme.darkMode ? "#3F3A3A" : "#979090";
+                  const dotColor = theme.canvas.textPrimary;
+                  return (
+                    <g className="grid-overlay" pointerEvents="none">
+                      <defs>
+                        {gridMode === 'always' && (
+                          <pattern
+                            id="grid-lines-pattern"
+                            x={0}
+                            y={0}
+                            width={gridSize}
+                            height={gridSize}
+                            patternUnits="userSpaceOnUse"
+                          >
+                            <path
+                              d={`M ${gridSize} 0 L 0 0 0 ${gridSize}`}
+                              fill="none"
+                              stroke={lineColor}
+                              strokeWidth="0.75"
+                              vectorEffect="non-scaling-stroke"
+                            />
+                          </pattern>
+                        )}
+                        {gridMode === 'hover' && !!draggingNodeInfo && (
+                          <pattern
+                            id="grid-dots-pattern"
+                            x={0}
+                            y={0}
+                            width={gridSize}
+                            height={gridSize}
+                            patternUnits="userSpaceOnUse"
+                          >
+                            <circle cx={0} cy={0} r={dotR} fill={dotColor} opacity={0.3} />
+                          </pattern>
+                        )}
+                      </defs>
+                      <rect
+                        x={canvasSize.offsetX}
+                        y={canvasSize.offsetY}
+                        width={canvasSize.width}
+                        height={canvasSize.height}
+                        fill={`url(#${gridMode === 'always' ? 'grid-lines-pattern' : 'grid-dots-pattern'})`}
+                      />
+                    </g>
+                  );
+                })()}
 
                 {/* Debug: Node Hitbox Visualization */}
                 {showNodeHitboxes && hydratedNodes.map(node => {

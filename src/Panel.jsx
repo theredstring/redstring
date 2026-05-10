@@ -1903,7 +1903,7 @@ const Panel = memo(forwardRef(
           {/* Main Header Row Container */}
           <div
             style={{
-              height: 40,
+              height: 50,
               backgroundColor: (() => {
                 const darken = (color) => {
                   const { h, s } = hexToHsl(color);
@@ -1936,64 +1936,64 @@ const Panel = memo(forwardRef(
                 {ENABLE_ALL_THINGS_TAB && (
                   <div
                     title="All Things"
-                    style={{ /* Common Button Styles */ width: 40, height: 40, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', backgroundColor: leftViewActive === 'all' ? theme.canvas.active : theme.canvas.inactive, zIndex: 2 }}
+                    style={{ /* Common Button Styles */ width: 50, height: 50, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', backgroundColor: leftViewActive === 'all' ? theme.canvas.active : theme.canvas.inactive, zIndex: 2 }}
                     onClick={() => setLeftViewActive('all')}
                   >
-                    <LayoutGrid size={20} color={theme.canvas.textPrimary} />
+                    <LayoutGrid size={24} color={theme.canvas.textPrimary} />
                   </div>
                 )}
                 {/* Library Button -> Saved Things */}
                 <div
                   title="Saved Things"
-                  style={{ /* Common Button Styles */ width: 40, height: 40, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', backgroundColor: leftViewActive === 'library' ? theme.canvas.active : theme.canvas.inactive, zIndex: 2 }}
+                  style={{ /* Common Button Styles */ width: 50, height: 50, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', backgroundColor: leftViewActive === 'library' ? theme.canvas.active : theme.canvas.inactive, zIndex: 2 }}
                   onClick={() => setLeftViewActive('library')}
                 >
-                  <Bookmark size={20} color={theme.canvas.textPrimary} />
+                  <Bookmark size={24} color={theme.canvas.textPrimary} />
                 </div>
                 {/* Grid Button -> Open Things */}
                 <div
                   title="Open Things"
-                  style={{ /* Common Button Styles */ width: 40, height: 40, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', backgroundColor: leftViewActive === 'grid' ? theme.canvas.active : theme.canvas.inactive, zIndex: 2 }}
+                  style={{ /* Common Button Styles */ width: 50, height: 50, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', backgroundColor: leftViewActive === 'grid' ? theme.canvas.active : theme.canvas.inactive, zIndex: 2 }}
                   onClick={() => setLeftViewActive('grid')}
                 >
-                  <BookOpen size={20} color={theme.canvas.textPrimary} />
+                  <BookOpen size={24} color={theme.canvas.textPrimary} />
                 </div>
                 {/* Federation Button -> Solid Pods */}
                 <div
                   title="Federation"
-                  style={{ /* Common Button Styles */ width: 40, height: 40, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', backgroundColor: leftViewActive === 'federation' ? theme.canvas.active : theme.canvas.inactive, zIndex: 2 }}
+                  style={{ /* Common Button Styles */ width: 50, height: 50, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', backgroundColor: leftViewActive === 'federation' ? theme.canvas.active : theme.canvas.inactive, zIndex: 2 }}
                   onClick={() => setLeftViewActive('federation')}
                 >
-                  <Globe size={20} color={theme.canvas.textPrimary} />
+                  <Globe size={24} color={theme.canvas.textPrimary} />
                 </div>
 
                 {/* Semantic Discovery Button */}
                 <div
                   title="Semantic Discovery"
-                  style={{ /* Common Button Styles */ width: 40, height: 40, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', backgroundColor: leftViewActive === 'semantic' ? theme.canvas.active : theme.canvas.inactive, zIndex: 2 }}
+                  style={{ /* Common Button Styles */ width: 50, height: 50, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', backgroundColor: leftViewActive === 'semantic' ? theme.canvas.active : theme.canvas.inactive, zIndex: 2 }}
                   onClick={() => setLeftViewActive('semantic')}
                 >
-                  <TextSearch size={20} color={theme.canvas.textPrimary} />
+                  <TextSearch size={24} color={theme.canvas.textPrimary} />
                 </div>
 
                 {/* AI Wizard Button */}
                 {enableWizard && (
                   <div
                     title="AI Wizard"
-                    style={{ /* Common Button Styles */ width: 40, height: 40, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', backgroundColor: leftViewActive === 'ai' ? theme.canvas.active : theme.canvas.inactive, zIndex: 2 }}
+                    style={{ /* Common Button Styles */ width: 50, height: 50, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', backgroundColor: leftViewActive === 'ai' ? theme.canvas.active : theme.canvas.inactive, zIndex: 2 }}
                     onClick={() => setLeftViewActive('ai')}
                   >
-                    <Sparkles size={20} color={theme.canvas.textPrimary} />
+                    <Sparkles size={24} color={theme.canvas.textPrimary} />
                   </div>
                 )}
 
                 {/* History Button */}
                 <div
                   title="Action History"
-                  style={{ /* Common Button Styles */ width: 40, height: 40, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', backgroundColor: leftViewActive === 'history' ? theme.canvas.active : theme.canvas.inactive, zIndex: 2 }}
+                  style={{ /* Common Button Styles */ width: 50, height: 50, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', backgroundColor: leftViewActive === 'history' ? theme.canvas.active : theme.canvas.inactive, zIndex: 2 }}
                   onClick={() => setLeftViewActive('history')}
                 >
-                  <History size={20} color={theme.canvas.textPrimary} />
+                  <History size={24} color={theme.canvas.textPrimary} />
                 </div>
               </div>
             ) : (
@@ -2024,8 +2024,8 @@ const Panel = memo(forwardRef(
                       title="Home"
                       key="home"
                       style={{
-                        width: 40,
-                        height: 40,
+                        width: 50,
+                        height: 50,
                         borderTopRightRadius: 0,
                         borderBottomLeftRadius: 0,
                         borderBottomRightRadius: 0,
@@ -2040,7 +2040,7 @@ const Panel = memo(forwardRef(
                       }}
                       onClick={() => activateRightPanelTab(0)}
                     >
-                      <Info size={22} color={iconColor} />
+                      <Info size={24} color={iconColor} />
                     </div>
                   );
                 })()}

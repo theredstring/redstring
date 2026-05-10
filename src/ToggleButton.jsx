@@ -23,8 +23,8 @@ const ToggleButton = ({ isExpanded, onClick, side = 'right' }) => {
         position: 'fixed',
         top: `${buttonTop}px`,
         ...positionStyle, // Apply left or right style
-        width: 40,
-        height: 40,
+        width: 50,
+        height: 50,
         backgroundColor: 'maroon', // Always maroon
         display: 'flex',
         alignItems: 'center',
@@ -41,9 +41,9 @@ const ToggleButton = ({ isExpanded, onClick, side = 'right' }) => {
       onClick={onClick}
       title={isExpanded ? 'Collapse Panel' : 'Expand Panel'} // Tooltip
     >
-      <Icon 
-        size={20} 
-        color="#EFE8E5" 
+      <Icon
+        size={24}
+        color="#EFE8E5"
         style={{ 
           transform: rotation,
           transition: 'transform 0.2s ease' 
