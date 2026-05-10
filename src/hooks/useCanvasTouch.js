@@ -67,6 +67,9 @@ export const useCanvasTouch = ({
     groupControlPanelShouldShow,
     groupControlPanelVisible,
     setGroupControlPanelVisible,
+    connectionControlPanelShouldShow,
+    connectionControlPanelVisible,
+    setConnectionControlPanelVisible,
     selectedGroup,
     setSelectedGroup,
     isInsideNode,
@@ -256,6 +259,14 @@ export const useCanvasTouch = ({
     const handleTouchStartCanvas = (e) => {
         // Don't intercept touches on UI overlays (panels, modals, buttons)
         if (!isCanvasSurfaceTarget(e.target)) return;
+
+        // Reset stale ignoreCanvasClick from a previous tap/pan. Edge & node
+        // touchstart handlers stopPropagation before this fires, so this
+        // clears only for taps that genuinely start on bare canvas — leaving
+        // element-claimed taps (which set the flag *after* this point) intact.
+        if (ignoreCanvasClick) {
+            ignoreCanvasClick.current = false;
+        }
 
         if (e && e.cancelable) {
             e.preventDefault();
@@ -543,17 +554,43 @@ export const useCanvasTouch = ({
         };
         // Route to mouseUp to reuse inertia/glide for single-finger pan
         handleMouseUp(synthetic);
-        // Ensure touch tap behaves like click-off: close UI overlays if present
+        // If an edge / node / UI element handled this tap, it raised
+        // ignoreCanvasClick.current to claim the tap. Bail before touching
+        // selection — otherwise we'd undo the work the element-level handler
+        // just did (e.g. an edge tap that selected itself would get cleared
+        // here when touchend bubbled to the canvas). Leave the flag set so
+        // the synthesized click that follows also bails in handleCanvasClick.
+        if (isTap && ignoreCanvasClick && ignoreCanvasClick.current) {
+            touchMultiPanRef.current = false;
+            return;
+        }
+
+        // Ensure touch tap behaves like click-off: close UI overlays if present.
+        // Only group / connection (edge) panels need to suppress the plus-sign
+        // spawn — node selection clears in the spawn block already (via the
+        // selectedInstanceIds branch), and pie menu / existing plus sign are
+        // independent of "is a control panel up?".
         if (isTap) {
+            let dismissedControlPanel = false;
+
             if (groupControlPanelShouldShow || groupControlPanelVisible) {
                 setGroupControlPanelVisible(false);
+                dismissedControlPanel = true;
             }
             if (selectedGroup) {
                 setSelectedGroup(null);
+                dismissedControlPanel = true;
             }
-            if (selectedEdgeId || selectedEdgeIds.size > 0) {
+            // Mirror the mouse handler — the panel can be visible / shouldShow
+            // even when selectedEdgeIds is briefly empty (animation, race), so
+            // check all four conditions the same way handleCanvasClick does.
+            if (connectionControlPanelShouldShow || connectionControlPanelVisible || selectedEdgeId || selectedEdgeIds.size > 0) {
+                if (connectionControlPanelShouldShow || connectionControlPanelVisible) {
+                    setConnectionControlPanelVisible(false);
+                }
                 storeActions.setSelectedEdgeId(null);
                 storeActions.clearSelectedEdgeIds();
+                dismissedControlPanel = true;
             }
             if (selectedNodeIdForPieMenu) {
                 setSelectedNodeIdForPieMenu(null);
@@ -561,14 +598,15 @@ export const useCanvasTouch = ({
             if (plusSign && !nodeNamePrompt.visible) {
                 setPlusSign(ps => ps && { ...ps, mode: 'disappear' });
             }
-        }
-        // If it was a tap on empty canvas, mirror click-to-plus-sign behavior
-        if (isTap) {
+
+            // Mirror click-to-plus-sign behavior, but skip the spawn if a
+            // control panel was just dismissed (group / connection) — the
+            // user tapped to close the panel, not to create a new node.
             if (!isPaused && !draggingNodeInfo && !drawingConnectionFrom && !recentlyPanned && !nodeNamePrompt.visible && activeGraphId) {
                 if (selectedInstanceIds.size > 0) {
                     // Mimic click-off behavior: clear selection on tap
                     setSelectedInstanceIds(new Set());
-                } else if (!plusSign) {
+                } else if (!plusSign && !dismissedControlPanel) {
                     const rect = containerRef.current.getBoundingClientRect();
                     const mouseX = (clientX - rect.left - panOffsetRef.current.x) / zoomLevelRef.current + canvasSize.offsetX;
                     const mouseY = (clientY - rect.top - panOffsetRef.current.y) / zoomLevelRef.current + canvasSize.offsetY;
@@ -576,6 +614,7 @@ export const useCanvasTouch = ({
                     setLastInteractionType('plus_sign_shown_touch');
                 }
             }
+
             // Suppress the synthesized click that follows touchend — without
             // this, handleCanvasClick re-runs after React has flushed the
             // selection-clear above and sees an empty selection, which then
