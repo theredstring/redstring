@@ -26,9 +26,55 @@ export const GROUP_LAYOUT_CONSTANTS = Object.freeze({
 });
 
 const FALLBACK_DIMS = { currentWidth: 200, currentHeight: 150 };
+const EMPTY_SET = new Set();
 
 const memberBoundaryPaddingFor = (gridSize) =>
   Math.max(24, Math.round((gridSize ?? 0) * 0.2));
+
+function computeChildGroupIdsForGroup(group, groupsById, groupsByMemberId) {
+  const memberIds = Array.isArray(group.memberInstanceIds) ? group.memberInstanceIds : [];
+  if (memberIds.length === 0) return EMPTY_SET;
+  const memberIdSet = new Set(memberIds);
+  const childGroupIds = new Set();
+  for (const memberId of memberIds) {
+    const containingEntries = groupsByMemberId.get(memberId);
+    if (!containingEntries) continue;
+    for (const entry of containingEntries) {
+      const otherGroupId = typeof entry === 'string' ? entry : entry?.groupId;
+      if (!otherGroupId || otherGroupId === group.id) continue;
+      if (childGroupIds.has(otherGroupId)) continue;
+      const otherGroup = groupsById.get(otherGroupId);
+      if (!otherGroup || !otherGroup.linkedNodePrototypeId) continue;
+      const otherMembers = Array.isArray(otherGroup.memberInstanceIds) ? otherGroup.memberInstanceIds : [];
+      if (otherMembers.length === 0 || otherMembers.length >= memberIds.length) continue;
+      let isStrictSubset = true;
+      for (const om of otherMembers) {
+        if (!memberIdSet.has(om)) { isStrictSubset = false; break; }
+      }
+      if (isStrictSubset) childGroupIds.add(otherGroupId);
+    }
+  }
+  return childGroupIds;
+}
+
+/**
+ * Precompute the strict-subset child relationships for every group. The result
+ * is suitable for caching and passing into `computeGroupLayout` via
+ * `context.childGroupIdsByGroupId`. Recompute only when the structural shape
+ * of the group set changes (member additions/removals, group create/delete).
+ *
+ * @param {Map<string, object>} groupsById
+ * @param {Map<string, Array<{groupId: string} | string>>} groupsByMemberId
+ * @returns {Map<string, Set<string>>}
+ */
+export function buildChildGroupIdsIndex(groupsById, groupsByMemberId) {
+  const out = new Map();
+  if (!groupsById || !groupsByMemberId) return out;
+  for (const group of groupsById.values()) {
+    out.set(group.id, computeChildGroupIdsForGroup(group, groupsById, groupsByMemberId));
+  }
+  return out;
+}
 
 const labelHeightConst = () => {
   const C = GROUP_LAYOUT_CONSTANTS;
@@ -78,40 +124,29 @@ function computeGroupLayoutInner(group, context) {
     dimsById,
     groupsById,
     groupsByMemberId,
+    childGroupIdsByGroupId,
     gridSize,
     measureLabelWidth,
   } = context;
 
   const memberIds = Array.isArray(group.memberInstanceIds) ? group.memberInstanceIds : [];
-  const memberIdSet = new Set(memberIds);
   const droppedOrphanIds = [];
   const nestedContributors = [];
 
-  // Pre-compute which other groups are *strictly contained* in this one
-  // (children in the implicit containment hierarchy). Only those should
-  // contribute title overhang to this group's bbox — recursing into peer
-  // or parent groups would either reverse the containment relationship
-  // or create symmetric mutual-fold cycles.
-  const childGroupIds = new Set();
-  if (groupsByMemberId && groupsById) {
-    for (const memberId of memberIds) {
-      const containingEntries = groupsByMemberId.get(memberId);
-      if (!containingEntries) continue;
-      for (const entry of containingEntries) {
-        const otherGroupId = typeof entry === 'string' ? entry : entry?.groupId;
-        if (!otherGroupId || otherGroupId === group.id) continue;
-        if (childGroupIds.has(otherGroupId)) continue;
-        const otherGroup = groupsById.get(otherGroupId);
-        if (!otherGroup || !otherGroup.linkedNodePrototypeId) continue;
-        const otherMembers = Array.isArray(otherGroup.memberInstanceIds) ? otherGroup.memberInstanceIds : [];
-        if (otherMembers.length === 0 || otherMembers.length >= memberIds.length) continue;
-        let isStrictSubset = true;
-        for (const om of otherMembers) {
-          if (!memberIdSet.has(om)) { isStrictSubset = false; break; }
-        }
-        if (isStrictSubset) childGroupIds.add(otherGroupId);
-      }
-    }
+  // Strictly-contained child groups (the implicit containment hierarchy).
+  // Only these should contribute title overhang to this group's bbox.
+  // The set is structural — it depends only on which groups exist and who
+  // their members are, not on positions — so callers can precompute it once
+  // and pass it in via `childGroupIdsByGroupId` to avoid an O(M·K·L) scan
+  // every layout call. We fall back to inline computation when not provided
+  // (test paths and ad-hoc one-off calls).
+  let childGroupIds;
+  if (childGroupIdsByGroupId) {
+    childGroupIds = childGroupIdsByGroupId.get(group.id) || EMPTY_SET;
+  } else if (groupsByMemberId && groupsById) {
+    childGroupIds = computeChildGroupIdsForGroup(group, groupsById, groupsByMemberId);
+  } else {
+    childGroupIds = EMPTY_SET;
   }
 
   let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;

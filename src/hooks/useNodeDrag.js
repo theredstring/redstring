@@ -76,6 +76,7 @@ export const useNodeDrag = ({
   routingStyleRef,
   groupsByNodeIdRef,
   groupsByIdRef,
+  childGroupIdsByGroupIdRef,
 }) => {
   // ---------------------------------------------------------------------------
   // State & Refs
@@ -290,38 +291,25 @@ export const useNodeDrag = ({
   const computePositionUpdates = useCallback((mouseCanvasX, mouseCanvasY, draggingInfo) => {
     if (!draggingInfo) return [];
 
-    // Group drag via label
+    // Group drag via label — each member snaps to its own nearest grid cell
+    // (preserves the multidrag-like feel). The frame-diff fast-path in
+    // performDOMDragUpdate skips DOM work on frames where no member crossed
+    // a grid line, so this stays cheap.
     if (draggingInfo.groupId && Array.isArray(draggingInfo.memberOffsets)) {
-      const offsets = draggingInfo.memberOffsets;
-      if (gridMode === 'off' || offsets.length === 0) {
-        return offsets.map(({ id, dx, dy }) => ({
-          instanceId: id, x: mouseCanvasX - dx, y: mouseCanvasY - dy,
-        }));
-      }
-      // Snap as a rigid unit: derive a single snap delta from the first member
-      // (matching multi-node drag's primary-anchor snap) and translate every
-      // member by the same amount. Snapping each member independently breaks
-      // relative positioning and forces the bbox to thrash every frame, which
-      // is what made grid-enabled group drag feel laggy.
-      const anchor = offsets[0];
-      const anchorNode = nodeByIdRef.current.get(anchor.id);
-      let snapDx = 0, snapDy = 0;
-      if (anchorNode) {
-        const dims = getNodeDimensions(anchorNode, false, null);
-        const xRaw = mouseCanvasX - anchor.dx;
-        const yRaw = mouseCanvasY - anchor.dy;
+      return draggingInfo.memberOffsets.map(({ id, dx, dy }) => {
+        const node = nodeByIdRef.current.get(id);
+        const xRaw = mouseCanvasX - dx;
+        const yRaw = mouseCanvasY - dy;
+        if (!node || gridMode === 'off') {
+          return { instanceId: id, x: xRaw, y: yRaw };
+        }
+        const dims = getNodeDimensions(node, false, null);
         const centerX = xRaw + dims.currentWidth / 2;
         const centerY = yRaw + dims.currentHeight / 2;
         const snappedCenterX = Math.floor(centerX / gridSize) * gridSize;
         const snappedCenterY = Math.floor(centerY / gridSize) * gridSize;
-        snapDx = (snappedCenterX - dims.currentWidth / 2) - xRaw;
-        snapDy = (snappedCenterY - dims.currentHeight / 2) - yRaw;
-      }
-      return offsets.map(({ id, dx, dy }) => ({
-        instanceId: id,
-        x: mouseCanvasX - dx + snapDx,
-        y: mouseCanvasY - dy + snapDy,
-      }));
+        return { instanceId: id, x: snappedCenterX - dims.currentWidth / 2, y: snappedCenterY - dims.currentHeight / 2 };
+      });
     }
 
     // Multi-node drag
@@ -629,6 +617,7 @@ export const useNodeDrag = ({
       dimsById: curBaseDims,
       groupsById,
       groupsByMemberId: groupsByNode,
+      childGroupIdsByGroupId: childGroupIdsByGroupIdRef?.current,
       gridSize,
       measureLabelWidth: (text) => pretextMeasureTextWidth(text || 'Group', `bold ${C.fontSize}px "EmOne", sans-serif`),
       _cache: new Map(),
@@ -1359,31 +1348,23 @@ export const useNodeDrag = ({
       const mouseCanvasX = (clientX - rect.left - currentPan.x) / currentZoom + canvasSizeRef.current.offsetX;
       const mouseCanvasY = (clientY - rect.top - currentPan.y) / currentZoom + canvasSizeRef.current.offsetY;
 
-      // Match performDOMDragUpdate: rigid-unit snap so the committed positions
-      // reproduce exactly what the user saw at drop. Per-member independent
-      // snap here would shift members on release vs what was on screen.
-      const offsets = info.memberOffsets;
-      let snapDx = 0, snapDy = 0;
-      if (gridMode !== 'off' && offsets.length > 0) {
-        const anchor = offsets[0];
-        const anchorNode = nodeByIdRef.current.get(anchor.id);
-        if (anchorNode) {
-          const dims = getNodeDimensions(anchorNode, false, null);
-          const xRaw = mouseCanvasX - anchor.dx;
-          const yRaw = mouseCanvasY - anchor.dy;
-          const centerX = xRaw + dims.currentWidth / 2;
-          const centerY = yRaw + dims.currentHeight / 2;
-          const snappedCenterX = Math.floor(centerX / gridSize) * gridSize;
-          const snappedCenterY = Math.floor(centerY / gridSize) * gridSize;
-          snapDx = (snappedCenterX - dims.currentWidth / 2) - xRaw;
-          snapDy = (snappedCenterY - dims.currentHeight / 2) - yRaw;
-        }
-      }
-      const positionUpdates = offsets.map(({ id, dx, dy }) => ({
-        instanceId: id,
-        x: mouseCanvasX - dx + snapDx,
-        y: mouseCanvasY - dy + snapDy,
-      }));
+      // Match computePositionUpdates: per-member independent snap.
+      const positionUpdates = info.memberOffsets.map(({ id, dx, dy }) => {
+        const node = nodeByIdRef.current.get(id);
+        const xRaw = mouseCanvasX - dx;
+        const yRaw = mouseCanvasY - dy;
+        if (!node || gridMode === 'off') return { instanceId: id, x: xRaw, y: yRaw };
+        const dims = getNodeDimensions(node, false, null);
+        const centerX = xRaw + dims.currentWidth / 2;
+        const centerY = yRaw + dims.currentHeight / 2;
+        const snappedCenterX = Math.floor(centerX / gridSize) * gridSize;
+        const snappedCenterY = Math.floor(centerY / gridSize) * gridSize;
+        return {
+          instanceId: id,
+          x: snappedCenterX - (dims.currentWidth / 2),
+          y: snappedCenterY - (dims.currentHeight / 2),
+        };
+      });
 
       const graph = graphsMap?.get(activeGraphId);
       const groupName = graph?.groups?.get(info.groupId)?.name;

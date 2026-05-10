@@ -114,14 +114,12 @@ export async function queryWikidataByQId(wikidataId, options = {}) {
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), timeout);
 
-    const response = await fetch('https://query.wikidata.org/sparql', {
-      method: 'POST',
+    const url = `https://query.wikidata.org/sparql?query=${encodeURIComponent(query)}`;
+    const response = await fetch(url, {
+      method: 'GET',
       headers: {
-        'Accept': 'application/sparql-results+json',
-        'Content-Type': 'application/x-www-form-urlencoded',
-        'User-Agent': 'Redstring/1.0 (https://redstring.ai)'
+        'Accept': 'application/sparql-results+json'
       },
-      body: `query=${encodeURIComponent(query)}`,
       signal: controller.signal
     });
 
@@ -170,14 +168,12 @@ export async function simpleQueryWikidata(entityName, options = {}) {
   const timeoutId = setTimeout(() => controller.abort(), timeout);
 
   try {
-    const response = await fetch('https://query.wikidata.org/sparql', {
-      method: 'POST', 
+    const url = `https://query.wikidata.org/sparql?query=${encodeURIComponent(query)}`;
+    const response = await fetch(url, {
+      method: 'GET', 
       headers: {
-        'Accept': 'application/sparql-results+json',
-        'Content-Type': 'application/x-www-form-urlencoded',
-        'User-Agent': 'Redstring-SemanticWeb/1.0'
+        'Accept': 'application/sparql-results+json'
       },
-      body: `query=${encodeURIComponent(query)}`,
       signal: controller.signal
     });
 
@@ -233,8 +229,7 @@ export async function simpleQueryDBpedia(entityName, options = {}) {
     const response = await dbpediaRateLimiter(() => fetch(url.toString(), {
       method: 'GET',
       headers: {
-        'Accept': 'application/sparql-results+json',
-        'User-Agent': 'Redstring-SemanticWeb/1.0'
+        'Accept': 'application/sparql-results+json'
       },
       signal: controller.signal
     }));
@@ -295,23 +290,26 @@ export async function simpleQueryWikipedia(entityName, options = {}) {
       };
     }
 
-    // Fallback to search API
+    // Fallback to Wikipedia action API for search
     const searchResponse = await fetch(
-      `https://en.wikipedia.org/api/rest_v1/page/search?q=${encodeURIComponent(entityName)}&limit=1`,
+      `https://en.wikipedia.org/w/api.php?action=query&list=search&srsearch=${encodeURIComponent(entityName)}&utf8=&format=json&origin=*`,
       { signal: controller.signal }
     );
 
     if (searchResponse.ok) {
       const searchData = await searchResponse.json();
-      if (searchData.pages && searchData.pages.length > 0) {
-        const page = searchData.pages[0];
+      if (searchData.query?.search && searchData.query.search.length > 0) {
+        const page = searchData.query.search[0];
         clearTimeout(timeoutId);
+        
+        // Strip HTML from snippet
+        const description = page.snippet.replace(/<\/?[^>]+(>|$)/g, "");
         
         return {
           title: page.title,
-          description: page.excerpt,
+          description: description,
           url: `https://en.wikipedia.org/wiki/${encodeURIComponent(page.title)}`,
-          thumbnail: page.thumbnail?.source,
+          thumbnail: null,
           source: 'wikipedia'
         };
       }
@@ -395,14 +393,12 @@ export async function queryWikidata(entityName, options = {}) {
   try {
     console.log(`[SemanticWebQuery] Starting Wikidata query for "${sanitizedEntityName}" with timeout: ${timeout}ms`);
     
-    const response = await fetch('https://query.wikidata.org/sparql', {
-      method: 'POST', 
+    const url = `https://query.wikidata.org/sparql?query=${encodeURIComponent(query)}`;
+    const response = await fetch(url, {
+      method: 'GET', 
       headers: {
-        'Accept': 'application/sparql-results+json',
-        'Content-Type': 'application/x-www-form-urlencoded',
-        'User-Agent': 'Redstring-SemanticWeb/1.0'
+        'Accept': 'application/sparql-results+json'
       },
-      body: `query=${encodeURIComponent(query)}`,
       signal: controller.signal
     });
 
@@ -536,8 +532,7 @@ export async function queryDBpedia(entityName, options = {}) {
     const response = await dbpediaRateLimiter(() => fetch(url.toString(), {
       method: 'GET',
       headers: {
-        'Accept': 'application/sparql-results+json',
-        'User-Agent': 'Redstring-SemanticWeb/1.0'
+        'Accept': 'application/sparql-results+json'
       },
       signal: controller.signal
     }));
@@ -648,25 +643,28 @@ export async function queryWikipedia(entityName, options = {}) {
       };
     }
 
-    // Fallback to search API
+    // Fallback to Wikipedia action API for search
     const searchResponse = await fetch(
-      `https://en.wikipedia.org/api/rest_v1/page/search?q=${encodeURIComponent(sanitizedEntityName)}&limit=1`,
+      `https://en.wikipedia.org/w/api.php?action=query&list=search&srsearch=${encodeURIComponent(sanitizedEntityName)}&utf8=&format=json&origin=*`,
       { signal: controller.signal }
     );
 
     if (searchResponse.ok) {
       const searchData = await searchResponse.json();
-      if (searchData.pages && searchData.pages.length > 0) {
-        const page = searchData.pages[0];
+      if (searchData.query?.search && searchData.query.search.length > 0) {
+        const page = searchData.query.search[0];
         clearTimeout(timeoutId);
         clearTimeout(backupTimeout);
         console.log(`[SemanticWebQuery] Wikipedia query completed successfully for "${sanitizedEntityName}" (via search)`);
         
+        // Strip HTML from snippet
+        const description = page.snippet.replace(/<\/?[^>]+(>|$)/g, "");
+        
         return {
           title: page.title,
-          description: page.excerpt,
+          description: description,
           url: `https://en.wikipedia.org/wiki/${encodeURIComponent(page.title)}`,
-          thumbnail: page.thumbnail?.source,
+          thumbnail: null,
           source: 'wikipedia'
         };
       }

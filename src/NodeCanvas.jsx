@@ -40,7 +40,7 @@ import AutoGraphModal from './components/AutoGraphModal';
 import ForceSimulationModal from './components/ForceSimulationModal';
 import { parseInputData, generateGraph } from './services/autoGraphGenerator';
 import { applyLayout, getClusterGeometries, FORCE_LAYOUT_DEFAULTS } from './services/graphLayoutService.js';
-import { computeGroupLayout, GROUP_LAYOUT_CONSTANTS } from './services/groupLayout.js';
+import { computeGroupLayout, GROUP_LAYOUT_CONSTANTS, buildChildGroupIdsIndex } from './services/groupLayout.js';
 import { NavigationMode, calculateNavigationParams, navigateAfterLayout } from './services/canvasNavigationService.js';
 import { debugLogSync } from './utils/debugLogger.js';
 import { getNodeHitbox, getVisualConnectionEndpoints } from './utils/canvas/nodeHitbox.js';
@@ -1129,6 +1129,11 @@ function NodeCanvas() {
   const groupsByNodeIdRef = useRef(new Map());
   // Direct groupId -> group reference Map for the helper-driven drag-bounds path
   const groupsByIdRef = useRef(new Map());
+  // Precomputed strict-subset child groups per group. Structural — only
+  // depends on which groups exist and who their members are. Reused every
+  // computeGroupLayout call (static render + drag) so the per-call O(M·K·L)
+  // child-detection scan happens once per group-graph mutation, not per frame.
+  const childGroupIdsByGroupIdRef = useRef(new Map());
   useEffect(() => {
     const map = new Map();
     const graphData = activeGraphId ? graphsMap.get(activeGraphId) : null;
@@ -1143,6 +1148,7 @@ function NodeCanvas() {
     }
     groupsByNodeIdRef.current = map;
     groupsByIdRef.current = graphData?.groups || new Map();
+    childGroupIdsByGroupIdRef.current = buildChildGroupIdsIndex(groupsByIdRef.current, map);
   }, [activeGraphId, graphsMap]);
 
   // Clipboard ref for copy/paste operations
@@ -1661,6 +1667,7 @@ function NodeCanvas() {
     routingStyleRef,
     groupsByNodeIdRef,
     groupsByIdRef,
+    childGroupIdsByGroupIdRef,
   });
   // Aliases for 1:1 replacement of old local state/refs
   const draggingNodeInfo = nodeDrag.draggingNodeInfo;
@@ -9035,6 +9042,7 @@ function NodeCanvas() {
                     dimsById: baseDimsById,
                     groupsById: graphData.groups,
                     groupsByMemberId: groupsByNodeIdRef.current,
+                    childGroupIdsByGroupId: childGroupIdsByGroupIdRef.current,
                     gridSize,
                     measureLabelWidth: (text) => getTextWidth(text || 'Group', `bold ${GROUP_LAYOUT_CONSTANTS.fontSize}px "EmOne", sans-serif`),
                     _cache: new Map(),

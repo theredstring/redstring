@@ -132,23 +132,33 @@ export class SPARQLClient {
       : createTimeoutSignal(endpoint.timeout);
 
     try {
+      // Use GET by default to avoid CORS preflight issues on standard endpoints like Wikidata
+      const useGet = query.length < 4000 || endpoint.url.includes('wikidata.org');
+      
       const fetchOptions = {
-        method: 'POST',
+        method: useGet ? 'GET' : 'POST',
         headers: {
-          'Content-Type': 'application/x-www-form-urlencoded',
           'Accept': 'application/sparql-results+json',
-          'User-Agent': 'Redstring-SPARQL-Client/1.0',
           ...endpoint.headers,
           ...options.headers
         },
-        body: `query=${encodeURIComponent(query)}`,
         signal: timeoutControl.signal
       };
 
-      console.log(`[SPARQL Client] Direct fetch query to ${endpointKey}:`, query.substring(0, 100) + '...');
+      if (!useGet) {
+        fetchOptions.headers['Content-Type'] = 'application/x-www-form-urlencoded';
+        fetchOptions.body = `query=${encodeURIComponent(query)}`;
+      }
+
+      // Browsers will ignore custom User-Agent headers, but it's kept in endpoint.headers
+      const url = useGet 
+        ? `${endpoint.url}?query=${encodeURIComponent(query)}` 
+        : endpoint.url;
+
+      console.log(`[SPARQL Client] Direct fetch query to ${endpointKey} (method: ${fetchOptions.method}):`, query.substring(0, 100) + '...');
       
       // Use direct fetch instead of sparql-http-client
-      const response = await fetch(endpoint.url, fetchOptions);
+      const response = await fetch(url, fetchOptions);
 
       if (!response.ok) {
         throw new Error(`HTTP ${response.status}: ${response.statusText}`);
@@ -361,15 +371,19 @@ export class SPARQLClient {
    * @private
    */
   async _checkRateLimit(endpointKey, rateLimit) {
+    const now = Date.now();
     const lastRequest = this.lastRequestTime.get(endpointKey) || 0;
-    const timeSinceLastRequest = Date.now() - lastRequest;
     
-    if (timeSinceLastRequest < rateLimit) {
-      const waitTime = rateLimit - timeSinceLastRequest;
+    // Calculate when this request is allowed to run
+    const allowedTime = Math.max(now, lastRequest + rateLimit);
+    
+    // Reserve this time slot for the current request
+    this.lastRequestTime.set(endpointKey, allowedTime);
+    
+    const waitTime = allowedTime - now;
+    if (waitTime > 0) {
       await new Promise(resolve => setTimeout(resolve, waitTime));
     }
-    
-    this.lastRequestTime.set(endpointKey, Date.now());
   }
 
   /**
