@@ -144,23 +144,27 @@ const Header = ({
     const container = tabsScrollContainerRef.current;
     const activeTab = activeTabRef.current;
 
-    const tabRect = activeTab.getBoundingClientRect();
+    // Use offsetLeft/offsetWidth so the math is independent of current scrollLeft
+    // (relative scrollBy + getBoundingClientRect can clamp to 0 on mobile when
+    // layout hasn't fully stabilized, leaving the tab pinned to the right).
+    const tabCenterInContent = activeTab.offsetLeft + activeTab.offsetWidth / 2;
+    // Container spans `left: HEADER_HEIGHT` to `right: 0`, and the hamburger
+    // overlays the right HEADER_HEIGHT px. The visible tab area is therefore
+    // the container's clientWidth minus the hamburger overlap; we want the
+    // active tab centered in that visible area.
+    const visibleWidth = Math.max(0, container.clientWidth - HEADER_HEIGHT);
+    const targetScrollLeft = Math.max(0, tabCenterInContent - visibleWidth / 2);
 
-    // Center the tab relative to the viewport center
-    const viewportCenter = window.innerWidth / 2;
-    const tabCenterViewport = tabRect.left + tabRect.width / 2;
-    const scrollOffset = tabCenterViewport - viewportCenter;
-
-    // Mark as programmatic scroll to prevent timeout reset
     isProgrammaticScroll.current = true;
 
     if (immediate) {
-      container.scrollBy({ left: scrollOffset, behavior: 'instant' });
+      container.scrollLeft = targetScrollLeft;
       setTimeout(() => { isProgrammaticScroll.current = false; }, 50);
     } else {
       // Custom smooth scroll with slower duration (1200ms, ease-out)
       const duration = 1200;
       const startScrollLeft = container.scrollLeft;
+      const delta = targetScrollLeft - startScrollLeft;
       const startTime = performance.now();
 
       const animateScroll = (currentTime) => {
@@ -169,7 +173,7 @@ const Header = ({
         // Ease-out cubic: decelerates nicely
         const eased = 1 - Math.pow(1 - progress, 3);
 
-        container.scrollLeft = startScrollLeft + scrollOffset * eased;
+        container.scrollLeft = startScrollLeft + delta * eased;
 
         if (progress < 1) {
           requestAnimationFrame(animateScroll);
@@ -304,17 +308,33 @@ const Header = ({
 
   // Center on active graph change
   useEffect(() => {
-    if (activeGraph) {
-      // Clear pending recenter timeout
-      if (recenterTimeoutRef.current) {
-        clearTimeout(recenterTimeoutRef.current);
-      }
+    if (!activeGraph) return;
 
-      // Center immediately (no animation) on graph change
-      requestAnimationFrame(() => {
-        scrollToCenter(true); // immediate = true
-      });
+    if (recenterTimeoutRef.current) {
+      clearTimeout(recenterTimeoutRef.current);
     }
+
+    // Center immediately on graph change. Run on the next frame so the active
+    // tab is laid out, then re-observe its size: on narrow viewports the tab's
+    // max-width (and therefore its measured width) settles after the
+    // activeTabMaxWidth resize-observer commits, and we need to re-center then.
+    let frameId = requestAnimationFrame(() => {
+      scrollToCenter(true);
+    });
+
+    const tabEl = activeTabRef.current;
+    let resizeObserver;
+    if (tabEl && typeof ResizeObserver !== 'undefined') {
+      resizeObserver = new ResizeObserver(() => {
+        scrollToCenter(true);
+      });
+      resizeObserver.observe(tabEl);
+    }
+
+    return () => {
+      cancelAnimationFrame(frameId);
+      if (resizeObserver) resizeObserver.disconnect();
+    };
   }, [activeGraph?.id, scrollToCenter]);
 
   const logos = [logo1, logo2, logo3, logo4, logo5, logo6, logo7];

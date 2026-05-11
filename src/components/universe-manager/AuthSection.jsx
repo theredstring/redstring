@@ -15,6 +15,7 @@ const AuthSection = ({
   allowOAuthBackup,
   onSetAllowOAuthBackup,
   onGitHubAuth,
+  onGitHubDisconnect,
   onGitHubApp,
   activeUniverse,
   onLogout,
@@ -101,11 +102,20 @@ const AuthSection = ({
               variant={isConnecting ? 'disabled' : 'solid'}
               disabled={isConnecting}
             />
+            {hasOAuth && onGitHubDisconnect && (
+              <PanelIconButton
+                icon={LogOut}
+                onClick={onGitHubDisconnect}
+                label="Disconnect"
+                variant="outline"
+                disabled={isConnecting}
+              />
+            )}
             <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: '0.72rem', color: theme.canvas.textPrimary }}>
-              <input 
-                type="checkbox" 
-                checked={allowOAuthBackup} 
-                onChange={(e) => onSetAllowOAuthBackup(e.target.checked)} 
+              <input
+                type="checkbox"
+                checked={allowOAuthBackup}
+                onChange={(e) => onSetAllowOAuthBackup(e.target.checked)}
               />
               Allow OAuth as backup
             </label>

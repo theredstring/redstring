@@ -233,29 +233,32 @@ function saveOAuthHealth(health) {
 
 const __oauthHealth = loadOAuthHealth();
 
-// OAuth-specific fetch function with aggressive error suppression
-export function oauthFetch(path, options) {
+// OAuth-specific fetch function with aggressive error suppression.
+// Accepts a non-standard `bypassCooldown` option (extracted before passing to fetch)
+// so user-initiated actions can always attempt a real request even during cooldown.
+export function oauthFetch(path, options = {}) {
+  const { bypassCooldown = false, ...fetchInit } = options || {};
   const now = Date.now();
-  
-  // If in cooldown period, don't make the request at all (prevents browser console errors)
-  if (__oauthHealth.cooldownUntil > now) {
-    // Return a rejected promise that won't trigger network request
+
+  // Background callers respect the cooldown to avoid console/network spam.
+  // User-initiated callers pass bypassCooldown: true.
+  if (!bypassCooldown && __oauthHealth.cooldownUntil > now) {
     return Promise.reject(new Error('OAuth server unavailable (cooldown)'));
   }
-  
+
   // Make the request with a timeout to fail fast
   const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
   const timeoutId = controller ? setTimeout(() => controller.abort(), 2000) : null; // 2 second timeout
-  
+
   const fetchOptions = {
-    ...options,
+    ...fetchInit,
     ...(controller ? { signal: controller.signal } : {})
   };
-  
+
   return fetch(oauthUrl(path), fetchOptions)
     .then((res) => {
       if (timeoutId) clearTimeout(timeoutId);
-      // Reset failures on any response (even errors)
+      // Reset failures on any response (even errors) so background polling resumes immediately
       __oauthHealth.consecutiveFailures = 0;
       __oauthHealth.isAvailable = true;
       __oauthHealth.lastChecked = now;
@@ -267,12 +270,12 @@ export function oauthFetch(path, options) {
     .catch((err) => {
       if (timeoutId) clearTimeout(timeoutId);
       __oauthHealth.lastChecked = now;
-      
+
       if (isLikelyNetworkRefusal(err) || err.name === 'AbortError') {
         __oauthHealth.consecutiveFailures += 1;
         __oauthHealth.isAvailable = false;
-        
-        // Set cooldown immediately after first failure (prevents spam)
+
+        // Set cooldown immediately after first failure (prevents spam from background pollers)
         if (__oauthHealth.consecutiveFailures === 1) {
           __oauthHealth.firstFailureTime = now;
           __oauthHealth.cooldownUntil = now + 300000; // 5 minute cooldown after first failure
@@ -285,5 +288,29 @@ export function oauthFetch(path, options) {
       // Re-throw but the caller should handle it gracefully
       throw err;
     });
+}
+
+// Read-only snapshot of OAuth server health for UI use.
+export function getOAuthHealthSnapshot() {
+  return {
+    isAvailable: __oauthHealth.isAvailable,
+    cooldownUntil: __oauthHealth.cooldownUntil,
+    consecutiveFailures: __oauthHealth.consecutiveFailures,
+    lastChecked: __oauthHealth.lastChecked
+  };
+}
+
+// True when the cooldown rejection comes from oauthFetch (vs. a real network/HTTP error).
+export function isOAuthCooldownError(err) {
+  return err && typeof err.message === 'string' && err.message === 'OAuth server unavailable (cooldown)';
+}
+
+// True when the error looks like the OAuth server is unreachable
+// (network refusal, abort/timeout, or a synthetic cooldown rejection).
+export function isOAuthUnreachableError(err) {
+  if (!err) return false;
+  if (isOAuthCooldownError(err)) return true;
+  if (err.name === 'AbortError') return true;
+  return isLikelyNetworkRefusal(err);
 }
 

@@ -2,7 +2,6 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   Plus,
   RefreshCw,
-  XCircle,
   Github,
   Trash2,
   Save,
@@ -37,7 +36,9 @@ const umLog = (...args) => __umNativeLog.call(console, '[UniverseManager]', ...a
 const umWarn = (...args) => __umNativeWarn.call(console, '[UniverseManager]', ...args);
 const umError = (...args) => __umNativeError.call(console, '[UniverseManager]', ...args);
 import { persistentAuth } from './services/persistentAuth.js';
-import { oauthFetch } from './services/bridgeConfig.js';
+import { oauthFetch, isOAuthUnreachableError } from './services/bridgeConfig.js';
+import { getStatusColors } from './utils/statusColors.js';
+import StatusBanner from './components/StatusBanner.jsx';
 import universeBackend from './services/universeBackend.js';
 import universeBackendBridge from './services/universeBackendBridge.js';
 import PanelIconButton from './components/shared/PanelIconButton.jsx';
@@ -210,17 +211,15 @@ function buttonStyle(theme,  variant = 'outline') {
 const UniverseManager = ({ variant = 'panel', onRequestClose }) => {
   const theme = useTheme();
 
-  const statusColors = useMemo(() => ({
-    success: theme.darkMode ? '#E7E79E' : '#354702',
-    warning: theme.darkMode ? '#b39ddb' : '#512da8',
-    error: theme.darkMode ? '#C09191' : '#7A0000',
-    info: theme.darkMode ? '#64b5f6' : '#1565c0'
-  }), [theme.darkMode]);
+  const statusColors = useMemo(() => getStatusColors(theme.darkMode), [theme.darkMode]);
   const [serviceState, setServiceState] = useState(blankState);
   const [loading, setLoading] = useState(true);
   const [initializing, setInitializing] = useState(false); // Start false - don't block UI on load
   const [syncStatus, setSyncStatus] = useState(null);
   const [error, setError] = useState(null);
+  // Surfaces "OAuth server unreachable" specifically, distinct from generic errors.
+  // Tracks the user's last connect attempt so we can offer a Try again action.
+  const [oauthConnectFailure, setOauthConnectFailure] = useState(null);
   const [isConnecting, setIsConnecting] = useState(false);
   const [connectingMessage, setConnectingMessage] = useState(null);
   const [allowOAuthBackup, setAllowOAuthBackup] = useState(() => {
@@ -760,6 +759,7 @@ const UniverseManager = ({ variant = 'panel', onRequestClose }) => {
       try {
         setIsConnecting(true);
         const resp = await oauthFetch('/api/github/oauth/token', {
+          bypassCooldown: true,
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ code, state: stateValue, redirect_uri: redirectUri })
@@ -824,7 +824,7 @@ const UniverseManager = ({ variant = 'panel', onRequestClose }) => {
       if (!installationId && pending) {
         umLog('[UniverseManager] No installation_id in callback, attempting discovery...');
         try {
-          const listResp = await oauthFetch('/api/github/app/installations');
+          const listResp = await oauthFetch('/api/github/app/installations', { bypassCooldown: true });
           if (listResp.ok) {
             const installations = await listResp.json();
             if (Array.isArray(installations) && installations.length > 0) {
@@ -846,6 +846,7 @@ const UniverseManager = ({ variant = 'panel', onRequestClose }) => {
         umLog('[UniverseManager] Requesting installation token for:', installationId);
 
         const resp = await oauthFetch('/api/github/app/installation-token', {
+          bypassCooldown: true,
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ installation_id: installationId })
@@ -3609,6 +3610,7 @@ const UniverseManager = ({ variant = 'panel', onRequestClose }) => {
   const handleGitHubAuth = async () => {
     try {
       setIsConnecting(true);
+      setOauthConnectFailure(null);
       try {
         sessionStorage.removeItem('github_oauth_pending');
         sessionStorage.removeItem('github_oauth_state');
@@ -3617,7 +3619,7 @@ const UniverseManager = ({ variant = 'panel', onRequestClose }) => {
         // ignore
       }
 
-      const resp = await oauthFetch('/api/github/oauth/client-id');
+      const resp = await oauthFetch('/api/github/oauth/client-id', { bypassCooldown: true });
       if (!resp.ok) throw new Error('Failed to load OAuth configuration');
       const { clientId } = await resp.json();
       if (!clientId) throw new Error('GitHub OAuth client ID not configured');
@@ -3653,6 +3655,7 @@ const UniverseManager = ({ variant = 'panel', onRequestClose }) => {
         // Exchange code for token via the OAuth server
         umLog('[UniverseManager] Received OAuth callback, exchanging code for token');
         const tokenResp = await oauthFetch('/api/github/oauth/token', {
+          bypassCooldown: true,
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -3695,14 +3698,35 @@ const UniverseManager = ({ variant = 'panel', onRequestClose }) => {
       }
     } catch (err) {
       umError('[UniverseManager] OAuth launch failed:', err);
-      setError(`OAuth authentication failed: ${err.message}`);
+      if (isOAuthUnreachableError(err)) {
+        setOauthConnectFailure({
+          retry: handleGitHubAuth,
+          detail: err.message
+        });
+      } else {
+        setError(`OAuth authentication failed: ${err.message}`);
+      }
       setIsConnecting(false);
+    }
+  };
+
+  const handleGitHubDisconnect = async () => {
+    try {
+      setOauthConnectFailure(null);
+      await persistentAuth.clearTokens();
+      const auth = await universeManagerService.refreshAuth();
+      setServiceState((prev) => ({ ...prev, ...auth }));
+      setSyncStatus({ type: 'success', message: 'GitHub OAuth disconnected' });
+    } catch (err) {
+      umError('[UniverseManager] OAuth disconnect failed:', err);
+      setError(`Failed to disconnect: ${err.message}`);
     }
   };
 
   const handleGitHubApp = async () => {
     try {
       setIsConnecting(true);
+      setOauthConnectFailure(null);
 
       // Check if app is already installed
       if (hasApp && serviceState.githubAppInstallation?.installationId) {
@@ -3712,7 +3736,7 @@ const UniverseManager = ({ variant = 'panel', onRequestClose }) => {
 
         // Try to get installation details to redirect to specific installation
         try {
-          const resp = await oauthFetch(`/api/github/app/installation/${installationId}`);
+          const resp = await oauthFetch(`/api/github/app/installation/${installationId}`, { bypassCooldown: true });
           if (resp.ok) {
             const data = await resp.json();
             const accountLogin = data?.account?.login;
@@ -3744,7 +3768,7 @@ const UniverseManager = ({ variant = 'panel', onRequestClose }) => {
       // App not installed - proceed with installation flow
       let appName = 'redstring-semantic-sync';
       try {
-        const resp = await oauthFetch('/api/github/app/info');
+        const resp = await oauthFetch('/api/github/app/info', { bypassCooldown: true });
         if (resp.ok) {
           const data = await resp.json();
           appName = data.name || appName;
@@ -3764,7 +3788,14 @@ const UniverseManager = ({ variant = 'panel', onRequestClose }) => {
       }
     } catch (err) {
       umError('[UniverseManager] GitHub App launch failed:', err);
-      setError(`GitHub App authentication failed: ${err.message}`);
+      if (isOAuthUnreachableError(err)) {
+        setOauthConnectFailure({
+          retry: handleGitHubApp,
+          detail: err.message
+        });
+      } else {
+        setError(`GitHub App authentication failed: ${err.message}`);
+      }
       setIsConnecting(false);
     }
   };
@@ -4445,33 +4476,11 @@ const UniverseManager = ({ variant = 'panel', onRequestClose }) => {
       )}
 
       {error && (
-        <div
-          style={{
-            borderRadius: 8,
-            border: '1px solid #c62828',
-            backgroundColor: '#ffebee',
-            padding: 12,
-            display: 'flex',
-            alignItems: 'center',
-            gap: 8
-          }}
-        >
-          <XCircle size={16} color="#c62828" />
-          <span style={{ fontSize: '0.8rem' }}>{error}</span>
-          <button
-            onClick={() => setError(null)}
-            style={{
-              marginLeft: 'auto',
-              border: 'none',
-              background: 'transparent',
-              color: '#c62828',
-              cursor: 'pointer',
-              fontSize: '1rem'
-            }}
-          >
-            ×
-          </button>
-        </div>
+        <StatusBanner
+          tone="error"
+          message={error}
+          onDismiss={() => setError(null)}
+        />
       )}
 
       <UniversesList
@@ -4514,6 +4523,23 @@ const UniverseManager = ({ variant = 'panel', onRequestClose }) => {
         onSyncUniverse={(universe, repoInfo) => handleLinkDiscovered(universe, repoInfo)}
       />
 
+      {oauthConnectFailure && (
+        <StatusBanner
+          tone="warning"
+          title="Can't reach the OAuth server"
+          message="The connect request didn't go through. Check your network and try again — if the problem persists the OAuth server may be down."
+          action={{
+            label: 'Try again',
+            onClick: () => {
+              const retry = oauthConnectFailure.retry;
+              setOauthConnectFailure(null);
+              if (typeof retry === 'function') retry();
+            }
+          }}
+          onDismiss={() => setOauthConnectFailure(null)}
+        />
+      )}
+
       <AuthSection
         statusBadge={statusBadge}
         hasApp={hasApp}
@@ -4523,6 +4549,7 @@ const UniverseManager = ({ variant = 'panel', onRequestClose }) => {
         allowOAuthBackup={allowOAuthBackup}
         onSetAllowOAuthBackup={setAllowOAuthBackup}
         onGitHubAuth={handleGitHubAuth}
+        onGitHubDisconnect={handleGitHubDisconnect}
         onGitHubApp={handleGitHubApp}
         activeUniverse={activeUniverse}
         syncStatus={activeUniverse ? syncStatusFor(activeUniverse.slug) : null}

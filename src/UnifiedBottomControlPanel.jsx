@@ -208,21 +208,22 @@ const UnifiedBottomControlPanel = ({
   const viewportLimit = Math.max(260, mobileState.width - 24);
 
   const nodeRendererMetrics = useMemo(() => {
+    const padding = mobileState.isMobilePortrait ? 4 : 8;
     if (!nodeDimensionEntries.length) {
       return {
         nodesForRenderer: [],
         containerWidth: Math.min(360, viewportLimit),
-        containerHeight: 90,
-        padding: 10
+        containerHeight: mobileState.isMobilePortrait ? 72 : 84,
+        padding
       };
     }
 
-    const PADDING = 10;
+    const PADDING = padding;
     const BASE_CONTAINER_WIDTH = Math.min(360, viewportLimit);
     const MAX_CONTAINER_WIDTH = Math.min(520, viewportLimit);
-    const BASE_CONTAINER_HEIGHT = mobileState.isMobilePortrait ? 92 : 104;
-    const ROW_HEIGHT_INCREMENT = mobileState.isMobilePortrait ? 56 : 64;
-    const MAX_CONTAINER_HEIGHT = mobileState.isMobilePortrait ? 200 : 240;
+    const BASE_CONTAINER_HEIGHT = mobileState.isMobilePortrait ? 72 : 92;
+    const ROW_HEIGHT_INCREMENT = mobileState.isMobilePortrait ? 50 : 60;
+    const MAX_CONTAINER_HEIGHT = mobileState.isMobilePortrait ? 180 : 220;
     const COLUMN_SPACING = mobileState.isMobilePortrait ? 12 : 16;
     const ROW_SPACING = mobileState.isMobilePortrait ? 10 : 14;
     const MAX_ITEMS_PER_ROW = mobileState.isMobilePortrait ? 3 : 4;
