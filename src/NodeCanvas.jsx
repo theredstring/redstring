@@ -1394,34 +1394,28 @@ function NodeCanvas() {
     return () => { cancelled = true; };
   }, [isUniverseLoading, hasUniverseFile, isUniverseLoaded, universeLoadingError, showStorageSetupModal]);
 
-  // Open Federation panel when global event is dispatched (from SaveStatusDisplay CTA)
+  // Open Federation panel when global event is dispatched (from SaveStatusDisplay CTA
+  // or onboarding/help). The null→federation toggle is intentional: setting the same
+  // value twice is a no-op for React state, so re-clicking Connect while the panel is
+  // on a different tab wouldn't actually switch the view. Clearing first guarantees
+  // the Panel's useEffect sees a change and snaps to federation.
   useEffect(() => {
     if (typeof window === 'undefined') return undefined;
 
     const handler = () => {
       try {
         storeActions.setLeftPanelExpanded(true);
-        setLeftPanelInitialView('federation');
+        setLeftPanelInitialView(null);
+        requestAnimationFrame(() => setLeftPanelInitialView('federation'));
       } catch { }
     };
 
     window.addEventListener('redstring:open-federation', handler);
-    return () => window.removeEventListener('redstring:open-federation', handler);
-  }, []);
-
-  // Open Federation panel when event is dispatched from onboarding or help
-  useEffect(() => {
-    if (typeof window === 'undefined') return undefined;
-
-    const handler = () => {
-      try {
-        storeActions.setLeftPanelExpanded(true);
-        setLeftPanelInitialView('federation');
-      } catch { }
-    };
-
     window.addEventListener('openGitFederation', handler);
-    return () => window.removeEventListener('openGitFederation', handler);
+    return () => {
+      window.removeEventListener('redstring:open-federation', handler);
+      window.removeEventListener('openGitFederation', handler);
+    };
   }, []);
 
   // Open Help modal when event is dispatched
@@ -8975,7 +8969,17 @@ function NodeCanvas() {
                 Open a New Thing
               </div>
               <button
-                onClick={() => storeActions.createNewGraph({ name: 'New Thing' })}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  storeActions.createNewGraph({ name: 'New Thing' });
+                }}
+                onTouchEnd={(e) => {
+                  // The canvas container uses touchAction:'none' and intercepts touch events,
+                  // which prevents synthetic clicks from firing on this button on mobile.
+                  // Handle the tap explicitly here.
+                  e.stopPropagation();
+                  storeActions.createNewGraph({ name: 'New Thing' });
+                }}
                 style={{
                   width: '120px',
                   height: '120px',
@@ -8987,7 +8991,8 @@ function NodeCanvas() {
                   alignItems: 'center',
                   justifyContent: 'center',
                   transition: 'all 0.2s ease',
-                  outline: 'none'
+                  outline: 'none',
+                  touchAction: 'manipulation'
                 }}
                 onMouseEnter={(e) => {
                   e.currentTarget.style.backgroundColor = 'rgba(38, 0, 0, 0.05)';

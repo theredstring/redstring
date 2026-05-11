@@ -10,6 +10,13 @@ const SaveStatusDisplay = () => {
   const [isCTA, setIsCTA] = useState(false);
   const [isVisible, setIsVisible] = useState(true);
 
+  const openFederation = () => {
+    if (!isCTA) return;
+    try {
+      window.dispatchEvent(new CustomEvent('redstring:open-federation'));
+    } catch { }
+  };
+
   const leftPanelExpanded = useGraphStore(state => state.leftPanelExpanded);
   const rightPanelExpanded = useGraphStore(state => state.rightPanelExpanded);
   const typeListMode = useGraphStore(state => state.typeListMode);
@@ -181,13 +188,7 @@ const SaveStatusDisplay = () => {
         transition: 'opacity 1s ease',
         pointerEvents: 'auto'
       }}
-      onClick={() => {
-        if (isCTA) {
-          try {
-            window.dispatchEvent(new CustomEvent('redstring:open-federation'));
-          } catch { }
-        }
-      }}
+      onClick={openFederation}
       onMouseEnter={(e) => {
         if (!isCTA) return;
         try {
