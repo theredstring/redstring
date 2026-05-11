@@ -104,11 +104,13 @@ const Header = ({
   const [activeTabMaxWidth, setActiveTabMaxWidth] = useState('220px');
 
   // Layout reservations on either side of the scrollable tabs container.
-  // In exclusive mode: only the logo (left) and hamburger (right). In wide
-  // mode the pre-refactor inline buttons sit alongside in their own wrappers
-  // (logo + 3 left buttons = 4×HEADER_HEIGHT; 3 right buttons = 3×HEADER_HEIGHT).
-  const tabsLeftReserve = isExclusivePanelMode ? HEADER_HEIGHT : (HEADER_HEIGHT * 4);
-  const tabsRightReserve = isExclusivePanelMode ? HEADER_HEIGHT : (HEADER_HEIGHT * 3);
+  // Only the logo (always) and hamburger (exclusive mode only) actually
+  // *block* the tabs — the inline action buttons in wide mode float on top
+  // with z-index, so tabs scroll underneath them. Centering is computed
+  // against the viewport center (see scrollToCenter), not the container's
+  // geometric center, so the container doesn't need to be symmetric.
+  const tabsLeftReserve = HEADER_HEIGHT;
+  const tabsRightReserve = isExclusivePanelMode ? HEADER_HEIGHT : 0;
 
   // Calculate dynamic max width for active tab based on header width
   useEffect(() => {
@@ -147,18 +149,26 @@ const Header = ({
     };
   }, [tabsLeftReserve, tabsRightReserve]);
 
-  // Scroll-to-center function. Container is sized symmetrically between logo
-  // and hamburger, so the visible tab area == container.clientWidth and we
-  // can center the active tab on container.clientWidth / 2.
+  // Scroll-to-center function. The container can be asymmetric (e.g. in wide
+  // mode it extends behind the right action buttons), so we center the active
+  // tab against the *viewport* center rather than the container's geometric
+  // center. The result is that the active tab sits dead-center in the
+  // browser window regardless of which side has more reserved chrome.
   const scrollToCenter = useCallback((immediate = false) => {
     if (!tabsScrollContainerRef.current || !activeTabRef.current) return;
 
     const container = tabsScrollContainerRef.current;
     const activeTab = activeTabRef.current;
 
-    // Use offsetLeft/offsetWidth (layout-relative, independent of scrollLeft).
+    // offsetLeft/offsetWidth are layout-relative (independent of scrollLeft).
+    // containerRect.left is the container's viewport-x and doesn't depend on
+    // its own scrollLeft either, so the resulting target is fully absolute.
+    const containerRect = container.getBoundingClientRect();
     const tabCenterInContent = activeTab.offsetLeft + activeTab.offsetWidth / 2;
-    const targetScrollLeft = Math.max(0, tabCenterInContent - container.clientWidth / 2);
+    const targetScrollLeft = Math.max(
+      0,
+      containerRect.left + tabCenterInContent - window.innerWidth / 2
+    );
 
     isProgrammaticScroll.current = true;
 

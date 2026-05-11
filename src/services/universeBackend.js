@@ -3319,6 +3319,14 @@ class UniverseBackend {
           allowPermissionPrompt
         });
       }
+      // Hard error from Git (auth, network) — surface it rather than silently
+      // falling through to stale browser cache. The user explicitly linked a repo;
+      // showing them old cached data masquerading as the loaded content is worse
+      // than a clear "failed to load" error.
+      if (hasLinkedGitRepo && gitRes?.error) {
+        umError('[UniverseBackend] Git load failed for git-primary universe:', gitRes.error);
+        throw new Error(`Failed to load from repository: ${gitRes.error.message || gitRes.error}`);
+      }
     }
 
     // C. Fallbacks (Cross-Loading):
@@ -3356,15 +3364,20 @@ class UniverseBackend {
       });
     }
 
-    // Try Browser fallback
+    // Try Browser fallback — but ONLY if no real storage is configured.
+    // If the user has a linked git repo or a local file, browser cache is just
+    // a stale snapshot from a previous session and showing it after a failed
+    // primary-load is misleading (the user thinks the load worked).
     const browserRes = resultsMap.get(SOURCE_OF_TRUTH.BROWSER);
-    if (browserRes?.data) {
-      umLog('[UniverseBackend] Using Browser Storage fallback');
-      this.notifyStatus('warning', 'Primary storage unavailable. Loaded from browser backup.');
+    if (browserRes?.data && !hasLinkedGitRepo && !universe.localFile?.enabled) {
+      umLog('[UniverseBackend] Using Browser Storage fallback (no other storage configured)');
       return this.syncAndReturn(universe, browserRes.data, {
         source: SOURCE_OF_TRUTH.BROWSER,
         allowPermissionPrompt
       });
+    }
+    if (browserRes?.data && (hasLinkedGitRepo || universe.localFile?.enabled)) {
+      umWarn('[UniverseBackend] Skipping stale browser cache: primary storage is configured but failed to load');
     }
 
     // Return empty state if absolutely everything failed

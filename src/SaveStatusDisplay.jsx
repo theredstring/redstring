@@ -23,8 +23,9 @@ const SaveStatusDisplay = () => {
 
   useEffect(() => {
     if (statusText === 'Saved') {
-      // Fade out after 0.25 seconds
-      const timer = setTimeout(() => setIsVisible(false), 250);
+      // After a brief moment, dim — but stay visible so the user always knows
+      // the current connection/save status at a glance.
+      const timer = setTimeout(() => setIsVisible(false), 1500);
       return () => clearTimeout(timer);
     } else {
       setIsVisible(true);
@@ -176,9 +177,9 @@ const SaveStatusDisplay = () => {
 
         cursor: isCTA ? 'pointer' : 'default',
         textDecoration: 'none',
-        opacity: isVisible ? 1 : 0,
+        opacity: isVisible ? 1 : 0.45,
         transition: 'opacity 1s ease',
-        pointerEvents: isVisible ? 'auto' : 'none'
+        pointerEvents: 'auto'
       }}
       onClick={() => {
         if (isCTA) {
