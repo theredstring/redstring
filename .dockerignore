@@ -1,0 +1,34 @@
+node_modules
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Build outputs (re-built inside the image)
+dist
+build
+.vite
+
+# Local secrets — MUST NOT ship to production images.
+# Cloud Run injects real credentials via Secret Manager.
+.env
+.env.*
+!.env.example
+github.env
+github.env.local
+*.env.local
+*.pem
+
+# Git / VCS
+.git
+.gitignore
+
+# IDE / OS
+.DS_Store
+.vscode
+.idea
+*.swp
+
+# Logs / temp
+*.log
+.cache
+.tmp

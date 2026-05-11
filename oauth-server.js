@@ -99,15 +99,16 @@ app.get('/health', (req, res) => {
   });
 });
 
-// Helper to detect if request comes from dev/test environment
-function isLocalRequest(req) {
-  try {
-    const host = (req.headers['x-forwarded-host'] || req.headers.host || '').toString().toLowerCase();
-    // Treat localhost AND redstring-test deployment as dev/test
-    return host.includes('localhost') || 
-           host.includes('127.0.0.1') ||
-           host.includes('redstring-test');
-  } catch { return false; }
+// Helper to detect if this server is running in a dev/test environment.
+// Host-header detection used to live here, but the OAuth server is reached via
+// an in-container proxy (app-semantic-server.js → http://localhost:3002), so
+// every request looks "local" regardless of the original request's hostname.
+// NODE_ENV is set per Cloud Run service (production for redstring-prod,
+// development for redstring-test, development locally) — deterministic and
+// proxy-safe.
+function isLocalRequest(_req) {
+  const env = (process.env.NODE_ENV || 'development').toLowerCase();
+  return env !== 'production';
 }
 
 const GITHUB_USER_INSTALLATIONS_URL = 'https://api.github.com/user/installations';
