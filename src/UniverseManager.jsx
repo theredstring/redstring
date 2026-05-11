@@ -2560,14 +2560,19 @@ const UniverseManager = ({ variant = 'panel', onRequestClose }) => {
         label: 'Universe Name'
       },
       onConfirm: async (universeName) => {
+        const hasGitAuth = hasOAuth || hasApp;
         try {
           setLoading(true);
           setIsConnecting(true);
           setConnectingMessage('Creating universe file...');
 
+          if (!hasGitAuth) {
+            throw new Error('Connect GitHub before creating a universe file in a repository.');
+          }
+
           const creation = await universeManagerService.createUniverse(universeName, {
             enableGit: true,
-            enableLocal: !deviceInfo.gitOnlyMode
+            enableLocal: false
           });
           const createdSlug = creation?.createdUniverse?.slug;
           const slug = createdSlug || (creation?.universes || []).find(u => u.name === (creation?.createdUniverse?.name || universeName))?.slug;
@@ -2581,17 +2586,8 @@ const UniverseManager = ({ variant = 'panel', onRequestClose }) => {
             universeFile: `${slug}.redstring`
           });
 
-          try {
-            await universeManagerService.forceSave(slug, (hasOAuth || hasApp) ? undefined : { skipGit: true });
-          } catch (e) {
-            umWarn('[UniverseManager] Initial save after creating repo file failed:', e);
-          }
-
-          try {
-            await universeManagerService.setPrimaryStorage(slug, STORAGE_TYPES.GIT);
-          } catch (e) {
-            umWarn('[UniverseManager] Failed to set Git as primary after creating repo file:', e);
-          }
+          setConnectingMessage('Writing initial universe file...');
+          await universeManagerService.forceSave(slug);
 
           setSyncStatus({ type: 'success', message: `Created universe in @${owner}/${repoName}` });
           await refreshState();

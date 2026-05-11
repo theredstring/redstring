@@ -105,9 +105,9 @@ const Header = ({
 
   // Layout reservations on either side of the scrollable tabs container.
   // In exclusive mode: only the logo (left) and hamburger (right). In wide
-  // mode the pre-refactor inline buttons sit alongside (3 on the left, 3 on
-  // the right) so we reserve their footprint as well.
-  const tabsLeftReserve = isExclusivePanelMode ? HEADER_HEIGHT : (HEADER_HEIGHT * 4 + 10);
+  // mode the pre-refactor inline buttons sit alongside in their own wrappers
+  // (logo + 3 left buttons = 4×HEADER_HEIGHT; 3 right buttons = 3×HEADER_HEIGHT).
+  const tabsLeftReserve = isExclusivePanelMode ? HEADER_HEIGHT : (HEADER_HEIGHT * 4);
   const tabsRightReserve = isExclusivePanelMode ? HEADER_HEIGHT : (HEADER_HEIGHT * 3);
 
   // Calculate dynamic max width for active tab based on header width
@@ -700,70 +700,79 @@ const Header = ({
         />
       </div>
 
-      {/* Inline left-side action buttons (wide layout only). In exclusive mode
-          these collapse into the right-side hamburger menu. Positions match
-          the pre-hamburger refactor: Help at HEADER_HEIGHT+10, then Settings,
-          then Search All Things. */}
-      {!isExclusivePanelMode && [
-        { key: 'help', Icon: HelpCircle, iconSize: 22, strokeWidth: 3, title: 'Help & Guide', onClick: () => window.dispatchEvent(new Event('openHelpModal')) },
-        { key: 'settings', Icon: Settings, iconSize: 20, strokeWidth: 2.5, title: 'Settings', onClick: () => window.dispatchEvent(new Event('openSettingsModal')) },
-        { key: 'all-search', Icon: Search, iconSize: 20, strokeWidth: 2.5, title: 'Search All Things', onClick: () => onOpenAllThingsSearch?.() },
-      ].map((action, idx) => (
+      {/* Inline left-side action buttons (wide layout only). Mirrors the
+          right-side wrapper: a flex row anchored next to the logo, floating
+          over the tabs container on the shared header background. In
+          exclusive mode these collapse into the hamburger menu. */}
+      {!isExclusivePanelMode && (
         <div
-          key={action.key}
-          title={action.title}
           style={{
             position: 'absolute',
-            left: `${HEADER_HEIGHT * (idx + 1) + 10}px`,
+            left: `${HEADER_HEIGHT}px`,
             top: 0,
             height: `${HEADER_HEIGHT}px`,
-            width: `${HEADER_HEIGHT}px`,
             display: 'flex',
             alignItems: 'center',
-            justifyContent: 'center',
-            cursor: 'pointer',
-            backgroundColor: 'transparent',
+            gap: 0,
             zIndex: 10002,
-            pointerEvents: 'auto',
-          }}
-          onClick={(e) => {
-            e.stopPropagation();
-            e.preventDefault();
-            action.onClick?.();
-          }}
-          onMouseEnter={(e) => {
-            const circle = e.currentTarget.querySelector('.header-btn-circle');
-            if (circle) {
-              circle.style.transform = 'scale(1.06)';
-              circle.style.boxShadow = '0 2px 6px rgba(0,0,0,0.15)';
-            }
-          }}
-          onMouseLeave={(e) => {
-            const circle = e.currentTarget.querySelector('.header-btn-circle');
-            if (circle) {
-              circle.style.transform = 'scale(1)';
-              circle.style.boxShadow = 'none';
-            }
           }}
         >
-          <div
-            className="header-btn-circle"
-            style={{
-              width: '36px',
-              height: '36px',
-              borderRadius: '50%',
-              backgroundColor: '#ffffff',
-              border: '3px solid #7A0000',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              transition: 'transform 120ms ease, box-shadow 120ms ease',
-            }}
-          >
-            <action.Icon size={action.iconSize} color="#7A0000" strokeWidth={action.strokeWidth} />
-          </div>
+          {[
+            { key: 'help', Icon: HelpCircle, iconSize: 22, strokeWidth: 3, title: 'Help & Guide', onClick: () => window.dispatchEvent(new Event('openHelpModal')) },
+            { key: 'settings', Icon: Settings, iconSize: 20, strokeWidth: 2.5, title: 'Settings', onClick: () => window.dispatchEvent(new Event('openSettingsModal')) },
+            { key: 'all-search', Icon: Search, iconSize: 20, strokeWidth: 2.5, title: 'Search All Things', onClick: () => onOpenAllThingsSearch?.() },
+          ].map((action) => (
+            <div
+              key={action.key}
+              title={action.title}
+              style={{
+                height: `${HEADER_HEIGHT}px`,
+                width: `${HEADER_HEIGHT}px`,
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                cursor: 'pointer',
+                backgroundColor: 'transparent',
+              }}
+              onClick={(e) => {
+                e.stopPropagation();
+                action.onClick?.();
+              }}
+              onMouseEnter={(e) => {
+                const circle = e.currentTarget.querySelector('.header-btn-circle');
+                if (circle) {
+                  circle.style.transform = 'scale(1.06)';
+                  circle.style.boxShadow = '0 2px 6px rgba(0,0,0,0.15)';
+                }
+              }}
+              onMouseLeave={(e) => {
+                const circle = e.currentTarget.querySelector('.header-btn-circle');
+                if (circle) {
+                  circle.style.transform = 'scale(1)';
+                  circle.style.boxShadow = 'none';
+                }
+              }}
+            >
+              <div
+                className="header-btn-circle"
+                style={{
+                  width: '36px',
+                  height: '36px',
+                  borderRadius: '50%',
+                  backgroundColor: '#ffffff',
+                  border: '3px solid #7A0000',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  transition: 'transform 120ms ease, box-shadow 120ms ease',
+                }}
+              >
+                <action.Icon size={action.iconSize} color="#7A0000" strokeWidth={action.strokeWidth} />
+              </div>
+            </div>
+          ))}
         </div>
-      ))}
+      )}
 
       {/* Scrollable tabs container — sized to fit between the fixed left/right
           button reservations for the current mode so its visible area equals
