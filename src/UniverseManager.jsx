@@ -14,7 +14,6 @@ import {
   ExternalLink,
   CheckCircle,
   AlertCircle,
-  Info,
   Clock,
   ChevronDown,
   ChevronRight,
@@ -90,7 +89,7 @@ function detectDeviceInfo() {
     isMobile,
     isTablet,
     supportsFileSystemAPI: 'showSaveFilePicker' in window,
-    gitOnlyMode: isMobile || isTablet || !('showSaveFilePicker' in window)
+    gitOnlyMode: !('showSaveFilePicker' in window)
   };
 }
 
@@ -140,31 +139,6 @@ function resolveFileDisplayPath(fileHandle, file) {
   if (fileHandle?.name) return fileHandle.name;
   if (file?.name) return file.name;
   return 'Unknown.redstring';
-}
-
-function BrowserFallbackNote() {
-  return (
-    <div
-      style={{
-        marginTop: 12,
-        padding: '10px 12px',
-        borderRadius: 6,
-        border: '1px dashed #7A0000',
-        backgroundColor: 'rgba(122,0,0,0.08)',
-        display: 'flex',
-        alignItems: 'center',
-        gap: 10,
-        color: theme.canvas.textPrimary,
-        fontSize: '0.8rem'
-      }}
-    >
-      <Cloud size={16} />
-      <div>
-        <div style={{ fontWeight: 600 }}>Browser cache</div>
-        <div>Data stored in browser. Link a Git repository or local file for persistence.</div>
-      </div>
-    </div>
-  );
 }
 
 function buttonStyle(theme,  variant = 'outline') {
@@ -1697,8 +1671,14 @@ const UniverseManager = ({ variant = 'panel', onRequestClose }) => {
     // Simple handler for loading from an already-discovered repository file
     if (!file) return;
 
+    const fileLabel = file.name || file.slug || 'repository file';
+
     try {
       setLoading(true);
+      setIsConnecting(true);
+      setConnectingMessage(`Loading "${fileLabel}" from repository...`);
+      // Close the file selector so the connecting overlay is visible.
+      setShowUniverseFileSelector(false);
 
       // If the file already has a linked universe (slug), load from it
       if (file.slug) {
@@ -1706,8 +1686,7 @@ const UniverseManager = ({ variant = 'panel', onRequestClose }) => {
         await universeBackendBridge.reloadUniverse(file.slug);
         await universeManagerService.switchUniverse(file.slug);
         await refreshState();
-        setSyncStatus({ type: 'success', message: `Loaded universe "${file.name || file.slug}" from repository` });
-        setShowUniverseFileSelector(false);
+        setSyncStatus({ type: 'success', message: `Loaded universe "${fileLabel}" from repository` });
         return;
       }
 
@@ -1719,6 +1698,8 @@ const UniverseManager = ({ variant = 'panel', onRequestClose }) => {
       setError(`Failed to load from repository: ${err.message}`);
     } finally {
       setLoading(false);
+      setIsConnecting(false);
+      setConnectingMessage(null);
     }
   };
 
@@ -1774,7 +1755,10 @@ const UniverseManager = ({ variant = 'panel', onRequestClose }) => {
           return;
         }
 
+        const importLabel = selectedFile.name || selectedFile.slug || 'repository file';
         setShowUniverseFileSelector(false);
+        setIsConnecting(true);
+        setConnectingMessage(`Importing "${importLabel}" from repository...`);
 
         const resultState = await universeManagerService.linkDiscoveredUniverse(selectedFile, {
           user: owner,
@@ -1867,6 +1851,8 @@ const UniverseManager = ({ variant = 'panel', onRequestClose }) => {
       const finalizeLinkDiscoveredUniverse = async () => {
         try {
           setShowUniverseFileSelector(false);
+          setIsConnecting(true);
+          setConnectingMessage(`Syncing "${remoteName}" from repository...`);
 
           await universeManagerService.linkDiscoveredUniverse(selectedFile, {
             user: owner,
@@ -1895,6 +1881,9 @@ const UniverseManager = ({ variant = 'panel', onRequestClose }) => {
         } catch (err) {
           umError('[UniverseManager] Link discovered universe failed:', err);
           setError(`Failed to sync universe: ${err.message}`);
+        } finally {
+          setIsConnecting(false);
+          setConnectingMessage(null);
         }
       };
 
@@ -1915,6 +1904,8 @@ const UniverseManager = ({ variant = 'panel', onRequestClose }) => {
       setError(`Failed to process universe file: ${err.message}`);
     } finally {
       setLoading(false);
+      setIsConnecting(false);
+      setConnectingMessage(null);
       if (!preserveSelectionState) {
         setRepositoryTargetSlug(null);
         setRepositoryIntent(null);
@@ -1949,6 +1940,8 @@ const UniverseManager = ({ variant = 'panel', onRequestClose }) => {
       onConfirm: async () => {
         try {
           setLoading(true);
+          setIsConnecting(true);
+          setConnectingMessage(`Saving "${localName}" to "${repoNameLabel}"...`);
           setShowUniverseFileSelector(false);
           const repo = { user: owner, repo: repoName };
           const repoKey = `${owner}/${repoName}`;
@@ -1958,6 +1951,8 @@ const UniverseManager = ({ variant = 'panel', onRequestClose }) => {
           setError(`Failed to save to repository: ${err.message}`);
         } finally {
           setLoading(false);
+          setIsConnecting(false);
+          setConnectingMessage(null);
           setPendingRepoAttachment(null);
           setDiscoveredUniverseFiles([]);
           setRepositoryIntent(null);
@@ -4243,7 +4238,6 @@ const UniverseManager = ({ variant = 'panel', onRequestClose }) => {
               {slots.map(({ slot, primary }) => renderStorageSlot(activeUniverse, slot, primary))}
             </div>
           )}
-          {activeUniverse.hasBrowserFallback && <BrowserFallbackNote />}
         </div>
 
         <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
@@ -4381,29 +4375,6 @@ const UniverseManager = ({ variant = 'panel', onRequestClose }) => {
       overflowY: 'auto'
     };
 
-  // Device message only shown if there are limitations
-  const deviceMessage = deviceInfo.gitOnlyMode ? (() => {
-    if (deviceInfo.isMobile) {
-      return {
-        type: 'info',
-        title: 'Mobile Git-Only Mode',
-        message: 'We stick to Git repositories on this device for seamless synchronization.'
-      };
-    }
-    if (deviceInfo.isTablet) {
-      return {
-        type: 'info',
-        title: 'Tablet Git-Only Mode',
-        message: 'Optimized for tablets with Git as the source of truth.'
-      };
-    }
-    return {
-      type: 'info',
-      title: 'Git-Only Mode Active',
-      message: 'Local file APIs are unavailable, so we sync directly with Git.'
-    };
-  })() : null;
-
   const isUniverseImportMode = pendingRepoAttachment?.mode === 'import';
   const universeFileRepoLabel = pendingRepoAttachment
     ? `${pendingRepoAttachment.owner}/${pendingRepoAttachment.repoName}`
@@ -4430,26 +4401,6 @@ const UniverseManager = ({ variant = 'panel', onRequestClose }) => {
             variant="outline"
             onClick={onRequestClose}
           />
-        </div>
-      )}
-
-      {deviceMessage && (
-        <div
-          style={{
-            borderRadius: 8,
-            border: `1px solid ${theme.canvas.border}`,
-            backgroundColor: theme.canvas.bg,
-            padding: 14,
-            display: 'flex',
-            alignItems: 'center',
-            gap: 12
-          }}
-        >
-          <Info size={18} color={theme.canvas.textPrimary} />
-          <div>
-            <div style={{ fontWeight: 700, color: theme.canvas.textPrimary }}>{deviceMessage.title}</div>
-            <div style={{ fontSize: '0.78rem', color: theme.canvas.textSecondary }}>{deviceMessage.message}</div>
-          </div>
         </div>
       )}
 
@@ -4506,6 +4457,7 @@ const UniverseManager = ({ variant = 'panel', onRequestClose }) => {
         onGrantLocalPermission={handleGrantLocalPermission}
         onWorkspacePermissionGranted={handleWorkspacePermissionGranted}
         isSlim={isSlim}
+        isMobile={deviceInfo.isMobile}
       />
 
       <RepositoriesSection
@@ -4888,8 +4840,22 @@ const UniverseManager = ({ variant = 'panel', onRequestClose }) => {
                   <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10, minWidth: 0 }}>
                     <GitBranch size={18} style={{ flexShrink: 0 }} />
                     <div style={{ textAlign: 'left', flex: 1, minWidth: 0, wordBreak: 'break-word', overflowWrap: 'anywhere' }}>
-                      <div style={{ fontWeight: 700, marginBottom: 6, color: theme.canvas.textPrimary, fontSize: '0.9rem' }}>
-                        {file.name || file.slug || 'Universe File'}
+                      <div style={{ fontWeight: 700, marginBottom: 6, color: theme.canvas.textPrimary, fontSize: '0.9rem', display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                        <span>{file.name || file.slug || 'Universe File'}</span>
+                        {file.nodeCount === 0 && file.graphCount === 0 && file.connectionCount === 0 && (
+                          <span style={{
+                            fontSize: '0.6rem',
+                            padding: '2px 6px',
+                            borderRadius: 10,
+                            backgroundColor: 'transparent',
+                            color: theme.canvas.textSecondary,
+                            border: `1px solid ${theme.canvas.border}`,
+                            fontWeight: 700,
+                            letterSpacing: '0.05em'
+                          }}>
+                            EMPTY
+                          </span>
+                        )}
                       </div>
                       <div style={{ fontSize: '0.7rem', color: '#666', marginBottom: 4, textDecoration: 'none' }}>
                         {file.path || file.location || 'Unknown path'}
@@ -4991,8 +4957,22 @@ const UniverseManager = ({ variant = 'panel', onRequestClose }) => {
                         <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10, minWidth: 0 }}>
                           <GitBranch size={18} style={{ flexShrink: 0 }} />
                           <div style={{ textAlign: 'left', flex: 1, minWidth: 0, wordBreak: 'break-word', overflowWrap: 'anywhere' }}>
-                            <div style={{ fontWeight: 700, marginBottom: 6, color: theme.canvas.textPrimary, fontSize: '0.9rem' }}>
-                              {file.name || file.slug || 'Unnamed Universe'}
+                            <div style={{ fontWeight: 700, marginBottom: 6, color: theme.canvas.textPrimary, fontSize: '0.9rem', display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                              <span>{file.name || file.slug || 'Unnamed Universe'}</span>
+                              {file.nodeCount === 0 && file.graphCount === 0 && file.connectionCount === 0 && (
+                                <span style={{
+                                  fontSize: '0.6rem',
+                                  padding: '2px 6px',
+                                  borderRadius: 10,
+                                  backgroundColor: 'transparent',
+                                  color: theme.canvas.textSecondary,
+                                  border: `1px solid ${theme.canvas.border}`,
+                                  fontWeight: 700,
+                                  letterSpacing: '0.05em'
+                                }}>
+                                  EMPTY
+                                </span>
+                              )}
                             </div>
                             <div style={{ fontSize: '0.7rem', color: '#666', marginBottom: 4, textDecoration: 'none' }}>
                               {file.path || file.location || 'Unknown path'}

@@ -311,9 +311,13 @@ const Header = ({
   const [tempTitle, setTempTitle] = useState(activeGraph ? activeGraph.name : '');
   const inputRef = useRef(null);
 
-  // Center on active graph change
+  // Center on active graph change OR when images finish preloading. The
+  // imagesLoaded dependency is critical: on the initial render Header
+  // early-returns a stripped-down version with no tabs container, so the
+  // first run of this effect bails out with null refs. Once images load and
+  // the full header re-renders, we need to re-run to actually center.
   useEffect(() => {
-    if (!activeGraph) return;
+    if (!activeGraph || !imagesLoaded) return;
 
     if (recenterTimeoutRef.current) {
       clearTimeout(recenterTimeoutRef.current);
@@ -340,7 +344,7 @@ const Header = ({
       cancelAnimationFrame(frameId);
       if (resizeObserver) resizeObserver.disconnect();
     };
-  }, [activeGraph?.id, scrollToCenter]);
+  }, [activeGraph?.id, scrollToCenter, imagesLoaded]);
 
   const logos = [logo1, logo2, logo3, logo4, logo5, logo6, logo7];
 

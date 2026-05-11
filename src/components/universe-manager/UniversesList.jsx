@@ -54,7 +54,8 @@ const UniversesList = ({
   onGrantLocalPermission,
   onSwapLocalFile,
   onWorkspacePermissionGranted,
-  isSlim = false
+  isSlim = false,
+  isMobile = false
 }) => {
   const theme = useTheme();
   // No collapsing - active universe is always expanded, others show compact view
@@ -537,6 +538,15 @@ const UniversesList = ({
               const connectionCount = (isActive && liveMetrics) ? liveMetrics.connectionCount : storedConnectionCount;
               const graphCount = (isActive && liveMetrics) ? liveMetrics.graphCount : storedGraphCount;
 
+              // Only show EMPTY badge when we can be confident the universe has no content.
+              // For active universe: liveMetrics is authoritative.
+              // For inactive: only when all three counts are explicitly defined in metadata (not just missing).
+              const hasExplicitCounts = (isActive && liveMetrics) || (
+                (universe.nodeCount !== undefined || universe.raw?.nodeCount !== undefined || universe.metadata?.nodeCount !== undefined || universe.raw?.metadata?.nodeCount !== undefined) &&
+                (universe.graphCount !== undefined || universe.raw?.graphCount !== undefined || universe.metadata?.graphCount !== undefined || universe.raw?.metadata?.graphCount !== undefined)
+              );
+              const isEmpty = hasExplicitCounts && nodeCount === 0 && graphCount === 0 && connectionCount === 0;
+
               return (
                 <div
                   key={universe.slug}
@@ -572,6 +582,20 @@ const UniversesList = ({
                             fontWeight: 700
                           }}>
                             ACTIVE
+                          </span>
+                        )}
+                        {isEmpty && (
+                          <span style={{
+                            fontSize: '0.6rem',
+                            padding: '2px 6px',
+                            borderRadius: 10,
+                            backgroundColor: 'transparent',
+                            color: theme.canvas.textSecondary,
+                            border: `1px solid ${theme.canvas.border}`,
+                            fontWeight: 700,
+                            letterSpacing: '0.05em'
+                          }}>
+                            EMPTY
                           </span>
                         )}
                       </div>
@@ -836,8 +860,8 @@ const UniversesList = ({
                             </div>
                           )}
 
-                          {/* Local File Slot */}
-                          {universe.raw?.localFile?.enabled || universe.raw?.localFile?.pendingConnect ? (
+                          {/* Local File Slot — hidden on mobile (FileSystemAccess API unavailable) */}
+                          {!isMobile && (universe.raw?.localFile?.enabled || universe.raw?.localFile?.pendingConnect ? (
                             <div
                               style={{
                                 padding: 8,
@@ -1228,23 +1252,7 @@ const UniversesList = ({
                                 </div>
                               )}
                             </div>
-                          )}
-
-                          {/* Browser Storage Warning */}
-                          {(!universe.raw?.gitRepo?.linkedRepo && !universe.raw?.localFile?.enabled) && (
-                            <div style={{
-                              padding: 8,
-                              backgroundColor: 'rgba(122,0,0,0.08)',
-                              borderRadius: 6,
-                              border: `1px solid ${theme.canvas.brand}`,
-                              fontSize: '0.7rem',
-                              color: theme.canvas.brand,
-                              textAlign: 'center',
-                              fontWeight: 500
-                            }}>
-                              ⚠ Data stored in browser only. Link long-term storage to save your data reliably.
-                            </div>
-                          )}
+                          ))}
                         </div>
                       </div>
 

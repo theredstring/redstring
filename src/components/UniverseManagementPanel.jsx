@@ -39,7 +39,7 @@ const getDeviceInfo = () => {
     isTouchDevice: isTouch,
     screenWidth,
     supportsFileSystemAPI: 'showSaveFilePicker' in window,
-    gitOnlyMode: isMobile || isTablet || !('showSaveFilePicker' in window)
+    gitOnlyMode: !('showSaveFilePicker' in window)
   };
 };
 
