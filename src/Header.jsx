@@ -25,6 +25,8 @@ const Header = ({
   onCreateNewThing,
   onOpenComponentSearch,
   onOpenAllThingsSearch,
+  // Responsive layout
+  isExclusivePanelMode = false,
   // Receive debug props
   debugMode,
   setDebugMode,
@@ -101,6 +103,13 @@ const Header = ({
   const isProgrammaticScroll = useRef(false);
   const [activeTabMaxWidth, setActiveTabMaxWidth] = useState('220px');
 
+  // Layout reservations on either side of the scrollable tabs container.
+  // In exclusive mode: only the logo (left) and hamburger (right). In wide
+  // mode the pre-refactor inline buttons sit alongside (3 on the left, 3 on
+  // the right) so we reserve their footprint as well.
+  const tabsLeftReserve = isExclusivePanelMode ? HEADER_HEIGHT : (HEADER_HEIGHT * 4 + 10);
+  const tabsRightReserve = isExclusivePanelMode ? HEADER_HEIGHT : (HEADER_HEIGHT * 3);
+
   // Calculate dynamic max width for active tab based on header width
   useEffect(() => {
     const updateActiveTabMaxWidth = () => {
@@ -108,9 +117,10 @@ const Header = ({
 
       const headerWidth = headerRef.current.offsetWidth;
 
-      // Left side: menu logo only = 1 × HEADER_HEIGHT
-      // Right side: hamburger only = 1 × HEADER_HEIGHT (other buttons live in its dropdown)
-      const fixedButtonsWidth = 2 * HEADER_HEIGHT;
+      // Reserve space for whichever set of fixed buttons is rendered for the
+      // current mode (logo + 3 left buttons + 3 right buttons in wide mode;
+      // logo + hamburger in exclusive mode).
+      const fixedButtonsWidth = tabsLeftReserve + tabsRightReserve;
 
       // Generous padding for inactive tabs and breathing room (300px on each side)
       const generousPadding = 600;
@@ -135,25 +145,20 @@ const Header = ({
     return () => {
       resizeObserver.disconnect();
     };
-  }, []);
+  }, [tabsLeftReserve, tabsRightReserve]);
 
-  // Scroll-to-center function
+  // Scroll-to-center function. Container is sized symmetrically between logo
+  // and hamburger, so the visible tab area == container.clientWidth and we
+  // can center the active tab on container.clientWidth / 2.
   const scrollToCenter = useCallback((immediate = false) => {
     if (!tabsScrollContainerRef.current || !activeTabRef.current) return;
 
     const container = tabsScrollContainerRef.current;
     const activeTab = activeTabRef.current;
 
-    // Use offsetLeft/offsetWidth so the math is independent of current scrollLeft
-    // (relative scrollBy + getBoundingClientRect can clamp to 0 on mobile when
-    // layout hasn't fully stabilized, leaving the tab pinned to the right).
+    // Use offsetLeft/offsetWidth (layout-relative, independent of scrollLeft).
     const tabCenterInContent = activeTab.offsetLeft + activeTab.offsetWidth / 2;
-    // Container spans `left: HEADER_HEIGHT` to `right: 0`, and the hamburger
-    // overlays the right HEADER_HEIGHT px. The visible tab area is therefore
-    // the container's clientWidth minus the hamburger overlap; we want the
-    // active tab centered in that visible area.
-    const visibleWidth = Math.max(0, container.clientWidth - HEADER_HEIGHT);
-    const targetScrollLeft = Math.max(0, tabCenterInContent - visibleWidth / 2);
+    const targetScrollLeft = Math.max(0, tabCenterInContent - container.clientWidth / 2);
 
     isProgrammaticScroll.current = true;
 
@@ -695,15 +700,82 @@ const Header = ({
         />
       </div>
 
-      {/* Scrollable tabs container */}
+      {/* Inline left-side action buttons (wide layout only). In exclusive mode
+          these collapse into the right-side hamburger menu. Positions match
+          the pre-hamburger refactor: Help at HEADER_HEIGHT+10, then Settings,
+          then Search All Things. */}
+      {!isExclusivePanelMode && [
+        { key: 'help', Icon: HelpCircle, iconSize: 22, strokeWidth: 3, title: 'Help & Guide', onClick: () => window.dispatchEvent(new Event('openHelpModal')) },
+        { key: 'settings', Icon: Settings, iconSize: 20, strokeWidth: 2.5, title: 'Settings', onClick: () => window.dispatchEvent(new Event('openSettingsModal')) },
+        { key: 'all-search', Icon: Search, iconSize: 20, strokeWidth: 2.5, title: 'Search All Things', onClick: () => onOpenAllThingsSearch?.() },
+      ].map((action, idx) => (
+        <div
+          key={action.key}
+          title={action.title}
+          style={{
+            position: 'absolute',
+            left: `${HEADER_HEIGHT * (idx + 1) + 10}px`,
+            top: 0,
+            height: `${HEADER_HEIGHT}px`,
+            width: `${HEADER_HEIGHT}px`,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            cursor: 'pointer',
+            backgroundColor: 'transparent',
+            zIndex: 10002,
+            pointerEvents: 'auto',
+          }}
+          onClick={(e) => {
+            e.stopPropagation();
+            e.preventDefault();
+            action.onClick?.();
+          }}
+          onMouseEnter={(e) => {
+            const circle = e.currentTarget.querySelector('.header-btn-circle');
+            if (circle) {
+              circle.style.transform = 'scale(1.06)';
+              circle.style.boxShadow = '0 2px 6px rgba(0,0,0,0.15)';
+            }
+          }}
+          onMouseLeave={(e) => {
+            const circle = e.currentTarget.querySelector('.header-btn-circle');
+            if (circle) {
+              circle.style.transform = 'scale(1)';
+              circle.style.boxShadow = 'none';
+            }
+          }}
+        >
+          <div
+            className="header-btn-circle"
+            style={{
+              width: '36px',
+              height: '36px',
+              borderRadius: '50%',
+              backgroundColor: '#ffffff',
+              border: '3px solid #7A0000',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              transition: 'transform 120ms ease, box-shadow 120ms ease',
+            }}
+          >
+            <action.Icon size={action.iconSize} color="#7A0000" strokeWidth={action.strokeWidth} />
+          </div>
+        </div>
+      ))}
+
+      {/* Scrollable tabs container — sized to fit between the fixed left/right
+          button reservations for the current mode so its visible area equals
+          its clientWidth (centering math just uses container.clientWidth/2). */}
       <div
         ref={tabsContainerRefCallback}
         onScroll={handleTabsScroll}
         className="hide-scrollbar"
         style={{
           position: 'absolute',
-          left: `${HEADER_HEIGHT}px`,
-          right: 0,
+          left: `${tabsLeftReserve}px`,
+          right: `${tabsRightReserve}px`,
           top: '50%',
           transform: 'translateY(-50%)',
           display: 'flex',
@@ -779,9 +851,83 @@ const Header = ({
         })}
       </div>
 
+      {/* Inline right-side action buttons (wide layout only). Pre-refactor
+          ordering: Component Search, Plus, Bookmark, rendered in a flex row
+          anchored to the right edge. */}
+      {!isExclusivePanelMode && (
+        <div
+          style={{
+            position: 'absolute',
+            right: 0,
+            top: 0,
+            height: `${HEADER_HEIGHT}px`,
+            display: 'flex',
+            alignItems: 'center',
+            gap: 0,
+            zIndex: 10002,
+          }}
+        >
+          {[
+            { key: 'comp-search', Icon: ScanSearch, iconSize: 22, strokeWidth: 3, title: activeGraph ? `Search ${activeGraph.name}` : 'Search Components', onClick: () => onOpenComponentSearch?.() },
+            { key: 'plus', Icon: Plus, iconSize: 22, strokeWidth: 3, title: 'Create New Thing', onClick: () => onCreateNewThing?.() },
+            { key: 'bookmark', Icon: Bookmark, iconSize: 22, strokeWidth: 3, title: bookmarkActive ? 'Remove Bookmark' : 'Add Bookmark', onClick: () => onBookmarkToggle?.(), iconExtra: { fill: bookmarkActive ? '#7A0000' : 'none' } },
+          ].map((action) => (
+            <div
+              key={action.key}
+              title={action.title}
+              style={{
+                height: `${HEADER_HEIGHT}px`,
+                width: `${HEADER_HEIGHT}px`,
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                cursor: 'pointer',
+                backgroundColor: 'transparent',
+              }}
+              onClick={(e) => {
+                e.stopPropagation();
+                action.onClick?.();
+              }}
+              onMouseEnter={(e) => {
+                const circle = e.currentTarget.querySelector('.header-btn-circle');
+                if (circle) {
+                  circle.style.transform = 'scale(1.06)';
+                  circle.style.boxShadow = '0 2px 6px rgba(0,0,0,0.15)';
+                }
+              }}
+              onMouseLeave={(e) => {
+                const circle = e.currentTarget.querySelector('.header-btn-circle');
+                if (circle) {
+                  circle.style.transform = 'scale(1)';
+                  circle.style.boxShadow = 'none';
+                }
+              }}
+            >
+              <div
+                className="header-btn-circle"
+                style={{
+                  width: '36px',
+                  height: '36px',
+                  borderRadius: '50%',
+                  backgroundColor: '#ffffff',
+                  border: '3px solid #7A0000',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  transition: 'transform 120ms ease, box-shadow 120ms ease',
+                }}
+              >
+                <action.Icon size={action.iconSize} color="#7A0000" strokeWidth={action.strokeWidth} {...(action.iconExtra || {})} />
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
 
-
-      {/* Hamburger menu (right side): consolidates header actions into a vertical dropdown */}
+      {/* Hamburger menu (right side, exclusive panel mode only): consolidates
+          header actions into a vertical dropdown. In wide mode the same
+          actions live as inline buttons rendered above. */}
+      {isExclusivePanelMode && (
       <div
         ref={hamburgerWrapperRef}
         style={{
@@ -880,12 +1026,12 @@ const Header = ({
           }}
         >
           {[
-            { key: 'help', Icon: HelpCircle, iconSize: 22, strokeWidth: 3, title: 'Help & Guide', onClick: () => window.dispatchEvent(new Event('openHelpModal')) },
-            { key: 'settings', Icon: Settings, iconSize: 20, strokeWidth: 2.5, title: 'Settings', onClick: () => window.dispatchEvent(new Event('openSettingsModal')) },
-            { key: 'all-search', Icon: Search, iconSize: 20, strokeWidth: 2.5, title: 'Search All Things', onClick: () => onOpenAllThingsSearch?.() },
-            { key: 'comp-search', Icon: ScanSearch, iconSize: 22, strokeWidth: 3, title: activeGraph ? `Search ${activeGraph.name}` : 'Search Components', onClick: () => onOpenComponentSearch?.() },
             { key: 'plus', Icon: Plus, iconSize: 22, strokeWidth: 3, title: 'Create New Thing', onClick: () => onCreateNewThing?.() },
             { key: 'bookmark', Icon: Bookmark, iconSize: 22, strokeWidth: 3, title: bookmarkActive ? 'Remove Bookmark' : 'Add Bookmark', onClick: () => onBookmarkToggle?.(), iconExtra: { fill: bookmarkActive ? '#7A0000' : 'none' } },
+            { key: 'all-search', Icon: Search, iconSize: 20, strokeWidth: 2.5, title: 'Search All Things', onClick: () => onOpenAllThingsSearch?.() },
+            { key: 'comp-search', Icon: ScanSearch, iconSize: 22, strokeWidth: 3, title: activeGraph ? `Search ${activeGraph.name}` : 'Search Components', onClick: () => onOpenComponentSearch?.() },
+            { key: 'settings', Icon: Settings, iconSize: 20, strokeWidth: 2.5, title: 'Settings', onClick: () => window.dispatchEvent(new Event('openSettingsModal')) },
+            { key: 'help', Icon: HelpCircle, iconSize: 22, strokeWidth: 3, title: 'Help & Guide', onClick: () => window.dispatchEvent(new Event('openHelpModal')) },
           ].map((action, idx, arr) => {
             const delay = isHamburgerOpen ? `${idx * 25}ms` : `${(arr.length - 1 - idx) * 25}ms`;
             return (
@@ -952,6 +1098,7 @@ const Header = ({
           })}
         </div>
       </div>
+      )}
     </header>
   );
 };

@@ -3,6 +3,9 @@ export const NODE_HEIGHT = 100;
 export const LONG_PRESS_DURATION = 200;
 export const LERP_SPEED = 0.8;
 export const HEADER_HEIGHT = 50;
+// At or below this viewport width, opening one panel closes the other and the
+// header consolidates its inline action buttons into a single hamburger menu.
+export const EXCLUSIVE_PANEL_MODE_THRESHOLD = 1100;
 // Allow effectively unbounded zoom; keep a very high cap to avoid numeric overflow
 export const MAX_ZOOM = 1000;
 export const MOVEMENT_THRESHOLD = 3;

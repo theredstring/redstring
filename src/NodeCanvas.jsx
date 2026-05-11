@@ -84,7 +84,8 @@ import {
   CONNECTION_DEFAULT_COLOR,
   MODAL_CLOSE_ICON_SIZE,
   DARK_MODE_BG_COLOR,
-  LIGHT_MODE_BG_COLOR
+  LIGHT_MODE_BG_COLOR,
+  EXCLUSIVE_PANEL_MODE_THRESHOLD
 } from './constants';
 
 import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts';
@@ -123,10 +124,7 @@ import CanvasConfirmDialog from './components/shared/CanvasConfirmDialog.jsx';
 
 const SPAWNABLE_NODE = 'spawnable_node';
 
-// When the window is at or below this width, opening one panel closes the
-// other and the active panel auto-expands to fill available width up to the
-// opposite-side toggle button. Must match Panel.jsx.
-const EXCLUSIVE_PANEL_MODE_THRESHOLD = 1100;
+// EXCLUSIVE_PANEL_MODE_THRESHOLD is imported from ./constants (shared with Panel.jsx + Header.jsx)
 const PANEL_TOGGLE_BUTTON_WIDTH = 50; // Must match ToggleButton width
 
 // Platform detection (guarded for SSR)
@@ -8522,6 +8520,7 @@ function NodeCanvas() {
         onCreateNewThing={() => storeActions.createNewGraph({ name: 'New Thing' })}
         onOpenComponentSearch={() => setHeaderSearchVisible(true)}
         onOpenAllThingsSearch={() => setHeaderAllThingsSearchVisible(true)}
+        isExclusivePanelMode={shouldPanelsBeExclusive}
         // Receive debug props
         debugMode={debugMode}
         setDebugMode={setDebugMode}
