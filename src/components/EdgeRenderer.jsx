@@ -155,10 +155,10 @@ function EdgeRenderer({
       {enableAutoRouting && (routingStyle === 'manhattan' || routingStyle === 'clean') ? (
         <>
           {routingStyle === 'manhattan' && !arrowsToward.has(sourceNode.id) && (
-            <line x1={x1} y1={y1} x2={startX} y2={startY} stroke={edgeColor} strokeWidth={showConnectionNames ? "16" : "6"} strokeLinecap="round" />
+            <line x1={x1} y1={y1} x2={startX} y2={startY} stroke={edgeColor} strokeWidth="16" strokeLinecap="round" />
           )}
           {routingStyle === 'manhattan' && !arrowsToward.has(destNode.id) && (
-            <line x1={endX} y1={endY} x2={x2} y2={y2} stroke={edgeColor} strokeWidth={showConnectionNames ? "16" : "6"} strokeLinecap="round" />
+            <line x1={endX} y1={endY} x2={x2} y2={y2} stroke={edgeColor} strokeWidth="16" strokeLinecap="round" />
           )}
           <path
             d={routingStyle === 'manhattan' ? manhattanPathD : (() => {
@@ -167,7 +167,7 @@ function EdgeRenderer({
             })()}
             fill="none"
             stroke={edgeColor}
-            strokeWidth={showConnectionNames ? "16" : "6"}
+            strokeWidth="16"
             style={{ transition: 'stroke 0.2s ease' }}
             strokeLinecap="round"
           />
@@ -177,7 +177,7 @@ function EdgeRenderer({
           d={parallelPath.path}
           fill="none"
           stroke={edgeColor}
-          strokeWidth={showConnectionNames ? "16" : "6"}
+          strokeWidth="16"
           style={{ transition: 'stroke 0.2s ease' }}
           strokeLinecap="round"
         />
@@ -188,7 +188,7 @@ function EdgeRenderer({
           x2={endX}
           y2={endY}
           stroke={edgeColor}
-          strokeWidth={showConnectionNames ? "16" : "6"}
+          strokeWidth="16"
           style={{ transition: 'stroke 0.2s ease' }}
         />
       )}
@@ -260,7 +260,7 @@ function EdgeRenderer({
             />
           )}
           <polygon
-            points={showConnectionNames ? "-18,22 18,22 0,-22" : "-12,15 12,15 0,-15"}
+            points="-18,22 18,22 0,-22"
             fill={edgeColor}
             stroke={edgeColor}
             strokeWidth="6"
@@ -293,7 +293,7 @@ function EdgeRenderer({
             />
           )}
           <polygon
-            points={showConnectionNames ? "-18,22 18,22 0,-22" : "-12,15 12,15 0,-15"}
+            points="-18,22 18,22 0,-22"
             fill={edgeColor}
             stroke={edgeColor}
             strokeWidth="6"
@@ -321,7 +321,7 @@ function EdgeRenderer({
               <circle
                 cx={sourceArrowX}
                 cy={sourceArrowY}
-                r={showConnectionNames ? "16" : "8"}
+                r="16"
                 fill={edgeColor}
                 style={{ pointerEvents: 'none' }}
               />
@@ -341,7 +341,7 @@ function EdgeRenderer({
               <circle
                 cx={destArrowX}
                 cy={destArrowY}
-                r={showConnectionNames ? "16" : "8"}
+                r="16"
                 fill={edgeColor}
                 style={{ pointerEvents: 'none' }}
               />

@@ -96,9 +96,9 @@ const SelfLoopEdge = ({
     });
   };
 
-  const mainStrokeWidth = showConnectionNames ? '16' : '6';
-  const arrowPoints = showConnectionNames ? '-18,22 18,22 0,-22' : '-12,15 12,15 0,-15';
-  const dotRadius = showConnectionNames ? '16' : '8';
+  const mainStrokeWidth = '16';
+  const arrowPoints = '-18,22 18,22 0,-22';
+  const dotRadius = '16';
 
   const renderDot = (anchor) => (
     <g>

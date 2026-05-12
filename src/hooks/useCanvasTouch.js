@@ -518,16 +518,21 @@ export const useCanvasTouch = ({
             isPanningOrZooming.current = false;
             // Clear velocity history so next pan starts fresh
             panVelocityHistoryRef.current = [];
-            // lastPanVelocityRef.current = { vx: 0, vy: 0 }; // Omitted as not passed, should be handled by stopPanMomentum? 
-            // Actually stopPanMomentum might clear it, or we rely on empty history.
 
-            // If there's still a touch remaining (2 fingers -> 1 finger), set up for single-finger pan
+            // If there's still a touch remaining (2 fingers -> 1 finger), set up for single-finger pan.
+            // Must mirror handleMouseDown's pan-state setup: without setIsPanning(true), the pan
+            // branch in handleMouseMove (gated on `isPanning && !pinchRef.current.active`) never
+            // enters, and the momentum-launch block in handleMouseUp (gated on `isPanning && panStart`)
+            // is skipped entirely — so post-pinch flicks would accumulate velocity samples but never glide.
             if (e.touches && e.touches.length === 1) {
                 const t = e.touches[0];
                 setPanStart({ x: t.clientX, y: t.clientY });
+                setIsPanning(true);
                 panSourceRef.current = 'touch';
                 isMouseDown.current = true;
                 mouseMoved.current = false;
+                startedOnNode.current = false;
+                mouseDownPosition.current = { x: t.clientX, y: t.clientY };
             } else {
                 // All fingers lifted - clear everything
                 setPanStart(null);
@@ -536,6 +541,17 @@ export const useCanvasTouch = ({
                 isMouseDown.current = false;
                 mouseMoved.current = false;
             }
+            return;
+        }
+        // When the 2nd finger of a pinch lifts, both React onTouchEnd (latest closure)
+        // and the document touchend listener attached at the original pre-pinch touchstart
+        // (stale closure) fire for the same event. The latest call enters the pinch-end
+        // branch above and sets up 1-finger pan state. By the time the stale call runs,
+        // pinchRef.current.active is already false, so the branch is skipped — and without
+        // this guard, the stale call would call handleMouseUp with its stale isPanning=false
+        // closure, blowing away the pan state that was just set up. Any touchend with
+        // remaining active touches means the gesture isn't over: never finalize here.
+        if (e.touches && e.touches.length >= 1) {
             return;
         }
         const { clientX, clientY } = normalizeTouchEvent(e);

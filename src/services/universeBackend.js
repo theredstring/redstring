@@ -750,7 +750,7 @@ class UniverseBackend {
       rightPanelTabs: [{ type: 'home', isActive: true }],
       savedNodeIds: new Set(),
       savedGraphIds: new Set(),
-      showConnectionNames: false
+      showConnectionNames: true
     };
   }
 

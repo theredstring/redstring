@@ -6533,7 +6533,6 @@ function NodeCanvas() {
     lastPanSampleRef.current = { time: performance.now() };
     panSourceRef.current = isTouchDeviceRef.current ? 'touch' : 'mouse';
     panVelocityHistoryRef.current = [{ x: e.clientX, y: e.clientY, time: performance.now() }];
-    console.log('[Mouse Down] History reset to 1 sample');
   };
   async function handleMouseUp(e) {
 
@@ -10650,10 +10649,10 @@ function NodeCanvas() {
                             {(enableAutoRouting && (routingStyle === 'manhattan' || routingStyle === 'clean')) ? (
                               <>
                                 {routingStyle === 'manhattan' && !arrowsToward.has(sourceNode.id) && (
-                                  <line x1={x1} y1={y1} x2={startX} y2={startY} stroke={edgeColor} strokeWidth={showConnectionNames ? "16" : "6"} strokeLinecap="round" />
+                                  <line x1={x1} y1={y1} x2={startX} y2={startY} stroke={edgeColor} strokeWidth="16" strokeLinecap="round" />
                                 )}
                                 {routingStyle === 'manhattan' && !arrowsToward.has(destNode.id) && (
-                                  <line x1={endX} y1={endY} x2={x2} y2={y2} stroke={edgeColor} strokeWidth={showConnectionNames ? "16" : "6"} strokeLinecap="round" />
+                                  <line x1={endX} y1={endY} x2={x2} y2={y2} stroke={edgeColor} strokeWidth="16" strokeLinecap="round" />
                                 )}
                                 <path
                                   d={(routingStyle === 'manhattan') ? manhattanPathD : (() => {
@@ -10663,7 +10662,7 @@ function NodeCanvas() {
                                   })()}
                                   fill="none"
                                   stroke={edgeColor}
-                                  strokeWidth={showConnectionNames ? "16" : "6"}
+                                  strokeWidth="16"
                                   style={{ transition: 'stroke 0.2s ease' }}
                                   strokeLinecap="round"
                                 />
@@ -10673,7 +10672,7 @@ function NodeCanvas() {
                                 d={trimmedPath ? trimmedPath.path : parallelPath.path}
                                 fill="none"
                                 stroke={edgeColor}
-                                strokeWidth={showConnectionNames ? "16" : "6"}
+                                strokeWidth="16"
                                 style={{ transition: 'stroke 0.2s ease' }}
                                 strokeLinecap="round"
                               />
@@ -10684,7 +10683,7 @@ function NodeCanvas() {
                                 x2={endX}
                                 y2={endY}
                                 stroke={edgeColor}
-                                strokeWidth={showConnectionNames ? "16" : "6"}
+                                strokeWidth="16"
                                 style={{ transition: 'stroke 0.2s ease' }}
                               />
                             )}
@@ -10978,7 +10977,7 @@ function NodeCanvas() {
                                 destArrowAngle = destTangent; // Point toward dest
                               } else if (enableAutoRouting && routingStyle === 'clean') {
                                 // Clean mode: use actual port assignments for proper arrow positioning
-                                const offset = showConnectionNames ? 6 : (shouldShortenSource || shouldShortenDest ? 3 : 5);
+                                const offset = 6;
                                 const portAssignment = cleanLaneOffsets.get(edge.id);
 
                                 if (portAssignment) {
@@ -11055,8 +11054,7 @@ function NodeCanvas() {
                                 }
                               } else if (!sourceIntersection || !destIntersection) {
                                 // Fallback positioning - arrows/dots closer to connection center  
-                                const fallbackOffset = showConnectionNames ? 20 :
-                                  (shouldShortenSource || shouldShortenDest ? 12 : 15);
+                                const fallbackOffset = 20;
                                 sourceArrowX = x1 + (dx / length) * fallbackOffset;
                                 sourceArrowY = y1 + (dy / length) * fallbackOffset;
                                 destArrowX = x2 - (dx / length) * fallbackOffset;
@@ -11065,7 +11063,7 @@ function NodeCanvas() {
                                 destArrowAngle = Math.atan2(dy, dx) * (180 / Math.PI);
                               } else if (enableAutoRouting && routingStyle === 'clean') {
                                 // Clean routing arrow placement - position close to nodes for better visibility
-                                const offset = showConnectionNames ? 8 : 6; // Reduced offset for better visibility
+                                const offset = 8; // Reduced offset for better visibility
                                 const portAssignment = cleanLaneOffsets.get(edge.id);
 
                                 if (portAssignment) {
@@ -11128,7 +11126,7 @@ function NodeCanvas() {
                                 }
                               } else {
                                 // Manhattan-aware arrow placement; falls back to straight orientation
-                                const offset = showConnectionNames ? 6 : (shouldShortenSource || shouldShortenDest ? 3 : 5);
+                                const offset = 6;
                                 if (enableAutoRouting && routingStyle === 'manhattan') {
                                   // Destination arrow aligns to terminal segment into destination
                                   const horizontalTerminal = Math.abs(endX - startX) > Math.abs(endY - startY);
@@ -11170,7 +11168,7 @@ function NodeCanvas() {
 
                               // Override arrow orientation deterministically by Manhattan sides
                               if (enableAutoRouting && routingStyle === 'manhattan') {
-                                const sideOffset = showConnectionNames ? 6 : (shouldShortenSource || shouldShortenDest ? 3 : 5);
+                                const sideOffset = 6;
                                 // Destination arrow strictly based on destination side
                                 if (manhattanDestSide === 'left') {
                                   destArrowAngle = 0; // rightwards
@@ -11259,7 +11257,7 @@ function NodeCanvas() {
                                         />
                                       )}
                                       <polygon
-                                        points={showConnectionNames ? "-18,22 18,22 0,-22" : "-12,15 12,15 0,-15"}
+                                        points="-18,22 18,22 0,-22"
                                         fill={edgeColor}
                                         stroke={edgeColor}
                                         strokeWidth="6"
@@ -11295,7 +11293,7 @@ function NodeCanvas() {
                                         />
                                       )}
                                       <polygon
-                                        points={showConnectionNames ? "-18,22 18,22 0,-22" : "-12,15 12,15 0,-15"}
+                                        points="-18,22 18,22 0,-22"
                                         fill={edgeColor}
                                         stroke={edgeColor}
                                         strokeWidth="6"
@@ -11324,7 +11322,7 @@ function NodeCanvas() {
                                           <circle
                                             cx={sourceArrowX}
                                             cy={sourceArrowY}
-                                            r={showConnectionNames ? "16" : "8"}
+                                            r="16"
                                             fill={edgeColor}
                                             style={{ pointerEvents: 'none' }}
                                           />
@@ -11346,7 +11344,7 @@ function NodeCanvas() {
                                           <circle
                                             cx={destArrowX}
                                             cy={destArrowY}
-                                            r={showConnectionNames ? "16" : "8"}
+                                            r="16"
                                             fill={edgeColor}
                                             style={{ pointerEvents: 'none' }}
                                           />
@@ -12011,10 +12009,10 @@ function NodeCanvas() {
                             {(enableAutoRouting && (routingStyle === 'manhattan' || routingStyle === 'clean')) ? (
                               <>
                                 {routingStyle === 'manhattan' && !arrowsToward.has(sourceNode.id) && (
-                                  <line x1={x1} y1={y1} x2={startX} y2={startY} stroke={edgeColor} strokeWidth={showConnectionNames ? "16" : "6"} strokeLinecap="round" />
+                                  <line x1={x1} y1={y1} x2={startX} y2={startY} stroke={edgeColor} strokeWidth="16" strokeLinecap="round" />
                                 )}
                                 {routingStyle === 'manhattan' && !arrowsToward.has(destNode.id) && (
-                                  <line x1={endX} y1={endY} x2={x2} y2={y2} stroke={edgeColor} strokeWidth={showConnectionNames ? "16" : "6"} strokeLinecap="round" />
+                                  <line x1={endX} y1={endY} x2={x2} y2={y2} stroke={edgeColor} strokeWidth="16" strokeLinecap="round" />
                                 )}
                                 <path
                                   d={(routingStyle === 'manhattan') ? manhattanPathD : (() => {
@@ -12024,7 +12022,7 @@ function NodeCanvas() {
                                   })()}
                                   fill="none"
                                   stroke={edgeColor}
-                                  strokeWidth={showConnectionNames ? "16" : "6"}
+                                  strokeWidth="16"
                                   style={{ transition: 'stroke 0.2s ease' }}
                                   strokeLinecap="round"
                                 />
@@ -12034,7 +12032,7 @@ function NodeCanvas() {
                                 d={trimmedPath ? trimmedPath.path : parallelPath.path}
                                 fill="none"
                                 stroke={edgeColor}
-                                strokeWidth={showConnectionNames ? "16" : "6"}
+                                strokeWidth="16"
                                 style={{ transition: 'stroke 0.2s ease' }}
                                 strokeLinecap="round"
                               />
@@ -12045,7 +12043,7 @@ function NodeCanvas() {
                                 x2={endX}
                                 y2={endY}
                                 stroke={edgeColor}
-                                strokeWidth={showConnectionNames ? "16" : "6"}
+                                strokeWidth="16"
                                 style={{ transition: 'stroke 0.2s ease' }}
                               />
                             )}
@@ -12204,7 +12202,7 @@ function NodeCanvas() {
                                 destArrowAngle = destTangent; // Point toward dest
                               } else if (enableAutoRouting && routingStyle === 'clean') {
                                 // Clean mode: use actual port assignments for proper arrow positioning
-                                const offset = showConnectionNames ? 6 : (shouldShortenSource || shouldShortenDest ? 3 : 5);
+                                const offset = 6;
                                 const portAssignment = cleanLaneOffsets.get(edge.id);
 
                                 if (portAssignment) {
@@ -12281,8 +12279,7 @@ function NodeCanvas() {
                                 }
                               } else if (!sourceIntersection || !destIntersection) {
                                 // Fallback positioning - arrows/dots closer to connection center  
-                                const fallbackOffset = showConnectionNames ? 20 :
-                                  (shouldShortenSource || shouldShortenDest ? 12 : 15);
+                                const fallbackOffset = 20;
                                 sourceArrowX = x1 + (dx / length) * fallbackOffset;
                                 sourceArrowY = y1 + (dy / length) * fallbackOffset;
                                 destArrowX = x2 - (dx / length) * fallbackOffset;
@@ -12291,7 +12288,7 @@ function NodeCanvas() {
                                 destArrowAngle = Math.atan2(dy, dx) * (180 / Math.PI);
                               } else if (enableAutoRouting && routingStyle === 'clean') {
                                 // Clean routing arrow placement - position close to nodes for better visibility
-                                const offset = showConnectionNames ? 8 : 6; // Reduced offset for better visibility
+                                const offset = 8; // Reduced offset for better visibility
                                 const portAssignment = cleanLaneOffsets.get(edge.id);
 
                                 if (portAssignment) {
@@ -12354,7 +12351,7 @@ function NodeCanvas() {
                                 }
                               } else {
                                 // Manhattan-aware arrow placement; falls back to straight orientation
-                                const offset = showConnectionNames ? 6 : (shouldShortenSource || shouldShortenDest ? 3 : 5);
+                                const offset = 6;
                                 if (enableAutoRouting && routingStyle === 'manhattan') {
                                   // Destination arrow aligns to terminal segment into destination
                                   const horizontalTerminal = Math.abs(endX - startX) > Math.abs(endY - startY);
@@ -12396,7 +12393,7 @@ function NodeCanvas() {
 
                               // Override arrow orientation deterministically by Manhattan sides
                               if (enableAutoRouting && routingStyle === 'manhattan') {
-                                const sideOffset = showConnectionNames ? 6 : (shouldShortenSource || shouldShortenDest ? 3 : 5);
+                                const sideOffset = 6;
                                 // Destination arrow strictly based on destination side
                                 if (manhattanDestSide === 'left') {
                                   destArrowAngle = 0; // rightwards
@@ -12485,7 +12482,7 @@ function NodeCanvas() {
                                         />
                                       )}
                                       <polygon
-                                        points={showConnectionNames ? "-18,22 18,22 0,-22" : "-12,15 12,15 0,-15"}
+                                        points="-18,22 18,22 0,-22"
                                         fill={edgeColor}
                                         stroke={edgeColor}
                                         strokeWidth="6"
@@ -12521,7 +12518,7 @@ function NodeCanvas() {
                                         />
                                       )}
                                       <polygon
-                                        points={showConnectionNames ? "-18,22 18,22 0,-22" : "-12,15 12,15 0,-15"}
+                                        points="-18,22 18,22 0,-22"
                                         fill={edgeColor}
                                         stroke={edgeColor}
                                         strokeWidth="6"
@@ -12550,7 +12547,7 @@ function NodeCanvas() {
                                           <circle
                                             cx={sourceArrowX}
                                             cy={sourceArrowY}
-                                            r={showConnectionNames ? "16" : "8"}
+                                            r="16"
                                             fill={edgeColor}
                                             style={{ pointerEvents: 'none' }}
                                           />
@@ -12572,7 +12569,7 @@ function NodeCanvas() {
                                           <circle
                                             cx={destArrowX}
                                             cy={destArrowY}
-                                            r={showConnectionNames ? "16" : "8"}
+                                            r="16"
                                             fill={edgeColor}
                                             style={{ pointerEvents: 'none' }}
                                           />
@@ -12750,7 +12747,7 @@ function NodeCanvas() {
                     x2={drawingConnectionFrom.currentX}
                     y2={drawingConnectionFrom.currentY}
                     stroke="black"
-                    strokeWidth="8"
+                    strokeWidth="16"
                   />
                 )}
                 {drawingConnectionFrom && !draggingNodeInfo && connectionExitedSourceRef.current && (() => {
