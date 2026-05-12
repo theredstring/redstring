@@ -17,6 +17,7 @@ const AuthSection = ({
   onGitHubAuth,
   onGitHubDisconnect,
   onGitHubApp,
+  onGitHubAppDisconnect,
   activeUniverse,
   onLogout,
   requiresLogin = false,
@@ -132,13 +133,24 @@ const AuthSection = ({
             )}
           </div>
           <div style={{ fontSize: '0.75rem', color: theme.canvas.textSecondary }}>Enables secure auto-sync with Git</div>
-          <PanelIconButton
-            icon={Settings}
-            onClick={onGitHubApp}
-            label={hasApp ? 'Manage' : 'Install App'}
-            variant={isConnecting ? 'disabled' : 'solid'}
-            disabled={isConnecting}
-          />
+          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
+            <PanelIconButton
+              icon={Settings}
+              onClick={onGitHubApp}
+              label={hasApp ? 'Manage' : 'Install App'}
+              variant={isConnecting ? 'disabled' : 'solid'}
+              disabled={isConnecting}
+            />
+            {hasApp && onGitHubAppDisconnect && (
+              <PanelIconButton
+                icon={LogOut}
+                onClick={onGitHubAppDisconnect}
+                label="Disconnect"
+                variant="outline"
+                disabled={isConnecting}
+              />
+            )}
+          </div>
         </div>
       </div>
 

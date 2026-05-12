@@ -3733,6 +3733,32 @@ const UniverseManager = ({ variant = 'panel', onRequestClose }) => {
     }
   };
 
+  const handleGitHubAppDisconnect = async () => {
+    try {
+      setOauthConnectFailure(null);
+      // Sticky: blocks attemptAppAutoConnect from silently re-discovering
+      // and re-installing the same install on the next init. Without this,
+      // clearing the App only "works" until the next page load.
+      await persistentAuth.clearAppInstallation({ sticky: true });
+      // Tear down any sync engines that were using the App provider so the
+      // next save attempt creates a fresh provider (OAuth, or nothing).
+      try {
+        const slugs = Array.from(universeBackend.gitSyncEngines?.keys?.() || []);
+        for (const slug of slugs) {
+          await universeBackend.removeGitSyncEngine?.(slug);
+        }
+      } catch (engineErr) {
+        umWarn('[UniverseManager] App disconnect: engine cleanup failed:', engineErr?.message || engineErr);
+      }
+      const auth = await universeManagerService.refreshAuth();
+      setServiceState((prev) => ({ ...prev, ...auth }));
+      setSyncStatus({ type: 'success', message: 'GitHub App disconnected. Re-install to reconnect.' });
+    } catch (err) {
+      umError('[UniverseManager] App disconnect failed:', err);
+      setError(`Failed to disconnect App: ${err.message}`);
+    }
+  };
+
   const handleGitHubApp = async () => {
     try {
       setIsConnecting(true);
@@ -4522,6 +4548,7 @@ const UniverseManager = ({ variant = 'panel', onRequestClose }) => {
         onGitHubAuth={handleGitHubAuth}
         onGitHubDisconnect={handleGitHubDisconnect}
         onGitHubApp={handleGitHubApp}
+        onGitHubAppDisconnect={handleGitHubAppDisconnect}
         activeUniverse={activeUniverse}
         syncStatus={activeUniverse ? syncStatusFor(activeUniverse.slug) : null}
         isSlim={isSlim}

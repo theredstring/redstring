@@ -30,7 +30,14 @@ const LOCAL_STORAGE_KEYS = {
     userData: 'github_app_user_data',
     permissions: 'github_app_permissions',
     lastUpdated: 'github_app_last_updated',
-    tokenExpiresAt: 'github_app_token_expires'
+    tokenExpiresAt: 'github_app_token_expires',
+    // "Sticky disconnect" flag. When set, attemptAppAutoConnect() refuses to
+    // re-discover the install from the server. Cleared only by an explicit
+    // call to storeAppInstallation (i.e. completing an install flow).
+    // Necessary because the server's /api/github/app/installations endpoint
+    // queries GitHub for ALL installs of the App and auto-stores them, which
+    // resurrects a dead/wrong install immediately after a user clears it.
+    disconnectedAt: 'github_app_disconnected_at'
   }
 };
 
@@ -472,6 +479,14 @@ export class PersistentAuth {
     await this.ensureAuthStateLoaded().catch(() => {});
     let appInstallation = this.getAppInstallation();
     if (!appInstallation) {
+      // Honor the sticky-disconnect flag: the user (or a debug action)
+      // explicitly cleared the App cache, so do NOT silently re-discover
+      // and re-install a potentially dead/wrong install from the server.
+      const disconnectedAt = getLocalStorageItem(LOCAL_STORAGE_KEYS.app.disconnectedAt);
+      if (disconnectedAt) {
+        console.log('[PersistentAuth] GitHub App auto-connect skipped — user disconnected at', new Date(Number(disconnectedAt)).toISOString());
+        return false;
+      }
       console.log('[PersistentAuth] No stored GitHub App installation found; attempting discovery...');
       try {
         // Ask backend for installations associated with this app
@@ -1171,6 +1186,10 @@ export class PersistentAuth {
     // Save to browser localStorage - this is the PRIMARY storage
     this.saveToBrowserStorage();
 
+    // A fresh install (or any explicit store) supersedes a prior sticky
+    // disconnect — clear the flag so future auto-connects work normally.
+    removeLocalStorageItem(LOCAL_STORAGE_KEYS.app.disconnectedAt);
+
     console.log('[PersistentAuth] GitHub App installation stored in browser localStorage');
 
     // OPTIONAL: Send to server for temporary handoff (server is stateless)
@@ -1229,7 +1248,7 @@ export class PersistentAuth {
   /**
    * Clear GitHub App installation data from browser localStorage
    */
-  async clearAppInstallation() {
+  async clearAppInstallation({ sticky = true } = {}) {
     // PRIMARY: Clear from browser localStorage (user data stays local!)
     removeLocalStorageItem(LOCAL_STORAGE_KEYS.app.installationId);
     removeLocalStorageItem(LOCAL_STORAGE_KEYS.app.accessToken);
@@ -1238,6 +1257,14 @@ export class PersistentAuth {
     removeLocalStorageItem(LOCAL_STORAGE_KEYS.app.permissions);
     removeLocalStorageItem(LOCAL_STORAGE_KEYS.app.tokenExpiresAt);
     removeLocalStorageItem(LOCAL_STORAGE_KEYS.app.lastUpdated);
+
+    // Sticky disconnect: prevent attemptAppAutoConnect() from immediately
+    // re-discovering the same (potentially dead/wrong) install from the
+    // server. Only the explicit storeAppInstallation path clears this flag,
+    // so a fresh install via the App install flow re-enables auto-connect.
+    if (sticky) {
+      setLocalStorageItem(LOCAL_STORAGE_KEYS.app.disconnectedAt, Date.now().toString());
+    }
 
     this.githubAppCache = null;
 
@@ -1248,7 +1275,7 @@ export class PersistentAuth {
       console.log('[PersistentAuth] Server clear skipped (expected for stateless server)');
     }
 
-    console.log('[PersistentAuth] GitHub App installation cleared from browser localStorage');
+    console.log('[PersistentAuth] GitHub App installation cleared from browser localStorage', { sticky });
     this.emit('appInstallationCleared');
     this.dispatchAuthEvent('github-app', { hasInstallation: false });
   }

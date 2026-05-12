@@ -2572,35 +2572,15 @@ function NodeCanvas() {
       const beforeInstallId = persistentAuth.githubAppCache?.installationId || null;
       const beforeHasToken = !!persistentAuth.githubAppCache?.accessToken;
 
-      // 1) Wipe in-memory cache
-      persistentAuth.githubAppCache = null;
+      // Use clearAppInstallation so the sticky-disconnect flag is set.
+      // Without that flag, attemptAppAutoConnect() on the next init silently
+      // re-discovers the same install from the server's App-wide list and
+      // re-populates the cache — which is exactly the "Clear doesn't work"
+      // behavior the user was seeing.
+      await persistentAuth.clearAppInstallation({ sticky: true });
 
-      // 2) Wipe localStorage keys (the seven github_app_* keys)
-      let cleared = 0;
-      const appKeys = [
-        'github_app_installation_id',
-        'github_app_access_token',
-        'github_app_repositories',
-        'github_app_user_data',
-        'github_app_permissions',
-        'github_app_last_updated',
-        'github_app_token_expires',
-      ];
-      try {
-        for (const k of appKeys) {
-          if (typeof window !== 'undefined' && window.localStorage?.getItem(k) != null) {
-            window.localStorage.removeItem(k);
-            cleared++;
-          }
-        }
-      } catch (storageErr) {
-        recordSyncAction('clearGitHubAppCache', false, `localStorage remove failed: ${storageErr.message}`);
-        refreshSyncDebug();
-        return;
-      }
-
-      // 3) Remove any existing sync engine for the active universe so the
-      //    next setup attempt rebuilds the provider (picking OAuth this time).
+      // Remove any existing sync engine for the active universe so the
+      // next setup attempt rebuilds the provider (picking OAuth this time).
       try {
         const universe = universeBackend.getActiveUniverse?.();
         if (universe?.slug) {
@@ -2611,7 +2591,7 @@ function NodeCanvas() {
       recordSyncAction(
         'clearGitHubAppCache',
         true,
-        `was installId=${beforeInstallId || '(none)'} hadToken=${beforeHasToken}; removed ${cleared} localStorage keys; engine cleared. Tap "Retry sync engine" next.`
+        `was installId=${beforeInstallId || '(none)'} hadToken=${beforeHasToken}; cleared with sticky disconnect — auto-rediscovery blocked until next explicit App install. Tap "Retry sync engine" next.`
       );
     } catch (e) {
       recordSyncAction('clearGitHubAppCache', false, e?.message || String(e));
