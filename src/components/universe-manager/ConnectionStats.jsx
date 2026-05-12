@@ -10,6 +10,7 @@ import {
   Cloud
 } from 'lucide-react';
 import { useTheme } from '../../hooks/useTheme.js';
+import saveCoordinator from '../../services/SaveCoordinator';
 
 function formatWhen(timestamp) {
   if (!timestamp) return 'Never';
@@ -63,8 +64,24 @@ const ConnectionStats = ({ universe, syncStatus, isSlim = false }) => {
     icon: sync.pendingCommits > 0 ? <RefreshCw /> : <Save />
   });
 
-  // Explicit unsaved-changes indicator (includes engine.hasChanges or pending commits)
-  const unsaved = !!(sync.hasUnsavedChanges || engine.hasChanges || (sync.pendingCommits > 0));
+  // Explicit unsaved-changes indicator (includes engine.hasChanges, pending
+  // commits, and SaveCoordinator state). The coordinator is the gateway that
+  // dispatches to the engine, so it knows about dirty state earlier (during
+  // debounce, worker-processing, interaction cooldown) than the engine does.
+  // Without this read, this card disagrees with the panel above (which already
+  // factors in coordinator state) and with the bottom-right "Saving..."
+  // indicator on every fresh edit.
+  const coordinatorIsSaving = saveCoordinator?.isSaving === true;
+  const coordinatorHasUnsaved = typeof saveCoordinator?.hasUnsavedChanges === 'function'
+    ? saveCoordinator.hasUnsavedChanges()
+    : false;
+  const unsaved = !!(
+    coordinatorIsSaving ||
+    coordinatorHasUnsaved ||
+    sync.hasUnsavedChanges ||
+    engine.hasChanges ||
+    (sync.pendingCommits > 0)
+  );
   cards.push({
     title: 'Unsaved Changes',
     value: unsaved ? 'Yes' : 'No',

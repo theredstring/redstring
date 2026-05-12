@@ -543,17 +543,6 @@ export const useCanvasTouch = ({
             }
             return;
         }
-        // When the 2nd finger of a pinch lifts, both React onTouchEnd (latest closure)
-        // and the document touchend listener attached at the original pre-pinch touchstart
-        // (stale closure) fire for the same event. The latest call enters the pinch-end
-        // branch above and sets up 1-finger pan state. By the time the stale call runs,
-        // pinchRef.current.active is already false, so the branch is skipped — and without
-        // this guard, the stale call would call handleMouseUp with its stale isPanning=false
-        // closure, blowing away the pan state that was just set up. Any touchend with
-        // remaining active touches means the gesture isn't over: never finalize here.
-        if (e.touches && e.touches.length >= 1) {
-            return;
-        }
         const { clientX, clientY } = normalizeTouchEvent(e);
         // Determine if this was a tap (minimal movement). Use a larger threshold for touch.
         const dxEnd = clientX - (mouseDownPosition.current?.x || clientX);

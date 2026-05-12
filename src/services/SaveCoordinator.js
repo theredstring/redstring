@@ -61,6 +61,13 @@ class SaveCoordinator {
     this.workerProcessing = false;
     this.workerDirty = false;
     this.nextStateToProcess = null;
+    // Worker watchdog. iOS Safari workers can stall when the tab is backgrounded
+    // or under memory pressure; without recovery, scheduleSave is never called
+    // (it's only triggered from handleWorkerMessage), so isDirty stays true and
+    // the bottom-right indicator gets stuck on "Saving..." forever even though
+    // manual save works fine. The watchdog assumes the worker is dead after
+    // WORKER_STALL_MS and dispatches a main-thread save with the state we have.
+    this.workerWatchdogTimer = null;
 
     // console.log('[SaveCoordinator] Initialized with simple batched saves');
   }
@@ -92,6 +99,16 @@ class SaveCoordinator {
     try {
       this.saveWorker = new Worker(new URL('./save.worker.js', import.meta.url), { type: 'module' });
       this.saveWorker.onmessage = this.handleWorkerMessage.bind(this);
+      this.saveWorker.onerror = (event) => {
+        // Worker crashed (script error, OOM, etc.). Recover so the save loop
+        // doesn't strand the user's edits — schedule a main-thread save with
+        // whatever state we have, then drop the worker (we'll keep using the
+        // main thread until the next page load).
+        console.warn('[SaveCoordinator] Save worker error event:', event?.message || event);
+        this._handleWorkerStall('error event');
+        try { this.saveWorker?.terminate?.(); } catch { /* noop */ }
+        this.saveWorker = null;
+      };
       // console.log('[SaveCoordinator] Save worker initialized');
     } catch (e) {
       console.warn('[SaveCoordinator] Failed to initialize save worker:', e);
@@ -107,6 +124,12 @@ class SaveCoordinator {
 
   handleWorkerMessage(e) {
     const { type, hash, jsonString, redstringData, success, error } = e.data;
+
+    // Worker responded — cancel the stall watchdog.
+    if (this.workerWatchdogTimer) {
+      clearTimeout(this.workerWatchdogTimer);
+      this.workerWatchdogTimer = null;
+    }
 
     this.workerProcessing = false;
 
@@ -198,10 +221,42 @@ class SaveCoordinator {
       state: cleanState,
       userDomain: null
     });
-    
+
     // Keep reference for fallback/Git sync
     this.lastState = this.nextStateToProcess;
-    this.nextStateToProcess = null; 
+    this.nextStateToProcess = null;
+
+    // Start the stall watchdog. If the worker doesn't post back within
+    // WORKER_STALL_MS (typical desktop response: <50ms; mobile under load:
+    // 100-500ms), we assume it's stuck and dispatch a main-thread save so
+    // the user's edits aren't stranded behind a dead worker. The save path
+    // already tolerates a null pendingHash/pendingString (fileStorage and
+    // gitSyncEngine serialize internally), so this is a safe fallback.
+    if (this.workerWatchdogTimer) clearTimeout(this.workerWatchdogTimer);
+    const WORKER_STALL_MS = 8000;
+    this.workerWatchdogTimer = setTimeout(() => {
+      this.workerWatchdogTimer = null;
+      this._handleWorkerStall('timeout');
+    }, WORKER_STALL_MS);
+  }
+
+  // Recover from a stalled or crashed worker. Mark dirty (so polling indicators
+  // stay accurate), reset worker bookkeeping, and schedule a save dispatched
+  // off lastState. This is the fallback that unsticks "Saving..." on mobile.
+  _handleWorkerStall(reason) {
+    if (this.workerWatchdogTimer) {
+      clearTimeout(this.workerWatchdogTimer);
+      this.workerWatchdogTimer = null;
+    }
+    const wasProcessing = this.workerProcessing;
+    this.workerProcessing = false;
+    this.workerDirty = false;
+    if (!wasProcessing) return;
+    console.warn(`[SaveCoordinator] Worker stall recovery (${reason}) — dispatching main-thread save.`);
+    if (this.lastState) {
+      this.isDirty = true;
+      this.scheduleSave();
+    }
   }
 
   // Main entry point for state changes
@@ -729,6 +784,9 @@ class SaveCoordinator {
   cancelPendingSaves() {
     if (this.saveTimer) { clearTimeout(this.saveTimer); this.saveTimer = null; }
     if (this.workerTimer) { clearTimeout(this.workerTimer); this.workerTimer = null; }
+    if (this.workerWatchdogTimer) { clearTimeout(this.workerWatchdogTimer); this.workerWatchdogTimer = null; }
+    this.workerProcessing = false;
+    this.workerDirty = false;
     this.pendingHash = null;
     this.pendingString = null;
     this.pendingRedstringData = null;

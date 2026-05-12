@@ -1508,8 +1508,26 @@ function NodeCanvas() {
   const connectionExitedSourceRef = useRef(false);
   const [selfLoopDialog, setSelfLoopDialog] = useState(null);
 
-  const [isPanning, setIsPanning] = useState(false);
-  const [panStart, setPanStart] = useState({ x: 0, y: 0 });
+  const [isPanning, _setIsPanningState] = useState(false);
+  const [panStart, _setPanStartState] = useState({ x: 0, y: 0 });
+  // Refs mirror the state synchronously. Critical for touch flow: React 18 batches
+  // state updates and may not flush before the next browser event fires. Without
+  // these refs, the touchmove/touchend handlers immediately following a pinch→1-finger
+  // transition would close over stale `isPanning=false`/`panStart=null`, causing the
+  // pan branch in handleMouseMove and the momentum-launch block in handleMouseUp to
+  // skip entirely on fast continuous gestures.
+  const isPanningRef = useRef(false);
+  const panStartRef = useRef({ x: 0, y: 0 });
+  const setIsPanning = useCallback((value) => {
+    const next = typeof value === 'function' ? value(isPanningRef.current) : value;
+    isPanningRef.current = next;
+    _setIsPanningState(next);
+  }, []);
+  const setPanStart = useCallback((value) => {
+    const next = typeof value === 'function' ? value(panStartRef.current) : value;
+    panStartRef.current = next;
+    _setPanStartState(next);
+  }, []);
   // setPanOffset alias is defined after useCanvasTransform initialization (see below canvasSize)
 
   const [recentlyPanned, setRecentlyPanned] = useState(false);
@@ -6334,8 +6352,10 @@ function NodeCanvas() {
               setLongPressingInstanceId(null); // Clear ID
             }
           }
-        } else if (!draggingNodeInfo && !drawingConnectionFrom && !isPanning && !startedOnNode.current && !pinchRef.current.active && !panStart) {
-          // Start panning after threshold exceeded (check panStart ref to avoid race condition with setState)
+        } else if (!draggingNodeInfo && !drawingConnectionFrom && !isPanningRef.current && !startedOnNode.current && !pinchRef.current.active && !panStartRef.current) {
+          // Start panning after threshold exceeded. Use refs (not state) so we read the
+          // synchronously-current values — important post-pinch where React may not have
+          // committed setIsPanning(true) yet.
           isPanningOrZooming.current = true;
           setIsPanning(true);
           lastPanVelocityRef.current = { vx: 0, vy: 0 };
@@ -6343,7 +6363,6 @@ function NodeCanvas() {
           setPanStart({ x: e.clientX, y: e.clientY });
           panSourceRef.current = isTouchDeviceRef.current ? 'touch' : 'mouse';
           panVelocityHistoryRef.current = [{ x: e.clientX, y: e.clientY, time: performance.now() }];
-          console.log('[Mouse Move] Started panning, reset history');
         }
       }
     }
@@ -6388,7 +6407,7 @@ function NodeCanvas() {
           });
         }
       }
-    } else if (isPanning && !pinchRef.current.active) {
+    } else if (isPanningRef.current && !pinchRef.current.active) {
       if (abstractionCarouselVisible) {
         setIsPanning(false);
         return;
@@ -6415,13 +6434,14 @@ function NodeCanvas() {
         requestAnimationFrame(() => {
           panUpdateScheduled.current = false;
           const e = pendingPanUpdate.current;
-          if (!e || !panStart?.x || !panStart?.y) return;
+          const ps = panStartRef.current;
+          if (!e || !ps?.x || !ps?.y) return;
 
           const now = performance.now();
           const dt = Math.max(1, now - (lastPanSampleRef.current.time || now));
           const dragSensitivity = panSourceRef.current === 'touch' ? TOUCH_PAN_DRAG_SENSITIVITY : PAN_DRAG_SENSITIVITY;
-          const dxInput = (e.clientX - panStart.x) * dragSensitivity;
-          const dyInput = (e.clientY - panStart.y) * dragSensitivity;
+          const dxInput = (e.clientX - ps.x) * dragSensitivity;
+          const dyInput = (e.clientY - ps.y) * dragSensitivity;
           const maxX = 0;
           const maxY = 0;
           const minX = viewportSize.width - canvasSize.width * zoomLevelRef.current;
@@ -6719,9 +6739,13 @@ function NodeCanvas() {
         });
     }
 
-    // Finalize panning state
+    // Finalize panning state.
+    // Use refs (not state): React 18 batches updates; after a pinch→1-finger transition
+    // sets isPanning=true via setIsPanning, the next touchend can fire before React commits,
+    // leaving the latest closure with stale isPanning=false. Refs always reflect the current
+    // synchronously-set value.
     let momentumStarted = false;
-    if (isPanning && panStart) {
+    if (isPanningRef.current && panStartRef.current) {
       const source = panSourceRef.current;
       if (source === 'trackpad' || source === 'touch') {
         const isTouch = source === 'touch';
