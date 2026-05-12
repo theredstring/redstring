@@ -30,8 +30,8 @@ const SaveStatusDisplay = () => {
 
   useEffect(() => {
     if (statusText === 'Saved') {
-      // After a brief moment, dim — but stay visible so the user always knows
-      // the current connection/save status at a glance.
+      // After a brief moment, fade out completely. Saving.../Error/etc.
+      // still flash through; only the steady-state "Saved" is hidden.
       const timer = setTimeout(() => setIsVisible(false), 1500);
       return () => clearTimeout(timer);
     } else {
@@ -184,9 +184,9 @@ const SaveStatusDisplay = () => {
 
         cursor: isCTA ? 'pointer' : 'default',
         textDecoration: 'none',
-        opacity: isVisible ? 1 : 0.45,
+        opacity: isVisible ? 1 : 0,
         transition: 'opacity 1s ease',
-        pointerEvents: 'auto'
+        pointerEvents: isVisible ? 'auto' : 'none'
       }}
       onClick={openFederation}
       onMouseEnter={(e) => {
