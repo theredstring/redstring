@@ -6735,8 +6735,9 @@ function NodeCanvas() {
         // on the last sample) is too brittle, since a fast flick routinely
         // has a 30-50ms lag between the last touchmove and touchend.
         const lastSample = history.length > 0 ? history[history.length - 1] : null;
-        const fingerHeldStill = isTouch && lastSample
-          ? (performance.now() - lastSample.time) > TOUCH_MOMENTUM_STATIONARY_GAP_MS
+        const gapSinceLastSample = lastSample ? (performance.now() - lastSample.time) : Infinity;
+        const fingerHeldStill = isTouch
+          ? gapSinceLastSample > TOUCH_MOMENTUM_STATIONARY_GAP_MS
           : false;
 
         if (history.length >= 2 && !fingerHeldStill) {
@@ -6767,7 +6768,14 @@ function NodeCanvas() {
         }
       }
     }
-    if (!momentumStarted) {
+    // Only stop momentum here if no glide is currently active. On touch,
+    // handleMouseUp runs twice (React onTouchEnd + the document touchend
+    // listener attached in useCanvasTouch). The first call launches momentum
+    // and clears panSourceRef; the second call sees a null source, falls
+    // through with momentumStarted=false, and would otherwise kill the glide
+    // the first call just started. The re-entry guard above only catches
+    // synchronous re-entrancy, not sequential calls in the same tick.
+    if (!momentumStarted && !panMomentumRef.current.active) {
       stopPanMomentum();
       isPanningOrZooming.current = false; // Clear the flag when panning ends
     }
