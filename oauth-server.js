@@ -367,6 +367,13 @@ function createVerificationRecord(result, oauthCredentials) {
     installationId: result.installation?.id ?? result.checkedInstallationId ?? null,
     installationAccount: result.installation?.account?.login ?? null,
     targetType: result.installation?.target_type ?? null,
+    // Capture which GitHub App the install actually belongs to. Without this,
+    // a deployment configured for a different App than the install will mint
+    // with the wrong key and GitHub returns an opaque 404. Surfacing app_id
+    // and app_slug to the client lets the diagnostic panel say exactly which
+    // App owns the install vs. which one the deployment is configured for.
+    appId: result.installation?.app_id ?? null,
+    appSlug: result.installation?.app_slug ?? null,
     oauthLogin,
     statusCode: result.statusCode ?? null,
     details: trimmedDetails,
@@ -388,6 +395,8 @@ function formatVerificationForResponse(record) {
     checkedInstallationId: record.checkedInstallationId ?? null,
     installationAccount: record.installationAccount || null,
     targetType: record.targetType || null,
+    appId: record.appId ?? null,
+    appSlug: record.appSlug || null,
     statusCode: record.statusCode ?? null,
     details: record.details || null,
     checkedAt: record.checkedAt ? new Date(record.checkedAt).toISOString() : null
@@ -1573,24 +1582,28 @@ app.post('/api/github/app/installation-token', async (req, res) => {
       });
     }
 
-    const useDev = isLocalRequest(req);
-    const appId = useDev
-      ? (process.env.GITHUB_APP_ID_DEV || process.env.GITHUB_APP_ID)
-      : process.env.GITHUB_APP_ID;
-    const privateKey = useDev
-      ? (process.env.GITHUB_APP_PRIVATE_KEY_DEV || process.env.GITHUB_APP_PRIVATE_KEY)
-      : process.env.GITHUB_APP_PRIVATE_KEY;
+    // Enumerate every App credential slot this deployment has configured.
+    // We pick which one to use *after* verifying the installation, based on
+    // which App actually owns this install_id (GitHub reports app_id/app_slug
+    // on every installation). Picking by NODE_ENV alone — what this used to
+    // do — silently 404s whenever the install was created against a
+    // different App than the env-default picked.
+    const credentialSlots = [
+      {
+        slot: 'prod',
+        appId: process.env.GITHUB_APP_ID ? Number(process.env.GITHUB_APP_ID) : null,
+        privateKey: process.env.GITHUB_APP_PRIVATE_KEY || null,
+        slug: process.env.GITHUB_APP_SLUG || null
+      },
+      {
+        slot: 'dev',
+        appId: process.env.GITHUB_APP_ID_DEV ? Number(process.env.GITHUB_APP_ID_DEV) : null,
+        privateKey: process.env.GITHUB_APP_PRIVATE_KEY_DEV || null,
+        slug: process.env.GITHUB_APP_SLUG_DEV || null
+      }
+    ].filter((c) => c.appId && c.privateKey && !Number.isNaN(c.appId));
 
-    logger.info('[GitHubApp] Installation token request:', {
-      installation_id,
-      useDev,
-      appId: appId ? `${appId.substring(0, 4)}...` : 'MISSING',
-      hasPrivateKey: !!privateKey,
-      host: req.headers.host,
-      forwardedHost: req.headers['x-forwarded-host']
-    });
-
-    if (!appId || !privateKey) {
+    if (credentialSlots.length === 0) {
       return res.status(500).json({
         error: 'GitHub App not configured',
         hint: 'Set GITHUB_APP_ID and GITHUB_APP_PRIVATE_KEY environment variables',
@@ -1646,6 +1659,68 @@ app.post('/api/github/app/installation-token', async (req, res) => {
         service: 'oauth-server'
       });
     }
+
+    // Route to the App credentials that actually own this installation.
+    // GitHub stamps each installation with app_id + app_slug; we use them to
+    // pick from the deployment's configured slots. If none match, the
+    // install was created against an App that isn't configured here —
+    // surface that as a 409 with a diagnostic instead of letting GitHub
+    // 404 the mint and returning an opaque "Installation not found."
+    const installation = verificationResult.installation || null;
+    const installAppId = installation?.app_id ? Number(installation.app_id) : null;
+    const installAppSlug = installation?.app_slug || null;
+
+    let chosenSlot = null;
+    if (installAppId != null && !Number.isNaN(installAppId)) {
+      chosenSlot = credentialSlots.find((c) => c.appId === installAppId) || null;
+    }
+    if (!chosenSlot && installAppSlug) {
+      chosenSlot = credentialSlots.find((c) => c.slug === installAppSlug) || null;
+    }
+    if (!chosenSlot && installAppId == null && !installAppSlug) {
+      // No app metadata on the verification (older cache, partial info).
+      // Fall back to the NODE_ENV-based default — the same behavior as
+      // before this change, so we don't regress legacy cache paths.
+      const useDev = isLocalRequest(req);
+      chosenSlot = useDev
+        ? (credentialSlots.find((c) => c.slot === 'dev') || credentialSlots[0])
+        : (credentialSlots.find((c) => c.slot === 'prod') || credentialSlots[0]);
+    }
+
+    if (!chosenSlot) {
+      const installedOnDesc = installAppId != null
+        ? `app_id=${installAppId}${installAppSlug ? ` (slug=${installAppSlug})` : ''}`
+        : 'unknown App';
+      const configuredDesc = credentialSlots
+        .map((c) => `${c.slot} slot: id=${c.appId}${c.slug ? ` (slug=${c.slug})` : ''}`)
+        .join('; ') || '(none configured)';
+      logger.warn('[GitHubApp] No matching credentials for installation:', {
+        installation_id,
+        installAppId,
+        installAppSlug,
+        configured: credentialSlots.map((c) => ({ slot: c.slot, appId: c.appId, slug: c.slug }))
+      });
+      return res.status(409).json({
+        error: 'GitHub App credential mismatch',
+        code: 'app_credentials_mismatch',
+        hint: `Installation ${installation_id} belongs to ${installedOnDesc}, but this deployment only has credentials for: ${configuredDesc}. Either install the App via this deployment's install URL, or configure the matching App's credentials here.`,
+        verification: verificationSummary,
+        service: 'oauth-server'
+      });
+    }
+
+    const appId = String(chosenSlot.appId);
+    const privateKey = chosenSlot.privateKey;
+
+    logger.info('[GitHubApp] Installation token request:', {
+      installation_id,
+      resolvedAppId: chosenSlot.appId,
+      resolvedAppSlot: chosenSlot.slot,
+      installAppSlug,
+      installAppId,
+      host: req.headers.host,
+      forwardedHost: req.headers['x-forwarded-host']
+    });
 
     logger.debug('[GitHubApp] Generating installation token for installation:', installation_id);
 

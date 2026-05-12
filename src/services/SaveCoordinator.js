@@ -251,20 +251,57 @@ class SaveCoordinator {
         return;
       }
 
-      // CRITICAL data-loss guard: block any save attempt before a load has
-      // happened, but only when the universe is *expected* to have a loaded
-      // file. Brand-new universes (`hasUniverseFile === false`) never had data
-      // to load and must still auto-save normally.
-      // Default empty store state must never be allowed to overwrite the
-      // user's file when the active load timed out or failed silently.
+      // Data-loss guard. The narrow case this exists to catch is:
+      // a universe has a real file on disk with data, the load failed/timed
+      // out silently, the store still holds default-empty state, and an
+      // incidental change triggers a save that would overwrite the file
+      // with empty.
+      //
+      // The previous version of this guard was a binary check on
+      // `hasLoadedFromFile`, which over-fires: many code paths set
+      // `hasUniverseFile=true` without announcing a `type:'load'` context
+      // (workspace setup creating a new universe, load-timeout fast path
+      // releasing the UI spinner, file-handle restore paths, etc.). In
+      // those cases the guard would block every subsequent save *forever*
+      // and the user's work would silently never persist.
+      //
+      // Smarter rule: only block if the upcoming save would actually be
+      // empty. If the state has real user-added content, the user clearly
+      // did work that needs to persist — refusing to save is the bigger
+      // data-loss risk than potentially overwriting an unloaded file (which
+      // is also recoverable via reload, while in-flight edits are not).
+      // The shrinkage guard at save time (processStateChange) still
+      // independently catches the "had real data, surprise-collapsed to
+      // empty" case (HMR resets, accidental store wipes) using
+      // `dataBaseline`, so this guard doesn't need to cover that.
       if (!this.hasLoadedFromFile && newState?.hasUniverseFile === true) {
-        this.nextStateToProcess = newState;
-        this.lastChangeContext = changeContext;
-        if (!this._loggedLoadGuard) {
-          console.warn('[SaveCoordinator] Save blocked: no load has completed yet, but universe has hasUniverseFile=true. Refusing to overwrite file with current store state.');
-          this._loggedLoadGuard = true;
+        let stateHasRealData = false;
+        try {
+          const counts = this._countDataItems(newState);
+          // > 0 user prototypes, OR more than the implicit default graph
+          stateHasRealData = counts.nodes > 0 || counts.graphs > 1;
+        } catch { /* if counting fails, fall through to the conservative block */ }
+
+        if (!stateHasRealData) {
+          this.nextStateToProcess = newState;
+          this.lastChangeContext = changeContext;
+          if (!this._loggedLoadGuard) {
+            console.warn('[SaveCoordinator] Save blocked: state is empty and no load has been observed for a universe claiming hasUniverseFile=true.');
+            this._loggedLoadGuard = true;
+          }
+          return;
         }
-        return;
+
+        // Real data present — allow the save. Treat this as the load
+        // baseline going forward so the shrinkage guard has a meaningful
+        // floor and we stop logging "no load observed" on every keystroke.
+        this.hasLoadedFromFile = true;
+        try {
+          const counts = this._countDataItems(newState);
+          this.dataBaseline = counts;
+        } catch { /* non-fatal */ }
+        if (this._loggedLoadGuard) this._loggedLoadGuard = false;
+        console.log('[SaveCoordinator] Adopting current non-empty state as load baseline (no explicit load context fired).');
       }
 
       // Update global interaction state based on context
