@@ -2,7 +2,7 @@ import React, { useState, useRef, useEffect, useLayoutEffect, useMemo, useCallba
 import './NodeCanvas.css';
 import { X } from 'lucide-react';
 import Header from './Header.jsx';
-// DebugOverlay import removed - debug mode disabled
+import DebugOverlay from './DebugOverlay.jsx';
 import { useCanvasTouch } from './hooks/useCanvasTouch';
 import { useCanvasWorker } from './useCanvasWorker.js';
 import Node from './Node.jsx';
@@ -2370,8 +2370,163 @@ function NodeCanvas() {
   useEffect(() => { nodesRef.current = nodes; }, [nodes]);
   useEffect(() => { edgesRef.current = edges; }, [edges]);
 
-  const [debugMode, setDebugMode] = useState(false); // Debug mode disabled
-  // Debug data state removed - debug mode disabled
+  const [debugMode, setDebugMode] = useState(false);
+  // On-screen sync diagnostics (populated only while debugMode is on; primary
+  // use-case is debugging the "Awaiting sync engine forever" symptom on
+  // mobile where devtools aren't readily accessible).
+  const [syncDebugData, setSyncDebugData] = useState(null);
+  const syncDebugActionsRef = useRef([]); // ring buffer of recent action results
+
+  const buildSyncDebugData = useCallback(async () => {
+    try {
+      const { default: universeBackend } = await import('./services/universeBackend.js');
+      const { default: persistentAuth } = await import('./services/persistentAuth.js');
+
+      const authStatus = universeBackend.getAuthStatus?.() || persistentAuth.getAuthStatus?.() || {};
+      const universe = universeBackend.getActiveUniverse?.() || null;
+      const universeSlug = universe?.slug || null;
+
+      let engineSummary = {};
+      try {
+        const stat = universeSlug ? universeBackend.getSyncStatus?.(universeSlug) : null;
+        const hasEngineMap = universeBackend.gitSyncEngines instanceof Map;
+        const hasEngine = hasEngineMap && universeSlug ? universeBackend.gitSyncEngines.has(universeSlug) : null;
+        engineSummary = {
+          hasEngine,
+          isRunning: stat?.isRunning ?? null,
+          isHealthy: stat?.isHealthy ?? null,
+          isInBackoff: stat?.isInBackoff ?? null,
+          consecutiveErrors: stat?.consecutiveErrors ?? null,
+          pendingCommits: stat?.pendingCommits ?? null,
+          lastCommitTime: stat?.lastCommitTime ?? null,
+          lastErrorTime: stat?.lastErrorTime ?? null,
+          lastError: stat?.lastError?.message || stat?.lastError || null,
+          statusLabel: stat?.label || stat?.state || null,
+        };
+      } catch (e) {
+        engineSummary = { lastError: `getSyncStatus threw: ${e.message}` };
+      }
+
+      // Best-effort token presence checks. We don't render the token value.
+      let hasInMemoryToken = null;
+      let hasStoredToken = null;
+      let tokenSource = null;
+      try {
+        hasInMemoryToken = !!(persistentAuth.oauthCache?.accessToken || persistentAuth.oauthCache?.token);
+      } catch {}
+      try {
+        const probe = typeof window !== 'undefined' && window.localStorage
+          ? (window.localStorage.getItem('github_oauth_access_token') || window.localStorage.getItem('github_app_installation_token'))
+          : null;
+        hasStoredToken = !!probe;
+        tokenSource = hasInMemoryToken && hasStoredToken
+          ? 'memory+storage'
+          : hasInMemoryToken
+            ? 'memory only'
+            : hasStoredToken
+              ? 'storage only'
+              : 'none';
+      } catch (e) {
+        tokenSource = `probe failed: ${e.message}`;
+      }
+
+      return {
+        _sync: true,
+        _meta: !engineSummary.hasEngine
+          ? { notice: 'No sync engine instance for the active universe. Tap "Retry sync engine" to attempt setup; if it fails, the error will show under Recent actions.' }
+          : null,
+        device: {
+          userAgent: typeof navigator !== 'undefined' ? navigator.userAgent.slice(0, 120) : null,
+          isMobile: universeBackend.isMobile ?? null,
+          isTouch: universeBackend.isTouch ?? null,
+          hasFileAccess: universeBackend.hasFileAccess ?? null,
+          isGitOnlyMode: universeBackend.isGitOnlyMode ?? null,
+          defaultSourceOfTruth: universeBackend.deviceConfig?.sourceOfTruth ?? null,
+        },
+        auth: {
+          isAuthenticated: authStatus.isAuthenticated ?? null,
+          authType: authStatus.userData?.app_id ? 'github-app' : (authStatus.userData ? 'oauth' : null),
+          user: authStatus.userData?.login || authStatus.userData?.name || null,
+          tokenExpiresAt: authStatus.tokenExpiresAt || authStatus.userData?.tokenExpiresAt || null,
+          hasInMemoryToken,
+          hasStoredToken,
+          tokenSource,
+        },
+        universe: {
+          slug: universeSlug,
+          name: universe?.name || null,
+          gitEnabled: !!universe?.gitRepo?.enabled,
+          linkedRepo: universe?.gitRepo?.linkedRepo
+            ? `${universe.gitRepo.linkedRepo.user || universe.gitRepo.linkedRepo.owner || '?'}/${universe.gitRepo.linkedRepo.repo || universe.gitRepo.linkedRepo.name || '?'}`
+            : null,
+          universeFolder: universe?.gitRepo?.universeFolder || null,
+          universeFile: universe?.gitRepo?.universeFile || null,
+          sourceOfTruth: universe?.sourceOfTruth || null,
+          nodeCount: universe?.nodeCount ?? null,
+        },
+        engine: engineSummary,
+        lastActions: syncDebugActionsRef.current.slice(),
+      };
+    } catch (err) {
+      return {
+        _sync: true,
+        _meta: { notice: `Failed to build diagnostics: ${err.message}` },
+        device: {}, auth: {}, universe: {}, engine: {},
+        lastActions: syncDebugActionsRef.current.slice(),
+      };
+    }
+  }, []);
+
+  const recordSyncAction = useCallback((label, ok, detail) => {
+    const ts = new Date().toISOString().slice(11, 19);
+    syncDebugActionsRef.current = [
+      ...syncDebugActionsRef.current.slice(-9),
+      { ts, label, ok, detail: detail ? String(detail).slice(0, 200) : null },
+    ];
+  }, []);
+
+  const refreshSyncDebug = useCallback(async () => {
+    if (!debugMode) return;
+    const data = await buildSyncDebugData();
+    setSyncDebugData(data);
+  }, [debugMode, buildSyncDebugData]);
+
+  const handleRetrySyncEngine = useCallback(async () => {
+    try {
+      const { default: universeBackend } = await import('./services/universeBackend.js');
+      const universe = universeBackend.getActiveUniverse?.();
+      if (!universe?.slug) throw new Error('No active universe');
+      const engine = await universeBackend.ensureGitSyncEngine(universe.slug);
+      recordSyncAction('ensureGitSyncEngine', !!engine, engine ? 'engine ready' : 'returned null');
+    } catch (e) {
+      recordSyncAction('ensureGitSyncEngine', false, e?.message || String(e));
+    }
+    refreshSyncDebug();
+  }, [recordSyncAction, refreshSyncDebug]);
+
+  const handleForceSaveDebug = useCallback(async () => {
+    try {
+      const { default: universeBackend } = await import('./services/universeBackend.js');
+      const universe = universeBackend.getActiveUniverse?.();
+      if (!universe?.slug) throw new Error('No active universe');
+      await universeBackend.forceSave(universe.slug);
+      recordSyncAction('forceSave', true, null);
+    } catch (e) {
+      recordSyncAction('forceSave', false, e?.message || String(e));
+    }
+    refreshSyncDebug();
+  }, [recordSyncAction, refreshSyncDebug]);
+
+  useEffect(() => {
+    if (!debugMode) {
+      setSyncDebugData(null);
+      return;
+    }
+    refreshSyncDebug();
+    const id = setInterval(refreshSyncDebug, 2000);
+    return () => clearInterval(id);
+  }, [debugMode, refreshSyncDebug]);
+
   const [isPaused, setIsPaused] = useState(false);
   const [lastInteractionType, setLastInteractionType] = useState(null);
   const [isViewReady, setIsViewReady] = useState(false);
@@ -13798,6 +13953,22 @@ function NodeCanvas() {
         isVisible={showSettingsModal}
         onClose={() => setShowSettingsModal(false)}
       />
+
+      {/* On-screen sync diagnostics — visible only when debug mode is on
+          (toggle from logo right-click → Show Debug Menu → Show Debug Overlay).
+          Primary use: read the engine/auth/universe state on devices where
+          devtools aren't accessible (mobile). */}
+      {debugMode && (
+        <DebugOverlay
+          debugData={syncDebugData}
+          hideOverlay={() => setDebugMode(false)}
+          actions={{
+            onRetrySyncEngine: handleRetrySyncEngine,
+            onForceSave: handleForceSaveDebug,
+            onRefresh: refreshSyncDebug,
+          }}
+        />
+      )}
 
       {/* <div>NodeCanvas Simplified - Testing Loop</div> */}
     </div >
