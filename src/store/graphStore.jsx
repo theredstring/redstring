@@ -570,6 +570,14 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
         return true;
       }
     })(),
+    showEdgeGlowIndicators: (() => {
+      try {
+        const saved = localStorage.getItem('redstring_show_edge_glow');
+        return saved === null ? true : saved === 'true';
+      } catch (_) {
+        return true;
+      }
+    })(),
     darkMode: (() => {
       try {
         const saved = localStorage.getItem('redstring_dark_mode');
@@ -3383,6 +3391,12 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
       draft.showConnectionNames = !draft.showConnectionNames;
       try {
         localStorage.setItem('redstring_show_connection_names', draft.showConnectionNames);
+      } catch (_) { }
+    })),
+    toggleShowEdgeGlowIndicators: () => set(produce((draft) => {
+      draft.showEdgeGlowIndicators = !draft.showEdgeGlowIndicators;
+      try {
+        localStorage.setItem('redstring_show_edge_glow', draft.showEdgeGlowIndicators);
       } catch (_) { }
     })),
     toggleDarkMode: () => {

@@ -610,6 +610,7 @@ function NodeCanvas() {
   const imageCacheMap = useImageCache(state => state.images);
   const edgePrototypesMap = useGraphStore(state => state.edgePrototypes);
   const showConnectionNames = useGraphStore(state => state.showConnectionNames);
+  const showEdgeGlowIndicators = useGraphStore(state => state.showEdgeGlowIndicators);
   const darkMode = useGraphStore(state => state.darkMode);
   const gridMode = useGraphStore(state => state.gridSettings?.mode || 'off');
   const gridSize = useGraphStore(state => state.gridSettings?.size || 200);
@@ -2380,7 +2381,7 @@ function NodeCanvas() {
   const buildSyncDebugData = useCallback(async () => {
     try {
       const { default: universeBackend } = await import('./services/universeBackend.js');
-      const { default: persistentAuth } = await import('./services/persistentAuth.js');
+      const { persistentAuth } = await import('./services/persistentAuth.js');
 
       const authStatus = universeBackend.getAuthStatus?.() || persistentAuth.getAuthStatus?.() || {};
       const universe = universeBackend.getActiveUniverse?.() || null;
@@ -2407,23 +2408,38 @@ function NodeCanvas() {
         engineSummary = { lastError: `getSyncStatus threw: ${e.message}` };
       }
 
-      // Best-effort token presence checks. We don't render the token value.
-      let hasInMemoryToken = null;
-      let hasStoredToken = null;
+      // Probe BOTH the in-memory caches and the real localStorage keys used
+      // by persistentAuth (see LOCAL_STORAGE_KEYS in persistentAuth.js). The
+      // OAuth scope is the critical piece — if mobile granted only
+      // `public_repo` while desktop granted `repo`, that alone explains a 404
+      // on a private repo even when both authenticate as the same user.
+      let hasOauthInMemory = null;
+      let hasAppInMemory = null;
+      let hasOauthStored = null;
+      let hasAppStored = null;
+      let oauthScope = null;
+      let appInstallationId = null;
       let tokenSource = null;
       try {
-        hasInMemoryToken = !!(persistentAuth.oauthCache?.accessToken || persistentAuth.oauthCache?.token);
+        hasOauthInMemory = !!(persistentAuth.oauthCache?.accessToken);
+        hasAppInMemory = !!(persistentAuth.githubAppCache?.accessToken || persistentAuth.githubAppCache?.installationId);
+        oauthScope = persistentAuth.oauthCache?.scope || null;
+        appInstallationId = persistentAuth.githubAppCache?.installationId || null;
       } catch {}
       try {
-        const probe = typeof window !== 'undefined' && window.localStorage
-          ? (window.localStorage.getItem('github_oauth_access_token') || window.localStorage.getItem('github_app_installation_token'))
-          : null;
-        hasStoredToken = !!probe;
-        tokenSource = hasInMemoryToken && hasStoredToken
+        if (typeof window !== 'undefined' && window.localStorage) {
+          hasOauthStored = !!window.localStorage.getItem('github_access_token');
+          hasAppStored = !!window.localStorage.getItem('github_app_access_token') || !!window.localStorage.getItem('github_app_installation_id');
+          if (!oauthScope) oauthScope = window.localStorage.getItem('github_token_scope') || null;
+          if (!appInstallationId) appInstallationId = window.localStorage.getItem('github_app_installation_id') || null;
+        }
+        const anyMem = hasOauthInMemory || hasAppInMemory;
+        const anyStored = hasOauthStored || hasAppStored;
+        tokenSource = anyMem && anyStored
           ? 'memory+storage'
-          : hasInMemoryToken
+          : anyMem
             ? 'memory only'
-            : hasStoredToken
+            : anyStored
               ? 'storage only'
               : 'none';
       } catch (e) {
@@ -2448,8 +2464,12 @@ function NodeCanvas() {
           authType: authStatus.userData?.app_id ? 'github-app' : (authStatus.userData ? 'oauth' : null),
           user: authStatus.userData?.login || authStatus.userData?.name || null,
           tokenExpiresAt: authStatus.tokenExpiresAt || authStatus.userData?.tokenExpiresAt || null,
-          hasInMemoryToken,
-          hasStoredToken,
+          oauthScope: oauthScope || '(none)',
+          appInstallationId: appInstallationId || '(none)',
+          hasOauthInMemory,
+          hasAppInMemory,
+          hasOauthStored,
+          hasAppStored,
           tokenSource,
         },
         universe: {
@@ -2494,6 +2514,28 @@ function NodeCanvas() {
   const handleRetrySyncEngine = useCallback(async () => {
     try {
       const { default: universeBackend } = await import('./services/universeBackend.js');
+      const { persistentAuth } = await import('./services/persistentAuth.js');
+
+      // Force-rehydrate the in-memory token cache from localStorage before
+      // attempting engine setup. On mobile we've observed tokens persisted to
+      // localStorage but `persistentAuth.oauthCache` left empty, which makes
+      // `getAuthStatus().isAuthenticated` return false and skip auto-setup.
+      // Calling loadFromBrowserStorage() is idempotent — if hydration already
+      // ran successfully it's a no-op; if it hadn't, this populates the cache.
+      const tokenBefore = !!persistentAuth.oauthCache?.accessToken;
+      try {
+        persistentAuth.loadFromBrowserStorage?.();
+        const tokenAfter = !!persistentAuth.oauthCache?.accessToken;
+        const appAfter = !!(persistentAuth.githubAppCache?.installationId || persistentAuth.githubAppCache?.accessToken);
+        recordSyncAction(
+          'rehydrateAuthCache',
+          tokenAfter || appAfter,
+          `oauth: ${tokenBefore ? 'was set' : 'was empty'} → ${tokenAfter ? 'set' : 'still empty'}; app: ${appAfter ? 'set' : 'empty'}`
+        );
+      } catch (hydrationErr) {
+        recordSyncAction('rehydrateAuthCache', false, hydrationErr?.message || String(hydrationErr));
+      }
+
       const universe = universeBackend.getActiveUniverse?.();
       if (!universe?.slug) throw new Error('No active universe');
       const engine = await universeBackend.ensureGitSyncEngine(universe.slug);
@@ -12989,22 +13031,24 @@ function NodeCanvas() {
           )}
 
           {/* Edge glow indicators for off-screen nodes */}
-          <EdgeGlowIndicator
-            nodes={hydratedNodes}
-            baseDimensionsById={baseDimsById}
-            panOffset={panOffset}
-            zoomLevel={zoomLevel}
-            panOffsetRef={panOffsetRef}
-            zoomLevelRef={zoomLevelRef}
-            glowUpdateRef={glowUpdateRef}
-            leftPanelExpanded={leftPanelExpanded}
-            rightPanelExpanded={rightPanelExpanded}
-            previewingNodeId={previewingNodeId}
-            containerRef={containerRef}
-            canvasViewportSize={viewportSize}
-            showViewportDebug={false}
-            showDirectionLines={false}
-          />
+          {showEdgeGlowIndicators && (
+            <EdgeGlowIndicator
+              nodes={hydratedNodes}
+              baseDimensionsById={baseDimsById}
+              panOffset={panOffset}
+              zoomLevel={zoomLevel}
+              panOffsetRef={panOffsetRef}
+              zoomLevelRef={zoomLevelRef}
+              glowUpdateRef={glowUpdateRef}
+              leftPanelExpanded={leftPanelExpanded}
+              rightPanelExpanded={rightPanelExpanded}
+              previewingNodeId={previewingNodeId}
+              containerRef={containerRef}
+              canvasViewportSize={viewportSize}
+              showViewportDebug={false}
+              showDirectionLines={false}
+            />
+          )}
 
           {/* Back to Civilization component - shown when no nodes are visible */}
           <BackToCivilization

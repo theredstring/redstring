@@ -52,6 +52,7 @@ const SettingsModal = ({ isVisible, onClose }) => {
   const routingStyle = useGraphStore(s => s.routingStyle);
   const cleanLaneSpacing = useGraphStore(s => s.cleanLaneSpacing);
   const showConnectionNames = useGraphStore(s => s.showConnectionNames);
+  const showEdgeGlowIndicators = useGraphStore(s => s.showEdgeGlowIndicators);
   const darkMode = useGraphStore(s => s.darkMode);
 
   const isCompactLayout = viewportSize.width <= 768;
@@ -120,6 +121,16 @@ const SettingsModal = ({ isVisible, onClose }) => {
             <Toggle
               checked={!!showConnectionNames}
               onChange={() => useGraphStore.getState().toggleShowConnectionNames?.()}
+            />
+          </div>
+          <div className="settings-row">
+            <div className="settings-row-label">
+              Offscreen Thing Glow Indicators
+              <div className="settings-row-description">Glow indicators on canvas edges for Things outside the viewport. Disable to improve panning performance on large Webs.</div>
+            </div>
+            <Toggle
+              checked={!!showEdgeGlowIndicators}
+              onChange={() => useGraphStore.getState().toggleShowEdgeGlowIndicators?.()}
             />
           </div>
         </div>

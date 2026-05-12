@@ -287,10 +287,14 @@ const SyncDiagnostics = ({ data }) => {
         <SectionRow label="isAuthenticated" value={auth?.isAuthenticated} />
         <SectionRow label="authType" value={auth?.authType} />
         <SectionRow label="user" value={auth?.user} />
+        <SectionRow label="oauthScope" value={auth?.oauthScope} />
+        <SectionRow label="appInstallationId" value={auth?.appInstallationId} />
         <SectionRow label="tokenExpiresAt" value={auth?.tokenExpiresAt} />
         <SectionRow label="tokenSource" value={auth?.tokenSource} />
-        <SectionRow label="hasInMemoryToken" value={auth?.hasInMemoryToken} />
-        <SectionRow label="hasStoredToken" value={auth?.hasStoredToken} />
+        <SectionRow label="hasOauthInMemory" value={auth?.hasOauthInMemory} />
+        <SectionRow label="hasAppInMemory" value={auth?.hasAppInMemory} />
+        <SectionRow label="hasOauthStored" value={auth?.hasOauthStored} />
+        <SectionRow label="hasAppStored" value={auth?.hasAppStored} />
       </Section>
 
       <Section title="Active universe" tone="#fd971f">

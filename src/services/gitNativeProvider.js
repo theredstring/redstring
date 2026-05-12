@@ -585,8 +585,17 @@ This repository was automatically initialized by Redstring UI React. You can now
         }
       });
 
+      // GitHub returns the authenticating user and granted scopes as headers
+      // on every authenticated response — even 404s. Capture them so we can
+      // distinguish "token has no access" from "token is for a different
+      // account" from "scopes too narrow for private repos."
+      const grantedScopes = response.headers.get('x-oauth-scopes') || response.headers.get('X-OAuth-Scopes');
+      const tokenUserLogin = response.headers.get('x-github-user-login') || response.headers.get('X-Github-User-Login');
+      const tokenContext = `[token user=${tokenUserLogin || '?'} scopes=${grantedScopes || '?'}]`;
+
       if (response.ok) {
         this.lastUnavailableReason = null;
+        this.lastTokenContext = tokenContext;
         return true;
       }
 
@@ -600,14 +609,15 @@ This repository was automatically initialized by Redstring UI React. You can now
 
       const where = `${this.user}/${this.repo}`;
       if (response.status === 404) {
-        this.lastUnavailableReason = `404 Not Found for ${where}${apiMessage ? ` — ${apiMessage}` : ''} (repo missing OR token lacks access to it)`;
+        this.lastUnavailableReason = `404 Not Found for ${where} ${tokenContext}${apiMessage ? ` — ${apiMessage}` : ''} (repo missing OR token lacks access to it; check that token user owns/has access to repo and that 'repo' scope is granted for private repos)`;
       } else if (response.status === 401) {
-        this.lastUnavailableReason = `401 Unauthorized for ${where}${apiMessage ? ` — ${apiMessage}` : ''} (token rejected — expired, revoked, or wrong type)`;
+        this.lastUnavailableReason = `401 Unauthorized for ${where} ${tokenContext}${apiMessage ? ` — ${apiMessage}` : ''} (token rejected — expired, revoked, or wrong type)`;
       } else if (response.status === 403) {
-        this.lastUnavailableReason = `403 Forbidden for ${where}${apiMessage ? ` — ${apiMessage}` : ''} (token lacks the required scope/permission, or app install not granted to this repo)`;
+        this.lastUnavailableReason = `403 Forbidden for ${where} ${tokenContext}${apiMessage ? ` — ${apiMessage}` : ''} (token lacks the required scope/permission, or app install not granted to this repo)`;
       } else {
-        this.lastUnavailableReason = `${response.status} ${response.statusText} for ${where}${apiMessage ? ` — ${apiMessage}` : ''}`;
+        this.lastUnavailableReason = `${response.status} ${response.statusText} for ${where} ${tokenContext}${apiMessage ? ` — ${apiMessage}` : ''}`;
       }
+      this.lastTokenContext = tokenContext;
       console.warn(`[GitHubSemanticProvider] ${this.lastUnavailableReason}`);
       return false;
     } catch (error) {
