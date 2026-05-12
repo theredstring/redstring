@@ -788,9 +788,12 @@ const Header = ({
         </div>
       )}
 
-      {/* Scrollable tabs container — sized to fit between the fixed left/right
-          button reservations for the current mode so its visible area equals
-          its clientWidth (centering math just uses container.clientWidth/2). */}
+      {/* Scrollable tabs container. The 50vw "padding" is split: left side is
+          real CSS padding, right side is an explicit flex spacer (see below).
+          iOS WebKit excludes right padding from scrollWidth on flex
+          containers, which clamped scrollLeft and produced a right-of-center
+          offset when only one tab was present. An actual sibling element
+          (spacer) is honored by every engine. */}
       <div
         ref={tabsContainerRefCallback}
         onScroll={handleTabsScroll}
@@ -806,7 +809,7 @@ const Header = ({
           gap: '10px',
           overflowX: 'auto',
           overflowY: 'hidden',
-          padding: '0 50vw',
+          paddingLeft: '50vw',
         }}
       >
         {headerGraphs.map((graph) => {
@@ -872,6 +875,10 @@ const Header = ({
             />
           );
         })}
+        {/* Right-side spacer (functions as paddingRight: 50vw, but as real
+            content so iOS WebKit includes it in scrollWidth even with a
+            single tab — otherwise scrollLeft gets clamped below the target). */}
+        <div aria-hidden="true" style={{ flexShrink: 0, width: '50vw', height: 1 }} />
       </div>
 
       {/* Inline right-side action buttons (wide layout only). Pre-refactor

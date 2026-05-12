@@ -367,20 +367,30 @@ const PANEL_TOGGLE_BUTTON_WIDTH = 50; // Must match ToggleButton width
 const ENABLE_ALL_THINGS_TAB = false;
 // Wizard enablement is now handled by debugConfig
 
+// Clamp a panel width to what the current viewport can support. In exclusive
+// mode the panel may occupy everything except the opposite-side toggle button;
+// otherwise it's capped at half the viewport.
+const clampPanelWidthToViewport = (width) => {
+  const max = window.innerWidth <= EXCLUSIVE_PANEL_MODE_THRESHOLD
+    ? Math.max(MIN_PANEL_WIDTH, window.innerWidth - PANEL_TOGGLE_BUTTON_WIDTH)
+    : window.innerWidth / 2;
+  return Math.max(MIN_PANEL_WIDTH, Math.min(width, max));
+};
+
 // Helper to read width from storage
 const getInitialWidth = (side, defaultValue) => {
   try {
     const storedWidth = localStorage.getItem(`panelWidth_${side}`);
     if (storedWidth !== null) {
       const parsedWidth = JSON.parse(storedWidth);
-      if (typeof parsedWidth === 'number' && parsedWidth >= MIN_PANEL_WIDTH && parsedWidth <= window.innerWidth) {
-        return parsedWidth;
+      if (typeof parsedWidth === 'number' && parsedWidth >= MIN_PANEL_WIDTH) {
+        return clampPanelWidthToViewport(parsedWidth);
       }
     }
   } catch (error) {
     console.error(`Error reading panelWidth_${side} from localStorage:`, error);
   }
-  return defaultValue;
+  return clampPanelWidthToViewport(defaultValue);
 };
 
 // Helper to read the last *non-default* width
@@ -391,8 +401,8 @@ const getInitialLastCustomWidth = (side, defaultValue) => {
     if (stored !== null) {
       const parsed = JSON.parse(stored);
       // Ensure it's valid and not the default width itself
-      if (typeof parsed === 'number' && parsed >= MIN_PANEL_WIDTH && parsed <= window.innerWidth && parsed !== INITIAL_PANEL_WIDTH) {
-        return parsed;
+      if (typeof parsed === 'number' && parsed >= MIN_PANEL_WIDTH && parsed !== INITIAL_PANEL_WIDTH) {
+        return clampPanelWidthToViewport(parsed);
       }
     }
   } catch (error) {
@@ -400,7 +410,7 @@ const getInitialLastCustomWidth = (side, defaultValue) => {
   }
   // Fallback: Read the current width, use if it's not the default
   const currentWidth = getInitialWidth(side, defaultValue);
-  return currentWidth !== INITIAL_PANEL_WIDTH ? currentWidth : defaultValue;
+  return currentWidth !== INITIAL_PANEL_WIDTH ? currentWidth : clampPanelWidthToViewport(defaultValue);
 };
 
 let panelRenderCount = 0; // Add counter outside component
@@ -1052,10 +1062,11 @@ const Panel = memo(forwardRef(
             JSON.parse(localStorage.getItem('panelWidth_right') || 'null');
 
           if (nodeCanvasWidth && typeof nodeCanvasWidth === 'number' && nodeCanvasWidth >= MIN_PANEL_WIDTH) {
-            // Use NodeCanvas width if available
-            setPanelWidth(nodeCanvasWidth);
-            setIsWideLayout(nodeCanvasWidth > 250);
-            setLastCustomWidth(nodeCanvasWidth);
+            // Use NodeCanvas width if available, clamped to current viewport
+            const clamped = clampPanelWidthToViewport(nodeCanvasWidth);
+            setPanelWidth(clamped);
+            setIsWideLayout(clamped > 250);
+            setLastCustomWidth(clamped);
           } else {
             // Fall back to our own localStorage or default
             const initialWidth = getInitialWidth(side, INITIAL_PANEL_WIDTH);
