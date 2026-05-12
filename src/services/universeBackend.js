@@ -3904,11 +3904,52 @@ class UniverseBackend {
       // Construct full path: universes/{folder}/{file}
       const filePath = `universes/${universeFolder}/${fileName}`;
 
+      // Helper: rebuild provider with OAuth, used when an App-based op fails
+      // in a way that suggests App grants don't cover this resource. We've
+      // observed an App install that can pass isAvailable() (sees the repo)
+      // yet still 404s on /contents/... reads — likely a fine-grained
+      // permission mismatch — and then PUTs 422 with "sha wasn't supplied"
+      // because GitHub knows the file exists but the App couldn't read it
+      // to fetch a sha. OAuth with `repo` scope works in all these cases.
+      const swapToOauth = async () => {
+        if (provider.authMethod !== 'github-app') return false;
+        try {
+          const oauthToken = await persistentAuth.getAccessToken();
+          if (!oauthToken) return false;
+          umWarn('[UniverseBackend] loadFromGitDirect: swapping App provider for OAuth after file-level failure');
+          provider = SemanticProviderFactory.createProvider({
+            type: 'github',
+            user,
+            repo,
+            token: oauthToken,
+            authMethod: 'oauth',
+            semanticPath: universe?.gitRepo?.schemaPath || 'schema'
+          });
+          return true;
+        } catch (err) {
+          umWarn('[UniverseBackend] swapToOauth failed:', err?.message || err);
+          return false;
+        }
+      };
+
       let content;
+      let readFailed = false;
       try {
         content = await provider.readFileRaw(filePath);
       } catch (readError) {
         content = null;
+        readFailed = true;
+      }
+
+      // If the read failed with an App provider, retry once with OAuth before
+      // assuming the file doesn't exist. Avoids bootstrapping a fresh empty
+      // state on top of a file that actually exists but the App can't see.
+      if (readFailed && (await swapToOauth())) {
+        try {
+          content = await provider.readFileRaw(filePath);
+        } catch {
+          content = null;
+        }
       }
 
       if (!content || typeof content !== 'string' || content.trim() === '') {
@@ -3921,7 +3962,21 @@ class UniverseBackend {
               setTimeout(() => resolve(exportToRedstring(initialStoreState)), 0);
             }
           });
-          await provider.writeFileRaw(filePath, JSON.stringify(initialRedstring, null, 2));
+          try {
+            await provider.writeFileRaw(filePath, JSON.stringify(initialRedstring, null, 2));
+          } catch (writeErr) {
+            // 422 "sha wasn't supplied" means the file already exists but our
+            // (App) token couldn't see it when getFileInfo ran. Swap to OAuth
+            // and retry — OAuth will read the existing file via getFileInfo
+            // and supply the right sha (or, if the file truly doesn't exist,
+            // creating it again is harmless idempotent retry).
+            const msg = writeErr?.message || '';
+            if ((msg.includes('422') || msg.includes('409')) && (await swapToOauth())) {
+              await provider.writeFileRaw(filePath, JSON.stringify(initialRedstring, null, 2));
+            } else {
+              throw writeErr;
+            }
+          }
           this.notifyStatus('success', `Created new universe file at ${filePath}`);
           const { storeState } = importFromRedstring(initialRedstring);
           return storeState;
