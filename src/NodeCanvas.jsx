@@ -2714,6 +2714,111 @@ function NodeCanvas() {
     refreshSyncDebug();
   }, [recordSyncAction, refreshSyncDebug]);
 
+  // Dumps the live auth state to the action log. The diagnostic users need
+  // most often (which install is cached, which account does OAuth see, what
+  // repos does the App grant include) lives in in-memory caches that aren't
+  // reachable from a devtools console in a bundled build. This makes it a
+  // one-tap action instead.
+  const handleDumpAuthState = useCallback(async () => {
+    try {
+      const { persistentAuth } = await import('./services/persistentAuth.js');
+      const { default: universeBackend } = await import('./services/universeBackend.js');
+
+      const appCache = persistentAuth.githubAppCache || null;
+      const oauthCache = persistentAuth.oauthCache || null;
+      const activeUni = universeBackend.getActiveUniverse?.() || null;
+
+      const linkedRepo = activeUni?.gitRepo?.linkedRepo;
+      let owner, repo;
+      if (typeof linkedRepo === 'string') {
+        const [o, r] = linkedRepo.split('/');
+        owner = o; repo = r;
+      } else if (linkedRepo && typeof linkedRepo === 'object') {
+        owner = linkedRepo.user;
+        repo = linkedRepo.repo;
+      }
+      recordSyncAction(
+        'dump.universe',
+        true,
+        activeUni
+          ? `slug=${activeUni.slug} linked=${owner || '?'}/${repo || '?'} truth=${activeUni.sourceOfTruth || '?'} folder=${activeUni.gitRepo?.universeFolder || '(default)'} file=${activeUni.gitRepo?.universeFile || '(slug.redstring)'}`
+          : 'no active universe'
+      );
+
+      if (appCache) {
+        const repos = Array.isArray(appCache.repositories)
+          ? appCache.repositories.map(r => r.full_name || r.name).filter(Boolean)
+          : [];
+        const hasLinked = (owner && repo)
+          ? repos.includes(`${owner}/${repo}`)
+          : null;
+        recordSyncAction(
+          'dump.app',
+          true,
+          `installId=${appCache.installationId || '(none)'} account=${appCache.userData?.login || appCache.userData?.account?.login || '?'} tokenKind=${appCache.accessToken?.slice(0,4) || '?'} tokenLen=${appCache.accessToken?.length || 0} repoCount=${repos.length} hasLinkedRepo=${hasLinked === null ? '?' : hasLinked} repos=[${repos.slice(0, 8).join(', ')}${repos.length > 8 ? ', ...' : ''}]`
+        );
+      } else {
+        recordSyncAction('dump.app', false, 'NO App cache (no install stored in memory)');
+      }
+
+      if (oauthCache) {
+        recordSyncAction(
+          'dump.oauth',
+          true,
+          `user=${oauthCache.user?.login || '?'} tokenKind=${oauthCache.accessToken?.slice(0,4) || '?'} tokenLen=${oauthCache.accessToken?.length || 0} scope=${oauthCache.scope || '?'}`
+        );
+      } else {
+        recordSyncAction('dump.oauth', false, 'NO OAuth cache (no token stored in memory)');
+      }
+
+      // Bonus: hit the install's repositories endpoint with the cached App
+      // token. This is the truth — what GitHub actually says this token can
+      // see right now, regardless of stale repositories arrays in cache.
+      if (appCache?.accessToken) {
+        try {
+          const r = await fetch('https://api.github.com/installation/repositories?per_page=100', {
+            headers: {
+              'Authorization': `token ${appCache.accessToken}`,
+              'Accept': 'application/vnd.github.v3+json'
+            }
+          });
+          const d = await r.json().catch(() => null);
+          const liveRepos = Array.isArray(d?.repositories)
+            ? d.repositories.map(x => x.full_name)
+            : [];
+          const hasLinkedLive = (owner && repo) ? liveRepos.includes(`${owner}/${repo}`) : null;
+          recordSyncAction(
+            'dump.app.live',
+            r.status === 200,
+            `status=${r.status} installHeader=${r.headers.get('x-github-installation-id') || '?'} selection=${d?.repository_selection || '?'} totalCount=${d?.total_count ?? '?'} hasLinkedRepo=${hasLinkedLive === null ? '?' : hasLinkedLive} repos=[${liveRepos.slice(0, 8).join(', ')}${liveRepos.length > 8 ? ', ...' : ''}]`
+          );
+        } catch (e) {
+          recordSyncAction('dump.app.live', false, `fetch failed: ${e?.message || e}`);
+        }
+      }
+
+      // Bonus: probe the OAuth token's identity (who does GitHub see?)
+      if (oauthCache?.accessToken) {
+        try {
+          const r = await fetch('https://api.github.com/user', {
+            headers: { 'Authorization': `token ${oauthCache.accessToken}` }
+          });
+          const d = await r.json().catch(() => null);
+          recordSyncAction(
+            'dump.oauth.live',
+            r.status === 200,
+            `status=${r.status} login=${d?.login || '?'} scopes=${r.headers.get('x-oauth-scopes') || '?'}`
+          );
+        } catch (e) {
+          recordSyncAction('dump.oauth.live', false, `fetch failed: ${e?.message || e}`);
+        }
+      }
+    } catch (e) {
+      recordSyncAction('dump.error', false, e?.message || String(e));
+    }
+    refreshSyncDebug();
+  }, [recordSyncAction, refreshSyncDebug]);
+
   useEffect(() => {
     if (!debugMode) {
       setSyncDebugData(null);
@@ -14166,6 +14271,7 @@ function NodeCanvas() {
             onForceSave: handleForceSaveDebug,
             onClearGitHubAppCache: handleClearGitHubAppCache,
             onDirectGitHubProbe: handleDirectGitHubProbe,
+            onDumpAuthState: handleDumpAuthState,
             onRefresh: refreshSyncDebug,
           }}
         />

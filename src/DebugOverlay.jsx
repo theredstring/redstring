@@ -206,6 +206,15 @@ const DebugOverlay = ({ debugData, hideOverlay, actions = null }) => {
               Direct GitHub probe
             </button>
           )}
+          {actions.onDumpAuthState && (
+            <button
+              onClick={actions.onDumpAuthState}
+              style={{ ...diagButtonStyle, backgroundColor: '#001a3a', borderColor: '#3a78c7' }}
+              title="Dump live auth state to the action log: cached install ID, App account, repo grant (with live check against GitHub), OAuth user identity, and active universe's linked repo. Tells you whether the failure is install-grant, account-mismatch, or universe-config."
+            >
+              Dump auth state
+            </button>
+          )}
           {actions.onRefresh && (
             <button
               onClick={actions.onRefresh}

@@ -494,8 +494,41 @@ export class PersistentAuth {
         if (listResp && listResp.ok) {
           const installations = await listResp.json();
           if (Array.isArray(installations) && installations.length > 0) {
-            // Prefer most recent (server already sorts), otherwise first
-            const selected = installations[0] || installations.find(Boolean);
+            // The server returns installs for this App across ALL accounts,
+            // sorted by created_at DESC. Picking installations[0] blindly
+            // selects the most recent install on ANY account — which means
+            // a stale install on a different account (test, org, etc.) can
+            // hijack the slot from the real install on the user's account.
+            // Match by OAuth user login first; fall back to most-recent only
+            // if no account match is found, and log loudly when we do.
+            const oauthLogin = (
+              this.oauthCache?.user?.login
+              || this.oauthCache?.user?.username
+              || null
+            );
+            let selected = null;
+            if (oauthLogin) {
+              const oauthLoginLc = String(oauthLogin).toLowerCase();
+              selected = installations.find((inst) => {
+                const acctLogin = (inst?.account?.login || inst?.installation?.account?.login || '').toLowerCase();
+                return acctLogin === oauthLoginLc;
+              }) || null;
+            }
+            if (!selected) {
+              // No install on the connected user's account. Refuse to
+              // auto-bind to whatever happens to be installations[0] — that
+              // historically picked up stale installs on test/org accounts
+              // and silently 404'd every repo call against the user's repos.
+              // Force an explicit install instead.
+              console.warn(
+                '[PersistentAuth] No GitHub App install found on account',
+                oauthLogin || '(unknown — OAuth not yet loaded)',
+                '— skipping auto-connect. Available installs:',
+                installations.map((i) => ({ id: i.id, account: i.account?.login }))
+              );
+              return false;
+            }
+            console.log('[PersistentAuth] Selected install matching OAuth user', oauthLogin, '→ id', selected.id);
             const installationId = selected?.id || selected?.installation?.id;
             if (installationId) {
               // Obtain a fresh installation token
