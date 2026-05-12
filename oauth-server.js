@@ -1945,25 +1945,118 @@ app.get('/api/github/app/installations', async (req, res) => {
 
     logger.debug('[GitHubApp] Listing installations via OAuth identity...');
 
-    // Use the existing helper that pages through /user/installations.
+    const { ids: configuredAppIds, slugs: configuredAppSlugs } = resolveGitHubAppIdentifiers();
+
+    // PRIMARY path: ask GitHub for the installs THIS user has access to,
+    // using their OAuth token. This is the cleanest scoping mechanism.
+    let installsForFiltering = null;
+    let primaryFailure = null;
     const listResult = await listInstallationsViaOAuth(oauthToken);
-    if (!listResult.ok) {
-      // Pass GitHub's status straight through (401, 403, 404).
-      return res.status(listResult.status || 502).json({
-        error: 'Failed to list installations for OAuth user',
-        details: listResult.details || null,
-        reason: listResult.reason || null,
-        service: 'oauth-server'
+    if (listResult.ok) {
+      installsForFiltering = listResult.installations || [];
+    } else {
+      primaryFailure = {
+        status: listResult.status,
+        reason: listResult.reason,
+        details: listResult.details
+      };
+      logger.warn('[GitHubApp] /user/installations failed, will try App-JWT fallback scoped to OAuth user:', primaryFailure);
+    }
+
+    // FALLBACK path: /user/installations can 403 when (a) the OAuth App
+    // requires SAML SSO authorization for the user's org, (b) the OAuth
+    // App's permissions are tightened on GitHub's side, or (c) GitHub
+    // changed scope requirements. In those cases, identify the user via
+    // /user (which works with any valid token), then enumerate this App's
+    // installs via App JWT and filter to the ones whose account matches
+    // the OAuth user. This preserves the privacy guarantee (no foreign
+    // installs leak) while routing around an account-level gate.
+    if (!installsForFiltering) {
+      // Step 1: verify who this OAuth token belongs to.
+      let oauthLogin = null;
+      try {
+        const userResp = await fetch('https://api.github.com/user', {
+          headers: {
+            'Authorization': `token ${oauthToken}`,
+            'Accept': 'application/vnd.github.v3+json',
+            'User-Agent': 'Redstring-OAuth-Server/1.0'
+          }
+        });
+        if (userResp.ok) {
+          const userJson = await userResp.json().catch(() => null);
+          oauthLogin = userJson?.login || null;
+        }
+      } catch (e) {
+        logger.warn('[GitHubApp] OAuth /user lookup failed during fallback:', e?.message || e);
+      }
+
+      if (!oauthLogin) {
+        // Can't identify caller at all → can't safely scope. Pass through
+        // the original 403 so the client surfaces it.
+        return res.status(primaryFailure?.status || 502).json({
+          error: 'Failed to list installations for OAuth user',
+          details: primaryFailure?.details || 'Could not identify OAuth user via /user fallback',
+          reason: primaryFailure?.reason || 'fallback_identity_unknown',
+          service: 'oauth-server'
+        });
+      }
+
+      // Step 2: pick a configured App slot and enumerate ITS installs.
+      // Walk every configured slot — an install for THIS App could be on
+      // either the prod or dev App ID, and we'd rather merge than gamble.
+      const slotsToTry = [
+        { appId: process.env.GITHUB_APP_ID, privateKey: process.env.GITHUB_APP_PRIVATE_KEY, name: 'prod' },
+        { appId: process.env.GITHUB_APP_ID_DEV, privateKey: process.env.GITHUB_APP_PRIVATE_KEY_DEV, name: 'dev' }
+      ].filter((s) => s.appId && s.privateKey);
+
+      const allAppInstalls = [];
+      for (const slot of slotsToTry) {
+        try {
+          const payload = {
+            iat: Math.floor(Date.now() / 1000) - 60,
+            exp: Math.floor(Date.now() / 1000) + (10 * 60),
+            iss: parseInt(slot.appId, 10)
+          };
+          const slotJWT = jwt.sign(payload, slot.privateKey, { algorithm: 'RS256' });
+          const slotResp = await fetch('https://api.github.com/app/installations?per_page=100', {
+            headers: {
+              'Accept': 'application/vnd.github.v3+json',
+              'Authorization': `Bearer ${slotJWT}`,
+              'User-Agent': 'Redstring-OAuth-Server/1.0'
+            }
+          });
+          if (slotResp.ok) {
+            const slotInstalls = await slotResp.json().catch(() => []);
+            if (Array.isArray(slotInstalls)) allAppInstalls.push(...slotInstalls);
+          } else {
+            logger.warn(`[GitHubApp] Fallback enumeration via App JWT (${slot.name}) failed:`, slotResp.status);
+          }
+        } catch (e) {
+          logger.warn(`[GitHubApp] Fallback JWT mint for slot ${slot.name} failed:`, e?.message || e);
+        }
+      }
+
+      // Step 3: KEEP ONLY installs whose account login matches the OAuth
+      // user (case-insensitive). This is the privacy guarantee that
+      // replaces /user/installations' built-in scoping.
+      const loginLc = oauthLogin.toLowerCase();
+      installsForFiltering = allAppInstalls.filter((inst) => {
+        const acct = (inst?.account?.login || '').toLowerCase();
+        return acct === loginLc;
+      });
+
+      logger.info('[GitHubApp] Fallback enumeration succeeded:', {
+        oauthLogin,
+        totalAppInstalls: allAppInstalls.length,
+        matchingAccount: installsForFiltering.length
       });
     }
 
     // Filter to installations of THIS deployment's configured App(s).
-    // Without this filter, a user who has installed multiple GitHub Apps
-    // would see installs we have no credentials for, which would fail
-    // opaquely at mint time.
-    const { ids: configuredAppIds, slugs: configuredAppSlugs } = resolveGitHubAppIdentifiers();
-    const allInstalls = listResult.installations || [];
-    const ourInstalls = allInstalls.filter((inst) => {
+    // Even in the primary path this is needed because the user might have
+    // installed multiple GitHub Apps; only this deployment's configured
+    // Apps are mintable.
+    const ourInstalls = installsForFiltering.filter((inst) => {
       const appId = Number(inst?.app_id);
       const slug = inst?.app_slug || '';
       const idMatch = !Number.isNaN(appId) && configuredAppIds.includes(appId);
@@ -1972,8 +2065,9 @@ app.get('/api/github/app/installations', async (req, res) => {
     });
 
     logger.info('[GitHubApp] Found installations:', {
-      total: allInstalls.length,
-      forThisApp: ourInstalls.length
+      total: installsForFiltering.length,
+      forThisApp: ourInstalls.length,
+      usedFallback: !!primaryFailure
     });
 
     // Most recent first, just like the old behavior.

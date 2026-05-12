@@ -502,6 +502,26 @@ export class PersistentAuth {
         const listResp = await oauthFetch('/api/github/app/installations', {
           headers: { 'Authorization': `token ${userOauthToken}` }
         }).catch(() => null);
+        if (listResp && !listResp.ok) {
+          // Surface the real GitHub error message instead of failing silently.
+          // 403 here is usually one of: (a) OAuth App needs SAML SSO
+          // authorization for an org, (b) OAuth scope insufficient (rare now
+          // that we request read:org), (c) GitHub rate-limited us.
+          let body = null;
+          try { body = await listResp.json(); } catch { /* not json */ }
+          console.warn(
+            '[PersistentAuth] /api/github/app/installations failed:',
+            listResp.status,
+            JSON.stringify(body || {}, null, 2)
+          );
+          // Dispatch an event so the UI can surface this on the action log.
+          this.dispatchAuthEvent('app-discovery-failed', {
+            status: listResp.status,
+            details: body?.details || body?.error || null,
+            reason: body?.reason || null,
+            githubMessage: typeof body?.details === 'string' ? body.details : null
+          });
+        }
         if (listResp && listResp.ok) {
           const installations = await listResp.json();
           if (Array.isArray(installations) && installations.length > 0) {

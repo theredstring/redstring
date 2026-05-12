@@ -2812,6 +2812,29 @@ function NodeCanvas() {
         } catch (e) {
           recordSyncAction('dump.oauth.live', false, `fetch failed: ${e?.message || e}`);
         }
+
+        // CRITICAL: probe /user/installations DIRECTLY (bypassing our server
+        // and the proxy). This tells us whether GitHub itself is rejecting
+        // the OAuth token for install enumeration, vs. a problem in our
+        // proxy / scope filter. If this 403s, it's a GitHub-side gate:
+        // either SAML SSO needs to be authorized for the OAuth App, or the
+        // OAuth App lacks permission to enumerate installs.
+        try {
+          const r = await fetch('https://api.github.com/user/installations?per_page=10', {
+            headers: { 'Authorization': `token ${oauthCache.accessToken}` }
+          });
+          const d = await r.json().catch(() => null);
+          const ssoHeader = r.headers.get('x-github-sso') || null;
+          const acceptedScopes = r.headers.get('x-accepted-oauth-scopes') || null;
+          const xMessage = d?.message || null;
+          recordSyncAction(
+            'dump.installs.live',
+            r.status === 200,
+            `status=${r.status} totalInstalls=${d?.total_count ?? '?'} sso=${ssoHeader || '(none)'} acceptedScopes=${acceptedScopes || '?'} reqId=${r.headers.get('x-github-request-id') || '?'}${xMessage ? ` githubMsg="${xMessage}"` : ''} installs=[${(d?.installations || []).map(i => `${i.id}/${i.account?.login}/${i.app_slug}`).slice(0,5).join(', ')}]`
+          );
+        } catch (e) {
+          recordSyncAction('dump.installs.live', false, `fetch failed: ${e?.message || e}`);
+        }
       }
     } catch (e) {
       recordSyncAction('dump.error', false, e?.message || String(e));

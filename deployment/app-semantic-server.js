@@ -886,10 +886,20 @@ app.get('/api/github/app/installation/:installation_id', async (req, res) => {
   }
 });
 
-// List GitHub App installations (fallback endpoint)
+// List GitHub App installations.
+// CRITICAL: forward the Authorization header — the inner OAuth server now
+// REQUIRES the user's OAuth token to scope install discovery to that user's
+// accounts (otherwise it used to leak every install of this App across every
+// GitHub account). Other handlers in this proxy already forward
+// Authorization; this one was missed.
 app.get('/api/github/app/installations', async (req, res) => {
   try {
-    const response = await fetch(`http://localhost:${OAUTH_PORT}/api/github/app/installations`);
+    const response = await fetch(`http://localhost:${OAUTH_PORT}/api/github/app/installations`, {
+      headers: {
+        'Content-Type': 'application/json',
+        ...(req.headers.authorization && { 'Authorization': req.headers.authorization })
+      }
+    });
     const data = await response.json();
     res.status(response.status).json(data);
   } catch (error) {
