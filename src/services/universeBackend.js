@@ -1782,7 +1782,11 @@ class UniverseBackend {
       }
 
       if (!isAvailable) {
-        throw new Error(`Provider for ${universeSlug} is not available after 3 attempts - check authentication and repository access${lastError ? `: ${lastError.message}` : ''}`);
+        // Provider records the specific reason for each false-return; surface
+        // it so the user / diagnostic panel sees the actual cause (401 vs 404
+        // vs 403 vs network) instead of a generic "not available" message.
+        const reason = provider.lastUnavailableReason || lastError?.message || 'unknown reason';
+        throw new Error(`Provider for ${universeSlug} unavailable after 3 attempts: ${reason}`);
       }
 
       umLog(`[UniverseBackend] Provider created and validated for ${universeSlug}`);

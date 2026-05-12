@@ -564,18 +564,19 @@ This repository was automatically initialized by Redstring UI React. You can now
   }
 
   async isAvailable() {
+    // Record the reason on each false-return so callers (and the on-screen
+    // sync diagnostic panel) can surface *why* the provider is unavailable —
+    // otherwise the failure looks identical for missing token, 401, 404, 403,
+    // and network errors.
     try {
-      // Short-circuit if we don't have credentials yet
       if (!this.token || String(this.token).trim().length === 0) {
+        this.lastUnavailableReason = 'No auth token on provider';
         return false;
       }
-      
-      // Check rate limit before making request
+
       await githubRateLimiter.waitForAvailability(this.authMethod);
-      
-      // Check if the repository exists by accessing the repo info, not contents
+
       const repoUrl = `https://api.github.com/repos/${this.user}/${this.repo}`;
-      
       githubRateLimiter.recordRequest(this.authMethod);
       const response = await fetch(repoUrl, {
         headers: {
@@ -583,27 +584,34 @@ This repository was automatically initialized by Redstring UI React. You can now
           'Accept': 'application/vnd.github.v3+json'
         }
       });
-      
+
       if (response.ok) {
-        return true; // Repository exists and is accessible
+        this.lastUnavailableReason = null;
+        return true;
       }
-      
-      // If 404, repository doesn't exist
+
+      // Try to pull GitHub's own error message — it's usually specific
+      // (e.g. "Bad credentials", "Not Found", "Resource not accessible by integration").
+      let apiMessage = null;
+      try {
+        const body = await response.json();
+        apiMessage = body?.message || null;
+      } catch { /* body not JSON */ }
+
+      const where = `${this.user}/${this.repo}`;
       if (response.status === 404) {
-        console.warn(`[GitHubSemanticProvider] Repository not found: ${this.user}/${this.repo}`);
-        return false;
+        this.lastUnavailableReason = `404 Not Found for ${where}${apiMessage ? ` — ${apiMessage}` : ''} (repo missing OR token lacks access to it)`;
+      } else if (response.status === 401) {
+        this.lastUnavailableReason = `401 Unauthorized for ${where}${apiMessage ? ` — ${apiMessage}` : ''} (token rejected — expired, revoked, or wrong type)`;
+      } else if (response.status === 403) {
+        this.lastUnavailableReason = `403 Forbidden for ${where}${apiMessage ? ` — ${apiMessage}` : ''} (token lacks the required scope/permission, or app install not granted to this repo)`;
+      } else {
+        this.lastUnavailableReason = `${response.status} ${response.statusText} for ${where}${apiMessage ? ` — ${apiMessage}` : ''}`;
       }
-      
-      // If 401, authentication failed
-      if (response.status === 401) {
-        console.warn(`[GitHubSemanticProvider] Authentication failed for ${this.user}/${this.repo}`);
-        return false;
-      }
-      
-      // For other errors (403, etc.), log but return false
-      console.warn(`[GitHubSemanticProvider] Repository access failed: ${response.status} ${response.statusText}`);
+      console.warn(`[GitHubSemanticProvider] ${this.lastUnavailableReason}`);
       return false;
     } catch (error) {
+      this.lastUnavailableReason = `fetch threw: ${error?.name || 'Error'} — ${error?.message || String(error)}`;
       console.error('[GitHubSemanticProvider] isAvailable error:', error);
       return false;
     }
