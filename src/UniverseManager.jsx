@@ -800,14 +800,39 @@ const UniverseManager = ({ variant = 'panel', onRequestClose }) => {
       if (!installationId && pending) {
         umLog('[UniverseManager] No installation_id in callback, attempting discovery...');
         try {
-          const listResp = await oauthFetch('/api/github/app/installations', { bypassCooldown: true });
-          if (listResp.ok) {
-            const installations = await listResp.json();
-            if (Array.isArray(installations) && installations.length > 0) {
-              // Use most recent installation
-              const latest = installations[0];
-              installationId = latest?.id;
-              umLog('[UniverseManager] Discovered installation:', installationId);
+          // The listings endpoint now requires the user's OAuth token so it
+          // can scope results to this account (previously it returned every
+          // install of this App across every GitHub account, which let a
+          // stranger's install hijack this client). Pass it explicitly.
+          const userOauthToken = persistentAuth?.oauthCache?.accessToken
+            || persistentAuth?.githubAppCache?.accessToken
+            || null;
+          if (!userOauthToken) {
+            umWarn('[UniverseManager] Cannot discover install without OAuth token — connect OAuth first');
+          } else {
+            const listResp = await oauthFetch('/api/github/app/installations', {
+              bypassCooldown: true,
+              headers: { 'Authorization': `token ${userOauthToken}` }
+            });
+            if (listResp.ok) {
+              const installations = await listResp.json();
+              if (Array.isArray(installations) && installations.length > 0) {
+                // Prefer install whose account matches the OAuth user; fall
+                // back to most recent only if no account match. Belt-and-
+                // suspenders since the server now filters by user already.
+                const oauthLogin = (persistentAuth?.oauthCache?.user?.login || '').toLowerCase();
+                const accountMatch = oauthLogin
+                  ? installations.find((i) => (i?.account?.login || '').toLowerCase() === oauthLogin)
+                  : null;
+                const latest = accountMatch || installations[0];
+                installationId = latest?.id;
+                umLog('[UniverseManager] Discovered installation:', installationId, accountMatch ? `(account-matched ${oauthLogin})` : '(most recent fallback)');
+              } else {
+                umWarn('[UniverseManager] /api/github/app/installations returned empty list — App may not be installed on this account, or env vars are misconfigured');
+              }
+            } else {
+              const errText = await listResp.text().catch(() => '');
+              umWarn('[UniverseManager] Install discovery failed:', listResp.status, errText.slice(0, 200));
             }
           }
         } catch (discoveryErr) {
@@ -901,8 +926,42 @@ const UniverseManager = ({ variant = 'panel', onRequestClose }) => {
       }
     })();
 
+    // GitHub App installs don't always round-trip through our callback —
+    // users frequently install the App on GitHub, then come back to the
+    // existing tab. The page is never reloaded, so `attemptAutoConnect`'s
+    // once-per-page-load guard means we never rediscover. Hook visibility
+    // change: when the tab regains focus AFTER the user opened our install
+    // flow (github_app_pending is set), force a fresh App discovery and
+    // run the callback handler again. This is the path that actually works
+    // for most users, including Electron's external-browser flow.
+    const onVisibilityChange = async () => {
+      if (typeof document === 'undefined' || document.visibilityState !== 'visible') return;
+      const pending = safeSessionGet('github_app_pending') === 'true';
+      if (!pending) return;
+      try {
+        umLog('[UniverseManager] Tab regained focus with pending App install — re-running discovery');
+        // Force a fresh app discovery (resets autoConnectAttempted-style
+        // guards and clears any sticky-disconnect flag, since this is a
+        // user-initiated install attempt).
+        await persistentAuth.forceAppDiscovery?.();
+        // Then run the URL-based callback path in case GitHub did include
+        // installation_id in the redirect after all.
+        const appDone = await processAppCallback();
+        if ((appDone || persistentAuth.hasAppInstallation?.()) && !cancelled) {
+          safeSessionRemove('github_app_pending');
+          await refreshAuth();
+          await refreshState();
+          setSyncStatus({ type: 'success', message: 'GitHub App linked' });
+        }
+      } catch (err) {
+        umWarn('[UniverseManager] Visibility-triggered App discovery failed:', err?.message || err);
+      }
+    };
+    document.addEventListener('visibilitychange', onVisibilityChange);
+
     return () => {
       cancelled = true;
+      document.removeEventListener('visibilitychange', onVisibilityChange);
     };
   }, [refreshAuth, refreshState]);
 
@@ -3733,6 +3792,34 @@ const UniverseManager = ({ variant = 'panel', onRequestClose }) => {
     }
   };
 
+  const handleGitHubAppDetect = async () => {
+    try {
+      setIsConnecting(true);
+      setOauthConnectFailure(null);
+      umLog('[UniverseManager] User-triggered App install detection');
+      const ok = await persistentAuth.forceAppDiscovery?.();
+      const auth = await universeManagerService.refreshAuth();
+      setServiceState((prev) => ({ ...prev, ...auth }));
+      if (ok && persistentAuth.hasAppInstallation?.()) {
+        setSyncStatus({
+          type: 'success',
+          message: `GitHub App linked (install ${persistentAuth.githubAppCache?.installationId})`
+        });
+        try { safeSessionRemove('github_app_pending'); } catch { /* best effort */ }
+      } else {
+        setSyncStatus({
+          type: 'warning',
+          message: 'No GitHub App install found for this account. Install the App on GitHub for grantiguess, then tap Detect install again.'
+        });
+      }
+    } catch (err) {
+      umError('[UniverseManager] App detection failed:', err);
+      setError(`App detection failed: ${err.message}`);
+    } finally {
+      setIsConnecting(false);
+    }
+  };
+
   const handleGitHubAppDisconnect = async () => {
     try {
       setOauthConnectFailure(null);
@@ -4549,6 +4636,7 @@ const UniverseManager = ({ variant = 'panel', onRequestClose }) => {
         onGitHubDisconnect={handleGitHubDisconnect}
         onGitHubApp={handleGitHubApp}
         onGitHubAppDisconnect={handleGitHubAppDisconnect}
+        onGitHubAppDetect={handleGitHubAppDetect}
         activeUniverse={activeUniverse}
         syncStatus={activeUniverse ? syncStatusFor(activeUniverse.slug) : null}
         isSlim={isSlim}

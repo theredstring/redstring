@@ -856,6 +856,24 @@ export class PersistentAuth {
     this.dispatchAuthEvent('oauth', { user: userData?.login || null });
     this.dispatchConnectedEvent('oauth', { user: userData?.login || null });
 
+    // OAuth-after-init recovery: the auto-connect cycle fires once per page
+    // load. When it fires before OAuth is connected, attemptAppAutoConnect
+    // bails because it needs the OAuth token to call /user/installations
+    // (no token → can't scope discovery → has to skip). Without re-arming
+    // here, the App is never discovered until the next full reload. Fire
+    // App discovery now that we finally have the OAuth token. This is
+    // idempotent: attemptAppAutoConnect short-circuits if an install is
+    // already cached.
+    setTimeout(() => {
+      this.attemptAppAutoConnect()
+        .then((ok) => {
+          if (ok) console.log('[PersistentAuth] Post-OAuth App discovery succeeded');
+        })
+        .catch((err) => {
+          console.warn('[PersistentAuth] Post-OAuth App discovery failed:', err?.message || err);
+        });
+    }, 0);
+
     return true;
   }
 
@@ -1347,6 +1365,20 @@ export class PersistentAuth {
     console.log('[PersistentAuth] Force auto-connect triggered - resetting attempt flag');
     this.autoConnectAttempted = false;
     return this.attemptAutoConnect();
+  }
+
+  /**
+   * Specifically re-run GitHub App discovery without touching the OAuth flow.
+   * For the case where the user installed the App on GitHub in another tab
+   * and came back — we want to detect their install without re-prompting
+   * for OAuth or paying for the full auto-connect cycle. Also clears the
+   * sticky-disconnect flag so a user-initiated reconnect always wins.
+   */
+  async forceAppDiscovery() {
+    console.log('[PersistentAuth] Force App discovery triggered');
+    // User-initiated → clear sticky disconnect so we don't no-op.
+    try { removeLocalStorageItem(LOCAL_STORAGE_KEYS.app.disconnectedAt); } catch { /* best effort */ }
+    return this.attemptAppAutoConnect();
   }
 
   /**

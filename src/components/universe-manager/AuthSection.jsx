@@ -1,4 +1,4 @@
-import { Settings, Shield, Github, LogOut, CheckCircle, AlertCircle, Loader2 } from 'lucide-react';
+import { Settings, Shield, Github, LogOut, CheckCircle, AlertCircle, Loader2, RefreshCw } from 'lucide-react';
 import { useTheme } from '../../hooks/useTheme.js';
 import PanelSegment from './shared/PanelSegment.jsx';
 import PanelIconButton from '../shared/PanelIconButton.jsx';
@@ -18,6 +18,7 @@ const AuthSection = ({
   onGitHubDisconnect,
   onGitHubApp,
   onGitHubAppDisconnect,
+  onGitHubAppDetect,
   activeUniverse,
   onLogout,
   requiresLogin = false,
@@ -141,6 +142,15 @@ const AuthSection = ({
               variant={isConnecting ? 'disabled' : 'solid'}
               disabled={isConnecting}
             />
+            {!hasApp && hasOAuth && onGitHubAppDetect && (
+              <PanelIconButton
+                icon={RefreshCw}
+                onClick={onGitHubAppDetect}
+                label="Detect install"
+                variant="outline"
+                disabled={isConnecting}
+              />
+            )}
             {hasApp && onGitHubAppDisconnect && (
               <PanelIconButton
                 icon={LogOut}
