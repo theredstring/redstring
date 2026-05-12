@@ -279,9 +279,12 @@ const SectionRow = ({ label, value, mono = true }) => (
   </div>
 );
 
-const Section = ({ title, children, tone = '#66d9ef' }) => (
+const Section = ({ title, children, tone = '#66d9ef', headerExtra = null }) => (
   <div style={{ marginBottom: 12 }}>
-    <div style={{ color: tone, fontWeight: 'bold', marginBottom: 4 }}>{title}</div>
+    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
+      <div style={{ color: tone, fontWeight: 'bold' }}>{title}</div>
+      {headerExtra}
+    </div>
     {children}
   </div>
 );
@@ -349,9 +352,23 @@ const SyncDiagnostics = ({ data }) => {
       </Section>
 
       {Array.isArray(lastActions) && lastActions.length > 0 && (
-        <Section title="Recent actions" tone="#ae81ff">
+        <Section title="Recent actions" tone="#ae81ff" headerExtra={<CopyActionLogButton actions={lastActions} />}>
           {lastActions.slice().reverse().map((entry, idx) => (
-            <div key={idx} style={{ padding: '2px 0', borderBottom: '1px solid rgba(255,255,255,0.07)' }}>
+            <div
+              key={idx}
+              style={{
+                padding: '2px 0',
+                borderBottom: '1px solid rgba(255,255,255,0.07)',
+                // The overlay's outer container sets touchAction: 'none' to
+                // make drag-to-move work — that also disables tap-and-hold
+                // selection. Re-enable it here so users can long-press to
+                // select / copy log content.
+                userSelect: 'text',
+                WebkitUserSelect: 'text',
+                touchAction: 'auto',
+                cursor: 'text',
+              }}
+            >
               <div style={{ color: entry.ok ? '#a6e22e' : '#f92672' }}>
                 [{entry.ts}] {entry.label} {entry.ok ? 'ok' : 'failed'}
               </div>
@@ -363,6 +380,54 @@ const SyncDiagnostics = ({ data }) => {
         </Section>
       )}
     </div>
+  );
+};
+
+const CopyActionLogButton = ({ actions }) => {
+  const [label, setLabel] = useState('Copy log');
+  const onCopy = useCallback(async () => {
+    const text = actions
+      .slice()
+      .reverse()
+      .map((e) => `[${e.ts}] ${e.label} ${e.ok ? 'ok' : 'failed'}${e.detail ? `\n    ${e.detail}` : ''}`)
+      .join('\n');
+    try {
+      if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(text);
+      } else {
+        // Fallback for environments without async clipboard (older WebKit, file://)
+        const ta = document.createElement('textarea');
+        ta.value = text;
+        ta.style.position = 'fixed';
+        ta.style.opacity = '0';
+        document.body.appendChild(ta);
+        ta.focus();
+        ta.select();
+        try { document.execCommand('copy'); } finally { document.body.removeChild(ta); }
+      }
+      setLabel('Copied!');
+    } catch {
+      setLabel('Copy failed');
+    }
+    setTimeout(() => setLabel('Copy log'), 1500);
+  }, [actions]);
+
+  return (
+    <button
+      onClick={onCopy}
+      style={{
+        background: 'rgba(174, 129, 255, 0.18)',
+        border: '1px solid rgba(174, 129, 255, 0.55)',
+        color: '#ae81ff',
+        cursor: 'pointer',
+        fontSize: '10px',
+        padding: '2px 8px',
+        borderRadius: 3,
+        fontFamily: 'monospace',
+      }}
+    >
+      {label}
+    </button>
   );
 };
 

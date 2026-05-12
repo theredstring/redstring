@@ -489,8 +489,19 @@ export class PersistentAuth {
       }
       console.log('[PersistentAuth] No stored GitHub App installation found; attempting discovery...');
       try {
-        // Ask backend for installations associated with this app
-        const listResp = await oauthFetch('/api/github/app/installations').catch(() => null);
+        // CRITICAL: pass the OAuth token so the server can scope the install
+        // list to THIS user's accounts. Without it the endpoint refuses, and
+        // before that — historically — it returned installs across ALL
+        // accounts via App JWT, which is how a complete stranger's install
+        // could end up bound to this client.
+        const userOauthToken = this.oauthCache?.accessToken || null;
+        if (!userOauthToken) {
+          console.log('[PersistentAuth] App auto-connect skipped — no OAuth token available to scope install discovery');
+          return false;
+        }
+        const listResp = await oauthFetch('/api/github/app/installations', {
+          headers: { 'Authorization': `token ${userOauthToken}` }
+        }).catch(() => null);
         if (listResp && listResp.ok) {
           const installations = await listResp.json();
           if (Array.isArray(installations) && installations.length > 0) {

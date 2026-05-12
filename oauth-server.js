@@ -1907,59 +1907,77 @@ app.post('/api/github/app/installation-token', async (req, res) => {
   }
 });
 
-// List GitHub App installations (for fallback when callback params are missing)
+// List GitHub App installations.
+//
+// CRITICAL: This MUST use the requesting user's OAuth token, NOT the App's
+// JWT. The App JWT lists ALL installations across ALL accounts that have
+// installed this App, and returning them leaks other users' install IDs
+// (and worse, the client used to auto-bind to installations[0] from this
+// list — which could be a complete stranger's install, with that account's
+// repo grant). The user's OAuth token, via /user/installations, returns
+// only installations that user has access to. Then we filter to installs
+// owned by THIS App so we don't show installs of other Apps either.
 app.get('/api/github/app/installations', async (req, res) => {
   try {
-    const useDevList = isLocalRequest(req);
-    const appId = useDevList
-      ? (process.env.GITHUB_APP_ID_DEV || process.env.GITHUB_APP_ID)
-      : process.env.GITHUB_APP_ID;
-    const privateKey = useDevList
-      ? (process.env.GITHUB_APP_PRIVATE_KEY_DEV || process.env.GITHUB_APP_PRIVATE_KEY)
-      : process.env.GITHUB_APP_PRIVATE_KEY;
+    // Extract OAuth token from Authorization header. The client passes its
+    // own user token here — the server is stateless about user identity.
+    const authHeader = req.headers.authorization || '';
+    const match = authHeader.match(/^(?:token|Bearer)\s+(.+)$/i);
+    const oauthToken = match ? match[1].trim() : null;
 
-    if (!appId || !privateKey) {
-      return res.status(500).json({
-        error: 'GitHub App not configured',
+    if (!oauthToken) {
+      return res.status(401).json({
+        error: 'OAuth token required',
+        hint: 'Pass "Authorization: token <oauth_token>" header. Listing installs by App JWT is disabled because it leaks installs from other accounts.',
         service: 'oauth-server'
       });
     }
 
-    logger.debug('[GitHubApp] Listing installations...');
-
-    // Generate JWT for app authentication
-    const payload = {
-      iat: Math.floor(Date.now() / 1000) - 60,
-      exp: Math.floor(Date.now() / 1000) + (10 * 60),
-      iss: parseInt(appId, 10)
-    };
-
-    const appJWT = jwt.sign(payload, privateKey, { algorithm: 'RS256' });
-
-    // Get all installations for this app
-    const installationsResponse = await fetch('https://api.github.com/app/installations', {
-      headers: {
-        'Accept': 'application/vnd.github.v3+json',
-        'Authorization': `Bearer ${appJWT}`,
-        'User-Agent': 'Redstring-GitHubApp-Server/1.0'
-      }
-    });
-
-    if (!installationsResponse.ok) {
-      const errorText = await installationsResponse.text();
-      console.error('[GitHubApp] List installations failed:', {
-        status: installationsResponse.status,
-        statusText: installationsResponse.statusText,
-        errorText
+    // Reject obvious wrong token types (App installation tokens start with
+    // ghs_, which CAN'T call /user/installations and would 403 anyway).
+    if (oauthToken.startsWith('ghs_')) {
+      return res.status(400).json({
+        error: 'Wrong token type',
+        hint: 'Pass an OAuth user-to-server token (gho_/ghp_/github_pat_), not an App installation token (ghs_).',
+        service: 'oauth-server'
       });
-      throw new Error(`GitHub API error: ${installationsResponse.status} ${errorText}`);
     }
 
-    const installations = await installationsResponse.json();
-    logger.info('[GitHubApp] Found installations:', installations.length);
+    logger.debug('[GitHubApp] Listing installations via OAuth identity...');
 
-    // Return installations sorted by most recent
-    const sortedInstallations = installations.sort((a, b) => 
+    // Use the existing helper that pages through /user/installations.
+    const listResult = await listInstallationsViaOAuth(oauthToken);
+    if (!listResult.ok) {
+      // Pass GitHub's status straight through (401, 403, 404).
+      return res.status(listResult.status || 502).json({
+        error: 'Failed to list installations for OAuth user',
+        details: listResult.details || null,
+        reason: listResult.reason || null,
+        service: 'oauth-server'
+      });
+    }
+
+    // Filter to installations of THIS deployment's configured App(s).
+    // Without this filter, a user who has installed multiple GitHub Apps
+    // would see installs we have no credentials for, which would fail
+    // opaquely at mint time.
+    const { ids: configuredAppIds, slugs: configuredAppSlugs } = resolveGitHubAppIdentifiers();
+    const allInstalls = listResult.installations || [];
+    const ourInstalls = allInstalls.filter((inst) => {
+      const appId = Number(inst?.app_id);
+      const slug = inst?.app_slug || '';
+      const idMatch = !Number.isNaN(appId) && configuredAppIds.includes(appId);
+      const slugMatch = slug && configuredAppSlugs.includes(slug);
+      return idMatch || slugMatch;
+    });
+
+    logger.info('[GitHubApp] Found installations:', {
+      total: allInstalls.length,
+      forThisApp: ourInstalls.length
+    });
+
+    // Most recent first, just like the old behavior.
+    const sortedInstallations = ourInstalls.sort((a, b) =>
       new Date(b.created_at) - new Date(a.created_at)
     );
 
