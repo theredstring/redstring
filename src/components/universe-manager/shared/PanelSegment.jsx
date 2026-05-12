@@ -1,6 +1,5 @@
 import React from 'react';
 import { useTheme } from '../../../hooks/useTheme';
-import StandardDivider from '../../StandardDivider.jsx';
 
 const PanelSegment = ({
   title,
@@ -18,7 +17,8 @@ const PanelSegment = ({
     <div
       style={{
         display: 'flex',
-        flexDirection: 'column'
+        flexDirection: 'column',
+        gap: 12
       }}
     >
       {hasHeader && (
@@ -59,12 +59,7 @@ const PanelSegment = ({
           )}
         </div>
       )}
-      {hasHeader && (
-        <StandardDivider margin={isSlim ? '8px 0 10px 0' : '10px 0 12px 0'} />
-      )}
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-        {children}
-      </div>
+      {children}
     </div>
   );
 };

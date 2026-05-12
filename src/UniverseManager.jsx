@@ -53,6 +53,7 @@ import UniversesList from './components/universe-manager/UniversesList.jsx';
 import SourcesSection from './components/universe-manager/SourcesSection.jsx';
 import RepositoriesSection from './components/universe-manager/RepositoriesSection.jsx';
 import PanelSegment from './components/universe-manager/shared/PanelSegment.jsx';
+import StandardDivider from './components/StandardDivider.jsx';
 
 const STORAGE_LABELS = {
   [STORAGE_TYPES.GIT]: 'Git repository',
@@ -4474,6 +4475,8 @@ const UniverseManager = ({ variant = 'panel', onRequestClose }) => {
         isMobile={deviceInfo.isMobile}
       />
 
+      <StandardDivider margin="8px 0" />
+
       <RepositoriesSection
         repositories={managedRepositories}
         discoveryMap={discoveryMap}
@@ -4484,6 +4487,8 @@ const UniverseManager = ({ variant = 'panel', onRequestClose }) => {
         onImportUniverse={(universe, repoInfo) => handleImportDiscovered(universe, repoInfo)}
         onSyncUniverse={(universe, repoInfo) => handleLinkDiscovered(universe, repoInfo)}
       />
+
+      <StandardDivider margin="8px 0" />
 
       {oauthConnectFailure && (
         <StatusBanner
@@ -4517,6 +4522,8 @@ const UniverseManager = ({ variant = 'panel', onRequestClose }) => {
         syncStatus={activeUniverse ? syncStatusFor(activeUniverse.slug) : null}
         isSlim={isSlim}
       />
+
+      {activeUniverse && <StandardDivider margin="8px 0" />}
 
       {activeUniverse && (
         <PanelSegment

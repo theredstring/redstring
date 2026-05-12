@@ -1,14 +1,16 @@
 import React from 'react';
+import { useTheme } from '../hooks/useTheme.js';
 
-const StandardDivider = ({ 
-  margin = '15px 0', 
+const StandardDivider = ({
+  margin = '15px 0',
   width = '100%',
-  style = {} 
+  style = {}
 }) => {
+  const theme = useTheme();
   return (
-    <div 
+    <div
       style={{
-        borderTop: '1px solid #260000',
+        borderTop: `1px solid ${theme.canvas.textPrimary}`,
         margin,
         width,
         ...style
