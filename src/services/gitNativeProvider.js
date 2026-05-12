@@ -771,9 +771,16 @@ This repository was automatically initialized by Redstring UI React. You can now
           throw new Error(`GitHub authentication failed (401). Please reconnect in the Git Federation panel.`);
         }
         
-        // Handle 409 conflict with MUCH more aggressive backoff
-        if (response.status === 409) {
-          console.log(`[GitHubSemanticProvider] 409 conflict for ${safePath}, using AGGRESSIVE backoff...`);
+        // Handle 409 conflict AND 422 "sha wasn't supplied" the same way.
+        // 409 = the SHA we supplied is stale (file changed under us).
+        // 422 sha-missing = we supplied no SHA, but GitHub knows the file
+        // exists (often because getFileInfo silently returned null on a
+        // transient error, masking an existing file). Same fix in both
+        // cases: refetch the file's current SHA and PUT again.
+        const isShaMissing422 = response.status === 422 && /\bsha\b/i.test(text || '');
+        if (response.status === 409 || isShaMissing422) {
+          const reason = isShaMissing422 ? '422 sha-missing' : '409 conflict';
+          console.log(`[GitHubSemanticProvider] ${reason} for ${safePath}, using AGGRESSIVE backoff...`);
           
           // Retry up to 3 times with reasonable exponential backoff
           for (let attempt = 1; attempt <= 3; attempt++) {
