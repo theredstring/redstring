@@ -126,6 +126,17 @@ const SPAWNABLE_NODE = 'spawnable_node';
 
 // EXCLUSIVE_PANEL_MODE_THRESHOLD is imported from ./constants (shared with Panel.jsx + Header.jsx)
 const PANEL_TOGGLE_BUTTON_WIDTH = 50; // Must match ToggleButton width
+const PANEL_OVERLAY_MIN_WIDTH = 180;
+
+// Clamp an overlay-resizer panel width to what the current viewport supports.
+// Mirrors the formula used during active resize drags (applyResizeUpdate).
+const clampOverlayPanelWidth = (width) => {
+  const isExclusive = window.innerWidth <= EXCLUSIVE_PANEL_MODE_THRESHOLD;
+  const max = isExclusive
+    ? Math.max(PANEL_OVERLAY_MIN_WIDTH, window.innerWidth - PANEL_TOGGLE_BUTTON_WIDTH)
+    : Math.max(240, Math.round(window.innerWidth / 2));
+  return Math.max(PANEL_OVERLAY_MIN_WIDTH, Math.min(width, max));
+};
 
 // Platform detection (guarded for SSR)
 const userAgent = typeof navigator !== 'undefined' ? navigator.userAgent : '';
@@ -258,10 +269,10 @@ function NodeCanvas() {
 
   // Panel overlay resizers rendered in canvas (do not overlap panel DOM)
   const [leftPanelWidth, setLeftPanelWidth] = useState(() => {
-    try { return JSON.parse(localStorage.getItem('panelWidth_left') || '280'); } catch { return 280; }
+    try { return clampOverlayPanelWidth(JSON.parse(localStorage.getItem('panelWidth_left') || '280')); } catch { return clampOverlayPanelWidth(280); }
   });
   const [rightPanelWidth, setRightPanelWidth] = useState(() => {
-    try { return JSON.parse(localStorage.getItem('panelWidth_right') || '280'); } catch { return 280; }
+    try { return clampOverlayPanelWidth(JSON.parse(localStorage.getItem('panelWidth_right') || '280')); } catch { return clampOverlayPanelWidth(280); }
   });
 
   const isTouchDeviceRef = useRef(false);
@@ -331,6 +342,18 @@ function NodeCanvas() {
     return () => window.removeEventListener('panelWidthChanged', onPanelChanged);
   }, []);
 
+  // Re-clamp overlay-resizer widths when the viewport changes (mobile
+  // emulation, window resize, rotation) so the canvas-side resizers never sit
+  // outside the visible area.
+  useEffect(() => {
+    const onResize = () => {
+      setLeftPanelWidth(prev => clampOverlayPanelWidth(prev));
+      setRightPanelWidth(prev => clampOverlayPanelWidth(prev));
+    };
+    window.addEventListener('resize', onResize);
+    return () => window.removeEventListener('resize', onResize);
+  }, []);
+
   // Subscribe to debug config changes for hitbox visualization
   useEffect(() => {
     const handleDebugConfigChange = (config) => {
@@ -346,7 +369,7 @@ function NodeCanvas() {
   }, []);
 
 
-  const MIN_WIDTH = 180;
+  const MIN_WIDTH = PANEL_OVERLAY_MIN_WIDTH;
 
   const beginDrag = (side, clientX) => {
     if (side === 'left') {

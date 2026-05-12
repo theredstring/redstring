@@ -1,6 +1,6 @@
 import { Settings, Shield, Github, LogOut, CheckCircle, AlertCircle, Loader2 } from 'lucide-react';
 import { useTheme } from '../../hooks/useTheme.js';
-import SectionCard from './shared/SectionCard.jsx';
+import PanelSegment from './shared/PanelSegment.jsx';
 import PanelIconButton from '../shared/PanelIconButton.jsx';
 
 // moved STATUS_COLORS inside component
@@ -34,23 +34,12 @@ const AuthSection = ({
   // If not logged in and not loading
 
   return (
-    <div
-      data-auth-section="true"
-      style={{
-        backgroundColor: theme.canvas.inactive,
-        borderRadius: 8,
-        padding: 16,
-        display: 'flex',
-        flexDirection: 'column',
-        gap: 12,
-        color: theme.canvas.textPrimary
-      }}
-    >
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-        <Settings size={18} />
-        <div style={{ fontWeight: 700 }}>Accounts & Access</div>
-      </div>
-
+    <div data-auth-section="true" style={{ color: theme.canvas.textPrimary }}>
+      <PanelSegment
+        title="Accounts & Access"
+        icon={<Settings size={18} />}
+        isSlim={isSlim}
+      >
       <div
         style={{
           border: `1px solid ${theme.canvas.border}`,
@@ -154,6 +143,7 @@ const AuthSection = ({
       </div>
 
       {/* Connection Stats moved to parent panel (UniverseManager) as its own section */}
+      </PanelSegment>
     </div>
   );
 };

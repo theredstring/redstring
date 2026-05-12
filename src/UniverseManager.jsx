@@ -52,6 +52,7 @@ import AuthSection from './components/universe-manager/AuthSection.jsx';
 import UniversesList from './components/universe-manager/UniversesList.jsx';
 import SourcesSection from './components/universe-manager/SourcesSection.jsx';
 import RepositoriesSection from './components/universe-manager/RepositoriesSection.jsx';
+import PanelSegment from './components/universe-manager/shared/PanelSegment.jsx';
 
 const STORAGE_LABELS = {
   [STORAGE_TYPES.GIT]: 'Git repository',
@@ -4401,7 +4402,7 @@ const UniverseManager = ({ variant = 'panel', onRequestClose }) => {
         color: theme.canvas.textPrimary,
         display: 'flex',
         flexDirection: 'column',
-        gap: 16,
+        gap: isSlim ? 12 : 16,
         position: 'relative',
         height: '100%',
         ...variantStyles
@@ -4518,21 +4519,11 @@ const UniverseManager = ({ variant = 'panel', onRequestClose }) => {
       />
 
       {activeUniverse && (
-        <div
-          style={{
-            backgroundColor: theme.canvas.inactive,
-            borderRadius: 8,
-            padding: 16,
-            display: 'flex',
-            flexDirection: 'column',
-            gap: 12
-          }}
+        <PanelSegment
+          title="Status & Sync"
+          icon={<GitBranch size={18} />}
+          isSlim={isSlim}
         >
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, color: theme.canvas.textPrimary }}>
-            <GitBranch size={18} />
-            <div style={{ fontWeight: 700 }}>Status & Sync</div>
-          </div>
-
           {(() => {
             const engine = activeUniverse ? (syncStatusFor(activeUniverse.slug) || activeUniverse.sync?.engine || {}) : {};
             const base = activeUniverse?.sync || {};
@@ -4687,7 +4678,7 @@ const UniverseManager = ({ variant = 'panel', onRequestClose }) => {
               isSlim={isSlim}
             />
           )}
-        </div>
+        </PanelSegment>
       )}
 
       <RepositorySelectionModal

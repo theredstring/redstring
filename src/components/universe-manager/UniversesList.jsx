@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { Plus, ChevronDown, Github, Upload, Download, X, Edit, Star, Save, Activity, Link, FileText, ArrowRightLeft, FolderOpen, Folder, RotateCcw, Key } from 'lucide-react';
 import { useTheme } from '../../hooks/useTheme.js';
 
-import SectionCard from './shared/SectionCard.jsx';
+import PanelSegment from './shared/PanelSegment.jsx';
 import PanelIconButton from '../shared/PanelIconButton.jsx';
 
 
@@ -242,7 +242,7 @@ const UniversesList = ({
 
   return (
     <div ref={containerRef}>
-      <SectionCard
+      <PanelSegment
         title="Universes"
         subtitle="Manage your knowledge spaces"
         isSlim={isHeaderSlim}
@@ -554,7 +554,7 @@ const UniversesList = ({
                     border: isActive ? `2px solid ${theme.canvas.brand}` : `1px solid ${theme.canvas.border}`,
                     borderRadius: 8,
                     backgroundColor: theme.canvas.bg,
-                    padding: 12,
+                    padding: isVerySlim ? 8 : 12,
 
                     display: 'flex',
                     flexDirection: 'column',
@@ -649,7 +649,7 @@ const UniversesList = ({
 
                   {/* Expanded Content - Only for Active Universe */}
                   {isActive && (
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: 12, paddingLeft: 24 }}>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 12, paddingLeft: isVerySlim ? 8 : (isSlim ? 12 : 24) }}>
                       {/* Storage Slots */}
                       <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                         <div style={{ fontSize: '0.75rem', fontWeight: 600, color: theme.canvas.textPrimary }}>
@@ -1263,7 +1263,7 @@ const UniversesList = ({
             })
           )}
         </div>
-      </SectionCard>
+      </PanelSegment>
     </div>
   );
 };

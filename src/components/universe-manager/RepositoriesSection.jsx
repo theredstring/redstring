@@ -12,7 +12,7 @@ import {
   Upload
 } from 'lucide-react';
 import { useTheme } from '../../hooks/useTheme.js';
-import SectionCard from './shared/SectionCard.jsx';
+import PanelSegment from './shared/PanelSegment.jsx';
 import PanelIconButton from '../shared/PanelIconButton.jsx';
 
 
@@ -33,7 +33,7 @@ const RepositoriesSection = ({
   const theme = useTheme();
   if (repositories.length === 0) {
     return (
-      <SectionCard
+      <PanelSegment
         title="Repositories"
         subtitle="Your chosen repositories"
       >
@@ -59,13 +59,13 @@ const RepositoriesSection = ({
             No repositories in your list. Click "Add Repositories" to browse your GitHub repos and add them here.
           </div>
         </div>
-      </SectionCard>
+      </PanelSegment>
     );
   }
 
   return (
-    <SectionCard 
-      title="Repositories" 
+    <PanelSegment
+      title="Repositories"
       subtitle={`${repositories.length} ${repositories.length === 1 ? 'repository' : 'repositories'} in your list`}
       actions={
         <PanelIconButton 
@@ -329,7 +329,7 @@ const RepositoriesSection = ({
           }
         `}
       </style>
-    </SectionCard>
+    </PanelSegment>
   );
 };
 
