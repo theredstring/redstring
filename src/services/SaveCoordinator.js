@@ -400,8 +400,18 @@ class SaveCoordinator {
 
   // Execute save (both local and git) - NON-BLOCKING
   executeSave() {
-    if (this.isSaving) return;
-    
+    if (this.isSaving) {
+      // A previous save is still in flight. Reschedule rather than silently
+      // drop this attempt — otherwise if the prior save is stuck (mobile
+      // rIC stall, slow git push, watchdog window), the change marked
+      // dirty by the worker never gets dispatched, and the "Saving..."
+      // indicator stays stuck even after the engine reports clean
+      // (because isDirty / pendingHash were set but never cleared by an
+      // executed save).
+      this.scheduleSave();
+      return;
+    }
+
     // CRITICAL: Don't execute save during ANY user interaction (drag, pan, pinch, zoom animation)
     // This prevents choppy performance and ensures we only save when the user is done interacting
     if (this.isGlobalDragging) {
@@ -460,70 +470,87 @@ class SaveCoordinator {
 
     // Mark as saving immediately
     this.isSaving = true;
-    // console.log('[SaveCoordinator] Executing save (non-blocking)');
-    
-    // Run save operations in a non-blocking manner using requestIdleCallback or setTimeout
-    // This ensures the save doesn't block the main thread
-    const runSave = () => {
-      // Use a microtask to defer to next event loop tick, allowing UI to remain responsive
-      Promise.resolve().then(async () => {
-        try {
-          // Save to local file if available - fire and forget with error handling
-          if (this.fileStorage && typeof this.fileStorage.saveToFile === 'function') {
-            this.fileStorage.saveToFile(state, false, {
-              preSerialized: !!pendingString,
-              serializedData: pendingString,
-              redstringData: pendingRedstringData
-            }).catch(error => {
-              console.error('[SaveCoordinator] Local file save failed:', error);
-            });
-          }
 
-          // Save to Git if available - already non-blocking (just queues)
-          if (this.gitSyncEngine && this.gitSyncEngine.isHealthy()) {
-            this.gitSyncEngine.updateState(state);
-          }
-
-          // Update save hash after initiating save
-          if (pendingHash) {
-            this.lastSaveHash = pendingHash;
-            this.pendingHash = null;
-          }
-
-          // Update the data baseline now that this state has been written to
-          // disk — used by the shrinkage guard on future saves.
-          try {
-            const counts = this._countDataItems(state);
-            // Only ratchet up the baseline; never reduce it via successful
-            // saves of smaller datasets, because we'd otherwise lose the
-            // protection threshold over time.
-            this.dataBaseline = {
-              nodes: Math.max(this.dataBaseline?.nodes || 0, counts.nodes),
-              graphs: Math.max(this.dataBaseline?.graphs || 0, counts.graphs)
-            };
-          } catch (_) { /* non-fatal */ }
-
-          // Clear dirty flag and pending data
-          this.isDirty = false;
-          this.pendingString = null;
-          this.pendingRedstringData = null;
-          this.notifyStatus('success', 'Save completed');
-          
-        } catch (error) {
-          console.error('[SaveCoordinator] Save failed:', error);
-          this.notifyStatus('error', `Save failed: ${error.message}`);
-        } finally {
-          this.isSaving = false;
+    // Watchdog: force-reset isSaving if the dispatch never completes within
+    // the budget. On mobile (iOS Safari especially) requestIdleCallback +
+    // microtask chains can stall indefinitely if the tab is backgrounded or
+    // memory-pressured, which leaves the SaveStatus stuck on "Saving..."
+    // even though manual save works fine. The save operations themselves
+    // are fire-and-forget (fileStorage.saveToFile is .catch()-handled,
+    // gitSyncEngine.updateState just queues), so a stuck dispatch only
+    // hurts the UI, not the actual persistence. 5s is generous; the
+    // synchronous dispatch below normally completes in <10ms.
+    const watchdogId = setTimeout(() => {
+      if (this.isSaving) {
+        console.warn('[SaveCoordinator] Watchdog clearing stuck isSaving flag — dispatch did not complete in 5s');
+        this.isSaving = false;
+        // If the dispatch never ran, the dirty flag is still set and pending
+        // data is still queued. Reschedule so we don't strand the change.
+        if (this.isDirty || this.pendingHash !== null) {
+          this.scheduleSave();
         }
-      });
-    };
+      }
+    }, 5000);
 
-    // Use requestIdleCallback if available for even better scheduling, otherwise setTimeout
-    if (typeof requestIdleCallback !== 'undefined') {
-      requestIdleCallback(runSave, { timeout: 100 });
-    } else {
-      setTimeout(runSave, 0);
-    }
+    // Drop requestIdleCallback entirely. It was used as a "be nice to the
+    // main thread" optimization, but its reliability on mobile is poor
+    // (iOS Safari often defers it indefinitely even with timeout), and the
+    // work we do here is already non-blocking — fileStorage.saveToFile
+    // is .catch()-handled (not awaited), gitSyncEngine.updateState just
+    // pushes to a queue. Plain setTimeout(0) gives us identical UI
+    // responsiveness with predictable cross-browser firing.
+    setTimeout(() => {
+      try {
+        // Save to local file if available - fire and forget with error handling
+        if (this.fileStorage && typeof this.fileStorage.saveToFile === 'function') {
+          this.fileStorage.saveToFile(state, false, {
+            preSerialized: !!pendingString,
+            serializedData: pendingString,
+            redstringData: pendingRedstringData
+          }).catch(error => {
+            console.error('[SaveCoordinator] Local file save failed:', error);
+          });
+        }
+
+        // Save to Git if available - already non-blocking (just queues)
+        if (this.gitSyncEngine && this.gitSyncEngine.isHealthy()) {
+          this.gitSyncEngine.updateState(state);
+        }
+
+        // Update save hash after initiating save
+        if (pendingHash) {
+          this.lastSaveHash = pendingHash;
+          this.pendingHash = null;
+        }
+
+        // Update the data baseline now that this state has been written to
+        // disk — used by the shrinkage guard on future saves.
+        try {
+          const counts = this._countDataItems(state);
+          // Only ratchet up the baseline; never reduce it via successful
+          // saves of smaller datasets, because we'd otherwise lose the
+          // protection threshold over time.
+          this.dataBaseline = {
+            nodes: Math.max(this.dataBaseline?.nodes || 0, counts.nodes),
+            graphs: Math.max(this.dataBaseline?.graphs || 0, counts.graphs)
+          };
+        } catch (_) { /* non-fatal */ }
+
+        // Clear dirty flag and pending data
+        this.isDirty = false;
+        this.pendingString = null;
+        this.pendingRedstringData = null;
+        this.notifyStatus('success', 'Save completed');
+      } catch (error) {
+        console.error('[SaveCoordinator] Save failed:', error);
+        this.notifyStatus('error', `Save failed: ${error.message}`);
+      } finally {
+        // The dispatch completed. The actual saves continue in the
+        // background — that's fine, the engine tracks its own state.
+        this.isSaving = false;
+        clearTimeout(watchdogId);
+      }
+    }, 0);
   }
 
   // Force immediate save (for manual save button) - still awaitable for user feedback

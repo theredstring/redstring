@@ -1326,6 +1326,33 @@ class UniverseBackend {
                       return;
                     }
 
+                    // CRITICAL: If the user already has data in the store (e.g.
+                    // they started editing during the timeout fast-path because
+                    // the store was empty / mostly empty), refuse to overwrite
+                    // it with the background load result. The bg load was
+                    // racing the user — they won. Their edits stay; the bg
+                    // load is discarded. This was the "edits up to a certain
+                    // point where it fully loads and then wipes those edits"
+                    // class of bug.
+                    try {
+                      const currentNodes = currentState?.nodePrototypes
+                        ? (currentState.nodePrototypes instanceof Map
+                          ? currentState.nodePrototypes.size
+                          : Object.keys(currentState.nodePrototypes || {}).length)
+                        : 0;
+                      const currentGraphs = currentState?.graphs
+                        ? (currentState.graphs instanceof Map
+                          ? currentState.graphs.size
+                          : Object.keys(currentState.graphs || {}).length)
+                        : 0;
+                      const userHasData = currentNodes > 0 || currentGraphs > 1;
+                      if (userHasData) {
+                        umWarn(`[UniverseBackend] Skipping background load: user has ${currentNodes} nodes / ${currentGraphs} graphs already in the store. Bg load would wipe live edits.`);
+                        this.notifyStatus('info', `Kept your edits — background load discarded`);
+                        return;
+                      }
+                    } catch (_) { /* if counts fail, conservatively allow the load */ }
+
                     // Preserve current viewport (panOffset, zoomLevel) to avoid jarring resets after background load
                     try {
                       const current = this.storeOperations.getState?.();

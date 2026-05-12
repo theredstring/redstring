@@ -40,6 +40,7 @@ import { getStatusColors } from './utils/statusColors.js';
 import StatusBanner from './components/StatusBanner.jsx';
 import universeBackend from './services/universeBackend.js';
 import universeBackendBridge from './services/universeBackendBridge.js';
+import saveCoordinator from './services/SaveCoordinator';
 import PanelIconButton from './components/shared/PanelIconButton.jsx';
 import UniverseLinkingModal from './components/modals/UniverseLinkingModal.jsx';
 import Modal from './components/shared/Modal.jsx';
@@ -4676,12 +4677,26 @@ const UniverseManager = ({ variant = 'panel', onRequestClose }) => {
             let displayDesc = '';
 
             const pendingCommits = Number(engine?.pendingCommits || 0);
+            // Also read coordinator-level state. The engine reports clean
+            // when its own commit queue is empty — but the SaveCoordinator
+            // is the gateway that DISPATCHES to the engine, so if a change
+            // has been detected by the worker but not yet dispatched
+            // (debounce window, interaction cooldown, in-flight save), the
+            // coordinator knows about it before the engine does. Without
+            // this, the panel could say "All changes saved" while the
+            // SaveStatusDisplay says "Saving..." on the same edit — and
+            // the user has no way to know which one is right. Now both
+            // reflect the gateway's view.
+            const coordinatorIsSaving = saveCoordinator?.isSaving === true;
+            const coordinatorHasUnsaved = typeof saveCoordinator?.hasUnsavedChanges === 'function'
+              ? saveCoordinator.hasUnsavedChanges()
+              : false;
 
             if (engine?.isInErrorBackoff || engine?.isHealthy === false) {
               displayState = 'error';
               displayLabel = 'Unable to save changes';
               displayTone = theme.darkMode ? '#e57373' : '#c62828';
-            } else if (engine?.isRunning || pendingCommits > 0) {
+            } else if (coordinatorIsSaving || engine?.isRunning || pendingCommits > 0) {
               displayState = 'saving';
               displayLabel = 'Saving...';
               displayTone = theme.canvas.textSecondary;
@@ -4690,7 +4705,7 @@ const UniverseManager = ({ variant = 'panel', onRequestClose }) => {
               displayLabel = 'Sync paused';
               displayTone = theme.darkMode ? '#b39ddb' : '#512da8'; // Purple variants
               displayDesc = 'Resume to save changes.';
-            } else if (engine?.hasChanges) {
+            } else if (coordinatorHasUnsaved || engine?.hasChanges) {
               displayState = 'unsaved';
               displayLabel = 'Unsaved changes';
               displayTone = theme.darkMode ? '#b39ddb' : '#512da8'; // Purple variants
