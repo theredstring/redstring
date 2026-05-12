@@ -2536,8 +2536,25 @@ const UniverseManager = ({ variant = 'panel', onRequestClose }) => {
         localStorage.setItem(getStorageKey('redstring-managed-repositories'), JSON.stringify(newList));
       }
 
-      // Switch to new universe → loads data from Git into store
-      await universeManagerService.switchUniverse(createdSlug);
+      // Force a load from Git. We CANNOT use switchUniverse here:
+      // createUniverse already set the new slug as the active universe AND
+      // loaded the empty placeholder state into the store. switchUniverse
+      // would early-return ("already active") and the Git data would never
+      // get pulled in — until the next page refresh, at which point the
+      // engine has likely already saved the empty state OVER the repo.
+      // reloadUniverse bypasses the activity guard and always runs the
+      // source-of-truth load.
+      await universeBackendBridge.reloadUniverse(createdSlug);
+      // reloadUniverse loads data but does NOT set up the sync engine
+      // (switchActiveUniverse does, but we skipped that). Ensure the engine
+      // exists now so the first edit actually persists — and crucially, so
+      // it starts with the real loaded data as its baseline rather than
+      // the empty placeholder from createUniverse.
+      try {
+        await universeBackend.ensureGitSyncEngine(createdSlug);
+      } catch (engineErr) {
+        umWarn('[UniverseManager] Import: engine setup after load failed:', engineErr?.message || engineErr);
+      }
       await refreshState();
     } catch (err) {
       umError('[UniverseManager] Import discovered failed:', err);
