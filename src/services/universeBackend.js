@@ -2714,30 +2714,18 @@ class UniverseBackend {
         throw new Error('Store operations not available for Git sync');
       }
     } catch (error) {
-      // If force commit fails with 409, try conflict resolution
+      // If force commit fails with 409, retry with a fresh SHA — but DO NOT
+      // overwrite local store state with the Git version. The previous
+      // implementation called loadFromGit() and clobbered the in-memory
+      // store on every 409, which on mobile (where every save is git-only)
+      // silently discarded the user's edits the moment a transient conflict
+      // appeared. forceCommit() already refetches SHA and retries 5 times
+      // internally; if we still get a 409 here, surface it as a save error
+      // and leave the local state intact. The user's data stays in
+      // IndexedDB (browser-storage save runs in parallel) and the next
+      // save cycle will retry.
       if (error.message && error.message.includes('409')) {
-        umLog('[UniverseBackend] 409 conflict detected, attempting resolution');
-
-        if (universe.sourceOfTruth === 'git') {
-          // Git is source of truth, try to reload from Git first
-          try {
-            const gitData = await gitSyncEngine.loadFromGit();
-            if (gitData) {
-              const { storeState: newState } = importFromRedstring(gitData);
-              if (this.storeOperations?.loadUniverseFromFile) {
-                this.storeOperations.loadUniverseFromFile(newState);
-              }
-
-              this.notifyStatus('info', 'Loaded latest changes from Git repository');
-              return; // Successfully resolved by loading Git data
-            }
-          } catch (loadError) {
-            umWarn('[UniverseBackend] Could not load from Git for conflict resolution:', loadError);
-          }
-        }
-
-        // If Git load failed or local is source of truth, wait and retry
-        umLog('[UniverseBackend] Waiting 2 seconds before retry...');
+        umLog('[UniverseBackend] 409 conflict after retries, scheduling one more attempt without clobbering local state');
         await new Promise(resolve => setTimeout(resolve, 2000));
 
         try {

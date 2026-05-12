@@ -412,6 +412,20 @@ class GitSyncEngine {
     const now = Date.now();
     const timeSinceLastUpdate = now - (this.pendingCommits.length > 0 ? this.pendingCommits[this.pendingCommits.length - 1].timestamp : 0);
 
+    // Cap how long we'll stay in "drag debounce" mode. On mobile, touch
+    // events / continuous React effects can fire faster than every 100ms
+    // indefinitely, which would otherwise keep the debounce timer perpetually
+    // resetting (clearTimeout on every new update below) — saves stall
+    // forever because processPendingCommits bails when isDragging is true.
+    // After this window, treat the run as no-longer-a-drag and let commits
+    // flush on the normal interval.
+    const MAX_DRAG_DEBOUNCE_MS = 5000;
+    if (this.isDragging && this.dragStartTime && (now - this.dragStartTime) > MAX_DRAG_DEBOUNCE_MS) {
+      console.log('[GitSyncEngine] Drag debounce capped at 5s, flushing pending commits');
+      this.isDragging = false;
+      this.dragStartTime = 0;
+    }
+
     // If updates are coming very rapidly (less than 100ms apart), likely dragging
     if (timeSinceLastUpdate < 100) {
       this.isDragging = true;

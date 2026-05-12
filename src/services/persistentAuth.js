@@ -292,12 +292,23 @@ export class PersistentAuth {
 
     const appState = state?.githubApp;
     if (appState?.isInstalled && appState.installationId) {
-      const expiresAtNumeric = appState.tokenExpiresAt != null ? Number(appState.tokenExpiresAt) : null;
+      // Same numeric-or-ISO normalization as storeAppInstallation. The
+      // server returns tokenExpiresAt as an ISO string (it's stored that
+      // way in the vault, see oauth-server.js:1164), so plain Number() on
+      // it always produced NaN and the cache lost its expiry.
+      const expiresAtNumeric = (() => {
+        const raw = appState.tokenExpiresAt;
+        if (raw == null) return null;
+        const asNumber = Number(raw);
+        if (Number.isFinite(asNumber)) return asNumber;
+        const asTime = new Date(raw).getTime();
+        return Number.isFinite(asTime) ? asTime : null;
+      })();
       const repositories = Array.isArray(appState.repositories) ? appState.repositories : [];
       this.githubAppCache = {
         installationId: appState.installationId,
         accessToken: appState.accessToken || null,
-        tokenExpiresAt: Number.isFinite(expiresAtNumeric) ? expiresAtNumeric : null,
+        tokenExpiresAt: expiresAtNumeric,
         repositories,
         userData: appState.account || null,
         permissions: appState.permissions || null,
@@ -1133,14 +1144,26 @@ export class PersistentAuth {
     }
 
     // PRIMARY: Set cache and save to browser localStorage (user data stays local!)
-    const expiresNumeric = tokenExpiresAt != null ? Number(tokenExpiresAt) : null;
+    // Accept both numeric timestamps and ISO date strings — callers (e.g.
+    // universeBackend after a fresh mint) pass `.toISOString()`, which
+    // Number() turns into NaN and silently drops to null. That meant
+    // tokenExpiresAt was always null after a mint, so every engine setup
+    // re-minted instead of using the cached token for its full 1-hour life.
+    const expiresNumeric = (() => {
+      if (tokenExpiresAt == null) return null;
+      const asNumber = Number(tokenExpiresAt);
+      if (Number.isFinite(asNumber)) return asNumber;
+      const asDate = new Date(tokenExpiresAt);
+      const asTime = asDate.getTime();
+      return Number.isFinite(asTime) ? asTime : null;
+    })();
     this.githubAppCache = {
       installationId,
       accessToken,
       repositories: Array.isArray(repositories) ? repositories : [],
       userData: userData || {},
       permissions,
-      tokenExpiresAt: Number.isFinite(expiresNumeric) ? expiresNumeric : null,
+      tokenExpiresAt: expiresNumeric,
       verification: verification || null,
       lastUpdated: lastUpdated || Date.now()
     };
