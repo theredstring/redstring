@@ -192,9 +192,18 @@ const DebugOverlay = ({ debugData, hideOverlay, actions = null }) => {
             <button
               onClick={actions.onClearGitHubAppCache}
               style={{ ...diagButtonStyle, backgroundColor: '#3a1500', borderColor: '#c75200' }}
-              title="Wipe stored GitHub App installation data so next sync attempt uses OAuth instead. Useful when the App doesn't have access to the linked repo."
+              title="Wipe stored GitHub App installation data so next sync attempt uses OAuth instead. One-shot — server may re-populate on reload."
             >
-              Clear GitHub App cache
+              Clear App cache (one-shot)
+            </button>
+          )}
+          {actions.onDirectGitHubProbe && (
+            <button
+              onClick={actions.onDirectGitHubProbe}
+              style={{ ...diagButtonStyle, backgroundColor: '#003a15', borderColor: '#2dbb5a' }}
+              title="Direct GitHub API probe with each cached token. Bypasses the sync engine entirely. The verdict line tells you whether the failure is server-side (token), network-layer (Private Relay/proxy), or engine-level (stale token)."
+            >
+              Direct GitHub probe
             </button>
           )}
           {actions.onRefresh && (

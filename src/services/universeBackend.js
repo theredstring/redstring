@@ -817,6 +817,22 @@ class UniverseBackend {
     try {
       umLog('[UniverseBackend] Initializing background sync services...');
 
+      // Request persistent storage early — without this, iOS WebKit (and
+      // Chrome on iOS, which is WebKit-based) can evict IndexedDB after 7
+      // days of inactivity, or under storage pressure. On mobile / git-only
+      // mode there's no file handle, so the original call site at
+      // setLinkedLocalFile is never reached, leaving IndexedDB unprotected.
+      if (!isElectron() && typeof navigator !== 'undefined' && navigator.storage?.persist && !this.persistentStorageRequested) {
+        try {
+          const granted = await navigator.storage.persist();
+          umLog(`[UniverseBackend] Persistent storage ${granted ? 'granted' : 'not granted (storage may be evicted)'}`);
+        } catch (err) {
+          umWarn('[UniverseBackend] navigator.storage.persist failed:', err);
+        } finally {
+          this.persistentStorageRequested = true;
+        }
+      }
+
       // Ensure auth state is fully loaded before proceeding
       await persistentAuth.ensureAuthStateLoaded().catch(err => {
         umWarn('[UniverseBackend] Failed to load auth state in background sync:', err);
@@ -1786,7 +1802,38 @@ class UniverseBackend {
         // it so the user / diagnostic panel sees the actual cause (401 vs 404
         // vs 403 vs network) instead of a generic "not available" message.
         const reason = provider.lastUnavailableReason || lastError?.message || 'unknown reason';
-        throw new Error(`Provider for ${universeSlug} unavailable after 3 attempts: ${reason}`);
+
+        // Auto-fallback: when the App-minted token successfully authenticates
+        // but doesn't have access to the linked repo (404/403), retry with
+        // OAuth. This is the structural fix for the "App works on desktop,
+        // fails on mobile" class of failure — the server picks App
+        // credentials by NODE_ENV, so dev and prod servers use different
+        // GitHub Apps with different repo grants, even when the client
+        // caches the same install_id. OAuth has `repo` scope and reliably
+        // sees any private repo the user owns.
+        const isRepoAccessFailure = typeof reason === 'string'
+          && (reason.startsWith('404 ') || reason.startsWith('403 '));
+        if (provider.authMethod === 'github-app' && isRepoAccessFailure) {
+          umWarn(`[UniverseBackend] App provider unavailable (${reason.slice(0, 80)}…); retrying with OAuth`);
+          this.notifyStatus('warning', 'GitHub App lacks repo access — falling back to OAuth');
+          try {
+            const oauthProvider = await this.createProviderForUniverse(universe, { forceOauth: true });
+            if (oauthProvider && await oauthProvider.isAvailable()) {
+              umLog(`[UniverseBackend] OAuth fallback succeeded for ${universeSlug}`);
+              provider = oauthProvider;
+              isAvailable = true;
+            } else {
+              const oauthReason = oauthProvider?.lastUnavailableReason || 'OAuth provider also unavailable';
+              throw new Error(`App auth: ${reason} | OAuth fallback: ${oauthReason}`);
+            }
+          } catch (fallbackError) {
+            // Propagate the combined context so the diagnostic panel shows
+            // both branches' failure reasons, not just whichever fired last.
+            throw new Error(`Provider for ${universeSlug} unavailable: ${fallbackError.message}`);
+          }
+        } else {
+          throw new Error(`Provider for ${universeSlug} unavailable after 3 attempts: ${reason}`);
+        }
       }
 
       umLog(`[UniverseBackend] Provider created and validated for ${universeSlug}`);
@@ -1904,9 +1951,15 @@ class UniverseBackend {
   }
 
   /**
-   * Create a Git provider for a universe
+   * Create a Git provider for a universe.
+   *
+   * options.forceOauth — skip the GitHub App branch for this call only.
+   * Used by ensureGitSyncEngine to retry with OAuth when the App-minted
+   * token returns 404/403 on the linked repo (the App install can't see
+   * the repo from this server's environment, e.g. dev App on a Cloud Run
+   * deployment where the user's repo is granted to the prod App).
    */
-  async createProviderForUniverse(universe) {
+  async createProviderForUniverse(universe, options = {}) {
     const linkedRepo = universe.gitRepo.linkedRepo;
     let user, repo;
 
@@ -1927,8 +1980,8 @@ class UniverseBackend {
     let token, authMethod, installationId;
 
     try {
-      // Try GitHub App first (preferred)
-      const app = persistentAuth.getAppInstallation?.();
+      // Try GitHub App first (preferred) unless caller forced OAuth.
+      const app = options.forceOauth ? null : persistentAuth.getAppInstallation?.();
       if (app?.installationId) {
         // Check if cached token is still valid (expires in 1 hour, refresh if < 5 min remaining)
         const tokenExpiresAt = app.tokenExpiresAt ? new Date(app.tokenExpiresAt) : null;
@@ -3368,20 +3421,29 @@ class UniverseBackend {
       });
     }
 
-    // Try Browser fallback — but ONLY if no real storage is configured.
-    // If the user has a linked git repo or a local file, browser cache is just
-    // a stale snapshot from a previous session and showing it after a failed
-    // primary-load is misleading (the user thinks the load worked).
+    // Browser fallback rules:
+    //  - Desktop with a writable local file or working Git: skip browser cache
+    //    (it's a stale snapshot; showing it after a primary-load failure is
+    //    misleading).
+    //  - Mobile / git-only mode (no writable local file): IndexedDB IS the
+    //    real local persistence layer — it's where every save lands as the
+    //    safety net while Git commits are batched/debounced. Refusing to
+    //    read it back makes every refresh look like data loss when the most
+    //    recent edits haven't been committed yet, or when previous sessions
+    //    failed to commit (e.g. App-auth 404 before the OAuth fallback).
     const browserRes = resultsMap.get(SOURCE_OF_TRUTH.BROWSER);
-    if (browserRes?.data && !hasLinkedGitRepo && !universe.localFile?.enabled) {
-      umLog('[UniverseBackend] Using Browser Storage fallback (no other storage configured)');
+    const hasWritableLocalFile = !!universe.localFile?.enabled && this.fileHandles.has(universe.slug);
+    const browserIsRealPersistence = !hasWritableLocalFile;
+    if (browserRes?.data && browserIsRealPersistence) {
+      umLog('[UniverseBackend] Using Browser Storage fallback (git-only / no local file handle)');
+      this.notifyStatus('warning', 'Loaded from local browser cache — Git had no data yet.');
       return this.syncAndReturn(universe, browserRes.data, {
         source: SOURCE_OF_TRUTH.BROWSER,
         allowPermissionPrompt
       });
     }
-    if (browserRes?.data && (hasLinkedGitRepo || universe.localFile?.enabled)) {
-      umWarn('[UniverseBackend] Skipping stale browser cache: primary storage is configured but failed to load');
+    if (browserRes?.data && hasWritableLocalFile) {
+      umWarn('[UniverseBackend] Skipping stale browser cache: writable local file is configured but failed to load');
     }
 
     // Return empty state if absolutely everything failed
@@ -3800,7 +3862,7 @@ class UniverseBackend {
         return null;
       }
 
-      const provider = SemanticProviderFactory.createProvider({
+      let provider = SemanticProviderFactory.createProvider({
         type: 'github',
         user,
         repo,
@@ -3810,7 +3872,34 @@ class UniverseBackend {
       });
 
       try {
-        const ok = await provider.isAvailable();
+        let ok = await provider.isAvailable();
+        // Mirror the auto-fallback used in ensureGitSyncEngine: if the App
+        // token mints fine but can't see this repo (404/403), retry with the
+        // OAuth token. Necessary here because this is the path used on first
+        // load before the sync engine exists — if it returns null, the load
+        // pipeline falls through to browser storage (or empty).
+        if (!ok && authMethod === 'github-app') {
+          const reason = provider.lastUnavailableReason || '';
+          if (typeof reason === 'string' && (reason.startsWith('404 ') || reason.startsWith('403 '))) {
+            try {
+              const oauthToken = await persistentAuth.getAccessToken();
+              if (oauthToken) {
+                umWarn('[UniverseBackend] Direct Git read: App provider lacks repo access, retrying with OAuth');
+                provider = SemanticProviderFactory.createProvider({
+                  type: 'github',
+                  user,
+                  repo,
+                  token: oauthToken,
+                  authMethod: 'oauth',
+                  semanticPath: universe?.gitRepo?.schemaPath || 'schema'
+                });
+                ok = await provider.isAvailable();
+              }
+            } catch (oauthErr) {
+              umWarn('[UniverseBackend] OAuth retry for direct Git read failed:', oauthErr?.message || oauthErr);
+            }
+          }
+        }
         if (!ok) {
           umWarn('[UniverseBackend] Provider unavailable or unauthorized; skipping direct Git access');
           return null;

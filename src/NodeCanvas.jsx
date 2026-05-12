@@ -2619,6 +2619,121 @@ function NodeCanvas() {
     refreshSyncDebug();
   }, [recordSyncAction, refreshSyncDebug]);
 
+  // Direct GitHub API probe — bypasses the sync engine, rate limiter, and
+  // provider abstraction entirely. Fires raw fetch() against
+  // /repos/{owner}/{repo} with each cached token in turn, then logs status +
+  // identifying headers + a verdict that maps the result pair to the
+  // remaining hypothesis (server-side token issue / network-layer auth
+  // stripping / engine-level token drift).
+  const handleDirectGitHubProbe = useCallback(async () => {
+    try {
+      const { default: universeBackend } = await import('./services/universeBackend.js');
+      const { persistentAuth } = await import('./services/persistentAuth.js');
+
+      const universe = universeBackend.getActiveUniverse?.();
+      const linkedRepo = universe?.gitRepo?.linkedRepo;
+      let owner, repo;
+      if (typeof linkedRepo === 'string') {
+        const parts = linkedRepo.split('/');
+        owner = parts[0];
+        repo = parts[1];
+      } else if (linkedRepo && typeof linkedRepo === 'object') {
+        owner = linkedRepo.user;
+        repo = linkedRepo.repo;
+      }
+      if (!owner || !repo) {
+        recordSyncAction('probe.verdict', false, `cannot probe — no linked repo on active universe (got ${JSON.stringify(linkedRepo)})`);
+        refreshSyncDebug();
+        return;
+      }
+
+      const appToken = persistentAuth.githubAppCache?.accessToken || null;
+      let oauthToken = null;
+      try { oauthToken = await persistentAuth.getAccessToken?.(); } catch { /* ignore */ }
+      if (!oauthToken) oauthToken = persistentAuth.oauthCache?.accessToken || null;
+
+      const url = `https://api.github.com/repos/${owner}/${repo}`;
+
+      const runProbe = async (token) => {
+        const res = await fetch(url, {
+          headers: {
+            'Authorization': `token ${token}`,
+            'Accept': 'application/vnd.github.v3+json',
+          },
+        });
+        let apiMessage = null;
+        try { const body = await res.json(); apiMessage = body?.message || null; } catch { /* not json */ }
+        return {
+          status: res.status,
+          statusText: res.statusText,
+          apiMessage,
+          headers: {
+            user: res.headers.get('x-github-user-login'),
+            install: res.headers.get('x-github-installation-id'),
+            scopes: res.headers.get('x-oauth-scopes'),
+            reqId: res.headers.get('x-github-request-id'),
+          },
+        };
+      };
+
+      const fmt = (r, tokenKind, tokenLen) => {
+        if (!r) return `skipped — no token in cache`;
+        if (r.error) return `fetch threw: ${r.error}`;
+        const h = r.headers || {};
+        const parts = [`${r.status} ${r.statusText || ''}`.trim()];
+        if (h.user) parts.push(`user=${h.user}`);
+        if (h.install) parts.push(`install=${h.install}`);
+        if (h.scopes) parts.push(`scopes=${h.scopes}`);
+        if (h.reqId) parts.push(`reqId=${h.reqId}`);
+        parts.push(`tokenKind=${tokenKind} tokenLen=${tokenLen}`);
+        if (r.apiMessage) parts.push(`msg="${r.apiMessage}"`);
+        return parts.join(' ');
+      };
+
+      const [appOutcome, oauthOutcome] = await Promise.allSettled([
+        appToken ? runProbe(appToken) : Promise.resolve(null),
+        oauthToken ? runProbe(oauthToken) : Promise.resolve(null),
+      ]);
+
+      const appResult = appToken
+        ? (appOutcome.status === 'fulfilled' ? appOutcome.value : { error: appOutcome.reason?.message || String(appOutcome.reason) })
+        : null;
+      const oauthResult = oauthToken
+        ? (oauthOutcome.status === 'fulfilled' ? oauthOutcome.value : { error: oauthOutcome.reason?.message || String(oauthOutcome.reason) })
+        : null;
+
+      const appKind = appToken ? String(appToken).slice(0, 4) : '?';
+      const appLen = appToken ? String(appToken).length : 0;
+      const oauthKind = oauthToken ? String(oauthToken).slice(0, 4) : '?';
+      const oauthLen = oauthToken ? String(oauthToken).length : 0;
+
+      recordSyncAction('probe.app', appResult?.status === 200, fmt(appResult, appKind, appLen));
+      recordSyncAction('probe.oauth', oauthResult?.status === 200, fmt(oauthResult, oauthKind, oauthLen));
+
+      // Verdict maps the (app, oauth) status pair to the remaining hypothesis.
+      let verdict;
+      const appStatus = appResult?.status;
+      const oauthStatus = oauthResult?.status;
+      if (!appToken && !oauthToken) {
+        verdict = 'BOTH SKIPPED — no tokens in cache; tap "Retry sync engine" to rehydrate first';
+      } else if (appStatus === 200 && oauthStatus === 200) {
+        verdict = 'BOTH OK — engine is using a stale/different token than cache (token-cache drift)';
+      } else if (appStatus === 200 && oauthStatus !== 200) {
+        verdict = 'APP OK, OAUTH fails — engine should be working; if it isn\'t, engine is stale';
+      } else if (appStatus !== 200 && oauthStatus === 200) {
+        verdict = 'SERVER-SIDE token issue — /api/github/app/installation-token returns a token broken for this device';
+      } else if (appStatus !== 200 && oauthStatus !== 200 && (appResult || oauthResult)) {
+        verdict = 'NETWORK-LAYER auth stripping — iOS WebKit / Private Relay / proxy is interfering with Authorization';
+      } else {
+        verdict = `inconclusive — app=${appStatus ?? 'n/a'} oauth=${oauthStatus ?? 'n/a'}`;
+      }
+      recordSyncAction('probe.verdict', appStatus === 200 || oauthStatus === 200, verdict);
+    } catch (e) {
+      recordSyncAction('probe.verdict', false, e?.message || String(e));
+    }
+    refreshSyncDebug();
+  }, [recordSyncAction, refreshSyncDebug]);
+
   useEffect(() => {
     if (!debugMode) {
       setSyncDebugData(null);
@@ -14070,6 +14185,7 @@ function NodeCanvas() {
             onRetrySyncEngine: handleRetrySyncEngine,
             onForceSave: handleForceSaveDebug,
             onClearGitHubAppCache: handleClearGitHubAppCache,
+            onDirectGitHubProbe: handleDirectGitHubProbe,
             onRefresh: refreshSyncDebug,
           }}
         />
