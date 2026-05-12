@@ -1085,6 +1085,26 @@ const Panel = memo(forwardRef(
       }
     }, [side]); // Run once on mount (and if side changes, though unlikely)
 
+    // Re-clamp panel width whenever the viewport shrinks (e.g. mobile emulation,
+    // window resize, device rotation) so the panel never exceeds what the
+    // viewport can support.
+    useEffect(() => {
+      const handleViewportResize = () => {
+        setPanelWidth(prev => {
+          const clamped = clampPanelWidthToViewport(prev);
+          if (clamped !== prev) {
+            setIsWideLayout(clamped > 250);
+            try {
+              window.dispatchEvent(new CustomEvent('panelWidthChanged', { detail: { side, width: clamped } }));
+            } catch { }
+          }
+          return clamped;
+        });
+      };
+      window.addEventListener('resize', handleViewportResize);
+      return () => window.removeEventListener('resize', handleViewportResize);
+    }, [side]);
+
     useEffect(() => {
       if (editingTitle && titleInputRef.current) {
         const inputElement = titleInputRef.current;
@@ -1222,10 +1242,7 @@ const Panel = memo(forwardRef(
       }
       // In exclusive panel mode the panel auto-fills available width up to the
       // opposite-side toggle button; otherwise cap at half the viewport.
-      const maxWidth = window.innerWidth <= EXCLUSIVE_PANEL_MODE_THRESHOLD
-        ? Math.max(MIN_PANEL_WIDTH, window.innerWidth - PANEL_TOGGLE_BUTTON_WIDTH)
-        : window.innerWidth / 2;
-      const clampedWidth = Math.max(MIN_PANEL_WIDTH, Math.min(newWidth, maxWidth));
+      const clampedWidth = clampPanelWidthToViewport(newWidth);
       setPanelWidth(clampedWidth);
       setIsWideLayout(clampedWidth > 250);
     }, [side]);
