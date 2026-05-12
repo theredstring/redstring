@@ -2389,6 +2389,19 @@ const UniverseManager = ({ variant = 'panel', onRequestClose }) => {
   const handleImportDiscovered = async (discovered, repo) => {
     const repoKey = `${repo.user}/${repo.repo}`;
 
+    // Attach intent: user picked "Load from Repo" while linking a specific
+    // existing universe slot. Pull the repo's data into that slot via
+    // switchToImportFlow instead of creating a fresh universe — symmetric
+    // with the push path (handleLinkDiscovered → continueAttachFlow) which
+    // also routes on repositoryTargetSlug.
+    if (repositoryTargetSlug) {
+      setShowRepositoryManager(false);
+      await switchToImportFlow(repositoryTargetSlug, discovered, repo, repoKey);
+      setRepositoryIntent(null);
+      setRepositoryTargetSlug(null);
+      return;
+    }
+
     try {
       setLoading(true);
       setConnectingMessage('Loading from repository...');

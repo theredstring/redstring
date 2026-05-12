@@ -954,7 +954,10 @@ const RepositorySelectionModal = ({
                               )}
                             </div>
                             <div style={{ display: 'flex', flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
-                              {(onImportDiscovered && (intent === 'import' || intent === null)) && (
+                              {/* Load from Repo: show for import/null intents AND for attach
+                                  (an existing slot may want to pull the repo's universe in
+                                  rather than overwrite it). */}
+                              {(onImportDiscovered && (intent === 'import' || intent === 'attach' || intent === null)) && (
                                 <button
                                   onClick={(e) => {
                                     e.stopPropagation();
