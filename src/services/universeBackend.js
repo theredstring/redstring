@@ -3965,13 +3965,18 @@ class UniverseBackend {
           try {
             await provider.writeFileRaw(filePath, JSON.stringify(initialRedstring, null, 2));
           } catch (writeErr) {
-            // 422 "sha wasn't supplied" means the file already exists but our
-            // (App) token couldn't see it when getFileInfo ran. Swap to OAuth
-            // and retry — OAuth will read the existing file via getFileInfo
-            // and supply the right sha (or, if the file truly doesn't exist,
-            // creating it again is harmless idempotent retry).
+            // Swap to OAuth when the App token can't determine whether the
+            // file exists (FILE_INFO_UNKNOWN — 401/403/5xx on the probe), or
+            // when GitHub already returned a 422 sha-missing / 409 conflict
+            // (file exists but App couldn't read it). All three conditions
+            // mean "App's view of the repo is incomplete; OAuth with `repo`
+            // scope can almost certainly read what App can't."
             const msg = writeErr?.message || '';
-            if ((msg.includes('422') || msg.includes('409')) && (await swapToOauth())) {
+            const code = writeErr?.code || '';
+            const shouldSwap = code === 'FILE_INFO_UNKNOWN'
+              || msg.includes('422')
+              || msg.includes('409');
+            if (shouldSwap && (await swapToOauth())) {
               await provider.writeFileRaw(filePath, JSON.stringify(initialRedstring, null, 2));
             } else {
               throw writeErr;

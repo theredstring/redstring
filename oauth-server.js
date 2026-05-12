@@ -1750,7 +1750,9 @@ app.post('/api/github/app/installation-token', async (req, res) => {
         statusText: tokenResponse.statusText,
         installation_id,
         appId: appId ? `${appId.substring(0, 4)}...` : 'MISSING',
-        useDev,
+        slot: chosenSlot.slot,
+        installAppId,
+        installAppSlug,
         errorText
       });
 

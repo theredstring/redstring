@@ -650,26 +650,85 @@ This repository was automatically initialized by Redstring UI React. You can now
   }
 
   // Helper methods
-  async getFileInfo(path) {
-    try {
-      const { apiPath } = this.resolvePathInput(path, { trimTrailing: false });
-      if (!apiPath) {
-        return null;
-      }
-      const response = await githubAPI.request(`${this.rootUrl}/${apiPath}`);
-      
-      if (response.status === 404) {
-        return null;
-      }
-      
-      if (!response.ok) {
-        throw new Error(`GitHub API error: ${response.statusText}`);
-      }
-      
-      return await response.json();
-    } catch (error) {
-      return null;
+  //
+  // Returns:
+  //   { exists: false }                       — confirmed 404 (file does not exist)
+  //   { exists: true, info: <fileInfo> }      — confirmed file exists, with sha
+  //   { exists: 'unknown', status, message }  — could NOT determine existence
+  //                                              (401/403/5xx/network). Caller
+  //                                              should treat as "unknown",
+  //                                              NOT "doesn't exist", to avoid
+  //                                              PUTting without a sha and
+  //                                              getting 422 sha-missing.
+  //
+  // Legacy callers expecting the file object directly should use getFileInfo()
+  // which preserves the null-on-not-found contract but THROWS on auth errors.
+  async probeFile(path) {
+    const { apiPath } = this.resolvePathInput(path, { trimTrailing: false });
+    if (!apiPath) {
+      return { exists: false };
     }
+
+    // Use raw fetch here, not githubAPI.request, because the wrapper throws on
+    // ALL non-2xx responses (including 404). For a probe we MUST see the
+    // status code: 404 → file doesn't exist (safe to create), 401/403/5xx →
+    // we can't determine existence (refuse to PUT without sha).
+    let response;
+    try {
+      response = await fetch(`${this.rootUrl}/${apiPath}`, {
+        headers: {
+          'Authorization': this.getAuthHeader(),
+          'Accept': 'application/vnd.github.v3+json'
+        }
+      });
+    } catch (networkError) {
+      return {
+        exists: 'unknown',
+        status: 0,
+        message: `network: ${networkError?.message || networkError}`
+      };
+    }
+
+    if (response.status === 404) {
+      return { exists: false };
+    }
+
+    if (response.ok) {
+      try {
+        const info = await response.json();
+        return { exists: true, info };
+      } catch (parseError) {
+        return {
+          exists: 'unknown',
+          status: response.status,
+          message: `parse error: ${parseError?.message || parseError}`
+        };
+      }
+    }
+
+    // 401/403/5xx — file may or may not exist; we just can't see it.
+    let message = response.statusText || `HTTP ${response.status}`;
+    try {
+      const body = await response.json();
+      if (body?.message) message = body.message;
+    } catch { /* body not JSON */ }
+    return {
+      exists: 'unknown',
+      status: response.status,
+      message
+    };
+  }
+
+  async getFileInfo(path) {
+    const probe = await this.probeFile(path);
+    if (probe.exists === true) return probe.info;
+    if (probe.exists === false) return null;
+    // 'unknown' — auth error or transient. Throw so writeFileRaw won't
+    // silently fall through to a PUT-without-sha and trigger 422.
+    const err = new Error(`getFileInfo(${path}) status=${probe.status}: ${probe.message}`);
+    err.code = 'FILE_INFO_UNKNOWN';
+    err.status = probe.status;
+    throw err;
   }
 
   async writeFileRaw(path, content) {
@@ -698,15 +757,19 @@ This repository was automatically initialized by Redstring UI React. You can now
         this.lastWrites = new Map();
       }
       
-      // First try to get the current file info to get the latest SHA
-      let existingFile = null;
-      try {
-        githubRateLimiter.recordRequest(this.authMethod);
-        existingFile = await this.getFileInfo(safePath);
-      } catch (error) {
-        // File doesn't exist, that's fine for new files
-        console.log(`[GitHubSemanticProvider] File ${safePath} doesn't exist, will create new`);
+      // First try to get the current file info to get the latest SHA.
+      // probeFile distinguishes 404 (file missing → safe to create) from
+      // 401/403/5xx (we just can't see it → MUST surface so we don't PUT
+      // without a sha and get 422 sha-missing on a file that actually exists).
+      githubRateLimiter.recordRequest(this.authMethod);
+      const probe = await this.probeFile(safePath);
+      if (probe.exists === 'unknown') {
+        const err = new Error(`[GitHubSemanticProvider] Cannot determine if ${safePath} exists (status ${probe.status}: ${probe.message}). Refusing to PUT without sha — this would corrupt an existing file if the token simply can't see it.`);
+        err.code = 'FILE_INFO_UNKNOWN';
+        err.status = probe.status;
+        throw err;
       }
+      const existingFile = probe.exists ? probe.info : null;
 
       const body = {
         message: `Update ${safePath}`,
@@ -793,9 +856,17 @@ This repository was automatically initialized by Redstring UI React. You can now
               // Check rate limit before retry
               await githubRateLimiter.waitForAvailability(this.authMethod);
               
-              // Get fresh file info
+              // Get fresh file info via probe so auth errors surface explicitly
+              // rather than masquerading as "doesn't exist".
               githubRateLimiter.recordRequest(this.authMethod);
-              const freshFile = await this.getFileInfo(safePath);
+              const freshProbe = await this.probeFile(safePath);
+              if (freshProbe.exists === 'unknown') {
+                const probeErr = new Error(`Retry probe ${attempt} could not see ${safePath} (status ${freshProbe.status}: ${freshProbe.message}) — likely auth issue. Bailing.`);
+                probeErr.code = 'FILE_INFO_UNKNOWN';
+                probeErr.status = freshProbe.status;
+                throw probeErr;
+              }
+              const freshFile = freshProbe.exists ? freshProbe.info : null;
               if (freshFile?.sha) {
                 body.sha = freshFile.sha;
                 console.log(`[GitHubSemanticProvider] Retry ${attempt} with fresh SHA: ${freshFile.sha.substring(0, 8)}`);
