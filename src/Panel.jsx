@@ -1741,7 +1741,7 @@ const Panel = memo(forwardRef(
       } else if (leftViewActive === 'federation') {
         // Git-Native Federation view
         panelContent = (
-          <div className="panel-content-inner" style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
+          <div className="panel-content-inner" style={{ display: 'flex', flexDirection: 'column', height: '100%', overflowX: 'hidden', touchAction: 'pan-y', overscrollBehaviorX: 'none' }}>
             <UniverseManager />
           </div>
         );

@@ -152,7 +152,8 @@ const TOUCH_PINCH_MAX_RATIO_STEP = isIOS ? 0.28 : 0.6;         // overall clamp 
 const TOUCH_PINCH_CENTER_SMOOTHING = isIOS ? 0.05 : 0.03;      // low-pass filter for pinch midpoint movement
 const TOUCH_PAN_DRAG_SENSITIVITY = isIOS ? 0.75 : 1.05;        // per-move multiplier for single-finger touch panning
 const PAN_MOMENTUM_MIN_SPEED = 0.01;            // px/ms threshold before momentum stops (lowered for touch)
-const TOUCH_MOMENTUM_RELEASE_WINDOW_MS = 50;    // tail window for measuring touch release velocity (shorter = more responsive to slowdowns)
+const TOUCH_MOMENTUM_VELOCITY_WINDOW_MS = 80;   // how far back from the last touchmove to sample for release velocity
+const TOUCH_MOMENTUM_STATIONARY_GAP_MS = 60;    // if the gap between last touchmove and touchend exceeds this, treat the finger as held still — no momentum
 const TOUCH_MOMENTUM_LAUNCH_MIN_SPEED = 0.25;   // px/ms — touch must be moving this fast at release to launch momentum (prevents slip when finger slows to a stop)
 const TOUCH_PAN_FRICTION = 0.92;                // per-frame retention for touch glide (higher = longer glide)
 const TRACKPAD_PAN_FRICTION = 0.94;             // per-frame retention for trackpad glide
@@ -6724,27 +6725,28 @@ function NodeCanvas() {
     if (isPanning && panStart) {
       const source = panSourceRef.current;
       if (source === 'trackpad' || source === 'touch') {
-        // Touch uses a shorter tail window so release velocity reflects the
-        // last moment of finger motion, not an average that includes earlier
-        // fast movement — without this, slowing-to-a-stop still launches
-        // momentum and feels like the canvas is slipping out from under you.
         const isTouch = source === 'touch';
-        const windowMs = isTouch ? TOUCH_MOMENTUM_RELEASE_WINDOW_MS : 80;
         const history = panVelocityHistoryRef.current;
         let vx = 0, vy = 0;
-        if (history.length >= 2) {
-          // Anchor the window on the actual release time, not the last sample
-          // time — when a finger holds still before lifting, no touchmove
-          // events fire, so history[last].time is stale and walking back from
-          // it would pick up pre-pause fast samples and launch momentum.
-          const now = performance.now();
-          const cutoff = now - windowMs;
+        // For touch, use the gap between the last touchmove and release as
+        // the "finger held still" signal: touchmove only fires on motion, so
+        // a large gap means the finger paused before lifting — no momentum.
+        // Anchoring the velocity window on release time directly (instead of
+        // on the last sample) is too brittle, since a fast flick routinely
+        // has a 30-50ms lag between the last touchmove and touchend.
+        const lastSample = history.length > 0 ? history[history.length - 1] : null;
+        const fingerHeldStill = isTouch && lastSample
+          ? (performance.now() - lastSample.time) > TOUCH_MOMENTUM_STATIONARY_GAP_MS
+          : false;
+
+        if (history.length >= 2 && !fingerHeldStill) {
+          const last = lastSample;
+          const cutoff = last.time - TOUCH_MOMENTUM_VELOCITY_WINDOW_MS;
           const recent = history.filter(s => s.time >= cutoff);
           if (recent.length >= 2) {
-            const last = recent[recent.length - 1];
             const first = recent[0];
             const dt = last.time - first.time;
-            if (dt > 1) { // Only avoid exact zero or extremely small dt
+            if (dt > 1) {
               vx = (last.x - first.x) / dt;
               vy = (last.y - first.y) / dt;
             }
@@ -6752,8 +6754,7 @@ function NodeCanvas() {
         }
 
         // Fallback to instantaneous only for trackpad — for touch, an empty
-        // tail window means the finger had stopped, which is exactly when we
-        // want NO momentum.
+        // window or held-still finger means we want NO momentum.
         if (!isTouch && vx === 0 && vy === 0) {
           vx = lastPanVelocityRef.current.vx;
           vy = lastPanVelocityRef.current.vy;

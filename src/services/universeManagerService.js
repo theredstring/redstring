@@ -552,7 +552,11 @@ export const universeManagerService = {
       }
     } else if (type === STORAGE_TYPES.LOCAL) {
       payload.sourceOfTruth = 'local';
-      payload.gitRepo = { ...universe.raw.gitRepo, enabled: false };
+      // Do NOT touch gitRepo.enabled here. `enabled` means "this slot is configured
+      // and usable" — independent of which slot is currently primary. Disabling the
+      // git slot when local becomes primary stranded users whose linkedRepo was still
+      // set: later removal of the local slot fell through to BROWSER and showed
+      // "Connect" instead of restoring git.
       payload.localFile = { ...universe.raw.localFile, enabled: true };
     } else if (type === STORAGE_TYPES.BROWSER) {
       payload.sourceOfTruth = 'browser';

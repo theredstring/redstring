@@ -523,10 +523,21 @@ class UniverseBackend {
       ? incomingGitRepo
       : {};
 
+    const resolvedLinkedRepo = resolvedGitRepo.linkedRepo || rest.linkedRepo || null;
+    // Invariant: if a repo is linked, the slot is enabled. Self-heals universes
+    // corrupted by a prior bug where setPrimaryStorage('local') disabled the git
+    // slot while leaving linkedRepo set, which later caused removeLocalFileLink
+    // to fall through to BROWSER and show "Connect" instead of restoring git.
+    const baseEnabled = resolvedGitRepo.enabled ?? false;
+    const healedEnabled = !!resolvedLinkedRepo || baseEnabled;
+    if (healedEnabled && !baseEnabled) {
+      umWarn(`[UniverseBackend] Healed gitRepo.enabled for ${slug}: linkedRepo set but enabled was false`);
+    }
+
     const normalizedGitRepo = {
       ...resolvedGitRepo,
-      enabled: resolvedGitRepo.enabled ?? false,
-      linkedRepo: resolvedGitRepo.linkedRepo || rest.linkedRepo || null,
+      enabled: healedEnabled,
+      linkedRepo: resolvedLinkedRepo,
       schemaPath: resolvedGitRepo.schemaPath || rest.schemaPath || 'schema',
       universeFolder: resolvedGitRepo.universeFolder !== undefined
         ? resolvedGitRepo.universeFolder
@@ -5400,10 +5411,16 @@ class UniverseBackend {
       }
     }
 
-    // Update the universe configuration
-    await this.updateUniverse(universeSlug, {
-      sourceOfTruth: sourceType
-    });
+    // Update the universe configuration. When switching to git, self-heal
+    // gitRepo.enabled so a stranded slot (linkedRepo set but enabled=false from a
+    // prior bug) becomes usable in one atomic update — this also re-triggers
+    // ensureGitSyncEngine via updateUniverse's post-write hook.
+    const updatePayload = { sourceOfTruth: sourceType };
+    if (sourceType === 'git' && universe.gitRepo?.enabled !== true) {
+      const baseGitRepo = universe.raw?.gitRepo || universe.gitRepo || {};
+      updatePayload.gitRepo = { ...baseGitRepo, enabled: true };
+    }
+    await this.updateUniverse(universeSlug, updatePayload);
     this.authStatus = persistentAuth.getAuthStatus();
     const updatedUniverse = this.getUniverse(universeSlug);
     umLog('[UniverseBackend] Source of truth updated:', {
@@ -5420,11 +5437,16 @@ class UniverseBackend {
       let engine = this.gitSyncEngines.get(universeSlug) || null;
 
       if (sourceType === 'git' && hasGitRepo && !engine) {
-        // If Git just became primary and no engine exists yet, create it
+        // If Git just became primary and no engine exists yet, create it.
+        // Surface failures: a silent swallow here was hiding "Git repo not
+        // enabled" / auth / availability errors from the user, leaving
+        // universes in a half-connected state with no UI signal.
         try {
           engine = await this.ensureGitSyncEngine(universeSlug);
         } catch (engineErr) {
           umWarn('[UniverseBackend] Failed to ensure Git engine after source-of-truth switch to git:', engineErr);
+          this.notifyStatus('error', `Could not start Git sync: ${engineErr?.message || engineErr}`);
+          throw engineErr;
         }
       }
 
