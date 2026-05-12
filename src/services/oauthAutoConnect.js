@@ -286,7 +286,11 @@ class OAuthAutoConnect {
       // Generate state and prepare OAuth flow
       const state = Math.random().toString(36).slice(2);
       const redirectUri = `${window.location.origin}/oauth/callback`;
-      const scopes = 'repo';
+      // `repo` covers private repo file IO. `read:org` is required by
+      // /user/installations so the server can verify GitHub App installs
+      // before minting tokens — without it, the App flow fails with an
+      // opaque 502 verification_failed on private/org-installed setups.
+      const scopes = 'repo read:org';
 
       // Store OAuth state
       sessionStorage.setItem('github_oauth_state', state);

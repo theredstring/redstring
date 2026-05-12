@@ -478,6 +478,24 @@ async function verifyInstallationWithOAuth(installationId, oauthCredentials, { e
       };
     }
 
+    // 403: token is valid but lacks scope to list installations. GitHub
+    // requires `read:org` on /user/installations even for personal installs
+    // in some configurations. This is NOT an indictment of the install
+    // itself — the mint API is the authoritative source. Mark as
+    // 'unverified' so the mint endpoint can choose to proceed instead of
+    // failing closed on a verification step that can't even run.
+    if (lookup.status === 403) {
+      return {
+        status: 'unverified',
+        reason: 'oauth_scope_insufficient',
+        installation: null,
+        oauthUser,
+        statusCode: lookup.status,
+        details: lookup.details || 'OAuth token lacks read:org scope required by /user/installations',
+        checkedInstallationId: numericInstallationId
+      };
+    }
+
     return {
       status: 'error',
       reason: lookup.reason || 'github_request_failed',

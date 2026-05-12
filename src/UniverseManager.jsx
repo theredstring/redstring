@@ -3631,7 +3631,11 @@ const UniverseManager = ({ variant = 'panel', onRequestClose }) => {
       if (!clientId) throw new Error('GitHub OAuth client ID not configured');
 
       const stateValue = Math.random().toString(36).slice(2);
-      const scopes = 'repo';
+      // `repo` covers private repo file IO. `read:org` is required by
+      // /user/installations so the server can verify GitHub App installs
+      // before minting tokens — without it, the App flow fails with an
+      // opaque 502 verification_failed on private/org-installed setups.
+      const scopes = 'repo read:org';
 
       // Both Electron and browser use the OAuth server's callback URL as redirect_uri.
       // For Electron, we prefix the state with "electron:" so the OAuth server knows
