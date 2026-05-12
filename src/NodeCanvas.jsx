@@ -2559,6 +2559,66 @@ function NodeCanvas() {
     refreshSyncDebug();
   }, [recordSyncAction, refreshSyncDebug]);
 
+  // Clear GitHub App installation data (in-memory cache + localStorage). Used
+  // when the App auth path keeps failing (e.g. App not granted access to a
+  // private repo) and the user prefers to fall through to OAuth, which has
+  // `repo` scope and will succeed. After clearing, sync engine setup will
+  // pick the OAuth branch in createProviderForUniverse.
+  const handleClearGitHubAppCache = useCallback(async () => {
+    try {
+      const { persistentAuth } = await import('./services/persistentAuth.js');
+      const { default: universeBackend } = await import('./services/universeBackend.js');
+
+      const beforeInstallId = persistentAuth.githubAppCache?.installationId || null;
+      const beforeHasToken = !!persistentAuth.githubAppCache?.accessToken;
+
+      // 1) Wipe in-memory cache
+      persistentAuth.githubAppCache = null;
+
+      // 2) Wipe localStorage keys (the seven github_app_* keys)
+      let cleared = 0;
+      const appKeys = [
+        'github_app_installation_id',
+        'github_app_access_token',
+        'github_app_repositories',
+        'github_app_user_data',
+        'github_app_permissions',
+        'github_app_last_updated',
+        'github_app_token_expires',
+      ];
+      try {
+        for (const k of appKeys) {
+          if (typeof window !== 'undefined' && window.localStorage?.getItem(k) != null) {
+            window.localStorage.removeItem(k);
+            cleared++;
+          }
+        }
+      } catch (storageErr) {
+        recordSyncAction('clearGitHubAppCache', false, `localStorage remove failed: ${storageErr.message}`);
+        refreshSyncDebug();
+        return;
+      }
+
+      // 3) Remove any existing sync engine for the active universe so the
+      //    next setup attempt rebuilds the provider (picking OAuth this time).
+      try {
+        const universe = universeBackend.getActiveUniverse?.();
+        if (universe?.slug) {
+          await universeBackend.removeGitSyncEngine?.(universe.slug);
+        }
+      } catch { /* best effort */ }
+
+      recordSyncAction(
+        'clearGitHubAppCache',
+        true,
+        `was installId=${beforeInstallId || '(none)'} hadToken=${beforeHasToken}; removed ${cleared} localStorage keys; engine cleared. Tap "Retry sync engine" next.`
+      );
+    } catch (e) {
+      recordSyncAction('clearGitHubAppCache', false, e?.message || String(e));
+    }
+    refreshSyncDebug();
+  }, [recordSyncAction, refreshSyncDebug]);
+
   useEffect(() => {
     if (!debugMode) {
       setSyncDebugData(null);
@@ -14009,6 +14069,7 @@ function NodeCanvas() {
           actions={{
             onRetrySyncEngine: handleRetrySyncEngine,
             onForceSave: handleForceSaveDebug,
+            onClearGitHubAppCache: handleClearGitHubAppCache,
             onRefresh: refreshSyncDebug,
           }}
         />

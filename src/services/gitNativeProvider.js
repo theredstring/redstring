@@ -585,13 +585,23 @@ This repository was automatically initialized by Redstring UI React. You can now
         }
       });
 
-      // GitHub returns the authenticating user and granted scopes as headers
-      // on every authenticated response — even 404s. Capture them so we can
-      // distinguish "token has no access" from "token is for a different
-      // account" from "scopes too narrow for private repos."
-      const grantedScopes = response.headers.get('x-oauth-scopes') || response.headers.get('X-OAuth-Scopes');
-      const tokenUserLogin = response.headers.get('x-github-user-login') || response.headers.get('X-Github-User-Login');
-      const tokenContext = `[token user=${tokenUserLogin || '?'} scopes=${grantedScopes || '?'}]`;
+      // GitHub returns different identifying headers depending on the auth
+      // method: OAuth/PAT tokens get x-github-user-login + x-oauth-scopes;
+      // GitHub App installation tokens get x-github-installation-id (no user,
+      // because installs aren't user-scoped). Capture all of them so we can
+      // distinguish "wrong OAuth scope" from "App not installed on this repo"
+      // from "completely unauthenticated."
+      const grantedScopes = response.headers.get('x-oauth-scopes');
+      const acceptedScopes = response.headers.get('x-accepted-oauth-scopes');
+      const tokenUserLogin = response.headers.get('x-github-user-login');
+      const installationId = response.headers.get('x-github-installation-id');
+      const requestId = response.headers.get('x-github-request-id');
+      const authPrefix = (this.getAuthHeader?.() || '').split(' ')[0] || '?';
+      const tokenLen = this.token ? String(this.token).length : 0;
+      // First 4 chars of the token identify its *type* (ghs_=App installation,
+      // gho_=OAuth, ghp_=classic PAT, github_pat_=fine-grained). Not sensitive.
+      const tokenKind = this.token ? String(this.token).slice(0, 4) : '?';
+      const tokenContext = `[auth method=${this.authMethod || '?'} prefix='${authPrefix}' tokenKind=${tokenKind} tokenLen=${tokenLen} user=${tokenUserLogin || '?'} install=${installationId || '?'} scopes=${grantedScopes || '?'} reqId=${requestId || '?'}]`;
 
       if (response.ok) {
         this.lastUnavailableReason = null;

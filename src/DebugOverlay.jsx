@@ -188,6 +188,15 @@ const DebugOverlay = ({ debugData, hideOverlay, actions = null }) => {
               Force save now
             </button>
           )}
+          {actions.onClearGitHubAppCache && (
+            <button
+              onClick={actions.onClearGitHubAppCache}
+              style={{ ...diagButtonStyle, backgroundColor: '#3a1500', borderColor: '#c75200' }}
+              title="Wipe stored GitHub App installation data so next sync attempt uses OAuth instead. Useful when the App doesn't have access to the linked repo."
+            >
+              Clear GitHub App cache
+            </button>
+          )}
           {actions.onRefresh && (
             <button
               onClick={actions.onRefresh}
