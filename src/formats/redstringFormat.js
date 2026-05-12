@@ -1514,7 +1514,7 @@ export const importFromRedstring = (redstringData, storeActions) => {
     const extractedRightPanelTabs = uiState['redstring:rightPanelTabs'] || uiState.rightPanelTabs || [];
     const extractedSavedNodeIds = uiState['redstring:savedNodeIds'] || uiState.savedNodeIds || [];
     const extractedSavedGraphIds = uiState['redstring:savedGraphIds'] || uiState.savedGraphIds || [];
-    const extractedShowConnectionNames = uiState['redstring:showConnectionNames'] || uiState.showConnectionNames || false;
+    const extractedShowConnectionNames = uiState['redstring:showConnectionNames'] ?? uiState.showConnectionNames ?? true;
 
     // Return the converted state for file storage to use
     const storeState = {
@@ -1576,7 +1576,7 @@ export const importFromRedstring = (redstringData, storeActions) => {
         rightPanelTabs: [{ type: 'home', isActive: true }],
         savedNodeIds: new Set(),
         savedGraphIds: new Set(),
-        showConnectionNames: false
+        showConnectionNames: true
       },
       errors: [error.message]
     };

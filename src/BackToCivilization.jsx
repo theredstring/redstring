@@ -1,8 +1,10 @@
 import React, { useState, useEffect, useRef } from 'react';
 import './BackToCivilization.css';
+import { useViewportBounds } from './hooks/useViewportBounds';
+import useGraphStore from './store/graphStore.jsx';
 
-const BackToCivilization = ({ 
-  isVisible, 
+const BackToCivilization = ({
+  isVisible,
   onClick,
   panOffset,
   zoomLevel,
@@ -12,6 +14,14 @@ const BackToCivilization = ({
   clusteringEnabled = false,
   clusterInfo = {}
 }) => {
+  const leftPanelExpanded = useGraphStore(state => state.leftPanelExpanded);
+  const rightPanelExpanded = useGraphStore(state => state.rightPanelExpanded);
+  const typeListMode = useGraphStore(state => state.typeListMode);
+  const viewportBounds = useViewportBounds(
+    leftPanelExpanded,
+    rightPanelExpanded,
+    typeListMode !== 'closed'
+  );
   const [animationState, setAnimationState] = useState(null);
   const componentRef = useRef(null);
 
@@ -56,8 +66,10 @@ const BackToCivilization = ({
     return null;
   }
 
-  // Calculate position - center horizontally, slightly below header
-  const centerX = viewportSize.width / 2;
+  // Center within the usable viewport so the button doesn't sit behind panels
+  // on desktop. In exclusive (mobile-style) mode the hook returns full-window
+  // bounds, so the button stays centered on screen there too.
+  const centerX = viewportBounds.x + viewportBounds.width / 2;
   const centerY = 120; // Fixed position below header (header is ~80px)
 
   // Dynamic class name based on animation state

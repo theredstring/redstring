@@ -1,11 +1,15 @@
 import { useEffect, useMemo, useState } from 'react';
-import { HEADER_HEIGHT } from '../constants';
+import { HEADER_HEIGHT, EXCLUSIVE_PANEL_MODE_THRESHOLD } from '../constants';
 
 /**
  * Computes the central usable viewport bounds by subtracting left/right panel widths
  * and the bottom TypeList bar from window dimensions.
  * Accounts for collapsed panels by using 0 width when panels are not expanded.
  * Includes space for resizer handles when panels are expanded.
+ *
+ * In exclusive panel mode (narrow viewport — see EXCLUSIVE_PANEL_MODE_THRESHOLD),
+ * panels render as fixed overlays on top of the canvas rather than as flex
+ * siblings, so their widths must NOT be subtracted from the usable viewport.
  *
  * Listens to window resize and custom panel events:
  *  - panelWidthChanging, panelWidthChanged
@@ -48,28 +52,32 @@ export const useViewportBounds = (leftExpanded = true, rightExpanded = true, typ
   }, []);
 
   const bounds = useMemo(() => {
-    const effectiveLeftWidth = leftExpanded ? leftWidth : 0;
-    const effectiveRightWidth = rightExpanded ? rightWidth : 0;
-    
+    const isExclusiveMode = windowSize.w <= EXCLUSIVE_PANEL_MODE_THRESHOLD;
+    // In exclusive (mobile-style) mode, panels overlay the canvas rather than
+    // displacing it, so the usable viewport spans the full window width.
+    const effectiveLeftWidth = isExclusiveMode ? 0 : (leftExpanded ? leftWidth : 0);
+    const effectiveRightWidth = isExclusiveMode ? 0 : (rightExpanded ? rightWidth : 0);
+
     // In flexbox layout, the canvas area starts immediately after the left panel
     // and extends to the right panel, with no additional margins
     const x = effectiveLeftWidth;
     const y = HEADER_HEIGHT; // The header is at 0,0, so canvas starts at HEADER_HEIGHT
     const width = windowSize.w - effectiveLeftWidth - effectiveRightWidth;
     const height = windowSize.h - HEADER_HEIGHT - (typeListVisible ? HEADER_HEIGHT : 0);
-    
-    return { 
-      x, 
-      y, 
-      width, 
-      height, 
-      leftWidth: effectiveLeftWidth, 
-      rightWidth: effectiveRightWidth, 
-      windowWidth: windowSize.w, 
-      windowHeight: windowSize.h, 
+
+    return {
+      x,
+      y,
+      width,
+      height,
+      leftWidth: effectiveLeftWidth,
+      rightWidth: effectiveRightWidth,
+      windowWidth: windowSize.w,
+      windowHeight: windowSize.h,
       bottomReserved: typeListVisible ? HEADER_HEIGHT : 0,
       leftHandleSpace: 0, // No handle space needed in flexbox layout
-      rightHandleSpace: 0
+      rightHandleSpace: 0,
+      isExclusiveMode
     };
   }, [leftWidth, rightWidth, windowSize, typeListHeight, leftExpanded, rightExpanded, typeListVisible]);
 

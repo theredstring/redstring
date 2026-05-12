@@ -4280,6 +4280,7 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
 
         set({
           ...storeState,
+          showConnectionNames: currentState.showConnectionNames, // Preserve local view preference
           isUniverseLoaded: true,
           isUniverseLoading: false,
           universeLoadingError: null,

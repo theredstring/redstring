@@ -400,9 +400,14 @@ const EdgeGlowIndicator = ({
       {offScreenGlows.map(glow => {
         const { id, screenX, screenY, color, intensity, edge } = glow;
 
-        // Flare sizing: extend further out while staying anchored at same spot
-        const flareLength = 14 + intensity * 6; // px - reduced from 20+10 to 14+6 for smaller size
-        const flareThickness = 28 + intensity * 8; // px - increased from 16+4 to 28+8 for more spread
+        // Flare sizing: extend further out while staying anchored at same spot.
+        // Slightly smaller on narrow (mobile-style) viewports.
+        const flareLength = viewportBounds.isExclusiveMode
+          ? 10 + intensity * 4
+          : 14 + intensity * 6;
+        const flareThickness = viewportBounds.isExclusiveMode
+          ? 20 + intensity * 6
+          : 28 + intensity * 8;
 
         // Orientation by edge
         const rotation = edge === 'left' ? 0
