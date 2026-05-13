@@ -138,6 +138,7 @@ const UnifiedBottomControlPanel = ({
   // Optional dismiss handler — shown as a drag handle at the top of the panel in narrow nodes mode
   onDismiss,
 }) => {
+  const theme = useTheme();
   const [animationState, setAnimationState] = useState('entering');
   const [shouldRender, setShouldRender] = useState(true);
   const nodeGroupPreviewRef = useRef(null);
@@ -785,12 +786,11 @@ const UnifiedBottomControlPanel = ({
                   onClick={(e) => {
                     if (onPalette) {
                       const rect = e.currentTarget.getBoundingClientRect();
+                      const activeNode = selectedNodes?.[0];
                       const buttonCenter = {
                         x: rect.left + rect.width / 2,
                         y: rect.top,
-                        color: node.isGroup
-                          ? getTextColor(theme.canvas.bg, theme.darkMode)
-                          : getTextColor(node.color || '#800000', theme.darkMode),
+                        color: getTextColor(activeNode?.color || '#800000', theme.darkMode),
                       };
                       onPalette(buttonCenter);
                     } else if (onOpenInPanel) {

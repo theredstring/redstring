@@ -209,6 +209,10 @@ const UnifiedSelector = ({
           zIndex: 999999,
           display: 'flex',
           flexDirection: 'column',
+          // On mobile, vertically center the dialog inside the bounds rather
+          // than letting it sit at the top. The dialog already uses
+          // alignSelf: 'center' for the horizontal axis.
+          justifyContent: mobileState.isMobile ? 'center' : 'flex-start',
           gap: isSmallScreen ? '12px' : '18px',
           pointerEvents: 'none'
         }}

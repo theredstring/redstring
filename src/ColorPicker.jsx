@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Palette, Trash2 } from 'lucide-react';
 import { useTheme } from './hooks/useTheme.js';
+import useMobileDetection from './hooks/useMobileDetection';
 import { cssColorToHex } from './utils/colorUtils';
 import PanelIconButton from './components/shared/PanelIconButton.jsx';
 
@@ -15,6 +16,7 @@ const ColorPicker = ({
   onDelete
 }) => {
   const theme = useTheme();
+  const mobileState = useMobileDetection();
   // Preset colors
   const [selectedHue, setSelectedHue] = useState(0);
   const [selectedSaturation, setSelectedSaturation] = useState(100);
@@ -173,6 +175,19 @@ const ColorPicker = ({
     const pickerWidth = 240; // minWidth from the picker style
     // Update pickerHeight estimate for new sliders
     const pickerHeight = 320;
+
+    // On mobile, center the picker on the viewport on both axes. The trigger
+    // is usually at the bottom edge (control panel buttons) which puts the
+    // anchored picker awkwardly low; centering is more usable on a phone.
+    if (mobileState.isMobile) {
+      return {
+        position: 'fixed',
+        left: '50%',
+        top: '50%',
+        transform: 'translate(-50%, -50%)',
+        zIndex: 30000
+      };
+    }
 
     let left, right, top;
 
