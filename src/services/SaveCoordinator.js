@@ -227,32 +227,48 @@ class SaveCoordinator {
       showConnectionNames
     };
 
-    this.saveWorker.postMessage({
-      type: 'process_save',
-      state: cleanState,
-      userDomain: null
-    });
-
-    // Keep reference for fallback/Git sync
-    this.lastState = this.nextStateToProcess;
+    // Capture state and start the watchdog BEFORE postMessage. If postMessage
+    // throws (DataCloneError from unserializable state, worker channel closed,
+    // OOM), we want lastState to be set and the watchdog armed so recovery
+    // still happens. Previously the throw skipped both, latching
+    // workerProcessing=true forever with no watchdog to clear it — exactly
+    // the state the user hit on iOS (workerProcessing:true, hasLastState:false,
+    // workerWatchdogPending:false).
+    const stateToSend = this.nextStateToProcess;
+    this.lastState = stateToSend;
     this.nextStateToProcess = null;
 
-    // Start the stall watchdog. If the worker doesn't post back within
-    // WORKER_STALL_MS (typical desktop response: <50ms; mobile under load:
-    // 100-500ms), we assume it's stuck and dispatch a main-thread save so
-    // the user's edits aren't stranded behind a dead worker. The save path
-    // already tolerates a null pendingHash/pendingString (fileStorage and
-    // gitSyncEngine serialize internally), so this is a safe fallback. If
-    // the worker eventually responds with the same hash the main-thread
-    // path already computed, the callback is a no-op (line 117 dedupes on
-    // lastSaveHash). Kept short (3s) so autosave doesn't visibly stall on
-    // mobile where the worker is most likely to be the bottleneck.
     if (this.workerWatchdogTimer) clearTimeout(this.workerWatchdogTimer);
     const WORKER_STALL_MS = 3000;
     this.workerWatchdogTimer = setTimeout(() => {
       this.workerWatchdogTimer = null;
       this._handleWorkerStall('timeout');
     }, WORKER_STALL_MS);
+
+    try {
+      this.saveWorker.postMessage({
+        type: 'process_save',
+        state: cleanState,
+        userDomain: null
+      });
+    } catch (postErr) {
+      // structured clone failed (DataCloneError) or worker channel is dead.
+      // Drop the worker so future sends use the main-thread path directly,
+      // and immediately dispatch a main-thread save with the captured state
+      // — don't wait for the 3s watchdog when we already know it failed.
+      console.warn('[SaveCoordinator] postMessage to save worker threw — switching to main-thread save:', postErr);
+      try { this.saveWorker?.terminate?.(); } catch { /* noop */ }
+      this.saveWorker = null;
+      if (this.workerWatchdogTimer) {
+        clearTimeout(this.workerWatchdogTimer);
+        this.workerWatchdogTimer = null;
+      }
+      this.workerProcessing = false;
+      // Re-queue the state so _processSaveOnMainThread picks it up. lastState
+      // is already set above; restore nextStateToProcess so the main-thread
+      // helper has something to process.
+      this._processSaveOnMainThread(stateToSend);
+    }
   }
 
   // Recover from a stalled or crashed worker. Reuses the main-thread save

@@ -267,7 +267,18 @@ const diagButtonStyle = {
 };
 
 const SectionRow = ({ label, value, mono = true }) => (
-  <div style={{ display: 'flex', gap: 6, padding: '2px 0', borderBottom: '1px solid rgba(255,255,255,0.07)' }}>
+  <div style={{
+    display: 'flex',
+    gap: 6,
+    padding: '2px 0',
+    borderBottom: '1px solid rgba(255,255,255,0.07)',
+    // The outer overlay sets touchAction:'none' for drag-to-move, which also
+    // disables tap-and-hold selection on mobile. Re-enable per-row so users
+    // can long-press to select an individual value.
+    userSelect: 'text',
+    WebkitUserSelect: 'text',
+    touchAction: 'auto',
+  }}>
     <span style={{ color: '#9aa', minWidth: 110, flexShrink: 0 }}>{label}</span>
     <span style={{
       color: '#EFE8E5',
@@ -289,10 +300,148 @@ const Section = ({ title, children, tone = '#66d9ef', headerExtra = null }) => (
   </div>
 );
 
+const formatSection = (title, rows) => {
+  const lines = [`## ${title}`];
+  for (const [label, value] of rows) {
+    const formatted = value === null || value === undefined
+      ? '—'
+      : typeof value === 'object'
+        ? JSON.stringify(value)
+        : String(value);
+    lines.push(`  ${label}: ${formatted}`);
+  }
+  return lines.join('\n');
+};
+
+const CopyAllDiagnosticsButton = ({ data }) => {
+  const [label, setLabel] = useState('Copy all');
+  const onCopy = useCallback(async () => {
+    const { device, auth, universe, engine, saveCoordinator, lastActions, _meta } = data || {};
+    const blocks = [];
+    blocks.push(`# Sync Diagnostics  (${new Date().toISOString()})`);
+    if (_meta?.notice) blocks.push(`> ${_meta.notice}`);
+    if (device) blocks.push(formatSection('Device', [
+      ['userAgent', device.userAgent],
+      ['isMobile', device.isMobile],
+      ['isTouch', device.isTouch],
+      ['hasFileAccess', device.hasFileAccess],
+      ['isGitOnlyMode', device.isGitOnlyMode],
+      ['sourceOfTruth (default)', device.defaultSourceOfTruth],
+    ]));
+    if (auth) blocks.push(formatSection('Auth', [
+      ['isAuthenticated', auth.isAuthenticated],
+      ['authType', auth.authType],
+      ['user', auth.user],
+      ['oauthScope', auth.oauthScope],
+      ['appInstallationId', auth.appInstallationId],
+      ['tokenExpiresAt', auth.tokenExpiresAt],
+      ['tokenSource', auth.tokenSource],
+      ['hasOauthInMemory', auth.hasOauthInMemory],
+      ['hasAppInMemory', auth.hasAppInMemory],
+      ['hasOauthStored', auth.hasOauthStored],
+      ['hasAppStored', auth.hasAppStored],
+    ]));
+    if (universe) blocks.push(formatSection('Active universe', [
+      ['slug', universe.slug],
+      ['name', universe.name],
+      ['gitRepo.enabled', universe.gitEnabled],
+      ['gitRepo.linkedRepo', universe.linkedRepo],
+      ['gitRepo.universeFolder', universe.universeFolder],
+      ['gitRepo.universeFile', universe.universeFile],
+      ['sourceOfTruth', universe.sourceOfTruth],
+      ['nodeCount', universe.nodeCount],
+    ]));
+    if (engine) blocks.push(formatSection('Sync engine', [
+      ['hasEngine', engine.hasEngine],
+      ['isRunning', engine.isRunning],
+      ['isHealthy', engine.isHealthy],
+      ['isInBackoff', engine.isInBackoff],
+      ['consecutiveErrors', engine.consecutiveErrors],
+      ['pendingCommits', engine.pendingCommits],
+      ['lastCommitTime', engine.lastCommitTime],
+      ['lastErrorTime', engine.lastErrorTime],
+      ['lastError', engine.lastError],
+      ['statusLabel', engine.statusLabel],
+    ]));
+    if (saveCoordinator) blocks.push(formatSection('Save coordinator', [
+      ['isEnabled', saveCoordinator.isEnabled],
+      ['isSaving', saveCoordinator.isSaving],
+      ['isDirty', saveCoordinator.isDirty],
+      ['hasUnsavedChanges', saveCoordinator.hasUnsavedChanges],
+      ['pendingHash', saveCoordinator.pendingHashSet],
+      ['pendingString', saveCoordinator.pendingStringSet],
+      ['lastSaveHash', saveCoordinator.lastSaveHashSet],
+      ['hasLastState', saveCoordinator.hasLastState],
+      ['hasNextStateToProcess', saveCoordinator.hasNextStateToProcess],
+      ['hasSaveWorker', saveCoordinator.hasSaveWorker],
+      ['workerProcessing', saveCoordinator.workerProcessing],
+      ['workerDirty', saveCoordinator.workerDirty],
+      ['workerWatchdogPending', saveCoordinator.workerWatchdogPending],
+      ['saveTimerPending', saveCoordinator.saveTimerPending],
+      ['workerTimerPending', saveCoordinator.workerTimerPending],
+      ['isGlobalDragging', saveCoordinator.isGlobalDragging],
+      ['msSinceInteractionStart', saveCoordinator.msSinceInteractionStart],
+      ['msSinceInteractionEnd', saveCoordinator.msSinceInteractionEnd],
+      ['hasLoadedFromFile', saveCoordinator.hasLoadedFromFile],
+      ['hasFileStorage', saveCoordinator.hasFileStorage],
+      ['hasGitSyncEngine', saveCoordinator.hasGitSyncEngine],
+      ['gitEngineHealthy', saveCoordinator.gitEngineHealthy],
+      ...(saveCoordinator.error ? [['error', saveCoordinator.error]] : []),
+    ]));
+    if (Array.isArray(lastActions) && lastActions.length > 0) {
+      const rows = lastActions
+        .slice()
+        .reverse()
+        .map((e) => [`[${e.ts}] ${e.label}`, `${e.ok ? 'ok' : 'failed'}${e.detail ? ` — ${e.detail}` : ''}`]);
+      blocks.push(formatSection('Recent actions', rows));
+    }
+    const text = blocks.join('\n\n');
+    try {
+      if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(text);
+      } else {
+        const ta = document.createElement('textarea');
+        ta.value = text;
+        ta.style.position = 'fixed';
+        ta.style.opacity = '0';
+        document.body.appendChild(ta);
+        ta.focus();
+        ta.select();
+        try { document.execCommand('copy'); } finally { document.body.removeChild(ta); }
+      }
+      setLabel('Copied!');
+    } catch {
+      setLabel('Copy failed');
+    }
+    setTimeout(() => setLabel('Copy all'), 1500);
+  }, [data]);
+  return (
+    <button
+      onClick={onCopy}
+      style={{
+        background: '#1a1a1a',
+        border: '1px solid #444',
+        color: '#EFE8E5',
+        fontSize: 11,
+        padding: '3px 8px',
+        borderRadius: 4,
+        cursor: 'pointer',
+        fontFamily: 'monospace',
+      }}
+    >
+      {label}
+    </button>
+  );
+};
+
 const SyncDiagnostics = ({ data }) => {
   const { _sync, device, auth, universe, engine, saveCoordinator, lastActions, _meta } = data;
   return (
     <div>
+      <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 8 }}>
+        <CopyAllDiagnosticsButton data={data} />
+      </div>
+
       {_meta?.notice && (
         <div style={{
           padding: '6px 8px',
