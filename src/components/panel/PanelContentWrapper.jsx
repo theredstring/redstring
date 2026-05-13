@@ -65,7 +65,7 @@ const PanelContentWrapper = memo(({
       // If no defining node or defining node doesn't exist, create a fallback node data object from the graph
       return {
         id: activeGraphId,
-        name: currentGraph.name || 'Untitled Graph',
+        name: currentGraph.name || 'New Thing',
         description: currentGraph.description || '',
         color: currentGraph.color || theme.accent.primary,
         typeNodeId: null,

@@ -234,7 +234,7 @@ const buildGraphSummaries = (state) => {
 
     summaries[graphId] = {
       id: graphId,
-      name: graph?.name || 'Untitled Graph',
+      name: graph?.name || 'New Thing',
       description: graph?.description || '',
       nodeCount: instances.length,
       edgeCount: edges.length,

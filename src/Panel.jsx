@@ -1590,9 +1590,10 @@ const Panel = memo(forwardRef(
         setEditingProjectTitle(false); // Still stop editing
         return;
       }
-      const newName = tempProjectTitle.trim() || 'Untitled';
-      // Call store action directly (using prop and current ID)
-      updateGraph(currentActiveId, draft => { draft.name = newName; });
+      const newName = tempProjectTitle.trim();
+      if (newName) {
+        updateGraph(currentActiveId, draft => { draft.name = newName; });
+      }
       setEditingProjectTitle(false);
     };
 

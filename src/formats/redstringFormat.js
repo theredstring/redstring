@@ -509,7 +509,7 @@ const buildGraphSummariesSnapshot = (graphs, nodePrototypes, edges) => {
 
     summaries[graphId] = {
       id: graphId,
-      name: graph?.name || 'Untitled Graph',
+      name: graph?.name || 'New Thing',
       description: graph?.description || '',
       nodeCount: instanceEntries.length,
       edgeCount: edgeEntries.length,
@@ -879,7 +879,7 @@ export const exportToRedstring = (storeState, userDomain = null) => {
       "version": CURRENT_FORMAT_VERSION,
       "created": new Date().toISOString(),
       "modified": new Date().toISOString(),
-      "title": (activeGraphId && graphs.get(activeGraphId)?.name) || "Untitled Space",
+      "title": (activeGraphId && graphs.get(activeGraphId)?.name) || "New Thing",
       "description": (activeGraphId && graphs.get(activeGraphId)?.description) || "",
       "domain": userDomain || null,
       "userURIs": userURIs,

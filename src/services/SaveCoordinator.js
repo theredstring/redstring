@@ -572,10 +572,21 @@ class SaveCoordinator {
           this.gitSyncEngine.updateState(state);
         }
 
-        // Update save hash after initiating save
+        // Update save hash after initiating save. If pendingHash is missing
+        // (worker stalled and we fell back to main-thread dispatch), compute
+        // it now via the same FNV-1a logic the worker uses — otherwise the
+        // next worker callback would see hash !== lastSaveHash and re-mark
+        // dirty, restarting the autosave loop and stranding the indicator
+        // on "Saving..." even after the data has been persisted.
         if (pendingHash) {
           this.lastSaveHash = pendingHash;
           this.pendingHash = null;
+        } else if (state) {
+          try {
+            this.lastSaveHash = this.generateStateHash(state);
+          } catch (hashErr) {
+            console.warn('[SaveCoordinator] Main-thread hash after fallback save failed:', hashErr);
+          }
         }
 
         // Update the data baseline now that this state has been written to
@@ -646,6 +657,17 @@ class SaveCoordinator {
       this.pendingRedstringData = null;
       this.pendingHash = null;
       this.isSaving = false;
+
+      // Update lastSaveHash so a worker callback that arrives after this
+      // force-save (worker was mid-process when the user clicked Save Now)
+      // doesn't see hash !== lastSaveHash and instantly re-mark dirty —
+      // which is what was stranding the indicator on "Saving..." right
+      // after the user did a successful manual save on mobile.
+      try {
+        this.lastSaveHash = this.generateStateHash(state);
+      } catch (hashErr) {
+        console.warn('[SaveCoordinator] Hash after forceSave failed:', hashErr);
+      }
 
       // Force save is user-triggered intent — accept the new shape as the
       // baseline (whether it grew, shrank, or cleared). Otherwise the next

@@ -1355,7 +1355,9 @@ const SharedPanelContent = ({
   };
 
   const handleTitleSave = () => {
-    onNodeUpdate({ ...nodeData, name: tempTitle });
+    if (tempTitle.trim()) {
+      onNodeUpdate({ ...nodeData, name: tempTitle });
+    }
     setIsEditingTitle(false);
   };
 

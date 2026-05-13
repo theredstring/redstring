@@ -28,7 +28,7 @@ export function getGraphById(store, graphId) {
   
   return {
     id: graphId,
-    name: graph.name || 'Untitled Graph',
+    name: graph.name || 'New Thing',
     instances: graph.instances || new Map(),
     edgeIds: graph.edgeIds || [],
     metadata: {
@@ -205,7 +205,7 @@ export function listAllGraphs(store) {
       
       graphs.push({
         id: graphId,
-        name: graph.name || 'Untitled Graph',
+        name: graph.name || 'New Thing',
         nodeCount: instanceCount,
         edgeCount: (graph.edgeIds || []).length,
         isActive: graphId === store.activeGraphId
@@ -221,7 +221,7 @@ export function listAllGraphs(store) {
       
       graphs.push({
         id: graph.id,
-        name: graph.name || 'Untitled Graph',
+        name: graph.name || 'New Thing',
         nodeCount: instanceCount,
         edgeCount: (graph.edgeIds || []).length,
         isActive: graph.id === store.activeGraphId

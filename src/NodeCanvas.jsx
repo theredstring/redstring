@@ -808,7 +808,7 @@ function NodeCanvas() {
 
       return {
         id: graph.id,
-        name: graph.name || 'Untitled Graph',
+        name: graph.name || 'New Thing',
         color: nodeColor,
         isActive: graph.id === activeGraphId,
         definingNodeId,
@@ -7644,11 +7644,8 @@ function NodeCanvas() {
   const handleProjectTitleChange = (newTitle) => {
     // Get CURRENT activeGraphId directly from store
     const currentActiveId = useGraphStore.getState().activeGraphId;
-    if (currentActiveId) {
-      // Use localStoreActions
-      storeActions.updateGraph(currentActiveId, draft => { draft.name = newTitle || 'Untitled'; });
-    } else {
-      // 
+    if (currentActiveId && newTitle && newTitle.trim()) {
+      storeActions.updateGraph(currentActiveId, draft => { draft.name = newTitle; });
     }
   };
 
@@ -12875,7 +12872,9 @@ function NodeCanvas() {
                           isPreviewing={isPreviewing}
                           isEditingOnCanvas={node.id === editingNodeIdOnCanvas}
                           onCommitCanvasEdit={(instanceId, newName, isRealTime = false) => {
-                            storeActions.updateNodePrototype(node.prototypeId, draft => { draft.name = newName; });
+                            if (newName && newName.trim()) {
+                              storeActions.updateNodePrototype(node.prototypeId, draft => { draft.name = newName; });
+                            }
                             if (!isRealTime) setEditingNodeIdOnCanvas(null);
                           }}
                           onCancelCanvasEdit={() => setEditingNodeIdOnCanvas(null)}
@@ -13140,7 +13139,9 @@ function NodeCanvas() {
                                   isPreviewing={isPreviewing}
                                   isEditingOnCanvas={activeNodeToRender.id === editingNodeIdOnCanvas}
                                   onCommitCanvasEdit={(instanceId, newName, isRealTime = false) => {
-                                    storeActions.updateNodePrototype(activeNodeToRender.prototypeId, draft => { draft.name = newName; });
+                                    if (newName && newName.trim()) {
+                                      storeActions.updateNodePrototype(activeNodeToRender.prototypeId, draft => { draft.name = newName; });
+                                    }
                                     if (!isRealTime) setEditingNodeIdOnCanvas(null);
                                   }}
                                   onCancelCanvasEdit={() => setEditingNodeIdOnCanvas(null)}
@@ -13236,7 +13237,9 @@ function NodeCanvas() {
                                 isPreviewing={isPreviewing}
                                 isEditingOnCanvas={draggingNodeToRender.id === editingNodeIdOnCanvas}
                                 onCommitCanvasEdit={(instanceId, newName, isRealTime = false) => {
-                                  storeActions.updateNodePrototype(draggingNodeToRender.prototypeId, draft => { draft.name = newName; });
+                                  if (newName && newName.trim()) {
+                                    storeActions.updateNodePrototype(draggingNodeToRender.prototypeId, draft => { draft.name = newName; });
+                                  }
                                   if (!isRealTime) setEditingNodeIdOnCanvas(null);
                                 }}
                                 onCancelCanvasEdit={() => setEditingNodeIdOnCanvas(null)}

@@ -119,7 +119,7 @@ const _createAndAssignGraphDefinition = (draft, prototypeId) => {
   }
 
   const newGraphId = uuidv4();
-  const newGraphName = prototype.name || 'Untitled Definition';
+  const newGraphName = prototype.name || 'New Thing';
 
   const newGraphData = {
     id: newGraphId,
@@ -870,7 +870,7 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
         const defGraphId = uuidv4();
         const defGraphData = {
           id: defGraphId,
-          name: prototype.name || 'Untitled Definition',
+          name: prototype.name || 'New Thing',
           description: '',
           picture: null,
           color: prototype.color || NODE_DEFAULT_COLOR,
@@ -2952,7 +2952,7 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
         }
         const newGraphData = {
           id: graphId,
-          name: prototype.name || 'Untitled Definition',
+          name: prototype.name || 'New Thing',
           description: '',
           picture: null,
           color: prototype.color || NODE_DEFAULT_COLOR,
@@ -3353,7 +3353,7 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
         definingNodeId = uuidv4();
         const definingNodeData = {
           id: definingNodeId,
-          name: graph.name || 'Untitled Graph',
+          name: graph.name || 'New Thing',
           description: graph.description || '',
           picture: '',
           color: NODE_DEFAULT_COLOR,
