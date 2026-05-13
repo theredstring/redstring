@@ -1023,19 +1023,17 @@ export const useCanvasTouch = ({
                     pendingNodeTapRef.current = null;
                 }
                 const tapNodeId = nodeData.id;
-                const tapShift = !!e.shiftKey;
-                const tapMeta = !!e.metaKey;
                 const timer = setTimeout(() => {
                     pendingNodeTapRef.current = null;
                     const currentSelection = selectedInstanceIdsRef.current;
                     const wasSelected = currentSelection.has(tapNodeId);
                     setSelectedInstanceIds(prev => {
                         const newSelected = new Set(prev);
-                        if (tapShift || tapMeta) {
-                            if (newSelected.has(tapNodeId)) newSelected.delete(tapNodeId);
-                            else newSelected.add(tapNodeId);
+                        if (wasSelected) {
+                            if (tapNodeId !== previewingNodeId) {
+                                newSelected.delete(tapNodeId);
+                            }
                         } else {
-                            newSelected.clear();
                             newSelected.add(tapNodeId);
                         }
                         return newSelected;
