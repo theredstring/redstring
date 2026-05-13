@@ -264,12 +264,43 @@ const DraggableOrbitItem = ({ candidate, x, y, rightPanelExpanded, onNodeClick, 
   const cy = y + currentHeight / 2;
   const baseOpacity = isDragging ? 0.3 : (isHovered ? 1.0 : 0.85);
 
+  // Tap tracking: fire onClick on touchend (finger up), not touchstart, and only if movement
+  // stayed within slop and react-dnd didn't claim this as a drag.
+  const touchRef = useRef({ startX: 0, startY: 0, moved: false });
+  const handleTouchStart = (e) => {
+    const t = e.touches?.[0];
+    if (!t) return;
+    touchRef.current = { startX: t.clientX, startY: t.clientY, moved: false };
+  };
+  const handleTouchMove = (e) => {
+    const t = e.touches?.[0];
+    if (!t || touchRef.current.moved) return;
+    const dx = t.clientX - touchRef.current.startX;
+    const dy = t.clientY - touchRef.current.startY;
+    if (dx * dx + dy * dy > 100) touchRef.current.moved = true; // >10px
+  };
+  const handleTouchEnd = (e) => {
+    if (touchRef.current.moved || isDragging) return;
+    if (e.cancelable) e.preventDefault(); // suppress the synthetic click that follows
+    e.stopPropagation();
+    onClick?.(candidate, x, y, { currentWidth, currentHeight });
+  };
+
   return (
     <g
       ref={drag}
       transform={ease < 1 ? `translate(${cx}, ${cy}) scale(${ease}) translate(${-cx}, ${-cy})` : undefined}
-      style={{ opacity: baseOpacity * ease, transition: ease >= 1 ? 'opacity 0.2s ease' : undefined, cursor: 'pointer' }}
+      style={{
+        opacity: baseOpacity * ease,
+        transition: ease >= 1 ? 'opacity 0.2s ease' : undefined,
+        cursor: 'pointer',
+        WebkitTapHighlightColor: 'transparent',
+        touchAction: 'manipulation',
+      }}
       onClick={(e) => { e.stopPropagation(); onClick?.(candidate, x, y, { currentWidth, currentHeight }); }}
+      onTouchStart={handleTouchStart}
+      onTouchMove={handleTouchMove}
+      onTouchEnd={handleTouchEnd}
       onMouseEnter={() => onHover?.(candidate.id)}
       onMouseLeave={() => onHoverEnd?.()}
     >

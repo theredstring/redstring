@@ -3388,6 +3388,11 @@ function NodeCanvas() {
     } else {
       send();
     }
+
+    try {
+      storeActions.setSelectedEdgeId(null);
+      storeActions.setSelectedEdgeIds(new Set());
+    } catch { }
   }, [buildWizardConnectionPrompt, storeActions]);
 
   const buildWizardNodeDefinitionPrompt = useCallback((prototype, opts = {}) => {
@@ -3618,6 +3623,8 @@ function NodeCanvas() {
     } else {
       send();
     }
+
+    setSelectedInstanceIds(new Set());
   }, [buildWizardNodeDefinitionPrompt, storeActions]);
 
   // Listen for "Ask The Wizard" requests dispatched from the right panel's empty-components row.
