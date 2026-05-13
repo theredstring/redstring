@@ -174,6 +174,7 @@ const UnifiedSelector = ({
   const content = (
     <>
       <div
+        className="unified-selector-overlay"
         style={{
           position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.3)',
           backdropFilter: 'blur(2px)', WebkitBackdropFilter: 'blur(2px)', zIndex: 999998,
@@ -200,6 +201,7 @@ const UnifiedSelector = ({
       />
 
       <div
+        className="unified-selector-overlay"
         style={{
           position: 'fixed',
           left: `${Math.round(bounds.x + overlayMargin)}px`,

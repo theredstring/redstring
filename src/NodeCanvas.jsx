@@ -13185,11 +13185,13 @@ function NodeCanvas() {
                             onClick={(e) => {
                               const down = orbitClickDownPos.current;
                               orbitClickDownPos.current = null;
-                              if (down) {
-                                const dx = e.clientX - down.x;
-                                const dy = e.clientY - down.y;
-                                if (dx * dx + dy * dy > 25) return; // moved >5px = was a pan
-                              }
+                              // No matching mousedown means this is a synthesized click after a
+                              // touch gesture (pan) — ignore. Real mouse clicks always come with
+                              // a mousedown right before.
+                              if (!down) return;
+                              const dx = e.clientX - down.x;
+                              const dy = e.clientY - down.y;
+                              if (dx * dx + dy * dy > 25) return; // moved >5px = was a pan
                               e.stopPropagation();
                               exitOrbitMode();
                             }}
@@ -13200,14 +13202,16 @@ function NodeCanvas() {
                             onTouchEnd={(e) => {
                               const down = orbitClickDownPos.current;
                               orbitClickDownPos.current = null;
-                              const t = e.changedTouches?.[0];
-                              if (down && t) {
-                                const dx = t.clientX - down.x;
-                                const dy = t.clientY - down.y;
-                                if (dx * dx + dy * dy > 25) return; // was a pan
-                              }
+                              // Always suppress the synthetic click that follows touchend, so a
+                              // pan-then-lift doesn't fall through to the click handler and exit.
                               if (e.cancelable) e.preventDefault();
                               e.stopPropagation();
+                              if (!down) return; // unmatched touchend (touch started elsewhere)
+                              const t = e.changedTouches?.[0];
+                              if (!t) return;
+                              const dx = t.clientX - down.x;
+                              const dy = t.clientY - down.y;
+                              if (dx * dx + dy * dy > 25) return; // was a pan
                               exitOrbitMode();
                             }}
                           />

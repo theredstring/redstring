@@ -504,10 +504,19 @@ const AbstractionCarousel = ({
     const nodeCenterX = selectedNode.x + nodeDimensions.currentWidth / 2;
     const nodeCenterY = selectedNode.y + nodeDimensions.currentHeight / 2;
 
+    // getBoundingClientRect() returns coords in the visual viewport, but our
+    // wrapper uses position: fixed which anchors to the layout viewport. On iOS
+    // (Chrome/Safari) the URL bar collapsing/expanding shifts the visual viewport
+    // relative to the layout viewport — add visualViewport.offsetTop/offsetLeft
+    // so the carousel stays centered on the node instead of drifting upward.
+    const vv = typeof window !== 'undefined' ? window.visualViewport : null;
+    const vvOffsetTop = vv?.offsetTop || 0;
+    const vvOffsetLeft = vv?.offsetLeft || 0;
+
     // Convert canvas coordinates to screen coordinates
     // Match the canvas transform: translate(${panOffset.x - canvasSize.offsetX * zoomLevel}px, ${panOffset.y - canvasSize.offsetY * zoomLevel}px) scale(${zoomLevel})
-    const screenX = nodeCenterX * zoomLevel + (panOffset.x - canvasSize.offsetX * zoomLevel) + containerRect.left;
-    const screenY = nodeCenterY * zoomLevel + (panOffset.y - canvasSize.offsetY * zoomLevel) + containerRect.top;
+    const screenX = nodeCenterX * zoomLevel + (panOffset.x - canvasSize.offsetX * zoomLevel) + containerRect.left + vvOffsetLeft;
+    const screenY = nodeCenterY * zoomLevel + (panOffset.y - canvasSize.offsetY * zoomLevel) + containerRect.top + vvOffsetTop;
 
     const finalPosition = { x: screenX, y: screenY };
 
@@ -558,6 +567,23 @@ const AbstractionCarousel = ({
     } else {
       setHintOpacity(0);
     }
+  }, [isVisible]);
+
+  // iOS URL-bar collapse/expand shifts the visual viewport but doesn't fire
+  // window resize — listen on visualViewport so the carousel re-anchors to the
+  // node when the address bar appears/disappears.
+  const [, setViewportTick] = useState(0);
+  useEffect(() => {
+    if (!isVisible) return;
+    const vv = typeof window !== 'undefined' ? window.visualViewport : null;
+    if (!vv) return;
+    const bump = () => setViewportTick(t => t + 1);
+    vv.addEventListener('resize', bump);
+    vv.addEventListener('scroll', bump);
+    return () => {
+      vv.removeEventListener('resize', bump);
+      vv.removeEventListener('scroll', bump);
+    };
   }, [isVisible]);
 
   // Physics update loop using reducer
@@ -986,9 +1012,14 @@ const AbstractionCarousel = ({
         const isOnControlPanel = e.target.closest('.abstraction-control-panel');
         const isOnPieMenu = e.target.closest('.pie-menu');
         const isOnCanvas = e.target.closest('.canvas');
+        // When a UnifiedSelector dialog (e.g. Add-Above/Add-Below) is open over
+        // the carousel, its backdrop covers the screen. On iOS Chrome the
+        // pie-menu tap's delayed synthetic mousedown can land on that backdrop
+        // after re-render, triggering this handler and dismissing the carousel.
+        const isOnModalOverlay = e.target.closest('.unified-selector-overlay');
 
         // Only close if the click is not on any of these elements
-        if (!isOnControlPanel && !isOnPieMenu && !isOnCanvas) {
+        if (!isOnControlPanel && !isOnPieMenu && !isOnCanvas && !isOnModalOverlay) {
           onClose();
         }
       }

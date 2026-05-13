@@ -25,7 +25,7 @@
     "bump-version": "node scripts/bump-version.js",
     "dev": "vite",
     "electron:dev": "concurrently -k \"npm run oauth\" \"npm run dev\" \"wait-on http://localhost:4001 && cross-env NODE_ENV=development electron .\"",
-    "bundle:agent": "esbuild agent-server.js --bundle --platform=node --format=cjs --outfile=agent-server.bundle.cjs",
+    "bundle:agent": "esbuild agent-server.js --bundle --platform=node --format=cjs --outfile=agent-server.bundle.cjs --log-override:empty-import-meta=silent",
     "electron:build": "npm run build && npm run bundle:agent && electron-builder",
     "electron:build:mac": "npm run build && npm run bundle:agent && electron-builder --mac",
     "electron:build:win": "npm run build && npm run bundle:agent && electron-builder --win",

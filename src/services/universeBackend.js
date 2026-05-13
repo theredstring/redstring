@@ -1954,6 +1954,33 @@ class UniverseBackend {
               return false;
             }
 
+            // Defense-in-depth wipe guard. SaveCoordinator has its own
+            // shrinkage/load guards upstream, but this is the single point
+            // where bytes actually leave for disk — so the check lives here
+            // too. Two conditions block the save:
+            //  1. universeLoadingError is set — the boot/reload attempt
+            //     failed, the real on-disk content is unknown to us, and
+            //     writing the in-memory state risks overwriting whatever
+            //     was actually there (including the case where the user
+            //     added a node after the failed load, thinking they were
+            //     continuing from saved state).
+            //  2. hasUniverseFile=false AND state is empty — universe
+            //     never finished loading, and we'd be writing zero bytes
+            //     of content over the real file.
+            if (state?.universeLoadingError) {
+              umWarn(`[UniverseBackend] Refusing local save for ${slug}: universe load failed (${state.universeLoadingError}). On-disk file preserved.`);
+              this.notifyStatus('warning', 'Save blocked: universe load failed. Reload or reconnect the file to recover.');
+              return false;
+            }
+            if (state?.hasUniverseFile === false) {
+              const counts = this.analyzeStoreData(state);
+              if (counts.nodeCount === 0) {
+                umWarn(`[UniverseBackend] Refusing local save for ${slug}: universe never loaded (hasUniverseFile=false) and state has no user content. On-disk file preserved.`);
+                this.notifyStatus('warning', 'Save blocked: universe not loaded. Reconnect the file or reload to recover.');
+                return false;
+              }
+            }
+
             return this.saveToLinkedLocalFile(slug, state, {
               suppressNotification: showSuccess === false
             });
@@ -3377,8 +3404,13 @@ class UniverseBackend {
     }
 
     if (loadPromies.length === 0) {
-      umWarn('[UniverseBackend] No storage methods enabled, creating empty state');
-      return this.createEmptyState();
+      // Don't silently return empty state. If we do, the caller will
+      // loadUniverseFromFile(empty) which latches SaveCoordinator's
+      // hasLoadedFromFile=true with baseline {nodes:0, graphs:0}, neutering
+      // every downstream data-loss guard. The next incidental autosave then
+      // overwrites the real file on disk with empty content.
+      umError('[UniverseBackend] No storage methods enabled for universe');
+      throw createLocalFileError(LOCAL_FILE_ERROR.MISSING, 'No storage method is enabled for this universe.');
     }
 
     // Wait for all attempts to settle, but we can be smart about which one we pick
@@ -3490,9 +3522,18 @@ class UniverseBackend {
       umWarn('[UniverseBackend] Skipping stale browser cache: writable local file is configured but failed to load');
     }
 
-    // Return empty state if absolutely everything failed
-    umWarn('[UniverseBackend] All parallel load methods failed, creating empty state');
-    return this.createEmptyState();
+    // Total load failure. Throw instead of returning empty state — silently
+    // returning empty would cause loadUniverseFromFile(empty) to fire the
+    // 'load' context, latching SaveCoordinator's hasLoadedFromFile=true with
+    // a zero baseline and disabling both data-loss guards. The next user
+    // edit would then autosave the empty state over the real file. The
+    // caller handles this throw via setUniverseError, which keeps the UI
+    // interactive and preserves the on-disk file.
+    umError('[UniverseBackend] All parallel load methods failed for universe', {
+      slug: universe.slug,
+      sourceOfTruth: universe.sourceOfTruth
+    });
+    throw createLocalFileError(LOCAL_FILE_ERROR.NOT_FOUND, 'Failed to load universe from any configured source. Reconnect the file or check your network.');
   }
 
   /**
