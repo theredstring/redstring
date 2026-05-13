@@ -235,6 +235,13 @@ const UniverseManager = ({ variant = 'panel', onRequestClose }) => {
   const [repositoryTargetSlug, setRepositoryTargetSlug] = useState(null);
   const [discoveryMap, setDiscoveryMap] = useState({});
   const [syncTelemetry, setSyncTelemetry] = useState({});
+  // Tick counter bumped on SaveCoordinator status events so the Status & Sync
+  // panel (which reads coordinator.isSaving / hasUnsavedChanges() at render
+  // time) re-renders in step with the bottom-right SaveStatusDisplay. Without
+  // this, the panel only re-renders on the 5s sync poll, while the indicator
+  // polls every second — so the two read different snapshots of the same
+  // singleton and the user sees them disagree.
+  const [, setSavePulse] = useState(0);
   const [managedRepositories, setManagedRepositories] = useState(() => {
     try {
       const stored = localStorage.getItem(getStorageKey('redstring-managed-repositories'))
@@ -658,6 +665,20 @@ const UniverseManager = ({ variant = 'panel', onRequestClose }) => {
     const timeout = setTimeout(() => setError(null), 8000);
     return () => clearTimeout(timeout);
   }, [error]);
+
+  // Re-render the panel on every SaveCoordinator status event so its
+  // indicators stay in step with the bottom-right SaveStatusDisplay.
+  useEffect(() => {
+    if (!saveCoordinator || typeof saveCoordinator.onStatusChange !== 'function') {
+      return undefined;
+    }
+    const unsubscribe = saveCoordinator.onStatusChange(() => {
+      setSavePulse(n => (n + 1) % 1_000_000);
+    });
+    return () => {
+      try { unsubscribe?.(); } catch { /* noop */ }
+    };
+  }, []);
 
   useEffect(() => {
     try {

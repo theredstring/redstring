@@ -44,7 +44,12 @@ const ConnectionStats = ({ universe, syncStatus, isSlim = false }) => {
   };
 
   const sync = universe.sync || {};
-  const engine = sync.engine || syncStatus || {};
+  // Prefer the freshest telemetry source (syncStatus passed by the parent
+  // poll) over the universe-embedded engine snapshot — otherwise this panel
+  // disagrees with the upper Status & Sync card, which reads syncStatus
+  // first. Both indicators need to converge on the same `engine` view or
+  // their dirty/clean readouts can disagree for up to a poll cycle.
+  const engine = syncStatus || sync.engine || {};
 
   const cards = [];
 
@@ -56,21 +61,26 @@ const ConnectionStats = ({ universe, syncStatus, isSlim = false }) => {
     icon: <GitBranch />
   });
 
+  // Match the upper Status & Sync card: pendingCommits lives on the engine
+  // (telemetry) — reading sync.pendingCommits directly diverges when the
+  // engine clears its queue before the wrapper snapshot catches up.
+  const pendingCommits = Number(
+    (typeof engine.pendingCommits === 'number' ? engine.pendingCommits : sync.pendingCommits) || 0
+  );
   cards.push({
     title: 'Pending Commits',
-    value: typeof sync.pendingCommits === 'number' ? sync.pendingCommits : '—',
-    tone: sync.pendingCommits > 0 ? STATUS_COLORS.warning : STATUS_COLORS.success,
-    description: sync.pendingCommits > 0 ? 'Changes queued for the next push.' : 'Working tree clean.',
-    icon: sync.pendingCommits > 0 ? <RefreshCw /> : <Save />
+    value: pendingCommits,
+    tone: pendingCommits > 0 ? STATUS_COLORS.warning : STATUS_COLORS.success,
+    description: pendingCommits > 0 ? 'Changes queued for the next push.' : 'Working tree clean.',
+    icon: pendingCommits > 0 ? <RefreshCw /> : <Save />
   });
 
-  // Explicit unsaved-changes indicator (includes engine.hasChanges, pending
-  // commits, and SaveCoordinator state). The coordinator is the gateway that
-  // dispatches to the engine, so it knows about dirty state earlier (during
-  // debounce, worker-processing, interaction cooldown) than the engine does.
-  // Without this read, this card disagrees with the panel above (which already
-  // factors in coordinator state) and with the bottom-right "Saving..."
-  // indicator on every fresh edit.
+  // Explicit unsaved-changes indicator. Must match the upper Status & Sync
+  // card's logic exactly — both read coordinator state (the dispatch gateway,
+  // which sees dirty state during debounce/worker-processing/cooldown before
+  // the engine does), and both read the engine for pending-commit / has-
+  // changes signals. If these go out of sync, the panel header and this card
+  // disagree on every fresh edit.
   const coordinatorIsSaving = saveCoordinator?.isSaving === true;
   const coordinatorHasUnsaved = typeof saveCoordinator?.hasUnsavedChanges === 'function'
     ? saveCoordinator.hasUnsavedChanges()
@@ -78,9 +88,8 @@ const ConnectionStats = ({ universe, syncStatus, isSlim = false }) => {
   const unsaved = !!(
     coordinatorIsSaving ||
     coordinatorHasUnsaved ||
-    sync.hasUnsavedChanges ||
     engine.hasChanges ||
-    (sync.pendingCommits > 0)
+    pendingCommits > 0
   );
   cards.push({
     title: 'Unsaved Changes',
