@@ -3670,7 +3670,7 @@ const UniverseManager = ({ variant = 'panel', onRequestClose }) => {
         console.log(`[UniverseManager] Status set to Unsaved changes for ${universe.slug}`);
       } else if (lastSaved) {
         status = 'Synced';
-        statusColor = '#2e7d32';
+        statusColor = statusColors.success;
         console.log(`[UniverseManager] Status set to Synced for ${universe.slug}`);
       } else {
         // No real-time engine data available. Fall back to sync summary from universe.sync
@@ -4734,7 +4734,12 @@ const UniverseManager = ({ variant = 'panel', onRequestClose }) => {
               // Fallback to mapped state
               displayState = base.state;
               displayLabel = base.label;
-              displayTone = base.tone || displayTone;
+              // Preserve our theme-aware success tone for idle — the
+              // service-side `base.tone` is hardcoded `#2e7d32` and would
+              // override the light/dark canonical green from statusColors.
+              if (base.state !== 'idle') {
+                displayTone = base.tone || displayTone;
+              }
               displayDesc = base.description || '';
             }
 

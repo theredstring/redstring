@@ -180,8 +180,6 @@ const SettingsModal = ({ isVisible, onClose }) => {
             />
           </div>
 
-          <hr className="settings-section-divider" />
-
           <div className="settings-section-subtitle">Keyboard</div>
           <div className="settings-slider-row">
             <MaroonSlider

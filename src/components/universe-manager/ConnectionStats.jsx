@@ -56,7 +56,12 @@ const ConnectionStats = ({ universe, syncStatus, isSlim = false }) => {
   cards.push({
     title: 'Sync State',
     value: sync.label || 'Unknown',
-    tone: sync.tone || STATUS_COLORS.info,
+    // For idle (saved) state the service emits a hardcoded `#2e7d32` that
+    // ignores theme. Route it through the canonical success tone so light
+    // and dark mode match the rest of the universe panel.
+    tone: sync.state === 'idle'
+      ? STATUS_COLORS.success
+      : (sync.tone || STATUS_COLORS.info),
     description: sync.description || '',
     icon: <GitBranch />
   });
