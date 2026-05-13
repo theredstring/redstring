@@ -323,37 +323,52 @@ const PieMenu = ({
             onMouseDown={(e) => { e.stopPropagation(); e.preventDefault(); }}
             onMouseEnter={() => onHoverChange({ id: button.id, label: button.label })}
             onMouseLeave={() => onHoverChange(null)}
+            onTouchEnd={(e) => {
+              e.stopPropagation();
+              if (e.cancelable) e.preventDefault();
+
+              const isCarouselStageTransition = button.id === 'carousel-plus' || button.id === 'carousel-back' || button.id === 'carousel-back-stage2' || button.id === 'carousel-add-above' || button.id === 'carousel-add-below';
+
+              if (animationState === 'shrinking' && !isCarouselStageTransition) return;
+              if (!isVisible && !isCarouselStageTransition) return;
+              if (button.id === 'compose-preview' && animationState === 'shrinking') return;
+
+              const touch = e.changedTouches && e.changedTouches[0];
+              const buttonPosition = touch ? { x: touch.clientX, y: touch.clientY } : null;
+
+              button.action(node.id, buttonPosition);
+            }}
             onClick={(e) => {
               // Allow carousel stage transition buttons to work even during shrinking
               const isCarouselStageTransition = button.id === 'carousel-plus' || button.id === 'carousel-back' || button.id === 'carousel-back-stage2' || button.id === 'carousel-add-above' || button.id === 'carousel-add-below';
-              
+
               // Prevent clicks during shrinking animation unless it's a carousel transition button
               if (animationState === 'shrinking' && !isCarouselStageTransition) {
                 e.stopPropagation();
-                return; 
+                return;
               }
-              
+
               // Always stop propagation to prevent canvas clicks
               e.stopPropagation();
-              
+
               // Calculate button's screen position for actions that need it (like color picker)
               const svgElement = e.currentTarget.ownerSVGElement;
               const buttonPosition = svgElement ? {
                 x: e.clientX,
                 y: e.clientY
               } : null;
-              
+
               // Prevent action if menu is supposed to be hidden but animation not complete
               if (!isVisible && !isCarouselStageTransition) {
-                return; 
+                return;
               }
-              
+
               // Additional safety check: prevent compose-preview during carousel transitions
               if (button.id === 'compose-preview' && animationState === 'shrinking') {
                 console.log('[PieMenu] Blocking compose-preview during carousel shrink');
                 return;
               }
-              
+
               // Execute the button action - pass buttonPosition as second parameter for actions that need it
               button.action(node.id, buttonPosition);
             }}
