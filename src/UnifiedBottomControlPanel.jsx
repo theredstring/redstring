@@ -134,6 +134,9 @@ const UnifiedBottomControlPanel = ({
   onRightNav,
   hasLeftNav = false,
   hasRightNav = false,
+
+  // Optional dismiss handler — shown as a drag handle at the top of the panel in narrow nodes mode
+  onDismiss,
 }) => {
   const [animationState, setAnimationState] = useState('entering');
   const [shouldRender, setShouldRender] = useState(true);
@@ -219,7 +222,9 @@ const UnifiedBottomControlPanel = ({
     }
 
     const PADDING = padding;
-    const BASE_CONTAINER_WIDTH = Math.min(360, viewportLimit);
+    const BASE_CONTAINER_WIDTH = mobileState.isMobile
+      ? Math.min(180, viewportLimit)
+      : Math.min(360, viewportLimit);
     const MAX_CONTAINER_WIDTH = Math.min(520, viewportLimit);
     const BASE_CONTAINER_HEIGHT = mobileState.isMobile ? 64 : 92;
     const ROW_HEIGHT_INCREMENT = mobileState.isMobile ? 56 : 60;
@@ -445,6 +450,12 @@ const UnifiedBottomControlPanel = ({
       onTouchStart={(e) => { e.stopPropagation(); }}
     >
       <div className="unified-bottom-content">
+        <button
+          type="button"
+          className="unified-bottom-handle"
+          aria-label="Dismiss"
+          onClick={onDismiss}
+        />
         {/* Row 1: Interactive info */}
         <div className="info-row">
           {isNodes ? (
@@ -556,16 +567,18 @@ const UnifiedBottomControlPanel = ({
               });
 
               // Dynamic sizing based on actual content needs, clamped to viewport.
-              const baseSpacing = 140;
+              // Mobile rebalances the budget so predicate labels stop crowding out the node previews.
+              const isMobile = mobileState.isMobile;
+              const baseSpacing = isMobile ? 90 : 140;
               // Self-loops render as two side-by-side copies in UniversalNodeRenderer; budget width accordingly.
               const selfLoopCount = connections.reduce(
                 (n, c) => n + (c.sourceId && c.destinationId && c.sourceId === c.destinationId ? 1 : 0),
                 0
               );
               const layoutNodeCount = nodes.length + selfLoopCount;
-              const nodeSpacing = layoutNodeCount * 70;
+              const nodeSpacing = layoutNodeCount * (isMobile ? 90 : 70);
 
-              const connectionLabelFont = mobileState.isMobilePortrait
+              const connectionLabelFont = isMobile
                 ? '22px "EmOne", sans-serif'
                 : '28px "EmOne", sans-serif';
 
@@ -575,8 +588,8 @@ const UnifiedBottomControlPanel = ({
               }, 0);
 
               const connectionLabelSpace = Math.max(
-                220,
-                Math.ceil(longestConnectionLabelWidth + 180)
+                isMobile ? 120 : 220,
+                Math.ceil(longestConnectionLabelWidth + (isMobile ? 70 : 180))
               );
 
               // Container width — never exceeds available viewport.
@@ -587,11 +600,13 @@ const UnifiedBottomControlPanel = ({
               );
 
               const dynamicMinHorizontalSpacing = Math.max(
-                80,
+                isMobile ? 60 : 80,
                 Math.min(connectionLabelSpace - 60, 380)
               );
 
-              const calculatedHeight = Math.min(180, Math.max(120, calculatedWidth * 0.32));
+              const calculatedHeight = isMobile
+                ? Math.min(150, Math.max(108, calculatedWidth * 0.30))
+                : Math.min(180, Math.max(120, calculatedWidth * 0.32));
 
               return (
                 <UniversalNodeRenderer

@@ -25,6 +25,7 @@ const NodeControlPanel = ({
   onActionHoverChange,
   onAskWizardDefineNode,
   wizardEnabled = false,
+  onDismiss,
 }) => {
   const openRightPanelNodeTab = useGraphStore((s) => s.openRightPanelNodeTab);
   const graphsMap = useGraphStore((s) => s.graphs);
@@ -77,6 +78,7 @@ const NodeControlPanel = ({
       onActionHoverChange={onActionHoverChange}
       wizardEnabled={wizardEnabled}
       askWizardDefineNodeEligible={askWizardDefineNodeEligible}
+      onDismiss={onDismiss}
       onAskWizardDefineNode={() => {
         if (selectedNodePrototypes.length === 1 && onAskWizardDefineNode) {
           onAskWizardDefineNode(selectedNodePrototypes[0]);

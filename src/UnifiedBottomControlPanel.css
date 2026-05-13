@@ -7,6 +7,8 @@
   pointer-events: auto;
   touch-action: manipulation;
   max-width: calc(100vw - 16px);
+  box-sizing: border-box;
+  min-width: 0;
 }
 
 .unified-bottom-panel.entering {
@@ -54,9 +56,36 @@
   padding: clamp(6px, 0.8vw, 10px) clamp(8px, 1vw, 12px) clamp(4px, 0.6vw, 8px);
   box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
   width: fit-content;
+  max-width: calc(100vw - 16px);
+  box-sizing: border-box;
+  min-width: 0;
   margin: 0 auto;
   color: var(--canvas-bg);
   font-family: 'EmOne', sans-serif;
+}
+
+.unified-bottom-handle {
+  display: none;
+  width: 44px;
+  height: 5px;
+  border-radius: 3px;
+  background: rgba(38, 0, 0, 0.35);
+  margin: 0 auto;
+  cursor: pointer;
+  flex-shrink: 0;
+  border: none;
+  padding: 0;
+  transition: background 0.15s ease;
+}
+
+.unified-bottom-handle:hover {
+  background: rgba(38, 0, 0, 0.55);
+}
+
+@media (max-width: 768px) {
+  .unified-bottom-panel.mode-nodes .unified-bottom-handle {
+    display: block;
+  }
 }
 
 /* Structural overrides that clamp() can't express */
@@ -70,36 +99,46 @@
   }
 
   .unified-bottom-content {
-    padding: 0 14px 4px;
+    padding: 4px 12px 4px;
     gap: 3px;
     border-radius: 14px;
   }
 
   .unified-bottom-panel.mode-nodes .unified-bottom-content {
-    padding: 0 20px 12px;
-    gap: 10px;
+    width: min(calc(100vw - 16px), 460px);
+    padding: 4px 16px 12px;
+    gap: 8px;
+  }
+
+  .unified-bottom-panel.mode-connections .unified-bottom-content {
+    padding: 4px 10px 4px;
   }
 
   .piemenu-buttons {
     flex-wrap: wrap;
     justify-content: center;
-    gap: 6px;
+    gap: 8px;
     padding: 0 4px;
   }
 
   .unified-bottom-panel.mode-nodes .piemenu-buttons {
-    padding: 0 8px;
+    width: 100%;
+    padding: 0;
     gap: 8px;
   }
 
+  .unified-bottom-panel.mode-nodes .arrow-group {
+    display: none;
+  }
+
   .piemenu-button {
-    width: 32px;
-    height: 32px;
+    width: 40px;
+    height: 40px;
     border-width: 2px;
   }
 
   .node-pill {
-    max-width: 120px;
+    max-width: 100px;
   }
 }
 
@@ -110,6 +149,7 @@
   gap: 8px;
   padding-bottom: 0;
   width: 100%;
+  min-width: 0;
   flex-wrap: wrap;
 }
 
@@ -118,12 +158,14 @@
   align-items: center;
   justify-content: center;
   gap: 12px;
+  min-width: 0;
 }
 
 .piemenu-buttons {
   display: flex;
   align-items: center;
   gap: 8px;
+  min-width: 0;
 }
 
 .piemenu-button {
@@ -132,6 +174,7 @@
   border-radius: 50%;
   width: clamp(36px, 4.5vw, 44px);
   height: clamp(36px, 4.5vw, 44px);
+  box-sizing: border-box;
   padding: 0;
   cursor: pointer;
   transition: all 0.2s ease;
@@ -139,6 +182,7 @@
   align-items: center;
   justify-content: center;
   color: maroon;
+  flex-shrink: 0;
 }
 
 .piemenu-button:hover {

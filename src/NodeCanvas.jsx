@@ -13810,6 +13810,7 @@ function NodeCanvas() {
             hasRightNav={false}
             onActionHoverChange={handlePieMenuHoverChange}
             wizardEnabled={wizardEnabled}
+            onDismiss={() => setSelectedInstanceIds(new Set())}
             onAskWizardDefineNode={(prototype) => {
               const pref = (() => {
                 try { return debugConfig.getWizardNodePref(); } catch { return 'ask'; }
