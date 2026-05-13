@@ -440,7 +440,7 @@ const UnifiedBottomControlPanel = ({
 
   return (
     <div
-      className={`unified-bottom-panel ${typeListOpen ? 'with-typelist' : ''} ${animationState} ${className}`}
+      className={`unified-bottom-panel mode-${mode} ${typeListOpen ? 'with-typelist' : ''} ${animationState} ${className}`}
       onAnimationEnd={handleAnimationEnd}
       onTouchStart={(e) => { e.stopPropagation(); }}
     >

@@ -538,28 +538,47 @@ export class PersistentAuth {
               || null
             );
             let selected = null;
+            let selectionReason = null;
             if (oauthLogin) {
               const oauthLoginLc = String(oauthLogin).toLowerCase();
               selected = installations.find((inst) => {
                 const acctLogin = (inst?.account?.login || inst?.installation?.account?.login || '').toLowerCase();
                 return acctLogin === oauthLoginLc;
               }) || null;
+              if (selected) selectionReason = 'user_account_match';
             }
             if (!selected) {
-              // No install on the connected user's account. Refuse to
-              // auto-bind to whatever happens to be installations[0] — that
-              // historically picked up stale installs on test/org accounts
-              // and silently 404'd every repo call against the user's repos.
-              // Force an explicit install instead.
+              // No install on the connected user's personal account. The
+              // server has already scoped this list to installs THIS user
+              // can access (via /user/installations, or via App-JWT enum +
+              // identity filter on the fallback path), so the historical
+              // "stranger's install hijacking the slot" risk is gone — any
+              // remaining install must be on an organization the user
+              // belongs to. Pick the most recent (server pre-sorts DESC by
+              // created_at) and log loudly so the user can verify in the
+              // action log if it picked the wrong org.
+              selected = installations[0] || null;
+              if (selected) selectionReason = 'org_install_fallback';
+            }
+            if (!selected) {
               console.warn(
-                '[PersistentAuth] No GitHub App install found on account',
-                oauthLogin || '(unknown — OAuth not yet loaded)',
-                '— skipping auto-connect. Available installs:',
-                installations.map((i) => ({ id: i.id, account: i.account?.login }))
+                '[PersistentAuth] No GitHub App installations available for',
+                oauthLogin || '(unknown — OAuth not yet loaded)'
               );
               return false;
             }
-            console.log('[PersistentAuth] Selected install matching OAuth user', oauthLogin, '→ id', selected.id);
+            if (selectionReason === 'org_install_fallback') {
+              console.warn(
+                '[PersistentAuth] No personal-account install for',
+                oauthLogin || '(unknown)',
+                '— auto-binding to most-recent org install:',
+                { id: selected.id, account: selected.account?.login, targetType: selected.account?.type },
+                'all available:',
+                installations.map((i) => ({ id: i.id, account: i.account?.login, type: i.account?.type }))
+              );
+            } else {
+              console.log('[PersistentAuth] Selected install matching OAuth user', oauthLogin, '→ id', selected.id);
+            }
             const installationId = selected?.id || selected?.installation?.id;
             if (installationId) {
               // Obtain a fresh installation token

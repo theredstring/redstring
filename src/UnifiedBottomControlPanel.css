@@ -70,14 +70,26 @@
   }
 
   .unified-bottom-content {
-    padding: 0 8px 0;
-    gap: 0;
+    padding: 0 14px 4px;
+    gap: 3px;
+    border-radius: 14px;
+  }
+
+  .unified-bottom-panel.mode-nodes .unified-bottom-content {
+    padding: 0 20px 12px;
+    gap: 10px;
   }
 
   .piemenu-buttons {
     flex-wrap: wrap;
     justify-content: center;
     gap: 6px;
+    padding: 0 4px;
+  }
+
+  .unified-bottom-panel.mode-nodes .piemenu-buttons {
+    padding: 0 8px;
+    gap: 8px;
   }
 
   .piemenu-button {
