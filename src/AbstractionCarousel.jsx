@@ -2,12 +2,12 @@ import React, { useState, useRef, useEffect, useCallback, useMemo, useReducer } 
 import { ChevronUp, ChevronDown } from 'lucide-react';
 import { NODE_WIDTH, NODE_HEIGHT, NODE_CORNER_RADIUS, NODE_DEFAULT_COLOR, NODE_PADDING } from './constants';
 import { getNodeDimensions } from './utils';
-import { 
-  cssColorToHex, 
-  hexToHsl, 
-  hslToHex, 
-  generateProgressiveColor, 
-  getTextColor 
+import {
+  cssColorToHex,
+  hexToHsl,
+  hslToHex,
+  generateProgressiveColor,
+  getTextColor
 } from './utils/colorUtils.js';
 import useGraphStore from './store/graphStore.jsx';
 import useImageCache from './services/imageCache.js';
@@ -32,16 +32,16 @@ const physicsReducer = (state, action) => {
     case 'UPDATE_PHYSICS': {
       const { frameMultiplier } = action.payload;
       const dampedVelocity = state.velocity * Math.pow(PHYSICS_DAMPING, frameMultiplier);
-      
+
       let nextVelocity = dampedVelocity;
       let nextPosition = state.realPosition;
       let nextIsSnapping = state.isSnapping;
       let nextTargetPosition = state.targetPosition;
-      
+
       if (state.isSnapping) {
         // Move toward target position
         const diff = state.targetPosition - state.realPosition;
-        
+
         if (Math.abs(diff) < 0.01) {
           nextIsSnapping = false;
           nextPosition = state.targetPosition; // Snap exactly to target
@@ -51,36 +51,36 @@ const physicsReducer = (state, action) => {
       } else {
         // Normal velocity-based movement
         nextPosition = state.realPosition + dampedVelocity * frameMultiplier;
-        
+
         // Dynamic bounds based on actual chain length
         const minLevel = action.payload.minLevel || -6;
         const maxLevel = action.payload.maxLevel || 6;
         nextPosition = Math.max(minLevel, Math.min(maxLevel, nextPosition));
-        
+
         // Check if we should start snapping (with enhanced "stuck" detection)
         if (Math.abs(dampedVelocity) < MIN_VELOCITY && !state.isSnapping && state.hasUserScrolled) {
           nextIsSnapping = true;
           nextVelocity = 0;
-          
+
           // Calculate target based on the new position and velocity direction
           const velocityDirection = state.velocity > 0 ? 1 : (state.velocity < 0 ? -1 : 0);
-          
+
           // Get nearest integer positions
           const floor = Math.floor(nextPosition);
           const ceil = Math.ceil(nextPosition);
-          
+
           let newTarget;
-          
+
           if (floor === ceil) {
             // Already at integer
             newTarget = floor;
           } else {
             const distToFloor = nextPosition - floor;
             const distToCeil = ceil - nextPosition;
-            
+
             // Enhanced snapping: if we're very close to a node (within 0.1), snap immediately
             const STUCK_THRESHOLD = 0.1; // Much smaller threshold for "stuck" detection
-            
+
             if (distToFloor < STUCK_THRESHOLD) {
               // Very close to floor, snap immediately
               newTarget = floor;
@@ -104,11 +104,11 @@ const physicsReducer = (state, action) => {
               }
             }
           }
-          
+
           nextTargetPosition = Math.max(minLevel, Math.min(maxLevel, newTarget));
         }
       }
-      
+
       return {
         ...state,
         velocity: nextVelocity,
@@ -124,10 +124,10 @@ const physicsReducer = (state, action) => {
       const newHistory = [...(state.velocityHistory || []), Math.abs(velocity)];
       // Keep only the most recent samples
       const trimmedHistory = newHistory.slice(-VELOCITY_HISTORY_SIZE);
-      return { 
-        ...state, 
-        velocity, 
-        velocityHistory: trimmedHistory 
+      return {
+        ...state,
+        velocity,
+        velocityHistory: trimmedHistory
       };
     case 'SET_USER_SCROLLED':
       return { ...state, hasUserScrolled: action.payload };
@@ -145,10 +145,10 @@ const physicsReducer = (state, action) => {
       };
     }
     case 'JUMP_TO_LEVEL':
-      return { 
-        ...state, 
+      return {
+        ...state,
         // Don't immediately change realPosition - let it animate smoothly
-        targetPosition: action.payload, 
+        targetPosition: action.payload,
         isSnapping: true, // Enable snapping animation to target
         velocity: 0, // Clear any existing velocity for clean animation
         hasUserScrolled: true
@@ -196,7 +196,7 @@ const AbstractionCarousel = ({
   const theme = useTheme();
   const carouselRef = useRef(null);
 
-  
+
   // Store bindings
   const nodePrototypesMap = useGraphStore((state) => state.nodePrototypes);
   const imageCacheMap = useImageCache(state => state.images);
@@ -206,27 +206,27 @@ const AbstractionCarousel = ({
   // Pre-calculate the abstraction chain and base dimensions for each node
   const abstractionChainWithDims = useMemo(() => {
     if (!selectedNode) return [];
-    
+
     console.log('[AbstractionCarousel] Building chain for selectedNode:', {
       id: selectedNode.id,
       prototypeId: selectedNode.prototypeId,
       name: selectedNode.name,
       currentDimension
     });
-    
+
     // Guard clause: ensure selectedNode has a prototypeId
     if (!selectedNode.prototypeId) {
       console.warn('[AbstractionCarousel] selectedNode missing prototypeId, returning empty chain');
       return [];
     }
-    
+
     const baseColor = selectedNode.color || NODE_DEFAULT_COLOR;
-    
+
     // Find the abstraction chain for this node and dimension
     // The selectedNode might be the chain owner, or it might be a member of someone else's chain
     let chainNodeIds = [];
     let chainOwnerNodeId = null;
-    
+
     // First, check if this node owns a chain
     const selectedNodePrototype = nodePrototypesMap.get(selectedNode.prototypeId);
     if (selectedNodePrototype?.abstractionChains?.[currentDimension]?.length > 0) {
@@ -245,42 +245,42 @@ const AbstractionCarousel = ({
         }
       }
     }
-    
+
     console.log('[AbstractionCarousel] Chain search result:', {
       chainNodeIds,
       chainOwnerNodeId,
       selectedNodeInChain: chainNodeIds.includes(selectedNode.prototypeId)
     });
-    
+
     // If no chain was found, create a default single-node chain
     if (chainNodeIds.length === 0) {
       chainNodeIds = [selectedNode.prototypeId];
       chainOwnerNodeId = selectedNode.prototypeId;
       console.log('[AbstractionCarousel] No existing chain found, created default single-node chain');
     }
-    
+
     console.log('[AbstractionCarousel] Final chain setup:', {
       chainNodeIds,
       chainOwnerNodeId,
       currentDimension,
       nodePrototypesMapSize: nodePrototypesMap.size
     });
-    
+
     const chain = [];
     const thingNode = nodePrototypesMap.get(thingNodeId);
-    
+
     if (chainNodeIds.length === 0) {
       // No chain exists yet - show default layout with only the current node
-      chain.push({ 
-        ...selectedNode, 
-        type: 'current', 
+      chain.push({
+        ...selectedNode,
+        type: 'current',
         level: 0,
         textColor: getTextColor(selectedNode.color),
         prototypeId: selectedNode.prototypeId
       });
     } else {
       // Chain exists - build it properly with current node always at level 0
-      
+
       // Find the current node's position in the chain
       const currentNodeIndex = chainNodeIds.indexOf(selectedNode.prototypeId);
       if (currentNodeIndex === -1) {
@@ -292,16 +292,16 @@ const AbstractionCarousel = ({
         });
         return [];
       }
-      
+
       // Removed injected base "Thing" entry to reduce confusion
-      
+
       // Add all nodes in the chain, with current node always at level 0
       chainNodeIds.forEach((nodeId, index) => {
         const node = nodePrototypesMap.get(nodeId);
         if (node) {
           const level = index - currentNodeIndex; // Current node will be at level 0
           const nodeType = nodeId === selectedNode.prototypeId ? 'current' : 'related';
-          
+
           // Calculate color based on level - nodes more general than current (positive levels) get darker
           let nodeColor;
           if (nodeType === 'current') {
@@ -309,14 +309,14 @@ const AbstractionCarousel = ({
           } else {
             nodeColor = generateProgressiveColor(baseColor, level);
           }
-          
+
           // For nodes more general than current (positive levels), ensure dark background + bright text
           let textColor = getTextColor(nodeColor);
           if (level > 0) {
             // Force bright text for darker general nodes
             textColor = '#EFE8E5';
           }
-          
+
           // Merge cached thumbnail for auto-enriched nodes
           const cached = imageCacheMap[nodeId];
           const imgOverrides = (cached && !node.thumbnailSrc)
@@ -343,7 +343,7 @@ const AbstractionCarousel = ({
       const baseDimensions = getNodeDimensions(nodeForDimensions, false, null);
       return { ...item, baseDimensions };
     });
-    
+
     console.log('[AbstractionCarousel] Final chain with dimensions:', {
       chainLength: finalChain.length,
       chainItems: finalChain.map(item => ({
@@ -354,10 +354,10 @@ const AbstractionCarousel = ({
         hasBaseDimensions: !!item.baseDimensions
       }))
     });
-    
+
     return finalChain;
   }, [selectedNode, currentDimension, nodePrototypesMap, thingNodeId]);
-  
+
   // Calculate physics bounds based on chain, excluding non-reachable nodes
   const physicsMinLevel = useMemo(() => {
     if (!abstractionChainWithDims.length) return -6;
@@ -365,39 +365,39 @@ const AbstractionCarousel = ({
     const reachableLevels = abstractionChainWithDims
       .filter(n => !n.isNonReachable && (n.type === 'current' || n.type === 'generic' || n.type === 'related'))
       .map(n => n.level);
-    
+
     if (reachableLevels.length === 0) return -6;
-    
+
     const minLevel = Math.min(...reachableLevels);
-    
+
     // If there's only one reachable node (just the current node), allow limited scrolling range above it
     if (reachableLevels.length === 1) {
       // Allow scrolling to 0.1 levels above the only node (very limited range)
       return minLevel - 0.1;
     }
-    
+
     console.log(`[AbstractionCarousel] Physics min level: ${minLevel}, reachable levels:`, reachableLevels);
     // For multiple nodes, also add a small buffer to prevent scrolling past node centers
     return minLevel + 0.05;
   }, [abstractionChainWithDims]);
-  
+
   const physicsMaxLevel = useMemo(() => {
     if (!abstractionChainWithDims.length) return 6;
     // Find the most specific reachable level
     const reachableLevels = abstractionChainWithDims
       .filter(n => !n.isNonReachable && (n.type === 'current' || n.type === 'generic' || n.type === 'related'))
       .map(n => n.level);
-    
+
     if (reachableLevels.length === 0) return 6;
-    
+
     const maxLevel = Math.max(...reachableLevels);
-    
+
     // If there's only one reachable node (just the current node), allow limited scrolling range below it
     if (reachableLevels.length === 1) {
       // Allow scrolling to 0.1 levels below the only node (very limited range)
       return maxLevel + 0.1;
     }
-    
+
     console.log(`[AbstractionCarousel] Physics max level: ${maxLevel}, reachable levels:`, reachableLevels);
     // For multiple nodes, also add a small buffer to prevent scrolling past node centers
     return maxLevel - 0.05;
@@ -412,7 +412,7 @@ const AbstractionCarousel = ({
     hasUserScrolled: false,
     velocityHistory: []
   });
-  
+
   // Animation refs
   const animationFrameRef = useRef(null);
   const lastFrameTimeRef = useRef(0);
@@ -463,10 +463,10 @@ const AbstractionCarousel = ({
         continue;
       }
       if (!nodeAbove) break;
-      
+
       const hCurrent = nodeCurrent.baseDimensions?.currentHeight || NODE_HEIGHT;
       const hAbove = nodeAbove.baseDimensions?.currentHeight || NODE_HEIGHT;
-      
+
       upY -= ((hAbove / 2) + (hCurrent / 2) + LEVEL_SPACING);
       offsets[i] = upY;
     }
@@ -566,7 +566,7 @@ const AbstractionCarousel = ({
       animationFrameRef.current = null;
       return;
     }
-    
+
     const deltaTime = Math.min(currentTime - lastFrameTimeRef.current, 32);
     lastFrameTimeRef.current = currentTime;
 
@@ -580,13 +580,13 @@ const AbstractionCarousel = ({
     const frameMultiplier = deltaTimeSeconds * 60;
 
     // Update physics using reducer
-    dispatchPhysics({ 
-      type: 'UPDATE_PHYSICS', 
-      payload: { 
+    dispatchPhysics({
+      type: 'UPDATE_PHYSICS',
+      payload: {
         frameMultiplier,
         minLevel: physicsMinLevel,
         maxLevel: physicsMaxLevel
-      } 
+      }
     });
 
     // After physics update, get the latest position from the state ref
@@ -607,7 +607,7 @@ const AbstractionCarousel = ({
       }
       onScaleChange(scale);
     }
-    
+
     // Calculate and report the focused node's actual current dimensions
     if (onFocusedNodeDimensions && abstractionChainWithDims.length > 0) {
       const floorLevel = Math.floor(position);
@@ -631,7 +631,7 @@ const AbstractionCarousel = ({
         onFocusedNodeDimensions(actualCurrentDimensions);
       }
     }
-    
+
     // Report which node is currently focused (closest to the center)
     if (onFocusedNodeChange && abstractionChainWithDims.length > 0) {
       const roundedLevel = Math.round(position);
@@ -681,9 +681,9 @@ const AbstractionCarousel = ({
   const handleWheel = useCallback((e) => {
     e.preventDefault();
     e.stopPropagation();
-    
+
     if (!isVisible) return;
-    
+
     // Mark that user has started scrolling
     dispatchPhysics({ type: 'SET_USER_SCROLLED', payload: true });
     // Dismiss hints on first scroll with fade-out
@@ -691,32 +691,32 @@ const AbstractionCarousel = ({
       setHintsDismissed(true);
       setHintOpacity(0);
     }
-    
+
     // Allow new input to interrupt snapping
     dispatchPhysics({ type: 'INTERRUPT_SNAPPING' });
-    
+
     // Get current state for adaptive sensitivity calculation
     const currentState = physicsStateRef.current;
     const velocityHistory = currentState.velocityHistory || [];
-    
+
     // Calculate if we're in continuous scrolling mode
     // Look at recent velocity magnitudes to detect sustained scrolling
     const recentVelocities = velocityHistory.slice(-3); // Last 3 samples
     const hasRecentActivity = recentVelocities.length >= 2;
-    const avgRecentVelocity = hasRecentActivity 
-      ? recentVelocities.reduce((sum, v) => sum + Math.abs(v), 0) / recentVelocities.length 
+    const avgRecentVelocity = hasRecentActivity
+      ? recentVelocities.reduce((sum, v) => sum + Math.abs(v), 0) / recentVelocities.length
       : 0;
-    
+
     // Determine if we're in continuous scrolling mode
     const isContinuousScrolling = hasRecentActivity && avgRecentVelocity > CONTINUOUS_SCROLL_THRESHOLD;
-    
+
     // Use adaptive sensitivity based on scrolling context
     const baseSensitivity = isContinuousScrolling ? BASE_SCROLL_SENSITIVITY : PRECISION_SCROLL_SENSITIVITY;
-    
+
     // Add scroll curve enhancement for easier slow starts
     const deltaY = e.deltaY;
     const absDeltaY = Math.abs(deltaY);
-    
+
     // Progressive sensitivity curve: lower values get boosted more
     let sensitivityMultiplier = 1.0;
     if (absDeltaY < 10) {
@@ -730,17 +730,17 @@ const AbstractionCarousel = ({
       sensitivityMultiplier = 1.2;
     }
     // Very large movements (>50) use base sensitivity (1.0)
-    
+
     const adjustedSensitivity = baseSensitivity * sensitivityMultiplier;
     const velocityChange = deltaY * adjustedSensitivity;
-    
+
     // Calculate new velocity using current state from ref
     const newVelocity = currentState.velocity + velocityChange;
     const clampedVelocity = Math.max(-MAX_VELOCITY, Math.min(MAX_VELOCITY, newVelocity));
-    
+
     // Update velocity and add to history
     dispatchPhysics({ type: 'SET_VELOCITY_WITH_HISTORY', payload: { velocity: clampedVelocity, deltaY } });
-    
+
     // Always start physics loop on wheel input
     if (!animationFrameRef.current) {
       lastFrameTimeRef.current = performance.now();
@@ -827,7 +827,9 @@ const AbstractionCarousel = ({
     if (e.cancelable) e.preventDefault();
 
     // Drag finger up to reveal nodes below (higher level index) — opposite of wheel deltaY sign convention
-    const pixelsPerLevel = (NODE_HEIGHT + LEVEL_SPACING) * zoomLevel;
+    // TOUCH_SENSITIVITY > 1 means MORE finger travel per level (less sensitive).
+    const TOUCH_SENSITIVITY = 5;
+    const pixelsPerLevel = (NODE_HEIGHT + LEVEL_SPACING) * zoomLevel * TOUCH_SENSITIVITY;
     const safePixels = Math.max(Math.abs(pixelsPerLevel), 1) * Math.sign(pixelsPerLevel || 1);
     const levelDelta = -deltaY / safePixels;
 
@@ -917,16 +919,16 @@ const AbstractionCarousel = ({
   // Handle clicks on abstraction nodes
   const handleNodeClick = useCallback((item) => {
     if (!isVisible) return;
-    
+
     // Jump to clicked level and set it as target
     dispatchPhysics({ type: 'JUMP_TO_LEVEL', payload: item.level });
-    
+
     // Start physics loop for smooth animation to target
     if (!animationFrameRef.current) {
       lastFrameTimeRef.current = performance.now();
       animationFrameRef.current = requestAnimationFrame(updatePhysicsRef.current);
     }
-    
+
     // Handle click actions for non-current nodes
     if (item.type !== 'current') {
       // TODO: Handle navigation to other abstraction levels
@@ -984,7 +986,7 @@ const AbstractionCarousel = ({
         const isOnControlPanel = e.target.closest('.abstraction-control-panel');
         const isOnPieMenu = e.target.closest('.pie-menu');
         const isOnCanvas = e.target.closest('.canvas');
-        
+
         // Only close if the click is not on any of these elements
         if (!isOnControlPanel && !isOnPieMenu && !isOnCanvas) {
           onClose();
@@ -1007,7 +1009,7 @@ const AbstractionCarousel = ({
 
   const carouselPosition = getCarouselPosition();
   const stackOffset = getStackOffset();
-  
+
   console.log('[AbstractionCarousel] Render state:', {
     isVisible,
     selectedNodeId: selectedNode?.id,
@@ -1102,7 +1104,7 @@ const AbstractionCarousel = ({
           pointerEvents: 'none'
         }} />
       )}
-      
+
       {/* SVG Container for the abstraction nodes */}
       <svg
         style={{
@@ -1125,7 +1127,7 @@ const AbstractionCarousel = ({
 
             const nodeDimensions = item.baseDimensions;
             const { currentWidth, currentHeight, textAreaHeight, imageWidth, calculatedImageHeight } = nodeDimensions;
-            
+
             // Use simple corner radius to match Node.jsx
             const imageCornerRadius = NODE_CORNER_RADIUS;
 
@@ -1157,7 +1159,7 @@ const AbstractionCarousel = ({
               type: item.type
             }))
           });
-          
+
           return [...abstractionChainWithDims]
             .sort((a, b) => {
               const distA = Math.abs(a.level - physicsState.realPosition);
@@ -1166,183 +1168,183 @@ const AbstractionCarousel = ({
               // Centered node (closest to scroll position) always renders on top
               const isACenter = distA < 0.5;
               const isBCenter = distB < 0.5;
-              
+
               if (isACenter && !isBCenter) return 1; // A is center, B is not - A on top
               if (isBCenter && !isACenter) return -1; // B is center, A is not - B on top
-              
+
               // If both are center or neither are center, sort by distance - closer nodes render on top
               return distA - distB;
             })
             .map((item, index) => {
-          const nodeDimensions = item.baseDimensions; // Use pre-calculated dimensions
-          const isCurrent = item.type === 'current';
-          const distanceFromMain = Math.abs(item.level - physicsState.realPosition);
-          
-          // Fog of war: hide nodes beyond a certain distance (show more for stacking effect)
-          const maxVisibleDistance = Math.min(10, abstractionChainWithDims.length + 2);
-          if (distanceFromMain > maxVisibleDistance) {
-            return null;
-          }
+              const nodeDimensions = item.baseDimensions; // Use pre-calculated dimensions
+              const isCurrent = item.type === 'current';
+              const distanceFromMain = Math.abs(item.level - physicsState.realPosition);
 
-          // Calculate entrance/exit animation properties
-          let animationOpacity = 1;
-          let animationScale = 1;
-          let animationDelay = 0;
-          let useAnimationOpacity = false;
-          let opacityTransitionDelay = 0;
+              // Fog of war: hide nodes beyond a certain distance (show more for stacking effect)
+              const maxVisibleDistance = Math.min(10, abstractionChainWithDims.length + 2);
+              if (distanceFromMain > maxVisibleDistance) {
+                return null;
+              }
 
-          // Only animate nodes within 2 levels of the center
-          const shouldAnimate = distanceFromMain <= 2;
+              // Calculate entrance/exit animation properties
+              let animationOpacity = 1;
+              let animationScale = 1;
+              let animationDelay = 0;
+              let useAnimationOpacity = false;
+              let opacityTransitionDelay = 0;
 
-          if (animationState === 'entering' && shouldAnimate) {
-            // Entrance animation: start from center, staggered by distance
-            // EXCEPTION: Current node (isCurrent) should NOT animate - it's the "hidden cut"
-            if (!isCurrent) {
-              animationDelay = distanceFromMain * 40; // 40ms per level (faster)
-              animationOpacity = 0;
-              animationScale = 0.3;
-              useAnimationOpacity = true; // Override opacity for entrance
-              // Add additional delay for opacity transition after entrance completes
-              opacityTransitionDelay = animationDelay + 200; // 200ms entrance duration + stagger delay
-            }
-          } else if (animationState === 'exiting' && !isCurrent && shouldAnimate) {
-            // Exit animation: shrink to center, reverse stagger
-            animationDelay = (4 - distanceFromMain) * 30; // 30ms reverse stagger (faster)
-            animationScale = 0.3;
-            useAnimationOpacity = false; // Don't override opacity - let CSS animate from current opacity
-          }
-          
-          // Progressive scaling for stacking effect - more pronounced size differences
-          let scale = 1.0;
-          if (distanceFromMain === 0) {
-            // Exactly at focus - should match the real node size
-            scale = 1.0;
-          } else if (distanceFromMain < 1) {
-            // Close to focus - more pronounced drop for stacking
-            scale = 1.0 - (distanceFromMain * 0.25);
-          } else if (distanceFromMain < 2) {
-            // Medium distance - continue shrinking
-            scale = 0.75 - ((distanceFromMain - 1) * 0.15);
-          } else {
-            // Further from focus - shrink more significantly for layering effect
-            scale = 0.6 - ((distanceFromMain - 2) * 0.08);
-            scale = Math.max(0.35, scale); // Minimum scale for visibility in stack
-          }
-          
-          // Calculate opacity: more pronounced falloff for stacking effect
-          let opacity = 1;
-          if (distanceFromMain <= 0.5) {
-            opacity = 1.0; // Full opacity for center node
-          } else if (distanceFromMain <= 1) {
-            opacity = 0.95 - (distanceFromMain * 0.15); // Gentle falloff for adjacent nodes
-          } else if (distanceFromMain <= 2) {
-            opacity = 0.8 - ((distanceFromMain - 1) * 0.3); // More pronounced falloff for stacking
-          } else if (distanceFromMain <= 3) {
-            opacity = 0.5 - ((distanceFromMain - 2) * 0.3); // Continue falloff
-          } else {
-            opacity = 0.2 - ((distanceFromMain - 3) * 0.15); // Fade to very low opacity
-          }
-          
-          // Apply animation opacity only when we want to override (entrance animation)
-          if (useAnimationOpacity) {
-            opacity = animationOpacity; // Apply to all nodes during entrance, including current
-          }
-          // For exit animations, keep the natural calculated opacity so CSS can animate from it
-          
-          // Position calculation - uses dynamic offsets now
-          const nodeX = window.innerWidth * 0.5;
-          // Fix NaN issue by providing fallback for missing levelOffsets
-          const levelOffset = levelOffsets[item.level] ?? (item.level * (NODE_HEIGHT + LEVEL_SPACING));
-          const nodeY = window.innerHeight * 2 + (levelOffset * zoomLevel);
-          
-          // Determine if this is the "main" node (closest to scroll position)
-          const isMainNode = distanceFromMain < 0.5;
-          
-          // --- Refactored for Stable Scaling & Image Support ---
-          const {
-            currentWidth: unscaledWidth,
-            currentHeight: unscaledHeight,
-            textAreaHeight: unscaledTextAreaHeight,
-            imageWidth: unscaledImageWidth,
-            calculatedImageHeight: unscaledImageHeight
-          } = item.baseDimensions;
-          const hasThumbnail = Boolean(item.thumbnailSrc);
+              // Only animate nodes within 2 levels of the center
+              const shouldAnimate = distanceFromMain <= 2;
 
-          // Unscaled border and corner radius
-          const borderWidth = isMainNode ? 12 : 0; // Match NodeCanvas: 12 for centered, 0 for others
-          const cornerRadius = NODE_CORNER_RADIUS;
-          
-          const borderColor = isMainNode ? 'black' : 'none'; // Match NodeCanvas: black for centered, none for others
-          const nodeColor = item.color || NODE_DEFAULT_COLOR;
-          
+              if (animationState === 'entering' && shouldAnimate) {
+                // Entrance animation: start from center, staggered by distance
+                // EXCEPTION: Current node (isCurrent) should NOT animate - it's the "hidden cut"
+                if (!isCurrent) {
+                  animationDelay = distanceFromMain * 40; // 40ms per level (faster)
+                  animationOpacity = 0;
+                  animationScale = 0.3;
+                  useAnimationOpacity = true; // Override opacity for entrance
+                  // Add additional delay for opacity transition after entrance completes
+                  opacityTransitionDelay = animationDelay + 200; // 200ms entrance duration + stagger delay
+                }
+              } else if (animationState === 'exiting' && !isCurrent && shouldAnimate) {
+                // Exit animation: shrink to center, reverse stagger
+                animationDelay = (4 - distanceFromMain) * 30; // 30ms reverse stagger (faster)
+                animationScale = 0.3;
+                useAnimationOpacity = false; // Don't override opacity - let CSS animate from current opacity
+              }
+
+              // Progressive scaling for stacking effect - more pronounced size differences
+              let scale = 1.0;
+              if (distanceFromMain === 0) {
+                // Exactly at focus - should match the real node size
+                scale = 1.0;
+              } else if (distanceFromMain < 1) {
+                // Close to focus - more pronounced drop for stacking
+                scale = 1.0 - (distanceFromMain * 0.25);
+              } else if (distanceFromMain < 2) {
+                // Medium distance - continue shrinking
+                scale = 0.75 - ((distanceFromMain - 1) * 0.15);
+              } else {
+                // Further from focus - shrink more significantly for layering effect
+                scale = 0.6 - ((distanceFromMain - 2) * 0.08);
+                scale = Math.max(0.35, scale); // Minimum scale for visibility in stack
+              }
+
+              // Calculate opacity: more pronounced falloff for stacking effect
+              let opacity = 1;
+              if (distanceFromMain <= 0.5) {
+                opacity = 1.0; // Full opacity for center node
+              } else if (distanceFromMain <= 1) {
+                opacity = 0.95 - (distanceFromMain * 0.15); // Gentle falloff for adjacent nodes
+              } else if (distanceFromMain <= 2) {
+                opacity = 0.8 - ((distanceFromMain - 1) * 0.3); // More pronounced falloff for stacking
+              } else if (distanceFromMain <= 3) {
+                opacity = 0.5 - ((distanceFromMain - 2) * 0.3); // Continue falloff
+              } else {
+                opacity = 0.2 - ((distanceFromMain - 3) * 0.15); // Fade to very low opacity
+              }
+
+              // Apply animation opacity only when we want to override (entrance animation)
+              if (useAnimationOpacity) {
+                opacity = animationOpacity; // Apply to all nodes during entrance, including current
+              }
+              // For exit animations, keep the natural calculated opacity so CSS can animate from it
+
+              // Position calculation - uses dynamic offsets now
+              const nodeX = window.innerWidth * 0.5;
+              // Fix NaN issue by providing fallback for missing levelOffsets
+              const levelOffset = levelOffsets[item.level] ?? (item.level * (NODE_HEIGHT + LEVEL_SPACING));
+              const nodeY = window.innerHeight * 2 + (levelOffset * zoomLevel);
+
+              // Determine if this is the "main" node (closest to scroll position)
+              const isMainNode = distanceFromMain < 0.5;
+
+              // --- Refactored for Stable Scaling & Image Support ---
+              const {
+                currentWidth: unscaledWidth,
+                currentHeight: unscaledHeight,
+                textAreaHeight: unscaledTextAreaHeight,
+                imageWidth: unscaledImageWidth,
+                calculatedImageHeight: unscaledImageHeight
+              } = item.baseDimensions;
+              const hasThumbnail = Boolean(item.thumbnailSrc);
+
+              // Unscaled border and corner radius
+              const borderWidth = isMainNode ? 12 : 0; // Match NodeCanvas: 12 for centered, 0 for others
+              const cornerRadius = NODE_CORNER_RADIUS;
+
+              const borderColor = isMainNode ? 'black' : 'none'; // Match NodeCanvas: black for centered, none for others
+              const nodeColor = item.color || NODE_DEFAULT_COLOR;
 
 
-          // Calculate animation transform for enter/exit
-          // EXCEPTION: Current node does NOT animate during entrance (hidden cut)
-          const shouldApplyAnimation = shouldAnimate && (
-            (animationState === 'entering' && !isCurrent) || // Non-current nodes animate in, current node appears instantly
-            (animationState === 'exiting' && !isCurrent) // Only non-current nodes animate out
-          );
 
-          const animationTransform = shouldApplyAnimation
-            ? `scale(${animationScale})`
-            : 'scale(1)';
+              // Calculate animation transform for enter/exit
+              // EXCEPTION: Current node does NOT animate during entrance (hidden cut)
+              const shouldApplyAnimation = shouldAnimate && (
+                (animationState === 'entering' && !isCurrent) || // Non-current nodes animate in, current node appears instantly
+                (animationState === 'exiting' && !isCurrent) // Only non-current nodes animate out
+              );
 
-          const animationStyles = shouldApplyAnimation ? {
-            animation: animationState === 'entering'
-              ? `carousel-node-enter 0.2s ease-out ${animationDelay}ms both`
-              : `carousel-node-exit 0.2s ease-in ${animationDelay}ms both`,
-            // For exit animations, pass the current opacity as a CSS variable
-            ...(animationState === 'exiting' ? { '--start-opacity': opacity } : {})
-          } : {};
+              const animationTransform = shouldApplyAnimation
+                ? `scale(${animationScale})`
+                : 'scale(1)';
 
-          // Calculate final opacity with transition
-          const finalOpacity = useAnimationOpacity ? animationOpacity : opacity;
-          const opacityStyle = (animationState === 'entering' && shouldAnimate && !isCurrent) ? {
-            opacity: 1, // Start at full opacity after entrance
-            animation: `carousel-opacity-transition 0.4s ease ${opacityTransitionDelay}ms forwards`,
-            // Set CSS custom property for the final target opacity
-            '--target-opacity': opacity
-          } : {
-            opacity: finalOpacity
-          };
+              const animationStyles = shouldApplyAnimation ? {
+                animation: animationState === 'entering'
+                  ? `carousel-node-enter 0.2s ease-out ${animationDelay}ms both`
+                  : `carousel-node-exit 0.2s ease-in ${animationDelay}ms both`,
+                // For exit animations, pass the current opacity as a CSS variable
+                ...(animationState === 'exiting' ? { '--start-opacity': opacity } : {})
+              } : {};
 
-          return (
-            <g
-              key={item.id}
-              style={{
-                ...opacityStyle,
-                cursor: 'pointer',
-                pointerEvents: 'auto',
-                transform: animationTransform,
-                transformOrigin: `${nodeX}px ${nodeY}px`,
-                ...animationStyles
-              }}
-              onClick={() => handleNodeClick(item)}
-            >
-              {/* This group handles positioning and dynamic scaling, keeping contents stable */}
-              <g transform={`translate(${nodeX}, ${nodeY}) scale(${zoomLevel * scale})`}>
-                {/* Background rect - uses unscaled dimensions */}
-                <rect
-                  x={-unscaledWidth / 2 + 6}
-                  y={-unscaledHeight / 2 + 6}
-                  width={unscaledWidth - 12}
-                  height={unscaledHeight - 12}
-                  rx={cornerRadius - 6}
-                  ry={cornerRadius - 6}
-                  fill={nodeColor}
-                  stroke={borderColor}
-                  strokeWidth={8}
+              // Calculate final opacity with transition
+              const finalOpacity = useAnimationOpacity ? animationOpacity : opacity;
+              const opacityStyle = (animationState === 'entering' && shouldAnimate && !isCurrent) ? {
+                opacity: 1, // Start at full opacity after entrance
+                animation: `carousel-opacity-transition 0.4s ease ${opacityTransitionDelay}ms forwards`,
+                // Set CSS custom property for the final target opacity
+                '--target-opacity': opacity
+              } : {
+                opacity: finalOpacity
+              };
+
+              return (
+                <g
+                  key={item.id}
                   style={{
-                    filter: isMainNode 
-                      ? 'drop-shadow(0px 0px 20px rgba(0, 0, 0, 0.6))'
-                      : `drop-shadow(0px ${Math.min(8, 2 + distanceFromMain * 2)}px ${Math.min(16, 4 + distanceFromMain * 4)}px rgba(0, 0, 0, ${Math.min(0.4, 0.1 + distanceFromMain * 0.1)}))`
+                    ...opacityStyle,
+                    cursor: 'pointer',
+                    pointerEvents: 'auto',
+                    transform: animationTransform,
+                    transformOrigin: `${nodeX}px ${nodeY}px`,
+                    ...animationStyles
                   }}
-                />
-                
-                {/* Image (if available) - positioned relative to center */}
-                {hasThumbnail && (
-                    <image
+                  onClick={() => handleNodeClick(item)}
+                >
+                  {/* This group handles positioning and dynamic scaling, keeping contents stable */}
+                  <g transform={`translate(${nodeX}, ${nodeY}) scale(${zoomLevel * scale})`}>
+                    {/* Background rect - uses unscaled dimensions */}
+                    <rect
+                      x={-unscaledWidth / 2 + 6}
+                      y={-unscaledHeight / 2 + 6}
+                      width={unscaledWidth - 12}
+                      height={unscaledHeight - 12}
+                      rx={cornerRadius - 6}
+                      ry={cornerRadius - 6}
+                      fill={nodeColor}
+                      stroke={borderColor}
+                      strokeWidth={8}
+                      style={{
+                        filter: isMainNode
+                          ? 'drop-shadow(0px 0px 20px rgba(0, 0, 0, 0.6))'
+                          : `drop-shadow(0px ${Math.min(8, 2 + distanceFromMain * 2)}px ${Math.min(16, 4 + distanceFromMain * 4)}px rgba(0, 0, 0, ${Math.min(0.4, 0.1 + distanceFromMain * 0.1)}))`
+                      }}
+                    />
+
+                    {/* Image (if available) - positioned relative to center */}
+                    {hasThumbnail && (
+                      <image
                         x={-unscaledWidth / 2 + NODE_PADDING}
                         y={-unscaledHeight / 2 + unscaledTextAreaHeight}
                         width={unscaledImageWidth}
@@ -1350,99 +1352,99 @@ const AbstractionCarousel = ({
                         href={item.thumbnailSrc}
                         preserveAspectRatio="xMidYMid slice"
                         clipPath={`url(#carousel-image-clip-${item.id})`}
-                    />
-                )}
+                      />
+                    )}
 
-                {/* ForeignObject for name text - uses unscaled dimensions */}
-                <foreignObject
-                  x={-unscaledWidth / 2}
-                  y={-unscaledHeight / 2}
-                  width={unscaledWidth}
-                  height={hasThumbnail ? unscaledTextAreaHeight : unscaledHeight}
-                  style={{
-                    overflow: 'hidden',
-                    pointerEvents: 'none'
-                  }}
-                >
-                  <div
-                    style={{
-                      display: 'flex',
-                      flexDirection: 'column',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      width: '100%',
-                      height: '100%',
-                      // Match Node.jsx single-line padding for non-preview nodes
-                      // Node.jsx uses `20px ${isMultiline ? 30 : 22}px` when not previewing
-                      padding: `20px ${(() => {
-                        const singleLineSidePadding = 22;
-                        const availableWidth = unscaledWidth - (2 * singleLineSidePadding);
-                        const averageCharWidth = 12 * textSettings.fontSize; // Scale with font size
-                        const charsPerLine = Math.floor(availableWidth / averageCharWidth);
-                        const isMultiline = (item.name || '').length > charsPerLine;
-                        return isMultiline ? 30 : 22;
-                      })()}px`,
-                      boxSizing: 'border-box',
-                      userSelect: 'none',
-                      minWidth: 0
-                    }}
-                  >
-                    <span
+                    {/* ForeignObject for name text - uses unscaled dimensions */}
+                    <foreignObject
+                      x={-unscaledWidth / 2}
+                      y={-unscaledHeight / 2}
+                      width={unscaledWidth}
+                      height={hasThumbnail ? unscaledTextAreaHeight : unscaledHeight}
                       style={{
-                        fontSize: `${20 * textSettings.fontSize}px`,
-                        fontWeight: 'bold',
-                        fontFamily: "'EmOne', sans-serif",
-                        color: item.textColor || getTextColor(nodeColor),
-                        lineHeight: `${28 * textSettings.lineSpacing}px`, // Base changed from 32 to 28
-                        whiteSpace: 'normal',
-                        overflowWrap: 'break-word',
-                        wordBreak: 'break-word',
-                        textAlign: 'center',
-                        minWidth: 0,
-                        width: '100%',
-                        display: 'inline-block',
-                        hyphens: 'auto'
-                      }}
-                      lang="en"
-                    >
-                      {item.name}
-                    </span>
-                  </div>
-                </foreignObject>
-
-                {/* Level indicator - positioned inside the transformed group */}
-                {debugMode && (
-                  <g>
-                    <circle
-                      cx={unscaledWidth / 2 - 8}
-                      cy={-unscaledHeight / 2 + 8}
-                      r={12}
-                      fill={isMainNode ? 'black' : '#666'}
-                      stroke="none"
-                    />
-                    <text
-                      x={unscaledWidth / 2 - 8}
-                      y={-unscaledHeight / 2 + 8}
-                      textAnchor="middle"
-                      dominantBaseline="central"
-                      fontSize={12}
-                      fontFamily="'EmOne', sans-serif"
-                      fill={theme.canvas.bg}
-
-                      fontWeight="bold"
-                      style={{
-                        userSelect: 'none',
+                        overflow: 'hidden',
                         pointerEvents: 'none'
                       }}
                     >
-                      {item.level}
-                    </text>
+                      <div
+                        style={{
+                          display: 'flex',
+                          flexDirection: 'column',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          width: '100%',
+                          height: '100%',
+                          // Match Node.jsx single-line padding for non-preview nodes
+                          // Node.jsx uses `20px ${isMultiline ? 30 : 22}px` when not previewing
+                          padding: `20px ${(() => {
+                            const singleLineSidePadding = 22;
+                            const availableWidth = unscaledWidth - (2 * singleLineSidePadding);
+                            const averageCharWidth = 12 * textSettings.fontSize; // Scale with font size
+                            const charsPerLine = Math.floor(availableWidth / averageCharWidth);
+                            const isMultiline = (item.name || '').length > charsPerLine;
+                            return isMultiline ? 30 : 22;
+                          })()}px`,
+                          boxSizing: 'border-box',
+                          userSelect: 'none',
+                          minWidth: 0
+                        }}
+                      >
+                        <span
+                          style={{
+                            fontSize: `${20 * textSettings.fontSize}px`,
+                            fontWeight: 'bold',
+                            fontFamily: "'EmOne', sans-serif",
+                            color: item.textColor || getTextColor(nodeColor),
+                            lineHeight: `${28 * textSettings.lineSpacing}px`, // Base changed from 32 to 28
+                            whiteSpace: 'normal',
+                            overflowWrap: 'break-word',
+                            wordBreak: 'break-word',
+                            textAlign: 'center',
+                            minWidth: 0,
+                            width: '100%',
+                            display: 'inline-block',
+                            hyphens: 'auto'
+                          }}
+                          lang="en"
+                        >
+                          {item.name}
+                        </span>
+                      </div>
+                    </foreignObject>
+
+                    {/* Level indicator - positioned inside the transformed group */}
+                    {debugMode && (
+                      <g>
+                        <circle
+                          cx={unscaledWidth / 2 - 8}
+                          cy={-unscaledHeight / 2 + 8}
+                          r={12}
+                          fill={isMainNode ? 'black' : '#666'}
+                          stroke="none"
+                        />
+                        <text
+                          x={unscaledWidth / 2 - 8}
+                          y={-unscaledHeight / 2 + 8}
+                          textAnchor="middle"
+                          dominantBaseline="central"
+                          fontSize={12}
+                          fontFamily="'EmOne', sans-serif"
+                          fill={theme.canvas.bg}
+
+                          fontWeight="bold"
+                          style={{
+                            userSelect: 'none',
+                            pointerEvents: 'none'
+                          }}
+                        >
+                          {item.level}
+                        </text>
+                      </g>
+                    )}
                   </g>
-                )}
-              </g>
-            </g>
-          );
-        });
+                </g>
+              );
+            });
         })()}
       </svg>
 
@@ -1516,8 +1518,8 @@ const AbstractionCarousel = ({
           textAlign: 'left'
         }}>
           <div style={{ marginBottom: '8px' }}>↑ Specific</div>
-          <div style={{ 
-            color: '#333', 
+          <div style={{
+            color: '#333',
             fontWeight: 'bold',
             fontSize: `${14 * zoomLevel}px`,
             fontFamily: "'EmOne', sans-serif",
@@ -1526,9 +1528,9 @@ const AbstractionCarousel = ({
             Level {physicsState.realPosition.toFixed(1)}
           </div>
           <div>↓ General</div>
-          
+
           {/* Physics debug info */}
-          <div style={{ 
+          <div style={{
             fontSize: `${10 * zoomLevel}px`,
             fontFamily: "'EmOne', sans-serif",
             color: '#999',
