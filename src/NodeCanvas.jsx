@@ -632,6 +632,9 @@ function NodeCanvas() {
   const forceLayoutScaleMultiplier = forceTunerSettings.layoutScaleMultiplier ?? 1;
   const forceLayoutIterationPreset = forceTunerSettings.layoutIterations || 'balanced';
   const keyboardSettings = useGraphStore(state => state.keyboardSettings || { zoomSensitivity: 0.5 });
+  const touchSettings = useGraphStore(state => state.touchSettings || { zoomSensitivity: 0.5, panSensitivity: 0.5 });
+  const touchSettingsRef = useRef(touchSettings);
+  useEffect(() => { touchSettingsRef.current = touchSettings; }, [touchSettings]);
   const edgesMap = useGraphStore(state => state.edges);
   const savedNodeIds = useGraphStore(state => state.savedNodeIds);
   const savedGraphIds = useGraphStore(state => state.savedGraphIds);
@@ -5927,6 +5930,7 @@ function NodeCanvas() {
     pinchRef,
     pinchSmoothingRef,
     ignoreCanvasClick,
+    touchSettings,
   });
 
   // Prevent native long-press context menu on touch devices (iOS/Android)
@@ -6450,7 +6454,10 @@ function NodeCanvas() {
 
           const now = performance.now();
           const dt = Math.max(1, now - (lastPanSampleRef.current.time || now));
-          const dragSensitivity = panSourceRef.current === 'touch' ? TOUCH_PAN_DRAG_SENSITIVITY : PAN_DRAG_SENSITIVITY;
+          const touchPanMultiplier = (touchSettingsRef.current?.panSensitivity ?? 0.5) * 2;
+          const dragSensitivity = panSourceRef.current === 'touch'
+            ? TOUCH_PAN_DRAG_SENSITIVITY * touchPanMultiplier
+            : PAN_DRAG_SENSITIVITY;
           const dxInput = (e.clientX - ps.x) * dragSensitivity;
           const dyInput = (e.clientY - ps.y) * dragSensitivity;
           const maxX = 0;

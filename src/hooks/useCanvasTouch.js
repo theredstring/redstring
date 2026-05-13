@@ -6,7 +6,9 @@ import { useWindowGestureEnd } from './useWindowGestureEnd';
 // Some constants seem global. I should duplicates them or export/import them.
 const MIN_ZOOM = 0.1;
 const MAX_ZOOM = 4;
-const TOUCH_PINCH_SENSITIVITY = 0.05;
+// Slider 0.5 maps to this base easing factor (current "good default").
+// Slider value scales linearly: actual = clamp(0.05, slider * 2 * BASE, 1.0).
+const TOUCH_PINCH_SENSITIVITY_BASE = 0.8;
 const TOUCH_PINCH_CENTER_SMOOTHING = 0.1;
 const MOVEMENT_THRESHOLD = 6;
 const TOUCH_MOVEMENT_THRESHOLD = 12; // Higher than mouse
@@ -81,6 +83,7 @@ export const useCanvasTouch = ({
     pinchRef,
     pinchSmoothingRef,
     ignoreCanvasClick,
+    touchSettings,
 }) => {
     // --- Refs moved to hook ---
     const lastTouchRef = useRef({ x: 0, y: 0 });
@@ -435,7 +438,9 @@ export const useCanvasTouch = ({
             const startZoom = pinchRef.current.startZoom || zoomLevelRef.current;
             const ratioFromStart = dist / (startDist || dist);
             const targetZoomRaw = startZoom * (ratioFromStart || 1);
-            const easing = 1 - Math.pow(1 - TOUCH_PINCH_SENSITIVITY, Math.min(6, dt / 16));
+            const pinchSlider = touchSettings?.zoomSensitivity ?? 0.5;
+            const pinchSensitivity = Math.max(0.05, Math.min(1.0, pinchSlider * 2 * TOUCH_PINCH_SENSITIVITY_BASE));
+            const easing = 1 - Math.pow(1 - pinchSensitivity, Math.min(6, dt / 16));
             // Atomic pan+zoom update: read prev values from refs and apply both
             // in a single DOM write to prevent the one-frame anchor jump that
             // sequential setZoom + setPan produces.

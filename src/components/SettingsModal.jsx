@@ -49,6 +49,7 @@ const SettingsModal = ({ isVisible, onClose }) => {
   const dragZoomAmount = useGraphStore(s => s.dragZoomSettings?.zoomAmount);
   const textSettings = useGraphStore(s => s.textSettings);
   const keyboardSettings = useGraphStore(s => s.keyboardSettings);
+  const touchSettings = useGraphStore(s => s.touchSettings);
   const routingStyle = useGraphStore(s => s.routingStyle);
   const cleanLaneSpacing = useGraphStore(s => s.cleanLaneSpacing);
   const showConnectionNames = useGraphStore(s => s.showConnectionNames);
@@ -136,6 +137,88 @@ const SettingsModal = ({ isVisible, onClose }) => {
         </div>
       )
     },
+    keyboard: {
+      title: 'Input',
+      content: (
+        <div>
+          <div className="settings-section-subtitle">Touch</div>
+          <div className="settings-slider-row">
+            <MaroonSlider
+              label="Zoom Sensitivity"
+              value={touchSettings?.zoomSensitivity ?? 0.5}
+              min={0.1}
+              max={1.0}
+              step={0.05}
+              onChange={(v) => useGraphStore.getState().setTouchZoomSensitivity?.(v)}
+              suffix=""
+            />
+          </div>
+          <div className="settings-slider-row">
+            <MaroonSlider
+              label="Pan Sensitivity"
+              value={touchSettings?.panSensitivity ?? 0.5}
+              min={0.1}
+              max={1.0}
+              step={0.05}
+              onChange={(v) => useGraphStore.getState().setTouchPanSensitivity?.(v)}
+              suffix=""
+            />
+          </div>
+
+          <hr className="settings-section-divider" />
+
+          <div className="settings-section-subtitle">Keyboard</div>
+          <div className="settings-slider-row">
+            <MaroonSlider
+              label="Zoom Sensitivity"
+              value={keyboardSettings?.zoomSensitivity ?? 0.5}
+              min={0.1}
+              max={1.0}
+              step={0.05}
+              onChange={(v) => useGraphStore.getState().setKeyboardZoomSensitivity?.(v)}
+              suffix=""
+            />
+          </div>
+          <div className="settings-slider-row">
+            <MaroonSlider
+              label="Pan Sensitivity"
+              value={keyboardSettings?.panSensitivity ?? 0.5}
+              min={0.1}
+              max={1.0}
+              step={0.05}
+              onChange={(v) => useGraphStore.getState().setKeyboardPanSensitivity?.(v)}
+              suffix=""
+            />
+          </div>
+
+          <hr className="settings-section-divider" />
+
+          <div className="settings-section-subtitle">Zoom on Drag</div>
+          <div className="settings-row">
+            <div className="settings-row-label">
+              Enable Zoom on Drag
+              <div className="settings-row-description">Zoom out when dragging a node</div>
+            </div>
+            <Toggle
+              checked={!!dragZoomEnabled}
+              onChange={() => useGraphStore.getState().toggleDragZoomEnabled?.()}
+            />
+          </div>
+          <div className="settings-slider-row">
+            <MaroonSlider
+              label="Zoom Amount"
+              value={dragZoomAmount ?? 0.3}
+              min={0.0}
+              max={0.9}
+              step={0.05}
+              onChange={(v) => useGraphStore.getState().setDragZoomAmount?.(v)}
+              disabled={!dragZoomEnabled}
+              suffix=""
+            />
+          </div>
+        </div>
+      )
+    },
     grid: {
       title: 'Grid',
       content: (
@@ -195,62 +278,6 @@ const SettingsModal = ({ isVisible, onClose }) => {
               />
             </div>
           )}
-        </div>
-      )
-    },
-    keyboard: {
-      title: 'Keyboard & Input',
-      content: (
-        <div>
-          <div className="settings-section-subtitle">Keyboard</div>
-          <div className="settings-slider-row">
-            <MaroonSlider
-              label="Zoom Sensitivity"
-              value={keyboardSettings?.zoomSensitivity ?? 0.5}
-              min={0.1}
-              max={1.0}
-              step={0.05}
-              onChange={(v) => useGraphStore.getState().setKeyboardZoomSensitivity?.(v)}
-              suffix=""
-            />
-          </div>
-          <div className="settings-slider-row">
-            <MaroonSlider
-              label="Pan Sensitivity"
-              value={keyboardSettings?.panSensitivity ?? 0.5}
-              min={0.1}
-              max={1.0}
-              step={0.05}
-              onChange={(v) => useGraphStore.getState().setKeyboardPanSensitivity?.(v)}
-              suffix=""
-            />
-          </div>
-
-          <hr className="settings-section-divider" />
-
-          <div className="settings-section-subtitle">Zoom on Drag</div>
-          <div className="settings-row">
-            <div className="settings-row-label">
-              Enable Zoom on Drag
-              <div className="settings-row-description">Zoom out when dragging a node</div>
-            </div>
-            <Toggle
-              checked={!!dragZoomEnabled}
-              onChange={() => useGraphStore.getState().toggleDragZoomEnabled?.()}
-            />
-          </div>
-          <div className="settings-slider-row">
-            <MaroonSlider
-              label="Zoom Amount"
-              value={dragZoomAmount ?? 0.3}
-              min={0.0}
-              max={0.9}
-              step={0.05}
-              onChange={(v) => useGraphStore.getState().setDragZoomAmount?.(v)}
-              disabled={!dragZoomEnabled}
-              suffix=""
-            />
-          </div>
         </div>
       )
     },

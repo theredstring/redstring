@@ -650,6 +650,27 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
       }
     })(),
 
+    // Touch interaction settings — sliders in [0, 1], 0.5 maps to the
+    // current "good default" multiplier in the touch input layer.
+    touchSettings: (() => {
+      try {
+        const zoomRaw = localStorage.getItem('redstring_touch_zoom_sensitivity');
+        const panRaw = localStorage.getItem('redstring_touch_pan_sensitivity');
+
+        let zoomSensitivity = zoomRaw !== null ? parseFloat(zoomRaw) : 0.5;
+        if (!Number.isFinite(zoomSensitivity)) zoomSensitivity = 0.5;
+        zoomSensitivity = Math.max(0.0, Math.min(1.0, zoomSensitivity));
+
+        let panSensitivity = panRaw !== null ? parseFloat(panRaw) : 0.5;
+        if (!Number.isFinite(panSensitivity)) panSensitivity = 0.5;
+        panSensitivity = Math.max(0.0, Math.min(1.0, panSensitivity));
+
+        return { zoomSensitivity, panSensitivity };
+      } catch (_) {
+        return { zoomSensitivity: 0.5, panSensitivity: 0.5 };
+      }
+    })(),
+
     // Git Federation State
     gitConnection: (() => {
       // Load saved connection from localStorage
@@ -3598,6 +3619,33 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
       draft.keyboardSettings.panSensitivity = v;
       try {
         localStorage.setItem('redstring_keyboard_pan_sensitivity', String(v));
+      } catch (_) { }
+    })),
+
+    // Touch settings actions
+    setTouchZoomSensitivity: (value) => set(produce((draft) => {
+      const v = Number(value);
+      if (!Number.isFinite(v) || v < 0.0 || v > 1.0) {
+        console.warn(`[setTouchZoomSensitivity] Invalid value: ${value}`);
+        return;
+      }
+      if (!draft.touchSettings) draft.touchSettings = { zoomSensitivity: 0.5, panSensitivity: 0.5 };
+      draft.touchSettings.zoomSensitivity = v;
+      try {
+        localStorage.setItem('redstring_touch_zoom_sensitivity', String(v));
+      } catch (_) { }
+    })),
+
+    setTouchPanSensitivity: (value) => set(produce((draft) => {
+      const v = Number(value);
+      if (!Number.isFinite(v) || v < 0.0 || v > 1.0) {
+        console.warn(`[setTouchPanSensitivity] Invalid value: ${value}`);
+        return;
+      }
+      if (!draft.touchSettings) draft.touchSettings = { zoomSensitivity: 0.5, panSensitivity: 0.5 };
+      draft.touchSettings.panSensitivity = v;
+      try {
+        localStorage.setItem('redstring_touch_pan_sensitivity', String(v));
       } catch (_) { }
     })),
 
