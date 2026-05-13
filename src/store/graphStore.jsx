@@ -650,6 +650,17 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
       }
     })(),
 
+    // Mouse interaction settings
+    mouseSettings: (() => {
+      try {
+        const raw = localStorage.getItem('redstring_middle_mouse_zoom_enabled');
+        const middleMouseZoomEnabled = raw === 'true';
+        return { middleMouseZoomEnabled };
+      } catch (_) {
+        return { middleMouseZoomEnabled: false };
+      }
+    })(),
+
     // Touch interaction settings — sliders in [0, 1], 0.5 maps to the
     // current "good default" multiplier in the touch input layer.
     touchSettings: (() => {
@@ -3619,6 +3630,15 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
       draft.keyboardSettings.panSensitivity = v;
       try {
         localStorage.setItem('redstring_keyboard_pan_sensitivity', String(v));
+      } catch (_) { }
+    })),
+
+    // Mouse settings actions
+    toggleMiddleMouseZoom: () => set(produce((draft) => {
+      if (!draft.mouseSettings) draft.mouseSettings = { middleMouseZoomEnabled: false };
+      draft.mouseSettings.middleMouseZoomEnabled = !draft.mouseSettings.middleMouseZoomEnabled;
+      try {
+        localStorage.setItem('redstring_middle_mouse_zoom_enabled', String(draft.mouseSettings.middleMouseZoomEnabled));
       } catch (_) { }
     })),
 

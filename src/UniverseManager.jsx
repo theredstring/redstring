@@ -3670,7 +3670,7 @@ const UniverseManager = ({ variant = 'panel', onRequestClose }) => {
         console.log(`[UniverseManager] Status set to Unsaved changes for ${universe.slug}`);
       } else if (lastSaved) {
         status = 'Synced';
-        statusColor = '#2e7d32';
+        statusColor = statusColors.success;
         console.log(`[UniverseManager] Status set to Synced for ${universe.slug}`);
       } else {
         // No real-time engine data available. Fall back to sync summary from universe.sync
@@ -3704,7 +3704,7 @@ const UniverseManager = ({ variant = 'panel', onRequestClose }) => {
       } else if (localFile.lastSaved) {
         lastSaved = localFile.lastSaved;
         status = 'Saved';
-        statusColor = '#2e7d32';
+        statusColor = statusColors.success;
       }
     }
 
@@ -4694,7 +4694,7 @@ const UniverseManager = ({ variant = 'panel', onRequestClose }) => {
             const base = activeUniverse?.sync || {};
             let displayState = 'idle';
             let displayLabel = 'All changes saved';
-            let displayTone = theme.darkMode ? '#81c784' : '#2e7d32';
+            let displayTone = statusColors.success;
             let displayDesc = '';
 
             const pendingCommits = Number(engine?.pendingCommits || 0);

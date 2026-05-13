@@ -50,6 +50,7 @@ const SettingsModal = ({ isVisible, onClose }) => {
   const textSettings = useGraphStore(s => s.textSettings);
   const keyboardSettings = useGraphStore(s => s.keyboardSettings);
   const touchSettings = useGraphStore(s => s.touchSettings);
+  const middleMouseZoomEnabled = useGraphStore(s => s.mouseSettings?.middleMouseZoomEnabled ?? false);
   const routingStyle = useGraphStore(s => s.routingStyle);
   const cleanLaneSpacing = useGraphStore(s => s.cleanLaneSpacing);
   const showConnectionNames = useGraphStore(s => s.showConnectionNames);
@@ -162,6 +163,20 @@ const SettingsModal = ({ isVisible, onClose }) => {
               step={0.05}
               onChange={(v) => useGraphStore.getState().setTouchPanSensitivity?.(v)}
               suffix=""
+            />
+          </div>
+
+          <hr className="settings-section-divider" />
+
+          <div className="settings-section-subtitle">Mouse</div>
+          <div className="settings-row">
+            <div className="settings-row-label">
+              Hold Middle Click to Zoom
+              <div className="settings-row-description">Press and drag with the middle mouse button to zoom in and out</div>
+            </div>
+            <Toggle
+              checked={!!middleMouseZoomEnabled}
+              onChange={() => useGraphStore.getState().toggleMiddleMouseZoom?.()}
             />
           </div>
 

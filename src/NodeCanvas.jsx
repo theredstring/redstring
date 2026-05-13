@@ -632,6 +632,7 @@ function NodeCanvas() {
   const forceLayoutScaleMultiplier = forceTunerSettings.layoutScaleMultiplier ?? 1;
   const forceLayoutIterationPreset = forceTunerSettings.layoutIterations || 'balanced';
   const keyboardSettings = useGraphStore(state => state.keyboardSettings || { zoomSensitivity: 0.5 });
+  const middleMouseZoomEnabled = useGraphStore(state => state.mouseSettings?.middleMouseZoomEnabled ?? false);
   const touchSettings = useGraphStore(state => state.touchSettings || { zoomSensitivity: 0.5, panSensitivity: 0.5 });
   const touchSettingsRef = useRef(touchSettings);
   useEffect(() => { touchSettingsRef.current = touchSettings; }, [touchSettings]);
@@ -5595,9 +5596,10 @@ function NodeCanvas() {
       try { e.preventDefault(); } catch { }
       return;
     }
-    // Cmd/Ctrl + middle-button on a node: arm the zoom-by-drag gesture; if released without
-    // moving, mouseup opens the panel tab (treating it like a double-click on a node).
-    if (e && e.button === 1 && (isMac ? e.metaKey : e.ctrlKey)) {
+    // Middle-button on a node: arm the zoom-by-drag gesture when the user has enabled
+    // "Hold middle click to zoom"; if released without moving, mouseup opens the panel tab
+    // (treating it like a double-click on a node).
+    if (e && e.button === 1 && middleMouseZoomEnabled) {
       try { e.preventDefault(); } catch { }
       stopPanMomentum();
       if (isPaused || !activeGraphId) return;
@@ -6502,9 +6504,9 @@ function NodeCanvas() {
       try { e.preventDefault(); e.stopPropagation(); } catch { }
       return;
     }
-    // Cmd/Ctrl + middle-button: start the zoom-by-drag gesture, suppressing browser autoscroll.
-    // Plain middle-button falls through to the regular pan path.
-    if (e && e.button === 1 && (isMac ? e.metaKey : e.ctrlKey)) {
+    // Middle-button: start the zoom-by-drag gesture when enabled, suppressing browser autoscroll.
+    // When disabled, plain middle-button falls through to the regular pan path.
+    if (e && e.button === 1 && middleMouseZoomEnabled) {
       try { e.preventDefault(); e.stopPropagation(); } catch { }
       stopPanMomentum();
       if (isPaused || !activeGraphId || abstractionCarouselVisible) return;
