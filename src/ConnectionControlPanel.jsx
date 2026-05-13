@@ -276,6 +276,7 @@ const ConnectionControlPanel = ({
       onAskWizard={handleAskWizard}
       wizardEnabled={wizardEnabled}
       onActionHoverChange={onActionHoverChange}
+      onDismiss={onClose}
     />
   );
 };

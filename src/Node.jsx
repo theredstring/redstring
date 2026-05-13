@@ -609,6 +609,7 @@ const Node = ({
                 }}
               >
                 <div
+                  data-decomp-button="true"
                   style={{
                     width: '100%',
                     height: '100%',
@@ -631,6 +632,8 @@ const Node = ({
                   onMouseLeave={(e) => {
                     e.currentTarget.style.backgroundColor = 'transparent';
                   }}
+                  onTouchStart={(e) => e.stopPropagation()}
+                  onTouchEnd={(e) => e.stopPropagation()}
                   onClick={(e) => {
                     e.stopPropagation();
                     if (onCreateDefinition) {
@@ -753,6 +756,7 @@ const Node = ({
             }}
           >
             <div
+              data-decomp-button="true"
               style={{
                 width: '32px',
                 height: '32px',
@@ -767,6 +771,8 @@ const Node = ({
               }}
               onMouseEnter={(e) => e.currentTarget.style.opacity = '1'}
               onMouseLeave={(e) => e.currentTarget.style.opacity = '0.5'}
+              onTouchStart={(e) => e.stopPropagation()}
+              onTouchEnd={(e) => e.stopPropagation()}
               onClick={(e) => {
                 e.stopPropagation();
                 if (onAddNodeToDefinition) {
@@ -793,6 +799,7 @@ const Node = ({
               }}
             >
               <div
+                data-decomp-button="true"
                 style={{
                   width: '32px',
                   height: '32px',
@@ -804,6 +811,8 @@ const Node = ({
                 }}
                 onMouseEnter={(e) => e.currentTarget.style.opacity = '1'}
                 onMouseLeave={(e) => e.currentTarget.style.opacity = hasMultipleDefinitions ? '0.5' : '0.3'}
+                onTouchStart={(e) => e.stopPropagation()}
+                onTouchEnd={(e) => e.stopPropagation()}
                 onClick={(e) => {
                   e.stopPropagation();
                   if (onDeleteDefinition && currentGraphId) {
@@ -848,6 +857,7 @@ const Node = ({
               }}
             >
               <div
+                data-decomp-button="true"
                 style={{
                   width: '32px',
                   height: '32px',
@@ -859,6 +869,8 @@ const Node = ({
                 }}
                 onMouseEnter={(e) => e.currentTarget.style.opacity = '1'}
                 onMouseLeave={(e) => e.currentTarget.style.opacity = hasMultipleDefinitions ? '0.5' : '0.3'}
+                onTouchStart={(e) => e.stopPropagation()}
+                onTouchEnd={(e) => e.stopPropagation()}
                 onClick={(e) => {
                   e.stopPropagation();
                   if (onExpandDefinition && currentGraphId) {
@@ -886,6 +898,7 @@ const Node = ({
               }}
             >
               <div
+                data-decomp-button="true"
                 style={{
                   width: '32px',
                   height: '32px',
@@ -897,6 +910,8 @@ const Node = ({
                 }}
                 onMouseEnter={(e) => e.currentTarget.style.opacity = '1'}
                 onMouseLeave={(e) => e.currentTarget.style.opacity = '0.5'}
+                onTouchStart={(e) => e.stopPropagation()}
+                onTouchEnd={(e) => e.stopPropagation()}
                 onClick={(e) => {
                   e.stopPropagation();
                   if (onConvertToNodeGroup && currentGraphId) {
@@ -940,6 +955,7 @@ const Node = ({
                 >
                   <div
                     data-arrow
+                    data-decomp-button="true"
                     style={{
                       width: `${arrowSize}px`,
                       height: `${arrowSize}px`,
@@ -963,6 +979,8 @@ const Node = ({
                       const numberElement = e.currentTarget.parentElement.parentElement.querySelector('[data-number-indicator]');
                       if (numberElement) numberElement.style.opacity = '0.7';
                     }}
+                    onTouchStart={(e) => e.stopPropagation()}
+                    onTouchEnd={(e) => e.stopPropagation()}
                     onClick={(e) => {
                       e.stopPropagation();
                       if (hasMultipleDefinitions) {
@@ -1038,6 +1056,7 @@ const Node = ({
                 >
                   <div
                     data-arrow
+                    data-decomp-button="true"
                     style={{
                       width: `${arrowSize}px`,
                       height: `${arrowSize}px`,
@@ -1061,6 +1080,8 @@ const Node = ({
                       const numberElement = e.currentTarget.parentElement.parentElement.querySelector('[data-number-indicator]');
                       if (numberElement) numberElement.style.opacity = '0.7';
                     }}
+                    onTouchStart={(e) => e.stopPropagation()}
+                    onTouchEnd={(e) => e.stopPropagation()}
                     onClick={(e) => {
                       e.stopPropagation();
                       if (hasMultipleDefinitions) {

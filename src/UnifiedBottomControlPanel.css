@@ -100,7 +100,7 @@
 }
 
 @media (max-width: 768px) {
-  .unified-bottom-panel.mode-nodes .unified-bottom-handle {
+  .unified-bottom-panel .unified-bottom-handle {
     display: block;
   }
 }

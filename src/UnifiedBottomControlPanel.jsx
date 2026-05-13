@@ -178,22 +178,23 @@ const UnifiedBottomControlPanel = ({
   }, [isDragging, dragOffset, onDismiss]);
 
   useEffect(() => {
-    if (!isVisible) {
+    if (isVisible) {
       setDragOffset(0);
       setIsDragging(false);
     }
   }, [isVisible]);
 
   const dragStyle = useMemo(() => {
-    if (dragOffset === 0 && !isDragging) return undefined;
     const scale = Math.max(0.55, 1 - dragOffset / 500);
     const opacity = Math.max(0, 1 - dragOffset / 260);
     return {
       transform: `translateY(${dragOffset}px) scale(${scale})`,
       opacity,
-      transition: isDragging ? 'none' : 'transform 0.22s ease-out, opacity 0.22s ease-out',
+      transition: isDragging
+        ? 'none'
+        : 'transform 0.28s cubic-bezier(0.34, 1.4, 0.64, 1), opacity 0.28s ease-out',
       transformOrigin: 'top center',
-      willChange: 'transform, opacity',
+      willChange: dragOffset > 0 || isDragging ? 'transform, opacity' : 'auto',
     };
   }, [dragOffset, isDragging]);
 

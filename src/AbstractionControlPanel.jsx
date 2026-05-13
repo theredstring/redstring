@@ -14,9 +14,10 @@ const AbstractionControlPanel = ({
   onExpandDimension,
   onOpenInPanel,
   typeListOpen = false, 
-  isVisible = true, 
+  isVisible = true,
   onAnimationComplete,
   onActionHoverChange,
+  onDismiss,
 }) => {
   const theme = useTheme();
   const nodePrototypesMap = useGraphStore((state) => state.nodePrototypes);
@@ -228,6 +229,7 @@ const AbstractionControlPanel = ({
       // Only show delete if there are multiple dimensions
       showDelete={availableDimensions.length > 1}
       onActionHoverChange={onActionHoverChange}
+      onDismiss={onDismiss}
     />
   );
 };

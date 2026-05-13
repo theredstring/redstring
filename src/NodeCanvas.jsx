@@ -13847,6 +13847,7 @@ function NodeCanvas() {
             onOpenNodePrototypeInPanel={handleNodeGroupOpenInPanel}
             onCombineNodeGroup={handleNodeGroupCombine}
             onActionHoverChange={handlePieMenuHoverChange}
+            onDismiss={() => setSelectedGroup(null)}
           />
         )
       }
@@ -13904,6 +13905,7 @@ function NodeCanvas() {
             isVisible={abstractionControlPanelVisible}
             onAnimationComplete={handleAbstractionControlPanelAnimationComplete}
             onActionHoverChange={handlePieMenuHoverChange}
+            onDismiss={onCarouselClose}
           />
         )
       }
