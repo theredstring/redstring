@@ -3670,7 +3670,7 @@ const UniverseManager = ({ variant = 'panel', onRequestClose }) => {
         console.log(`[UniverseManager] Status set to Unsaved changes for ${universe.slug}`);
       } else if (lastSaved) {
         status = 'Synced';
-        statusColor = statusColors.success;
+        statusColor = '#2e7d32';
         console.log(`[UniverseManager] Status set to Synced for ${universe.slug}`);
       } else {
         // No real-time engine data available. Fall back to sync summary from universe.sync
