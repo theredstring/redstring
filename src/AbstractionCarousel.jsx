@@ -133,6 +133,17 @@ const physicsReducer = (state, action) => {
       return { ...state, hasUserScrolled: action.payload };
     case 'INTERRUPT_SNAPPING':
       return { ...state, isSnapping: false };
+    case 'MOVE_BY': {
+      const { delta, minLevel = -6, maxLevel = 6 } = action.payload;
+      const newPosition = Math.max(minLevel, Math.min(maxLevel, state.realPosition + delta));
+      return {
+        ...state,
+        realPosition: newPosition,
+        targetPosition: newPosition,
+        isSnapping: false,
+        velocity: 0
+      };
+    }
     case 'JUMP_TO_LEVEL':
       return { 
         ...state, 
@@ -746,6 +757,162 @@ const AbstractionCarousel = ({
       };
     }
   }, [isVisible]); // Removed handleWheel from dependencies to prevent infinite loop
+
+  // Touch support: drag to scroll, flick for momentum, tap still synthesizes click
+  const TOUCH_DRAG_THRESHOLD = 8; // px before a touch is treated as a drag
+  const touchStateRef = useRef({
+    identifier: null,
+    startY: 0,
+    startTime: 0,
+    lastY: 0,
+    lastTime: 0,
+    velocity: 0,
+    isDragging: false
+  });
+
+  const handleTouchStart = useCallback((e) => {
+    if (!isVisible) return;
+    if (e.touches.length !== 1) {
+      // Cancel any in-progress touch tracking for multi-touch
+      touchStateRef.current.identifier = null;
+      touchStateRef.current.isDragging = false;
+      return;
+    }
+    const touch = e.touches[0];
+    // Stop physics so the drag starts from rest
+    dispatchPhysics({ type: 'SET_VELOCITY', payload: 0 });
+    dispatchPhysics({ type: 'INTERRUPT_SNAPPING' });
+    touchStateRef.current = {
+      identifier: touch.identifier,
+      startY: touch.clientY,
+      startTime: performance.now(),
+      lastY: touch.clientY,
+      lastTime: performance.now(),
+      velocity: 0,
+      isDragging: false
+    };
+  }, [isVisible]);
+
+  const handleTouchMove = useCallback((e) => {
+    if (!isVisible) return;
+    const ts = touchStateRef.current;
+    if (ts.identifier === null) return;
+
+    let touch = null;
+    for (let i = 0; i < e.touches.length; i++) {
+      if (e.touches[i].identifier === ts.identifier) {
+        touch = e.touches[i];
+        break;
+      }
+    }
+    if (!touch) return;
+
+    const currentY = touch.clientY;
+    const currentTime = performance.now();
+    const deltaY = currentY - ts.lastY;
+    const deltaTime = currentTime - ts.lastTime;
+
+    if (!ts.isDragging) {
+      const totalDistance = Math.abs(currentY - ts.startY);
+      if (totalDistance <= TOUCH_DRAG_THRESHOLD) return; // still might be a tap
+      ts.isDragging = true;
+      dispatchPhysics({ type: 'SET_USER_SCROLLED', payload: true });
+      if (!hintsDismissed) {
+        setHintsDismissed(true);
+        setHintOpacity(0);
+      }
+    }
+
+    // Block page scroll while dragging the carousel
+    if (e.cancelable) e.preventDefault();
+
+    // Drag finger up to reveal nodes below (higher level index) — opposite of wheel deltaY sign convention
+    const pixelsPerLevel = (NODE_HEIGHT + LEVEL_SPACING) * zoomLevel;
+    const safePixels = Math.max(Math.abs(pixelsPerLevel), 1) * Math.sign(pixelsPerLevel || 1);
+    const levelDelta = -deltaY / safePixels;
+
+    dispatchPhysics({
+      type: 'MOVE_BY',
+      payload: { delta: levelDelta, minLevel: physicsMinLevel, maxLevel: physicsMaxLevel }
+    });
+
+    // Track velocity in physics units (levels per 1/60s) for momentum on release
+    if (deltaTime > 0) {
+      const instantVelocity = levelDelta / (deltaTime / 1000) / 60;
+      ts.velocity = 0.6 * instantVelocity + 0.4 * ts.velocity;
+    }
+
+    ts.lastY = currentY;
+    ts.lastTime = currentTime;
+
+    // Kick the physics loop so onFocusedNode* callbacks fire as the user drags
+    if (!animationFrameRef.current) {
+      lastFrameTimeRef.current = performance.now();
+      animationFrameRef.current = requestAnimationFrame(updatePhysicsRef.current);
+    }
+  }, [isVisible, zoomLevel, physicsMinLevel, physicsMaxLevel, hintsDismissed]);
+
+  const handleTouchEnd = useCallback((e) => {
+    const ts = touchStateRef.current;
+    if (ts.identifier === null) return;
+
+    // Make sure our tracked touch actually ended
+    let stillActive = false;
+    for (let i = 0; i < e.touches.length; i++) {
+      if (e.touches[i].identifier === ts.identifier) {
+        stillActive = true;
+        break;
+      }
+    }
+    if (stillActive) return;
+
+    const wasDragging = ts.isDragging;
+    const releaseVelocity = ts.velocity;
+    ts.identifier = null;
+    ts.isDragging = false;
+    ts.velocity = 0;
+
+    if (!wasDragging) return; // tap — let the synthesized click reach handleNodeClick
+
+    // Stale flicks shouldn't apply: ignore velocity if the last move was long ago
+    const sinceLast = performance.now() - ts.lastTime;
+    const usableVelocity = sinceLast < 80 ? releaseVelocity : 0;
+    const clamped = Math.max(-MAX_VELOCITY, Math.min(MAX_VELOCITY, usableVelocity));
+    dispatchPhysics({
+      type: 'SET_VELOCITY_WITH_HISTORY',
+      payload: { velocity: clamped, deltaY: 0 }
+    });
+
+    if (!animationFrameRef.current) {
+      lastFrameTimeRef.current = performance.now();
+      animationFrameRef.current = requestAnimationFrame(updatePhysicsRef.current);
+    }
+  }, []);
+
+  // Stable proxies so the global listeners don't have to rebind on every state change
+  const touchStartRef = useRef(handleTouchStart);
+  const touchMoveRef = useRef(handleTouchMove);
+  const touchEndRef = useRef(handleTouchEnd);
+  useEffect(() => { touchStartRef.current = handleTouchStart; }, [handleTouchStart]);
+  useEffect(() => { touchMoveRef.current = handleTouchMove; }, [handleTouchMove]);
+  useEffect(() => { touchEndRef.current = handleTouchEnd; }, [handleTouchEnd]);
+
+  useEffect(() => {
+    if (!isVisible) return;
+    const onStart = (e) => touchStartRef.current?.(e);
+    const onMove = (e) => touchMoveRef.current?.(e);
+    const onEnd = (e) => touchEndRef.current?.(e);
+    document.addEventListener('touchstart', onStart, { passive: false });
+    document.addEventListener('touchmove', onMove, { passive: false });
+    document.addEventListener('touchend', onEnd, { passive: false });
+    document.addEventListener('touchcancel', onEnd, { passive: false });
+    return () => {
+      document.removeEventListener('touchstart', onStart);
+      document.removeEventListener('touchmove', onMove);
+      document.removeEventListener('touchend', onEnd);
+      document.removeEventListener('touchcancel', onEnd);
+    };
+  }, [isVisible]);
 
   // Handle clicks on abstraction nodes
   const handleNodeClick = useCallback((item) => {
