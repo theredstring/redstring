@@ -13167,43 +13167,50 @@ function NodeCanvas() {
 
 
 
-                        {/* Dark overlay with backdrop blur for semantic orbit mode */}
+                        {/* Dim overlay for semantic orbit mode.
+                            Plain SVG rect (not foreignObject) so it stays in proper paint order
+                            on iOS WebKit — foreignObject with backdrop-filter punches itself to
+                            the top of the stack and eats taps on orbit items. */}
                         {semanticOrbitActive && (
-                          <foreignObject
+                          <rect
                             x={canvasSize.offsetX}
                             y={canvasSize.offsetY}
                             width={canvasSize.width}
                             height={canvasSize.height}
-                          >
-                            <div
-                              xmlns="http://www.w3.org/1999/xhtml"
-                              style={{
-                                width: '100%',
-                                height: '100%',
-                                background: 'rgba(0, 0, 0, 0.7)',
-                                backdropFilter: 'blur(3px)',
-                                WebkitBackdropFilter: 'blur(3px)',
-                                cursor: 'pointer',
-                                pointerEvents: 'auto',
-                              }}
-                              onMouseDown={(e) => {
-                                orbitClickDownPos.current = { x: e.clientX, y: e.clientY };
-                              }}
-                              onClick={(e) => {
-                                // Only exit orbit on a genuine click, not after panning.
-                                // Compare mousedown vs click position to detect drag/pan.
-                                const down = orbitClickDownPos.current;
-                                orbitClickDownPos.current = null;
-                                if (down) {
-                                  const dx = e.clientX - down.x;
-                                  const dy = e.clientY - down.y;
-                                  if (dx * dx + dy * dy > 25) return; // moved >5px = was a pan
-                                }
-                                e.stopPropagation();
-                                exitOrbitMode();
-                              }}
-                            />
-                          </foreignObject>
+                            fill="rgba(0, 0, 0, 0.7)"
+                            style={{ cursor: 'pointer', touchAction: 'manipulation' }}
+                            onMouseDown={(e) => {
+                              orbitClickDownPos.current = { x: e.clientX, y: e.clientY };
+                            }}
+                            onClick={(e) => {
+                              const down = orbitClickDownPos.current;
+                              orbitClickDownPos.current = null;
+                              if (down) {
+                                const dx = e.clientX - down.x;
+                                const dy = e.clientY - down.y;
+                                if (dx * dx + dy * dy > 25) return; // moved >5px = was a pan
+                              }
+                              e.stopPropagation();
+                              exitOrbitMode();
+                            }}
+                            onTouchStart={(e) => {
+                              const t = e.touches?.[0];
+                              if (t) orbitClickDownPos.current = { x: t.clientX, y: t.clientY };
+                            }}
+                            onTouchEnd={(e) => {
+                              const down = orbitClickDownPos.current;
+                              orbitClickDownPos.current = null;
+                              const t = e.changedTouches?.[0];
+                              if (down && t) {
+                                const dx = t.clientX - down.x;
+                                const dy = t.clientY - down.y;
+                                if (dx * dx + dy * dy > 25) return; // was a pan
+                              }
+                              if (e.cancelable) e.preventDefault();
+                              e.stopPropagation();
+                              exitOrbitMode();
+                            }}
+                          />
                         )}
 
                         {/* Render the "Active" Node (if it exists and not being dragged) */}

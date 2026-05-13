@@ -45,6 +45,19 @@ contextBridge.exposeInMainWorld('electron', {
     },
   },
 
+  // GitHub Device Flow (no oauth-server, no client_secret).
+  // Main-process proxies the two github.com endpoints because they don't
+  // send CORS headers. Returns the parsed JSON response shape directly
+  // ({ device_code, user_code, verification_uri, interval, expires_in } or
+  //  { access_token, token_type, scope } or { error, error_description }).
+  github: {
+    requestDeviceCode: (clientId, scope) =>
+      ipcRenderer.invoke('github:deviceFlow:requestCode', { clientId, scope }),
+    pollDeviceToken: (clientId, deviceCode) =>
+      ipcRenderer.invoke('github:deviceFlow:pollToken', { clientId, deviceCode }),
+    openExternal: (url) => ipcRenderer.invoke('shell:openExternal', url),
+  },
+
   // Agent server control
   agent: {
     status: () => ipcRenderer.invoke('agent:status'),

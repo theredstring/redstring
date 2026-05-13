@@ -2021,43 +2021,54 @@ class UniverseBackend {
       // Try GitHub App first (preferred) unless caller forced OAuth.
       const app = options.forceOauth ? null : persistentAuth.getAppInstallation?.();
       if (app?.installationId) {
-        // Check if cached token is still valid (expires in 1 hour, refresh if < 5 min remaining)
-        const tokenExpiresAt = app.tokenExpiresAt ? new Date(app.tokenExpiresAt) : null;
-        const now = new Date();
-        const fiveMinutesFromNow = new Date(now.getTime() + 5 * 60 * 1000);
-        const needsRefresh = !app.accessToken || !tokenExpiresAt || tokenExpiresAt < fiveMinutesFromNow;
-
-        if (needsRefresh) {
-          umLog('[UniverseBackend] Refreshing GitHub App token...');
-          const { oauthFetch } = await import('./bridgeConfig.js');
-          const tokenResp = await oauthFetch('/api/github/app/installation-token', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ installation_id: app.installationId })
-          });
-
-          if (tokenResp.ok) {
-            const tokenData = await tokenResp.json();
-            token = tokenData.token;
+        if (isElectron()) {
+          // Electron: stored accessToken is a long-lived user-to-server
+          // token from device flow. No oauth-server to mint installation
+          // tokens — and we don't need one. Use the stored token directly.
+          if (app.accessToken) {
+            token = app.accessToken;
             authMethod = 'github-app';
             installationId = app.installationId;
-
-            // Calculate expiry time (1 hour from now)
-            const expiresAt = new Date(now.getTime() + 60 * 60 * 1000);
-
-            // Update stored installation with fresh token and expiry
-            const updatedApp = { ...app, accessToken: token, tokenExpiresAt: expiresAt.toISOString() };
-            await persistentAuth.storeAppInstallation(updatedApp);
-            umLog('[UniverseBackend] GitHub App token refreshed');
-          } else {
-            const errorText = await tokenResp.text();
-            umWarn(`[UniverseBackend] Failed to get GitHub App token (${tokenResp.status}), falling back to OAuth`);
           }
         } else {
-          // Use cached token (no log spam)
-          token = app.accessToken;
-          authMethod = 'github-app';
-          installationId = app.installationId;
+          // Check if cached token is still valid (expires in 1 hour, refresh if < 5 min remaining)
+          const tokenExpiresAt = app.tokenExpiresAt ? new Date(app.tokenExpiresAt) : null;
+          const now = new Date();
+          const fiveMinutesFromNow = new Date(now.getTime() + 5 * 60 * 1000);
+          const needsRefresh = !app.accessToken || !tokenExpiresAt || tokenExpiresAt < fiveMinutesFromNow;
+
+          if (needsRefresh) {
+            umLog('[UniverseBackend] Refreshing GitHub App token...');
+            const { oauthFetch } = await import('./bridgeConfig.js');
+            const tokenResp = await oauthFetch('/api/github/app/installation-token', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ installation_id: app.installationId })
+            });
+
+            if (tokenResp.ok) {
+              const tokenData = await tokenResp.json();
+              token = tokenData.token;
+              authMethod = 'github-app';
+              installationId = app.installationId;
+
+              // Calculate expiry time (1 hour from now)
+              const expiresAt = new Date(now.getTime() + 60 * 60 * 1000);
+
+              // Update stored installation with fresh token and expiry
+              const updatedApp = { ...app, accessToken: token, tokenExpiresAt: expiresAt.toISOString() };
+              await persistentAuth.storeAppInstallation(updatedApp);
+              umLog('[UniverseBackend] GitHub App token refreshed');
+            } else {
+              const errorText = await tokenResp.text();
+              umWarn(`[UniverseBackend] Failed to get GitHub App token (${tokenResp.status}), falling back to OAuth`);
+            }
+          } else {
+            // Use cached token (no log spam)
+            token = app.accessToken;
+            authMethod = 'github-app';
+            installationId = app.installationId;
+          }
         }
       }
 
@@ -2165,6 +2176,13 @@ class UniverseBackend {
 
     if (!tokenStale && token) {
       return { token, installationId };
+    }
+
+    // Electron: device-flow user-to-server tokens aren't refreshed via
+    // oauth-server. Trust the stored token; if it's been revoked,
+    // downstream API calls will surface the failure.
+    if (isElectron()) {
+      return token ? { token, installationId } : null;
     }
 
     try {
@@ -3845,33 +3863,44 @@ class UniverseBackend {
       try {
         const app = persistentAuth.getAppInstallation?.();
         if (app?.installationId) {
-          const tokenExpiresAt = app.tokenExpiresAt ? new Date(app.tokenExpiresAt) : null;
-          const now = new Date();
-          const fiveMinutesFromNow = new Date(now.getTime() + 5 * 60 * 1000);
-          const needsRefresh = !app.accessToken || !tokenExpiresAt || tokenExpiresAt < fiveMinutesFromNow;
-
-          if (needsRefresh) {
-            const tokenResp = await oauthFetch('/api/github/app/installation-token', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ installation_id: app.installationId })
-            });
-
-            if (tokenResp.ok) {
-              const tokenData = await tokenResp.json();
-              token = tokenData.token;
+          if (isElectron()) {
+            // Electron: use the stored user-to-server token directly.
+            if (app.accessToken) {
+              token = app.accessToken;
               authMethod = 'github-app';
-
-              const expiresAt = new Date(now.getTime() + 60 * 60 * 1000);
-              const updatedApp = { ...app, accessToken: token, tokenExpiresAt: expiresAt.toISOString() };
-              await persistentAuth.storeAppInstallation(updatedApp);
             } else {
               token = await persistentAuth.getAccessToken();
               authMethod = token ? 'oauth' : authMethod;
             }
           } else {
-            token = app.accessToken;
-            authMethod = 'github-app';
+            const tokenExpiresAt = app.tokenExpiresAt ? new Date(app.tokenExpiresAt) : null;
+            const now = new Date();
+            const fiveMinutesFromNow = new Date(now.getTime() + 5 * 60 * 1000);
+            const needsRefresh = !app.accessToken || !tokenExpiresAt || tokenExpiresAt < fiveMinutesFromNow;
+
+            if (needsRefresh) {
+              const tokenResp = await oauthFetch('/api/github/app/installation-token', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ installation_id: app.installationId })
+              });
+
+              if (tokenResp.ok) {
+                const tokenData = await tokenResp.json();
+                token = tokenData.token;
+                authMethod = 'github-app';
+
+                const expiresAt = new Date(now.getTime() + 60 * 60 * 1000);
+                const updatedApp = { ...app, accessToken: token, tokenExpiresAt: expiresAt.toISOString() };
+                await persistentAuth.storeAppInstallation(updatedApp);
+              } else {
+                token = await persistentAuth.getAccessToken();
+                authMethod = token ? 'oauth' : authMethod;
+              }
+            } else {
+              token = app.accessToken;
+              authMethod = 'github-app';
+            }
           }
         } else {
           token = await persistentAuth.getAccessToken();

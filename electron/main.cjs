@@ -671,6 +671,59 @@ ipcMain.handle('oauth:start', async (event, authUrl) => {
   });
 });
 
+// GitHub Device Flow — fully local, no OAuth server / no client_secret.
+// Both endpoints live on github.com (not api.github.com) and do NOT send
+// CORS headers, so the renderer can't call them directly. We proxy them
+// from the main process and let the renderer drive the polling cadence.
+
+async function githubFetchJSON(url, init) {
+  const res = await fetch(url, {
+    ...init,
+    headers: {
+      Accept: 'application/json',
+      'User-Agent': 'Redstring-Electron',
+      ...(init && init.headers ? init.headers : {})
+    }
+  });
+  let body = null;
+  try { body = await res.json(); } catch { body = null; }
+  return { ok: res.ok, status: res.status, body };
+}
+
+ipcMain.handle('github:deviceFlow:requestCode', async (event, { clientId, scope }) => {
+  if (!clientId) throw new Error('Missing GitHub client_id');
+  const params = new URLSearchParams();
+  params.set('client_id', clientId);
+  if (scope) params.set('scope', scope);
+  return githubFetchJSON('https://github.com/login/device/code', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: params.toString()
+  });
+});
+
+ipcMain.handle('github:deviceFlow:pollToken', async (event, { clientId, deviceCode }) => {
+  if (!clientId) throw new Error('Missing GitHub client_id');
+  if (!deviceCode) throw new Error('Missing device_code');
+  const params = new URLSearchParams();
+  params.set('client_id', clientId);
+  params.set('device_code', deviceCode);
+  params.set('grant_type', 'urn:ietf:params:oauth:grant-type:device_code');
+  return githubFetchJSON('https://github.com/login/oauth/access_token', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: params.toString()
+  });
+});
+
+ipcMain.handle('shell:openExternal', async (event, url) => {
+  if (typeof url !== 'string') return false;
+  // Only allow http/https — never let the renderer trigger arbitrary protocols.
+  if (!/^https?:\/\//i.test(url)) return false;
+  await shell.openExternal(url);
+  return true;
+});
+
 app.whenReady().then(async () => {
   // Prevent multiple instances (Windows/Linux)
   if (process.platform === 'win32' || process.platform === 'linux') {

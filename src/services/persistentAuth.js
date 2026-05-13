@@ -6,6 +6,7 @@
  */
 
 import { oauthFetch } from './bridgeConfig.js';
+import { isElectron } from '../utils/fileAccessAdapter.js';
 
 // Token refresh buffer - refresh 5 minutes before expiry
 const REFRESH_BUFFER_MS = 5 * 60 * 1000;
@@ -37,7 +38,11 @@ const LOCAL_STORAGE_KEYS = {
     // Necessary because the server's /api/github/app/installations endpoint
     // queries GitHub for ALL installs of the App and auto-stores them, which
     // resurrects a dead/wrong install immediately after a user clears it.
-    disconnectedAt: 'github_app_disconnected_at'
+    disconnectedAt: 'github_app_disconnected_at',
+    // Electron device-flow: user-to-server token persisted before any
+    // installation is detected. Lets the Detect button re-query
+    // /user/installations without re-prompting the user every time.
+    userToServerToken: 'github_app_user_token'
   }
 };
 
@@ -478,6 +483,31 @@ export class PersistentAuth {
   async attemptAppAutoConnect() {
     await this.ensureAuthStateLoaded().catch(() => {});
     let appInstallation = this.getAppInstallation();
+
+    // Electron: no oauth-server to mint installation tokens (it would need
+    // the App's private key, which can't ship in a desktop binary). The
+    // stored accessToken IS already a user-to-server token from device
+    // flow — trust it, validate via /user, and skip the refresh dance.
+    if (isElectron()) {
+      if (!appInstallation || !appInstallation.installationId || !appInstallation.accessToken) {
+        // Don't auto-discover; the user must explicitly run the device flow.
+        return false;
+      }
+      try {
+        const ok = await this.testGitHubAppToken(appInstallation.accessToken);
+        if (!ok) {
+          // Token revoked/expired — clear so the UI prompts for re-auth.
+          // Use non-sticky so user can re-connect without clearing the flag.
+          await this.clearAppInstallation({ sticky: false });
+          return false;
+        }
+        return true;
+      } catch (err) {
+        console.warn('[PersistentAuth] Electron App validation failed:', err?.message || err);
+        return false;
+      }
+    }
+
     if (!appInstallation) {
       // Honor the sticky-disconnect flag: the user (or a debug action)
       // explicitly cleared the App cache, so do NOT silently re-discover
@@ -729,7 +759,14 @@ export class PersistentAuth {
    */
   async testGitHubAppToken(token) {
     try {
-      const response = await fetch('https://api.github.com/installation/repositories', {
+      // /installation/repositories requires an installation access token
+      // (`ghs_*`) minted from the App's JWT. Electron's device-flow tokens
+      // are user-to-server (`ghu_*`) — they can't hit that endpoint. Use
+      // /user/installations which both kinds of token can call.
+      const url = isElectron()
+        ? 'https://api.github.com/user/installations'
+        : 'https://api.github.com/installation/repositories';
+      const response = await fetch(url, {
         headers: {
           'Authorization': `token ${token}`,
           'Accept': 'application/vnd.github.v3+json'
@@ -1048,13 +1085,34 @@ export class PersistentAuth {
    */
   async testTokenValidity() {
     const accessToken = this.oauthCache?.accessToken || null;
-    
+
     if (!accessToken) {
       console.log('[PersistentAuth] No access token available for validation');
       return false;
     }
 
     console.log('[PersistentAuth] Testing token validity, token length:', accessToken.length);
+
+    // Electron has no oauth-server to introspect against — go straight to
+    // api.github.com. The "server-side introspection" path below would
+    // throw and short-circuit the fallback.
+    if (isElectron()) {
+      try {
+        const response = await fetch('https://api.github.com/user', {
+          headers: {
+            'Authorization': `token ${accessToken}`,
+            'Accept': 'application/vnd.github.v3+json'
+          }
+        });
+        if (!response.ok) {
+          if (response.status === 401) return false;
+        }
+        return response.ok;
+      } catch (err) {
+        console.error('[PersistentAuth] Electron token validation failed:', err);
+        return false;
+      }
+    }
 
     try {
       // Prefer server-side introspection to avoid mixed token types and browser CORS issues
@@ -1344,6 +1402,24 @@ export class PersistentAuth {
   hasAppInstallation() {
     const installation = this.getAppInstallation();
     return !!(installation?.installationId);
+  }
+
+  /**
+   * Electron device-flow: stash a GitHub App user-to-server token before
+   * we know which installation it maps to. Survives reloads so the Detect
+   * button can re-query /user/installations without re-prompting.
+   */
+  saveAppUserToServerToken(token) {
+    if (!token) return false;
+    return setLocalStorageItem(LOCAL_STORAGE_KEYS.app.userToServerToken, token);
+  }
+
+  getAppUserToServerToken() {
+    return getLocalStorageItem(LOCAL_STORAGE_KEYS.app.userToServerToken) || null;
+  }
+
+  clearAppUserToServerToken() {
+    return removeLocalStorageItem(LOCAL_STORAGE_KEYS.app.userToServerToken);
   }
 
   /**
