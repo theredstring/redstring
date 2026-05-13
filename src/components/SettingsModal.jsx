@@ -51,6 +51,8 @@ const SettingsModal = ({ isVisible, onClose }) => {
   const keyboardSettings = useGraphStore(s => s.keyboardSettings);
   const touchSettings = useGraphStore(s => s.touchSettings);
   const middleMouseZoomEnabled = useGraphStore(s => s.mouseSettings?.middleMouseZoomEnabled ?? false);
+  const nodeDragEdgePanEnabled = useGraphStore(s => s.mouseSettings?.nodeDragEdgePanEnabled ?? true);
+  const connectionDrawEdgePanEnabled = useGraphStore(s => s.mouseSettings?.connectionDrawEdgePanEnabled ?? true);
   const routingStyle = useGraphStore(s => s.routingStyle);
   const cleanLaneSpacing = useGraphStore(s => s.cleanLaneSpacing);
   const showConnectionNames = useGraphStore(s => s.showConnectionNames);
@@ -177,6 +179,26 @@ const SettingsModal = ({ isVisible, onClose }) => {
             <Toggle
               checked={!!middleMouseZoomEnabled}
               onChange={() => useGraphStore.getState().toggleMiddleMouseZoom?.()}
+            />
+          </div>
+          <div className="settings-row">
+            <div className="settings-row-label">
+              Edge Pan While Dragging Nodes
+              <div className="settings-row-description">Automatically pan the canvas when the pointer reaches the viewport edge while moving a Thing. Applies to mouse and touch.</div>
+            </div>
+            <Toggle
+              checked={!!nodeDragEdgePanEnabled}
+              onChange={() => useGraphStore.getState().toggleNodeDragEdgePan?.()}
+            />
+          </div>
+          <div className="settings-row">
+            <div className="settings-row-label">
+              Edge Pan While Drawing Connections
+              <div className="settings-row-description">Automatically pan the canvas when the pointer reaches the viewport edge while drawing a connection. Applies to mouse and touch.</div>
+            </div>
+            <Toggle
+              checked={!!connectionDrawEdgePanEnabled}
+              onChange={() => useGraphStore.getState().toggleConnectionDrawEdgePan?.()}
             />
           </div>
 

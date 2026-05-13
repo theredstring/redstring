@@ -650,14 +650,18 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
       }
     })(),
 
-    // Mouse interaction settings
+    // Mouse / pointer interaction settings (apply to mouse + touch where relevant)
     mouseSettings: (() => {
       try {
-        const raw = localStorage.getItem('redstring_middle_mouse_zoom_enabled');
-        const middleMouseZoomEnabled = raw === 'true';
-        return { middleMouseZoomEnabled };
+        const middleRaw = localStorage.getItem('redstring_middle_mouse_zoom_enabled');
+        const middleMouseZoomEnabled = middleRaw === 'true';
+        const ndepRaw = localStorage.getItem('redstring_node_drag_edge_pan_enabled');
+        const nodeDragEdgePanEnabled = ndepRaw === null ? true : ndepRaw === 'true';
+        const cdepRaw = localStorage.getItem('redstring_connection_draw_edge_pan_enabled');
+        const connectionDrawEdgePanEnabled = cdepRaw === null ? true : cdepRaw === 'true';
+        return { middleMouseZoomEnabled, nodeDragEdgePanEnabled, connectionDrawEdgePanEnabled };
       } catch (_) {
-        return { middleMouseZoomEnabled: false };
+        return { middleMouseZoomEnabled: false, nodeDragEdgePanEnabled: true, connectionDrawEdgePanEnabled: true };
       }
     })(),
 
@@ -3635,10 +3639,26 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
 
     // Mouse settings actions
     toggleMiddleMouseZoom: () => set(produce((draft) => {
-      if (!draft.mouseSettings) draft.mouseSettings = { middleMouseZoomEnabled: false };
+      if (!draft.mouseSettings) draft.mouseSettings = { middleMouseZoomEnabled: false, nodeDragEdgePanEnabled: true, connectionDrawEdgePanEnabled: true };
       draft.mouseSettings.middleMouseZoomEnabled = !draft.mouseSettings.middleMouseZoomEnabled;
       try {
         localStorage.setItem('redstring_middle_mouse_zoom_enabled', String(draft.mouseSettings.middleMouseZoomEnabled));
+      } catch (_) { }
+    })),
+
+    toggleNodeDragEdgePan: () => set(produce((draft) => {
+      if (!draft.mouseSettings) draft.mouseSettings = { middleMouseZoomEnabled: false, nodeDragEdgePanEnabled: true, connectionDrawEdgePanEnabled: true };
+      draft.mouseSettings.nodeDragEdgePanEnabled = !draft.mouseSettings.nodeDragEdgePanEnabled;
+      try {
+        localStorage.setItem('redstring_node_drag_edge_pan_enabled', String(draft.mouseSettings.nodeDragEdgePanEnabled));
+      } catch (_) { }
+    })),
+
+    toggleConnectionDrawEdgePan: () => set(produce((draft) => {
+      if (!draft.mouseSettings) draft.mouseSettings = { middleMouseZoomEnabled: false, nodeDragEdgePanEnabled: true, connectionDrawEdgePanEnabled: true };
+      draft.mouseSettings.connectionDrawEdgePanEnabled = !draft.mouseSettings.connectionDrawEdgePanEnabled;
+      try {
+        localStorage.setItem('redstring_connection_draw_edge_pan_enabled', String(draft.mouseSettings.connectionDrawEdgePanEnabled));
       } catch (_) { }
     })),
 

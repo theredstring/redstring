@@ -1747,6 +1747,97 @@ function NodeCanvas() {
     }
   }, [draggingNodeInfo]);
 
+  // ---------------------------------------------------------------------------
+  // Edge-pan while drawing a connection — mirrors the node-drag edge-pan in
+  // useNodeDrag, but targets `drawingConnectionFrom`. Works for both mouse and
+  // touch because `mousePositionRef` is updated by document-level mousemove
+  // AND by handleMouseMove (which the touch hook invokes via window
+  // pointermove during a connection draw). Keyboard-safe: bails out during an
+  // active zoom animation and only reacts to pointer proximity to the edge,
+  // so keyboard pan/zoom inputs still drive the canvas independently.
+  // ---------------------------------------------------------------------------
+  const drawingConnectionFromRef = useRef(null);
+  useEffect(() => { drawingConnectionFromRef.current = drawingConnectionFrom; }, [drawingConnectionFrom]);
+  useEffect(() => {
+    if (!drawingConnectionFrom) return;
+    let animationFrameId;
+    const panLoop = () => {
+      if (isAnimatingZoomRef.current || !drawingConnectionFromRef.current) {
+        animationFrameId = requestAnimationFrame(panLoop);
+        return;
+      }
+      if (useGraphStore.getState().mouseSettings?.connectionDrawEdgePanEnabled === false) {
+        animationFrameId = requestAnimationFrame(panLoop);
+        return;
+      }
+
+      const { x: mouseX, y: mouseY } = mousePositionRef.current;
+      const bounds = viewportBoundsRef.current;
+      const margin = 75;
+      const maxSpeed = 15;
+
+      let dx = 0;
+      let dy = 0;
+
+      if (mouseX < bounds.x + margin) {
+        const dist = (bounds.x + margin) - mouseX;
+        const ratio = Math.min(1, dist / margin);
+        dx = -maxSpeed * Math.pow(ratio, 1.5);
+      } else if (mouseX > bounds.x + bounds.width - margin) {
+        const dist = mouseX - (bounds.x + bounds.width - margin);
+        const ratio = Math.min(1, dist / margin);
+        dx = maxSpeed * Math.pow(ratio, 1.5);
+      }
+
+      if (mouseY < bounds.y + margin) {
+        const dist = (bounds.y + margin) - mouseY;
+        const ratio = Math.min(1, dist / margin);
+        dy = -maxSpeed * Math.pow(ratio, 1.5);
+      } else if (mouseY > bounds.y + bounds.height - margin) {
+        const dist = mouseY - (bounds.y + bounds.height - margin);
+        const ratio = Math.min(1, dist / margin);
+        dy = maxSpeed * Math.pow(ratio, 1.5);
+      }
+
+      if (dx !== 0 || dy !== 0) {
+        const currentPan = panOffsetRef.current;
+        const currentZoom = zoomLevelRef.current;
+        const currentCanvasWidth = canvasSizeRef.current.width * currentZoom;
+        const currentCanvasHeight = canvasSizeRef.current.height * currentZoom;
+        const minX = viewportSizeRef.current.width - currentCanvasWidth;
+        const minY = viewportSizeRef.current.height - currentCanvasHeight;
+        const newX = Math.min(Math.max(currentPan.x - dx, minX), 0);
+        const newY = Math.min(Math.max(currentPan.y - dy, minY), 0);
+
+        if (newX !== currentPan.x || newY !== currentPan.y) {
+          const newPan = { x: newX, y: newY };
+          panOffsetRef.current = newPan;
+          setPanOffset(newPan);
+
+          // Keep the line endpoint anchored to the pointer on screen by
+          // recomputing canvas-space coords against the new pan. Without
+          // this, the endpoint visibly drifts while the pointer is held
+          // still at the edge.
+          const rect = containerRef.current?.getBoundingClientRect();
+          if (rect) {
+            const rawX = (mouseX - rect.left - newPan.x) / currentZoom + canvasSize.offsetX;
+            const rawY = (mouseY - rect.top - newPan.y) / currentZoom + canvasSize.offsetY;
+            const { x: cx, y: cy } = GeometryUtils.clampCoordinates(rawX, rawY, canvasSize);
+            setDrawingConnectionFrom(prev => prev && ({ ...prev, currentX: cx, currentY: cy }));
+          }
+        }
+      }
+
+      animationFrameId = requestAnimationFrame(panLoop);
+    };
+
+    animationFrameId = requestAnimationFrame(panLoop);
+    return () => cancelAnimationFrame(animationFrameId);
+    // Boolean dep keeps the loop stable across per-move setDrawingConnectionFrom
+    // updates (which create a new object each tick); we only want to mount/unmount
+    // the RAF when a draw starts/ends.
+  }, [!!drawingConnectionFrom]); // eslint-disable-line react-hooks/exhaustive-deps
+
   // --- Grid Snapping Helper (kept for non-drag uses like node creation, orbit, plus sign) ---
   const snapToGridAnimated = (mouseX, mouseY, nodeWidth, nodeHeight, currentPos) => {
     return GeometryUtils.snapToGridAnimated(mouseX, mouseY, nodeWidth, nodeHeight, currentPos, gridMode, gridSize);
@@ -9851,10 +9942,13 @@ function NodeCanvas() {
                             const touch = e.touches[0];
                             const downX = touch.clientX;
                             const downY = touch.clientY;
+                            // Reset unconditionally — a prior pan can leave mouseMoved
+                            // sticky-true, which would suppress the synthetic click's
+                            // selection bailout (`if (mouseMoved.current) return;`).
+                            mouseMoved.current = false;
                             if (isNodeGroup && group.anchorInstanceId) {
                               isMouseDown.current = true;
                               mouseDownPosition.current = { x: downX, y: downY };
-                              mouseMoved.current = false;
                               mouseInsideNode.current = true;
                               startedOnNode.current = true;
                               setLongPressingInstanceId(group.anchorInstanceId);
@@ -9955,6 +10049,7 @@ function NodeCanvas() {
                             fill={isNodeGroup ? "none" : theme.canvas.bg}
                             stroke={isNodeGroup ? "none" : strokeColor}
                             strokeWidth={isNodeGroup ? 0 : 6}
+                            pointerEvents="all"
                             style={{
                               transform: isGroupDragging ? `scale(1.08)` : 'scale(1)',
                               transformOrigin: `${labelX + labelWidth / 2}px ${labelY + labelHeight / 2}px`,
@@ -10031,8 +10126,14 @@ function NodeCanvas() {
                         // Thing-group backgrounds → Phase 2 (rendered after normal edges)
                         ngBackgrounds.push(
                           <g key={`bg-${group.id}`} className="node-group-bg" data-group-id={group.id} style={groupStyle}>
+                            {/* Colored band is purely decorative — pointer-events:none lets
+                                anchor edges (rendered in the layer BELOW this bg) stay clickable
+                                where they route through the rim. Selection of the node group
+                                happens via the title label; deselection happens via the inner
+                                canvas-bg rect below. */}
                             <rect x={rectX} y={nodeGroupRectY} width={rectW} height={nodeGroupRectH}
-                              rx={nodeGroupCornerR} ry={nodeGroupCornerR} fill={nodeGroupColor} stroke="none" />
+                              rx={nodeGroupCornerR} ry={nodeGroupCornerR} fill={nodeGroupColor} stroke="none"
+                              pointerEvents="none" />
                             <rect
                               x={rectX + GROUP_SPACING.innerCanvasBorder} y={innerCanvasY}
                               width={rectW - (GROUP_SPACING.innerCanvasBorder * 2)}

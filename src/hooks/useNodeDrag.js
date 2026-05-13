@@ -2,6 +2,7 @@ import { useState, useRef, useEffect, useLayoutEffect, useCallback } from 'react
 import * as GeometryUtils from '../utils/canvas/geometryUtils.js';
 import { getNodeDimensions } from '../utils.js';
 import useHistoryStore from '../store/historyStore.js';
+import useGraphStore from '../store/graphStore.jsx';
 import { getVisualConnectionEndpoints } from '../utils/canvas/nodeHitbox.js';
 import { calculateParallelEdgePath, getPointOnQuadraticBezier } from '../utils/canvas/parallelEdgeUtils.js';
 import { calculateSelfLoopPath } from '../utils/canvas/selfLoopUtils.js';
@@ -1549,6 +1550,15 @@ export const useNodeDrag = ({
       }
 
       if (!draggingNodeInfoRef.current) return;
+
+      // Setting-gated: respect the user's edge-pan preference. Read each tick
+      // so toggling in Settings takes effect immediately without restarting
+      // the loop.
+      if (useGraphStore.getState().mouseSettings?.nodeDragEdgePanEnabled === false) {
+        isEdgePanningRef.current = false;
+        animationFrameId = requestAnimationFrame(panLoop);
+        return;
+      }
 
       const { x: mouseX, y: mouseY } = mousePositionRef.current;
       const bounds = viewportBoundsRef.current;
