@@ -30,8 +30,8 @@ const SaveStatusDisplay = () => {
 
   useEffect(() => {
     if (statusText === 'Saved') {
-      // After a brief moment, fade out completely. Saving.../Error/etc.
-      // still flash through; only the steady-state "Saved" is hidden.
+      // After a brief moment, fade out completely. Saving.../Error/Loading.../
+      // etc. still flash through; only the steady-state "Saved" is hidden.
       const timer = setTimeout(() => setIsVisible(false), 1500);
       return () => clearTimeout(timer);
     } else {
@@ -89,12 +89,25 @@ const SaveStatusDisplay = () => {
         const coordinatorHasUnsaved = saveCoordinator.hasUnsavedChanges();
         const coordinatorIsSaving = saveCoordinator.isSaving;
 
-        // Priority order: Error > Paused > Actively Saving > Not Saved > Saved
+        // "Standby" means the universe is git-linked but the sync engine hasn't
+        // started/finished its initial pull yet. The canvas is visibly empty
+        // and interactive during this window — without a clear indicator the
+        // user thinks the universe is loaded and starts editing, and their
+        // edits get wiped when the engine finally pulls. Showing "Loading..."
+        // here tells them to wait. Source: universeManagerService.getSyncSummary
+        // sets state='standby' / label='Awaiting sync engine' when authed +
+        // git-linked but no engine yet (universeManagerService.js:247).
+        const isLoadingFromRepo = hasGit && activeUniverse.sync?.state === 'standby';
+
+        // Priority order: Error > Paused > Loading > Actively Saving > Not Saved > Saved
         if (engine?.isInErrorBackoff || engine?.isHealthy === false) {
           setStatusText('Error');
           setIsCTA(false);
         } else if (engine?.isPaused) {
           setStatusText('Paused');
+          setIsCTA(false);
+        } else if (isLoadingFromRepo) {
+          setStatusText('Syncing...');
           setIsCTA(false);
         } else if (coordinatorIsSaving || isCommitting) {
           // Actively saving (either SaveCoordinator or Git engine)
