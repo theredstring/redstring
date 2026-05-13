@@ -4771,6 +4771,19 @@ class UniverseBackend {
     const sourceOfTruth = universe.sourceOfTruth || 'browser';
     umLog(`[UniverseBackend] Reloading from source of truth: ${sourceOfTruth}`);
 
+    // Snapshot the store BEFORE the await. The load-from-repo flow can take
+    // multiple seconds; during that window the canvas is interactive and the
+    // user can add nodes. Without this snapshot, the load completes and
+    // clobbers everything they typed in the meantime. We compare counts again
+    // before applying — if the user grew the store while we were fetching,
+    // their edits win and we discard the load. Same contract as the
+    // background-load guard at ~line 1348.
+    let preloadSnapshot = { nodes: 0, graphs: 0 };
+    try {
+      const preState = this.storeOperations?.getState?.();
+      preloadSnapshot = this._countStoreItems(preState);
+    } catch { /* if snapshot fails, the guard below still has the empty baseline */ }
+
     try {
       // Use loadUniverseData method which handles all sources
       const data = await this.loadUniverseData(universe);
@@ -4780,6 +4793,22 @@ class UniverseBackend {
           nodeCount: data.nodePrototypes ? (data.nodePrototypes instanceof Map ? data.nodePrototypes.size : Object.keys(data.nodePrototypes).length) : 0,
           graphCount: data.graphs ? (data.graphs instanceof Map ? data.graphs.size : Object.keys(data.graphs).length) : 0
         });
+
+        // Race guard: did the user edit while we were fetching? If the store
+        // has more data now than when we started, they did — preserve their
+        // edits and discard the loaded data. They can manually reload from
+        // the panel if they actually wanted the repo data.
+        try {
+          const postState = this.storeOperations?.getState?.();
+          const postCounts = this._countStoreItems(postState);
+          const userGrew = postCounts.nodes > preloadSnapshot.nodes
+            || postCounts.graphs > preloadSnapshot.graphs;
+          if (userGrew) {
+            umWarn(`[UniverseBackend] Discarding repo load: user edited during fetch (snapshot ${preloadSnapshot.nodes}n/${preloadSnapshot.graphs}g → ${postCounts.nodes}n/${postCounts.graphs}g).`);
+            this.notifyStatus('info', 'Kept your edits — repository load discarded');
+            return { success: false, source: sourceOfTruth, discardedDueToEdits: true };
+          }
+        } catch { /* on guard failure, fall through to load (preserving old behavior) */ }
 
         if (this.storeOperations?.loadUniverseFromFile) {
           // Prefer the same pathway used on universe switch
@@ -4802,6 +4831,28 @@ class UniverseBackend {
       this.notifyStatus('error', `Failed to reload universe: ${error.message}`);
       throw error;
     }
+  }
+
+  // Shared store-item counter used by reload + background-load guards. Mirrors
+  // the inline counters they used to do independently, with the same "is this
+  // user-meaningful data?" semantics: prototypes are counted as-is, graphs
+  // get the >1 baseline (the implicit default graph).
+  _countStoreItems(state) {
+    let nodes = 0;
+    let graphs = 0;
+    try {
+      if (state?.nodePrototypes) {
+        nodes = state.nodePrototypes instanceof Map
+          ? state.nodePrototypes.size
+          : Object.keys(state.nodePrototypes || {}).length;
+      }
+      if (state?.graphs) {
+        graphs = state.graphs instanceof Map
+          ? state.graphs.size
+          : Object.keys(state.graphs || {}).length;
+      }
+    } catch { /* fall through to zeros */ }
+    return { nodes, graphs };
   }
 
   /**
