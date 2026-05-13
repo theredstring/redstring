@@ -263,8 +263,10 @@ const UnifiedBottomControlPanel = ({
   const iconSize = mobileState.isMobile ? 14 : 18;
 
   // Upper bound for any renderer containerWidth — keeps us from asking for more
-  // space than the viewport actually offers. Auto-updates on resize via useMobileDetection.
-  const viewportLimit = Math.max(260, mobileState.width - 24);
+  // space than the segment actually offers. On mobile the panel reserves 8px
+  // viewport margin + 16px inner padding per side (see UnifiedBottomControlPanel.css
+  // mode-nodes block); desktop only reserves ~12px per side.
+  const viewportLimit = Math.max(260, mobileState.width - (mobileState.isMobile ? 48 : 24));
 
   const nodeRendererMetrics = useMemo(() => {
     const padding = mobileState.isMobile ? 0 : 8;
