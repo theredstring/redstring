@@ -1760,7 +1760,7 @@ const BridgeClient = () => {
                 } else if (window.__rs_applyToolResultToStore) {
                   console.log('🔄 MCP Bridge: Routing action through global UI pipeline:', pendingAction.action);
                   let resultObj;
-                  
+
                   // Wrap params into a result-like object for applyToolResultToStore
                   // Most wizard tools just return the spec/params direct inside result
                   if (Array.isArray(pendingAction.params) && pendingAction.params.length === 1) {
@@ -1768,11 +1768,11 @@ const BridgeClient = () => {
                   } else {
                     resultObj = { action: pendingAction.action, ...pendingAction.params };
                   }
-                  
+
                   // Attempt execution via main UI pipeline
                   try {
                     window.__rs_applyToolResultToStore(pendingAction.action, resultObj, pendingAction.id);
-                    
+
                     // Emulate successful execution to clear it from the queue
                     try {
                       if (pendingAction.id) {

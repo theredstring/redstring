@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo } from 'react';
+import React, { useEffect, useMemo, useRef } from 'react';
 import { useDrag } from 'react-dnd';
 import { getEmptyImage } from 'react-dnd-html5-backend';
 import useGraphStore from './store/graphStore.jsx';
@@ -125,12 +125,26 @@ const HeaderGraphTab = ({ graph, onSelect, onDoubleClick, isActive, hideText = f
     }
   };
 
+  const lastTapRef = useRef(0);
+  const handleTouchEnd = (e) => {
+    if (!onDoubleClick || !isActive || !canDrag) return;
+    const now = Date.now();
+    if (now - lastTapRef.current < 400) {
+      lastTapRef.current = 0;
+      e.preventDefault();
+      onDoubleClick(e);
+    } else {
+      lastTapRef.current = now;
+    }
+  };
+
   return (
     <div
       ref={canDrag ? drag : null}
       style={tabStyle}
       onClick={handleClick}
       onDoubleClick={handleDoubleClick}
+      onTouchEnd={handleTouchEnd}
       title={canDrag ? graph.name : `${graph.name} (prototype not available)`}
     >
       <span style={{

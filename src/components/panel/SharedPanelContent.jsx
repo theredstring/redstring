@@ -1083,6 +1083,7 @@ const DraggableTitleComponent = ({
   onTitleSave
 }) => {
   const theme = useTheme();
+  const lastTapRef = useRef(0);
   const [{ isDragging }, drag, preview] = useDrag(() => ({
     type: ItemTypes.SPAWNABLE_NODE,
     item: {
@@ -1100,6 +1101,18 @@ const DraggableTitleComponent = ({
   useEffect(() => {
     preview(getEmptyImage(), { captureDraggingState: true });
   }, [preview]);
+
+  const handleTouchEnd = (e) => {
+    if (!onTitleDoubleClick) return;
+    const now = Date.now();
+    if (now - lastTapRef.current < 400) {
+      lastTapRef.current = 0;
+      e.preventDefault();
+      onTitleDoubleClick(e);
+    } else {
+      lastTapRef.current = now;
+    }
+  };
 
   if (isEditingTitle) {
     // When editing, make it look identical to non-editing state but with cursor
@@ -1182,6 +1195,7 @@ const DraggableTitleComponent = ({
       }}
       title={nodeData.name}
       onDoubleClick={onTitleDoubleClick}
+      onTouchEnd={handleTouchEnd}
     >
       {nodeData.name || 'Untitled'}
     </div>

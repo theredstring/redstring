@@ -2444,7 +2444,7 @@ function NodeCanvas() {
         hasAppInMemory = !!(persistentAuth.githubAppCache?.accessToken || persistentAuth.githubAppCache?.installationId);
         oauthScope = persistentAuth.oauthCache?.scope || null;
         appInstallationId = persistentAuth.githubAppCache?.installationId || null;
-      } catch {}
+      } catch { }
       try {
         if (typeof window !== 'undefined' && window.localStorage) {
           hasOauthStored = !!window.localStorage.getItem('github_access_token');
@@ -2774,7 +2774,7 @@ function NodeCanvas() {
         recordSyncAction(
           'dump.app',
           true,
-          `installId=${appCache.installationId || '(none)'} account=${appCache.userData?.login || appCache.userData?.account?.login || '?'} tokenKind=${appCache.accessToken?.slice(0,4) || '?'} tokenLen=${appCache.accessToken?.length || 0} repoCount=${repos.length} hasLinkedRepo=${hasLinked === null ? '?' : hasLinked} repos=[${repos.slice(0, 8).join(', ')}${repos.length > 8 ? ', ...' : ''}]`
+          `installId=${appCache.installationId || '(none)'} account=${appCache.userData?.login || appCache.userData?.account?.login || '?'} tokenKind=${appCache.accessToken?.slice(0, 4) || '?'} tokenLen=${appCache.accessToken?.length || 0} repoCount=${repos.length} hasLinkedRepo=${hasLinked === null ? '?' : hasLinked} repos=[${repos.slice(0, 8).join(', ')}${repos.length > 8 ? ', ...' : ''}]`
         );
       } else {
         recordSyncAction('dump.app', false, 'NO App cache (no install stored in memory)');
@@ -2784,7 +2784,7 @@ function NodeCanvas() {
         recordSyncAction(
           'dump.oauth',
           true,
-          `user=${oauthCache.user?.login || '?'} tokenKind=${oauthCache.accessToken?.slice(0,4) || '?'} tokenLen=${oauthCache.accessToken?.length || 0} scope=${oauthCache.scope || '?'}`
+          `user=${oauthCache.user?.login || '?'} tokenKind=${oauthCache.accessToken?.slice(0, 4) || '?'} tokenLen=${oauthCache.accessToken?.length || 0} scope=${oauthCache.scope || '?'}`
         );
       } else {
         recordSyncAction('dump.oauth', false, 'NO OAuth cache (no token stored in memory)');
@@ -2849,7 +2849,7 @@ function NodeCanvas() {
           recordSyncAction(
             'dump.installs.live',
             r.status === 200,
-            `status=${r.status} totalInstalls=${d?.total_count ?? '?'} sso=${ssoHeader || '(none)'} acceptedScopes=${acceptedScopes || '?'} reqId=${r.headers.get('x-github-request-id') || '?'}${xMessage ? ` githubMsg="${xMessage}"` : ''} installs=[${(d?.installations || []).map(i => `${i.id}/${i.account?.login}/${i.app_slug}`).slice(0,5).join(', ')}]`
+            `status=${r.status} totalInstalls=${d?.total_count ?? '?'} sso=${ssoHeader || '(none)'} acceptedScopes=${acceptedScopes || '?'} reqId=${r.headers.get('x-github-request-id') || '?'}${xMessage ? ` githubMsg="${xMessage}"` : ''} installs=[${(d?.installations || []).map(i => `${i.id}/${i.account?.login}/${i.app_slug}`).slice(0, 5).join(', ')}]`
           );
         } catch (e) {
           recordSyncAction('dump.installs.live', false, `fetch failed: ${e?.message || e}`);
@@ -3229,7 +3229,7 @@ function NodeCanvas() {
     if (!edges || edges.length === 0) return;
     try {
       storeActions.setLeftPanelExpanded(true);
-    } catch {}
+    } catch { }
     setLeftPanelInitialView('ai');
 
     // New conversations always start with full instructions. For "Add to current",
@@ -3459,7 +3459,7 @@ function NodeCanvas() {
     if (!prototype) return;
     try {
       storeActions.setLeftPanelExpanded(true);
-    } catch {}
+    } catch { }
     setLeftPanelInitialView('ai');
 
     // New conversations always start with full instructions. For "Add to current",
@@ -6580,242 +6580,242 @@ function NodeCanvas() {
     handleMouseUpInProgressRef.current = true;
     try {
 
-    if (isPaused || !activeGraphId) return;
-    clearTimeout(longPressTimeout.current);
-    setLongPressingInstanceId(null); // Clear ID
-    mouseInsideNode.current = false;
+      if (isPaused || !activeGraphId) return;
+      clearTimeout(longPressTimeout.current);
+      setLongPressingInstanceId(null); // Clear ID
+      mouseInsideNode.current = false;
 
-    // Finalize drawing connection. Re-entry already guarded at top of
-    // handleMouseUp by handleMouseUpInProgressRef.
-    if (drawingConnectionFrom) {
-      wasDrawingConnection.current = true; // Prevent PlusSign from appearing
-      // Check nodes first, then fall back to group title areas
-      let targetNodeData = nodes.find(n => !n.isGroupAnchor && isInsideNode(n, e.clientX, e.clientY));
-      let targetId = targetNodeData?.id;
+      // Finalize drawing connection. Re-entry already guarded at top of
+      // handleMouseUp by handleMouseUpInProgressRef.
+      if (drawingConnectionFrom) {
+        wasDrawingConnection.current = true; // Prevent PlusSign from appearing
+        // Check nodes first, then fall back to group title areas
+        let targetNodeData = nodes.find(n => !n.isGroupAnchor && isInsideNode(n, e.clientX, e.clientY));
+        let targetId = targetNodeData?.id;
 
-      // If no node hit, check group title areas for thing groups
-      if (!targetId) {
-        const hitGroup = findGroupTitleAtPoint(e.clientX, e.clientY);
-        if (hitGroup) {
-          targetId = hitGroup.anchorInstanceId;
+        // If no node hit, check group title areas for thing groups
+        if (!targetId) {
+          const hitGroup = findGroupTitleAtPoint(e.clientX, e.clientY);
+          if (hitGroup) {
+            targetId = hitGroup.anchorInstanceId;
+          }
         }
-      }
 
-      console.log('Connection end:', {
-        clientX: e.clientX,
-        clientY: e.clientY,
-        targetId,
-        sourceId: drawingConnectionFrom.sourceInstanceId
-      });
-
-      if (targetId && targetId === drawingConnectionFrom.sourceInstanceId && connectionExitedSourceRef.current) {
-        // Self-loop gesture: exited source bounds then returned — ask to confirm.
-        setSelfLoopDialog({
-          sourceInstanceId: targetId,
-          position: { x: e.clientX, y: e.clientY }
+        console.log('Connection end:', {
+          clientX: e.clientX,
+          clientY: e.clientY,
+          targetId,
+          sourceId: drawingConnectionFrom.sourceInstanceId
         });
-      } else if (targetId && targetId !== drawingConnectionFrom.sourceInstanceId) {
-        const sourceId = drawingConnectionFrom.sourceInstanceId;
 
-        // Allow multiple parallel edges between the same nodes
-        // The curve offset rendering will display them properly
-        const newEdgeId = uuidv4();
-        const newEdgeData = { id: newEdgeId, sourceId, destinationId: targetId };
-        storeActions.addEdge(activeGraphId, newEdgeData);
+        if (targetId && targetId === drawingConnectionFrom.sourceInstanceId && connectionExitedSourceRef.current) {
+          // Self-loop gesture: exited source bounds then returned — ask to confirm.
+          setSelfLoopDialog({
+            sourceInstanceId: targetId,
+            position: { x: e.clientX, y: e.clientY }
+          });
+        } else if (targetId && targetId !== drawingConnectionFrom.sourceInstanceId) {
+          const sourceId = drawingConnectionFrom.sourceInstanceId;
+
+          // Allow multiple parallel edges between the same nodes
+          // The curve offset rendering will display them properly
+          const newEdgeId = uuidv4();
+          const newEdgeData = { id: newEdgeId, sourceId, destinationId: targetId };
+          storeActions.addEdge(activeGraphId, newEdgeData);
+        }
+        setDrawingConnectionFrom(null);
+        connectionExitedSourceRef.current = false;
       }
-      setDrawingConnectionFrom(null);
-      connectionExitedSourceRef.current = false;
-    }
 
-    // Drag finalization (delegated to useNodeDrag hook).
-    // Read from refs, not state: setDraggingNodeInfo's React commit may not
-    // have flushed by the time the window-capture pointerup arrives. The
-    // dragPhaseRef === 'dragging' check is also handleDragEnd's own atomic
-    // dedup, but we re-check here to skip the surrounding UI work too
-    // (group-drop dialog, ignoreCanvasClick).
-    if (draggingNodeInfoRef.current && dragPhaseRef.current === 'dragging') {
-      // Any drag-release must suppress the synthetic canvas click the browser
-      // fires immediately after mouseup — otherwise handleCanvasClick spawns
-      // a plus sign at the drop point. The existing
-      // `mouseMoved && !startedOnNode` guard further down doesn't catch
-      // thing-group drags (startedOnNode is true for those), so set the
-      // suppression unconditionally here.
-      ignoreCanvasClick.current = true;
-      const clientX = e.clientX || (e.changedTouches && e.changedTouches[0] ? e.changedTouches[0].clientX : 0);
-      const clientY = e.clientY || (e.changedTouches && e.changedTouches[0] ? e.changedTouches[0].clientY : 0);
-      const dragResult = nodeDrag.handleDragEnd(clientX, clientY, graphsMap);
+      // Drag finalization (delegated to useNodeDrag hook).
+      // Read from refs, not state: setDraggingNodeInfo's React commit may not
+      // have flushed by the time the window-capture pointerup arrives. The
+      // dragPhaseRef === 'dragging' check is also handleDragEnd's own atomic
+      // dedup, but we re-check here to skip the surrounding UI work too
+      // (group-drop dialog, ignoreCanvasClick).
+      if (draggingNodeInfoRef.current && dragPhaseRef.current === 'dragging') {
+        // Any drag-release must suppress the synthetic canvas click the browser
+        // fires immediately after mouseup — otherwise handleCanvasClick spawns
+        // a plus sign at the drop point. The existing
+        // `mouseMoved && !startedOnNode` guard further down doesn't catch
+        // thing-group drags (startedOnNode is true for those), so set the
+        // suppression unconditionally here.
+        ignoreCanvasClick.current = true;
+        const clientX = e.clientX || (e.changedTouches && e.changedTouches[0] ? e.changedTouches[0].clientX : 0);
+        const clientY = e.clientY || (e.changedTouches && e.changedTouches[0] ? e.changedTouches[0].clientY : 0);
+        const dragResult = nodeDrag.handleDragEnd(clientX, clientY, graphsMap);
 
-      // Group-drop detection UI (stays in NodeCanvas — controls dialog)
-      if (dragResult.checkGroupDrop && dragResult.draggedNodeIds.length > 0) {
-        const graphData = activeGraphId ? graphsMap.get(activeGraphId) : null;
-        const groups = graphData?.groups ? Array.from(graphData.groups.values()) : [];
+        // Group-drop detection UI (stays in NodeCanvas — controls dialog)
+        if (dragResult.checkGroupDrop && dragResult.draggedNodeIds.length > 0) {
+          const graphData = activeGraphId ? graphsMap.get(activeGraphId) : null;
+          const groups = graphData?.groups ? Array.from(graphData.groups.values()) : [];
 
-        if (groups.length > 0) {
-          const primaryNodeId = dragResult.primaryNodeId;
-          const primaryNode = nodes.find(n => n.id === primaryNodeId);
+          if (groups.length > 0) {
+            const primaryNodeId = dragResult.primaryNodeId;
+            const primaryNode = nodes.find(n => n.id === primaryNodeId);
 
-          if (primaryNode) {
-            const primaryDims = getNodeDimensions(primaryNode, false, null);
-            // Use finalPositions (accurate during zoom-restore when store isn't flushed yet)
-            const fp = dragResult.finalPositions?.get(primaryNodeId);
-            const posX = fp ? fp.x : primaryNode.x;
-            const posY = fp ? fp.y : primaryNode.y;
-            const primaryCenterX = posX + primaryDims.currentWidth / 2;
-            const primaryCenterY = posY + primaryDims.currentHeight / 2;
+            if (primaryNode) {
+              const primaryDims = getNodeDimensions(primaryNode, false, null);
+              // Use finalPositions (accurate during zoom-restore when store isn't flushed yet)
+              const fp = dragResult.finalPositions?.get(primaryNodeId);
+              const posX = fp ? fp.x : primaryNode.x;
+              const posY = fp ? fp.y : primaryNode.y;
+              const primaryCenterX = posX + primaryDims.currentWidth / 2;
+              const primaryCenterY = posY + primaryDims.currentHeight / 2;
 
-            let targetGroup = null;
-            for (let i = groups.length - 1; i >= 0; i--) {
-              const group = groups[i];
-              if (group.memberInstanceIds.includes(primaryNodeId)) continue;
+              let targetGroup = null;
+              for (let i = groups.length - 1; i >= 0; i--) {
+                const group = groups[i];
+                if (group.memberInstanceIds.includes(primaryNodeId)) continue;
 
-              const members = nodes.filter(n => group.memberInstanceIds.includes(n.id));
-              if (!members.length) continue;
+                const members = nodes.filter(n => group.memberInstanceIds.includes(n.id));
+                if (!members.length) continue;
 
-              const memberDims = members.map(n => getNodeDimensions(n, false, null));
-              const xs = members.map((n) => n.x);
-              const ys = members.map((n) => n.y);
-              const rights = members.map((n, idx) => n.x + memberDims[idx].currentWidth);
-              const bottoms = members.map((n, idx) => n.y + memberDims[idx].currentHeight);
+                const memberDims = members.map(n => getNodeDimensions(n, false, null));
+                const xs = members.map((n) => n.x);
+                const ys = members.map((n) => n.y);
+                const rights = members.map((n, idx) => n.x + memberDims[idx].currentWidth);
+                const bottoms = members.map((n, idx) => n.y + memberDims[idx].currentHeight);
 
-              const margin = Math.max(24, Math.round(gridSize * 0.2));
-              const groupMinX = Math.min(...xs) - margin;
-              const groupMinY = Math.min(...ys) - margin;
-              const groupMaxX = Math.max(...rights) + margin;
-              const groupMaxY = Math.max(...bottoms) + margin;
+                const margin = Math.max(24, Math.round(gridSize * 0.2));
+                const groupMinX = Math.min(...xs) - margin;
+                const groupMinY = Math.min(...ys) - margin;
+                const groupMaxX = Math.max(...rights) + margin;
+                const groupMaxY = Math.max(...bottoms) + margin;
 
-              if (primaryCenterX >= groupMinX && primaryCenterX <= groupMaxX &&
-                primaryCenterY >= groupMinY && primaryCenterY <= groupMaxY) {
-                targetGroup = group;
-                break;
+                if (primaryCenterX >= groupMinX && primaryCenterX <= groupMaxX &&
+                  primaryCenterY >= groupMinY && primaryCenterY <= groupMaxY) {
+                  targetGroup = group;
+                  break;
+                }
+              }
+
+              if (targetGroup) {
+                const isNodeGroup = !!targetGroup.linkedNodePrototypeId;
+                const groupName = targetGroup.name || 'Unnamed Group';
+                setAddToGroupDialog({
+                  nodeIds: dragResult.draggedNodeIds,
+                  groupId: targetGroup.id,
+                  groupName: groupName,
+                  isNodeGroup: isNodeGroup,
+                  position: { x: e.clientX, y: e.clientY }
+                });
               }
             }
-
-            if (targetGroup) {
-              const isNodeGroup = !!targetGroup.linkedNodePrototypeId;
-              const groupName = targetGroup.name || 'Unnamed Group';
-              setAddToGroupDialog({
-                nodeIds: dragResult.draggedNodeIds,
-                groupId: targetGroup.id,
-                groupName: groupName,
-                isNodeGroup: isNodeGroup,
-                position: { x: e.clientX, y: e.clientY }
-              });
-            }
           }
         }
       }
-    }
 
-    // Finalize selection box
-    if (selectionStart) {
-      const rect = containerRef.current.getBoundingClientRect();
-      const rawX = (e.clientX - rect.left - panOffsetRef.current.x) / zoomLevelRef.current + canvasSize.offsetX;
-      const rawY = (e.clientY - rect.top - panOffsetRef.current.y) / zoomLevelRef.current + canvasSize.offsetY;
-      const { x: currentX, y: currentY } = clampCoordinates(rawX, rawY);
-      canvasWorker.calculateSelection({ selectionStart, currentX, currentY })
-        .then(selectionRes => {
-          // Build final selection relative to the selection base (for proper toggle behavior)
-          const base = selectionBaseRef.current || new Set();
-          const final = new Set([...base]);
-          nodes.forEach(nd => {
-            const ndDims = getNodeDimensions(nd, previewingNodeId === nd.id, null);
-            const intersects = !(selectionRes.x > nd.x + ndDims.currentWidth ||
-              selectionRes.x + selectionRes.width < nd.x ||
-              selectionRes.y > nd.y + ndDims.currentHeight ||
-              selectionRes.y + selectionRes.height < nd.y);
-            if (!base.has(nd.id)) {
-              if (intersects) final.add(nd.id);
-              else final.delete(nd.id);
-            }
+      // Finalize selection box
+      if (selectionStart) {
+        const rect = containerRef.current.getBoundingClientRect();
+        const rawX = (e.clientX - rect.left - panOffsetRef.current.x) / zoomLevelRef.current + canvasSize.offsetX;
+        const rawY = (e.clientY - rect.top - panOffsetRef.current.y) / zoomLevelRef.current + canvasSize.offsetY;
+        const { x: currentX, y: currentY } = clampCoordinates(rawX, rawY);
+        canvasWorker.calculateSelection({ selectionStart, currentX, currentY })
+          .then(selectionRes => {
+            // Build final selection relative to the selection base (for proper toggle behavior)
+            const base = selectionBaseRef.current || new Set();
+            const final = new Set([...base]);
+            nodes.forEach(nd => {
+              const ndDims = getNodeDimensions(nd, previewingNodeId === nd.id, null);
+              const intersects = !(selectionRes.x > nd.x + ndDims.currentWidth ||
+                selectionRes.x + selectionRes.width < nd.x ||
+                selectionRes.y > nd.y + ndDims.currentHeight ||
+                selectionRes.y + selectionRes.height < nd.y);
+              if (!base.has(nd.id)) {
+                if (intersects) final.add(nd.id);
+                else final.delete(nd.id);
+              }
+            });
+            setSelectedInstanceIds(final);
+          })
+          .catch(error => {
+            ignoreCanvasClick.current = true;
+          })
+          .finally(() => {
+            setSelectionStart(null);
+            setSelectionRect(null);
           });
-          setSelectedInstanceIds(final);
-        })
-        .catch(error => {
-          ignoreCanvasClick.current = true;
-        })
-        .finally(() => {
-          setSelectionStart(null);
-          setSelectionRect(null);
-        });
-    }
+      }
 
-    // Finalize panning state.
-    // Use refs (not state): React 18 batches updates; after a pinch→1-finger transition
-    // sets isPanning=true via setIsPanning, the next touchend can fire before React commits,
-    // leaving the latest closure with stale isPanning=false. Refs always reflect the current
-    // synchronously-set value.
-    let momentumStarted = false;
-    if (isPanningRef.current && panStartRef.current) {
-      const source = panSourceRef.current;
-      if (source === 'trackpad' || source === 'touch') {
-        const isTouch = source === 'touch';
-        const history = panVelocityHistoryRef.current;
-        let vx = 0, vy = 0;
-        // For touch, use the gap between the last touchmove and release as
-        // the "finger held still" signal: touchmove only fires on motion, so
-        // a large gap means the finger paused before lifting — no momentum.
-        // Anchoring the velocity window on release time directly (instead of
-        // on the last sample) is too brittle, since a fast flick routinely
-        // has a 30-50ms lag between the last touchmove and touchend.
-        const lastSample = history.length > 0 ? history[history.length - 1] : null;
-        const gapSinceLastSample = lastSample ? (performance.now() - lastSample.time) : Infinity;
-        const fingerHeldStill = isTouch
-          ? gapSinceLastSample > TOUCH_MOMENTUM_STATIONARY_GAP_MS
-          : false;
+      // Finalize panning state.
+      // Use refs (not state): React 18 batches updates; after a pinch→1-finger transition
+      // sets isPanning=true via setIsPanning, the next touchend can fire before React commits,
+      // leaving the latest closure with stale isPanning=false. Refs always reflect the current
+      // synchronously-set value.
+      let momentumStarted = false;
+      if (isPanningRef.current && panStartRef.current) {
+        const source = panSourceRef.current;
+        if (source === 'trackpad' || source === 'touch') {
+          const isTouch = source === 'touch';
+          const history = panVelocityHistoryRef.current;
+          let vx = 0, vy = 0;
+          // For touch, use the gap between the last touchmove and release as
+          // the "finger held still" signal: touchmove only fires on motion, so
+          // a large gap means the finger paused before lifting — no momentum.
+          // Anchoring the velocity window on release time directly (instead of
+          // on the last sample) is too brittle, since a fast flick routinely
+          // has a 30-50ms lag between the last touchmove and touchend.
+          const lastSample = history.length > 0 ? history[history.length - 1] : null;
+          const gapSinceLastSample = lastSample ? (performance.now() - lastSample.time) : Infinity;
+          const fingerHeldStill = isTouch
+            ? gapSinceLastSample > TOUCH_MOMENTUM_STATIONARY_GAP_MS
+            : false;
 
-        if (history.length >= 2 && !fingerHeldStill) {
-          const last = lastSample;
-          const cutoff = last.time - TOUCH_MOMENTUM_VELOCITY_WINDOW_MS;
-          const recent = history.filter(s => s.time >= cutoff);
-          if (recent.length >= 2) {
-            const first = recent[0];
-            const dt = last.time - first.time;
-            if (dt > 1) {
-              vx = (last.x - first.x) / dt;
-              vy = (last.y - first.y) / dt;
+          if (history.length >= 2 && !fingerHeldStill) {
+            const last = lastSample;
+            const cutoff = last.time - TOUCH_MOMENTUM_VELOCITY_WINDOW_MS;
+            const recent = history.filter(s => s.time >= cutoff);
+            if (recent.length >= 2) {
+              const first = recent[0];
+              const dt = last.time - first.time;
+              if (dt > 1) {
+                vx = (last.x - first.x) / dt;
+                vy = (last.y - first.y) / dt;
+              }
             }
           }
-        }
 
-        // Fallback to instantaneous only for trackpad — for touch, an empty
-        // window or held-still finger means we want NO momentum.
-        if (!isTouch && vx === 0 && vy === 0) {
-          vx = lastPanVelocityRef.current.vx;
-          vy = lastPanVelocityRef.current.vy;
-        }
+          // Fallback to instantaneous only for trackpad — for touch, an empty
+          // window or held-still finger means we want NO momentum.
+          if (!isTouch && vx === 0 && vy === 0) {
+            vx = lastPanVelocityRef.current.vx;
+            vy = lastPanVelocityRef.current.vy;
+          }
 
-        const speed = Math.hypot(vx, vy);
-        const launchThreshold = isTouch ? TOUCH_MOMENTUM_LAUNCH_MIN_SPEED : PAN_MOMENTUM_MIN_SPEED;
-        if (speed >= launchThreshold) {
-          momentumStarted = startPanMomentum(vx, vy, source);
+          const speed = Math.hypot(vx, vy);
+          const launchThreshold = isTouch ? TOUCH_MOMENTUM_LAUNCH_MIN_SPEED : PAN_MOMENTUM_MIN_SPEED;
+          if (speed >= launchThreshold) {
+            momentumStarted = startPanMomentum(vx, vy, source);
+          }
         }
       }
-    }
-    // Only stop momentum here if no glide is currently active. On touch,
-    // handleMouseUp runs twice (React onTouchEnd + the document touchend
-    // listener attached in useCanvasTouch). The first call launches momentum
-    // and clears panSourceRef; the second call sees a null source, falls
-    // through with momentumStarted=false, and would otherwise kill the glide
-    // the first call just started. The re-entry guard above only catches
-    // synchronous re-entrancy, not sequential calls in the same tick.
-    if (!momentumStarted && !panMomentumRef.current.active) {
-      stopPanMomentum();
-      isPanningOrZooming.current = false; // Clear the flag when panning ends
-    }
-    setIsPanning(false);
-    panSourceRef.current = null; // Reset pan source
-    lastPanVelocityRef.current = { vx: 0, vy: 0 };
-    panVelocityHistoryRef.current = [];
-    lastPanSampleRef.current = { time: performance.now() };
-    isMouseDown.current = false;
-    // If mouse moved during a canvas pan (not on a node), suppress the canvas click
-    // to prevent the plus sign from appearing after a drag
-    if (mouseMoved.current && !startedOnNode.current) {
-      ignoreCanvasClick.current = true;
-    }
-    // Reset mouseMoved.current immediately after mouse up logic is done
-    // This prevents race condition with canvas click handler
-    mouseMoved.current = false;
+      // Only stop momentum here if no glide is currently active. On touch,
+      // handleMouseUp runs twice (React onTouchEnd + the document touchend
+      // listener attached in useCanvasTouch). The first call launches momentum
+      // and clears panSourceRef; the second call sees a null source, falls
+      // through with momentumStarted=false, and would otherwise kill the glide
+      // the first call just started. The re-entry guard above only catches
+      // synchronous re-entrancy, not sequential calls in the same tick.
+      if (!momentumStarted && !panMomentumRef.current.active) {
+        stopPanMomentum();
+        isPanningOrZooming.current = false; // Clear the flag when panning ends
+      }
+      setIsPanning(false);
+      panSourceRef.current = null; // Reset pan source
+      lastPanVelocityRef.current = { vx: 0, vy: 0 };
+      panVelocityHistoryRef.current = [];
+      lastPanSampleRef.current = { time: performance.now() };
+      isMouseDown.current = false;
+      // If mouse moved during a canvas pan (not on a node), suppress the canvas click
+      // to prevent the plus sign from appearing after a drag
+      if (mouseMoved.current && !startedOnNode.current) {
+        ignoreCanvasClick.current = true;
+      }
+      // Reset mouseMoved.current immediately after mouse up logic is done
+      // This prevents race condition with canvas click handler
+      mouseMoved.current = false;
     } finally {
       handleMouseUpInProgressRef.current = false;
     }
@@ -9561,3559 +9561,3655 @@ function NodeCanvas() {
               >
                 {/* Pan/zoom transform is written to this <g> via SVG attribute. */}
                 <g ref={contentGroupRef}>
-                {/* Cluster Hulls Layer (Debug) */}
-                {showClusterHulls && (() => {
-                  const geometries = getClusterGeometries(hydratedNodes, edges);
-                  return (
-                    <g className="cluster-hulls-layer">
-                      {geometries.map((geo, idx) => {
-                        if (geo.hull.length < 3) return null;
-                        const pointsStr = geo.hull.map(p => `${p.x},${p.y}`).join(' ');
-                        const colors = ['#4ecdc4', '#ff6b6b', '#ffe66d', '#1a535c', '#f7fff7'];
-                        const color = colors[idx % colors.length];
-                        return (
-                          <polygon
-                            key={idx}
-                            points={pointsStr}
-                            fill={color}
-                            fillOpacity="0.1"
-                            stroke={color}
-                            strokeWidth="4"
-                            strokeOpacity="0.3"
-                            strokeDasharray="8,8"
-                            style={{ pointerEvents: 'none' }}
-                          />
-                        );
-                      })}
-                    </g>
-                  );
-                })()}
+                  {/* Cluster Hulls Layer (Debug) */}
+                  {showClusterHulls && (() => {
+                    const geometries = getClusterGeometries(hydratedNodes, edges);
+                    return (
+                      <g className="cluster-hulls-layer">
+                        {geometries.map((geo, idx) => {
+                          if (geo.hull.length < 3) return null;
+                          const pointsStr = geo.hull.map(p => `${p.x},${p.y}`).join(' ');
+                          const colors = ['#4ecdc4', '#ff6b6b', '#ffe66d', '#1a535c', '#f7fff7'];
+                          const color = colors[idx % colors.length];
+                          return (
+                            <polygon
+                              key={idx}
+                              points={pointsStr}
+                              fill={color}
+                              fillOpacity="0.1"
+                              stroke={color}
+                              strokeWidth="4"
+                              strokeOpacity="0.3"
+                              strokeDasharray="8,8"
+                              style={{ pointerEvents: 'none' }}
+                            />
+                          );
+                        })}
+                      </g>
+                    );
+                  })()}
 
-                {/* Grid overlay — rendered before groups/nodes/edges so it
+                  {/* Grid overlay — rendered before groups/nodes/edges so it
                     sits underneath them in z-order. SVG <pattern> tiles in the
                     GPU paint layer (ONE <rect> instead of thousands of lines). */}
-                {(gridMode === 'always' || (gridMode === 'hover' && !!draggingNodeInfo)) && (() => {
-                  const dotR = Math.min(6, Math.max(3, gridSize * 0.06));
-                  const lineColor = theme.darkMode ? "#716C6C" : "#979090";
-                  const dotColor = theme.canvas.textPrimary;
-                  return (
-                    <g className="grid-overlay" pointerEvents="none">
-                      <defs>
-                        {gridMode === 'always' && (
-                          <pattern
-                            id="grid-lines-pattern"
-                            x={0}
-                            y={0}
-                            width={gridSize}
-                            height={gridSize}
-                            patternUnits="userSpaceOnUse"
-                          >
-                            <path
-                              d={`M ${gridSize} 0 L 0 0 0 ${gridSize}`}
-                              fill="none"
-                              stroke={lineColor}
-                              strokeWidth="0.75"
-                              vectorEffect="non-scaling-stroke"
-                            />
-                          </pattern>
-                        )}
-                        {gridMode === 'hover' && !!draggingNodeInfo && (
-                          <pattern
-                            id="grid-dots-pattern"
-                            x={0}
-                            y={0}
-                            width={gridSize}
-                            height={gridSize}
-                            patternUnits="userSpaceOnUse"
-                          >
-                            <circle cx={0} cy={0} r={dotR} fill={dotColor} opacity={0.3} />
-                          </pattern>
-                        )}
-                      </defs>
-                      <rect
-                        x={canvasSize.offsetX}
-                        y={canvasSize.offsetY}
-                        width={canvasSize.width}
-                        height={canvasSize.height}
-                        fill={`url(#${gridMode === 'always' ? 'grid-lines-pattern' : 'grid-dots-pattern'})`}
-                      />
-                    </g>
-                  );
-                })()}
+                  {(gridMode === 'always' || (gridMode === 'hover' && !!draggingNodeInfo)) && (() => {
+                    const dotR = Math.min(6, Math.max(3, gridSize * 0.06));
+                    const lineColor = theme.darkMode ? "#716C6C" : "#979090";
+                    const dotColor = theme.canvas.textPrimary;
+                    return (
+                      <g className="grid-overlay" pointerEvents="none">
+                        <defs>
+                          {gridMode === 'always' && (
+                            <pattern
+                              id="grid-lines-pattern"
+                              x={0}
+                              y={0}
+                              width={gridSize}
+                              height={gridSize}
+                              patternUnits="userSpaceOnUse"
+                            >
+                              <path
+                                d={`M ${gridSize} 0 L 0 0 0 ${gridSize}`}
+                                fill="none"
+                                stroke={lineColor}
+                                strokeWidth="0.75"
+                                vectorEffect="non-scaling-stroke"
+                              />
+                            </pattern>
+                          )}
+                          {gridMode === 'hover' && !!draggingNodeInfo && (
+                            <pattern
+                              id="grid-dots-pattern"
+                              x={0}
+                              y={0}
+                              width={gridSize}
+                              height={gridSize}
+                              patternUnits="userSpaceOnUse"
+                            >
+                              <circle cx={0} cy={0} r={dotR} fill={dotColor} opacity={0.3} />
+                            </pattern>
+                          )}
+                        </defs>
+                        <rect
+                          x={canvasSize.offsetX}
+                          y={canvasSize.offsetY}
+                          width={canvasSize.width}
+                          height={canvasSize.height}
+                          fill={`url(#${gridMode === 'always' ? 'grid-lines-pattern' : 'grid-dots-pattern'})`}
+                        />
+                      </g>
+                    );
+                  })()}
 
-                {/* Groups Phase 1: Compute all group layouts, render regular group outlines.
+                  {/* Groups Phase 1: Compute all group layouts, render regular group outlines.
                     Thing-group backgrounds and titles are stored in refs for rendering at higher z-levels. */}
-                {(() => {
-                  const graphData = activeGraphId ? graphsMap.get(activeGraphId) : null;
-                  const groups = graphData?.groups ? Array.from(graphData.groups.values()) : [];
-                  const ngBackgrounds = [];
-                  const ngTitles = [];
-                  const tgMemberIds = new Set();
-                  const anchorIds = new Set();
+                  {(() => {
+                    const graphData = activeGraphId ? graphsMap.get(activeGraphId) : null;
+                    const groups = graphData?.groups ? Array.from(graphData.groups.values()) : [];
+                    const ngBackgrounds = [];
+                    const ngTitles = [];
+                    const tgMemberIds = new Set();
+                    const anchorIds = new Set();
 
-                  if (!groups.length) {
-                    nodeGroupBackgroundsRef.current = ngBackgrounds;
-                    nodeGroupTitlesRef.current = ngTitles;
-                    thingGroupMemberIdsRef.current = tgMemberIds;
-                    anchorInstanceIdsRef.current = anchorIds;
-                    return null;
-                  }
-
-                  const regularGroupElements = [];
-
-                  // Build layout context once for the whole pass. computeGroupLayout uses
-                  // this for both bbox math (orphan-skipping, nested overhang) and label
-                  // sizing. Shared cache means each group's layout is computed once even
-                  // when referenced as a child by multiple parents.
-                  const layoutNodesById = new Map();
-                  for (let i = 0; i < hydratedNodes.length; i++) {
-                    const n = hydratedNodes[i];
-                    layoutNodesById.set(n.id, { id: n.id, x: n.x, y: n.y });
-                  }
-                  const layoutContext = {
-                    nodesById: layoutNodesById,
-                    dimsById: baseDimsById,
-                    groupsById: graphData.groups,
-                    groupsByMemberId: groupsByNodeIdRef.current,
-                    childGroupIdsByGroupId: childGroupIdsByGroupIdRef.current,
-                    gridSize,
-                    measureLabelWidth: (text) => getTextWidth(text || 'Group', `bold ${GROUP_LAYOUT_CONSTANTS.fontSize}px "EmOne", sans-serif`),
-                    _cache: new Map(),
-                  };
-
-                  // Downstream JSX still references GROUP_SPACING (e.g. innerCanvasBorder
-                  // for the inner-canvas inset rect). Keep an alias.
-                  const GROUP_SPACING = GROUP_LAYOUT_CONSTANTS;
-
-                  groups.forEach(group => {
-                    const memberIdSet = new Set(group.memberInstanceIds);
-                    const members = hydratedNodes.filter(n => memberIdSet.has(n.id));
-                    if (!members.length) return;
-
-                    // When this group's name is being edited, measure against the in-flight
-                    // text so the label rect tracks keystrokes — pass an override-named
-                    // shallow copy to keep the helper pure.
-                    const groupForLayout = (editingGroupId === group.id)
-                      ? { ...group, name: tempGroupName }
-                      : group;
-                    const layout = computeGroupLayout(groupForLayout, layoutContext);
-                    if (!layout.ok) return;
-
-                    const { rect, label, nodeGroupRect, innerCanvasY, isNodeGroup } = layout;
-                    const rectX = rect.x, rectY = rect.y, rectW = rect.w, rectH = rect.h;
-                    const labelX = label.x, labelY = label.y;
-                    const labelWidth = label.w, labelHeight = label.h;
-                    const nodeGroupRectY = nodeGroupRect.y, nodeGroupRectH = nodeGroupRect.h;
-
-                    const nodeGroupCornerR = GROUP_LAYOUT_CONSTANTS.nodeGroupCornerRadius;
-                    const strokeColor = group.color || '#8B0000';
-                    const fontSize = GROUP_LAYOUT_CONSTANTS.fontSize;
-
-                    const currentText = editingGroupId === group.id ? tempGroupName : (group.name || 'Group');
-                    const labelText = group.name || 'Group';
-                    const isGroupDragging = draggingNodeInfo?.groupId === group.id;
-
-                    const nodeGroupPrototype = isNodeGroup ? nodePrototypesMap.get(group.linkedNodePrototypeId) : null;
-                    const nodeGroupColor = nodeGroupPrototype?.color || strokeColor;
-
-                    if (typeof window !== 'undefined' && window.__groupBoundsDebug) {
-                      console.log('[GROUP-STATIC]', {
-                        groupId: group.id,
-                        name: group.name,
-                        isNodeGroup,
-                        memberIdsInStore: group.memberInstanceIds,
-                        membersResolved: members.map(m => ({ id: m.id, x: Math.round(m.x), y: Math.round(m.y) })),
-                        droppedFromHydration: layout.droppedOrphanIds,
-                        anchorInstanceId: group.anchorInstanceId || null,
-                        bbox: { minX: Math.round(layout.bbox.minX), minY: Math.round(layout.bbox.minY), maxX: Math.round(layout.bbox.maxX), maxY: Math.round(layout.bbox.maxY) },
-                        rect: { x: Math.round(rectX), y: Math.round(rectY), w: Math.round(rectW), h: Math.round(rectH) },
-                        nodeGroupRect: { y: Math.round(nodeGroupRectY), h: Math.round(nodeGroupRectH) },
-                        label: { x: Math.round(labelX), y: Math.round(labelY), w: Math.round(labelWidth), h: Math.round(labelHeight) },
-                        nestedContributors: layout.nestedContributors,
-                      });
+                    if (!groups.length) {
+                      nodeGroupBackgroundsRef.current = ngBackgrounds;
+                      nodeGroupTitlesRef.current = ngTitles;
+                      thingGroupMemberIdsRef.current = tgMemberIds;
+                      anchorInstanceIdsRef.current = anchorIds;
+                      return null;
                     }
 
-                    const groupScale = isGroupDragging ? 1.05 : 1;
-                    const centerX = rectX + rectW / 2;
-                    const centerY = rectY + rectH / 2;
-                    const groupTransform = isGroupDragging
-                      ? `translate(${centerX}, ${centerY}) scale(${groupScale}) translate(${-centerX}, ${-centerY})`
-                      : '';
+                    const regularGroupElements = [];
 
-                    // Sync anchor instance position to group title center
-                    if (isNodeGroup && group.anchorInstanceId) {
-                      anchorPositionUpdatesRef.current.set(group.anchorInstanceId, {
-                        x: labelX, y: labelY,
-                        width: labelWidth, height: labelHeight,
-                        groupId: group.id
-                      });
+                    // Build layout context once for the whole pass. computeGroupLayout uses
+                    // this for both bbox math (orphan-skipping, nested overhang) and label
+                    // sizing. Shared cache means each group's layout is computed once even
+                    // when referenced as a child by multiple parents.
+                    const layoutNodesById = new Map();
+                    for (let i = 0; i < hydratedNodes.length; i++) {
+                      const n = hydratedNodes[i];
+                      layoutNodesById.set(n.id, { id: n.id, x: n.x, y: n.y });
                     }
-
-                    const groupStyle = {
-                      transform: groupTransform,
-                      transformOrigin: `${centerX}px ${centerY}px`,
-                      transition: isGroupDragging ? 'none' : 'transform 0.2s ease-out',
-                      filter: isGroupDragging ? 'drop-shadow(0px 8px 16px rgba(0,0,0,0.3))' : 'none'
+                    const layoutContext = {
+                      nodesById: layoutNodesById,
+                      dimsById: baseDimsById,
+                      groupsById: graphData.groups,
+                      groupsByMemberId: groupsByNodeIdRef.current,
+                      childGroupIdsByGroupId: childGroupIdsByGroupIdRef.current,
+                      gridSize,
+                      measureLabelWidth: (text) => getTextWidth(text || 'Group', `bold ${GROUP_LAYOUT_CONSTANTS.fontSize}px "EmOne", sans-serif`),
+                      _cache: new Map(),
                     };
 
-                    // Collect thing-group member IDs (including anchor) for edge/node z-splitting
-                    if (isNodeGroup) {
-                      group.memberInstanceIds.forEach(id => tgMemberIds.add(id));
-                      if (group.anchorInstanceId) {
-                        tgMemberIds.add(group.anchorInstanceId);
-                        anchorIds.add(group.anchorInstanceId);
+                    // Downstream JSX still references GROUP_SPACING (e.g. innerCanvasBorder
+                    // for the inner-canvas inset rect). Keep an alias.
+                    const GROUP_SPACING = GROUP_LAYOUT_CONSTANTS;
+
+                    groups.forEach(group => {
+                      const memberIdSet = new Set(group.memberInstanceIds);
+                      const members = hydratedNodes.filter(n => memberIdSet.has(n.id));
+                      if (!members.length) return;
+
+                      // When this group's name is being edited, measure against the in-flight
+                      // text so the label rect tracks keystrokes — pass an override-named
+                      // shallow copy to keep the helper pure.
+                      const groupForLayout = (editingGroupId === group.id)
+                        ? { ...group, name: tempGroupName }
+                        : group;
+                      const layout = computeGroupLayout(groupForLayout, layoutContext);
+                      if (!layout.ok) return;
+
+                      const { rect, label, nodeGroupRect, innerCanvasY, isNodeGroup } = layout;
+                      const rectX = rect.x, rectY = rect.y, rectW = rect.w, rectH = rect.h;
+                      const labelX = label.x, labelY = label.y;
+                      const labelWidth = label.w, labelHeight = label.h;
+                      const nodeGroupRectY = nodeGroupRect.y, nodeGroupRectH = nodeGroupRect.h;
+
+                      const nodeGroupCornerR = GROUP_LAYOUT_CONSTANTS.nodeGroupCornerRadius;
+                      const strokeColor = group.color || '#8B0000';
+                      const fontSize = GROUP_LAYOUT_CONSTANTS.fontSize;
+
+                      const currentText = editingGroupId === group.id ? tempGroupName : (group.name || 'Group');
+                      const labelText = group.name || 'Group';
+                      const isGroupDragging = draggingNodeInfo?.groupId === group.id;
+
+                      const nodeGroupPrototype = isNodeGroup ? nodePrototypesMap.get(group.linkedNodePrototypeId) : null;
+                      const nodeGroupColor = nodeGroupPrototype?.color || strokeColor;
+
+                      if (typeof window !== 'undefined' && window.__groupBoundsDebug) {
+                        console.log('[GROUP-STATIC]', {
+                          groupId: group.id,
+                          name: group.name,
+                          isNodeGroup,
+                          memberIdsInStore: group.memberInstanceIds,
+                          membersResolved: members.map(m => ({ id: m.id, x: Math.round(m.x), y: Math.round(m.y) })),
+                          droppedFromHydration: layout.droppedOrphanIds,
+                          anchorInstanceId: group.anchorInstanceId || null,
+                          bbox: { minX: Math.round(layout.bbox.minX), minY: Math.round(layout.bbox.minY), maxX: Math.round(layout.bbox.maxX), maxY: Math.round(layout.bbox.maxY) },
+                          rect: { x: Math.round(rectX), y: Math.round(rectY), w: Math.round(rectW), h: Math.round(rectH) },
+                          nodeGroupRect: { y: Math.round(nodeGroupRectY), h: Math.round(nodeGroupRectH) },
+                          label: { x: Math.round(labelX), y: Math.round(labelY), w: Math.round(labelWidth), h: Math.round(labelHeight) },
+                          nestedContributors: layout.nestedContributors,
+                        });
                       }
-                    }
 
-                    // --- Build JSX for the title label (shared between regular and thing groups) ---
-                    const titleLabel = (
-                      <g className="group-label" style={{ cursor: 'pointer' }}
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          if (wasDraggingRef.current || mouseMoved.current) return;
-                          if (e.detail === 2) {
-                            setEditingGroupId(group.id);
-                            setTempGroupName(group.name || 'Group');
-                          } else {
-                            setSelectedGroup(group);
-                            setGroupControlPanelShouldShow(true);
-                            setNodeControlPanelShouldShow(false);
-                            setAbstractionControlPanelVisible(false);
-                            setAbstractionControlPanelShouldShow(false);
-                            setConnectionControlPanelVisible(false);
-                            setConnectionControlPanelShouldShow(false);
-                          }
-                        }}
-                        onMouseDown={(e) => {
-                          e.stopPropagation();
-                          if (editingGroupId === group.id) return;
-                          if (isNodeGroup && group.anchorInstanceId) {
-                            isMouseDown.current = true;
-                            mouseDownPosition.current = { x: e.clientX, y: e.clientY };
-                            mouseMoved.current = false;
-                            mouseInsideNode.current = true;
-                            startedOnNode.current = true;
-                            setLongPressingInstanceId(group.anchorInstanceId);
-                          }
-                          clearTimeout(groupLongPressTimeout.current);
-                          const downX = e.clientX; const downY = e.clientY;
-                          groupLongPressTimeout.current = setTimeout(() => {
-                            if (drawingConnectionFrom) return;
-                            setLongPressingInstanceId(null);
-                            const rect = containerRef.current.getBoundingClientRect();
-                            const mouseCanvasX = (downX - rect.left - panOffsetRef.current.x) / zoomLevelRef.current + canvasSize.offsetX;
-                            const mouseCanvasY = (downY - rect.top - panOffsetRef.current.y) / zoomLevelRef.current + canvasSize.offsetY;
-                            const offsets = members.map(m => ({ id: m.id, dx: mouseCanvasX - m.x, dy: mouseCanvasY - m.y }));
-                            if (group.anchorInstanceId) {
-                              const anchorNode = nodes.find(n => n.id === group.anchorInstanceId);
-                              if (anchorNode) {
-                                offsets.push({ id: anchorNode.id, dx: mouseCanvasX - anchorNode.x, dy: mouseCanvasY - anchorNode.y });
-                              }
+                      const groupScale = isGroupDragging ? 1.05 : 1;
+                      const centerX = rectX + rectW / 2;
+                      const centerY = rectY + rectH / 2;
+                      const groupTransform = isGroupDragging
+                        ? `translate(${centerX}, ${centerY}) scale(${groupScale}) translate(${-centerX}, ${-centerY})`
+                        : '';
+
+                      // Sync anchor instance position to group title center
+                      if (isNodeGroup && group.anchorInstanceId) {
+                        anchorPositionUpdatesRef.current.set(group.anchorInstanceId, {
+                          x: labelX, y: labelY,
+                          width: labelWidth, height: labelHeight,
+                          groupId: group.id
+                        });
+                      }
+
+                      const groupStyle = {
+                        transform: groupTransform,
+                        transformOrigin: `${centerX}px ${centerY}px`,
+                        transition: isGroupDragging ? 'none' : 'transform 0.2s ease-out',
+                        filter: isGroupDragging ? 'drop-shadow(0px 8px 16px rgba(0,0,0,0.3))' : 'none'
+                      };
+
+                      // Collect thing-group member IDs (including anchor) for edge/node z-splitting
+                      if (isNodeGroup) {
+                        group.memberInstanceIds.forEach(id => tgMemberIds.add(id));
+                        if (group.anchorInstanceId) {
+                          tgMemberIds.add(group.anchorInstanceId);
+                          anchorIds.add(group.anchorInstanceId);
+                        }
+                      }
+
+                      // --- Build JSX for the title label (shared between regular and thing groups) ---
+                      const titleLabel = (
+                        <g className="group-label" style={{ cursor: 'pointer' }}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            if (wasDraggingRef.current || mouseMoved.current) return;
+                            if (e.detail === 2) {
+                              setEditingGroupId(group.id);
+                              setTempGroupName(group.name || 'Group');
+                            } else {
+                              setSelectedGroup(group);
+                              setGroupControlPanelShouldShow(true);
+                              setNodeControlPanelShouldShow(false);
+                              setAbstractionControlPanelVisible(false);
+                              setAbstractionControlPanelShouldShow(false);
+                              setConnectionControlPanelVisible(false);
+                              setConnectionControlPanelShouldShow(false);
                             }
-                            nodeDrag.startGroupDrag(group.id, offsets, downX, downY);
-                          }, LONG_PRESS_DURATION);
-                        }}
-                        onMouseUp={() => {
-                          clearTimeout(groupLongPressTimeout.current);
-                          if (isNodeGroup && group.anchorInstanceId) setLongPressingInstanceId(null);
-                        }}
-                        onMouseLeave={() => {
-                          clearTimeout(groupLongPressTimeout.current);
-                        }}
-                        onTouchStart={(e) => {
-                          // Mirror onMouseDown for touch. Without this, touching a
-                          // group title only triggers canvas pan — the long-press
-                          // group-drag path never runs.
-                          e.stopPropagation();
-                          if (editingGroupId === group.id) return;
-                          if (!e.touches || e.touches.length !== 1) {
-                            // Multi-touch (pinch intent) — bail and let canvas handle it.
+                          }}
+                          onMouseDown={(e) => {
+                            e.stopPropagation();
+                            if (editingGroupId === group.id) return;
+                            if (isNodeGroup && group.anchorInstanceId) {
+                              isMouseDown.current = true;
+                              mouseDownPosition.current = { x: e.clientX, y: e.clientY };
+                              mouseMoved.current = false;
+                              mouseInsideNode.current = true;
+                              startedOnNode.current = true;
+                              setLongPressingInstanceId(group.anchorInstanceId);
+                            }
                             clearTimeout(groupLongPressTimeout.current);
-                            return;
-                          }
-                          const touch = e.touches[0];
-                          const downX = touch.clientX;
-                          const downY = touch.clientY;
-                          if (isNodeGroup && group.anchorInstanceId) {
-                            isMouseDown.current = true;
-                            mouseDownPosition.current = { x: downX, y: downY };
-                            mouseMoved.current = false;
-                            mouseInsideNode.current = true;
-                            startedOnNode.current = true;
-                            setLongPressingInstanceId(group.anchorInstanceId);
-                          }
-                          clearTimeout(groupLongPressTimeout.current);
-
-                          // Document-level listeners so the drag survives the finger
-                          // leaving the title rect (it will, once dragging starts).
-                          const moveListener = (ev) => {
-                            const t = ev.touches?.[0];
-                            if (!t) return;
-                            if (ev.touches.length > 1) {
-                              // Second finger landed — abandon the group gesture.
-                              clearTimeout(groupLongPressTimeout.current);
-                              if (isNodeGroup && group.anchorInstanceId) setLongPressingInstanceId(null);
-                              cleanup();
-                              return;
-                            }
-                            // Cancel the long-press timer if finger moves past threshold
-                            // before the timer fires (matches mouseLeave behavior).
-                            if (!nodeDrag.draggingNodeInfoRef.current) {
-                              const dx = t.clientX - downX;
-                              const dy = t.clientY - downY;
-                              if (Math.hypot(dx, dy) > TOUCH_MOVEMENT_THRESHOLD) {
-                                clearTimeout(groupLongPressTimeout.current);
-                                if (isNodeGroup && group.anchorInstanceId) setLongPressingInstanceId(null);
+                            const downX = e.clientX; const downY = e.clientY;
+                            groupLongPressTimeout.current = setTimeout(() => {
+                              if (drawingConnectionFrom) return;
+                              setLongPressingInstanceId(null);
+                              const rect = containerRef.current.getBoundingClientRect();
+                              const mouseCanvasX = (downX - rect.left - panOffsetRef.current.x) / zoomLevelRef.current + canvasSize.offsetX;
+                              const mouseCanvasY = (downY - rect.top - panOffsetRef.current.y) / zoomLevelRef.current + canvasSize.offsetY;
+                              const offsets = members.map(m => ({ id: m.id, dx: mouseCanvasX - m.x, dy: mouseCanvasY - m.y }));
+                              if (group.anchorInstanceId) {
+                                const anchorNode = nodes.find(n => n.id === group.anchorInstanceId);
+                                if (anchorNode) {
+                                  offsets.push({ id: anchorNode.id, dx: mouseCanvasX - anchorNode.x, dy: mouseCanvasY - anchorNode.y });
+                                }
                               }
-                              return;
-                            }
-                            // Group drag is active — drive movement.
-                            handleMouseMove({
-                              clientX: t.clientX,
-                              clientY: t.clientY,
-                              preventDefault: () => { try { if (ev.cancelable) ev.preventDefault(); } catch { } },
-                              stopPropagation: () => { try { ev.stopPropagation(); } catch { } }
-                            });
-                          };
-                          const endListener = (ev) => {
+                              nodeDrag.startGroupDrag(group.id, offsets, downX, downY);
+                            }, LONG_PRESS_DURATION);
+                          }}
+                          onMouseUp={() => {
                             clearTimeout(groupLongPressTimeout.current);
                             if (isNodeGroup && group.anchorInstanceId) setLongPressingInstanceId(null);
-                            const t = ev.changedTouches?.[0];
-                            const wasDragging = !!nodeDrag.draggingNodeInfoRef.current;
-                            cleanup();
-                            if (t && wasDragging) {
-                              handleMouseUp({
+                          }}
+                          onMouseLeave={() => {
+                            clearTimeout(groupLongPressTimeout.current);
+                          }}
+                          onTouchStart={(e) => {
+                            // Mirror onMouseDown for touch. Without this, touching a
+                            // group title only triggers canvas pan — the long-press
+                            // group-drag path never runs.
+                            e.stopPropagation();
+                            if (editingGroupId === group.id) return;
+                            if (!e.touches || e.touches.length !== 1) {
+                              // Multi-touch (pinch intent) — bail and let canvas handle it.
+                              clearTimeout(groupLongPressTimeout.current);
+                              return;
+                            }
+                            const touch = e.touches[0];
+                            const downX = touch.clientX;
+                            const downY = touch.clientY;
+                            if (isNodeGroup && group.anchorInstanceId) {
+                              isMouseDown.current = true;
+                              mouseDownPosition.current = { x: downX, y: downY };
+                              mouseMoved.current = false;
+                              mouseInsideNode.current = true;
+                              startedOnNode.current = true;
+                              setLongPressingInstanceId(group.anchorInstanceId);
+                            }
+                            clearTimeout(groupLongPressTimeout.current);
+
+                            // Document-level listeners so the drag survives the finger
+                            // leaving the title rect (it will, once dragging starts).
+                            const moveListener = (ev) => {
+                              const t = ev.touches?.[0];
+                              if (!t) return;
+                              if (ev.touches.length > 1) {
+                                // Second finger landed — abandon the group gesture.
+                                clearTimeout(groupLongPressTimeout.current);
+                                if (isNodeGroup && group.anchorInstanceId) setLongPressingInstanceId(null);
+                                cleanup();
+                                return;
+                              }
+                              // Cancel the long-press timer if finger moves past threshold
+                              // before the timer fires (matches mouseLeave behavior).
+                              if (!nodeDrag.draggingNodeInfoRef.current) {
+                                const dx = t.clientX - downX;
+                                const dy = t.clientY - downY;
+                                if (Math.hypot(dx, dy) > TOUCH_MOVEMENT_THRESHOLD) {
+                                  clearTimeout(groupLongPressTimeout.current);
+                                  if (isNodeGroup && group.anchorInstanceId) setLongPressingInstanceId(null);
+                                }
+                                return;
+                              }
+                              // Group drag is active — drive movement.
+                              handleMouseMove({
                                 clientX: t.clientX,
                                 clientY: t.clientY,
-                                changedTouches: ev.changedTouches,
                                 preventDefault: () => { try { if (ev.cancelable) ev.preventDefault(); } catch { } },
                                 stopPropagation: () => { try { ev.stopPropagation(); } catch { } }
                               });
-                            }
-                          };
-                          const cleanup = () => {
-                            try {
-                              document.removeEventListener('touchmove', moveListener);
-                              document.removeEventListener('touchend', endListener);
-                              document.removeEventListener('touchcancel', endListener);
-                            } catch { }
-                          };
-                          document.addEventListener('touchmove', moveListener, { passive: true });
-                          document.addEventListener('touchend', endListener, { passive: true });
-                          document.addEventListener('touchcancel', endListener, { passive: true });
-
-                          groupLongPressTimeout.current = setTimeout(() => {
-                            if (drawingConnectionFrom) return;
-                            setLongPressingInstanceId(null);
-                            const rect = containerRef.current.getBoundingClientRect();
-                            const mouseCanvasX = (downX - rect.left - panOffsetRef.current.x) / zoomLevelRef.current + canvasSize.offsetX;
-                            const mouseCanvasY = (downY - rect.top - panOffsetRef.current.y) / zoomLevelRef.current + canvasSize.offsetY;
-                            const offsets = members.map(m => ({ id: m.id, dx: mouseCanvasX - m.x, dy: mouseCanvasY - m.y }));
-                            if (group.anchorInstanceId) {
-                              const anchorNode = nodes.find(n => n.id === group.anchorInstanceId);
-                              if (anchorNode) {
-                                offsets.push({ id: anchorNode.id, dx: mouseCanvasX - anchorNode.x, dy: mouseCanvasY - anchorNode.y });
+                            };
+                            const endListener = (ev) => {
+                              clearTimeout(groupLongPressTimeout.current);
+                              if (isNodeGroup && group.anchorInstanceId) setLongPressingInstanceId(null);
+                              const t = ev.changedTouches?.[0];
+                              const wasDragging = !!nodeDrag.draggingNodeInfoRef.current;
+                              cleanup();
+                              if (t && wasDragging) {
+                                handleMouseUp({
+                                  clientX: t.clientX,
+                                  clientY: t.clientY,
+                                  changedTouches: ev.changedTouches,
+                                  preventDefault: () => { try { if (ev.cancelable) ev.preventDefault(); } catch { } },
+                                  stopPropagation: () => { try { ev.stopPropagation(); } catch { } }
+                                });
                               }
-                            }
-                            nodeDrag.startGroupDrag(group.id, offsets, downX, downY);
-                            if (typeof navigator !== 'undefined' && navigator.vibrate) {
-                              try { navigator.vibrate(50); } catch { }
-                            }
-                          }, LONG_PRESS_DURATION);
-                        }}
-                        onTouchEnd={() => {
-                          // Document-level endListener handles the real cleanup;
-                          // this is a defensive guard for the case where the
-                          // element-level event fires but the document one
-                          // somehow didn't (e.g. event-system quirk).
-                          clearTimeout(groupLongPressTimeout.current);
-                          if (isNodeGroup && group.anchorInstanceId) setLongPressingInstanceId(null);
-                        }}
-                        onTouchCancel={() => {
-                          clearTimeout(groupLongPressTimeout.current);
-                          if (isNodeGroup && group.anchorInstanceId) setLongPressingInstanceId(null);
-                        }}
-                      >
-                        <rect x={labelX} y={labelY} width={labelWidth} height={labelHeight} rx={20} ry={20}
-                          fill={isNodeGroup ? "none" : theme.canvas.bg}
-                          stroke={isNodeGroup ? "none" : strokeColor}
-                          strokeWidth={isNodeGroup ? 0 : 6}
-                          style={{
-                            transform: isGroupDragging ? `scale(1.08)` : 'scale(1)',
-                            transformOrigin: `${labelX + labelWidth / 2}px ${labelY + labelHeight / 2}px`,
-                            filter: isGroupDragging ? 'drop-shadow(0px 5px 10px rgba(0,0,0,0.3))' : 'none'
+                            };
+                            const cleanup = () => {
+                              try {
+                                document.removeEventListener('touchmove', moveListener);
+                                document.removeEventListener('touchend', endListener);
+                                document.removeEventListener('touchcancel', endListener);
+                              } catch { }
+                            };
+                            document.addEventListener('touchmove', moveListener, { passive: true });
+                            document.addEventListener('touchend', endListener, { passive: true });
+                            document.addEventListener('touchcancel', endListener, { passive: true });
+
+                            groupLongPressTimeout.current = setTimeout(() => {
+                              if (drawingConnectionFrom) return;
+                              setLongPressingInstanceId(null);
+                              const rect = containerRef.current.getBoundingClientRect();
+                              const mouseCanvasX = (downX - rect.left - panOffsetRef.current.x) / zoomLevelRef.current + canvasSize.offsetX;
+                              const mouseCanvasY = (downY - rect.top - panOffsetRef.current.y) / zoomLevelRef.current + canvasSize.offsetY;
+                              const offsets = members.map(m => ({ id: m.id, dx: mouseCanvasX - m.x, dy: mouseCanvasY - m.y }));
+                              if (group.anchorInstanceId) {
+                                const anchorNode = nodes.find(n => n.id === group.anchorInstanceId);
+                                if (anchorNode) {
+                                  offsets.push({ id: anchorNode.id, dx: mouseCanvasX - anchorNode.x, dy: mouseCanvasY - anchorNode.y });
+                                }
+                              }
+                              nodeDrag.startGroupDrag(group.id, offsets, downX, downY);
+                              if (typeof navigator !== 'undefined' && navigator.vibrate) {
+                                try { navigator.vibrate(50); } catch { }
+                              }
+                            }, LONG_PRESS_DURATION);
                           }}
-                        />
-                        {editingGroupId === group.id ? (
-                          <foreignObject x={labelX} y={labelY} width={labelWidth} height={labelHeight}
-                            style={{ pointerEvents: 'auto' }}>
-                            <div style={{
-                              width: '100%', height: '100%',
-                              display: 'flex', alignItems: 'center', justifyContent: 'center',
-                              boxSizing: 'border-box'
-                            }}>
-                              <input
-                                type="text"
-                                value={tempGroupName}
-                                onChange={(e) => { setTempGroupName(e.target.value); }}
-                                onKeyDown={(e) => {
-                                  e.stopPropagation();
-                                  if (e.key === 'Enter') {
+                          onTouchEnd={() => {
+                            // Document-level endListener handles the real cleanup;
+                            // this is a defensive guard for the case where the
+                            // element-level event fires but the document one
+                            // somehow didn't (e.g. event-system quirk).
+                            clearTimeout(groupLongPressTimeout.current);
+                            if (isNodeGroup && group.anchorInstanceId) setLongPressingInstanceId(null);
+                          }}
+                          onTouchCancel={() => {
+                            clearTimeout(groupLongPressTimeout.current);
+                            if (isNodeGroup && group.anchorInstanceId) setLongPressingInstanceId(null);
+                          }}
+                        >
+                          <rect x={labelX} y={labelY} width={labelWidth} height={labelHeight} rx={20} ry={20}
+                            fill={isNodeGroup ? "none" : theme.canvas.bg}
+                            stroke={isNodeGroup ? "none" : strokeColor}
+                            strokeWidth={isNodeGroup ? 0 : 6}
+                            style={{
+                              transform: isGroupDragging ? `scale(1.08)` : 'scale(1)',
+                              transformOrigin: `${labelX + labelWidth / 2}px ${labelY + labelHeight / 2}px`,
+                              filter: isGroupDragging ? 'drop-shadow(0px 5px 10px rgba(0,0,0,0.3))' : 'none'
+                            }}
+                          />
+                          {editingGroupId === group.id ? (
+                            <foreignObject x={labelX} y={labelY} width={labelWidth} height={labelHeight}
+                              style={{ pointerEvents: 'auto' }}>
+                              <div style={{
+                                width: '100%', height: '100%',
+                                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                boxSizing: 'border-box'
+                              }}>
+                                <input
+                                  type="text"
+                                  value={tempGroupName}
+                                  onChange={(e) => { setTempGroupName(e.target.value); }}
+                                  onKeyDown={(e) => {
+                                    e.stopPropagation();
+                                    if (e.key === 'Enter') {
+                                      const newName = tempGroupName.trim();
+                                      if (newName && activeGraphId) {
+                                        storeActions.updateGroup(activeGraphId, group.id, (draft) => { draft.name = newName; });
+                                        if (selectedGroup?.id === group.id) {
+                                          setSelectedGroup(prev => prev ? { ...prev, name: newName } : null);
+                                        }
+                                      }
+                                      setEditingGroupId(null);
+                                    } else if (e.key === 'Escape') {
+                                      setEditingGroupId(null);
+                                      setTempGroupName('');
+                                    }
+                                  }}
+                                  onBlur={() => {
                                     const newName = tempGroupName.trim();
-                                    if (newName && activeGraphId) {
+                                    if (newName && activeGraphId && newName !== group.name) {
                                       storeActions.updateGroup(activeGraphId, group.id, (draft) => { draft.name = newName; });
                                       if (selectedGroup?.id === group.id) {
                                         setSelectedGroup(prev => prev ? { ...prev, name: newName } : null);
                                       }
                                     }
                                     setEditingGroupId(null);
-                                  } else if (e.key === 'Escape') {
-                                    setEditingGroupId(null);
-                                    setTempGroupName('');
-                                  }
-                                }}
-                                onBlur={() => {
-                                  const newName = tempGroupName.trim();
-                                  if (newName && activeGraphId && newName !== group.name) {
-                                    storeActions.updateGroup(activeGraphId, group.id, (draft) => { draft.name = newName; });
-                                    if (selectedGroup?.id === group.id) {
-                                      setSelectedGroup(prev => prev ? { ...prev, name: newName } : null);
-                                    }
-                                  }
-                                  setEditingGroupId(null);
-                                }}
-                                autoFocus
-                                style={{
-                                  width: `calc(100% - ${GROUP_LAYOUT_CONSTANTS.titlePaddingHorizontal * 2}px)`,
-                                  height: `calc(100% - ${GROUP_LAYOUT_CONSTANTS.titlePaddingVertical * 2}px)`,
-                                  margin: `${GROUP_LAYOUT_CONSTANTS.titlePaddingVertical}px ${GROUP_LAYOUT_CONSTANTS.titlePaddingHorizontal}px`,
-                                  fontSize: `${fontSize}px`,
-                                  fontFamily: 'EmOne, sans-serif',
-                                  fontWeight: 'bold',
-                                  color: isNodeGroup ? getTextColor(nodeGroupColor, theme.darkMode) : getTextColor(theme.canvas.bg, theme.darkMode),
-                                  backgroundColor: 'transparent',
-                                  border: 'none', outline: 'none',
-                                  textAlign: 'center', boxSizing: 'border-box'
-                                }}
-                              />
-                            </div>
-                          </foreignObject>
-                        ) : (
-                          <text x={labelX + labelWidth / 2} y={labelY + labelHeight * 0.7 - 2} fontFamily="EmOne, sans-serif" fontSize={fontSize}
-                            fill={isNodeGroup ? getTextColor(nodeGroupColor, theme.darkMode) : getTextColor(theme.canvas.bg, theme.darkMode)}
-                            fontWeight="bold" stroke="none" strokeWidth={0}
-                            paintOrder="stroke fill" textAnchor="middle"
-                          >
-                            {labelText}
-                          </text>
-                        )}
-                      </g>
-                    );
-
-                    if (isNodeGroup) {
-                      // Thing-group backgrounds → Phase 2 (rendered after normal edges)
-                      ngBackgrounds.push(
-                        <g key={`bg-${group.id}`} className="node-group-bg" data-group-id={group.id} style={groupStyle}>
-                          <rect x={rectX} y={nodeGroupRectY} width={rectW} height={nodeGroupRectH}
-                            rx={nodeGroupCornerR} ry={nodeGroupCornerR} fill={nodeGroupColor} stroke="none" />
-                          <rect
-                            x={rectX + GROUP_SPACING.innerCanvasBorder} y={innerCanvasY}
-                            width={rectW - (GROUP_SPACING.innerCanvasBorder * 2)}
-                            height={(rectY + rectH) - innerCanvasY - GROUP_SPACING.innerCanvasBorder}
-                            rx={12} ry={12} fill={theme.canvas.bg} stroke="none"
-                            style={{ cursor: 'default', pointerEvents: 'auto' }}
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              if (isPaused || draggingNodeInfo || drawingConnectionFrom || mouseMoved.current || recentlyPanned || nodeNamePrompt.visible || !activeGraphId) return;
-                              if (groupControlPanelShouldShow || groupControlPanelVisible || selectedGroup) {
-                                if (groupControlPanelShouldShow || groupControlPanelVisible) setGroupControlPanelVisible(false);
-                                if (selectedGroup) setSelectedGroup(null);
-                                return;
-                              }
-                              if (abstractionCarouselVisible && !selectedNodeIdForPieMenu) {
-                                setAbstractionCarouselVisible(false); setAbstractionCarouselNode(null);
-                                setCarouselAnimationState('hidden'); setCarouselPieMenuStage(1);
-                                setCarouselFocusedNode(null); setCarouselFocusedNodeDimensions(null);
-                                return;
-                              }
-                              if (abstractionCarouselVisible && carouselAnimationState === 'exiting') return;
-                              if (selectedInstanceIds.size > 0) {
-                                if (justCompletedCarouselExit || carouselExitInProgressRef.current) return;
-                                setSelectedInstanceIds(new Set()); return;
-                              }
-                              if ((selectedEdgeId || selectedEdgeIds.size > 0) && !hoveredEdgeInfo) {
-                                storeActions.setSelectedEdgeId(null); storeActions.clearSelectedEdgeIds(); return;
-                              }
-                            }}
-                          />
+                                  }}
+                                  autoFocus
+                                  style={{
+                                    width: `calc(100% - ${GROUP_LAYOUT_CONSTANTS.titlePaddingHorizontal * 2}px)`,
+                                    height: `calc(100% - ${GROUP_LAYOUT_CONSTANTS.titlePaddingVertical * 2}px)`,
+                                    margin: `${GROUP_LAYOUT_CONSTANTS.titlePaddingVertical}px ${GROUP_LAYOUT_CONSTANTS.titlePaddingHorizontal}px`,
+                                    fontSize: `${fontSize}px`,
+                                    fontFamily: 'EmOne, sans-serif',
+                                    fontWeight: 'bold',
+                                    color: isNodeGroup ? getTextColor(nodeGroupColor, theme.darkMode) : getTextColor(theme.canvas.bg, theme.darkMode),
+                                    backgroundColor: 'transparent',
+                                    border: 'none', outline: 'none',
+                                    textAlign: 'center', boxSizing: 'border-box'
+                                  }}
+                                />
+                              </div>
+                            </foreignObject>
+                          ) : (
+                            <text x={labelX + labelWidth / 2} y={labelY + labelHeight * 0.7 - 2} fontFamily="EmOne, sans-serif" fontSize={fontSize}
+                              fill={isNodeGroup ? getTextColor(nodeGroupColor, theme.darkMode) : getTextColor(theme.canvas.bg, theme.darkMode)}
+                              fontWeight="bold" stroke="none" strokeWidth={0}
+                              paintOrder="stroke fill" textAnchor="middle"
+                            >
+                              {labelText}
+                            </text>
+                          )}
                         </g>
                       );
-                      // Thing-group titles → Phase 3 (rendered after member nodes)
-                      ngTitles.push(
-                        <g key={`title-${group.id}`} className="node-group-title" data-group-id={group.id} style={groupStyle}>
-                          {titleLabel}
-                        </g>
-                      );
-                    } else {
-                      // Regular groups: outline + title together at the bottom z-level
-                      regularGroupElements.push(
-                        <g key={group.id} className="group" data-group-id={group.id} style={groupStyle}>
-                          <rect x={rectX} y={rectY} width={rectW} height={rectH}
-                            rx={nodeGroupCornerR} ry={nodeGroupCornerR}
-                            fill="none" stroke={strokeColor} strokeWidth={12}
-                            strokeDasharray="16 12" />
-                          {titleLabel}
-                        </g>
-                      );
-                    }
-                  });
 
-                  nodeGroupBackgroundsRef.current = ngBackgrounds;
-                  nodeGroupTitlesRef.current = ngTitles;
-                  thingGroupMemberIdsRef.current = tgMemberIds;
-                  anchorInstanceIdsRef.current = anchorIds;
-
-                  return regularGroupElements.length > 0 ? (
-                    <g className="regular-groups-layer">{regularGroupElements}</g>
-                  ) : null;
-                })()}
-                {/* Debug: Node Hitbox Visualization */}
-                {showNodeHitboxes && hydratedNodes.map(node => {
-                  const dims = baseDimsById.get(node.id);
-                  if (!dims) return null;
-
-                  const isSelected = selectedInstanceIds.has(node.id);
-                  const hitbox = getNodeHitbox(node, dims, isSelected);
-
-                  return (
-                    <rect
-                      key={`hitbox-${node.id}`}
-                      x={hitbox.minX}
-                      y={hitbox.minY}
-                      width={hitbox.maxX - hitbox.minX}
-                      height={hitbox.maxY - hitbox.minY}
-                      fill="cyan"
-                      fillOpacity={0.15}
-                      stroke="cyan"
-                      strokeWidth={2}
-                      strokeDasharray="4 4"
-                      pointerEvents="none"
-                      style={{ mixBlendMode: 'multiply' }}
-                    />
-                  );
-                })}
-
-                {isViewReady && (() => {
-                  // Use thing-group member IDs computed in Phase 1 (includes anchors)
-                  const nodeGroupMemberIds = thingGroupMemberIdsRef.current;
-                  const anchorIds = anchorInstanceIdsRef.current;
-
-                  // Split edges into three z-layers:
-                  // 1. Normal edges: neither endpoint is a thing-group member
-                  // 2. Anchor edges: at least one endpoint is an anchor → below backgrounds
-                  // 3. Internal member edges: between non-anchor members → above backgrounds
-                  const edgesBelowNodeGroups = visibleEdges.filter(e =>
-                    !nodeGroupMemberIds.has(e.sourceId) && !nodeGroupMemberIds.has(e.destinationId)
-                  );
-                  const edgesToAnchors = visibleEdges.filter(e =>
-                    anchorIds.has(e.sourceId) || anchorIds.has(e.destinationId)
-                  );
-                  const edgesAboveNodeGroups = visibleEdges.filter(e =>
-                    (nodeGroupMemberIds.has(e.sourceId) || nodeGroupMemberIds.has(e.destinationId)) &&
-                    !anchorIds.has(e.sourceId) && !anchorIds.has(e.destinationId)
-                  );
-
-                  // edgeCurveInfo is computed via useMemo and available in scope
-                  // (used for parallel edge curve offset calculation)
-
-                  // #region agent log - build edgePairGroups locally just for debug logging
-                  const edgePairGroupsDebug = new Map();
-                  visibleEdges.forEach(e => {
-                    const key = [e.sourceId, e.destinationId].sort().join('-');
-                    if (!edgePairGroupsDebug.has(key)) edgePairGroupsDebug.set(key, []);
-                    edgePairGroupsDebug.get(key).push(e.id);
-                  });
-                  const multiEdgePairs = Array.from(edgePairGroupsDebug.entries()).filter(([k, v]) => v.length > 1);
-                  if (multiEdgePairs.length > 0) {
-                    debugLogSync('NodeCanvas.jsx:edgeRender', 'Edge rendering info', { totalEdges: visibleEdges.length, multiEdgePairs: multiEdgePairs.map(([k, v]) => ({ pair: k, edgeCount: v.length, edgeIds: v })), enableAutoRouting, routingStyle, willUseCurves: !(enableAutoRouting && (routingStyle === 'manhattan' || routingStyle === 'clean')) }, 'debug-session', 'D-E');
-                  }
-                  // #endregion
-
-                  // #region ArrowheadAudit — catch edges that can render a detached-looking arrowhead
-                  visibleEdges.forEach(edge => {
-                    if (arrowheadAuditSeenRef.current.has(edge.id)) return;
-                    const sNode = nodeById.get(edge.sourceId);
-                    const dNode = nodeById.get(edge.destinationId);
-                    const at = edge.directionality?.arrowsToward;
-                    const arrowsSet = at instanceof Set ? at : new Set(Array.isArray(at) ? at : []);
-                    const stale = [];
-                    arrowsSet.forEach(id => {
-                      if (id !== edge.sourceId && id !== edge.destinationId) stale.push(id);
+                      if (isNodeGroup) {
+                        // Thing-group backgrounds → Phase 2 (rendered after normal edges)
+                        ngBackgrounds.push(
+                          <g key={`bg-${group.id}`} className="node-group-bg" data-group-id={group.id} style={groupStyle}>
+                            <rect x={rectX} y={nodeGroupRectY} width={rectW} height={nodeGroupRectH}
+                              rx={nodeGroupCornerR} ry={nodeGroupCornerR} fill={nodeGroupColor} stroke="none" />
+                            <rect
+                              x={rectX + GROUP_SPACING.innerCanvasBorder} y={innerCanvasY}
+                              width={rectW - (GROUP_SPACING.innerCanvasBorder * 2)}
+                              height={(rectY + rectH) - innerCanvasY - GROUP_SPACING.innerCanvasBorder}
+                              rx={12} ry={12} fill={theme.canvas.bg} stroke="none"
+                              style={{ cursor: 'default', pointerEvents: 'auto' }}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                if (isPaused || draggingNodeInfo || drawingConnectionFrom || mouseMoved.current || recentlyPanned || nodeNamePrompt.visible || !activeGraphId) return;
+                                if (groupControlPanelShouldShow || groupControlPanelVisible || selectedGroup) {
+                                  if (groupControlPanelShouldShow || groupControlPanelVisible) setGroupControlPanelVisible(false);
+                                  if (selectedGroup) setSelectedGroup(null);
+                                  return;
+                                }
+                                if (abstractionCarouselVisible && !selectedNodeIdForPieMenu) {
+                                  setAbstractionCarouselVisible(false); setAbstractionCarouselNode(null);
+                                  setCarouselAnimationState('hidden'); setCarouselPieMenuStage(1);
+                                  setCarouselFocusedNode(null); setCarouselFocusedNodeDimensions(null);
+                                  return;
+                                }
+                                if (abstractionCarouselVisible && carouselAnimationState === 'exiting') return;
+                                if (selectedInstanceIds.size > 0) {
+                                  if (justCompletedCarouselExit || carouselExitInProgressRef.current) return;
+                                  setSelectedInstanceIds(new Set()); return;
+                                }
+                                if ((selectedEdgeId || selectedEdgeIds.size > 0) && !hoveredEdgeInfo) {
+                                  storeActions.setSelectedEdgeId(null); storeActions.clearSelectedEdgeIds(); return;
+                                }
+                              }}
+                            />
+                          </g>
+                        );
+                        // Thing-group titles → Phase 3 (rendered after member nodes)
+                        ngTitles.push(
+                          <g key={`title-${group.id}`} className="node-group-title" data-group-id={group.id} style={groupStyle}>
+                            {titleLabel}
+                          </g>
+                        );
+                      } else {
+                        // Regular groups: outline + title together at the bottom z-level
+                        regularGroupElements.push(
+                          <g key={group.id} className="group" data-group-id={group.id} style={groupStyle}>
+                            <rect x={rectX} y={rectY} width={rectW} height={rectH}
+                              rx={nodeGroupCornerR} ry={nodeGroupCornerR}
+                              fill="none" stroke={strokeColor} strokeWidth={12}
+                              strokeDasharray="16 12" />
+                            {titleLabel}
+                          </g>
+                        );
+                      }
                     });
-                    const isSelfLoop = edge.sourceId === edge.destinationId;
-                    const coincident = !isSelfLoop && sNode && dNode && sNode.x === dNode.x && sNode.y === dNode.y;
-                    const missingEndpoint = !sNode || !dNode;
-                    if (stale.length > 0 || coincident || missingEndpoint) {
-                      arrowheadAuditSeenRef.current.add(edge.id);
-                      console.warn('[ArrowheadAudit]', {
-                        edgeId: edge.id,
-                        sourceId: edge.sourceId,
-                        destinationId: edge.destinationId,
-                        arrowsToward: Array.from(arrowsSet),
-                        staleArrowsTowardIds: stale,
-                        sourceNodePresent: !!sNode,
-                        destNodePresent: !!dNode,
-                        coincidentEndpoints: coincident,
-                        sourcePos: sNode ? { x: sNode.x, y: sNode.y } : null,
-                        destPos: dNode ? { x: dNode.x, y: dNode.y } : null,
-                      });
-                    }
-                  });
-                  // #endregion
 
-                  return (
-                    <>
-                      {/* Edges below thing-group backgrounds: normal edges + anchor-connected edges */}
-                      {edgesBelowNodeGroups.concat(edgesToAnchors).map((edge, idx) => {
-                        let sourceNode = nodeById.get(edge.sourceId);
-                        let destNode = nodeById.get(edge.destinationId);
+                    nodeGroupBackgroundsRef.current = ngBackgrounds;
+                    nodeGroupTitlesRef.current = ngTitles;
+                    thingGroupMemberIdsRef.current = tgMemberIds;
+                    anchorInstanceIdsRef.current = anchorIds;
+
+                    return regularGroupElements.length > 0 ? (
+                      <g className="regular-groups-layer">{regularGroupElements}</g>
+                    ) : null;
+                  })()}
+                  {/* Debug: Node Hitbox Visualization */}
+                  {showNodeHitboxes && hydratedNodes.map(node => {
+                    const dims = baseDimsById.get(node.id);
+                    if (!dims) return null;
+
+                    const isSelected = selectedInstanceIds.has(node.id);
+                    const hitbox = getNodeHitbox(node, dims, isSelected);
 
-                        if (!sourceNode || !destNode) {
-                          return null;
-                        }
-                        // For anchor nodes, use current-frame ref positions (not stale store positions)
-                        // and title dimensions instead of node dimensions
-                        const sAnchorInfo = sourceNode.isGroupAnchor ? anchorPositionUpdatesRef.current.get(sourceNode.id) : null;
-                        const eAnchorInfo = destNode.isGroupAnchor ? anchorPositionUpdatesRef.current.get(destNode.id) : null;
-                        if (sAnchorInfo) sourceNode = { ...sourceNode, x: sAnchorInfo.x, y: sAnchorInfo.y };
-                        if (eAnchorInfo) destNode = { ...destNode, x: eAnchorInfo.x, y: eAnchorInfo.y };
-                        const sNodeDims = sAnchorInfo
-                          ? { currentWidth: sAnchorInfo.width, currentHeight: sAnchorInfo.height }
-                          : (baseDimsById.get(sourceNode.id) || getNodeDimensions(sourceNode, false, null));
-                        const eNodeDims = eAnchorInfo
-                          ? { currentWidth: eAnchorInfo.width, currentHeight: eAnchorInfo.height }
-                          : (baseDimsById.get(destNode.id) || getNodeDimensions(destNode, false, null));
-                        const isSNodePreviewing = previewingNodeId === sourceNode.id;
-                        const isENodePreviewing = previewingNodeId === destNode.id;
-
-                        if (edge.sourceId === edge.destinationId) {
-                          const isHovered = !draggingNodeInfo && hoveredEdgeInfo?.edgeId === edge.id;
-                          const isSelected = selectedEdgeId === edge.id || selectedEdgeIds.has(edge.id);
-                          let selfColor = sourceNode.color || NODE_DEFAULT_COLOR;
-                          let selfConnectionName = 'Connection';
-                          if (edge.definitionNodeIds && edge.definitionNodeIds.length > 0) {
-                            const defProto = nodePrototypesMap.get(edge.definitionNodeIds[0]);
-                            if (defProto) {
-                              selfColor = defProto.color || selfColor;
-                              selfConnectionName = defProto.name || selfConnectionName;
-                            }
-                          } else if (edge.typeNodeId) {
-                            if (edge.typeNodeId === 'base-connection-prototype') {
-                              selfColor = '#000000';
-                            } else {
-                              const proto = edgePrototypesMap.get(edge.typeNodeId);
-                              if (proto) {
-                                selfColor = proto.color || selfColor;
-                                selfConnectionName = proto.name || selfConnectionName;
-                              }
-                            }
-                          }
-                          const selfFontSize = 24 * (textSettings?.fontSize || 1);
-                          return (
-                            <SelfLoopEdge
-                              key={`edge-${edge.id}`}
-                              edge={edge}
-                              node={sourceNode}
-                              nodeDims={sNodeDims}
-                              curveInfo={edgeCurveInfo.get(edge.id)}
-                              isHovered={isHovered}
-                              isSelected={isSelected}
-                              edgeColor={selfColor}
-                              showConnectionNames={showConnectionNames}
-                              selectedEdgeIds={selectedEdgeIds}
-                              storeActions={storeActions}
-                              ignoreCanvasClick={ignoreCanvasClick}
-                              setLongPressingInstanceId={setLongPressingInstanceId}
-                              setDrawingConnectionFrom={setDrawingConnectionFrom}
-                              handleEdgePointerDownTouch={handleEdgePointerDownTouch}
-                              connectionName={selfConnectionName}
-                              connectionFontSize={selfFontSize}
-                              placedLabelsRef={placedLabelsRef}
-                            />
-                          );
-                        }
-
-                        // Check if this is a directed edge (has arrows)
-                        const arrowsToward = edge.directionality?.arrowsToward instanceof Set
-                          ? edge.directionality.arrowsToward
-                          : new Set(Array.isArray(edge.directionality?.arrowsToward) ? edge.directionality.arrowsToward : []);
-
-                        // Check which ends have arrows
-                        const hasSourceArrow = arrowsToward.has(sourceNode.id);
-                        const hasDestArrow = arrowsToward.has(destNode.id);
-                        const isDirected = arrowsToward.size > 0;
-
-                        // Connection endpoint calculation
-                        let x1, y1, x2, y2;
-                        if (enableAutoRouting && (routingStyle === 'manhattan' || routingStyle === 'clean')) {
-                          // Port-based routing - use centers as base (ports will override later)
-                          x1 = sourceNode.x + sNodeDims.currentWidth / 2;
-                          y1 = sourceNode.y + (isSNodePreviewing ? NODE_HEIGHT / 2 : sNodeDims.currentHeight / 2);
-                          x2 = destNode.x + eNodeDims.currentWidth / 2;
-                          y2 = destNode.y + (isENodePreviewing ? NODE_HEIGHT / 2 : eNodeDims.currentHeight / 2);
-                        } else if (isDirected && (hasSourceArrow || hasDestArrow)) {
-                          // Directed connections: calculate each endpoint based on whether it has an arrow
-                          // Sides with arrows draw to edge, sides without arrows draw to center
-                          const centerX1 = sourceNode.x + sNodeDims.currentWidth / 2;
-                          const centerY1 = sourceNode.y + (isSNodePreviewing ? NODE_HEIGHT / 2 : sNodeDims.currentHeight / 2);
-                          const centerX2 = destNode.x + eNodeDims.currentWidth / 2;
-                          const centerY2 = destNode.y + (isENodePreviewing ? NODE_HEIGHT / 2 : eNodeDims.currentHeight / 2);
-
-                          if (hasSourceArrow || hasDestArrow) {
-                            // Use edge-based calculation, then selectively apply results
-                            const endpoints = getVisualConnectionEndpoints(
-                              sourceNode, destNode,
-                              sNodeDims, eNodeDims,
-                              selectedInstanceIds.has(sourceNode.id),
-                              selectedInstanceIds.has(destNode.id)
-                            );
-
-                            // Source: use edge if has arrow, otherwise center
-                            x1 = hasSourceArrow ? endpoints.x1 : centerX1;
-                            y1 = hasSourceArrow ? endpoints.y1 : centerY1;
-
-                            // Dest: use edge if has arrow, otherwise center
-                            x2 = hasDestArrow ? endpoints.x2 : centerX2;
-                            y2 = hasDestArrow ? endpoints.y2 : centerY2;
-                          } else {
-                            // Fallback to centers (shouldn't reach here due to outer if condition)
-                            x1 = centerX1;
-                            y1 = centerY1;
-                            x2 = centerX2;
-                            y2 = centerY2;
-                          }
-                        } else {
-                          // Non-directed connections: use centers for traditional appearance
-                          x1 = sourceNode.x + sNodeDims.currentWidth / 2;
-                          y1 = sourceNode.y + (isSNodePreviewing ? NODE_HEIGHT / 2 : sNodeDims.currentHeight / 2);
-                          x2 = destNode.x + eNodeDims.currentWidth / 2;
-                          y2 = destNode.y + (isENodePreviewing ? NODE_HEIGHT / 2 : eNodeDims.currentHeight / 2);
-                        }
-
-                        // Suppress edge hover (connection dots, hover-widened arrows, etc.)
-                        // while dragging — the dots would otherwise freeze at the last
-                        // hovered position instead of tracking the moving node.
-                        const isHovered = !draggingNodeInfo && hoveredEdgeInfo?.edgeId === edge.id;
-                        const isSelected = selectedEdgeId === edge.id || selectedEdgeIds.has(edge.id);
-
-
-
-
-                        // Get edge color - prioritize definitionNodeIds for custom types, then typeNodeId for base types
-                        const getEdgeColor = () => {
-                          // First check definitionNodeIds (for custom connection types set via control panel)
-                          if (edge.definitionNodeIds && edge.definitionNodeIds.length > 0) {
-                            const definitionNode = nodePrototypesMap.get(edge.definitionNodeIds[0]);
-                            if (definitionNode) {
-                              return definitionNode.color || NODE_DEFAULT_COLOR;
-                            }
-                          }
-
-                          // Then check typeNodeId (for base connection type)
-                          if (edge.typeNodeId) {
-                            // Special handling for base connection prototype - ensure it's black
-                            if (edge.typeNodeId === 'base-connection-prototype') {
-                              return '#000000'; // Black color for base connection
-                            }
-                            const edgePrototype = edgePrototypesMap.get(edge.typeNodeId);
-                            if (edgePrototype) {
-                              return edgePrototype.color || NODE_DEFAULT_COLOR;
-                            }
-                          }
-
-                          return destNode.color || NODE_DEFAULT_COLOR;
-                        };
-                        const edgeColor = getEdgeColor();
-
-                        // Calculate arrow position and rotation
-                        const dx = x2 - x1;
-                        const dy = y2 - y1;
-                        const length = Math.sqrt(dx * dx + dy * dy);
-
-                        // Helper function to calculate edge intersection with rectangular nodes
-                        const getNodeEdgeIntersection = (nodeX, nodeY, nodeWidth, nodeHeight, dirX, dirY) => {
-                          const centerX = nodeX + nodeWidth / 2;
-                          const centerY = nodeY + nodeHeight / 2;
-                          const halfWidth = nodeWidth / 2;
-                          const halfHeight = nodeHeight / 2;
-                          const intersections = [];
-
-                          if (dirX > 0) {
-                            const t = halfWidth / dirX;
-                            const y = dirY * t;
-                            if (Math.abs(y) <= halfHeight) intersections.push({ x: centerX + halfWidth, y: centerY + y, distance: t });
-                          }
-                          if (dirX < 0) {
-                            const t = -halfWidth / dirX;
-                            const y = dirY * t;
-                            if (Math.abs(y) <= halfHeight) intersections.push({ x: centerX - halfWidth, y: centerY + y, distance: t });
-                          }
-                          if (dirY > 0) {
-                            const t = halfHeight / dirY;
-                            const x = dirX * t;
-                            if (Math.abs(x) <= halfWidth) intersections.push({ x: centerX + x, y: centerY + halfHeight, distance: t });
-                          }
-                          if (dirY < 0) {
-                            const t = -halfHeight / dirY;
-                            const x = dirX * t;
-                            if (Math.abs(x) <= halfWidth) intersections.push({ x: centerX + x, y: centerY - halfHeight, distance: t });
-                          }
-
-                          return intersections.reduce((closest, current) =>
-                            !closest || current.distance < closest.distance ? current : closest, null);
-                        };
-
-                        // Calculate edge intersections
-                        const sourceIntersection = getNodeEdgeIntersection(
-                          sourceNode.x, sourceNode.y, sNodeDims.currentWidth, sNodeDims.currentHeight,
-                          dx / length, dy / length
-                        );
-
-                        const destIntersection = getNodeEdgeIntersection(
-                          destNode.x, destNode.y, eNodeDims.currentWidth, eNodeDims.currentHeight,
-                          -dx / length, -dy / length
-                        );
-
-                        // Determine if each end of the edge should be shortened for arrows
-                        // (arrowsToward already calculated earlier for endpoint logic)
-
-                        // Check if this is a curved edge (parallel edge with non-zero offset)
-                        // The middle edge in an odd-numbered group has offset 0 and is straight
-                        const curveInfo = edgeCurveInfo.get(edge.id);
-                        let isCurvedEdge = false;
-                        if (curveInfo && curveInfo.totalInPair > 1) {
-                          const centerIndex = (curveInfo.totalInPair - 1) / 2;
-                          const offsetSteps = curveInfo.pairIndex - centerIndex;
-                          isCurvedEdge = offsetSteps !== 0;
-                        }
-
-                        // Only shorten connections at ends with arrows or hover state
-                        // For curved edges, NEVER change endpoints - we use trimmed paths instead
-                        // This ensures the curve shape stays consistent
-                        let shouldShortenSource = isCurvedEdge
-                          ? false  // Never change curve endpoints
-                          : (isHovered || arrowsToward.has(sourceNode.id));
-                        let shouldShortenDest = isCurvedEdge
-                          ? false  // Never change curve endpoints
-                          : (isHovered || arrowsToward.has(destNode.id));
-                        if (enableAutoRouting && routingStyle === 'manhattan') {
-                          // In Manhattan mode, never shorten for hover—only for actual arrows
-                          shouldShortenSource = arrowsToward.has(sourceNode.id);
-                          shouldShortenDest = arrowsToward.has(destNode.id);
-                        }
-
-                        // Determine actual start/end points for rendering
-                        let startX, startY, endX, endY;
-
-                        // For clean routing, use assigned ports; otherwise use intersection-based positioning
-                        if (enableAutoRouting && routingStyle === 'clean') {
-                          const portAssignment = cleanLaneOffsets.get(edge.id);
-                          if (portAssignment) {
-                            const { sourcePort, destPort } = portAssignment;
-
-                            // Check if this edge has directional arrows
-                            const hasSourceArrow = arrowsToward.has(sourceNode.id);
-                            const hasDestArrow = arrowsToward.has(destNode.id);
-
-                            // Use ports for directional connections, centers for non-directional
-                            startX = hasSourceArrow ? sourcePort.x : x1;
-                            startY = hasSourceArrow ? sourcePort.y : y1;
-                            endX = hasDestArrow ? destPort.x : x2;
-                            endY = hasDestArrow ? destPort.y : y2;
-                          } else {
-                            // Fallback to node centers for clean routing
-                            startX = x1;
-                            startY = y1;
-                            endX = x2;
-                            endY = y2;
-                          }
-                        } else {
-                          // Use intersection-based positioning for other routing modes.
-                          // Visible LINE endpoint uses the 4px-inset variant so the round
-                          // line cap (strokeLinecap="round", strokeWidth=6 → cap radius 3)
-                          // stops cleanly behind the arrow polygon's flat base. Arrow
-                          // placement still uses sourceIntersection/destIntersection (no
-                          // inset) downstream, so the arrow tip anchors at the literal
-                          // border.
-                          const insetLineEndpoints = (shouldShortenSource || shouldShortenDest)
-                            ? getVisualConnectionEndpoints(
-                                sourceNode, destNode, sNodeDims, eNodeDims,
-                                selectedInstanceIds.has(sourceNode.id),
-                                selectedInstanceIds.has(destNode.id)
-                              )
-                            : null;
-                          startX = shouldShortenSource ? (insetLineEndpoints?.x1 ?? sourceIntersection?.x ?? x1) : x1;
-                          startY = shouldShortenSource ? (insetLineEndpoints?.y1 ?? sourceIntersection?.y ?? y1) : y1;
-                          endX = shouldShortenDest ? (insetLineEndpoints?.x2 ?? destIntersection?.x ?? x2) : x2;
-                          endY = shouldShortenDest ? (insetLineEndpoints?.y2 ?? destIntersection?.y ?? y2) : y2;
-                        }
-
-                        // Predeclare Manhattan path info for safe use below
-                        let manhattanPathD = null;
-                        let manhattanSourceSide = null;
-                        let manhattanDestSide = null;
-
-                        // When using Manhattan routing, snap to 4 node ports (midpoints of each side)
-                        if (enableAutoRouting && routingStyle === 'manhattan') {
-                          const sCenterX = sourceNode.x + sNodeDims.currentWidth / 2;
-                          const sCenterY = sourceNode.y + sNodeDims.currentHeight / 2;
-                          const dCenterX = destNode.x + eNodeDims.currentWidth / 2;
-                          const dCenterY = destNode.y + eNodeDims.currentHeight / 2;
-
-                          const sPorts = {
-                            top: { x: sCenterX, y: sourceNode.y },
-                            bottom: { x: sCenterX, y: sourceNode.y + sNodeDims.currentHeight },
-                            left: { x: sourceNode.x, y: sCenterY },
-                            right: { x: sourceNode.x + sNodeDims.currentWidth, y: sCenterY },
-                          };
-                          const dPorts = {
-                            top: { x: dCenterX, y: destNode.y },
-                            bottom: { x: dCenterX, y: destNode.y + eNodeDims.currentHeight },
-                            left: { x: destNode.x, y: dCenterY },
-                            right: { x: destNode.x + eNodeDims.currentWidth, y: dCenterY },
-                          };
-
-                          const relDx = dCenterX - sCenterX;
-                          const relDy = dCenterY - sCenterY;
-                          let sPort, dPort;
-                          if (Math.abs(relDx) >= Math.abs(relDy)) {
-                            // Prefer horizontal ports
-                            sPort = relDx >= 0 ? sPorts.right : sPorts.left;
-                            dPort = relDx >= 0 ? dPorts.left : dPorts.right;
-                          } else {
-                            // Prefer vertical ports
-                            sPort = relDy >= 0 ? sPorts.bottom : sPorts.top;
-                            dPort = relDy >= 0 ? dPorts.top : dPorts.bottom;
-                          }
-                          startX = sPort.x;
-                          startY = sPort.y;
-                          endX = dPort.x;
-                          endY = dPort.y;
-
-                          // Determine sides for perpendicular entry/exit
-                          const sSide = (Math.abs(startY - sourceNode.y) < 0.5) ? 'top'
-                            : (Math.abs(startY - (sourceNode.y + sNodeDims.currentHeight)) < 0.5) ? 'bottom'
-                              : (Math.abs(startX - sourceNode.x) < 0.5) ? 'left' : 'right';
-                          const dSide = (Math.abs(endY - destNode.y) < 0.5) ? 'top'
-                            : (Math.abs(endY - (destNode.y + eNodeDims.currentHeight)) < 0.5) ? 'bottom'
-                              : (Math.abs(endX - destNode.x) < 0.5) ? 'left' : 'right';
-                          const initOrient = (sSide === 'left' || sSide === 'right') ? 'H' : 'V';
-                          const finalOrient = (dSide === 'left' || dSide === 'right') ? 'H' : 'V';
-
-                          const effectiveBends = (manhattanBends === 'auto')
-                            ? (initOrient === finalOrient ? 'two' : 'one')
-                            : manhattanBends;
-
-                          // Local helpers declared before use to avoid hoisting issues
-                          const cornerRadiusLocal = 8;
-                          const buildRoundedLPathOriented = (sx, sy, ex, ey, r, firstOrientation /* 'H' | 'V' */) => {
-                            if (firstOrientation === 'H') {
-                              if (sx === ex || sy === ey) {
-                                return `M ${sx},${sy} L ${ex},${ey}`;
-                              }
-                              const signX = ex > sx ? 1 : -1;
-                              const signY = ey > sy ? 1 : -1;
-                              const cornerX = ex;
-                              const cornerY = sy;
-                              const hx = cornerX - signX * r;
-                              const hy = cornerY;
-                              const vx = cornerX;
-                              const vy = cornerY + signY * r;
-                              return `M ${sx},${sy} L ${hx},${hy} Q ${cornerX},${cornerY} ${vx},${vy} L ${ex},${ey}`;
-                            } else {
-                              if (sx === ex || sy === ey) {
-                                return `M ${sx},${sy} L ${ex},${ey}`;
-                              }
-                              const signX = ex > sx ? 1 : -1;
-                              const signY = ey > sy ? 1 : -1;
-                              const cornerX = sx;
-                              const cornerY = ey;
-                              const vx = cornerX;
-                              const vy = cornerY - signY * r;
-                              const hx = cornerX + signX * r;
-                              const hy = cornerY;
-                              return `M ${sx},${sy} L ${vx},${vy} Q ${cornerX},${cornerY} ${hx},${hy} L ${ex},${ey}`;
-                            }
-                          };
-                          const buildRoundedZPathOriented = (sx, sy, ex, ey, r, pattern /* 'HVH' | 'VHV' */) => {
-                            if (sx === ex || sy === ey) {
-                              return `M ${sx},${sy} L ${ex},${ey}`;
-                            }
-                            if (pattern === 'HVH') {
-                              // Horizontal → Vertical → Horizontal with rounded corners at both bends
-                              const midX = (sx + ex) / 2;
-                              const signX1 = midX >= sx ? 1 : -1; // initial horizontal direction
-                              const signY = ey >= sy ? 1 : -1;     // vertical direction
-                              const signX2 = ex >= midX ? 1 : -1;  // final horizontal direction
-                              const hx1 = midX - signX1 * r;       // before first corner
-                              const vy1 = sy + signY * r;          // after first corner
-                              const vy2 = ey - signY * r;          // before second corner
-                              const hx2 = midX + signX2 * r;       // after second corner
-                              return `M ${sx},${sy} L ${hx1},${sy} Q ${midX},${sy} ${midX},${vy1} L ${midX},${vy2} Q ${midX},${ey} ${hx2},${ey} L ${ex},${ey}`;
-                            } else {
-                              // Vertical → Horizontal → Vertical with rounded corners at both bends
-                              const midY = (sy + ey) / 2;
-                              const signY1 = midY >= sy ? 1 : -1;  // initial vertical direction
-                              const signX = ex >= sx ? 1 : -1;      // horizontal direction (same for both H segments)
-                              const signY2 = ey >= midY ? 1 : -1;   // final vertical direction
-                              const vy1 = midY - signY1 * r;        // before first corner
-                              const hx1 = sx + signX * r;           // after first corner
-                              const hx2 = ex - signX * r;           // before second corner
-                              const vy2 = midY + signY2 * r;        // after second corner
-                              return `M ${sx},${sy} L ${sx},${vy1} Q ${sx},${midY} ${hx1},${midY} L ${hx2},${midY} Q ${ex},${midY} ${ex},${vy2} L ${ex},${ey}`;
-                            }
-                          };
-                          let pathD;
-                          if (effectiveBends === 'two' && initOrient === finalOrient) {
-                            pathD = (initOrient === 'H')
-                              ? buildRoundedZPathOriented(startX, startY, endX, endY, cornerRadiusLocal, 'HVH')
-                              : buildRoundedZPathOriented(startX, startY, endX, endY, cornerRadiusLocal, 'VHV');
-                          } else {
-                            pathD = buildRoundedLPathOriented(startX, startY, endX, endY, cornerRadiusLocal, initOrient);
-                          }
-
-                          // Assign for rendering and arrow logic
-                          manhattanPathD = pathD;
-                          manhattanSourceSide = sSide;
-                          manhattanDestSide = dSide;
-                        }
-
-                        // Calculate parallel edge path using centralized utility
-                        // Note: curveInfo was already retrieved earlier for shouldShorten logic
-                        const parallelPath = calculateParallelEdgePath(startX, startY, endX, endY, curveInfo);
-                        const useCurve = parallelPath.type === 'curve';
-
-                        // For label placement, always use the visible segment (edge-to-edge)
-                        // This ensures labels are centered on the visible portion, not the drawn portion
-                        const visibleEndpoints = getVisualConnectionEndpoints(
-                          sourceNode, destNode,
-                          sNodeDims, eNodeDims,
-                          selectedInstanceIds.has(sourceNode.id),
-                          selectedInstanceIds.has(destNode.id)
-                        );
-                        const labelPlacementPath = calculateParallelEdgePath(
-                          visibleEndpoints.x1, visibleEndpoints.y1,
-                          visibleEndpoints.x2, visibleEndpoints.y2,
-                          curveInfo
-                        );
-
-                        // For hover effect or arrows on curved edges, trim the curve to create "shorten" visual
-                        // This keeps the curve shape consistent but renders a shorter portion
-                        let trimmedPath = null;
-                        const shouldTrimCurve = useCurve && parallelPath.ctrlX !== null &&
-                          (isHovered || arrowsToward.has(sourceNode.id) || arrowsToward.has(destNode.id));
-                        if (shouldTrimCurve) {
-                          trimmedPath = getTrimmedBezierPath(
-                            parallelPath.startX, parallelPath.startY,
-                            parallelPath.ctrlX, parallelPath.ctrlY,
-                            parallelPath.endX, parallelPath.endY,
-                            0.08, 0.92  // Trim 8% from each end
-                          );
-                        }
-
-                        return (
-                          <g key={`edge-${edge.id}`} data-edge-id={edge.id}>
-                            {/* Main edge line - always same thickness */}
-                            {/* Glow effect for selected or hovered edge */}
-                            {(isSelected || isHovered) && (
-                              (enableAutoRouting && (routingStyle === 'manhattan' || routingStyle === 'clean')) ? (
-                                <path
-                                  d={(routingStyle === 'manhattan') ? manhattanPathD : (() => {
-                                    // Use consistent clean routing path helper
-                                    const cleanPts = generateCleanRoutingPath(edge, sourceNode, destNode, sNodeDims, eNodeDims, cleanLaneOffsets, cleanLaneSpacing);
-                                    return buildRoundedPathFromPoints(cleanPts, 8);
-                                  })()}
-                                  fill="none"
-                                  stroke={edgeColor}
-                                  strokeWidth="12"
-                                  opacity={isSelected ? "0.3" : "0.2"}
-                                  style={{
-                                    filter: `drop-shadow(0 0 8px ${edgeColor})`
-                                  }}
-                                  strokeLinecap="round"
-                                />
-                              ) : useCurve ? (
-                                <path
-                                  d={trimmedPath ? trimmedPath.path : parallelPath.path}
-                                  fill="none"
-                                  stroke={edgeColor}
-                                  strokeWidth="12"
-                                  opacity={isSelected ? "0.3" : "0.2"}
-                                  style={{
-                                    filter: `drop-shadow(0 0 8px ${edgeColor})`
-                                  }}
-                                  strokeLinecap="round"
-                                />
-                              ) : (
-                                <line
-                                  x1={startX}
-                                  y1={startY}
-                                  x2={endX}
-                                  y2={endY}
-                                  stroke={edgeColor}
-                                  strokeWidth="12"
-                                  opacity={isSelected ? "0.3" : "0.2"}
-                                  style={{
-                                    filter: `drop-shadow(0 0 8px ${edgeColor})`
-                                  }}
-                                />
-                              )
-                            )}
-
-                            {(enableAutoRouting && (routingStyle === 'manhattan' || routingStyle === 'clean')) ? (
-                              <>
-                                {routingStyle === 'manhattan' && !arrowsToward.has(sourceNode.id) && (
-                                  <line x1={x1} y1={y1} x2={startX} y2={startY} stroke={edgeColor} strokeWidth="16" strokeLinecap="round" />
-                                )}
-                                {routingStyle === 'manhattan' && !arrowsToward.has(destNode.id) && (
-                                  <line x1={endX} y1={endY} x2={x2} y2={y2} stroke={edgeColor} strokeWidth="16" strokeLinecap="round" />
-                                )}
-                                <path
-                                  d={(routingStyle === 'manhattan') ? manhattanPathD : (() => {
-                                    // Use consistent clean routing path helper
-                                    const cleanPts = generateCleanRoutingPath(edge, sourceNode, destNode, sNodeDims, eNodeDims, cleanLaneOffsets, cleanLaneSpacing);
-                                    return buildRoundedPathFromPoints(cleanPts, 8);
-                                  })()}
-                                  fill="none"
-                                  stroke={edgeColor}
-                                  strokeWidth="16"
-                                  style={{ transition: 'stroke 0.2s ease' }}
-                                  strokeLinecap="round"
-                                />
-                              </>
-                            ) : useCurve ? (
-                              <path
-                                d={trimmedPath ? trimmedPath.path : parallelPath.path}
-                                fill="none"
-                                stroke={edgeColor}
-                                strokeWidth="16"
-                                style={{ transition: 'stroke 0.2s ease' }}
-                                strokeLinecap="round"
-                              />
-                            ) : (
-                              <line
-                                x1={startX}
-                                y1={startY}
-                                x2={endX}
-                                y2={endY}
-                                stroke={edgeColor}
-                                strokeWidth="16"
-                                style={{ transition: 'stroke 0.2s ease' }}
-                              />
-                            )}
-
-                            {/* Invisible click area for edge selection - matches hover detection */}
-                            {(enableAutoRouting && (routingStyle === 'manhattan' || routingStyle === 'clean')) ? (
-                              <path
-                                d={(routingStyle === 'manhattan') ? manhattanPathD : (() => {
-                                  // Use consistent clean routing path helper
-                                  const cleanPts = generateCleanRoutingPath(edge, sourceNode, destNode, sNodeDims, eNodeDims, cleanLaneOffsets, cleanLaneSpacing);
-                                  return buildRoundedPathFromPoints(cleanPts, 8);
-                                })()}
-                                fill="none"
-                                stroke="transparent"
-                                strokeWidth="40"
-                                style={{ cursor: 'pointer' }}
-                                onPointerDown={(e) => {
-                                  // Immediate tap support for touch/pencil
-                                  if (e.pointerType && e.pointerType !== 'mouse') {
-                                    e.preventDefault?.();
-                                    e.stopPropagation?.();
-                                    ignoreCanvasClick.current = true; // suppress canvas click -> plus sign
-                                    setLongPressingInstanceId(null); // prevent connection drawing intent
-                                    setDrawingConnectionFrom(null);
-                                    if (e.ctrlKey || e.metaKey) {
-                                      if (selectedEdgeIds.has(edge.id)) {
-                                        storeActions.removeSelectedEdgeId(edge.id);
-                                      } else {
-                                        storeActions.addSelectedEdgeId(edge.id);
-                                      }
-                                    } else {
-                                      storeActions.clearSelectedEdgeIds();
-                                      storeActions.setSelectedEdgeId(edge.id);
-                                    }
-                                  }
-                                  handleEdgePointerDownTouch(edge.id, e);
-                                }}
-                                onTouchStart={(e) => {
-                                  e.preventDefault?.();
-                                  e.stopPropagation?.();
-                                  ignoreCanvasClick.current = true;
-                                  setLongPressingInstanceId(null);
-                                  setDrawingConnectionFrom(null);
-                                  storeActions.clearSelectedEdgeIds();
-                                  storeActions.setSelectedEdgeId(edge.id);
-                                }}
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  ignoreCanvasClick.current = true;
-
-                                  // Handle multiple selection with Ctrl/Cmd key
-                                  if (e.ctrlKey || e.metaKey) {
-                                    // Toggle this edge in the multiple selection
-                                    if (selectedEdgeIds.has(edge.id)) {
-                                      storeActions.removeSelectedEdgeId(edge.id);
-                                    } else {
-                                      storeActions.addSelectedEdgeId(edge.id);
-                                    }
-                                  } else {
-                                    // Single selection - clear multiple selection and set single edge
-                                    storeActions.clearSelectedEdgeIds();
-                                    storeActions.setSelectedEdgeId(edge.id);
-                                  }
-                                }}
-                                onDoubleClick={(e) => {
-                                  e.stopPropagation();
-
-                                  // Find the defining node for this edge's connection type
-                                  let definingNodeId = null;
-
-                                  // Check definitionNodeIds first (for custom connection types)
-                                  if (edge.definitionNodeIds && edge.definitionNodeIds.length > 0) {
-                                    definingNodeId = edge.definitionNodeIds[0];
-                                  } else if (edge.typeNodeId) {
-                                    // Fallback to typeNodeId (for base connection type)
-                                    definingNodeId = edge.typeNodeId;
-                                  }
-
-                                  // Open the panel tab for the defining node
-                                  if (definingNodeId) {
-                                    storeActions.openRightPanelNodeTab(definingNodeId);
-                                  }
-                                }}
-                              />
-                            ) : useCurve ? (
-                              <path
-                                d={parallelPath.path}
-                                fill="none"
-                                stroke="transparent"
-                                strokeWidth="40"
-                                style={{ cursor: 'pointer' }}
-                                onPointerDown={(e) => {
-                                  if (e.pointerType && e.pointerType !== 'mouse') {
-                                    e.preventDefault?.();
-                                    e.stopPropagation?.();
-                                    ignoreCanvasClick.current = true;
-                                    setLongPressingInstanceId(null);
-                                    setDrawingConnectionFrom(null);
-                                    if (e.ctrlKey || e.metaKey) {
-                                      if (selectedEdgeIds.has(edge.id)) {
-                                        storeActions.removeSelectedEdgeId(edge.id);
-                                      } else {
-                                        storeActions.addSelectedEdgeId(edge.id);
-                                      }
-                                    } else {
-                                      storeActions.clearSelectedEdgeIds();
-                                      storeActions.setSelectedEdgeId(edge.id);
-                                    }
-                                  }
-                                  handleEdgePointerDownTouch(edge.id, e);
-                                }}
-                                onTouchStart={(e) => {
-                                  e.preventDefault?.();
-                                  e.stopPropagation?.();
-                                  ignoreCanvasClick.current = true;
-                                  setLongPressingInstanceId(null);
-                                  setDrawingConnectionFrom(null);
-                                  storeActions.clearSelectedEdgeIds();
-                                  storeActions.setSelectedEdgeId(edge.id);
-                                }}
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  ignoreCanvasClick.current = true;
-
-                                  // Handle multiple selection with Ctrl/Cmd key
-                                  if (e.ctrlKey || e.metaKey) {
-                                    // Toggle this edge in the multiple selection
-                                    if (selectedEdgeIds.has(edge.id)) {
-                                      storeActions.removeSelectedEdgeId(edge.id);
-                                    } else {
-                                      storeActions.addSelectedEdgeId(edge.id);
-                                    }
-                                  } else {
-                                    // Single selection - clear multiple selection and set single edge
-                                    storeActions.clearSelectedEdgeIds();
-                                    storeActions.setSelectedEdgeId(edge.id);
-                                  }
-                                }}
-                                onDoubleClick={(e) => {
-                                  e.stopPropagation();
-
-                                  // Find the defining node for this edge's connection type
-                                  let definingNodeId = null;
-
-                                  // Check definitionNodeIds first (for custom connection types)
-                                  if (edge.definitionNodeIds && edge.definitionNodeIds.length > 0) {
-                                    definingNodeId = edge.definitionNodeIds[0];
-                                  } else if (edge.typeNodeId) {
-                                    // Fallback to typeNodeId (for base connection type)
-                                    definingNodeId = edge.typeNodeId;
-                                  }
-
-                                  // Open the panel tab for the defining node
-                                  if (definingNodeId) {
-                                    storeActions.openRightPanelNodeTab(definingNodeId);
-                                  }
-                                }}
-                              />
-                            ) : (
-                              <line
-                                x1={x1}
-                                y1={y1}
-                                x2={x2}
-                                y2={y2}
-                                stroke="transparent"
-                                strokeWidth="40"
-                                style={{ cursor: 'pointer' }}
-                                onPointerDown={(e) => {
-                                  if (e.pointerType && e.pointerType !== 'mouse') {
-                                    e.preventDefault?.();
-                                    e.stopPropagation?.();
-                                    ignoreCanvasClick.current = true;
-                                    setLongPressingInstanceId(null);
-                                    setDrawingConnectionFrom(null);
-                                    if (e.ctrlKey || e.metaKey) {
-                                      if (selectedEdgeIds.has(edge.id)) {
-                                        storeActions.removeSelectedEdgeId(edge.id);
-                                      } else {
-                                        storeActions.addSelectedEdgeId(edge.id);
-                                      }
-                                    } else {
-                                      storeActions.clearSelectedEdgeIds();
-                                      storeActions.setSelectedEdgeId(edge.id);
-                                    }
-                                  }
-                                  handleEdgePointerDownTouch(edge.id, e);
-                                }}
-                                onTouchStart={(e) => {
-                                  e.preventDefault?.();
-                                  e.stopPropagation?.();
-                                  ignoreCanvasClick.current = true;
-                                  setLongPressingInstanceId(null);
-                                  setDrawingConnectionFrom(null);
-                                  storeActions.clearSelectedEdgeIds();
-                                  storeActions.setSelectedEdgeId(edge.id);
-                                }}
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  ignoreCanvasClick.current = true;
-
-                                  // Handle multiple selection with Ctrl/Cmd key
-                                  if (e.ctrlKey || e.metaKey) {
-                                    // Toggle this edge in the multiple selection
-                                    if (selectedEdgeIds.has(edge.id)) {
-                                      storeActions.removeSelectedEdgeId(edge.id);
-                                    } else {
-                                      storeActions.addSelectedEdgeId(edge.id);
-                                    }
-                                  } else {
-                                    // Single selection - clear multiple selection and set single edge
-                                    storeActions.clearSelectedEdgeIds();
-                                    storeActions.setSelectedEdgeId(edge.id);
-                                  }
-                                }}
-                                onDoubleClick={(e) => {
-                                  e.stopPropagation();
-
-                                  // Find the defining node for this edge's connection type
-                                  let definingNodeId = null;
-
-                                  // Check definitionNodeIds first (for custom connection types)
-                                  if (edge.definitionNodeIds && edge.definitionNodeIds.length > 0) {
-                                    definingNodeId = edge.definitionNodeIds[0];
-                                  } else if (edge.typeNodeId) {
-                                    // Fallback to typeNodeId (for base connection type)
-                                    definingNodeId = edge.typeNodeId;
-                                  }
-
-                                  // Open the panel tab for the defining node
-                                  if (definingNodeId) {
-                                    storeActions.openRightPanelNodeTab(definingNodeId);
-                                  }
-                                }}
-                              />
-                            )}
-
-                            {/* Smart directional arrows with clickable toggle */}
-                            {(() => {
-                              // Calculate arrow positions (use fallback if intersections fail)
-                              let sourceArrowX, sourceArrowY, destArrowX, destArrowY, sourceArrowAngle, destArrowAngle;
-
-                              // For curved edges, calculate arrow/dot positions along the curve
-                              if (useCurve && parallelPath.ctrlX !== null) {
-                                const tSource = 0.08; // Position near source (8% along curve)
-                                const tDest = 0.92;   // Position near dest (92% along curve)
-
-                                // Get positions along the curve
-                                const sourcePoint = getPointOnQuadraticBezier(
-                                  tSource,
-                                  parallelPath.startX, parallelPath.startY,
-                                  parallelPath.ctrlX, parallelPath.ctrlY,
-                                  parallelPath.endX, parallelPath.endY
-                                );
-                                const destPoint = getPointOnQuadraticBezier(
-                                  tDest,
-                                  parallelPath.startX, parallelPath.startY,
-                                  parallelPath.ctrlX, parallelPath.ctrlY,
-                                  parallelPath.endX, parallelPath.endY
-                                );
-
-                                sourceArrowX = sourcePoint.x;
-                                sourceArrowY = sourcePoint.y;
-                                destArrowX = destPoint.x;
-                                destArrowY = destPoint.y;
-
-                                // Calculate tangent angles at these points
-                                // Derivative of quadratic Bézier: B'(t) = 2(1-t)(P1-P0) + 2t(P2-P1)
-                                const calcTangentAngle = (t, x0, y0, cx, cy, x1, y1) => {
-                                  const invT = 1 - t;
-                                  const tangentX = 2 * invT * (cx - x0) + 2 * t * (x1 - cx);
-                                  const tangentY = 2 * invT * (cy - y0) + 2 * t * (y1 - cy);
-                                  return Math.atan2(tangentY, tangentX) * (180 / Math.PI);
-                                };
-
-                                // Source arrow points backward (toward source node)
-                                const sourceTangent = calcTangentAngle(
-                                  tSource,
-                                  parallelPath.startX, parallelPath.startY,
-                                  parallelPath.ctrlX, parallelPath.ctrlY,
-                                  parallelPath.endX, parallelPath.endY
-                                );
-                                sourceArrowAngle = sourceTangent + 180; // Point back toward source
-
-                                // Dest arrow points forward (toward dest node)
-                                const destTangent = calcTangentAngle(
-                                  tDest,
-                                  parallelPath.startX, parallelPath.startY,
-                                  parallelPath.ctrlX, parallelPath.ctrlY,
-                                  parallelPath.endX, parallelPath.endY
-                                );
-                                destArrowAngle = destTangent; // Point toward dest
-                              } else if (enableAutoRouting && routingStyle === 'clean') {
-                                // Clean mode: use actual port assignments for proper arrow positioning
-                                const offset = 6;
-                                const portAssignment = cleanLaneOffsets.get(edge.id);
-
-                                if (portAssignment) {
-                                  const { sourcePort, destPort, sourceSide, destSide } = portAssignment;
-
-                                  // Position arrows pointing TOWARD the target node (into the edge)
-                                  // Arrow tip points toward the node, positioned outside the edge
-                                  switch (sourceSide) {
-                                    case 'top':
-                                      sourceArrowAngle = 90; // Arrow points down toward node
-                                      sourceArrowX = sourcePort.x;
-                                      sourceArrowY = sourcePort.y - offset;
-                                      break;
-                                    case 'bottom':
-                                      sourceArrowAngle = -90; // Arrow points up toward node
-                                      sourceArrowX = sourcePort.x;
-                                      sourceArrowY = sourcePort.y + offset;
-                                      break;
-                                    case 'left':
-                                      sourceArrowAngle = 0; // Arrow points right toward node
-                                      sourceArrowX = sourcePort.x - offset;
-                                      sourceArrowY = sourcePort.y;
-                                      break;
-                                    case 'right':
-                                      sourceArrowAngle = 180; // Arrow points left toward node
-                                      sourceArrowX = sourcePort.x + offset;
-                                      sourceArrowY = sourcePort.y;
-                                      break;
-                                  }
-
-                                  switch (destSide) {
-                                    case 'top':
-                                      destArrowAngle = 90; // Arrow points down toward node
-                                      destArrowX = destPort.x;
-                                      destArrowY = destPort.y - offset;
-                                      break;
-                                    case 'bottom':
-                                      destArrowAngle = -90; // Arrow points up toward node
-                                      destArrowX = destPort.x;
-                                      destArrowY = destPort.y + offset;
-                                      break;
-                                    case 'left':
-                                      destArrowAngle = 0; // Arrow points right toward node
-                                      destArrowX = destPort.x - offset;
-                                      destArrowY = destPort.y;
-                                      break;
-                                    case 'right':
-                                      destArrowAngle = 180; // Arrow points left toward node
-                                      destArrowX = destPort.x + offset;
-                                      destArrowY = destPort.y;
-                                      break;
-                                  }
-                                } else {
-                                  // Fallback to center-based positioning
-                                  const deltaX = endX - startX;
-                                  const deltaY = endY - startY;
-                                  const isMainlyVertical = Math.abs(deltaY) > Math.abs(deltaX);
-
-                                  if (isMainlyVertical) {
-                                    sourceArrowAngle = deltaY > 0 ? -90 : 90;
-                                    sourceArrowX = startX;
-                                    sourceArrowY = startY + (deltaY > 0 ? offset : -offset);
-                                    destArrowAngle = deltaX > 0 ? 0 : 180;
-                                    destArrowX = endX + (deltaX > 0 ? -offset : offset);
-                                    destArrowY = endY;
-                                  } else {
-                                    sourceArrowAngle = deltaX > 0 ? 180 : 0;
-                                    sourceArrowX = startX + (deltaX > 0 ? offset : -offset);
-                                    sourceArrowY = startY;
-                                    destArrowAngle = deltaY > 0 ? 90 : -90;
-                                    destArrowX = endX;
-                                    destArrowY = endY + (deltaY > 0 ? -offset : offset);
-                                  }
-                                }
-                              } else if (!sourceIntersection || !destIntersection) {
-                                // Fallback positioning - arrows/dots closer to connection center  
-                                const fallbackOffset = 20;
-                                sourceArrowX = x1 + (dx / length) * fallbackOffset;
-                                sourceArrowY = y1 + (dy / length) * fallbackOffset;
-                                destArrowX = x2 - (dx / length) * fallbackOffset;
-                                destArrowY = y2 - (dy / length) * fallbackOffset;
-                                sourceArrowAngle = Math.atan2(-dy, -dx) * (180 / Math.PI);
-                                destArrowAngle = Math.atan2(dy, dx) * (180 / Math.PI);
-                              } else if (enableAutoRouting && routingStyle === 'clean') {
-                                // Clean routing arrow placement - position close to nodes for better visibility
-                                const offset = 8; // Reduced offset for better visibility
-                                const portAssignment = cleanLaneOffsets.get(edge.id);
-
-                                if (portAssignment) {
-                                  const { sourcePort, destPort, sourceSide, destSide } = portAssignment;
-
-                                  // Position arrows close to the actual ports, pointing toward the nodes
-                                  switch (sourceSide) {
-                                    case 'top':
-                                      sourceArrowAngle = 90; // Arrow points down toward node
-                                      sourceArrowX = sourcePort.x;
-                                      sourceArrowY = sourcePort.y - offset;
-                                      break;
-                                    case 'bottom':
-                                      sourceArrowAngle = -90; // Arrow points up toward node
-                                      sourceArrowX = sourcePort.x;
-                                      sourceArrowY = sourcePort.y + offset;
-                                      break;
-                                    case 'left':
-                                      sourceArrowAngle = 0; // Arrow points right toward node
-                                      sourceArrowX = sourcePort.x - offset;
-                                      sourceArrowY = sourcePort.y;
-                                      break;
-                                    case 'right':
-                                      sourceArrowAngle = 180; // Arrow points left toward node
-                                      sourceArrowX = sourcePort.x + offset;
-                                      sourceArrowY = sourcePort.y;
-                                      break;
-                                  }
-
-                                  switch (destSide) {
-                                    case 'top':
-                                      destArrowAngle = 90; // Arrow points down toward node
-                                      destArrowX = destPort.x;
-                                      destArrowY = destPort.y - offset;
-                                      break;
-                                    case 'bottom':
-                                      destArrowAngle = -90; // Arrow points up toward node
-                                      destArrowX = destPort.x;
-                                      destArrowY = destPort.y + offset;
-                                      break;
-                                    case 'left':
-                                      destArrowAngle = 0; // Arrow points right toward node
-                                      destArrowX = destPort.x - offset;
-                                      destArrowY = destPort.y;
-                                      break;
-                                    case 'right':
-                                      destArrowAngle = 180; // Arrow points left toward node
-                                      destArrowX = destPort.x + offset;
-                                      destArrowY = destPort.y;
-                                      break;
-                                  }
-                                } else {
-                                  // Fallback: position arrows close to node centers
-                                  sourceArrowX = startX;
-                                  sourceArrowY = startY;
-                                  sourceArrowAngle = Math.atan2(-dy, -dx) * (180 / Math.PI);
-                                  destArrowX = endX;
-                                  destArrowY = endY;
-                                  destArrowAngle = Math.atan2(dy, dx) * (180 / Math.PI);
-                                }
-                              } else {
-                                // Manhattan-aware arrow placement; falls back to straight orientation
-                                const offset = 6;
-                                if (enableAutoRouting && routingStyle === 'manhattan') {
-                                  // Destination arrow aligns to terminal segment into destination
-                                  const horizontalTerminal = Math.abs(endX - startX) > Math.abs(endY - startY);
-                                  if (horizontalTerminal) {
-                                    destArrowAngle = (endX >= startX) ? 0 : 180;
-                                    destArrowX = endX + ((endX >= startX) ? -offset : offset);
-                                    destArrowY = endY;
-                                  } else {
-                                    destArrowAngle = (endY >= startY) ? 90 : -90;
-                                    destArrowX = endX;
-                                    destArrowY = endY + ((endY >= startY) ? -offset : offset);
-                                  }
-                                  // Source arrow aligns to initial segment out of source (pointing back toward source)
-                                  const horizontalInitial = Math.abs(endX - startX) > Math.abs(endY - startY);
-                                  if (horizontalInitial) {
-                                    sourceArrowAngle = (endX - startX) >= 0 ? 180 : 0;
-                                    sourceArrowX = startX + ((endX - startX) >= 0 ? offset : -offset);
-                                    sourceArrowY = startY;
-                                  } else {
-                                    sourceArrowAngle = (endY - startY) >= 0 ? -90 : 90;
-                                    sourceArrowX = startX;
-                                    sourceArrowY = startY + ((endY - startY) >= 0 ? offset : -offset);
-                                  }
-                                } else {
-                                  // Precise intersection positioning - adjust based on slope for visual consistency
-                                  const angle = Math.abs(Math.atan2(dy, dx) * (180 / Math.PI));
-                                  const normalizedAngle = angle > 90 ? 180 - angle : angle;
-                                  // Shorter distance for quantized slopes (hitting node sides) vs diagonal (hitting corners)
-                                  const isQuantizedSlope = normalizedAngle < 15 || normalizedAngle > 75;
-                                  const arrowLength = isQuantizedSlope ? offset * 0.6 : offset;
-                                  sourceArrowAngle = Math.atan2(-dy, -dx) * (180 / Math.PI);
-                                  sourceArrowX = sourceIntersection.x + (dx / length) * arrowLength;
-                                  sourceArrowY = sourceIntersection.y + (dy / length) * arrowLength;
-                                  destArrowAngle = Math.atan2(dy, dx) * (180 / Math.PI);
-                                  destArrowX = destIntersection.x - (dx / length) * arrowLength;
-                                  destArrowY = destIntersection.y - (dy / length) * arrowLength;
-                                }
-                              }
-
-                              // Override arrow orientation deterministically by Manhattan sides
-                              if (enableAutoRouting && routingStyle === 'manhattan') {
-                                const sideOffset = 6;
-                                // Destination arrow strictly based on destination side
-                                if (manhattanDestSide === 'left') {
-                                  destArrowAngle = 0; // rightwards
-                                  destArrowX = endX - sideOffset;
-                                  destArrowY = endY;
-                                } else if (manhattanDestSide === 'right') {
-                                  destArrowAngle = 180; // leftwards
-                                  destArrowX = endX + sideOffset;
-                                  destArrowY = endY;
-                                } else if (manhattanDestSide === 'top') {
-                                  destArrowAngle = 90; // downwards
-                                  destArrowX = endX;
-                                  destArrowY = endY - sideOffset;
-                                } else if (manhattanDestSide === 'bottom') {
-                                  destArrowAngle = -90; // upwards
-                                  destArrowX = endX;
-                                  destArrowY = endY + sideOffset;
-                                }
-                                // Source arrow strictly based on source side (points toward the source node)
-                                if (manhattanSourceSide === 'left') {
-                                  sourceArrowAngle = 0; // rightwards
-                                  sourceArrowX = startX - sideOffset;
-                                  sourceArrowY = startY;
-                                } else if (manhattanSourceSide === 'right') {
-                                  sourceArrowAngle = 180; // leftwards
-                                  sourceArrowX = startX + sideOffset;
-                                  sourceArrowY = startY;
-                                } else if (manhattanSourceSide === 'top') {
-                                  sourceArrowAngle = 90; // downwards
-                                  sourceArrowX = startX;
-                                  sourceArrowY = startY - sideOffset;
-                                } else if (manhattanSourceSide === 'bottom') {
-                                  sourceArrowAngle = -90; // upwards
-                                  sourceArrowX = startX;
-                                  sourceArrowY = startY + sideOffset;
-                                }
-                              }
-
-                              const handleArrowClick = (nodeId, e) => {
-                                e.stopPropagation();
-
-                                // Toggle the arrow state for the specific node
-                                storeActions.updateEdge(edge.id, (draft) => {
-                                  // Ensure directionality object exists
-                                  if (!draft.directionality) {
-                                    draft.directionality = { arrowsToward: new Set() };
-                                  }
-                                  // Ensure arrowsToward is a Set
-                                  if (!draft.directionality.arrowsToward) {
-                                    draft.directionality.arrowsToward = new Set();
-                                  }
-
-                                  // Toggle arrow for this specific node
-                                  if (draft.directionality.arrowsToward.has(nodeId)) {
-                                    draft.directionality.arrowsToward.delete(nodeId);
-                                  } else {
-                                    draft.directionality.arrowsToward.add(nodeId);
-                                  }
-                                });
-                              };
-
-                              return (
-                                <>
-                                  {/* Source Arrow - visible if arrow points toward source node */}
-                                  {arrowsToward.has(sourceNode.id) && (
-                                    <g
-                                      data-arrow="source"
-                                      transform={`translate(${sourceArrowX}, ${sourceArrowY}) rotate(${sourceArrowAngle + 90})`}
-                                      style={{ cursor: 'pointer' }}
-                                      onClick={(e) => handleArrowClick(sourceNode.id, e)}
-                                      onMouseDown={(e) => e.stopPropagation()}
-                                    >
-                                      {/* Glow effect for arrow - only when selected or hovered */}
-                                      {(isSelected || isHovered) && (
-                                        <polygon
-                                          points="-12,15 12,15 0,-15"
-                                          fill={edgeColor}
-                                          stroke={edgeColor}
-                                          strokeWidth="8"
-                                          strokeLinejoin="round"
-                                          strokeLinecap="round"
-                                          opacity={isSelected ? "0.3" : "0.2"}
-                                          style={{
-                                            filter: `drop-shadow(0 0 6px ${edgeColor})`
-                                          }}
-                                        />
-                                      )}
-                                      <polygon
-                                        points="-18,22 18,22 0,-22"
-                                        fill={edgeColor}
-                                        stroke={edgeColor}
-                                        strokeWidth="6"
-                                        strokeLinejoin="round"
-                                        strokeLinecap="round"
-                                        paintOrder="stroke fill"
-                                      />
-                                    </g>
-                                  )}
-
-                                  {/* Destination Arrow - visible if arrow points toward destination node */}
-                                  {arrowsToward.has(destNode.id) && (
-                                    <g
-                                      data-arrow="dest"
-                                      transform={`translate(${destArrowX}, ${destArrowY}) rotate(${destArrowAngle + 90})`}
-                                      style={{ cursor: 'pointer' }}
-                                      onClick={(e) => handleArrowClick(destNode.id, e)}
-                                      onMouseDown={(e) => e.stopPropagation()}
-                                    >
-                                      {/* Glow effect for arrow - only when selected or hovered */}
-                                      {(isSelected || isHovered) && (
-                                        <polygon
-                                          points="-12,15 12,15 0,-15"
-                                          fill={edgeColor}
-                                          stroke={edgeColor}
-                                          strokeWidth="8"
-                                          strokeLinejoin="round"
-                                          strokeLinecap="round"
-                                          opacity={isSelected ? "0.3" : "0.2"}
-                                          style={{
-                                            filter: `drop-shadow(0 0 6px ${edgeColor})`
-                                          }}
-                                        />
-                                      )}
-                                      <polygon
-                                        points="-18,22 18,22 0,-22"
-                                        fill={edgeColor}
-                                        stroke={edgeColor}
-                                        strokeWidth="6"
-                                        strokeLinejoin="round"
-                                        strokeLinecap="round"
-                                        paintOrder="stroke fill"
-                                      />
-                                    </g>
-                                  )}
-
-                                  {/* Hover Dots - visible when hovering straight edges or curved parallel edges */}
-                                  {isHovered && (!enableAutoRouting || routingStyle === 'straight' || useCurve) && (
-                                    <>
-                                      {/* Source Dot - only show if arrow not pointing toward source */}
-                                      {!arrowsToward.has(sourceNode.id) && (
-                                        <g>
-                                          <circle
-                                            cx={sourceArrowX}
-                                            cy={sourceArrowY}
-                                            r="20"
-                                            fill="transparent"
-                                            style={{ cursor: 'pointer' }}
-                                            onClick={(e) => handleArrowClick(sourceNode.id, e)}
-                                            onMouseDown={(e) => e.stopPropagation()}
-                                          />
-                                          <circle
-                                            cx={sourceArrowX}
-                                            cy={sourceArrowY}
-                                            r="16"
-                                            fill={edgeColor}
-                                            style={{ pointerEvents: 'none' }}
-                                          />
-                                        </g>
-                                      )}
-
-                                      {/* Destination Dot - only show if arrow not pointing toward destination */}
-                                      {!arrowsToward.has(destNode.id) && (
-                                        <g>
-                                          <circle
-                                            cx={destArrowX}
-                                            cy={destArrowY}
-                                            r="20"
-                                            fill="transparent"
-                                            style={{ cursor: 'pointer' }}
-                                            onClick={(e) => handleArrowClick(destNode.id, e)}
-                                            onMouseDown={(e) => e.stopPropagation()}
-                                          />
-                                          <circle
-                                            cx={destArrowX}
-                                            cy={destArrowY}
-                                            r="16"
-                                            fill={edgeColor}
-                                            style={{ pointerEvents: 'none' }}
-                                          />
-                                        </g>
-                                      )}
-                                    </>
-                                  )}
-                                </>
-                              );
-                            })()}
-
-                            {/* Connection name text — rendered after arrows so labels appear on top */}
-                            {showConnectionNames && (() => {
-                              const connectionFontSize = 24 * (textSettings?.fontSize || 1);
-                              let midX;
-                              let midY;
-                              let angle;
-                              if (enableAutoRouting && routingStyle === 'manhattan') {
-                                const horizontalLen = Math.abs(endX - startX);
-                                const verticalLen = Math.abs(endY - startY);
-                                if (horizontalLen >= verticalLen) {
-                                  midX = (startX + endX) / 2;
-                                  midY = startY;
-                                  angle = 0;
-                                } else {
-                                  midX = endX;
-                                  midY = (startY + endY) / 2;
-                                  angle = 90;
-                                }
-                              } else {
-                                // Use utility-calculated apex for curves, midpoint for lines
-                                // Use labelPlacementPath (visible segment) for accurate centering
-                                midX = labelPlacementPath.apexX;
-                                midY = labelPlacementPath.apexY;
-                                angle = labelPlacementPath.labelAngle;
-                              }
-
-                              // Determine connection name to display
-                              let connectionName = 'Connection';
-                              if (edge.definitionNodeIds && edge.definitionNodeIds.length > 0) {
-                                const definitionNode = nodePrototypesMap.get(edge.definitionNodeIds[0]);
-                                if (definitionNode) {
-                                  connectionName = definitionNode.name || 'Connection';
-                                }
-                              } else if (edge.typeNodeId) {
-                                const edgePrototype = edgePrototypesMap.get(edge.typeNodeId);
-                                if (edgePrototype) {
-                                  connectionName = edgePrototype.name || 'Connection';
-                                }
-                              }
-
-                              // Smart label placement based on routing style
-                              if (enableAutoRouting && routingStyle === 'manhattan') {
-                                // Always try cached placement first to prevent flicker (except during dragging)
-                                const cached = placedLabelsRef.current.get(edge.id);
-                                if (cached && cached.position && !draggingNodeInfo) {
-                                  const stabilized = stabilizeLabelPosition(edge.id, cached.position.x, cached.position.y, cached.position.angle || 0);
-                                  midX = stabilized.x;
-                                  midY = stabilized.y;
-                                  angle = stabilized.angle || 0;
-                                } else {
-                                  const pathPoints = generateManhattanRoutingPath(edge, sourceNode, destNode, sNodeDims, eNodeDims, manhattanBends);
-                                  const placement = chooseLabelPlacement(pathPoints, connectionName, nodes, visibleNodeIds, baseDimsById, placedLabelsRef.current, connectionFontSize, edge.id, selectedInstanceIds);
-                                  if (placement) {
-                                    midX = placement.x;
-                                    midY = placement.y;
-                                    angle = placement.angle || 0;
-
-                                    // Register this label placement
-                                    const labelRect = {
-                                      minX: midX - estimateTextWidth(connectionName, connectionFontSize) / 2,
-                                      maxX: midX + estimateTextWidth(connectionName, connectionFontSize) / 2,
-                                      minY: midY - connectionFontSize * 1.1 / 2,
-                                      maxY: midY + connectionFontSize * 1.1 / 2,
-                                    };
-                                    const stabilized = stabilizeLabelPosition(edge.id, midX, midY, angle);
-                                    placedLabelsRef.current.set(edge.id, {
-                                      rect: labelRect,
-                                      position: { x: stabilized.x, y: stabilized.y, angle: stabilized.angle }
-                                    });
-                                  } else {
-                                    // Fallback to simple Manhattan logic
-                                    const horizontalLen = Math.abs(endX - startX);
-                                    const verticalLen = Math.abs(endY - startY);
-                                    if (horizontalLen >= verticalLen) {
-                                      midX = (startX + endX) / 2;
-                                      midY = startY;
-                                      angle = 0;
-                                    } else {
-                                      midX = endX;
-                                      midY = (startY + endY) / 2;
-                                      angle = 90;
-                                    }
-                                  }
-                                }
-                              } else if (enableAutoRouting && routingStyle === 'clean') {
-                                // Always try cached placement first to prevent flicker (except during dragging)
-                                const cached = placedLabelsRef.current.get(edge.id);
-                                if (cached && cached.position && !draggingNodeInfo) {
-                                  const stabilized = stabilizeLabelPosition(edge.id, cached.position.x, cached.position.y, cached.position.angle || 0);
-                                  midX = stabilized.x;
-                                  midY = stabilized.y;
-                                  angle = stabilized.angle || 0;
-                                } else {
-                                  const pathPoints = generateCleanRoutingPath(edge, sourceNode, destNode, sNodeDims, eNodeDims, cleanLaneOffsets, cleanLaneSpacing);
-                                  const placement = chooseLabelPlacement(pathPoints, connectionName, nodes, visibleNodeIds, baseDimsById, placedLabelsRef.current, connectionFontSize, edge.id, selectedInstanceIds);
-                                  if (placement) {
-                                    midX = placement.x;
-                                    midY = placement.y;
-                                    angle = placement.angle || 0;
-
-                                    // Register this label placement
-                                    const labelRect = {
-                                      minX: midX - estimateTextWidth(connectionName, connectionFontSize) / 2,
-                                      maxX: midX + estimateTextWidth(connectionName, connectionFontSize) / 2,
-                                      minY: midY - connectionFontSize * 1.1 / 2,
-                                      maxY: midY + connectionFontSize * 1.1 / 2,
-                                    };
-                                    const stabilized = stabilizeLabelPosition(edge.id, midX, midY, angle);
-                                    placedLabelsRef.current.set(edge.id, {
-                                      rect: labelRect,
-                                      position: { x: stabilized.x, y: stabilized.y, angle: stabilized.angle }
-                                    });
-                                  } else {
-                                    // Fallback to midpoint
-                                    midX = (x1 + x2) / 2;
-                                    midY = (y1 + y2) / 2;
-                                    angle = 0;
-                                  }
-                                }
-                              }
-                              // For straight/curved routing, midX/midY/angle are already set from parallelPath above
-
-                              // Adjust angle to keep text readable (never upside down)
-                              const adjustedAngle = (angle > 90 || angle < -90) ? angle + 180 : angle;
-
-                              return (
-                                <g>
-                                  {/* Canvas-colored text creating a "hole" effect in the connection */}
-                                  <text
-                                    x={midX}
-                                    y={midY}
-                                    fill={getLightHueText(edgeColor)}
-                                    fontSize={connectionFontSize}
-                                    fontWeight="bold"
-                                    textAnchor="middle"
-                                    dominantBaseline="middle"
-                                    transform={`rotate(${adjustedAngle}, ${midX}, ${midY})`}
-                                    stroke={getDarkHueText(edgeColor)}
-                                    strokeWidth="8"
-                                    strokeLinecap="round"
-                                    strokeLinejoin="round"
-                                    paintOrder="stroke fill"
-                                    style={{ pointerEvents: 'none', fontFamily: "'EmOne', sans-serif" }}
-                                  >
-                                    {connectionName}
-                                  </text>
-                                </g>
-                              );
-                            })()}
-                          </g>
-                        );
-                      })}
-                      {/* Groups Phase 2: Thing-group backgrounds (above normal edges, below thing-group edges) */}
-                      {nodeGroupBackgroundsRef.current}
-                      {/* Edges above node-groups: connect to thing-group members (non-anchor) */}
-                      {edgesAboveNodeGroups.map((edge, idx) => {
-                        let sourceNode = nodeById.get(edge.sourceId);
-                        let destNode = nodeById.get(edge.destinationId);
-
-                        if (!sourceNode || !destNode) {
-                          return null;
-                        }
-                        // For anchor nodes, use current-frame ref positions and title dimensions
-                        const sAnchorInfo = sourceNode.isGroupAnchor ? anchorPositionUpdatesRef.current.get(sourceNode.id) : null;
-                        const eAnchorInfo = destNode.isGroupAnchor ? anchorPositionUpdatesRef.current.get(destNode.id) : null;
-                        if (sAnchorInfo) sourceNode = { ...sourceNode, x: sAnchorInfo.x, y: sAnchorInfo.y };
-                        if (eAnchorInfo) destNode = { ...destNode, x: eAnchorInfo.x, y: eAnchorInfo.y };
-                        const sNodeDims = sAnchorInfo
-                          ? { currentWidth: sAnchorInfo.width, currentHeight: sAnchorInfo.height }
-                          : (baseDimsById.get(sourceNode.id) || getNodeDimensions(sourceNode, false, null));
-                        const eNodeDims = eAnchorInfo
-                          ? { currentWidth: eAnchorInfo.width, currentHeight: eAnchorInfo.height }
-                          : (baseDimsById.get(destNode.id) || getNodeDimensions(destNode, false, null));
-                        const isSNodePreviewing = previewingNodeId === sourceNode.id;
-                        const isENodePreviewing = previewingNodeId === destNode.id;
-
-                        if (edge.sourceId === edge.destinationId) {
-                          const isHovered = !draggingNodeInfo && hoveredEdgeInfo?.edgeId === edge.id;
-                          const isSelected = selectedEdgeId === edge.id || selectedEdgeIds.has(edge.id);
-                          let selfColor = sourceNode.color || NODE_DEFAULT_COLOR;
-                          let selfConnectionName = 'Connection';
-                          if (edge.definitionNodeIds && edge.definitionNodeIds.length > 0) {
-                            const defProto = nodePrototypesMap.get(edge.definitionNodeIds[0]);
-                            if (defProto) {
-                              selfColor = defProto.color || selfColor;
-                              selfConnectionName = defProto.name || selfConnectionName;
-                            }
-                          } else if (edge.typeNodeId) {
-                            if (edge.typeNodeId === 'base-connection-prototype') {
-                              selfColor = '#000000';
-                            } else {
-                              const proto = edgePrototypesMap.get(edge.typeNodeId);
-                              if (proto) {
-                                selfColor = proto.color || selfColor;
-                                selfConnectionName = proto.name || selfConnectionName;
-                              }
-                            }
-                          }
-                          const selfFontSize = 24 * (textSettings?.fontSize || 1);
-                          return (
-                            <SelfLoopEdge
-                              key={`edge-${edge.id}`}
-                              edge={edge}
-                              node={sourceNode}
-                              nodeDims={sNodeDims}
-                              curveInfo={edgeCurveInfo.get(edge.id)}
-                              isHovered={isHovered}
-                              isSelected={isSelected}
-                              edgeColor={selfColor}
-                              showConnectionNames={showConnectionNames}
-                              selectedEdgeIds={selectedEdgeIds}
-                              storeActions={storeActions}
-                              ignoreCanvasClick={ignoreCanvasClick}
-                              setLongPressingInstanceId={setLongPressingInstanceId}
-                              setDrawingConnectionFrom={setDrawingConnectionFrom}
-                              handleEdgePointerDownTouch={handleEdgePointerDownTouch}
-                              connectionName={selfConnectionName}
-                              connectionFontSize={selfFontSize}
-                              placedLabelsRef={placedLabelsRef}
-                            />
-                          );
-                        }
-
-                        // Check if this is a directed edge (has arrows)
-                        const arrowsToward = edge.directionality?.arrowsToward instanceof Set
-                          ? edge.directionality.arrowsToward
-                          : new Set(Array.isArray(edge.directionality?.arrowsToward) ? edge.directionality.arrowsToward : []);
-
-                        // Check which ends have arrows
-                        const hasSourceArrow = arrowsToward.has(sourceNode.id);
-                        const hasDestArrow = arrowsToward.has(destNode.id);
-                        const isDirected = arrowsToward.size > 0;
-
-                        // Connection endpoint calculation
-                        let x1, y1, x2, y2;
-                        if (enableAutoRouting && (routingStyle === 'manhattan' || routingStyle === 'clean')) {
-                          // Port-based routing - use centers as base (ports will override later)
-                          x1 = sourceNode.x + sNodeDims.currentWidth / 2;
-                          y1 = sourceNode.y + (isSNodePreviewing ? NODE_HEIGHT / 2 : sNodeDims.currentHeight / 2);
-                          x2 = destNode.x + eNodeDims.currentWidth / 2;
-                          y2 = destNode.y + (isENodePreviewing ? NODE_HEIGHT / 2 : eNodeDims.currentHeight / 2);
-                        } else if (isDirected && (hasSourceArrow || hasDestArrow)) {
-                          // Directed connections: calculate each endpoint based on whether it has an arrow
-                          // Sides with arrows draw to edge, sides without arrows draw to center
-                          const centerX1 = sourceNode.x + sNodeDims.currentWidth / 2;
-                          const centerY1 = sourceNode.y + (isSNodePreviewing ? NODE_HEIGHT / 2 : sNodeDims.currentHeight / 2);
-                          const centerX2 = destNode.x + eNodeDims.currentWidth / 2;
-                          const centerY2 = destNode.y + (isENodePreviewing ? NODE_HEIGHT / 2 : eNodeDims.currentHeight / 2);
-
-                          if (hasSourceArrow || hasDestArrow) {
-                            // Use edge-based calculation, then selectively apply results
-                            const endpoints = getVisualConnectionEndpoints(
-                              sourceNode, destNode,
-                              sNodeDims, eNodeDims,
-                              selectedInstanceIds.has(sourceNode.id),
-                              selectedInstanceIds.has(destNode.id)
-                            );
-
-                            // Source: use edge if has arrow, otherwise center
-                            x1 = hasSourceArrow ? endpoints.x1 : centerX1;
-                            y1 = hasSourceArrow ? endpoints.y1 : centerY1;
-
-                            // Dest: use edge if has arrow, otherwise center
-                            x2 = hasDestArrow ? endpoints.x2 : centerX2;
-                            y2 = hasDestArrow ? endpoints.y2 : centerY2;
-                          } else {
-                            // Fallback to centers (shouldn't reach here due to outer if condition)
-                            x1 = centerX1;
-                            y1 = centerY1;
-                            x2 = centerX2;
-                            y2 = centerY2;
-                          }
-                        } else {
-                          // Non-directed connections: use centers for traditional appearance
-                          x1 = sourceNode.x + sNodeDims.currentWidth / 2;
-                          y1 = sourceNode.y + (isSNodePreviewing ? NODE_HEIGHT / 2 : sNodeDims.currentHeight / 2);
-                          x2 = destNode.x + eNodeDims.currentWidth / 2;
-                          y2 = destNode.y + (isENodePreviewing ? NODE_HEIGHT / 2 : eNodeDims.currentHeight / 2);
-                        }
-
-                        // Suppress edge hover (connection dots, hover-widened arrows, etc.)
-                        // while dragging — the dots would otherwise freeze at the last
-                        // hovered position instead of tracking the moving node.
-                        const isHovered = !draggingNodeInfo && hoveredEdgeInfo?.edgeId === edge.id;
-                        const isSelected = selectedEdgeId === edge.id || selectedEdgeIds.has(edge.id);
-
-
-
-
-                        // Get edge color - prioritize definitionNodeIds for custom types, then typeNodeId for base types
-                        const getEdgeColor = () => {
-                          // First check definitionNodeIds (for custom connection types set via control panel)
-                          if (edge.definitionNodeIds && edge.definitionNodeIds.length > 0) {
-                            const definitionNode = nodePrototypesMap.get(edge.definitionNodeIds[0]);
-                            if (definitionNode) {
-                              return definitionNode.color || NODE_DEFAULT_COLOR;
-                            }
-                          }
-
-                          // Then check typeNodeId (for base connection type)
-                          if (edge.typeNodeId) {
-                            // Special handling for base connection prototype - ensure it's black
-                            if (edge.typeNodeId === 'base-connection-prototype') {
-                              return '#000000'; // Black color for base connection
-                            }
-                            const edgePrototype = edgePrototypesMap.get(edge.typeNodeId);
-                            if (edgePrototype) {
-                              return edgePrototype.color || NODE_DEFAULT_COLOR;
-                            }
-                          }
-
-                          return destNode.color || NODE_DEFAULT_COLOR;
-                        };
-                        const edgeColor = getEdgeColor();
-
-                        // Calculate arrow position and rotation
-                        const dx = x2 - x1;
-                        const dy = y2 - y1;
-                        const length = Math.sqrt(dx * dx + dy * dy);
-
-                        // Helper function to calculate edge intersection with rectangular nodes
-                        const getNodeEdgeIntersection = (nodeX, nodeY, nodeWidth, nodeHeight, dirX, dirY) => {
-                          const centerX = nodeX + nodeWidth / 2;
-                          const centerY = nodeY + nodeHeight / 2;
-                          const halfWidth = nodeWidth / 2;
-                          const halfHeight = nodeHeight / 2;
-                          const intersections = [];
-
-                          if (dirX > 0) {
-                            const t = halfWidth / dirX;
-                            const y = dirY * t;
-                            if (Math.abs(y) <= halfHeight) intersections.push({ x: centerX + halfWidth, y: centerY + y, distance: t });
-                          }
-                          if (dirX < 0) {
-                            const t = -halfWidth / dirX;
-                            const y = dirY * t;
-                            if (Math.abs(y) <= halfHeight) intersections.push({ x: centerX - halfWidth, y: centerY + y, distance: t });
-                          }
-                          if (dirY > 0) {
-                            const t = halfHeight / dirY;
-                            const x = dirX * t;
-                            if (Math.abs(x) <= halfWidth) intersections.push({ x: centerX + x, y: centerY + halfHeight, distance: t });
-                          }
-                          if (dirY < 0) {
-                            const t = -halfHeight / dirY;
-                            const x = dirX * t;
-                            if (Math.abs(x) <= halfWidth) intersections.push({ x: centerX + x, y: centerY - halfHeight, distance: t });
-                          }
-
-                          return intersections.reduce((closest, current) =>
-                            !closest || current.distance < closest.distance ? current : closest, null);
-                        };
-
-                        // Calculate edge intersections
-                        const sourceIntersection = getNodeEdgeIntersection(
-                          sourceNode.x, sourceNode.y, sNodeDims.currentWidth, sNodeDims.currentHeight,
-                          dx / length, dy / length
-                        );
-
-                        const destIntersection = getNodeEdgeIntersection(
-                          destNode.x, destNode.y, eNodeDims.currentWidth, eNodeDims.currentHeight,
-                          -dx / length, -dy / length
-                        );
-
-                        // Determine if each end of the edge should be shortened for arrows
-                        // (arrowsToward already calculated earlier for endpoint logic)
-
-                        // Check if this is a curved edge (parallel edge with non-zero offset)
-                        // The middle edge in an odd-numbered group has offset 0 and is straight
-                        const curveInfo = edgeCurveInfo.get(edge.id);
-                        let isCurvedEdge = false;
-                        if (curveInfo && curveInfo.totalInPair > 1) {
-                          const centerIndex = (curveInfo.totalInPair - 1) / 2;
-                          const offsetSteps = curveInfo.pairIndex - centerIndex;
-                          isCurvedEdge = offsetSteps !== 0;
-                        }
-
-                        // Only shorten connections at ends with arrows or hover state
-                        // For curved edges, NEVER change endpoints - we use trimmed paths instead
-                        // This ensures the curve shape stays consistent
-                        let shouldShortenSource = isCurvedEdge
-                          ? false  // Never change curve endpoints
-                          : (isHovered || arrowsToward.has(sourceNode.id));
-                        let shouldShortenDest = isCurvedEdge
-                          ? false  // Never change curve endpoints
-                          : (isHovered || arrowsToward.has(destNode.id));
-                        if (enableAutoRouting && routingStyle === 'manhattan') {
-                          // In Manhattan mode, never shorten for hover—only for actual arrows
-                          shouldShortenSource = arrowsToward.has(sourceNode.id);
-                          shouldShortenDest = arrowsToward.has(destNode.id);
-                        }
-
-                        // Determine actual start/end points for rendering
-                        let startX, startY, endX, endY;
-
-                        // For clean routing, use assigned ports; otherwise use intersection-based positioning
-                        if (enableAutoRouting && routingStyle === 'clean') {
-                          const portAssignment = cleanLaneOffsets.get(edge.id);
-                          if (portAssignment) {
-                            const { sourcePort, destPort } = portAssignment;
-
-                            // Check if this edge has directional arrows
-                            const hasSourceArrow = arrowsToward.has(sourceNode.id);
-                            const hasDestArrow = arrowsToward.has(destNode.id);
-
-                            // Use ports for directional connections, centers for non-directional
-                            startX = hasSourceArrow ? sourcePort.x : x1;
-                            startY = hasSourceArrow ? sourcePort.y : y1;
-                            endX = hasDestArrow ? destPort.x : x2;
-                            endY = hasDestArrow ? destPort.y : y2;
-                          } else {
-                            // Fallback to node centers for clean routing
-                            startX = x1;
-                            startY = y1;
-                            endX = x2;
-                            endY = y2;
-                          }
-                        } else {
-                          // Use intersection-based positioning for other routing modes.
-                          // Visible LINE endpoint uses the 4px-inset variant so the round
-                          // line cap (strokeLinecap="round", strokeWidth=6 → cap radius 3)
-                          // stops cleanly behind the arrow polygon's flat base. Arrow
-                          // placement still uses sourceIntersection/destIntersection (no
-                          // inset) downstream, so the arrow tip anchors at the literal
-                          // border.
-                          const insetLineEndpoints = (shouldShortenSource || shouldShortenDest)
-                            ? getVisualConnectionEndpoints(
-                                sourceNode, destNode, sNodeDims, eNodeDims,
-                                selectedInstanceIds.has(sourceNode.id),
-                                selectedInstanceIds.has(destNode.id)
-                              )
-                            : null;
-                          startX = shouldShortenSource ? (insetLineEndpoints?.x1 ?? sourceIntersection?.x ?? x1) : x1;
-                          startY = shouldShortenSource ? (insetLineEndpoints?.y1 ?? sourceIntersection?.y ?? y1) : y1;
-                          endX = shouldShortenDest ? (insetLineEndpoints?.x2 ?? destIntersection?.x ?? x2) : x2;
-                          endY = shouldShortenDest ? (insetLineEndpoints?.y2 ?? destIntersection?.y ?? y2) : y2;
-                        }
-
-                        // Predeclare Manhattan path info for safe use below
-                        let manhattanPathD = null;
-                        let manhattanSourceSide = null;
-                        let manhattanDestSide = null;
-
-                        // When using Manhattan routing, snap to 4 node ports (midpoints of each side)
-                        if (enableAutoRouting && routingStyle === 'manhattan') {
-                          const sCenterX = sourceNode.x + sNodeDims.currentWidth / 2;
-                          const sCenterY = sourceNode.y + sNodeDims.currentHeight / 2;
-                          const dCenterX = destNode.x + eNodeDims.currentWidth / 2;
-                          const dCenterY = destNode.y + eNodeDims.currentHeight / 2;
-
-                          const sPorts = {
-                            top: { x: sCenterX, y: sourceNode.y },
-                            bottom: { x: sCenterX, y: sourceNode.y + sNodeDims.currentHeight },
-                            left: { x: sourceNode.x, y: sCenterY },
-                            right: { x: sourceNode.x + sNodeDims.currentWidth, y: sCenterY },
-                          };
-                          const dPorts = {
-                            top: { x: dCenterX, y: destNode.y },
-                            bottom: { x: dCenterX, y: destNode.y + eNodeDims.currentHeight },
-                            left: { x: destNode.x, y: dCenterY },
-                            right: { x: destNode.x + eNodeDims.currentWidth, y: dCenterY },
-                          };
-
-                          const relDx = dCenterX - sCenterX;
-                          const relDy = dCenterY - sCenterY;
-                          let sPort, dPort;
-                          if (Math.abs(relDx) >= Math.abs(relDy)) {
-                            // Prefer horizontal ports
-                            sPort = relDx >= 0 ? sPorts.right : sPorts.left;
-                            dPort = relDx >= 0 ? dPorts.left : dPorts.right;
-                          } else {
-                            // Prefer vertical ports
-                            sPort = relDy >= 0 ? sPorts.bottom : sPorts.top;
-                            dPort = relDy >= 0 ? dPorts.top : dPorts.bottom;
-                          }
-                          startX = sPort.x;
-                          startY = sPort.y;
-                          endX = dPort.x;
-                          endY = dPort.y;
-
-                          // Determine sides for perpendicular entry/exit
-                          const sSide = (Math.abs(startY - sourceNode.y) < 0.5) ? 'top'
-                            : (Math.abs(startY - (sourceNode.y + sNodeDims.currentHeight)) < 0.5) ? 'bottom'
-                              : (Math.abs(startX - sourceNode.x) < 0.5) ? 'left' : 'right';
-                          const dSide = (Math.abs(endY - destNode.y) < 0.5) ? 'top'
-                            : (Math.abs(endY - (destNode.y + eNodeDims.currentHeight)) < 0.5) ? 'bottom'
-                              : (Math.abs(endX - destNode.x) < 0.5) ? 'left' : 'right';
-                          const initOrient = (sSide === 'left' || sSide === 'right') ? 'H' : 'V';
-                          const finalOrient = (dSide === 'left' || dSide === 'right') ? 'H' : 'V';
-
-                          const effectiveBends = (manhattanBends === 'auto')
-                            ? (initOrient === finalOrient ? 'two' : 'one')
-                            : manhattanBends;
-
-                          // Local helpers declared before use to avoid hoisting issues
-                          const cornerRadiusLocal = 8;
-                          const buildRoundedLPathOriented = (sx, sy, ex, ey, r, firstOrientation /* 'H' | 'V' */) => {
-                            if (firstOrientation === 'H') {
-                              if (sx === ex || sy === ey) {
-                                return `M ${sx},${sy} L ${ex},${ey}`;
-                              }
-                              const signX = ex > sx ? 1 : -1;
-                              const signY = ey > sy ? 1 : -1;
-                              const cornerX = ex;
-                              const cornerY = sy;
-                              const hx = cornerX - signX * r;
-                              const hy = cornerY;
-                              const vx = cornerX;
-                              const vy = cornerY + signY * r;
-                              return `M ${sx},${sy} L ${hx},${hy} Q ${cornerX},${cornerY} ${vx},${vy} L ${ex},${ey}`;
-                            } else {
-                              if (sx === ex || sy === ey) {
-                                return `M ${sx},${sy} L ${ex},${ey}`;
-                              }
-                              const signX = ex > sx ? 1 : -1;
-                              const signY = ey > sy ? 1 : -1;
-                              const cornerX = sx;
-                              const cornerY = ey;
-                              const vx = cornerX;
-                              const vy = cornerY - signY * r;
-                              const hx = cornerX + signX * r;
-                              const hy = cornerY;
-                              return `M ${sx},${sy} L ${vx},${vy} Q ${cornerX},${cornerY} ${hx},${hy} L ${ex},${ey}`;
-                            }
-                          };
-                          const buildRoundedZPathOriented = (sx, sy, ex, ey, r, pattern /* 'HVH' | 'VHV' */) => {
-                            if (sx === ex || sy === ey) {
-                              return `M ${sx},${sy} L ${ex},${ey}`;
-                            }
-                            if (pattern === 'HVH') {
-                              // Horizontal → Vertical → Horizontal with rounded corners at both bends
-                              const midX = (sx + ex) / 2;
-                              const signX1 = midX >= sx ? 1 : -1; // initial horizontal direction
-                              const signY = ey >= sy ? 1 : -1;     // vertical direction
-                              const signX2 = ex >= midX ? 1 : -1;  // final horizontal direction
-                              const hx1 = midX - signX1 * r;       // before first corner
-                              const vy1 = sy + signY * r;          // after first corner
-                              const vy2 = ey - signY * r;          // before second corner
-                              const hx2 = midX + signX2 * r;       // after second corner
-                              return `M ${sx},${sy} L ${hx1},${sy} Q ${midX},${sy} ${midX},${vy1} L ${midX},${vy2} Q ${midX},${ey} ${hx2},${ey} L ${ex},${ey}`;
-                            } else {
-                              // Vertical → Horizontal → Vertical with rounded corners at both bends
-                              const midY = (sy + ey) / 2;
-                              const signY1 = midY >= sy ? 1 : -1;  // initial vertical direction
-                              const signX = ex >= sx ? 1 : -1;      // horizontal direction (same for both H segments)
-                              const signY2 = ey >= midY ? 1 : -1;   // final vertical direction
-                              const vy1 = midY - signY1 * r;        // before first corner
-                              const hx1 = sx + signX * r;           // after first corner
-                              const hx2 = ex - signX * r;           // before second corner
-                              const vy2 = midY + signY2 * r;        // after second corner
-                              return `M ${sx},${sy} L ${sx},${vy1} Q ${sx},${midY} ${hx1},${midY} L ${hx2},${midY} Q ${ex},${midY} ${ex},${vy2} L ${ex},${ey}`;
-                            }
-                          };
-                          let pathD;
-                          if (effectiveBends === 'two' && initOrient === finalOrient) {
-                            pathD = (initOrient === 'H')
-                              ? buildRoundedZPathOriented(startX, startY, endX, endY, cornerRadiusLocal, 'HVH')
-                              : buildRoundedZPathOriented(startX, startY, endX, endY, cornerRadiusLocal, 'VHV');
-                          } else {
-                            pathD = buildRoundedLPathOriented(startX, startY, endX, endY, cornerRadiusLocal, initOrient);
-                          }
-
-                          // Assign for rendering and arrow logic
-                          manhattanPathD = pathD;
-                          manhattanSourceSide = sSide;
-                          manhattanDestSide = dSide;
-                        }
-
-                        // Calculate parallel edge path using centralized utility
-                        // Note: curveInfo was already retrieved earlier for shouldShorten logic
-                        const parallelPath = calculateParallelEdgePath(startX, startY, endX, endY, curveInfo);
-                        const useCurve = parallelPath.type === 'curve';
-
-                        // For label placement, always use the visible segment (edge-to-edge)
-                        // This ensures labels are centered on the visible portion, not the drawn portion
-                        const visibleEndpoints = getVisualConnectionEndpoints(
-                          sourceNode, destNode,
-                          sNodeDims, eNodeDims,
-                          selectedInstanceIds.has(sourceNode.id),
-                          selectedInstanceIds.has(destNode.id)
-                        );
-                        const labelPlacementPath = calculateParallelEdgePath(
-                          visibleEndpoints.x1, visibleEndpoints.y1,
-                          visibleEndpoints.x2, visibleEndpoints.y2,
-                          curveInfo
-                        );
-
-                        // For hover effect or arrows on curved edges, trim the curve to create "shorten" visual
-                        // This keeps the curve shape consistent but renders a shorter portion
-                        let trimmedPath = null;
-                        const shouldTrimCurve = useCurve && parallelPath.ctrlX !== null &&
-                          (isHovered || arrowsToward.has(sourceNode.id) || arrowsToward.has(destNode.id));
-                        if (shouldTrimCurve) {
-                          trimmedPath = getTrimmedBezierPath(
-                            parallelPath.startX, parallelPath.startY,
-                            parallelPath.ctrlX, parallelPath.ctrlY,
-                            parallelPath.endX, parallelPath.endY,
-                            0.08, 0.92  // Trim 8% from each end
-                          );
-                        }
-
-                        return (
-                          <g key={`edge-${edge.id}`} data-edge-id={edge.id}>
-                            {/* Main edge line - always same thickness */}
-                            {/* Glow effect for selected or hovered edge */}
-                            {(isSelected || isHovered) && (
-                              (enableAutoRouting && (routingStyle === 'manhattan' || routingStyle === 'clean')) ? (
-                                <path
-                                  d={(routingStyle === 'manhattan') ? manhattanPathD : (() => {
-                                    // Use consistent clean routing path helper
-                                    const cleanPts = generateCleanRoutingPath(edge, sourceNode, destNode, sNodeDims, eNodeDims, cleanLaneOffsets, cleanLaneSpacing);
-                                    return buildRoundedPathFromPoints(cleanPts, 8);
-                                  })()}
-                                  fill="none"
-                                  stroke={edgeColor}
-                                  strokeWidth="12"
-                                  opacity={isSelected ? "0.3" : "0.2"}
-                                  style={{
-                                    filter: `drop-shadow(0 0 8px ${edgeColor})`
-                                  }}
-                                  strokeLinecap="round"
-                                />
-                              ) : useCurve ? (
-                                <path
-                                  d={trimmedPath ? trimmedPath.path : parallelPath.path}
-                                  fill="none"
-                                  stroke={edgeColor}
-                                  strokeWidth="12"
-                                  opacity={isSelected ? "0.3" : "0.2"}
-                                  style={{
-                                    filter: `drop-shadow(0 0 8px ${edgeColor})`
-                                  }}
-                                  strokeLinecap="round"
-                                />
-                              ) : (
-                                <line
-                                  x1={startX}
-                                  y1={startY}
-                                  x2={endX}
-                                  y2={endY}
-                                  stroke={edgeColor}
-                                  strokeWidth="12"
-                                  opacity={isSelected ? "0.3" : "0.2"}
-                                  style={{
-                                    filter: `drop-shadow(0 0 8px ${edgeColor})`
-                                  }}
-                                />
-                              )
-                            )}
-
-                            {(enableAutoRouting && (routingStyle === 'manhattan' || routingStyle === 'clean')) ? (
-                              <>
-                                {routingStyle === 'manhattan' && !arrowsToward.has(sourceNode.id) && (
-                                  <line x1={x1} y1={y1} x2={startX} y2={startY} stroke={edgeColor} strokeWidth="16" strokeLinecap="round" />
-                                )}
-                                {routingStyle === 'manhattan' && !arrowsToward.has(destNode.id) && (
-                                  <line x1={endX} y1={endY} x2={x2} y2={y2} stroke={edgeColor} strokeWidth="16" strokeLinecap="round" />
-                                )}
-                                <path
-                                  d={(routingStyle === 'manhattan') ? manhattanPathD : (() => {
-                                    // Use consistent clean routing path helper
-                                    const cleanPts = generateCleanRoutingPath(edge, sourceNode, destNode, sNodeDims, eNodeDims, cleanLaneOffsets, cleanLaneSpacing);
-                                    return buildRoundedPathFromPoints(cleanPts, 8);
-                                  })()}
-                                  fill="none"
-                                  stroke={edgeColor}
-                                  strokeWidth="16"
-                                  style={{ transition: 'stroke 0.2s ease' }}
-                                  strokeLinecap="round"
-                                />
-                              </>
-                            ) : useCurve ? (
-                              <path
-                                d={trimmedPath ? trimmedPath.path : parallelPath.path}
-                                fill="none"
-                                stroke={edgeColor}
-                                strokeWidth="16"
-                                style={{ transition: 'stroke 0.2s ease' }}
-                                strokeLinecap="round"
-                              />
-                            ) : (
-                              <line
-                                x1={startX}
-                                y1={startY}
-                                x2={endX}
-                                y2={endY}
-                                stroke={edgeColor}
-                                strokeWidth="16"
-                                style={{ transition: 'stroke 0.2s ease' }}
-                              />
-                            )}
-
-                            {/* Invisible click area for edge selection - matches hover detection */}
-                            {(enableAutoRouting && (routingStyle === 'manhattan' || routingStyle === 'clean')) ? (
-                              <path
-                                d={(routingStyle === 'manhattan') ? manhattanPathD : (() => {
-                                  // Use consistent clean routing path helper
-                                  const cleanPts = generateCleanRoutingPath(edge, sourceNode, destNode, sNodeDims, eNodeDims, cleanLaneOffsets, cleanLaneSpacing);
-                                  return buildRoundedPathFromPoints(cleanPts, 8);
-                                })()}
-                                fill="none"
-                                stroke="transparent"
-                                strokeWidth="40"
-                                style={{ cursor: 'pointer' }}
-                                onClick={(e) => {
-                                  e.stopPropagation();
-
-                                  // Handle multiple selection with Ctrl/Cmd key
-                                  if (e.ctrlKey || e.metaKey) {
-                                    // Toggle this edge in the multiple selection
-                                    if (selectedEdgeIds.has(edge.id)) {
-                                      storeActions.removeSelectedEdgeId(edge.id);
-                                    } else {
-                                      storeActions.addSelectedEdgeId(edge.id);
-                                    }
-                                  } else {
-                                    // Single selection - clear multiple selection and set single edge
-                                    storeActions.clearSelectedEdgeIds();
-                                    storeActions.setSelectedEdgeId(edge.id);
-                                  }
-                                }}
-                                onDoubleClick={(e) => {
-                                  e.stopPropagation();
-
-                                  // Find the defining node for this edge's connection type
-                                  let definingNodeId = null;
-
-                                  // Check definitionNodeIds first (for custom connection types)
-                                  if (edge.definitionNodeIds && edge.definitionNodeIds.length > 0) {
-                                    definingNodeId = edge.definitionNodeIds[0];
-                                  } else if (edge.typeNodeId) {
-                                    // Fallback to typeNodeId (for base connection type)
-                                    definingNodeId = edge.typeNodeId;
-                                  }
-
-                                  // Open the panel tab for the defining node
-                                  if (definingNodeId) {
-                                    storeActions.openRightPanelNodeTab(definingNodeId);
-                                  }
-                                }}
-                              />
-                            ) : (
-                              <line
-                                x1={x1}
-                                y1={y1}
-                                x2={x2}
-                                y2={y2}
-                                stroke="transparent"
-                                strokeWidth="40"
-                                style={{ cursor: 'pointer' }}
-                                onClick={(e) => {
-                                  e.stopPropagation();
-
-                                  // Handle multiple selection with Ctrl/Cmd key
-                                  if (e.ctrlKey || e.metaKey) {
-                                    // Toggle this edge in the multiple selection
-                                    if (selectedEdgeIds.has(edge.id)) {
-                                      storeActions.removeSelectedEdgeId(edge.id);
-                                    } else {
-                                      storeActions.addSelectedEdgeId(edge.id);
-                                    }
-                                  } else {
-                                    // Single selection - clear multiple selection and set single edge
-                                    storeActions.clearSelectedEdgeIds();
-                                    storeActions.setSelectedEdgeId(edge.id);
-                                  }
-                                }}
-                                onDoubleClick={(e) => {
-                                  e.stopPropagation();
-
-                                  // Find the defining node for this edge's connection type
-                                  let definingNodeId = null;
-
-                                  // Check definitionNodeIds first (for custom connection types)
-                                  if (edge.definitionNodeIds && edge.definitionNodeIds.length > 0) {
-                                    definingNodeId = edge.definitionNodeIds[0];
-                                  } else if (edge.typeNodeId) {
-                                    // Fallback to typeNodeId (for base connection type)
-                                    definingNodeId = edge.typeNodeId;
-                                  }
-
-                                  // Open the panel tab for the defining node
-                                  if (definingNodeId) {
-                                    storeActions.openRightPanelNodeTab(definingNodeId);
-                                  }
-                                }}
-                              />
-                            )}
-
-                            {/* Smart directional arrows with clickable toggle */}
-                            {(() => {
-                              // Calculate arrow positions (use fallback if intersections fail)
-                              let sourceArrowX, sourceArrowY, destArrowX, destArrowY, sourceArrowAngle, destArrowAngle;
-
-                              // For curved edges, calculate arrow/dot positions along the curve
-                              if (useCurve && parallelPath.ctrlX !== null) {
-                                const tSource = 0.08; // Position near source (8% along curve)
-                                const tDest = 0.92;   // Position near dest (92% along curve)
-
-                                // Get positions along the curve
-                                const sourcePoint = getPointOnQuadraticBezier(
-                                  tSource,
-                                  parallelPath.startX, parallelPath.startY,
-                                  parallelPath.ctrlX, parallelPath.ctrlY,
-                                  parallelPath.endX, parallelPath.endY
-                                );
-                                const destPoint = getPointOnQuadraticBezier(
-                                  tDest,
-                                  parallelPath.startX, parallelPath.startY,
-                                  parallelPath.ctrlX, parallelPath.ctrlY,
-                                  parallelPath.endX, parallelPath.endY
-                                );
-
-                                sourceArrowX = sourcePoint.x;
-                                sourceArrowY = sourcePoint.y;
-                                destArrowX = destPoint.x;
-                                destArrowY = destPoint.y;
-
-                                // Calculate tangent angles at these points
-                                // Derivative of quadratic Bézier: B'(t) = 2(1-t)(P1-P0) + 2t(P2-P1)
-                                const calcTangentAngle = (t, x0, y0, cx, cy, x1, y1) => {
-                                  const invT = 1 - t;
-                                  const tangentX = 2 * invT * (cx - x0) + 2 * t * (x1 - cx);
-                                  const tangentY = 2 * invT * (cy - y0) + 2 * t * (y1 - cy);
-                                  return Math.atan2(tangentY, tangentX) * (180 / Math.PI);
-                                };
-
-                                // Source arrow points backward (toward source node)
-                                const sourceTangent = calcTangentAngle(
-                                  tSource,
-                                  parallelPath.startX, parallelPath.startY,
-                                  parallelPath.ctrlX, parallelPath.ctrlY,
-                                  parallelPath.endX, parallelPath.endY
-                                );
-                                sourceArrowAngle = sourceTangent + 180; // Point back toward source
-
-                                // Dest arrow points forward (toward dest node)
-                                const destTangent = calcTangentAngle(
-                                  tDest,
-                                  parallelPath.startX, parallelPath.startY,
-                                  parallelPath.ctrlX, parallelPath.ctrlY,
-                                  parallelPath.endX, parallelPath.endY
-                                );
-                                destArrowAngle = destTangent; // Point toward dest
-                              } else if (enableAutoRouting && routingStyle === 'clean') {
-                                // Clean mode: use actual port assignments for proper arrow positioning
-                                const offset = 6;
-                                const portAssignment = cleanLaneOffsets.get(edge.id);
-
-                                if (portAssignment) {
-                                  const { sourcePort, destPort, sourceSide, destSide } = portAssignment;
-
-                                  // Position arrows pointing TOWARD the target node (into the edge)
-                                  // Arrow tip points toward the node, positioned outside the edge
-                                  switch (sourceSide) {
-                                    case 'top':
-                                      sourceArrowAngle = 90; // Arrow points down toward node
-                                      sourceArrowX = sourcePort.x;
-                                      sourceArrowY = sourcePort.y - offset;
-                                      break;
-                                    case 'bottom':
-                                      sourceArrowAngle = -90; // Arrow points up toward node
-                                      sourceArrowX = sourcePort.x;
-                                      sourceArrowY = sourcePort.y + offset;
-                                      break;
-                                    case 'left':
-                                      sourceArrowAngle = 0; // Arrow points right toward node
-                                      sourceArrowX = sourcePort.x - offset;
-                                      sourceArrowY = sourcePort.y;
-                                      break;
-                                    case 'right':
-                                      sourceArrowAngle = 180; // Arrow points left toward node
-                                      sourceArrowX = sourcePort.x + offset;
-                                      sourceArrowY = sourcePort.y;
-                                      break;
-                                  }
-
-                                  switch (destSide) {
-                                    case 'top':
-                                      destArrowAngle = 90; // Arrow points down toward node
-                                      destArrowX = destPort.x;
-                                      destArrowY = destPort.y - offset;
-                                      break;
-                                    case 'bottom':
-                                      destArrowAngle = -90; // Arrow points up toward node
-                                      destArrowX = destPort.x;
-                                      destArrowY = destPort.y + offset;
-                                      break;
-                                    case 'left':
-                                      destArrowAngle = 0; // Arrow points right toward node
-                                      destArrowX = destPort.x - offset;
-                                      destArrowY = destPort.y;
-                                      break;
-                                    case 'right':
-                                      destArrowAngle = 180; // Arrow points left toward node
-                                      destArrowX = destPort.x + offset;
-                                      destArrowY = destPort.y;
-                                      break;
-                                  }
-                                } else {
-                                  // Fallback to center-based positioning
-                                  const deltaX = endX - startX;
-                                  const deltaY = endY - startY;
-                                  const isMainlyVertical = Math.abs(deltaY) > Math.abs(deltaX);
-
-                                  if (isMainlyVertical) {
-                                    sourceArrowAngle = deltaY > 0 ? -90 : 90;
-                                    sourceArrowX = startX;
-                                    sourceArrowY = startY + (deltaY > 0 ? offset : -offset);
-                                    destArrowAngle = deltaX > 0 ? 0 : 180;
-                                    destArrowX = endX + (deltaX > 0 ? -offset : offset);
-                                    destArrowY = endY;
-                                  } else {
-                                    sourceArrowAngle = deltaX > 0 ? 180 : 0;
-                                    sourceArrowX = startX + (deltaX > 0 ? offset : -offset);
-                                    sourceArrowY = startY;
-                                    destArrowAngle = deltaY > 0 ? 90 : -90;
-                                    destArrowX = endX;
-                                    destArrowY = endY + (deltaY > 0 ? -offset : offset);
-                                  }
-                                }
-                              } else if (!sourceIntersection || !destIntersection) {
-                                // Fallback positioning - arrows/dots closer to connection center  
-                                const fallbackOffset = 20;
-                                sourceArrowX = x1 + (dx / length) * fallbackOffset;
-                                sourceArrowY = y1 + (dy / length) * fallbackOffset;
-                                destArrowX = x2 - (dx / length) * fallbackOffset;
-                                destArrowY = y2 - (dy / length) * fallbackOffset;
-                                sourceArrowAngle = Math.atan2(-dy, -dx) * (180 / Math.PI);
-                                destArrowAngle = Math.atan2(dy, dx) * (180 / Math.PI);
-                              } else if (enableAutoRouting && routingStyle === 'clean') {
-                                // Clean routing arrow placement - position close to nodes for better visibility
-                                const offset = 8; // Reduced offset for better visibility
-                                const portAssignment = cleanLaneOffsets.get(edge.id);
-
-                                if (portAssignment) {
-                                  const { sourcePort, destPort, sourceSide, destSide } = portAssignment;
-
-                                  // Position arrows close to the actual ports, pointing toward the nodes
-                                  switch (sourceSide) {
-                                    case 'top':
-                                      sourceArrowAngle = 90; // Arrow points down toward node
-                                      sourceArrowX = sourcePort.x;
-                                      sourceArrowY = sourcePort.y - offset;
-                                      break;
-                                    case 'bottom':
-                                      sourceArrowAngle = -90; // Arrow points up toward node
-                                      sourceArrowX = sourcePort.x;
-                                      sourceArrowY = sourcePort.y + offset;
-                                      break;
-                                    case 'left':
-                                      sourceArrowAngle = 0; // Arrow points right toward node
-                                      sourceArrowX = sourcePort.x - offset;
-                                      sourceArrowY = sourcePort.y;
-                                      break;
-                                    case 'right':
-                                      sourceArrowAngle = 180; // Arrow points left toward node
-                                      sourceArrowX = sourcePort.x + offset;
-                                      sourceArrowY = sourcePort.y;
-                                      break;
-                                  }
-
-                                  switch (destSide) {
-                                    case 'top':
-                                      destArrowAngle = 90; // Arrow points down toward node
-                                      destArrowX = destPort.x;
-                                      destArrowY = destPort.y - offset;
-                                      break;
-                                    case 'bottom':
-                                      destArrowAngle = -90; // Arrow points up toward node
-                                      destArrowX = destPort.x;
-                                      destArrowY = destPort.y + offset;
-                                      break;
-                                    case 'left':
-                                      destArrowAngle = 0; // Arrow points right toward node
-                                      destArrowX = destPort.x - offset;
-                                      destArrowY = destPort.y;
-                                      break;
-                                    case 'right':
-                                      destArrowAngle = 180; // Arrow points left toward node
-                                      destArrowX = destPort.x + offset;
-                                      destArrowY = destPort.y;
-                                      break;
-                                  }
-                                } else {
-                                  // Fallback: position arrows close to node centers
-                                  sourceArrowX = startX;
-                                  sourceArrowY = startY;
-                                  sourceArrowAngle = Math.atan2(-dy, -dx) * (180 / Math.PI);
-                                  destArrowX = endX;
-                                  destArrowY = endY;
-                                  destArrowAngle = Math.atan2(dy, dx) * (180 / Math.PI);
-                                }
-                              } else {
-                                // Manhattan-aware arrow placement; falls back to straight orientation
-                                const offset = 6;
-                                if (enableAutoRouting && routingStyle === 'manhattan') {
-                                  // Destination arrow aligns to terminal segment into destination
-                                  const horizontalTerminal = Math.abs(endX - startX) > Math.abs(endY - startY);
-                                  if (horizontalTerminal) {
-                                    destArrowAngle = (endX >= startX) ? 0 : 180;
-                                    destArrowX = endX + ((endX >= startX) ? -offset : offset);
-                                    destArrowY = endY;
-                                  } else {
-                                    destArrowAngle = (endY >= startY) ? 90 : -90;
-                                    destArrowX = endX;
-                                    destArrowY = endY + ((endY >= startY) ? -offset : offset);
-                                  }
-                                  // Source arrow aligns to initial segment out of source (pointing back toward source)
-                                  const horizontalInitial = Math.abs(endX - startX) > Math.abs(endY - startY);
-                                  if (horizontalInitial) {
-                                    sourceArrowAngle = (endX - startX) >= 0 ? 180 : 0;
-                                    sourceArrowX = startX + ((endX - startX) >= 0 ? offset : -offset);
-                                    sourceArrowY = startY;
-                                  } else {
-                                    sourceArrowAngle = (endY - startY) >= 0 ? -90 : 90;
-                                    sourceArrowX = startX;
-                                    sourceArrowY = startY + ((endY - startY) >= 0 ? offset : -offset);
-                                  }
-                                } else {
-                                  // Precise intersection positioning - adjust based on slope for visual consistency
-                                  const angle = Math.abs(Math.atan2(dy, dx) * (180 / Math.PI));
-                                  const normalizedAngle = angle > 90 ? 180 - angle : angle;
-                                  // Shorter distance for quantized slopes (hitting node sides) vs diagonal (hitting corners)
-                                  const isQuantizedSlope = normalizedAngle < 15 || normalizedAngle > 75;
-                                  const arrowLength = isQuantizedSlope ? offset * 0.6 : offset;
-                                  sourceArrowAngle = Math.atan2(-dy, -dx) * (180 / Math.PI);
-                                  sourceArrowX = sourceIntersection.x + (dx / length) * arrowLength;
-                                  sourceArrowY = sourceIntersection.y + (dy / length) * arrowLength;
-                                  destArrowAngle = Math.atan2(dy, dx) * (180 / Math.PI);
-                                  destArrowX = destIntersection.x - (dx / length) * arrowLength;
-                                  destArrowY = destIntersection.y - (dy / length) * arrowLength;
-                                }
-                              }
-
-                              // Override arrow orientation deterministically by Manhattan sides
-                              if (enableAutoRouting && routingStyle === 'manhattan') {
-                                const sideOffset = 6;
-                                // Destination arrow strictly based on destination side
-                                if (manhattanDestSide === 'left') {
-                                  destArrowAngle = 0; // rightwards
-                                  destArrowX = endX - sideOffset;
-                                  destArrowY = endY;
-                                } else if (manhattanDestSide === 'right') {
-                                  destArrowAngle = 180; // leftwards
-                                  destArrowX = endX + sideOffset;
-                                  destArrowY = endY;
-                                } else if (manhattanDestSide === 'top') {
-                                  destArrowAngle = 90; // downwards
-                                  destArrowX = endX;
-                                  destArrowY = endY - sideOffset;
-                                } else if (manhattanDestSide === 'bottom') {
-                                  destArrowAngle = -90; // upwards
-                                  destArrowX = endX;
-                                  destArrowY = endY + sideOffset;
-                                }
-                                // Source arrow strictly based on source side (points toward the source node)
-                                if (manhattanSourceSide === 'left') {
-                                  sourceArrowAngle = 0; // rightwards
-                                  sourceArrowX = startX - sideOffset;
-                                  sourceArrowY = startY;
-                                } else if (manhattanSourceSide === 'right') {
-                                  sourceArrowAngle = 180; // leftwards
-                                  sourceArrowX = startX + sideOffset;
-                                  sourceArrowY = startY;
-                                } else if (manhattanSourceSide === 'top') {
-                                  sourceArrowAngle = 90; // downwards
-                                  sourceArrowX = startX;
-                                  sourceArrowY = startY - sideOffset;
-                                } else if (manhattanSourceSide === 'bottom') {
-                                  sourceArrowAngle = -90; // upwards
-                                  sourceArrowX = startX;
-                                  sourceArrowY = startY + sideOffset;
-                                }
-                              }
-
-                              const handleArrowClick = (nodeId, e) => {
-                                e.stopPropagation();
-
-                                // Toggle the arrow state for the specific node
-                                storeActions.updateEdge(edge.id, (draft) => {
-                                  // Ensure directionality object exists
-                                  if (!draft.directionality) {
-                                    draft.directionality = { arrowsToward: new Set() };
-                                  }
-                                  // Ensure arrowsToward is a Set
-                                  if (!draft.directionality.arrowsToward) {
-                                    draft.directionality.arrowsToward = new Set();
-                                  }
-
-                                  // Toggle arrow for this specific node
-                                  if (draft.directionality.arrowsToward.has(nodeId)) {
-                                    draft.directionality.arrowsToward.delete(nodeId);
-                                  } else {
-                                    draft.directionality.arrowsToward.add(nodeId);
-                                  }
-                                });
-                              };
-
-                              return (
-                                <>
-                                  {/* Source Arrow - visible if arrow points toward source node */}
-                                  {arrowsToward.has(sourceNode.id) && (
-                                    <g
-                                      data-arrow="source"
-                                      transform={`translate(${sourceArrowX}, ${sourceArrowY}) rotate(${sourceArrowAngle + 90})`}
-                                      style={{ cursor: 'pointer' }}
-                                      onClick={(e) => handleArrowClick(sourceNode.id, e)}
-                                      onMouseDown={(e) => e.stopPropagation()}
-                                    >
-                                      {/* Glow effect for arrow - only when selected or hovered */}
-                                      {(isSelected || isHovered) && (
-                                        <polygon
-                                          points="-12,15 12,15 0,-15"
-                                          fill={edgeColor}
-                                          stroke={edgeColor}
-                                          strokeWidth="8"
-                                          strokeLinejoin="round"
-                                          strokeLinecap="round"
-                                          opacity={isSelected ? "0.3" : "0.2"}
-                                          style={{
-                                            filter: `drop-shadow(0 0 6px ${edgeColor})`
-                                          }}
-                                        />
-                                      )}
-                                      <polygon
-                                        points="-18,22 18,22 0,-22"
-                                        fill={edgeColor}
-                                        stroke={edgeColor}
-                                        strokeWidth="6"
-                                        strokeLinejoin="round"
-                                        strokeLinecap="round"
-                                        paintOrder="stroke fill"
-                                      />
-                                    </g>
-                                  )}
-
-                                  {/* Destination Arrow - visible if arrow points toward destination node */}
-                                  {arrowsToward.has(destNode.id) && (
-                                    <g
-                                      data-arrow="dest"
-                                      transform={`translate(${destArrowX}, ${destArrowY}) rotate(${destArrowAngle + 90})`}
-                                      style={{ cursor: 'pointer' }}
-                                      onClick={(e) => handleArrowClick(destNode.id, e)}
-                                      onMouseDown={(e) => e.stopPropagation()}
-                                    >
-                                      {/* Glow effect for arrow - only when selected or hovered */}
-                                      {(isSelected || isHovered) && (
-                                        <polygon
-                                          points="-12,15 12,15 0,-15"
-                                          fill={edgeColor}
-                                          stroke={edgeColor}
-                                          strokeWidth="8"
-                                          strokeLinejoin="round"
-                                          strokeLinecap="round"
-                                          opacity={isSelected ? "0.3" : "0.2"}
-                                          style={{
-                                            filter: `drop-shadow(0 0 6px ${edgeColor})`
-                                          }}
-                                        />
-                                      )}
-                                      <polygon
-                                        points="-18,22 18,22 0,-22"
-                                        fill={edgeColor}
-                                        stroke={edgeColor}
-                                        strokeWidth="6"
-                                        strokeLinejoin="round"
-                                        strokeLinecap="round"
-                                        paintOrder="stroke fill"
-                                      />
-                                    </g>
-                                  )}
-
-                                  {/* Hover Dots - visible when hovering straight edges or curved parallel edges */}
-                                  {isHovered && (!enableAutoRouting || routingStyle === 'straight' || useCurve) && (
-                                    <>
-                                      {/* Source Dot - only show if arrow not pointing toward source */}
-                                      {!arrowsToward.has(sourceNode.id) && (
-                                        <g>
-                                          <circle
-                                            cx={sourceArrowX}
-                                            cy={sourceArrowY}
-                                            r="20"
-                                            fill="transparent"
-                                            style={{ cursor: 'pointer' }}
-                                            onClick={(e) => handleArrowClick(sourceNode.id, e)}
-                                            onMouseDown={(e) => e.stopPropagation()}
-                                          />
-                                          <circle
-                                            cx={sourceArrowX}
-                                            cy={sourceArrowY}
-                                            r="16"
-                                            fill={edgeColor}
-                                            style={{ pointerEvents: 'none' }}
-                                          />
-                                        </g>
-                                      )}
-
-                                      {/* Destination Dot - only show if arrow not pointing toward destination */}
-                                      {!arrowsToward.has(destNode.id) && (
-                                        <g>
-                                          <circle
-                                            cx={destArrowX}
-                                            cy={destArrowY}
-                                            r="20"
-                                            fill="transparent"
-                                            style={{ cursor: 'pointer' }}
-                                            onClick={(e) => handleArrowClick(destNode.id, e)}
-                                            onMouseDown={(e) => e.stopPropagation()}
-                                          />
-                                          <circle
-                                            cx={destArrowX}
-                                            cy={destArrowY}
-                                            r="16"
-                                            fill={edgeColor}
-                                            style={{ pointerEvents: 'none' }}
-                                          />
-                                        </g>
-                                      )}
-                                    </>
-                                  )}
-                                </>
-                              );
-                            })()}
-
-                            {/* Connection name text — rendered after arrows so labels appear on top */}
-                            {showConnectionNames && (() => {
-                              const connectionFontSize = 24 * (textSettings?.fontSize || 1);
-                              let midX;
-                              let midY;
-                              let angle;
-                              if (enableAutoRouting && routingStyle === 'manhattan') {
-                                const horizontalLen = Math.abs(endX - startX);
-                                const verticalLen = Math.abs(endY - startY);
-                                if (horizontalLen >= verticalLen) {
-                                  midX = (startX + endX) / 2;
-                                  midY = startY;
-                                  angle = 0;
-                                } else {
-                                  midX = endX;
-                                  midY = (startY + endY) / 2;
-                                  angle = 90;
-                                }
-                              } else {
-                                // Use utility-calculated apex for curves, midpoint for lines
-                                // Use labelPlacementPath (visible segment) for accurate centering
-                                midX = labelPlacementPath.apexX;
-                                midY = labelPlacementPath.apexY;
-                                angle = labelPlacementPath.labelAngle;
-                              }
-
-                              // Determine connection name to display
-                              let connectionName = 'Connection';
-                              if (edge.definitionNodeIds && edge.definitionNodeIds.length > 0) {
-                                const definitionNode = nodePrototypesMap.get(edge.definitionNodeIds[0]);
-                                if (definitionNode) {
-                                  connectionName = definitionNode.name || 'Connection';
-                                }
-                              } else if (edge.typeNodeId) {
-                                const edgePrototype = edgePrototypesMap.get(edge.typeNodeId);
-                                if (edgePrototype) {
-                                  connectionName = edgePrototype.name || 'Connection';
-                                }
-                              }
-
-                              // Smart label placement based on routing style
-                              if (enableAutoRouting && routingStyle === 'manhattan') {
-                                // Always try cached placement first to prevent flicker (except during dragging)
-                                const cached = placedLabelsRef.current.get(edge.id);
-                                if (cached && cached.position && !draggingNodeInfo) {
-                                  const stabilized = stabilizeLabelPosition(edge.id, cached.position.x, cached.position.y, cached.position.angle || 0);
-                                  midX = stabilized.x;
-                                  midY = stabilized.y;
-                                  angle = stabilized.angle || 0;
-                                } else {
-                                  const pathPoints = generateManhattanRoutingPath(edge, sourceNode, destNode, sNodeDims, eNodeDims, manhattanBends);
-                                  const placement = chooseLabelPlacement(pathPoints, connectionName, nodes, visibleNodeIds, baseDimsById, placedLabelsRef.current, connectionFontSize, edge.id, selectedInstanceIds);
-                                  if (placement) {
-                                    midX = placement.x;
-                                    midY = placement.y;
-                                    angle = placement.angle || 0;
-
-                                    // Register this label placement
-                                    const labelRect = {
-                                      minX: midX - estimateTextWidth(connectionName, connectionFontSize) / 2,
-                                      maxX: midX + estimateTextWidth(connectionName, connectionFontSize) / 2,
-                                      minY: midY - connectionFontSize * 1.1 / 2,
-                                      maxY: midY + connectionFontSize * 1.1 / 2,
-                                    };
-                                    const stabilized = stabilizeLabelPosition(edge.id, midX, midY, angle);
-                                    placedLabelsRef.current.set(edge.id, {
-                                      rect: labelRect,
-                                      position: { x: stabilized.x, y: stabilized.y, angle: stabilized.angle }
-                                    });
-                                  } else {
-                                    // Fallback to simple Manhattan logic
-                                    const horizontalLen = Math.abs(endX - startX);
-                                    const verticalLen = Math.abs(endY - startY);
-                                    if (horizontalLen >= verticalLen) {
-                                      midX = (startX + endX) / 2;
-                                      midY = startY;
-                                      angle = 0;
-                                    } else {
-                                      midX = endX;
-                                      midY = (startY + endY) / 2;
-                                      angle = 90;
-                                    }
-                                  }
-                                }
-                              } else if (enableAutoRouting && routingStyle === 'clean') {
-                                // Always try cached placement first to prevent flicker (except during dragging)
-                                const cached = placedLabelsRef.current.get(edge.id);
-                                if (cached && cached.position && !draggingNodeInfo) {
-                                  const stabilized = stabilizeLabelPosition(edge.id, cached.position.x, cached.position.y, cached.position.angle || 0);
-                                  midX = stabilized.x;
-                                  midY = stabilized.y;
-                                  angle = stabilized.angle || 0;
-                                } else {
-                                  const pathPoints = generateCleanRoutingPath(edge, sourceNode, destNode, sNodeDims, eNodeDims, cleanLaneOffsets, cleanLaneSpacing);
-                                  const placement = chooseLabelPlacement(pathPoints, connectionName, nodes, visibleNodeIds, baseDimsById, placedLabelsRef.current, connectionFontSize, edge.id, selectedInstanceIds);
-                                  if (placement) {
-                                    midX = placement.x;
-                                    midY = placement.y;
-                                    angle = placement.angle || 0;
-
-                                    // Register this label placement
-                                    const labelRect = {
-                                      minX: midX - estimateTextWidth(connectionName, connectionFontSize) / 2,
-                                      maxX: midX + estimateTextWidth(connectionName, connectionFontSize) / 2,
-                                      minY: midY - connectionFontSize * 1.1 / 2,
-                                      maxY: midY + connectionFontSize * 1.1 / 2,
-                                    };
-                                    const stabilized = stabilizeLabelPosition(edge.id, midX, midY, angle);
-                                    placedLabelsRef.current.set(edge.id, {
-                                      rect: labelRect,
-                                      position: { x: stabilized.x, y: stabilized.y, angle: stabilized.angle }
-                                    });
-                                  } else {
-                                    // Fallback to midpoint
-                                    midX = (x1 + x2) / 2;
-                                    midY = (y1 + y2) / 2;
-                                    angle = 0;
-                                  }
-                                }
-                              }
-                              // For straight/curved routing, midX/midY/angle are already set from parallelPath above
-
-                              // Adjust angle to keep text readable (never upside down)
-                              const adjustedAngle = (angle > 90 || angle < -90) ? angle + 180 : angle;
-
-                              return (
-                                <g>
-                                  {/* Canvas-colored text creating a "hole" effect in the connection */}
-                                  <text
-                                    x={midX}
-                                    y={midY}
-                                    fill={getLightHueText(edgeColor)}
-                                    fontSize={connectionFontSize}
-                                    fontWeight="bold"
-                                    textAnchor="middle"
-                                    dominantBaseline="middle"
-                                    transform={`rotate(${adjustedAngle}, ${midX}, ${midY})`}
-                                    stroke={getDarkHueText(edgeColor)}
-                                    strokeWidth="8"
-                                    strokeLinecap="round"
-                                    strokeLinejoin="round"
-                                    paintOrder="stroke fill"
-                                    style={{ pointerEvents: 'none', fontFamily: "'EmOne', sans-serif" }}
-                                  >
-                                    {connectionName}
-                                  </text>
-                                </g>
-                              );
-                            })()}
-                          </g>
-                        );
-                      })}
-                    </>
-                  );
-                })()}
-
-                {/* Drawing connection line (same z-level as existing edges, below nodes).
-                    Hidden while dragging — a race can leak `drawingConnectionFrom` state
-                    into a drag, which would otherwise leave a frozen black stub behind. */}
-                {drawingConnectionFrom && !draggingNodeInfo && (
-                  <line
-                    x1={drawingConnectionFrom.startX}
-                    y1={drawingConnectionFrom.startY}
-                    x2={drawingConnectionFrom.currentX}
-                    y2={drawingConnectionFrom.currentY}
-                    stroke="black"
-                    strokeWidth="16"
-                  />
-                )}
-                {drawingConnectionFrom && !draggingNodeInfo && connectionExitedSourceRef.current && (() => {
-                  const srcNode = nodes.find(n => n.id === drawingConnectionFrom.sourceInstanceId);
-                  if (!srcNode) return null;
-                  const srcDims = baseDimsById.get(srcNode.id) || getNodeDimensions(srcNode, false, null);
-                  const sx = srcNode.x;
-                  const sy = srcNode.y;
-                  const insideX = drawingConnectionFrom.currentX >= sx && drawingConnectionFrom.currentX <= sx + srcDims.currentWidth;
-                  const insideY = drawingConnectionFrom.currentY >= sy && drawingConnectionFrom.currentY <= sy + srcDims.currentHeight;
-                  if (!insideX || !insideY) return null;
-                  const existing = countSelfLoopsForNode(visibleEdges, srcNode.id);
-                  const loop = calculateSelfLoopPath(sx, sy, srcDims.currentWidth, srcDims.currentHeight, { pairIndex: existing, totalInPair: existing + 1 });
-                  return (
-                    <path
-                      d={loop.path}
-                      fill="none"
-                      stroke="black"
-                      strokeWidth="6"
-                      strokeDasharray="6 6"
-                      strokeLinecap="round"
-                      opacity="0.7"
-                      style={{ pointerEvents: 'none' }}
-                    />
-                  );
-                })()}
-
-                {(() => {
-                  const draggingNodeId = draggingNodeInfo?.primaryId || draggingNodeInfo?.instanceId;
-
-                  // Determine which node should be treated as "active" for stacking,
-                  // Priority order: previewing > pie menu > single selection (for orbit overlay)
-                  let nodeIdToKeepActiveForStacking = previewingNodeId || currentPieMenuData?.node?.id || selectedNodeIdForPieMenu;
-
-                  // If no higher-priority node is active, use the selected node for orbit overlay
-                  if (!nodeIdToKeepActiveForStacking &&
-                    selectedInstanceIds.size === 1 &&
-                    !selectionStart &&
-                    !abstractionCarouselVisible) {
-                    nodeIdToKeepActiveForStacking = [...selectedInstanceIds][0];
-                  }
-
-                  if (nodeIdToKeepActiveForStacking === draggingNodeId) {
-                    nodeIdToKeepActiveForStacking = null; // Dragging node is handled separately
-                  }
-
-                  const allOtherNodes = nodes.filter(node =>
-                    node.id !== nodeIdToKeepActiveForStacking &&
-                    node.id !== draggingNodeId &&
-                    visibleNodeIds.has(node.id) &&
-                    !node.isGroupAnchor
-                  );
-                  // Split into normal nodes and thing-group member nodes for z-ordering
-                  const otherNodes = allOtherNodes.filter(n => !thingGroupMemberIdsRef.current.has(n.id));
-                  const thingGroupMemberNodes = allOtherNodes.filter(n => thingGroupMemberIdsRef.current.has(n.id));
-
-                  const activeNodeToRender = nodeIdToKeepActiveForStacking
-                    ? nodes.find(n => n.id === nodeIdToKeepActiveForStacking)
-                    : null;
-
-                  const draggingNodeToRender = draggingNodeId
-                    ? nodes.find(n => n.id === draggingNodeId)
-                    : null;
-
-                  // Helper to render a Node component with all its props (avoids duplication)
-                  const renderNodeElement = (node) => {
-                    const isPreviewing = previewingNodeId === node.id;
-                    const baseDimensions = baseDimsById.get(node.id);
-                    const descriptionContent = isPreviewing ? getNodeDescriptionContent(node, true) : null;
-                    const dimensions = isPreviewing
-                      ? getNodeDimensions(node, true, descriptionContent)
-                      : baseDimensions || getNodeDimensions(node, false, null);
-                    if (abstractionCarouselVisible && abstractionCarouselNode?.id === node.id) return null;
                     return (
-                      <Node
-                        key={node.id}
-                        node={node}
-                        currentWidth={dimensions.currentWidth}
-                        currentHeight={dimensions.currentHeight}
-                        textAreaHeight={dimensions.textAreaHeight}
-                        imageWidth={dimensions.imageWidth}
-                        imageHeight={dimensions.calculatedImageHeight}
-                        innerNetworkWidth={dimensions.innerNetworkWidth}
-                        innerNetworkHeight={dimensions.innerNetworkHeight}
-                        descriptionAreaHeight={dimensions.descriptionAreaHeight}
-                        isSelected={selectedInstanceIds.has(node.id)}
-                        isDragging={false}
-                        onMouseDown={(e) => handleNodeMouseDown(node, e)}
-                        onPointerDown={(e) => touch.handleNodePointerDown(node, e)}
-                        onPointerMove={(e) => touch.handleNodePointerMove(node, e)}
-                        onPointerUp={(e) => touch.handleNodePointerUp(node, e)}
-                        onPointerCancel={(e) => touch.handleNodePointerCancel(node, e)}
-                        onTouchStart={(e) => touch.handleNodeTouchStart(node, e)}
-                        onTouchMove={(e) => touch.handleNodeTouchMove(node, e)}
-                        onTouchEnd={(e) => touch.handleNodeTouchEnd(node, e)}
-                        onContextMenu={(e) => {
-                          e.preventDefault();
-                          e.stopPropagation();
-                          showContextMenu(e.clientX, e.clientY, getContextMenuOptions(node.id));
-                        }}
-                        isPreviewing={isPreviewing}
-                        isEditingOnCanvas={node.id === editingNodeIdOnCanvas}
-                        onCommitCanvasEdit={(instanceId, newName, isRealTime = false) => {
-                          storeActions.updateNodePrototype(node.prototypeId, draft => { draft.name = newName; });
-                          if (!isRealTime) setEditingNodeIdOnCanvas(null);
-                        }}
-                        onCancelCanvasEdit={() => setEditingNodeIdOnCanvas(null)}
-                        onCreateDefinition={(prototypeId) => {
-                          if (mouseMoved.current) return;
-                          storeActions.createAndAssignGraphDefinition(prototypeId);
-                        }}
-                        onAddNodeToDefinition={(prototypeId) => {
-                          storeActions.createAndAssignGraphDefinitionWithoutActivation(prototypeId);
-                        }}
-                        onDeleteDefinition={(prototypeId, graphId) => {
-                          storeActions.removeDefinitionFromNode(prototypeId, graphId);
-                        }}
-                        onExpandDefinition={(instanceId, prototypeId, graphId) => {
-                          if (graphId) {
-                            startHurtleAnimation(instanceId, graphId, prototypeId);
-                          } else {
-                            const sourceGraphId = activeGraphId;
-                            storeActions.createAndAssignGraphDefinitionWithoutActivation(prototypeId);
-                            setTimeout(() => {
-                              const currentState = useGraphStore.getState();
-                              const updatedNodeData = currentState.nodePrototypes.get(prototypeId);
-                              if (updatedNodeData?.definitionGraphIds?.length > 0) {
-                                const newGraphId = updatedNodeData.definitionGraphIds[updatedNodeData.definitionGraphIds.length - 1];
-                                startHurtleAnimation(instanceId, newGraphId, prototypeId, sourceGraphId);
-                              }
-                            }, 50);
-                          }
-                        }}
-                        onConvertToNodeGroup={handleNodeConvertToNodeGroup}
-                        storeActions={storeActions}
-                        currentDefinitionIndex={nodeDefinitionIndices.get(`${node.prototypeId}-${activeGraphId}`) || 0}
-                        onNavigateDefinition={(prototypeId, newIndex) => {
-                          const contextKey = `${prototypeId}-${activeGraphId}`;
-                          setNodeDefinitionIndices(prev => new Map(prev.set(contextKey, newIndex)));
-                        }}
+                      <rect
+                        key={`hitbox-${node.id}`}
+                        x={hitbox.minX}
+                        y={hitbox.minY}
+                        width={hitbox.maxX - hitbox.minX}
+                        height={hitbox.maxY - hitbox.minY}
+                        fill="cyan"
+                        fillOpacity={0.15}
+                        stroke="cyan"
+                        strokeWidth={2}
+                        strokeDasharray="4 4"
+                        pointerEvents="none"
+                        style={{ mixBlendMode: 'multiply' }}
                       />
                     );
-                  };
+                  })}
 
-                  return (
-                    <>
-                      {/* Normal nodes (not thing-group members) */}
-                      {otherNodes.map(renderNodeElement)}
+                  {isViewReady && (() => {
+                    // Use thing-group member IDs computed in Phase 1 (includes anchors)
+                    const nodeGroupMemberIds = thingGroupMemberIdsRef.current;
+                    const anchorIds = anchorInstanceIdsRef.current;
 
-                      {/* Thing-group member nodes (above normal nodes) */}
-                      {thingGroupMemberNodes.map(renderNodeElement)}
+                    // Split edges into three z-layers:
+                    // 1. Normal edges: neither endpoint is a thing-group member
+                    // 2. Anchor edges: at least one endpoint is an anchor → below backgrounds
+                    // 3. Internal member edges: between non-anchor members → above backgrounds
+                    const edgesBelowNodeGroups = visibleEdges.filter(e =>
+                      !nodeGroupMemberIds.has(e.sourceId) && !nodeGroupMemberIds.has(e.destinationId)
+                    );
+                    const edgesToAnchors = visibleEdges.filter(e =>
+                      anchorIds.has(e.sourceId) || anchorIds.has(e.destinationId)
+                    );
+                    const edgesAboveNodeGroups = visibleEdges.filter(e =>
+                      (nodeGroupMemberIds.has(e.sourceId) || nodeGroupMemberIds.has(e.destinationId)) &&
+                      !anchorIds.has(e.sourceId) && !anchorIds.has(e.destinationId)
+                    );
 
-                      {/* Groups Phase 3: Thing-group titles (above member nodes, below active/dragging) */}
-                      {nodeGroupTitlesRef.current}
+                    // edgeCurveInfo is computed via useMemo and available in scope
+                    // (used for parallel edge curve offset calculation)
 
-                      {/* Render The PieMenu next (it will be visually under the active node) */}
-                      {isPieMenuRendered && currentPieMenuData && (
-                        <PieMenu
-                          node={currentPieMenuData.node}
-                          buttons={currentPieMenuData.buttons}
-                          nodeDimensions={currentPieMenuData.nodeDimensions}
-                          focusedNode={carouselFocusedNode}
-                          isVisible={(
-                            currentPieMenuData?.node?.id === selectedNodeIdForPieMenu &&
-                            (!isTransitioningPieMenu || abstractionPrompt.visible || carouselAnimationState === 'exiting') &&
-                            !(draggingNodeInfo &&
-                              (draggingNodeInfo.primaryId === selectedNodeIdForPieMenu || draggingNodeInfo.instanceId === selectedNodeIdForPieMenu)
-                            )
-                          )}
-                          onHoverChange={handlePieMenuHoverChange}
-                          onAutoClose={() => {
-                            console.log('[NodeCanvas] PieMenu auto-close triggered after 5 seconds');
-                            setSelectedNodeIdForPieMenu(null);
-                          }}
-                          onExitAnimationComplete={() => {
-                            // 
-                            setIsPieMenuRendered(false);
-                            setCurrentPieMenuData(null);
-                            const wasTransitioning = isTransitioningPieMenu;
-                            const pendingAbstractionId = pendingAbstractionNodeId;
-                            const pendingDecomposeId = pendingDecomposeNodeId;
-                            const wasInCarousel = abstractionCarouselVisible; // Check if we were in carousel mode before transition
+                    // #region agent log - build edgePairGroups locally just for debug logging
+                    const edgePairGroupsDebug = new Map();
+                    visibleEdges.forEach(e => {
+                      const key = [e.sourceId, e.destinationId].sort().join('-');
+                      if (!edgePairGroupsDebug.has(key)) edgePairGroupsDebug.set(key, []);
+                      edgePairGroupsDebug.get(key).push(e.id);
+                    });
+                    const multiEdgePairs = Array.from(edgePairGroupsDebug.entries()).filter(([k, v]) => v.length > 1);
+                    if (multiEdgePairs.length > 0) {
+                      debugLogSync('NodeCanvas.jsx:edgeRender', 'Edge rendering info', { totalEdges: visibleEdges.length, multiEdgePairs: multiEdgePairs.map(([k, v]) => ({ pair: k, edgeCount: v.length, edgeIds: v })), enableAutoRouting, routingStyle, willUseCurves: !(enableAutoRouting && (routingStyle === 'manhattan' || routingStyle === 'clean')) }, 'debug-session', 'D-E');
+                    }
+                    // #endregion
 
-                            // The node that was just active before the pie menu disappeared
-                            const lastActiveNodeId = selectedNodeIdForPieMenu;
-                            setPendingAbstractionNodeId(null);
-                            setPendingDecomposeNodeId(null);
+                    // #region ArrowheadAudit — catch edges that can render a detached-looking arrowhead
+                    visibleEdges.forEach(edge => {
+                      if (arrowheadAuditSeenRef.current.has(edge.id)) return;
+                      const sNode = nodeById.get(edge.sourceId);
+                      const dNode = nodeById.get(edge.destinationId);
+                      const at = edge.directionality?.arrowsToward;
+                      const arrowsSet = at instanceof Set ? at : new Set(Array.isArray(at) ? at : []);
+                      const stale = [];
+                      arrowsSet.forEach(id => {
+                        if (id !== edge.sourceId && id !== edge.destinationId) stale.push(id);
+                      });
+                      const isSelfLoop = edge.sourceId === edge.destinationId;
+                      const coincident = !isSelfLoop && sNode && dNode && sNode.x === dNode.x && sNode.y === dNode.y;
+                      const missingEndpoint = !sNode || !dNode;
+                      if (stale.length > 0 || coincident || missingEndpoint) {
+                        arrowheadAuditSeenRef.current.add(edge.id);
+                        console.warn('[ArrowheadAudit]', {
+                          edgeId: edge.id,
+                          sourceId: edge.sourceId,
+                          destinationId: edge.destinationId,
+                          arrowsToward: Array.from(arrowsSet),
+                          staleArrowsTowardIds: stale,
+                          sourceNodePresent: !!sNode,
+                          destNodePresent: !!dNode,
+                          coincidentEndpoints: coincident,
+                          sourcePos: sNode ? { x: sNode.x, y: sNode.y } : null,
+                          destPos: dNode ? { x: dNode.x, y: dNode.y } : null,
+                        });
+                      }
+                    });
+                    // #endregion
 
-                            if (wasTransitioning && pendingAbstractionId) {
-                              // This was an abstraction transition - set up the carousel with entrance animation
-                              setIsTransitioningPieMenu(false);
-                              const nodeData = nodes.find(n => n.id === pendingAbstractionId);
-                              if (nodeData) {
-                                setAbstractionCarouselNode(nodeData);
-                                setCarouselAnimationState('entering');
-                                setAbstractionCarouselVisible(true);
-                                // IMPORTANT: Re-select the node to show the new abstraction pie menu
-                                setSelectedNodeIdForPieMenu(pendingAbstractionId);
-                              }
-                            } else if (wasTransitioning && pendingDecomposeId) {
-                              // This was a decompose transition - toggle the preview state for the node
-                              setIsTransitioningPieMenu(false);
-                              const nodeData = nodes.find(n => n.id === pendingDecomposeId);
-                              if (nodeData) {
-                                // Toggle preview state: if already previewing this node, turn off preview; otherwise turn it on
-                                const isCurrentlyPreviewing = previewingNodeId === pendingDecomposeId;
-                                setPreviewingNodeId(isCurrentlyPreviewing ? null : pendingDecomposeId);
-                                // Re-select the node to show the pie menu again
-                                setSelectedNodeIdForPieMenu(pendingDecomposeId);
-                              }
-                            } else if (wasTransitioning && wasInCarousel) {
-                              // Check if this was an internal stage transition vs carousel exit
-                              if (isCarouselStageTransition) {
-                                // This was an internal stage transition - stay in carousel, just update PieMenu
-                                setIsCarouselStageTransition(false); // Reset the flag
-                                setIsTransitioningPieMenu(false);
+                    return (
+                      <>
+                        {/* Edges below thing-group backgrounds: normal edges + anchor-connected edges */}
+                        {edgesBelowNodeGroups.concat(edgesToAnchors).map((edge, idx) => {
+                          let sourceNode = nodeById.get(edge.sourceId);
+                          let destNode = nodeById.get(edge.destinationId);
 
-                                // Change the stage here after the shrink animation completes
-                                if (carouselPieMenuStage === 1) {
-                                  setCarouselPieMenuStage(2);
-
-                                } else if (carouselPieMenuStage === 2) {
-                                  setCarouselPieMenuStage(1);
-
-                                }
-
-                                // Re-select the node to show the new stage PieMenu
-                                if (lastActiveNodeId) {
-                                  setSelectedNodeIdForPieMenu(lastActiveNodeId);
-                                }
-                              } else {
-                                // This was a "back" transition from the carousel - start exit animation now
-                                setCarouselAnimationState('exiting');
-                                // DON'T set isTransitioningPieMenu(false) yet - wait for carousel to finish
-                                // The carousel's onExitAnimationComplete will show the regular pie menu
-                              }
-                            } else if (wasTransitioning) {
-                              // Generic pie menu transition completion (non-carousel). If the carousel
-                              // was closed via click-away, do not toggle decompose preview.
-                              setIsTransitioningPieMenu(false);
-                              if (carouselClosedByClickAwayRef.current) {
-                                // Consume and reset the flag here too, since defensive closures may skip
-                                // the carousel's own exit completion callback.
-                                carouselClosedByClickAwayRef.current = false;
-                              } else {
-                                const currentlySelectedNodeId = [...selectedInstanceIds][0];
-                                if (currentlySelectedNodeId) {
-                                  const selectedNodeIsPreviewing = previewingNodeId === currentlySelectedNodeId;
-                                  if (selectedNodeIsPreviewing) {
-                                    setPreviewingNodeId(null);
-                                  } else {
-                                    setPreviewingNodeId(currentlySelectedNodeId);
-                                  }
-                                  setSelectedNodeIdForPieMenu(currentlySelectedNodeId);
-                                } else {
-                                  setPreviewingNodeId(null);
-                                }
-                              }
-                            } else {
-                              // Not transitioning, just clean exit
-                              setIsTransitioningPieMenu(false);
-                            }
-                          }}
-                        />
-                      )}
-
-
-
-                      {/* Dark overlay with backdrop blur for semantic orbit mode */}
-                      {semanticOrbitActive && (
-                        <foreignObject
-                          x={canvasSize.offsetX}
-                          y={canvasSize.offsetY}
-                          width={canvasSize.width}
-                          height={canvasSize.height}
-                        >
-                          <div
-                            xmlns="http://www.w3.org/1999/xhtml"
-                            style={{
-                              width: '100%',
-                              height: '100%',
-                              background: 'rgba(0, 0, 0, 0.7)',
-                              backdropFilter: 'blur(3px)',
-                              WebkitBackdropFilter: 'blur(3px)',
-                              cursor: 'pointer',
-                              pointerEvents: 'auto',
-                            }}
-                            onMouseDown={(e) => {
-                              orbitClickDownPos.current = { x: e.clientX, y: e.clientY };
-                            }}
-                            onClick={(e) => {
-                              // Only exit orbit on a genuine click, not after panning.
-                              // Compare mousedown vs click position to detect drag/pan.
-                              const down = orbitClickDownPos.current;
-                              orbitClickDownPos.current = null;
-                              if (down) {
-                                const dx = e.clientX - down.x;
-                                const dy = e.clientY - down.y;
-                                if (dx * dx + dy * dy > 25) return; // moved >5px = was a pan
-                              }
-                              e.stopPropagation();
-                              exitOrbitMode();
-                            }}
-                          />
-                        </foreignObject>
-                      )}
-
-                      {/* Render the "Active" Node (if it exists and not being dragged) */}
-                      {activeNodeToRender && visibleNodeIds.has(activeNodeToRender.id) && (
-                        (() => {
-                          const isPreviewing = previewingNodeId === activeNodeToRender.id;
-                          const baseDimensions = baseDimsById.get(activeNodeToRender.id);
-                          const descriptionContent = isPreviewing ? getNodeDescriptionContent(activeNodeToRender, true) : null;
-                          const dimensions = isPreviewing
-                            ? getNodeDimensions(activeNodeToRender, true, descriptionContent)
-                            : baseDimensions || getNodeDimensions(activeNodeToRender, false, null);
-
-                          // Hide if its carousel is open
-                          if (abstractionCarouselVisible && abstractionCarouselNode?.id === activeNodeToRender.id) {
+                          if (!sourceNode || !destNode) {
                             return null;
                           }
+                          // For anchor nodes, use current-frame ref positions (not stale store positions)
+                          // and title dimensions instead of node dimensions
+                          const sAnchorInfo = sourceNode.isGroupAnchor ? anchorPositionUpdatesRef.current.get(sourceNode.id) : null;
+                          const eAnchorInfo = destNode.isGroupAnchor ? anchorPositionUpdatesRef.current.get(destNode.id) : null;
+                          if (sAnchorInfo) sourceNode = { ...sourceNode, x: sAnchorInfo.x, y: sAnchorInfo.y };
+                          if (eAnchorInfo) destNode = { ...destNode, x: eAnchorInfo.x, y: eAnchorInfo.y };
+                          const sNodeDims = sAnchorInfo
+                            ? { currentWidth: sAnchorInfo.width, currentHeight: sAnchorInfo.height }
+                            : (baseDimsById.get(sourceNode.id) || getNodeDimensions(sourceNode, false, null));
+                          const eNodeDims = eAnchorInfo
+                            ? { currentWidth: eAnchorInfo.width, currentHeight: eAnchorInfo.height }
+                            : (baseDimsById.get(destNode.id) || getNodeDimensions(destNode, false, null));
+                          const isSNodePreviewing = previewingNodeId === sourceNode.id;
+                          const isENodePreviewing = previewingNodeId === destNode.id;
 
-                          const centerX = activeNodeToRender.x + dimensions.currentWidth / 2;
-                          const centerY = activeNodeToRender.y + dimensions.currentHeight / 2;
+                          if (edge.sourceId === edge.destinationId) {
+                            const isHovered = !draggingNodeInfo && hoveredEdgeInfo?.edgeId === edge.id;
+                            const isSelected = selectedEdgeId === edge.id || selectedEdgeIds.has(edge.id);
+                            let selfColor = sourceNode.color || NODE_DEFAULT_COLOR;
+                            let selfConnectionName = 'Connection';
+                            if (edge.definitionNodeIds && edge.definitionNodeIds.length > 0) {
+                              const defProto = nodePrototypesMap.get(edge.definitionNodeIds[0]);
+                              if (defProto) {
+                                selfColor = defProto.color || selfColor;
+                                selfConnectionName = defProto.name || selfConnectionName;
+                              }
+                            } else if (edge.typeNodeId) {
+                              if (edge.typeNodeId === 'base-connection-prototype') {
+                                selfColor = '#000000';
+                              } else {
+                                const proto = edgePrototypesMap.get(edge.typeNodeId);
+                                if (proto) {
+                                  selfColor = proto.color || selfColor;
+                                  selfConnectionName = proto.name || selfConnectionName;
+                                }
+                              }
+                            }
+                            const selfFontSize = 24 * (textSettings?.fontSize || 1);
+                            return (
+                              <SelfLoopEdge
+                                key={`edge-${edge.id}`}
+                                edge={edge}
+                                node={sourceNode}
+                                nodeDims={sNodeDims}
+                                curveInfo={edgeCurveInfo.get(edge.id)}
+                                isHovered={isHovered}
+                                isSelected={isSelected}
+                                edgeColor={selfColor}
+                                showConnectionNames={showConnectionNames}
+                                selectedEdgeIds={selectedEdgeIds}
+                                storeActions={storeActions}
+                                ignoreCanvasClick={ignoreCanvasClick}
+                                setLongPressingInstanceId={setLongPressingInstanceId}
+                                setDrawingConnectionFrom={setDrawingConnectionFrom}
+                                handleEdgePointerDownTouch={handleEdgePointerDownTouch}
+                                connectionName={selfConnectionName}
+                                connectionFontSize={selfFontSize}
+                                placedLabelsRef={placedLabelsRef}
+                              />
+                            );
+                          }
+
+                          // Check if this is a directed edge (has arrows)
+                          const arrowsToward = edge.directionality?.arrowsToward instanceof Set
+                            ? edge.directionality.arrowsToward
+                            : new Set(Array.isArray(edge.directionality?.arrowsToward) ? edge.directionality.arrowsToward : []);
+
+                          // Check which ends have arrows
+                          const hasSourceArrow = arrowsToward.has(sourceNode.id);
+                          const hasDestArrow = arrowsToward.has(destNode.id);
+                          const isDirected = arrowsToward.size > 0;
+
+                          // Connection endpoint calculation
+                          let x1, y1, x2, y2;
+                          if (enableAutoRouting && (routingStyle === 'manhattan' || routingStyle === 'clean')) {
+                            // Port-based routing - use centers as base (ports will override later)
+                            x1 = sourceNode.x + sNodeDims.currentWidth / 2;
+                            y1 = sourceNode.y + (isSNodePreviewing ? NODE_HEIGHT / 2 : sNodeDims.currentHeight / 2);
+                            x2 = destNode.x + eNodeDims.currentWidth / 2;
+                            y2 = destNode.y + (isENodePreviewing ? NODE_HEIGHT / 2 : eNodeDims.currentHeight / 2);
+                          } else if (isDirected && (hasSourceArrow || hasDestArrow)) {
+                            // Directed connections: calculate each endpoint based on whether it has an arrow
+                            // Sides with arrows draw to edge, sides without arrows draw to center
+                            const centerX1 = sourceNode.x + sNodeDims.currentWidth / 2;
+                            const centerY1 = sourceNode.y + (isSNodePreviewing ? NODE_HEIGHT / 2 : sNodeDims.currentHeight / 2);
+                            const centerX2 = destNode.x + eNodeDims.currentWidth / 2;
+                            const centerY2 = destNode.y + (isENodePreviewing ? NODE_HEIGHT / 2 : eNodeDims.currentHeight / 2);
+
+                            if (hasSourceArrow || hasDestArrow) {
+                              // Use edge-based calculation, then selectively apply results
+                              const endpoints = getVisualConnectionEndpoints(
+                                sourceNode, destNode,
+                                sNodeDims, eNodeDims,
+                                selectedInstanceIds.has(sourceNode.id),
+                                selectedInstanceIds.has(destNode.id)
+                              );
+
+                              // Source: use edge if has arrow, otherwise center
+                              x1 = hasSourceArrow ? endpoints.x1 : centerX1;
+                              y1 = hasSourceArrow ? endpoints.y1 : centerY1;
+
+                              // Dest: use edge if has arrow, otherwise center
+                              x2 = hasDestArrow ? endpoints.x2 : centerX2;
+                              y2 = hasDestArrow ? endpoints.y2 : centerY2;
+                            } else {
+                              // Fallback to centers (shouldn't reach here due to outer if condition)
+                              x1 = centerX1;
+                              y1 = centerY1;
+                              x2 = centerX2;
+                              y2 = centerY2;
+                            }
+                          } else {
+                            // Non-directed connections: use centers for traditional appearance
+                            x1 = sourceNode.x + sNodeDims.currentWidth / 2;
+                            y1 = sourceNode.y + (isSNodePreviewing ? NODE_HEIGHT / 2 : sNodeDims.currentHeight / 2);
+                            x2 = destNode.x + eNodeDims.currentWidth / 2;
+                            y2 = destNode.y + (isENodePreviewing ? NODE_HEIGHT / 2 : eNodeDims.currentHeight / 2);
+                          }
+
+                          // Suppress edge hover (connection dots, hover-widened arrows, etc.)
+                          // while dragging — the dots would otherwise freeze at the last
+                          // hovered position instead of tracking the moving node.
+                          const isHovered = !draggingNodeInfo && hoveredEdgeInfo?.edgeId === edge.id;
+                          const isSelected = selectedEdgeId === edge.id || selectedEdgeIds.has(edge.id);
+
+
+
+
+                          // Get edge color - prioritize definitionNodeIds for custom types, then typeNodeId for base types
+                          const getEdgeColor = () => {
+                            // First check definitionNodeIds (for custom connection types set via control panel)
+                            if (edge.definitionNodeIds && edge.definitionNodeIds.length > 0) {
+                              const definitionNode = nodePrototypesMap.get(edge.definitionNodeIds[0]);
+                              if (definitionNode) {
+                                return definitionNode.color || NODE_DEFAULT_COLOR;
+                              }
+                            }
+
+                            // Then check typeNodeId (for base connection type)
+                            if (edge.typeNodeId) {
+                              // Special handling for base connection prototype - ensure it's black
+                              if (edge.typeNodeId === 'base-connection-prototype') {
+                                return '#000000'; // Black color for base connection
+                              }
+                              const edgePrototype = edgePrototypesMap.get(edge.typeNodeId);
+                              if (edgePrototype) {
+                                return edgePrototype.color || NODE_DEFAULT_COLOR;
+                              }
+                            }
+
+                            return destNode.color || NODE_DEFAULT_COLOR;
+                          };
+                          const edgeColor = getEdgeColor();
+
+                          // Calculate arrow position and rotation
+                          const dx = x2 - x1;
+                          const dy = y2 - y1;
+                          const length = Math.sqrt(dx * dx + dy * dy);
+
+                          // Helper function to calculate edge intersection with rectangular nodes
+                          const getNodeEdgeIntersection = (nodeX, nodeY, nodeWidth, nodeHeight, dirX, dirY) => {
+                            const centerX = nodeX + nodeWidth / 2;
+                            const centerY = nodeY + nodeHeight / 2;
+                            const halfWidth = nodeWidth / 2;
+                            const halfHeight = nodeHeight / 2;
+                            const intersections = [];
+
+                            if (dirX > 0) {
+                              const t = halfWidth / dirX;
+                              const y = dirY * t;
+                              if (Math.abs(y) <= halfHeight) intersections.push({ x: centerX + halfWidth, y: centerY + y, distance: t });
+                            }
+                            if (dirX < 0) {
+                              const t = -halfWidth / dirX;
+                              const y = dirY * t;
+                              if (Math.abs(y) <= halfHeight) intersections.push({ x: centerX - halfWidth, y: centerY + y, distance: t });
+                            }
+                            if (dirY > 0) {
+                              const t = halfHeight / dirY;
+                              const x = dirX * t;
+                              if (Math.abs(x) <= halfWidth) intersections.push({ x: centerX + x, y: centerY + halfHeight, distance: t });
+                            }
+                            if (dirY < 0) {
+                              const t = -halfHeight / dirY;
+                              const x = dirX * t;
+                              if (Math.abs(x) <= halfWidth) intersections.push({ x: centerX + x, y: centerY - halfHeight, distance: t });
+                            }
+
+                            return intersections.reduce((closest, current) =>
+                              !closest || current.distance < closest.distance ? current : closest, null);
+                          };
+
+                          // Calculate edge intersections
+                          const sourceIntersection = getNodeEdgeIntersection(
+                            sourceNode.x, sourceNode.y, sNodeDims.currentWidth, sNodeDims.currentHeight,
+                            dx / length, dy / length
+                          );
+
+                          const destIntersection = getNodeEdgeIntersection(
+                            destNode.x, destNode.y, eNodeDims.currentWidth, eNodeDims.currentHeight,
+                            -dx / length, -dy / length
+                          );
+
+                          // Determine if each end of the edge should be shortened for arrows
+                          // (arrowsToward already calculated earlier for endpoint logic)
+
+                          // Check if this is a curved edge (parallel edge with non-zero offset)
+                          // The middle edge in an odd-numbered group has offset 0 and is straight
+                          const curveInfo = edgeCurveInfo.get(edge.id);
+                          let isCurvedEdge = false;
+                          if (curveInfo && curveInfo.totalInPair > 1) {
+                            const centerIndex = (curveInfo.totalInPair - 1) / 2;
+                            const offsetSteps = curveInfo.pairIndex - centerIndex;
+                            isCurvedEdge = offsetSteps !== 0;
+                          }
+
+                          // Only shorten connections at ends with arrows or hover state
+                          // For curved edges, NEVER change endpoints - we use trimmed paths instead
+                          // This ensures the curve shape stays consistent
+                          let shouldShortenSource = isCurvedEdge
+                            ? false  // Never change curve endpoints
+                            : (isHovered || arrowsToward.has(sourceNode.id));
+                          let shouldShortenDest = isCurvedEdge
+                            ? false  // Never change curve endpoints
+                            : (isHovered || arrowsToward.has(destNode.id));
+                          if (enableAutoRouting && routingStyle === 'manhattan') {
+                            // In Manhattan mode, never shorten for hover—only for actual arrows
+                            shouldShortenSource = arrowsToward.has(sourceNode.id);
+                            shouldShortenDest = arrowsToward.has(destNode.id);
+                          }
+
+                          // Determine actual start/end points for rendering
+                          let startX, startY, endX, endY;
+
+                          // For clean routing, use assigned ports; otherwise use intersection-based positioning
+                          if (enableAutoRouting && routingStyle === 'clean') {
+                            const portAssignment = cleanLaneOffsets.get(edge.id);
+                            if (portAssignment) {
+                              const { sourcePort, destPort } = portAssignment;
+
+                              // Check if this edge has directional arrows
+                              const hasSourceArrow = arrowsToward.has(sourceNode.id);
+                              const hasDestArrow = arrowsToward.has(destNode.id);
+
+                              // Use ports for directional connections, centers for non-directional
+                              startX = hasSourceArrow ? sourcePort.x : x1;
+                              startY = hasSourceArrow ? sourcePort.y : y1;
+                              endX = hasDestArrow ? destPort.x : x2;
+                              endY = hasDestArrow ? destPort.y : y2;
+                            } else {
+                              // Fallback to node centers for clean routing
+                              startX = x1;
+                              startY = y1;
+                              endX = x2;
+                              endY = y2;
+                            }
+                          } else {
+                            // Use intersection-based positioning for other routing modes.
+                            // Visible LINE endpoint uses the 4px-inset variant so the round
+                            // line cap (strokeLinecap="round", strokeWidth=6 → cap radius 3)
+                            // stops cleanly behind the arrow polygon's flat base. Arrow
+                            // placement still uses sourceIntersection/destIntersection (no
+                            // inset) downstream, so the arrow tip anchors at the literal
+                            // border.
+                            const insetLineEndpoints = (shouldShortenSource || shouldShortenDest)
+                              ? getVisualConnectionEndpoints(
+                                sourceNode, destNode, sNodeDims, eNodeDims,
+                                selectedInstanceIds.has(sourceNode.id),
+                                selectedInstanceIds.has(destNode.id)
+                              )
+                              : null;
+                            startX = shouldShortenSource ? (insetLineEndpoints?.x1 ?? sourceIntersection?.x ?? x1) : x1;
+                            startY = shouldShortenSource ? (insetLineEndpoints?.y1 ?? sourceIntersection?.y ?? y1) : y1;
+                            endX = shouldShortenDest ? (insetLineEndpoints?.x2 ?? destIntersection?.x ?? x2) : x2;
+                            endY = shouldShortenDest ? (insetLineEndpoints?.y2 ?? destIntersection?.y ?? y2) : y2;
+                          }
+
+                          // Predeclare Manhattan path info for safe use below
+                          let manhattanPathD = null;
+                          let manhattanSourceSide = null;
+                          let manhattanDestSide = null;
+
+                          // When using Manhattan routing, snap to 4 node ports (midpoints of each side)
+                          if (enableAutoRouting && routingStyle === 'manhattan') {
+                            const sCenterX = sourceNode.x + sNodeDims.currentWidth / 2;
+                            const sCenterY = sourceNode.y + sNodeDims.currentHeight / 2;
+                            const dCenterX = destNode.x + eNodeDims.currentWidth / 2;
+                            const dCenterY = destNode.y + eNodeDims.currentHeight / 2;
+
+                            const sPorts = {
+                              top: { x: sCenterX, y: sourceNode.y },
+                              bottom: { x: sCenterX, y: sourceNode.y + sNodeDims.currentHeight },
+                              left: { x: sourceNode.x, y: sCenterY },
+                              right: { x: sourceNode.x + sNodeDims.currentWidth, y: sCenterY },
+                            };
+                            const dPorts = {
+                              top: { x: dCenterX, y: destNode.y },
+                              bottom: { x: dCenterX, y: destNode.y + eNodeDims.currentHeight },
+                              left: { x: destNode.x, y: dCenterY },
+                              right: { x: destNode.x + eNodeDims.currentWidth, y: dCenterY },
+                            };
+
+                            const relDx = dCenterX - sCenterX;
+                            const relDy = dCenterY - sCenterY;
+                            let sPort, dPort;
+                            if (Math.abs(relDx) >= Math.abs(relDy)) {
+                              // Prefer horizontal ports
+                              sPort = relDx >= 0 ? sPorts.right : sPorts.left;
+                              dPort = relDx >= 0 ? dPorts.left : dPorts.right;
+                            } else {
+                              // Prefer vertical ports
+                              sPort = relDy >= 0 ? sPorts.bottom : sPorts.top;
+                              dPort = relDy >= 0 ? dPorts.top : dPorts.bottom;
+                            }
+                            startX = sPort.x;
+                            startY = sPort.y;
+                            endX = dPort.x;
+                            endY = dPort.y;
+
+                            // Determine sides for perpendicular entry/exit
+                            const sSide = (Math.abs(startY - sourceNode.y) < 0.5) ? 'top'
+                              : (Math.abs(startY - (sourceNode.y + sNodeDims.currentHeight)) < 0.5) ? 'bottom'
+                                : (Math.abs(startX - sourceNode.x) < 0.5) ? 'left' : 'right';
+                            const dSide = (Math.abs(endY - destNode.y) < 0.5) ? 'top'
+                              : (Math.abs(endY - (destNode.y + eNodeDims.currentHeight)) < 0.5) ? 'bottom'
+                                : (Math.abs(endX - destNode.x) < 0.5) ? 'left' : 'right';
+                            const initOrient = (sSide === 'left' || sSide === 'right') ? 'H' : 'V';
+                            const finalOrient = (dSide === 'left' || dSide === 'right') ? 'H' : 'V';
+
+                            const effectiveBends = (manhattanBends === 'auto')
+                              ? (initOrient === finalOrient ? 'two' : 'one')
+                              : manhattanBends;
+
+                            // Local helpers declared before use to avoid hoisting issues
+                            const cornerRadiusLocal = 8;
+                            const buildRoundedLPathOriented = (sx, sy, ex, ey, r, firstOrientation /* 'H' | 'V' */) => {
+                              if (firstOrientation === 'H') {
+                                if (sx === ex || sy === ey) {
+                                  return `M ${sx},${sy} L ${ex},${ey}`;
+                                }
+                                const signX = ex > sx ? 1 : -1;
+                                const signY = ey > sy ? 1 : -1;
+                                const cornerX = ex;
+                                const cornerY = sy;
+                                const hx = cornerX - signX * r;
+                                const hy = cornerY;
+                                const vx = cornerX;
+                                const vy = cornerY + signY * r;
+                                return `M ${sx},${sy} L ${hx},${hy} Q ${cornerX},${cornerY} ${vx},${vy} L ${ex},${ey}`;
+                              } else {
+                                if (sx === ex || sy === ey) {
+                                  return `M ${sx},${sy} L ${ex},${ey}`;
+                                }
+                                const signX = ex > sx ? 1 : -1;
+                                const signY = ey > sy ? 1 : -1;
+                                const cornerX = sx;
+                                const cornerY = ey;
+                                const vx = cornerX;
+                                const vy = cornerY - signY * r;
+                                const hx = cornerX + signX * r;
+                                const hy = cornerY;
+                                return `M ${sx},${sy} L ${vx},${vy} Q ${cornerX},${cornerY} ${hx},${hy} L ${ex},${ey}`;
+                              }
+                            };
+                            const buildRoundedZPathOriented = (sx, sy, ex, ey, r, pattern /* 'HVH' | 'VHV' */) => {
+                              if (sx === ex || sy === ey) {
+                                return `M ${sx},${sy} L ${ex},${ey}`;
+                              }
+                              if (pattern === 'HVH') {
+                                // Horizontal → Vertical → Horizontal with rounded corners at both bends
+                                const midX = (sx + ex) / 2;
+                                const signX1 = midX >= sx ? 1 : -1; // initial horizontal direction
+                                const signY = ey >= sy ? 1 : -1;     // vertical direction
+                                const signX2 = ex >= midX ? 1 : -1;  // final horizontal direction
+                                const hx1 = midX - signX1 * r;       // before first corner
+                                const vy1 = sy + signY * r;          // after first corner
+                                const vy2 = ey - signY * r;          // before second corner
+                                const hx2 = midX + signX2 * r;       // after second corner
+                                return `M ${sx},${sy} L ${hx1},${sy} Q ${midX},${sy} ${midX},${vy1} L ${midX},${vy2} Q ${midX},${ey} ${hx2},${ey} L ${ex},${ey}`;
+                              } else {
+                                // Vertical → Horizontal → Vertical with rounded corners at both bends
+                                const midY = (sy + ey) / 2;
+                                const signY1 = midY >= sy ? 1 : -1;  // initial vertical direction
+                                const signX = ex >= sx ? 1 : -1;      // horizontal direction (same for both H segments)
+                                const signY2 = ey >= midY ? 1 : -1;   // final vertical direction
+                                const vy1 = midY - signY1 * r;        // before first corner
+                                const hx1 = sx + signX * r;           // after first corner
+                                const hx2 = ex - signX * r;           // before second corner
+                                const vy2 = midY + signY2 * r;        // after second corner
+                                return `M ${sx},${sy} L ${sx},${vy1} Q ${sx},${midY} ${hx1},${midY} L ${hx2},${midY} Q ${ex},${midY} ${ex},${vy2} L ${ex},${ey}`;
+                              }
+                            };
+                            let pathD;
+                            if (effectiveBends === 'two' && initOrient === finalOrient) {
+                              pathD = (initOrient === 'H')
+                                ? buildRoundedZPathOriented(startX, startY, endX, endY, cornerRadiusLocal, 'HVH')
+                                : buildRoundedZPathOriented(startX, startY, endX, endY, cornerRadiusLocal, 'VHV');
+                            } else {
+                              pathD = buildRoundedLPathOriented(startX, startY, endX, endY, cornerRadiusLocal, initOrient);
+                            }
+
+                            // Assign for rendering and arrow logic
+                            manhattanPathD = pathD;
+                            manhattanSourceSide = sSide;
+                            manhattanDestSide = dSide;
+                          }
+
+                          // Calculate parallel edge path using centralized utility
+                          // Note: curveInfo was already retrieved earlier for shouldShorten logic
+                          const parallelPath = calculateParallelEdgePath(startX, startY, endX, endY, curveInfo);
+                          const useCurve = parallelPath.type === 'curve';
+
+                          // For label placement, always use the visible segment (edge-to-edge)
+                          // This ensures labels are centered on the visible portion, not the drawn portion
+                          const visibleEndpoints = getVisualConnectionEndpoints(
+                            sourceNode, destNode,
+                            sNodeDims, eNodeDims,
+                            selectedInstanceIds.has(sourceNode.id),
+                            selectedInstanceIds.has(destNode.id)
+                          );
+                          const labelPlacementPath = calculateParallelEdgePath(
+                            visibleEndpoints.x1, visibleEndpoints.y1,
+                            visibleEndpoints.x2, visibleEndpoints.y2,
+                            curveInfo
+                          );
+
+                          // For hover effect or arrows on curved edges, trim the curve to create "shorten" visual
+                          // This keeps the curve shape consistent but renders a shorter portion
+                          let trimmedPath = null;
+                          const shouldTrimCurve = useCurve && parallelPath.ctrlX !== null &&
+                            (isHovered || arrowsToward.has(sourceNode.id) || arrowsToward.has(destNode.id));
+                          if (shouldTrimCurve) {
+                            trimmedPath = getTrimmedBezierPath(
+                              parallelPath.startX, parallelPath.startY,
+                              parallelPath.ctrlX, parallelPath.ctrlY,
+                              parallelPath.endX, parallelPath.endY,
+                              0.08, 0.92  // Trim 8% from each end
+                            );
+                          }
 
                           return (
-                            <>
-                              <OrbitOverlay
-                                centerX={centerX}
-                                centerY={centerY}
-                                focusWidth={dimensions.currentWidth}
-                                focusHeight={dimensions.currentHeight}
-                                ring1Candidates={orbitData.ring1 || []}
-                                ring2Candidates={orbitData.ring2 || []}
-                                ring3Candidates={orbitData.ring3 || []}
-                                ring4Candidates={orbitData.ring4 || []}
-                                onOrbitItemClick={handleOrbitItemClick}
-                                isLoading={orbitLoading}
+                            <g key={`edge-${edge.id}`} data-edge-id={edge.id}>
+                              {/* Main edge line - always same thickness */}
+                              {/* Glow effect for selected or hovered edge */}
+                              {(isSelected || isHovered) && (
+                                (enableAutoRouting && (routingStyle === 'manhattan' || routingStyle === 'clean')) ? (
+                                  <path
+                                    d={(routingStyle === 'manhattan') ? manhattanPathD : (() => {
+                                      // Use consistent clean routing path helper
+                                      const cleanPts = generateCleanRoutingPath(edge, sourceNode, destNode, sNodeDims, eNodeDims, cleanLaneOffsets, cleanLaneSpacing);
+                                      return buildRoundedPathFromPoints(cleanPts, 8);
+                                    })()}
+                                    fill="none"
+                                    stroke={edgeColor}
+                                    strokeWidth="12"
+                                    opacity={isSelected ? "0.3" : "0.2"}
+                                    style={{
+                                      filter: `drop-shadow(0 0 8px ${edgeColor})`
+                                    }}
+                                    strokeLinecap="round"
+                                  />
+                                ) : useCurve ? (
+                                  <path
+                                    d={trimmedPath ? trimmedPath.path : parallelPath.path}
+                                    fill="none"
+                                    stroke={edgeColor}
+                                    strokeWidth="12"
+                                    opacity={isSelected ? "0.3" : "0.2"}
+                                    style={{
+                                      filter: `drop-shadow(0 0 8px ${edgeColor})`
+                                    }}
+                                    strokeLinecap="round"
+                                  />
+                                ) : (
+                                  <line
+                                    x1={startX}
+                                    y1={startY}
+                                    x2={endX}
+                                    y2={endY}
+                                    stroke={edgeColor}
+                                    strokeWidth="12"
+                                    opacity={isSelected ? "0.3" : "0.2"}
+                                    style={{
+                                      filter: `drop-shadow(0 0 8px ${edgeColor})`
+                                    }}
+                                  />
+                                )
+                              )}
+
+                              {(enableAutoRouting && (routingStyle === 'manhattan' || routingStyle === 'clean')) ? (
+                                <>
+                                  {routingStyle === 'manhattan' && !arrowsToward.has(sourceNode.id) && (
+                                    <line x1={x1} y1={y1} x2={startX} y2={startY} stroke={edgeColor} strokeWidth="16" strokeLinecap="round" />
+                                  )}
+                                  {routingStyle === 'manhattan' && !arrowsToward.has(destNode.id) && (
+                                    <line x1={endX} y1={endY} x2={x2} y2={y2} stroke={edgeColor} strokeWidth="16" strokeLinecap="round" />
+                                  )}
+                                  <path
+                                    d={(routingStyle === 'manhattan') ? manhattanPathD : (() => {
+                                      // Use consistent clean routing path helper
+                                      const cleanPts = generateCleanRoutingPath(edge, sourceNode, destNode, sNodeDims, eNodeDims, cleanLaneOffsets, cleanLaneSpacing);
+                                      return buildRoundedPathFromPoints(cleanPts, 8);
+                                    })()}
+                                    fill="none"
+                                    stroke={edgeColor}
+                                    strokeWidth="16"
+                                    style={{ transition: 'stroke 0.2s ease' }}
+                                    strokeLinecap="round"
+                                  />
+                                </>
+                              ) : useCurve ? (
+                                <path
+                                  d={trimmedPath ? trimmedPath.path : parallelPath.path}
+                                  fill="none"
+                                  stroke={edgeColor}
+                                  strokeWidth="16"
+                                  style={{ transition: 'stroke 0.2s ease' }}
+                                  strokeLinecap="round"
+                                />
+                              ) : (
+                                <line
+                                  x1={startX}
+                                  y1={startY}
+                                  x2={endX}
+                                  y2={endY}
+                                  stroke={edgeColor}
+                                  strokeWidth="16"
+                                  style={{ transition: 'stroke 0.2s ease' }}
+                                />
+                              )}
+
+                              {/* Invisible click area for edge selection - matches hover detection */}
+                              {(enableAutoRouting && (routingStyle === 'manhattan' || routingStyle === 'clean')) ? (
+                                <path
+                                  d={(routingStyle === 'manhattan') ? manhattanPathD : (() => {
+                                    // Use consistent clean routing path helper
+                                    const cleanPts = generateCleanRoutingPath(edge, sourceNode, destNode, sNodeDims, eNodeDims, cleanLaneOffsets, cleanLaneSpacing);
+                                    return buildRoundedPathFromPoints(cleanPts, 8);
+                                  })()}
+                                  fill="none"
+                                  stroke="transparent"
+                                  strokeWidth="40"
+                                  style={{ cursor: 'pointer' }}
+                                  onPointerDown={(e) => {
+                                    // Immediate tap support for touch/pencil
+                                    if (e.pointerType && e.pointerType !== 'mouse') {
+                                      e.preventDefault?.();
+                                      e.stopPropagation?.();
+                                      ignoreCanvasClick.current = true; // suppress canvas click -> plus sign
+                                      setLongPressingInstanceId(null); // prevent connection drawing intent
+                                      setDrawingConnectionFrom(null);
+                                      if (e.ctrlKey || e.metaKey) {
+                                        if (selectedEdgeIds.has(edge.id)) {
+                                          storeActions.removeSelectedEdgeId(edge.id);
+                                        } else {
+                                          storeActions.addSelectedEdgeId(edge.id);
+                                        }
+                                      } else {
+                                        storeActions.clearSelectedEdgeIds();
+                                        storeActions.setSelectedEdgeId(edge.id);
+                                      }
+                                    }
+                                    handleEdgePointerDownTouch(edge.id, e);
+                                  }}
+                                  onTouchStart={(e) => {
+                                    e.preventDefault?.();
+                                    e.stopPropagation?.();
+                                    ignoreCanvasClick.current = true;
+                                    setLongPressingInstanceId(null);
+                                    setDrawingConnectionFrom(null);
+                                    storeActions.clearSelectedEdgeIds();
+                                    storeActions.setSelectedEdgeId(edge.id);
+                                  }}
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    ignoreCanvasClick.current = true;
+
+                                    // Handle multiple selection with Ctrl/Cmd key
+                                    if (e.ctrlKey || e.metaKey) {
+                                      // Toggle this edge in the multiple selection
+                                      if (selectedEdgeIds.has(edge.id)) {
+                                        storeActions.removeSelectedEdgeId(edge.id);
+                                      } else {
+                                        storeActions.addSelectedEdgeId(edge.id);
+                                      }
+                                    } else {
+                                      // Single selection - clear multiple selection and set single edge
+                                      storeActions.clearSelectedEdgeIds();
+                                      storeActions.setSelectedEdgeId(edge.id);
+                                    }
+                                  }}
+                                  onDoubleClick={(e) => {
+                                    e.stopPropagation();
+
+                                    // Find the defining node for this edge's connection type
+                                    let definingNodeId = null;
+
+                                    // Check definitionNodeIds first (for custom connection types)
+                                    if (edge.definitionNodeIds && edge.definitionNodeIds.length > 0) {
+                                      definingNodeId = edge.definitionNodeIds[0];
+                                    } else if (edge.typeNodeId) {
+                                      // Fallback to typeNodeId (for base connection type)
+                                      definingNodeId = edge.typeNodeId;
+                                    }
+
+                                    // Open the panel tab for the defining node
+                                    if (definingNodeId) {
+                                      storeActions.openRightPanelNodeTab(definingNodeId);
+                                    }
+                                  }}
+                                />
+                              ) : useCurve ? (
+                                <path
+                                  d={parallelPath.path}
+                                  fill="none"
+                                  stroke="transparent"
+                                  strokeWidth="40"
+                                  style={{ cursor: 'pointer' }}
+                                  onPointerDown={(e) => {
+                                    if (e.pointerType && e.pointerType !== 'mouse') {
+                                      e.preventDefault?.();
+                                      e.stopPropagation?.();
+                                      ignoreCanvasClick.current = true;
+                                      setLongPressingInstanceId(null);
+                                      setDrawingConnectionFrom(null);
+                                      if (e.ctrlKey || e.metaKey) {
+                                        if (selectedEdgeIds.has(edge.id)) {
+                                          storeActions.removeSelectedEdgeId(edge.id);
+                                        } else {
+                                          storeActions.addSelectedEdgeId(edge.id);
+                                        }
+                                      } else {
+                                        storeActions.clearSelectedEdgeIds();
+                                        storeActions.setSelectedEdgeId(edge.id);
+                                      }
+                                    }
+                                    handleEdgePointerDownTouch(edge.id, e);
+                                  }}
+                                  onTouchStart={(e) => {
+                                    e.preventDefault?.();
+                                    e.stopPropagation?.();
+                                    ignoreCanvasClick.current = true;
+                                    setLongPressingInstanceId(null);
+                                    setDrawingConnectionFrom(null);
+                                    storeActions.clearSelectedEdgeIds();
+                                    storeActions.setSelectedEdgeId(edge.id);
+                                  }}
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    ignoreCanvasClick.current = true;
+
+                                    // Handle multiple selection with Ctrl/Cmd key
+                                    if (e.ctrlKey || e.metaKey) {
+                                      // Toggle this edge in the multiple selection
+                                      if (selectedEdgeIds.has(edge.id)) {
+                                        storeActions.removeSelectedEdgeId(edge.id);
+                                      } else {
+                                        storeActions.addSelectedEdgeId(edge.id);
+                                      }
+                                    } else {
+                                      // Single selection - clear multiple selection and set single edge
+                                      storeActions.clearSelectedEdgeIds();
+                                      storeActions.setSelectedEdgeId(edge.id);
+                                    }
+                                  }}
+                                  onDoubleClick={(e) => {
+                                    e.stopPropagation();
+
+                                    // Find the defining node for this edge's connection type
+                                    let definingNodeId = null;
+
+                                    // Check definitionNodeIds first (for custom connection types)
+                                    if (edge.definitionNodeIds && edge.definitionNodeIds.length > 0) {
+                                      definingNodeId = edge.definitionNodeIds[0];
+                                    } else if (edge.typeNodeId) {
+                                      // Fallback to typeNodeId (for base connection type)
+                                      definingNodeId = edge.typeNodeId;
+                                    }
+
+                                    // Open the panel tab for the defining node
+                                    if (definingNodeId) {
+                                      storeActions.openRightPanelNodeTab(definingNodeId);
+                                    }
+                                  }}
+                                />
+                              ) : (
+                                <line
+                                  x1={x1}
+                                  y1={y1}
+                                  x2={x2}
+                                  y2={y2}
+                                  stroke="transparent"
+                                  strokeWidth="40"
+                                  style={{ cursor: 'pointer' }}
+                                  onPointerDown={(e) => {
+                                    if (e.pointerType && e.pointerType !== 'mouse') {
+                                      e.preventDefault?.();
+                                      e.stopPropagation?.();
+                                      ignoreCanvasClick.current = true;
+                                      setLongPressingInstanceId(null);
+                                      setDrawingConnectionFrom(null);
+                                      if (e.ctrlKey || e.metaKey) {
+                                        if (selectedEdgeIds.has(edge.id)) {
+                                          storeActions.removeSelectedEdgeId(edge.id);
+                                        } else {
+                                          storeActions.addSelectedEdgeId(edge.id);
+                                        }
+                                      } else {
+                                        storeActions.clearSelectedEdgeIds();
+                                        storeActions.setSelectedEdgeId(edge.id);
+                                      }
+                                    }
+                                    handleEdgePointerDownTouch(edge.id, e);
+                                  }}
+                                  onTouchStart={(e) => {
+                                    e.preventDefault?.();
+                                    e.stopPropagation?.();
+                                    ignoreCanvasClick.current = true;
+                                    setLongPressingInstanceId(null);
+                                    setDrawingConnectionFrom(null);
+                                    storeActions.clearSelectedEdgeIds();
+                                    storeActions.setSelectedEdgeId(edge.id);
+                                  }}
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    ignoreCanvasClick.current = true;
+
+                                    // Handle multiple selection with Ctrl/Cmd key
+                                    if (e.ctrlKey || e.metaKey) {
+                                      // Toggle this edge in the multiple selection
+                                      if (selectedEdgeIds.has(edge.id)) {
+                                        storeActions.removeSelectedEdgeId(edge.id);
+                                      } else {
+                                        storeActions.addSelectedEdgeId(edge.id);
+                                      }
+                                    } else {
+                                      // Single selection - clear multiple selection and set single edge
+                                      storeActions.clearSelectedEdgeIds();
+                                      storeActions.setSelectedEdgeId(edge.id);
+                                    }
+                                  }}
+                                  onDoubleClick={(e) => {
+                                    e.stopPropagation();
+
+                                    // Find the defining node for this edge's connection type
+                                    let definingNodeId = null;
+
+                                    // Check definitionNodeIds first (for custom connection types)
+                                    if (edge.definitionNodeIds && edge.definitionNodeIds.length > 0) {
+                                      definingNodeId = edge.definitionNodeIds[0];
+                                    } else if (edge.typeNodeId) {
+                                      // Fallback to typeNodeId (for base connection type)
+                                      definingNodeId = edge.typeNodeId;
+                                    }
+
+                                    // Open the panel tab for the defining node
+                                    if (definingNodeId) {
+                                      storeActions.openRightPanelNodeTab(definingNodeId);
+                                    }
+                                  }}
+                                />
+                              )}
+
+                              {/* Smart directional arrows with clickable toggle */}
+                              {(() => {
+                                // Calculate arrow positions (use fallback if intersections fail)
+                                let sourceArrowX, sourceArrowY, destArrowX, destArrowY, sourceArrowAngle, destArrowAngle;
+
+                                // For curved edges, calculate arrow/dot positions along the curve
+                                if (useCurve && parallelPath.ctrlX !== null) {
+                                  const tSource = 0.08; // Position near source (8% along curve)
+                                  const tDest = 0.92;   // Position near dest (92% along curve)
+
+                                  // Get positions along the curve
+                                  const sourcePoint = getPointOnQuadraticBezier(
+                                    tSource,
+                                    parallelPath.startX, parallelPath.startY,
+                                    parallelPath.ctrlX, parallelPath.ctrlY,
+                                    parallelPath.endX, parallelPath.endY
+                                  );
+                                  const destPoint = getPointOnQuadraticBezier(
+                                    tDest,
+                                    parallelPath.startX, parallelPath.startY,
+                                    parallelPath.ctrlX, parallelPath.ctrlY,
+                                    parallelPath.endX, parallelPath.endY
+                                  );
+
+                                  sourceArrowX = sourcePoint.x;
+                                  sourceArrowY = sourcePoint.y;
+                                  destArrowX = destPoint.x;
+                                  destArrowY = destPoint.y;
+
+                                  // Calculate tangent angles at these points
+                                  // Derivative of quadratic Bézier: B'(t) = 2(1-t)(P1-P0) + 2t(P2-P1)
+                                  const calcTangentAngle = (t, x0, y0, cx, cy, x1, y1) => {
+                                    const invT = 1 - t;
+                                    const tangentX = 2 * invT * (cx - x0) + 2 * t * (x1 - cx);
+                                    const tangentY = 2 * invT * (cy - y0) + 2 * t * (y1 - cy);
+                                    return Math.atan2(tangentY, tangentX) * (180 / Math.PI);
+                                  };
+
+                                  // Source arrow points backward (toward source node)
+                                  const sourceTangent = calcTangentAngle(
+                                    tSource,
+                                    parallelPath.startX, parallelPath.startY,
+                                    parallelPath.ctrlX, parallelPath.ctrlY,
+                                    parallelPath.endX, parallelPath.endY
+                                  );
+                                  sourceArrowAngle = sourceTangent + 180; // Point back toward source
+
+                                  // Dest arrow points forward (toward dest node)
+                                  const destTangent = calcTangentAngle(
+                                    tDest,
+                                    parallelPath.startX, parallelPath.startY,
+                                    parallelPath.ctrlX, parallelPath.ctrlY,
+                                    parallelPath.endX, parallelPath.endY
+                                  );
+                                  destArrowAngle = destTangent; // Point toward dest
+                                } else if (enableAutoRouting && routingStyle === 'clean') {
+                                  // Clean mode: use actual port assignments for proper arrow positioning
+                                  const offset = 6;
+                                  const portAssignment = cleanLaneOffsets.get(edge.id);
+
+                                  if (portAssignment) {
+                                    const { sourcePort, destPort, sourceSide, destSide } = portAssignment;
+
+                                    // Position arrows pointing TOWARD the target node (into the edge)
+                                    // Arrow tip points toward the node, positioned outside the edge
+                                    switch (sourceSide) {
+                                      case 'top':
+                                        sourceArrowAngle = 90; // Arrow points down toward node
+                                        sourceArrowX = sourcePort.x;
+                                        sourceArrowY = sourcePort.y - offset;
+                                        break;
+                                      case 'bottom':
+                                        sourceArrowAngle = -90; // Arrow points up toward node
+                                        sourceArrowX = sourcePort.x;
+                                        sourceArrowY = sourcePort.y + offset;
+                                        break;
+                                      case 'left':
+                                        sourceArrowAngle = 0; // Arrow points right toward node
+                                        sourceArrowX = sourcePort.x - offset;
+                                        sourceArrowY = sourcePort.y;
+                                        break;
+                                      case 'right':
+                                        sourceArrowAngle = 180; // Arrow points left toward node
+                                        sourceArrowX = sourcePort.x + offset;
+                                        sourceArrowY = sourcePort.y;
+                                        break;
+                                    }
+
+                                    switch (destSide) {
+                                      case 'top':
+                                        destArrowAngle = 90; // Arrow points down toward node
+                                        destArrowX = destPort.x;
+                                        destArrowY = destPort.y - offset;
+                                        break;
+                                      case 'bottom':
+                                        destArrowAngle = -90; // Arrow points up toward node
+                                        destArrowX = destPort.x;
+                                        destArrowY = destPort.y + offset;
+                                        break;
+                                      case 'left':
+                                        destArrowAngle = 0; // Arrow points right toward node
+                                        destArrowX = destPort.x - offset;
+                                        destArrowY = destPort.y;
+                                        break;
+                                      case 'right':
+                                        destArrowAngle = 180; // Arrow points left toward node
+                                        destArrowX = destPort.x + offset;
+                                        destArrowY = destPort.y;
+                                        break;
+                                    }
+                                  } else {
+                                    // Fallback to center-based positioning
+                                    const deltaX = endX - startX;
+                                    const deltaY = endY - startY;
+                                    const isMainlyVertical = Math.abs(deltaY) > Math.abs(deltaX);
+
+                                    if (isMainlyVertical) {
+                                      sourceArrowAngle = deltaY > 0 ? -90 : 90;
+                                      sourceArrowX = startX;
+                                      sourceArrowY = startY + (deltaY > 0 ? offset : -offset);
+                                      destArrowAngle = deltaX > 0 ? 0 : 180;
+                                      destArrowX = endX + (deltaX > 0 ? -offset : offset);
+                                      destArrowY = endY;
+                                    } else {
+                                      sourceArrowAngle = deltaX > 0 ? 180 : 0;
+                                      sourceArrowX = startX + (deltaX > 0 ? offset : -offset);
+                                      sourceArrowY = startY;
+                                      destArrowAngle = deltaY > 0 ? 90 : -90;
+                                      destArrowX = endX;
+                                      destArrowY = endY + (deltaY > 0 ? -offset : offset);
+                                    }
+                                  }
+                                } else if (!sourceIntersection || !destIntersection) {
+                                  // Fallback positioning - arrows/dots closer to connection center  
+                                  const fallbackOffset = 20;
+                                  sourceArrowX = x1 + (dx / length) * fallbackOffset;
+                                  sourceArrowY = y1 + (dy / length) * fallbackOffset;
+                                  destArrowX = x2 - (dx / length) * fallbackOffset;
+                                  destArrowY = y2 - (dy / length) * fallbackOffset;
+                                  sourceArrowAngle = Math.atan2(-dy, -dx) * (180 / Math.PI);
+                                  destArrowAngle = Math.atan2(dy, dx) * (180 / Math.PI);
+                                } else if (enableAutoRouting && routingStyle === 'clean') {
+                                  // Clean routing arrow placement - position close to nodes for better visibility
+                                  const offset = 8; // Reduced offset for better visibility
+                                  const portAssignment = cleanLaneOffsets.get(edge.id);
+
+                                  if (portAssignment) {
+                                    const { sourcePort, destPort, sourceSide, destSide } = portAssignment;
+
+                                    // Position arrows close to the actual ports, pointing toward the nodes
+                                    switch (sourceSide) {
+                                      case 'top':
+                                        sourceArrowAngle = 90; // Arrow points down toward node
+                                        sourceArrowX = sourcePort.x;
+                                        sourceArrowY = sourcePort.y - offset;
+                                        break;
+                                      case 'bottom':
+                                        sourceArrowAngle = -90; // Arrow points up toward node
+                                        sourceArrowX = sourcePort.x;
+                                        sourceArrowY = sourcePort.y + offset;
+                                        break;
+                                      case 'left':
+                                        sourceArrowAngle = 0; // Arrow points right toward node
+                                        sourceArrowX = sourcePort.x - offset;
+                                        sourceArrowY = sourcePort.y;
+                                        break;
+                                      case 'right':
+                                        sourceArrowAngle = 180; // Arrow points left toward node
+                                        sourceArrowX = sourcePort.x + offset;
+                                        sourceArrowY = sourcePort.y;
+                                        break;
+                                    }
+
+                                    switch (destSide) {
+                                      case 'top':
+                                        destArrowAngle = 90; // Arrow points down toward node
+                                        destArrowX = destPort.x;
+                                        destArrowY = destPort.y - offset;
+                                        break;
+                                      case 'bottom':
+                                        destArrowAngle = -90; // Arrow points up toward node
+                                        destArrowX = destPort.x;
+                                        destArrowY = destPort.y + offset;
+                                        break;
+                                      case 'left':
+                                        destArrowAngle = 0; // Arrow points right toward node
+                                        destArrowX = destPort.x - offset;
+                                        destArrowY = destPort.y;
+                                        break;
+                                      case 'right':
+                                        destArrowAngle = 180; // Arrow points left toward node
+                                        destArrowX = destPort.x + offset;
+                                        destArrowY = destPort.y;
+                                        break;
+                                    }
+                                  } else {
+                                    // Fallback: position arrows close to node centers
+                                    sourceArrowX = startX;
+                                    sourceArrowY = startY;
+                                    sourceArrowAngle = Math.atan2(-dy, -dx) * (180 / Math.PI);
+                                    destArrowX = endX;
+                                    destArrowY = endY;
+                                    destArrowAngle = Math.atan2(dy, dx) * (180 / Math.PI);
+                                  }
+                                } else {
+                                  // Manhattan-aware arrow placement; falls back to straight orientation
+                                  const offset = 6;
+                                  if (enableAutoRouting && routingStyle === 'manhattan') {
+                                    // Destination arrow aligns to terminal segment into destination
+                                    const horizontalTerminal = Math.abs(endX - startX) > Math.abs(endY - startY);
+                                    if (horizontalTerminal) {
+                                      destArrowAngle = (endX >= startX) ? 0 : 180;
+                                      destArrowX = endX + ((endX >= startX) ? -offset : offset);
+                                      destArrowY = endY;
+                                    } else {
+                                      destArrowAngle = (endY >= startY) ? 90 : -90;
+                                      destArrowX = endX;
+                                      destArrowY = endY + ((endY >= startY) ? -offset : offset);
+                                    }
+                                    // Source arrow aligns to initial segment out of source (pointing back toward source)
+                                    const horizontalInitial = Math.abs(endX - startX) > Math.abs(endY - startY);
+                                    if (horizontalInitial) {
+                                      sourceArrowAngle = (endX - startX) >= 0 ? 180 : 0;
+                                      sourceArrowX = startX + ((endX - startX) >= 0 ? offset : -offset);
+                                      sourceArrowY = startY;
+                                    } else {
+                                      sourceArrowAngle = (endY - startY) >= 0 ? -90 : 90;
+                                      sourceArrowX = startX;
+                                      sourceArrowY = startY + ((endY - startY) >= 0 ? offset : -offset);
+                                    }
+                                  } else {
+                                    // Precise intersection positioning - adjust based on slope for visual consistency
+                                    const angle = Math.abs(Math.atan2(dy, dx) * (180 / Math.PI));
+                                    const normalizedAngle = angle > 90 ? 180 - angle : angle;
+                                    // Shorter distance for quantized slopes (hitting node sides) vs diagonal (hitting corners)
+                                    const isQuantizedSlope = normalizedAngle < 15 || normalizedAngle > 75;
+                                    const arrowLength = isQuantizedSlope ? offset * 0.6 : offset;
+                                    sourceArrowAngle = Math.atan2(-dy, -dx) * (180 / Math.PI);
+                                    sourceArrowX = sourceIntersection.x + (dx / length) * arrowLength;
+                                    sourceArrowY = sourceIntersection.y + (dy / length) * arrowLength;
+                                    destArrowAngle = Math.atan2(dy, dx) * (180 / Math.PI);
+                                    destArrowX = destIntersection.x - (dx / length) * arrowLength;
+                                    destArrowY = destIntersection.y - (dy / length) * arrowLength;
+                                  }
+                                }
+
+                                // Override arrow orientation deterministically by Manhattan sides
+                                if (enableAutoRouting && routingStyle === 'manhattan') {
+                                  const sideOffset = 6;
+                                  // Destination arrow strictly based on destination side
+                                  if (manhattanDestSide === 'left') {
+                                    destArrowAngle = 0; // rightwards
+                                    destArrowX = endX - sideOffset;
+                                    destArrowY = endY;
+                                  } else if (manhattanDestSide === 'right') {
+                                    destArrowAngle = 180; // leftwards
+                                    destArrowX = endX + sideOffset;
+                                    destArrowY = endY;
+                                  } else if (manhattanDestSide === 'top') {
+                                    destArrowAngle = 90; // downwards
+                                    destArrowX = endX;
+                                    destArrowY = endY - sideOffset;
+                                  } else if (manhattanDestSide === 'bottom') {
+                                    destArrowAngle = -90; // upwards
+                                    destArrowX = endX;
+                                    destArrowY = endY + sideOffset;
+                                  }
+                                  // Source arrow strictly based on source side (points toward the source node)
+                                  if (manhattanSourceSide === 'left') {
+                                    sourceArrowAngle = 0; // rightwards
+                                    sourceArrowX = startX - sideOffset;
+                                    sourceArrowY = startY;
+                                  } else if (manhattanSourceSide === 'right') {
+                                    sourceArrowAngle = 180; // leftwards
+                                    sourceArrowX = startX + sideOffset;
+                                    sourceArrowY = startY;
+                                  } else if (manhattanSourceSide === 'top') {
+                                    sourceArrowAngle = 90; // downwards
+                                    sourceArrowX = startX;
+                                    sourceArrowY = startY - sideOffset;
+                                  } else if (manhattanSourceSide === 'bottom') {
+                                    sourceArrowAngle = -90; // upwards
+                                    sourceArrowX = startX;
+                                    sourceArrowY = startY + sideOffset;
+                                  }
+                                }
+
+                                const handleArrowClick = (nodeId, e) => {
+                                  e.stopPropagation();
+
+                                  // Toggle the arrow state for the specific node
+                                  storeActions.updateEdge(edge.id, (draft) => {
+                                    // Ensure directionality object exists
+                                    if (!draft.directionality) {
+                                      draft.directionality = { arrowsToward: new Set() };
+                                    }
+                                    // Ensure arrowsToward is a Set
+                                    if (!draft.directionality.arrowsToward) {
+                                      draft.directionality.arrowsToward = new Set();
+                                    }
+
+                                    // Toggle arrow for this specific node
+                                    if (draft.directionality.arrowsToward.has(nodeId)) {
+                                      draft.directionality.arrowsToward.delete(nodeId);
+                                    } else {
+                                      draft.directionality.arrowsToward.add(nodeId);
+                                    }
+                                  });
+                                };
+
+                                return (
+                                  <>
+                                    {/* Source Arrow - visible if arrow points toward source node */}
+                                    {arrowsToward.has(sourceNode.id) && (
+                                      <g
+                                        data-arrow="source"
+                                        transform={`translate(${sourceArrowX}, ${sourceArrowY}) rotate(${sourceArrowAngle + 90})`}
+                                        style={{ cursor: 'pointer' }}
+                                        onClick={(e) => handleArrowClick(sourceNode.id, e)}
+                                        onMouseDown={(e) => e.stopPropagation()}
+                                      >
+                                        {/* Glow effect for arrow - only when selected or hovered */}
+                                        {(isSelected || isHovered) && (
+                                          <polygon
+                                            points="-12,15 12,15 0,-15"
+                                            fill={edgeColor}
+                                            stroke={edgeColor}
+                                            strokeWidth="8"
+                                            strokeLinejoin="round"
+                                            strokeLinecap="round"
+                                            opacity={isSelected ? "0.3" : "0.2"}
+                                            style={{
+                                              filter: `drop-shadow(0 0 6px ${edgeColor})`
+                                            }}
+                                          />
+                                        )}
+                                        <polygon
+                                          points="-18,22 18,22 0,-22"
+                                          fill={edgeColor}
+                                          stroke={edgeColor}
+                                          strokeWidth="6"
+                                          strokeLinejoin="round"
+                                          strokeLinecap="round"
+                                          paintOrder="stroke fill"
+                                        />
+                                      </g>
+                                    )}
+
+                                    {/* Destination Arrow - visible if arrow points toward destination node */}
+                                    {arrowsToward.has(destNode.id) && (
+                                      <g
+                                        data-arrow="dest"
+                                        transform={`translate(${destArrowX}, ${destArrowY}) rotate(${destArrowAngle + 90})`}
+                                        style={{ cursor: 'pointer' }}
+                                        onClick={(e) => handleArrowClick(destNode.id, e)}
+                                        onMouseDown={(e) => e.stopPropagation()}
+                                      >
+                                        {/* Glow effect for arrow - only when selected or hovered */}
+                                        {(isSelected || isHovered) && (
+                                          <polygon
+                                            points="-12,15 12,15 0,-15"
+                                            fill={edgeColor}
+                                            stroke={edgeColor}
+                                            strokeWidth="8"
+                                            strokeLinejoin="round"
+                                            strokeLinecap="round"
+                                            opacity={isSelected ? "0.3" : "0.2"}
+                                            style={{
+                                              filter: `drop-shadow(0 0 6px ${edgeColor})`
+                                            }}
+                                          />
+                                        )}
+                                        <polygon
+                                          points="-18,22 18,22 0,-22"
+                                          fill={edgeColor}
+                                          stroke={edgeColor}
+                                          strokeWidth="6"
+                                          strokeLinejoin="round"
+                                          strokeLinecap="round"
+                                          paintOrder="stroke fill"
+                                        />
+                                      </g>
+                                    )}
+
+                                    {/* Hover Dots - visible when hovering straight edges or curved parallel edges */}
+                                    {isHovered && (!enableAutoRouting || routingStyle === 'straight' || useCurve) && (
+                                      <>
+                                        {/* Source Dot - only show if arrow not pointing toward source */}
+                                        {!arrowsToward.has(sourceNode.id) && (
+                                          <g>
+                                            <circle
+                                              cx={sourceArrowX}
+                                              cy={sourceArrowY}
+                                              r="20"
+                                              fill="transparent"
+                                              style={{ cursor: 'pointer' }}
+                                              onClick={(e) => handleArrowClick(sourceNode.id, e)}
+                                              onMouseDown={(e) => e.stopPropagation()}
+                                            />
+                                            <circle
+                                              cx={sourceArrowX}
+                                              cy={sourceArrowY}
+                                              r="16"
+                                              fill={edgeColor}
+                                              style={{ pointerEvents: 'none' }}
+                                            />
+                                          </g>
+                                        )}
+
+                                        {/* Destination Dot - only show if arrow not pointing toward destination */}
+                                        {!arrowsToward.has(destNode.id) && (
+                                          <g>
+                                            <circle
+                                              cx={destArrowX}
+                                              cy={destArrowY}
+                                              r="20"
+                                              fill="transparent"
+                                              style={{ cursor: 'pointer' }}
+                                              onClick={(e) => handleArrowClick(destNode.id, e)}
+                                              onMouseDown={(e) => e.stopPropagation()}
+                                            />
+                                            <circle
+                                              cx={destArrowX}
+                                              cy={destArrowY}
+                                              r="16"
+                                              fill={edgeColor}
+                                              style={{ pointerEvents: 'none' }}
+                                            />
+                                          </g>
+                                        )}
+                                      </>
+                                    )}
+                                  </>
+                                );
+                              })()}
+
+                              {/* Connection name text — rendered after arrows so labels appear on top */}
+                              {showConnectionNames && (() => {
+                                const connectionFontSize = 24 * (textSettings?.fontSize || 1);
+                                let midX;
+                                let midY;
+                                let angle;
+                                if (enableAutoRouting && routingStyle === 'manhattan') {
+                                  const horizontalLen = Math.abs(endX - startX);
+                                  const verticalLen = Math.abs(endY - startY);
+                                  if (horizontalLen >= verticalLen) {
+                                    midX = (startX + endX) / 2;
+                                    midY = startY;
+                                    angle = 0;
+                                  } else {
+                                    midX = endX;
+                                    midY = (startY + endY) / 2;
+                                    angle = 90;
+                                  }
+                                } else {
+                                  // Use utility-calculated apex for curves, midpoint for lines
+                                  // Use labelPlacementPath (visible segment) for accurate centering
+                                  midX = labelPlacementPath.apexX;
+                                  midY = labelPlacementPath.apexY;
+                                  angle = labelPlacementPath.labelAngle;
+                                }
+
+                                // Determine connection name to display
+                                let connectionName = 'Connection';
+                                if (edge.definitionNodeIds && edge.definitionNodeIds.length > 0) {
+                                  const definitionNode = nodePrototypesMap.get(edge.definitionNodeIds[0]);
+                                  if (definitionNode) {
+                                    connectionName = definitionNode.name || 'Connection';
+                                  }
+                                } else if (edge.typeNodeId) {
+                                  const edgePrototype = edgePrototypesMap.get(edge.typeNodeId);
+                                  if (edgePrototype) {
+                                    connectionName = edgePrototype.name || 'Connection';
+                                  }
+                                }
+
+                                // Smart label placement based on routing style
+                                if (enableAutoRouting && routingStyle === 'manhattan') {
+                                  // Always try cached placement first to prevent flicker (except during dragging)
+                                  const cached = placedLabelsRef.current.get(edge.id);
+                                  if (cached && cached.position && !draggingNodeInfo) {
+                                    const stabilized = stabilizeLabelPosition(edge.id, cached.position.x, cached.position.y, cached.position.angle || 0);
+                                    midX = stabilized.x;
+                                    midY = stabilized.y;
+                                    angle = stabilized.angle || 0;
+                                  } else {
+                                    const pathPoints = generateManhattanRoutingPath(edge, sourceNode, destNode, sNodeDims, eNodeDims, manhattanBends);
+                                    const placement = chooseLabelPlacement(pathPoints, connectionName, nodes, visibleNodeIds, baseDimsById, placedLabelsRef.current, connectionFontSize, edge.id, selectedInstanceIds);
+                                    if (placement) {
+                                      midX = placement.x;
+                                      midY = placement.y;
+                                      angle = placement.angle || 0;
+
+                                      // Register this label placement
+                                      const labelRect = {
+                                        minX: midX - estimateTextWidth(connectionName, connectionFontSize) / 2,
+                                        maxX: midX + estimateTextWidth(connectionName, connectionFontSize) / 2,
+                                        minY: midY - connectionFontSize * 1.1 / 2,
+                                        maxY: midY + connectionFontSize * 1.1 / 2,
+                                      };
+                                      const stabilized = stabilizeLabelPosition(edge.id, midX, midY, angle);
+                                      placedLabelsRef.current.set(edge.id, {
+                                        rect: labelRect,
+                                        position: { x: stabilized.x, y: stabilized.y, angle: stabilized.angle }
+                                      });
+                                    } else {
+                                      // Fallback to simple Manhattan logic
+                                      const horizontalLen = Math.abs(endX - startX);
+                                      const verticalLen = Math.abs(endY - startY);
+                                      if (horizontalLen >= verticalLen) {
+                                        midX = (startX + endX) / 2;
+                                        midY = startY;
+                                        angle = 0;
+                                      } else {
+                                        midX = endX;
+                                        midY = (startY + endY) / 2;
+                                        angle = 90;
+                                      }
+                                    }
+                                  }
+                                } else if (enableAutoRouting && routingStyle === 'clean') {
+                                  // Always try cached placement first to prevent flicker (except during dragging)
+                                  const cached = placedLabelsRef.current.get(edge.id);
+                                  if (cached && cached.position && !draggingNodeInfo) {
+                                    const stabilized = stabilizeLabelPosition(edge.id, cached.position.x, cached.position.y, cached.position.angle || 0);
+                                    midX = stabilized.x;
+                                    midY = stabilized.y;
+                                    angle = stabilized.angle || 0;
+                                  } else {
+                                    const pathPoints = generateCleanRoutingPath(edge, sourceNode, destNode, sNodeDims, eNodeDims, cleanLaneOffsets, cleanLaneSpacing);
+                                    const placement = chooseLabelPlacement(pathPoints, connectionName, nodes, visibleNodeIds, baseDimsById, placedLabelsRef.current, connectionFontSize, edge.id, selectedInstanceIds);
+                                    if (placement) {
+                                      midX = placement.x;
+                                      midY = placement.y;
+                                      angle = placement.angle || 0;
+
+                                      // Register this label placement
+                                      const labelRect = {
+                                        minX: midX - estimateTextWidth(connectionName, connectionFontSize) / 2,
+                                        maxX: midX + estimateTextWidth(connectionName, connectionFontSize) / 2,
+                                        minY: midY - connectionFontSize * 1.1 / 2,
+                                        maxY: midY + connectionFontSize * 1.1 / 2,
+                                      };
+                                      const stabilized = stabilizeLabelPosition(edge.id, midX, midY, angle);
+                                      placedLabelsRef.current.set(edge.id, {
+                                        rect: labelRect,
+                                        position: { x: stabilized.x, y: stabilized.y, angle: stabilized.angle }
+                                      });
+                                    } else {
+                                      // Fallback to midpoint
+                                      midX = (x1 + x2) / 2;
+                                      midY = (y1 + y2) / 2;
+                                      angle = 0;
+                                    }
+                                  }
+                                }
+                                // For straight/curved routing, midX/midY/angle are already set from parallelPath above
+
+                                // Adjust angle to keep text readable (never upside down)
+                                const adjustedAngle = (angle > 90 || angle < -90) ? angle + 180 : angle;
+
+                                return (
+                                  <g>
+                                    {/* Canvas-colored text creating a "hole" effect in the connection */}
+                                    <text
+                                      x={midX}
+                                      y={midY}
+                                      fill={getLightHueText(edgeColor)}
+                                      fontSize={connectionFontSize}
+                                      fontWeight="bold"
+                                      textAnchor="middle"
+                                      dominantBaseline="middle"
+                                      transform={`rotate(${adjustedAngle}, ${midX}, ${midY})`}
+                                      stroke={getDarkHueText(edgeColor)}
+                                      strokeWidth="8"
+                                      strokeLinecap="round"
+                                      strokeLinejoin="round"
+                                      paintOrder="stroke fill"
+                                      style={{ pointerEvents: 'none', fontFamily: "'EmOne', sans-serif" }}
+                                    >
+                                      {connectionName}
+                                    </text>
+                                  </g>
+                                );
+                              })()}
+                            </g>
+                          );
+                        })}
+                        {/* Groups Phase 2: Thing-group backgrounds (above normal edges, below thing-group edges) */}
+                        {nodeGroupBackgroundsRef.current}
+                        {/* Edges above node-groups: connect to thing-group members (non-anchor) */}
+                        {edgesAboveNodeGroups.map((edge, idx) => {
+                          let sourceNode = nodeById.get(edge.sourceId);
+                          let destNode = nodeById.get(edge.destinationId);
+
+                          if (!sourceNode || !destNode) {
+                            return null;
+                          }
+                          // For anchor nodes, use current-frame ref positions and title dimensions
+                          const sAnchorInfo = sourceNode.isGroupAnchor ? anchorPositionUpdatesRef.current.get(sourceNode.id) : null;
+                          const eAnchorInfo = destNode.isGroupAnchor ? anchorPositionUpdatesRef.current.get(destNode.id) : null;
+                          if (sAnchorInfo) sourceNode = { ...sourceNode, x: sAnchorInfo.x, y: sAnchorInfo.y };
+                          if (eAnchorInfo) destNode = { ...destNode, x: eAnchorInfo.x, y: eAnchorInfo.y };
+                          const sNodeDims = sAnchorInfo
+                            ? { currentWidth: sAnchorInfo.width, currentHeight: sAnchorInfo.height }
+                            : (baseDimsById.get(sourceNode.id) || getNodeDimensions(sourceNode, false, null));
+                          const eNodeDims = eAnchorInfo
+                            ? { currentWidth: eAnchorInfo.width, currentHeight: eAnchorInfo.height }
+                            : (baseDimsById.get(destNode.id) || getNodeDimensions(destNode, false, null));
+                          const isSNodePreviewing = previewingNodeId === sourceNode.id;
+                          const isENodePreviewing = previewingNodeId === destNode.id;
+
+                          if (edge.sourceId === edge.destinationId) {
+                            const isHovered = !draggingNodeInfo && hoveredEdgeInfo?.edgeId === edge.id;
+                            const isSelected = selectedEdgeId === edge.id || selectedEdgeIds.has(edge.id);
+                            let selfColor = sourceNode.color || NODE_DEFAULT_COLOR;
+                            let selfConnectionName = 'Connection';
+                            if (edge.definitionNodeIds && edge.definitionNodeIds.length > 0) {
+                              const defProto = nodePrototypesMap.get(edge.definitionNodeIds[0]);
+                              if (defProto) {
+                                selfColor = defProto.color || selfColor;
+                                selfConnectionName = defProto.name || selfConnectionName;
+                              }
+                            } else if (edge.typeNodeId) {
+                              if (edge.typeNodeId === 'base-connection-prototype') {
+                                selfColor = '#000000';
+                              } else {
+                                const proto = edgePrototypesMap.get(edge.typeNodeId);
+                                if (proto) {
+                                  selfColor = proto.color || selfColor;
+                                  selfConnectionName = proto.name || selfConnectionName;
+                                }
+                              }
+                            }
+                            const selfFontSize = 24 * (textSettings?.fontSize || 1);
+                            return (
+                              <SelfLoopEdge
+                                key={`edge-${edge.id}`}
+                                edge={edge}
+                                node={sourceNode}
+                                nodeDims={sNodeDims}
+                                curveInfo={edgeCurveInfo.get(edge.id)}
+                                isHovered={isHovered}
+                                isSelected={isSelected}
+                                edgeColor={selfColor}
+                                showConnectionNames={showConnectionNames}
+                                selectedEdgeIds={selectedEdgeIds}
+                                storeActions={storeActions}
+                                ignoreCanvasClick={ignoreCanvasClick}
+                                setLongPressingInstanceId={setLongPressingInstanceId}
+                                setDrawingConnectionFrom={setDrawingConnectionFrom}
+                                handleEdgePointerDownTouch={handleEdgePointerDownTouch}
+                                connectionName={selfConnectionName}
+                                connectionFontSize={selfFontSize}
+                                placedLabelsRef={placedLabelsRef}
                               />
+                            );
+                          }
+
+                          // Check if this is a directed edge (has arrows)
+                          const arrowsToward = edge.directionality?.arrowsToward instanceof Set
+                            ? edge.directionality.arrowsToward
+                            : new Set(Array.isArray(edge.directionality?.arrowsToward) ? edge.directionality.arrowsToward : []);
+
+                          // Check which ends have arrows
+                          const hasSourceArrow = arrowsToward.has(sourceNode.id);
+                          const hasDestArrow = arrowsToward.has(destNode.id);
+                          const isDirected = arrowsToward.size > 0;
+
+                          // Connection endpoint calculation
+                          let x1, y1, x2, y2;
+                          if (enableAutoRouting && (routingStyle === 'manhattan' || routingStyle === 'clean')) {
+                            // Port-based routing - use centers as base (ports will override later)
+                            x1 = sourceNode.x + sNodeDims.currentWidth / 2;
+                            y1 = sourceNode.y + (isSNodePreviewing ? NODE_HEIGHT / 2 : sNodeDims.currentHeight / 2);
+                            x2 = destNode.x + eNodeDims.currentWidth / 2;
+                            y2 = destNode.y + (isENodePreviewing ? NODE_HEIGHT / 2 : eNodeDims.currentHeight / 2);
+                          } else if (isDirected && (hasSourceArrow || hasDestArrow)) {
+                            // Directed connections: calculate each endpoint based on whether it has an arrow
+                            // Sides with arrows draw to edge, sides without arrows draw to center
+                            const centerX1 = sourceNode.x + sNodeDims.currentWidth / 2;
+                            const centerY1 = sourceNode.y + (isSNodePreviewing ? NODE_HEIGHT / 2 : sNodeDims.currentHeight / 2);
+                            const centerX2 = destNode.x + eNodeDims.currentWidth / 2;
+                            const centerY2 = destNode.y + (isENodePreviewing ? NODE_HEIGHT / 2 : eNodeDims.currentHeight / 2);
+
+                            if (hasSourceArrow || hasDestArrow) {
+                              // Use edge-based calculation, then selectively apply results
+                              const endpoints = getVisualConnectionEndpoints(
+                                sourceNode, destNode,
+                                sNodeDims, eNodeDims,
+                                selectedInstanceIds.has(sourceNode.id),
+                                selectedInstanceIds.has(destNode.id)
+                              );
+
+                              // Source: use edge if has arrow, otherwise center
+                              x1 = hasSourceArrow ? endpoints.x1 : centerX1;
+                              y1 = hasSourceArrow ? endpoints.y1 : centerY1;
+
+                              // Dest: use edge if has arrow, otherwise center
+                              x2 = hasDestArrow ? endpoints.x2 : centerX2;
+                              y2 = hasDestArrow ? endpoints.y2 : centerY2;
+                            } else {
+                              // Fallback to centers (shouldn't reach here due to outer if condition)
+                              x1 = centerX1;
+                              y1 = centerY1;
+                              x2 = centerX2;
+                              y2 = centerY2;
+                            }
+                          } else {
+                            // Non-directed connections: use centers for traditional appearance
+                            x1 = sourceNode.x + sNodeDims.currentWidth / 2;
+                            y1 = sourceNode.y + (isSNodePreviewing ? NODE_HEIGHT / 2 : sNodeDims.currentHeight / 2);
+                            x2 = destNode.x + eNodeDims.currentWidth / 2;
+                            y2 = destNode.y + (isENodePreviewing ? NODE_HEIGHT / 2 : eNodeDims.currentHeight / 2);
+                          }
+
+                          // Suppress edge hover (connection dots, hover-widened arrows, etc.)
+                          // while dragging — the dots would otherwise freeze at the last
+                          // hovered position instead of tracking the moving node.
+                          const isHovered = !draggingNodeInfo && hoveredEdgeInfo?.edgeId === edge.id;
+                          const isSelected = selectedEdgeId === edge.id || selectedEdgeIds.has(edge.id);
+
+
+
+
+                          // Get edge color - prioritize definitionNodeIds for custom types, then typeNodeId for base types
+                          const getEdgeColor = () => {
+                            // First check definitionNodeIds (for custom connection types set via control panel)
+                            if (edge.definitionNodeIds && edge.definitionNodeIds.length > 0) {
+                              const definitionNode = nodePrototypesMap.get(edge.definitionNodeIds[0]);
+                              if (definitionNode) {
+                                return definitionNode.color || NODE_DEFAULT_COLOR;
+                              }
+                            }
+
+                            // Then check typeNodeId (for base connection type)
+                            if (edge.typeNodeId) {
+                              // Special handling for base connection prototype - ensure it's black
+                              if (edge.typeNodeId === 'base-connection-prototype') {
+                                return '#000000'; // Black color for base connection
+                              }
+                              const edgePrototype = edgePrototypesMap.get(edge.typeNodeId);
+                              if (edgePrototype) {
+                                return edgePrototype.color || NODE_DEFAULT_COLOR;
+                              }
+                            }
+
+                            return destNode.color || NODE_DEFAULT_COLOR;
+                          };
+                          const edgeColor = getEdgeColor();
+
+                          // Calculate arrow position and rotation
+                          const dx = x2 - x1;
+                          const dy = y2 - y1;
+                          const length = Math.sqrt(dx * dx + dy * dy);
+
+                          // Helper function to calculate edge intersection with rectangular nodes
+                          const getNodeEdgeIntersection = (nodeX, nodeY, nodeWidth, nodeHeight, dirX, dirY) => {
+                            const centerX = nodeX + nodeWidth / 2;
+                            const centerY = nodeY + nodeHeight / 2;
+                            const halfWidth = nodeWidth / 2;
+                            const halfHeight = nodeHeight / 2;
+                            const intersections = [];
+
+                            if (dirX > 0) {
+                              const t = halfWidth / dirX;
+                              const y = dirY * t;
+                              if (Math.abs(y) <= halfHeight) intersections.push({ x: centerX + halfWidth, y: centerY + y, distance: t });
+                            }
+                            if (dirX < 0) {
+                              const t = -halfWidth / dirX;
+                              const y = dirY * t;
+                              if (Math.abs(y) <= halfHeight) intersections.push({ x: centerX - halfWidth, y: centerY + y, distance: t });
+                            }
+                            if (dirY > 0) {
+                              const t = halfHeight / dirY;
+                              const x = dirX * t;
+                              if (Math.abs(x) <= halfWidth) intersections.push({ x: centerX + x, y: centerY + halfHeight, distance: t });
+                            }
+                            if (dirY < 0) {
+                              const t = -halfHeight / dirY;
+                              const x = dirX * t;
+                              if (Math.abs(x) <= halfWidth) intersections.push({ x: centerX + x, y: centerY - halfHeight, distance: t });
+                            }
+
+                            return intersections.reduce((closest, current) =>
+                              !closest || current.distance < closest.distance ? current : closest, null);
+                          };
+
+                          // Calculate edge intersections
+                          const sourceIntersection = getNodeEdgeIntersection(
+                            sourceNode.x, sourceNode.y, sNodeDims.currentWidth, sNodeDims.currentHeight,
+                            dx / length, dy / length
+                          );
+
+                          const destIntersection = getNodeEdgeIntersection(
+                            destNode.x, destNode.y, eNodeDims.currentWidth, eNodeDims.currentHeight,
+                            -dx / length, -dy / length
+                          );
+
+                          // Determine if each end of the edge should be shortened for arrows
+                          // (arrowsToward already calculated earlier for endpoint logic)
+
+                          // Check if this is a curved edge (parallel edge with non-zero offset)
+                          // The middle edge in an odd-numbered group has offset 0 and is straight
+                          const curveInfo = edgeCurveInfo.get(edge.id);
+                          let isCurvedEdge = false;
+                          if (curveInfo && curveInfo.totalInPair > 1) {
+                            const centerIndex = (curveInfo.totalInPair - 1) / 2;
+                            const offsetSteps = curveInfo.pairIndex - centerIndex;
+                            isCurvedEdge = offsetSteps !== 0;
+                          }
+
+                          // Only shorten connections at ends with arrows or hover state
+                          // For curved edges, NEVER change endpoints - we use trimmed paths instead
+                          // This ensures the curve shape stays consistent
+                          let shouldShortenSource = isCurvedEdge
+                            ? false  // Never change curve endpoints
+                            : (isHovered || arrowsToward.has(sourceNode.id));
+                          let shouldShortenDest = isCurvedEdge
+                            ? false  // Never change curve endpoints
+                            : (isHovered || arrowsToward.has(destNode.id));
+                          if (enableAutoRouting && routingStyle === 'manhattan') {
+                            // In Manhattan mode, never shorten for hover—only for actual arrows
+                            shouldShortenSource = arrowsToward.has(sourceNode.id);
+                            shouldShortenDest = arrowsToward.has(destNode.id);
+                          }
+
+                          // Determine actual start/end points for rendering
+                          let startX, startY, endX, endY;
+
+                          // For clean routing, use assigned ports; otherwise use intersection-based positioning
+                          if (enableAutoRouting && routingStyle === 'clean') {
+                            const portAssignment = cleanLaneOffsets.get(edge.id);
+                            if (portAssignment) {
+                              const { sourcePort, destPort } = portAssignment;
+
+                              // Check if this edge has directional arrows
+                              const hasSourceArrow = arrowsToward.has(sourceNode.id);
+                              const hasDestArrow = arrowsToward.has(destNode.id);
+
+                              // Use ports for directional connections, centers for non-directional
+                              startX = hasSourceArrow ? sourcePort.x : x1;
+                              startY = hasSourceArrow ? sourcePort.y : y1;
+                              endX = hasDestArrow ? destPort.x : x2;
+                              endY = hasDestArrow ? destPort.y : y2;
+                            } else {
+                              // Fallback to node centers for clean routing
+                              startX = x1;
+                              startY = y1;
+                              endX = x2;
+                              endY = y2;
+                            }
+                          } else {
+                            // Use intersection-based positioning for other routing modes.
+                            // Visible LINE endpoint uses the 4px-inset variant so the round
+                            // line cap (strokeLinecap="round", strokeWidth=6 → cap radius 3)
+                            // stops cleanly behind the arrow polygon's flat base. Arrow
+                            // placement still uses sourceIntersection/destIntersection (no
+                            // inset) downstream, so the arrow tip anchors at the literal
+                            // border.
+                            const insetLineEndpoints = (shouldShortenSource || shouldShortenDest)
+                              ? getVisualConnectionEndpoints(
+                                sourceNode, destNode, sNodeDims, eNodeDims,
+                                selectedInstanceIds.has(sourceNode.id),
+                                selectedInstanceIds.has(destNode.id)
+                              )
+                              : null;
+                            startX = shouldShortenSource ? (insetLineEndpoints?.x1 ?? sourceIntersection?.x ?? x1) : x1;
+                            startY = shouldShortenSource ? (insetLineEndpoints?.y1 ?? sourceIntersection?.y ?? y1) : y1;
+                            endX = shouldShortenDest ? (insetLineEndpoints?.x2 ?? destIntersection?.x ?? x2) : x2;
+                            endY = shouldShortenDest ? (insetLineEndpoints?.y2 ?? destIntersection?.y ?? y2) : y2;
+                          }
+
+                          // Predeclare Manhattan path info for safe use below
+                          let manhattanPathD = null;
+                          let manhattanSourceSide = null;
+                          let manhattanDestSide = null;
+
+                          // When using Manhattan routing, snap to 4 node ports (midpoints of each side)
+                          if (enableAutoRouting && routingStyle === 'manhattan') {
+                            const sCenterX = sourceNode.x + sNodeDims.currentWidth / 2;
+                            const sCenterY = sourceNode.y + sNodeDims.currentHeight / 2;
+                            const dCenterX = destNode.x + eNodeDims.currentWidth / 2;
+                            const dCenterY = destNode.y + eNodeDims.currentHeight / 2;
+
+                            const sPorts = {
+                              top: { x: sCenterX, y: sourceNode.y },
+                              bottom: { x: sCenterX, y: sourceNode.y + sNodeDims.currentHeight },
+                              left: { x: sourceNode.x, y: sCenterY },
+                              right: { x: sourceNode.x + sNodeDims.currentWidth, y: sCenterY },
+                            };
+                            const dPorts = {
+                              top: { x: dCenterX, y: destNode.y },
+                              bottom: { x: dCenterX, y: destNode.y + eNodeDims.currentHeight },
+                              left: { x: destNode.x, y: dCenterY },
+                              right: { x: destNode.x + eNodeDims.currentWidth, y: dCenterY },
+                            };
+
+                            const relDx = dCenterX - sCenterX;
+                            const relDy = dCenterY - sCenterY;
+                            let sPort, dPort;
+                            if (Math.abs(relDx) >= Math.abs(relDy)) {
+                              // Prefer horizontal ports
+                              sPort = relDx >= 0 ? sPorts.right : sPorts.left;
+                              dPort = relDx >= 0 ? dPorts.left : dPorts.right;
+                            } else {
+                              // Prefer vertical ports
+                              sPort = relDy >= 0 ? sPorts.bottom : sPorts.top;
+                              dPort = relDy >= 0 ? dPorts.top : dPorts.bottom;
+                            }
+                            startX = sPort.x;
+                            startY = sPort.y;
+                            endX = dPort.x;
+                            endY = dPort.y;
+
+                            // Determine sides for perpendicular entry/exit
+                            const sSide = (Math.abs(startY - sourceNode.y) < 0.5) ? 'top'
+                              : (Math.abs(startY - (sourceNode.y + sNodeDims.currentHeight)) < 0.5) ? 'bottom'
+                                : (Math.abs(startX - sourceNode.x) < 0.5) ? 'left' : 'right';
+                            const dSide = (Math.abs(endY - destNode.y) < 0.5) ? 'top'
+                              : (Math.abs(endY - (destNode.y + eNodeDims.currentHeight)) < 0.5) ? 'bottom'
+                                : (Math.abs(endX - destNode.x) < 0.5) ? 'left' : 'right';
+                            const initOrient = (sSide === 'left' || sSide === 'right') ? 'H' : 'V';
+                            const finalOrient = (dSide === 'left' || dSide === 'right') ? 'H' : 'V';
+
+                            const effectiveBends = (manhattanBends === 'auto')
+                              ? (initOrient === finalOrient ? 'two' : 'one')
+                              : manhattanBends;
+
+                            // Local helpers declared before use to avoid hoisting issues
+                            const cornerRadiusLocal = 8;
+                            const buildRoundedLPathOriented = (sx, sy, ex, ey, r, firstOrientation /* 'H' | 'V' */) => {
+                              if (firstOrientation === 'H') {
+                                if (sx === ex || sy === ey) {
+                                  return `M ${sx},${sy} L ${ex},${ey}`;
+                                }
+                                const signX = ex > sx ? 1 : -1;
+                                const signY = ey > sy ? 1 : -1;
+                                const cornerX = ex;
+                                const cornerY = sy;
+                                const hx = cornerX - signX * r;
+                                const hy = cornerY;
+                                const vx = cornerX;
+                                const vy = cornerY + signY * r;
+                                return `M ${sx},${sy} L ${hx},${hy} Q ${cornerX},${cornerY} ${vx},${vy} L ${ex},${ey}`;
+                              } else {
+                                if (sx === ex || sy === ey) {
+                                  return `M ${sx},${sy} L ${ex},${ey}`;
+                                }
+                                const signX = ex > sx ? 1 : -1;
+                                const signY = ey > sy ? 1 : -1;
+                                const cornerX = sx;
+                                const cornerY = ey;
+                                const vx = cornerX;
+                                const vy = cornerY - signY * r;
+                                const hx = cornerX + signX * r;
+                                const hy = cornerY;
+                                return `M ${sx},${sy} L ${vx},${vy} Q ${cornerX},${cornerY} ${hx},${hy} L ${ex},${ey}`;
+                              }
+                            };
+                            const buildRoundedZPathOriented = (sx, sy, ex, ey, r, pattern /* 'HVH' | 'VHV' */) => {
+                              if (sx === ex || sy === ey) {
+                                return `M ${sx},${sy} L ${ex},${ey}`;
+                              }
+                              if (pattern === 'HVH') {
+                                // Horizontal → Vertical → Horizontal with rounded corners at both bends
+                                const midX = (sx + ex) / 2;
+                                const signX1 = midX >= sx ? 1 : -1; // initial horizontal direction
+                                const signY = ey >= sy ? 1 : -1;     // vertical direction
+                                const signX2 = ex >= midX ? 1 : -1;  // final horizontal direction
+                                const hx1 = midX - signX1 * r;       // before first corner
+                                const vy1 = sy + signY * r;          // after first corner
+                                const vy2 = ey - signY * r;          // before second corner
+                                const hx2 = midX + signX2 * r;       // after second corner
+                                return `M ${sx},${sy} L ${hx1},${sy} Q ${midX},${sy} ${midX},${vy1} L ${midX},${vy2} Q ${midX},${ey} ${hx2},${ey} L ${ex},${ey}`;
+                              } else {
+                                // Vertical → Horizontal → Vertical with rounded corners at both bends
+                                const midY = (sy + ey) / 2;
+                                const signY1 = midY >= sy ? 1 : -1;  // initial vertical direction
+                                const signX = ex >= sx ? 1 : -1;      // horizontal direction (same for both H segments)
+                                const signY2 = ey >= midY ? 1 : -1;   // final vertical direction
+                                const vy1 = midY - signY1 * r;        // before first corner
+                                const hx1 = sx + signX * r;           // after first corner
+                                const hx2 = ex - signX * r;           // before second corner
+                                const vy2 = midY + signY2 * r;        // after second corner
+                                return `M ${sx},${sy} L ${sx},${vy1} Q ${sx},${midY} ${hx1},${midY} L ${hx2},${midY} Q ${ex},${midY} ${ex},${vy2} L ${ex},${ey}`;
+                              }
+                            };
+                            let pathD;
+                            if (effectiveBends === 'two' && initOrient === finalOrient) {
+                              pathD = (initOrient === 'H')
+                                ? buildRoundedZPathOriented(startX, startY, endX, endY, cornerRadiusLocal, 'HVH')
+                                : buildRoundedZPathOriented(startX, startY, endX, endY, cornerRadiusLocal, 'VHV');
+                            } else {
+                              pathD = buildRoundedLPathOriented(startX, startY, endX, endY, cornerRadiusLocal, initOrient);
+                            }
+
+                            // Assign for rendering and arrow logic
+                            manhattanPathD = pathD;
+                            manhattanSourceSide = sSide;
+                            manhattanDestSide = dSide;
+                          }
+
+                          // Calculate parallel edge path using centralized utility
+                          // Note: curveInfo was already retrieved earlier for shouldShorten logic
+                          const parallelPath = calculateParallelEdgePath(startX, startY, endX, endY, curveInfo);
+                          const useCurve = parallelPath.type === 'curve';
+
+                          // For label placement, always use the visible segment (edge-to-edge)
+                          // This ensures labels are centered on the visible portion, not the drawn portion
+                          const visibleEndpoints = getVisualConnectionEndpoints(
+                            sourceNode, destNode,
+                            sNodeDims, eNodeDims,
+                            selectedInstanceIds.has(sourceNode.id),
+                            selectedInstanceIds.has(destNode.id)
+                          );
+                          const labelPlacementPath = calculateParallelEdgePath(
+                            visibleEndpoints.x1, visibleEndpoints.y1,
+                            visibleEndpoints.x2, visibleEndpoints.y2,
+                            curveInfo
+                          );
+
+                          // For hover effect or arrows on curved edges, trim the curve to create "shorten" visual
+                          // This keeps the curve shape consistent but renders a shorter portion
+                          let trimmedPath = null;
+                          const shouldTrimCurve = useCurve && parallelPath.ctrlX !== null &&
+                            (isHovered || arrowsToward.has(sourceNode.id) || arrowsToward.has(destNode.id));
+                          if (shouldTrimCurve) {
+                            trimmedPath = getTrimmedBezierPath(
+                              parallelPath.startX, parallelPath.startY,
+                              parallelPath.ctrlX, parallelPath.ctrlY,
+                              parallelPath.endX, parallelPath.endY,
+                              0.08, 0.92  // Trim 8% from each end
+                            );
+                          }
+
+                          return (
+                            <g key={`edge-${edge.id}`} data-edge-id={edge.id}>
+                              {/* Main edge line - always same thickness */}
+                              {/* Glow effect for selected or hovered edge */}
+                              {(isSelected || isHovered) && (
+                                (enableAutoRouting && (routingStyle === 'manhattan' || routingStyle === 'clean')) ? (
+                                  <path
+                                    d={(routingStyle === 'manhattan') ? manhattanPathD : (() => {
+                                      // Use consistent clean routing path helper
+                                      const cleanPts = generateCleanRoutingPath(edge, sourceNode, destNode, sNodeDims, eNodeDims, cleanLaneOffsets, cleanLaneSpacing);
+                                      return buildRoundedPathFromPoints(cleanPts, 8);
+                                    })()}
+                                    fill="none"
+                                    stroke={edgeColor}
+                                    strokeWidth="12"
+                                    opacity={isSelected ? "0.3" : "0.2"}
+                                    style={{
+                                      filter: `drop-shadow(0 0 8px ${edgeColor})`
+                                    }}
+                                    strokeLinecap="round"
+                                  />
+                                ) : useCurve ? (
+                                  <path
+                                    d={trimmedPath ? trimmedPath.path : parallelPath.path}
+                                    fill="none"
+                                    stroke={edgeColor}
+                                    strokeWidth="12"
+                                    opacity={isSelected ? "0.3" : "0.2"}
+                                    style={{
+                                      filter: `drop-shadow(0 0 8px ${edgeColor})`
+                                    }}
+                                    strokeLinecap="round"
+                                  />
+                                ) : (
+                                  <line
+                                    x1={startX}
+                                    y1={startY}
+                                    x2={endX}
+                                    y2={endY}
+                                    stroke={edgeColor}
+                                    strokeWidth="12"
+                                    opacity={isSelected ? "0.3" : "0.2"}
+                                    style={{
+                                      filter: `drop-shadow(0 0 8px ${edgeColor})`
+                                    }}
+                                  />
+                                )
+                              )}
+
+                              {(enableAutoRouting && (routingStyle === 'manhattan' || routingStyle === 'clean')) ? (
+                                <>
+                                  {routingStyle === 'manhattan' && !arrowsToward.has(sourceNode.id) && (
+                                    <line x1={x1} y1={y1} x2={startX} y2={startY} stroke={edgeColor} strokeWidth="16" strokeLinecap="round" />
+                                  )}
+                                  {routingStyle === 'manhattan' && !arrowsToward.has(destNode.id) && (
+                                    <line x1={endX} y1={endY} x2={x2} y2={y2} stroke={edgeColor} strokeWidth="16" strokeLinecap="round" />
+                                  )}
+                                  <path
+                                    d={(routingStyle === 'manhattan') ? manhattanPathD : (() => {
+                                      // Use consistent clean routing path helper
+                                      const cleanPts = generateCleanRoutingPath(edge, sourceNode, destNode, sNodeDims, eNodeDims, cleanLaneOffsets, cleanLaneSpacing);
+                                      return buildRoundedPathFromPoints(cleanPts, 8);
+                                    })()}
+                                    fill="none"
+                                    stroke={edgeColor}
+                                    strokeWidth="16"
+                                    style={{ transition: 'stroke 0.2s ease' }}
+                                    strokeLinecap="round"
+                                  />
+                                </>
+                              ) : useCurve ? (
+                                <path
+                                  d={trimmedPath ? trimmedPath.path : parallelPath.path}
+                                  fill="none"
+                                  stroke={edgeColor}
+                                  strokeWidth="16"
+                                  style={{ transition: 'stroke 0.2s ease' }}
+                                  strokeLinecap="round"
+                                />
+                              ) : (
+                                <line
+                                  x1={startX}
+                                  y1={startY}
+                                  x2={endX}
+                                  y2={endY}
+                                  stroke={edgeColor}
+                                  strokeWidth="16"
+                                  style={{ transition: 'stroke 0.2s ease' }}
+                                />
+                              )}
+
+                              {/* Invisible click area for edge selection - matches hover detection */}
+                              {(enableAutoRouting && (routingStyle === 'manhattan' || routingStyle === 'clean')) ? (
+                                <path
+                                  d={(routingStyle === 'manhattan') ? manhattanPathD : (() => {
+                                    // Use consistent clean routing path helper
+                                    const cleanPts = generateCleanRoutingPath(edge, sourceNode, destNode, sNodeDims, eNodeDims, cleanLaneOffsets, cleanLaneSpacing);
+                                    return buildRoundedPathFromPoints(cleanPts, 8);
+                                  })()}
+                                  fill="none"
+                                  stroke="transparent"
+                                  strokeWidth="40"
+                                  style={{ cursor: 'pointer' }}
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+
+                                    // Handle multiple selection with Ctrl/Cmd key
+                                    if (e.ctrlKey || e.metaKey) {
+                                      // Toggle this edge in the multiple selection
+                                      if (selectedEdgeIds.has(edge.id)) {
+                                        storeActions.removeSelectedEdgeId(edge.id);
+                                      } else {
+                                        storeActions.addSelectedEdgeId(edge.id);
+                                      }
+                                    } else {
+                                      // Single selection - clear multiple selection and set single edge
+                                      storeActions.clearSelectedEdgeIds();
+                                      storeActions.setSelectedEdgeId(edge.id);
+                                    }
+                                  }}
+                                  onDoubleClick={(e) => {
+                                    e.stopPropagation();
+
+                                    // Find the defining node for this edge's connection type
+                                    let definingNodeId = null;
+
+                                    // Check definitionNodeIds first (for custom connection types)
+                                    if (edge.definitionNodeIds && edge.definitionNodeIds.length > 0) {
+                                      definingNodeId = edge.definitionNodeIds[0];
+                                    } else if (edge.typeNodeId) {
+                                      // Fallback to typeNodeId (for base connection type)
+                                      definingNodeId = edge.typeNodeId;
+                                    }
+
+                                    // Open the panel tab for the defining node
+                                    if (definingNodeId) {
+                                      storeActions.openRightPanelNodeTab(definingNodeId);
+                                    }
+                                  }}
+                                />
+                              ) : (
+                                <line
+                                  x1={x1}
+                                  y1={y1}
+                                  x2={x2}
+                                  y2={y2}
+                                  stroke="transparent"
+                                  strokeWidth="40"
+                                  style={{ cursor: 'pointer' }}
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+
+                                    // Handle multiple selection with Ctrl/Cmd key
+                                    if (e.ctrlKey || e.metaKey) {
+                                      // Toggle this edge in the multiple selection
+                                      if (selectedEdgeIds.has(edge.id)) {
+                                        storeActions.removeSelectedEdgeId(edge.id);
+                                      } else {
+                                        storeActions.addSelectedEdgeId(edge.id);
+                                      }
+                                    } else {
+                                      // Single selection - clear multiple selection and set single edge
+                                      storeActions.clearSelectedEdgeIds();
+                                      storeActions.setSelectedEdgeId(edge.id);
+                                    }
+                                  }}
+                                  onDoubleClick={(e) => {
+                                    e.stopPropagation();
+
+                                    // Find the defining node for this edge's connection type
+                                    let definingNodeId = null;
+
+                                    // Check definitionNodeIds first (for custom connection types)
+                                    if (edge.definitionNodeIds && edge.definitionNodeIds.length > 0) {
+                                      definingNodeId = edge.definitionNodeIds[0];
+                                    } else if (edge.typeNodeId) {
+                                      // Fallback to typeNodeId (for base connection type)
+                                      definingNodeId = edge.typeNodeId;
+                                    }
+
+                                    // Open the panel tab for the defining node
+                                    if (definingNodeId) {
+                                      storeActions.openRightPanelNodeTab(definingNodeId);
+                                    }
+                                  }}
+                                />
+                              )}
+
+                              {/* Smart directional arrows with clickable toggle */}
+                              {(() => {
+                                // Calculate arrow positions (use fallback if intersections fail)
+                                let sourceArrowX, sourceArrowY, destArrowX, destArrowY, sourceArrowAngle, destArrowAngle;
+
+                                // For curved edges, calculate arrow/dot positions along the curve
+                                if (useCurve && parallelPath.ctrlX !== null) {
+                                  const tSource = 0.08; // Position near source (8% along curve)
+                                  const tDest = 0.92;   // Position near dest (92% along curve)
+
+                                  // Get positions along the curve
+                                  const sourcePoint = getPointOnQuadraticBezier(
+                                    tSource,
+                                    parallelPath.startX, parallelPath.startY,
+                                    parallelPath.ctrlX, parallelPath.ctrlY,
+                                    parallelPath.endX, parallelPath.endY
+                                  );
+                                  const destPoint = getPointOnQuadraticBezier(
+                                    tDest,
+                                    parallelPath.startX, parallelPath.startY,
+                                    parallelPath.ctrlX, parallelPath.ctrlY,
+                                    parallelPath.endX, parallelPath.endY
+                                  );
+
+                                  sourceArrowX = sourcePoint.x;
+                                  sourceArrowY = sourcePoint.y;
+                                  destArrowX = destPoint.x;
+                                  destArrowY = destPoint.y;
+
+                                  // Calculate tangent angles at these points
+                                  // Derivative of quadratic Bézier: B'(t) = 2(1-t)(P1-P0) + 2t(P2-P1)
+                                  const calcTangentAngle = (t, x0, y0, cx, cy, x1, y1) => {
+                                    const invT = 1 - t;
+                                    const tangentX = 2 * invT * (cx - x0) + 2 * t * (x1 - cx);
+                                    const tangentY = 2 * invT * (cy - y0) + 2 * t * (y1 - cy);
+                                    return Math.atan2(tangentY, tangentX) * (180 / Math.PI);
+                                  };
+
+                                  // Source arrow points backward (toward source node)
+                                  const sourceTangent = calcTangentAngle(
+                                    tSource,
+                                    parallelPath.startX, parallelPath.startY,
+                                    parallelPath.ctrlX, parallelPath.ctrlY,
+                                    parallelPath.endX, parallelPath.endY
+                                  );
+                                  sourceArrowAngle = sourceTangent + 180; // Point back toward source
+
+                                  // Dest arrow points forward (toward dest node)
+                                  const destTangent = calcTangentAngle(
+                                    tDest,
+                                    parallelPath.startX, parallelPath.startY,
+                                    parallelPath.ctrlX, parallelPath.ctrlY,
+                                    parallelPath.endX, parallelPath.endY
+                                  );
+                                  destArrowAngle = destTangent; // Point toward dest
+                                } else if (enableAutoRouting && routingStyle === 'clean') {
+                                  // Clean mode: use actual port assignments for proper arrow positioning
+                                  const offset = 6;
+                                  const portAssignment = cleanLaneOffsets.get(edge.id);
+
+                                  if (portAssignment) {
+                                    const { sourcePort, destPort, sourceSide, destSide } = portAssignment;
+
+                                    // Position arrows pointing TOWARD the target node (into the edge)
+                                    // Arrow tip points toward the node, positioned outside the edge
+                                    switch (sourceSide) {
+                                      case 'top':
+                                        sourceArrowAngle = 90; // Arrow points down toward node
+                                        sourceArrowX = sourcePort.x;
+                                        sourceArrowY = sourcePort.y - offset;
+                                        break;
+                                      case 'bottom':
+                                        sourceArrowAngle = -90; // Arrow points up toward node
+                                        sourceArrowX = sourcePort.x;
+                                        sourceArrowY = sourcePort.y + offset;
+                                        break;
+                                      case 'left':
+                                        sourceArrowAngle = 0; // Arrow points right toward node
+                                        sourceArrowX = sourcePort.x - offset;
+                                        sourceArrowY = sourcePort.y;
+                                        break;
+                                      case 'right':
+                                        sourceArrowAngle = 180; // Arrow points left toward node
+                                        sourceArrowX = sourcePort.x + offset;
+                                        sourceArrowY = sourcePort.y;
+                                        break;
+                                    }
+
+                                    switch (destSide) {
+                                      case 'top':
+                                        destArrowAngle = 90; // Arrow points down toward node
+                                        destArrowX = destPort.x;
+                                        destArrowY = destPort.y - offset;
+                                        break;
+                                      case 'bottom':
+                                        destArrowAngle = -90; // Arrow points up toward node
+                                        destArrowX = destPort.x;
+                                        destArrowY = destPort.y + offset;
+                                        break;
+                                      case 'left':
+                                        destArrowAngle = 0; // Arrow points right toward node
+                                        destArrowX = destPort.x - offset;
+                                        destArrowY = destPort.y;
+                                        break;
+                                      case 'right':
+                                        destArrowAngle = 180; // Arrow points left toward node
+                                        destArrowX = destPort.x + offset;
+                                        destArrowY = destPort.y;
+                                        break;
+                                    }
+                                  } else {
+                                    // Fallback to center-based positioning
+                                    const deltaX = endX - startX;
+                                    const deltaY = endY - startY;
+                                    const isMainlyVertical = Math.abs(deltaY) > Math.abs(deltaX);
+
+                                    if (isMainlyVertical) {
+                                      sourceArrowAngle = deltaY > 0 ? -90 : 90;
+                                      sourceArrowX = startX;
+                                      sourceArrowY = startY + (deltaY > 0 ? offset : -offset);
+                                      destArrowAngle = deltaX > 0 ? 0 : 180;
+                                      destArrowX = endX + (deltaX > 0 ? -offset : offset);
+                                      destArrowY = endY;
+                                    } else {
+                                      sourceArrowAngle = deltaX > 0 ? 180 : 0;
+                                      sourceArrowX = startX + (deltaX > 0 ? offset : -offset);
+                                      sourceArrowY = startY;
+                                      destArrowAngle = deltaY > 0 ? 90 : -90;
+                                      destArrowX = endX;
+                                      destArrowY = endY + (deltaY > 0 ? -offset : offset);
+                                    }
+                                  }
+                                } else if (!sourceIntersection || !destIntersection) {
+                                  // Fallback positioning - arrows/dots closer to connection center  
+                                  const fallbackOffset = 20;
+                                  sourceArrowX = x1 + (dx / length) * fallbackOffset;
+                                  sourceArrowY = y1 + (dy / length) * fallbackOffset;
+                                  destArrowX = x2 - (dx / length) * fallbackOffset;
+                                  destArrowY = y2 - (dy / length) * fallbackOffset;
+                                  sourceArrowAngle = Math.atan2(-dy, -dx) * (180 / Math.PI);
+                                  destArrowAngle = Math.atan2(dy, dx) * (180 / Math.PI);
+                                } else if (enableAutoRouting && routingStyle === 'clean') {
+                                  // Clean routing arrow placement - position close to nodes for better visibility
+                                  const offset = 8; // Reduced offset for better visibility
+                                  const portAssignment = cleanLaneOffsets.get(edge.id);
+
+                                  if (portAssignment) {
+                                    const { sourcePort, destPort, sourceSide, destSide } = portAssignment;
+
+                                    // Position arrows close to the actual ports, pointing toward the nodes
+                                    switch (sourceSide) {
+                                      case 'top':
+                                        sourceArrowAngle = 90; // Arrow points down toward node
+                                        sourceArrowX = sourcePort.x;
+                                        sourceArrowY = sourcePort.y - offset;
+                                        break;
+                                      case 'bottom':
+                                        sourceArrowAngle = -90; // Arrow points up toward node
+                                        sourceArrowX = sourcePort.x;
+                                        sourceArrowY = sourcePort.y + offset;
+                                        break;
+                                      case 'left':
+                                        sourceArrowAngle = 0; // Arrow points right toward node
+                                        sourceArrowX = sourcePort.x - offset;
+                                        sourceArrowY = sourcePort.y;
+                                        break;
+                                      case 'right':
+                                        sourceArrowAngle = 180; // Arrow points left toward node
+                                        sourceArrowX = sourcePort.x + offset;
+                                        sourceArrowY = sourcePort.y;
+                                        break;
+                                    }
+
+                                    switch (destSide) {
+                                      case 'top':
+                                        destArrowAngle = 90; // Arrow points down toward node
+                                        destArrowX = destPort.x;
+                                        destArrowY = destPort.y - offset;
+                                        break;
+                                      case 'bottom':
+                                        destArrowAngle = -90; // Arrow points up toward node
+                                        destArrowX = destPort.x;
+                                        destArrowY = destPort.y + offset;
+                                        break;
+                                      case 'left':
+                                        destArrowAngle = 0; // Arrow points right toward node
+                                        destArrowX = destPort.x - offset;
+                                        destArrowY = destPort.y;
+                                        break;
+                                      case 'right':
+                                        destArrowAngle = 180; // Arrow points left toward node
+                                        destArrowX = destPort.x + offset;
+                                        destArrowY = destPort.y;
+                                        break;
+                                    }
+                                  } else {
+                                    // Fallback: position arrows close to node centers
+                                    sourceArrowX = startX;
+                                    sourceArrowY = startY;
+                                    sourceArrowAngle = Math.atan2(-dy, -dx) * (180 / Math.PI);
+                                    destArrowX = endX;
+                                    destArrowY = endY;
+                                    destArrowAngle = Math.atan2(dy, dx) * (180 / Math.PI);
+                                  }
+                                } else {
+                                  // Manhattan-aware arrow placement; falls back to straight orientation
+                                  const offset = 6;
+                                  if (enableAutoRouting && routingStyle === 'manhattan') {
+                                    // Destination arrow aligns to terminal segment into destination
+                                    const horizontalTerminal = Math.abs(endX - startX) > Math.abs(endY - startY);
+                                    if (horizontalTerminal) {
+                                      destArrowAngle = (endX >= startX) ? 0 : 180;
+                                      destArrowX = endX + ((endX >= startX) ? -offset : offset);
+                                      destArrowY = endY;
+                                    } else {
+                                      destArrowAngle = (endY >= startY) ? 90 : -90;
+                                      destArrowX = endX;
+                                      destArrowY = endY + ((endY >= startY) ? -offset : offset);
+                                    }
+                                    // Source arrow aligns to initial segment out of source (pointing back toward source)
+                                    const horizontalInitial = Math.abs(endX - startX) > Math.abs(endY - startY);
+                                    if (horizontalInitial) {
+                                      sourceArrowAngle = (endX - startX) >= 0 ? 180 : 0;
+                                      sourceArrowX = startX + ((endX - startX) >= 0 ? offset : -offset);
+                                      sourceArrowY = startY;
+                                    } else {
+                                      sourceArrowAngle = (endY - startY) >= 0 ? -90 : 90;
+                                      sourceArrowX = startX;
+                                      sourceArrowY = startY + ((endY - startY) >= 0 ? offset : -offset);
+                                    }
+                                  } else {
+                                    // Precise intersection positioning - adjust based on slope for visual consistency
+                                    const angle = Math.abs(Math.atan2(dy, dx) * (180 / Math.PI));
+                                    const normalizedAngle = angle > 90 ? 180 - angle : angle;
+                                    // Shorter distance for quantized slopes (hitting node sides) vs diagonal (hitting corners)
+                                    const isQuantizedSlope = normalizedAngle < 15 || normalizedAngle > 75;
+                                    const arrowLength = isQuantizedSlope ? offset * 0.6 : offset;
+                                    sourceArrowAngle = Math.atan2(-dy, -dx) * (180 / Math.PI);
+                                    sourceArrowX = sourceIntersection.x + (dx / length) * arrowLength;
+                                    sourceArrowY = sourceIntersection.y + (dy / length) * arrowLength;
+                                    destArrowAngle = Math.atan2(dy, dx) * (180 / Math.PI);
+                                    destArrowX = destIntersection.x - (dx / length) * arrowLength;
+                                    destArrowY = destIntersection.y - (dy / length) * arrowLength;
+                                  }
+                                }
+
+                                // Override arrow orientation deterministically by Manhattan sides
+                                if (enableAutoRouting && routingStyle === 'manhattan') {
+                                  const sideOffset = 6;
+                                  // Destination arrow strictly based on destination side
+                                  if (manhattanDestSide === 'left') {
+                                    destArrowAngle = 0; // rightwards
+                                    destArrowX = endX - sideOffset;
+                                    destArrowY = endY;
+                                  } else if (manhattanDestSide === 'right') {
+                                    destArrowAngle = 180; // leftwards
+                                    destArrowX = endX + sideOffset;
+                                    destArrowY = endY;
+                                  } else if (manhattanDestSide === 'top') {
+                                    destArrowAngle = 90; // downwards
+                                    destArrowX = endX;
+                                    destArrowY = endY - sideOffset;
+                                  } else if (manhattanDestSide === 'bottom') {
+                                    destArrowAngle = -90; // upwards
+                                    destArrowX = endX;
+                                    destArrowY = endY + sideOffset;
+                                  }
+                                  // Source arrow strictly based on source side (points toward the source node)
+                                  if (manhattanSourceSide === 'left') {
+                                    sourceArrowAngle = 0; // rightwards
+                                    sourceArrowX = startX - sideOffset;
+                                    sourceArrowY = startY;
+                                  } else if (manhattanSourceSide === 'right') {
+                                    sourceArrowAngle = 180; // leftwards
+                                    sourceArrowX = startX + sideOffset;
+                                    sourceArrowY = startY;
+                                  } else if (manhattanSourceSide === 'top') {
+                                    sourceArrowAngle = 90; // downwards
+                                    sourceArrowX = startX;
+                                    sourceArrowY = startY - sideOffset;
+                                  } else if (manhattanSourceSide === 'bottom') {
+                                    sourceArrowAngle = -90; // upwards
+                                    sourceArrowX = startX;
+                                    sourceArrowY = startY + sideOffset;
+                                  }
+                                }
+
+                                const handleArrowClick = (nodeId, e) => {
+                                  e.stopPropagation();
+
+                                  // Toggle the arrow state for the specific node
+                                  storeActions.updateEdge(edge.id, (draft) => {
+                                    // Ensure directionality object exists
+                                    if (!draft.directionality) {
+                                      draft.directionality = { arrowsToward: new Set() };
+                                    }
+                                    // Ensure arrowsToward is a Set
+                                    if (!draft.directionality.arrowsToward) {
+                                      draft.directionality.arrowsToward = new Set();
+                                    }
+
+                                    // Toggle arrow for this specific node
+                                    if (draft.directionality.arrowsToward.has(nodeId)) {
+                                      draft.directionality.arrowsToward.delete(nodeId);
+                                    } else {
+                                      draft.directionality.arrowsToward.add(nodeId);
+                                    }
+                                  });
+                                };
+
+                                return (
+                                  <>
+                                    {/* Source Arrow - visible if arrow points toward source node */}
+                                    {arrowsToward.has(sourceNode.id) && (
+                                      <g
+                                        data-arrow="source"
+                                        transform={`translate(${sourceArrowX}, ${sourceArrowY}) rotate(${sourceArrowAngle + 90})`}
+                                        style={{ cursor: 'pointer' }}
+                                        onClick={(e) => handleArrowClick(sourceNode.id, e)}
+                                        onMouseDown={(e) => e.stopPropagation()}
+                                      >
+                                        {/* Glow effect for arrow - only when selected or hovered */}
+                                        {(isSelected || isHovered) && (
+                                          <polygon
+                                            points="-12,15 12,15 0,-15"
+                                            fill={edgeColor}
+                                            stroke={edgeColor}
+                                            strokeWidth="8"
+                                            strokeLinejoin="round"
+                                            strokeLinecap="round"
+                                            opacity={isSelected ? "0.3" : "0.2"}
+                                            style={{
+                                              filter: `drop-shadow(0 0 6px ${edgeColor})`
+                                            }}
+                                          />
+                                        )}
+                                        <polygon
+                                          points="-18,22 18,22 0,-22"
+                                          fill={edgeColor}
+                                          stroke={edgeColor}
+                                          strokeWidth="6"
+                                          strokeLinejoin="round"
+                                          strokeLinecap="round"
+                                          paintOrder="stroke fill"
+                                        />
+                                      </g>
+                                    )}
+
+                                    {/* Destination Arrow - visible if arrow points toward destination node */}
+                                    {arrowsToward.has(destNode.id) && (
+                                      <g
+                                        data-arrow="dest"
+                                        transform={`translate(${destArrowX}, ${destArrowY}) rotate(${destArrowAngle + 90})`}
+                                        style={{ cursor: 'pointer' }}
+                                        onClick={(e) => handleArrowClick(destNode.id, e)}
+                                        onMouseDown={(e) => e.stopPropagation()}
+                                      >
+                                        {/* Glow effect for arrow - only when selected or hovered */}
+                                        {(isSelected || isHovered) && (
+                                          <polygon
+                                            points="-12,15 12,15 0,-15"
+                                            fill={edgeColor}
+                                            stroke={edgeColor}
+                                            strokeWidth="8"
+                                            strokeLinejoin="round"
+                                            strokeLinecap="round"
+                                            opacity={isSelected ? "0.3" : "0.2"}
+                                            style={{
+                                              filter: `drop-shadow(0 0 6px ${edgeColor})`
+                                            }}
+                                          />
+                                        )}
+                                        <polygon
+                                          points="-18,22 18,22 0,-22"
+                                          fill={edgeColor}
+                                          stroke={edgeColor}
+                                          strokeWidth="6"
+                                          strokeLinejoin="round"
+                                          strokeLinecap="round"
+                                          paintOrder="stroke fill"
+                                        />
+                                      </g>
+                                    )}
+
+                                    {/* Hover Dots - visible when hovering straight edges or curved parallel edges */}
+                                    {isHovered && (!enableAutoRouting || routingStyle === 'straight' || useCurve) && (
+                                      <>
+                                        {/* Source Dot - only show if arrow not pointing toward source */}
+                                        {!arrowsToward.has(sourceNode.id) && (
+                                          <g>
+                                            <circle
+                                              cx={sourceArrowX}
+                                              cy={sourceArrowY}
+                                              r="20"
+                                              fill="transparent"
+                                              style={{ cursor: 'pointer' }}
+                                              onClick={(e) => handleArrowClick(sourceNode.id, e)}
+                                              onMouseDown={(e) => e.stopPropagation()}
+                                            />
+                                            <circle
+                                              cx={sourceArrowX}
+                                              cy={sourceArrowY}
+                                              r="16"
+                                              fill={edgeColor}
+                                              style={{ pointerEvents: 'none' }}
+                                            />
+                                          </g>
+                                        )}
+
+                                        {/* Destination Dot - only show if arrow not pointing toward destination */}
+                                        {!arrowsToward.has(destNode.id) && (
+                                          <g>
+                                            <circle
+                                              cx={destArrowX}
+                                              cy={destArrowY}
+                                              r="20"
+                                              fill="transparent"
+                                              style={{ cursor: 'pointer' }}
+                                              onClick={(e) => handleArrowClick(destNode.id, e)}
+                                              onMouseDown={(e) => e.stopPropagation()}
+                                            />
+                                            <circle
+                                              cx={destArrowX}
+                                              cy={destArrowY}
+                                              r="16"
+                                              fill={edgeColor}
+                                              style={{ pointerEvents: 'none' }}
+                                            />
+                                          </g>
+                                        )}
+                                      </>
+                                    )}
+                                  </>
+                                );
+                              })()}
+
+                              {/* Connection name text — rendered after arrows so labels appear on top */}
+                              {showConnectionNames && (() => {
+                                const connectionFontSize = 24 * (textSettings?.fontSize || 1);
+                                let midX;
+                                let midY;
+                                let angle;
+                                if (enableAutoRouting && routingStyle === 'manhattan') {
+                                  const horizontalLen = Math.abs(endX - startX);
+                                  const verticalLen = Math.abs(endY - startY);
+                                  if (horizontalLen >= verticalLen) {
+                                    midX = (startX + endX) / 2;
+                                    midY = startY;
+                                    angle = 0;
+                                  } else {
+                                    midX = endX;
+                                    midY = (startY + endY) / 2;
+                                    angle = 90;
+                                  }
+                                } else {
+                                  // Use utility-calculated apex for curves, midpoint for lines
+                                  // Use labelPlacementPath (visible segment) for accurate centering
+                                  midX = labelPlacementPath.apexX;
+                                  midY = labelPlacementPath.apexY;
+                                  angle = labelPlacementPath.labelAngle;
+                                }
+
+                                // Determine connection name to display
+                                let connectionName = 'Connection';
+                                if (edge.definitionNodeIds && edge.definitionNodeIds.length > 0) {
+                                  const definitionNode = nodePrototypesMap.get(edge.definitionNodeIds[0]);
+                                  if (definitionNode) {
+                                    connectionName = definitionNode.name || 'Connection';
+                                  }
+                                } else if (edge.typeNodeId) {
+                                  const edgePrototype = edgePrototypesMap.get(edge.typeNodeId);
+                                  if (edgePrototype) {
+                                    connectionName = edgePrototype.name || 'Connection';
+                                  }
+                                }
+
+                                // Smart label placement based on routing style
+                                if (enableAutoRouting && routingStyle === 'manhattan') {
+                                  // Always try cached placement first to prevent flicker (except during dragging)
+                                  const cached = placedLabelsRef.current.get(edge.id);
+                                  if (cached && cached.position && !draggingNodeInfo) {
+                                    const stabilized = stabilizeLabelPosition(edge.id, cached.position.x, cached.position.y, cached.position.angle || 0);
+                                    midX = stabilized.x;
+                                    midY = stabilized.y;
+                                    angle = stabilized.angle || 0;
+                                  } else {
+                                    const pathPoints = generateManhattanRoutingPath(edge, sourceNode, destNode, sNodeDims, eNodeDims, manhattanBends);
+                                    const placement = chooseLabelPlacement(pathPoints, connectionName, nodes, visibleNodeIds, baseDimsById, placedLabelsRef.current, connectionFontSize, edge.id, selectedInstanceIds);
+                                    if (placement) {
+                                      midX = placement.x;
+                                      midY = placement.y;
+                                      angle = placement.angle || 0;
+
+                                      // Register this label placement
+                                      const labelRect = {
+                                        minX: midX - estimateTextWidth(connectionName, connectionFontSize) / 2,
+                                        maxX: midX + estimateTextWidth(connectionName, connectionFontSize) / 2,
+                                        minY: midY - connectionFontSize * 1.1 / 2,
+                                        maxY: midY + connectionFontSize * 1.1 / 2,
+                                      };
+                                      const stabilized = stabilizeLabelPosition(edge.id, midX, midY, angle);
+                                      placedLabelsRef.current.set(edge.id, {
+                                        rect: labelRect,
+                                        position: { x: stabilized.x, y: stabilized.y, angle: stabilized.angle }
+                                      });
+                                    } else {
+                                      // Fallback to simple Manhattan logic
+                                      const horizontalLen = Math.abs(endX - startX);
+                                      const verticalLen = Math.abs(endY - startY);
+                                      if (horizontalLen >= verticalLen) {
+                                        midX = (startX + endX) / 2;
+                                        midY = startY;
+                                        angle = 0;
+                                      } else {
+                                        midX = endX;
+                                        midY = (startY + endY) / 2;
+                                        angle = 90;
+                                      }
+                                    }
+                                  }
+                                } else if (enableAutoRouting && routingStyle === 'clean') {
+                                  // Always try cached placement first to prevent flicker (except during dragging)
+                                  const cached = placedLabelsRef.current.get(edge.id);
+                                  if (cached && cached.position && !draggingNodeInfo) {
+                                    const stabilized = stabilizeLabelPosition(edge.id, cached.position.x, cached.position.y, cached.position.angle || 0);
+                                    midX = stabilized.x;
+                                    midY = stabilized.y;
+                                    angle = stabilized.angle || 0;
+                                  } else {
+                                    const pathPoints = generateCleanRoutingPath(edge, sourceNode, destNode, sNodeDims, eNodeDims, cleanLaneOffsets, cleanLaneSpacing);
+                                    const placement = chooseLabelPlacement(pathPoints, connectionName, nodes, visibleNodeIds, baseDimsById, placedLabelsRef.current, connectionFontSize, edge.id, selectedInstanceIds);
+                                    if (placement) {
+                                      midX = placement.x;
+                                      midY = placement.y;
+                                      angle = placement.angle || 0;
+
+                                      // Register this label placement
+                                      const labelRect = {
+                                        minX: midX - estimateTextWidth(connectionName, connectionFontSize) / 2,
+                                        maxX: midX + estimateTextWidth(connectionName, connectionFontSize) / 2,
+                                        minY: midY - connectionFontSize * 1.1 / 2,
+                                        maxY: midY + connectionFontSize * 1.1 / 2,
+                                      };
+                                      const stabilized = stabilizeLabelPosition(edge.id, midX, midY, angle);
+                                      placedLabelsRef.current.set(edge.id, {
+                                        rect: labelRect,
+                                        position: { x: stabilized.x, y: stabilized.y, angle: stabilized.angle }
+                                      });
+                                    } else {
+                                      // Fallback to midpoint
+                                      midX = (x1 + x2) / 2;
+                                      midY = (y1 + y2) / 2;
+                                      angle = 0;
+                                    }
+                                  }
+                                }
+                                // For straight/curved routing, midX/midY/angle are already set from parallelPath above
+
+                                // Adjust angle to keep text readable (never upside down)
+                                const adjustedAngle = (angle > 90 || angle < -90) ? angle + 180 : angle;
+
+                                return (
+                                  <g>
+                                    {/* Canvas-colored text creating a "hole" effect in the connection */}
+                                    <text
+                                      x={midX}
+                                      y={midY}
+                                      fill={getLightHueText(edgeColor)}
+                                      fontSize={connectionFontSize}
+                                      fontWeight="bold"
+                                      textAnchor="middle"
+                                      dominantBaseline="middle"
+                                      transform={`rotate(${adjustedAngle}, ${midX}, ${midY})`}
+                                      stroke={getDarkHueText(edgeColor)}
+                                      strokeWidth="8"
+                                      strokeLinecap="round"
+                                      strokeLinejoin="round"
+                                      paintOrder="stroke fill"
+                                      style={{ pointerEvents: 'none', fontFamily: "'EmOne', sans-serif" }}
+                                    >
+                                      {connectionName}
+                                    </text>
+                                  </g>
+                                );
+                              })()}
+                            </g>
+                          );
+                        })}
+                      </>
+                    );
+                  })()}
+
+                  {/* Drawing connection line (same z-level as existing edges, below nodes).
+                    Hidden while dragging — a race can leak `drawingConnectionFrom` state
+                    into a drag, which would otherwise leave a frozen black stub behind. */}
+                  {drawingConnectionFrom && !draggingNodeInfo && (
+                    <line
+                      x1={drawingConnectionFrom.startX}
+                      y1={drawingConnectionFrom.startY}
+                      x2={drawingConnectionFrom.currentX}
+                      y2={drawingConnectionFrom.currentY}
+                      stroke="black"
+                      strokeWidth="16"
+                    />
+                  )}
+                  {drawingConnectionFrom && !draggingNodeInfo && connectionExitedSourceRef.current && (() => {
+                    const srcNode = nodes.find(n => n.id === drawingConnectionFrom.sourceInstanceId);
+                    if (!srcNode) return null;
+                    const srcDims = baseDimsById.get(srcNode.id) || getNodeDimensions(srcNode, false, null);
+                    const sx = srcNode.x;
+                    const sy = srcNode.y;
+                    const insideX = drawingConnectionFrom.currentX >= sx && drawingConnectionFrom.currentX <= sx + srcDims.currentWidth;
+                    const insideY = drawingConnectionFrom.currentY >= sy && drawingConnectionFrom.currentY <= sy + srcDims.currentHeight;
+                    if (!insideX || !insideY) return null;
+                    const existing = countSelfLoopsForNode(visibleEdges, srcNode.id);
+                    const loop = calculateSelfLoopPath(sx, sy, srcDims.currentWidth, srcDims.currentHeight, { pairIndex: existing, totalInPair: existing + 1 });
+                    return (
+                      <path
+                        d={loop.path}
+                        fill="none"
+                        stroke="black"
+                        strokeWidth="6"
+                        strokeDasharray="6 6"
+                        strokeLinecap="round"
+                        opacity="0.7"
+                        style={{ pointerEvents: 'none' }}
+                      />
+                    );
+                  })()}
+
+                  {(() => {
+                    const draggingNodeId = draggingNodeInfo?.primaryId || draggingNodeInfo?.instanceId;
+
+                    // Determine which node should be treated as "active" for stacking,
+                    // Priority order: previewing > pie menu > single selection (for orbit overlay)
+                    let nodeIdToKeepActiveForStacking = previewingNodeId || currentPieMenuData?.node?.id || selectedNodeIdForPieMenu;
+
+                    // If no higher-priority node is active, use the selected node for orbit overlay
+                    if (!nodeIdToKeepActiveForStacking &&
+                      selectedInstanceIds.size === 1 &&
+                      !selectionStart &&
+                      !abstractionCarouselVisible) {
+                      nodeIdToKeepActiveForStacking = [...selectedInstanceIds][0];
+                    }
+
+                    if (nodeIdToKeepActiveForStacking === draggingNodeId) {
+                      nodeIdToKeepActiveForStacking = null; // Dragging node is handled separately
+                    }
+
+                    const allOtherNodes = nodes.filter(node =>
+                      node.id !== nodeIdToKeepActiveForStacking &&
+                      node.id !== draggingNodeId &&
+                      visibleNodeIds.has(node.id) &&
+                      !node.isGroupAnchor
+                    );
+                    // Split into normal nodes and thing-group member nodes for z-ordering
+                    const otherNodes = allOtherNodes.filter(n => !thingGroupMemberIdsRef.current.has(n.id));
+                    const thingGroupMemberNodes = allOtherNodes.filter(n => thingGroupMemberIdsRef.current.has(n.id));
+
+                    const activeNodeToRender = nodeIdToKeepActiveForStacking
+                      ? nodes.find(n => n.id === nodeIdToKeepActiveForStacking)
+                      : null;
+
+                    const draggingNodeToRender = draggingNodeId
+                      ? nodes.find(n => n.id === draggingNodeId)
+                      : null;
+
+                    // Helper to render a Node component with all its props (avoids duplication)
+                    const renderNodeElement = (node) => {
+                      const isPreviewing = previewingNodeId === node.id;
+                      const baseDimensions = baseDimsById.get(node.id);
+                      const descriptionContent = isPreviewing ? getNodeDescriptionContent(node, true) : null;
+                      const dimensions = isPreviewing
+                        ? getNodeDimensions(node, true, descriptionContent)
+                        : baseDimensions || getNodeDimensions(node, false, null);
+                      if (abstractionCarouselVisible && abstractionCarouselNode?.id === node.id) return null;
+                      return (
+                        <Node
+                          key={node.id}
+                          node={node}
+                          currentWidth={dimensions.currentWidth}
+                          currentHeight={dimensions.currentHeight}
+                          textAreaHeight={dimensions.textAreaHeight}
+                          imageWidth={dimensions.imageWidth}
+                          imageHeight={dimensions.calculatedImageHeight}
+                          innerNetworkWidth={dimensions.innerNetworkWidth}
+                          innerNetworkHeight={dimensions.innerNetworkHeight}
+                          descriptionAreaHeight={dimensions.descriptionAreaHeight}
+                          isSelected={selectedInstanceIds.has(node.id)}
+                          isDragging={false}
+                          onMouseDown={(e) => handleNodeMouseDown(node, e)}
+                          onPointerDown={(e) => touch.handleNodePointerDown(node, e)}
+                          onPointerMove={(e) => touch.handleNodePointerMove(node, e)}
+                          onPointerUp={(e) => touch.handleNodePointerUp(node, e)}
+                          onPointerCancel={(e) => touch.handleNodePointerCancel(node, e)}
+                          onTouchStart={(e) => touch.handleNodeTouchStart(node, e)}
+                          onTouchMove={(e) => touch.handleNodeTouchMove(node, e)}
+                          onTouchEnd={(e) => touch.handleNodeTouchEnd(node, e)}
+                          onContextMenu={(e) => {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            showContextMenu(e.clientX, e.clientY, getContextMenuOptions(node.id));
+                          }}
+                          isPreviewing={isPreviewing}
+                          isEditingOnCanvas={node.id === editingNodeIdOnCanvas}
+                          onCommitCanvasEdit={(instanceId, newName, isRealTime = false) => {
+                            storeActions.updateNodePrototype(node.prototypeId, draft => { draft.name = newName; });
+                            if (!isRealTime) setEditingNodeIdOnCanvas(null);
+                          }}
+                          onCancelCanvasEdit={() => setEditingNodeIdOnCanvas(null)}
+                          onCreateDefinition={(prototypeId) => {
+                            if (mouseMoved.current) return;
+                            storeActions.createAndAssignGraphDefinition(prototypeId);
+                          }}
+                          onAddNodeToDefinition={(prototypeId) => {
+                            storeActions.createAndAssignGraphDefinitionWithoutActivation(prototypeId);
+                          }}
+                          onDeleteDefinition={(prototypeId, graphId) => {
+                            storeActions.removeDefinitionFromNode(prototypeId, graphId);
+                          }}
+                          onExpandDefinition={(instanceId, prototypeId, graphId) => {
+                            if (graphId) {
+                              startHurtleAnimation(instanceId, graphId, prototypeId);
+                            } else {
+                              const sourceGraphId = activeGraphId;
+                              storeActions.createAndAssignGraphDefinitionWithoutActivation(prototypeId);
+                              setTimeout(() => {
+                                const currentState = useGraphStore.getState();
+                                const updatedNodeData = currentState.nodePrototypes.get(prototypeId);
+                                if (updatedNodeData?.definitionGraphIds?.length > 0) {
+                                  const newGraphId = updatedNodeData.definitionGraphIds[updatedNodeData.definitionGraphIds.length - 1];
+                                  startHurtleAnimation(instanceId, newGraphId, prototypeId, sourceGraphId);
+                                }
+                              }, 50);
+                            }
+                          }}
+                          onConvertToNodeGroup={handleNodeConvertToNodeGroup}
+                          storeActions={storeActions}
+                          currentDefinitionIndex={nodeDefinitionIndices.get(`${node.prototypeId}-${activeGraphId}`) || 0}
+                          onNavigateDefinition={(prototypeId, newIndex) => {
+                            const contextKey = `${prototypeId}-${activeGraphId}`;
+                            setNodeDefinitionIndices(prev => new Map(prev.set(contextKey, newIndex)));
+                          }}
+                        />
+                      );
+                    };
+
+                    return (
+                      <>
+                        {/* Normal nodes (not thing-group members) */}
+                        {otherNodes.map(renderNodeElement)}
+
+                        {/* Thing-group member nodes (above normal nodes) */}
+                        {thingGroupMemberNodes.map(renderNodeElement)}
+
+                        {/* Groups Phase 3: Thing-group titles (above member nodes, below active/dragging) */}
+                        {nodeGroupTitlesRef.current}
+
+                        {/* Render The PieMenu next (it will be visually under the active node) */}
+                        {isPieMenuRendered && currentPieMenuData && (
+                          <PieMenu
+                            node={currentPieMenuData.node}
+                            buttons={currentPieMenuData.buttons}
+                            nodeDimensions={currentPieMenuData.nodeDimensions}
+                            focusedNode={carouselFocusedNode}
+                            isVisible={(
+                              currentPieMenuData?.node?.id === selectedNodeIdForPieMenu &&
+                              (!isTransitioningPieMenu || abstractionPrompt.visible || carouselAnimationState === 'exiting') &&
+                              !(draggingNodeInfo &&
+                                (draggingNodeInfo.primaryId === selectedNodeIdForPieMenu || draggingNodeInfo.instanceId === selectedNodeIdForPieMenu)
+                              )
+                            )}
+                            onHoverChange={handlePieMenuHoverChange}
+                            onAutoClose={() => {
+                              console.log('[NodeCanvas] PieMenu auto-close triggered after 5 seconds');
+                              setSelectedNodeIdForPieMenu(null);
+                            }}
+                            onExitAnimationComplete={() => {
+                              // 
+                              setIsPieMenuRendered(false);
+                              setCurrentPieMenuData(null);
+                              const wasTransitioning = isTransitioningPieMenu;
+                              const pendingAbstractionId = pendingAbstractionNodeId;
+                              const pendingDecomposeId = pendingDecomposeNodeId;
+                              const wasInCarousel = abstractionCarouselVisible; // Check if we were in carousel mode before transition
+
+                              // The node that was just active before the pie menu disappeared
+                              const lastActiveNodeId = selectedNodeIdForPieMenu;
+                              setPendingAbstractionNodeId(null);
+                              setPendingDecomposeNodeId(null);
+
+                              if (wasTransitioning && pendingAbstractionId) {
+                                // This was an abstraction transition - set up the carousel with entrance animation
+                                setIsTransitioningPieMenu(false);
+                                const nodeData = nodes.find(n => n.id === pendingAbstractionId);
+                                if (nodeData) {
+                                  setAbstractionCarouselNode(nodeData);
+                                  setCarouselAnimationState('entering');
+                                  setAbstractionCarouselVisible(true);
+                                  // IMPORTANT: Re-select the node to show the new abstraction pie menu
+                                  setSelectedNodeIdForPieMenu(pendingAbstractionId);
+                                }
+                              } else if (wasTransitioning && pendingDecomposeId) {
+                                // This was a decompose transition - toggle the preview state for the node
+                                setIsTransitioningPieMenu(false);
+                                const nodeData = nodes.find(n => n.id === pendingDecomposeId);
+                                if (nodeData) {
+                                  // Toggle preview state: if already previewing this node, turn off preview; otherwise turn it on
+                                  const isCurrentlyPreviewing = previewingNodeId === pendingDecomposeId;
+                                  setPreviewingNodeId(isCurrentlyPreviewing ? null : pendingDecomposeId);
+                                  // Re-select the node to show the pie menu again
+                                  setSelectedNodeIdForPieMenu(pendingDecomposeId);
+                                }
+                              } else if (wasTransitioning && wasInCarousel) {
+                                // Check if this was an internal stage transition vs carousel exit
+                                if (isCarouselStageTransition) {
+                                  // This was an internal stage transition - stay in carousel, just update PieMenu
+                                  setIsCarouselStageTransition(false); // Reset the flag
+                                  setIsTransitioningPieMenu(false);
+
+                                  // Change the stage here after the shrink animation completes
+                                  if (carouselPieMenuStage === 1) {
+                                    setCarouselPieMenuStage(2);
+
+                                  } else if (carouselPieMenuStage === 2) {
+                                    setCarouselPieMenuStage(1);
+
+                                  }
+
+                                  // Re-select the node to show the new stage PieMenu
+                                  if (lastActiveNodeId) {
+                                    setSelectedNodeIdForPieMenu(lastActiveNodeId);
+                                  }
+                                } else {
+                                  // This was a "back" transition from the carousel - start exit animation now
+                                  setCarouselAnimationState('exiting');
+                                  // DON'T set isTransitioningPieMenu(false) yet - wait for carousel to finish
+                                  // The carousel's onExitAnimationComplete will show the regular pie menu
+                                }
+                              } else if (wasTransitioning) {
+                                // Generic pie menu transition completion (non-carousel). If the carousel
+                                // was closed via click-away, do not toggle decompose preview.
+                                setIsTransitioningPieMenu(false);
+                                if (carouselClosedByClickAwayRef.current) {
+                                  // Consume and reset the flag here too, since defensive closures may skip
+                                  // the carousel's own exit completion callback.
+                                  carouselClosedByClickAwayRef.current = false;
+                                } else {
+                                  const currentlySelectedNodeId = [...selectedInstanceIds][0];
+                                  if (currentlySelectedNodeId) {
+                                    const selectedNodeIsPreviewing = previewingNodeId === currentlySelectedNodeId;
+                                    if (selectedNodeIsPreviewing) {
+                                      setPreviewingNodeId(null);
+                                    } else {
+                                      setPreviewingNodeId(currentlySelectedNodeId);
+                                    }
+                                    setSelectedNodeIdForPieMenu(currentlySelectedNodeId);
+                                  } else {
+                                    setPreviewingNodeId(null);
+                                  }
+                                }
+                              } else {
+                                // Not transitioning, just clean exit
+                                setIsTransitioningPieMenu(false);
+                              }
+                            }}
+                          />
+                        )}
+
+
+
+                        {/* Dark overlay with backdrop blur for semantic orbit mode */}
+                        {semanticOrbitActive && (
+                          <foreignObject
+                            x={canvasSize.offsetX}
+                            y={canvasSize.offsetY}
+                            width={canvasSize.width}
+                            height={canvasSize.height}
+                          >
+                            <div
+                              xmlns="http://www.w3.org/1999/xhtml"
+                              style={{
+                                width: '100%',
+                                height: '100%',
+                                background: 'rgba(0, 0, 0, 0.7)',
+                                backdropFilter: 'blur(3px)',
+                                WebkitBackdropFilter: 'blur(3px)',
+                                cursor: 'pointer',
+                                pointerEvents: 'auto',
+                              }}
+                              onMouseDown={(e) => {
+                                orbitClickDownPos.current = { x: e.clientX, y: e.clientY };
+                              }}
+                              onClick={(e) => {
+                                // Only exit orbit on a genuine click, not after panning.
+                                // Compare mousedown vs click position to detect drag/pan.
+                                const down = orbitClickDownPos.current;
+                                orbitClickDownPos.current = null;
+                                if (down) {
+                                  const dx = e.clientX - down.x;
+                                  const dy = e.clientY - down.y;
+                                  if (dx * dx + dy * dy > 25) return; // moved >5px = was a pan
+                                }
+                                e.stopPropagation();
+                                exitOrbitMode();
+                              }}
+                            />
+                          </foreignObject>
+                        )}
+
+                        {/* Render the "Active" Node (if it exists and not being dragged) */}
+                        {activeNodeToRender && visibleNodeIds.has(activeNodeToRender.id) && (
+                          (() => {
+                            const isPreviewing = previewingNodeId === activeNodeToRender.id;
+                            const baseDimensions = baseDimsById.get(activeNodeToRender.id);
+                            const descriptionContent = isPreviewing ? getNodeDescriptionContent(activeNodeToRender, true) : null;
+                            const dimensions = isPreviewing
+                              ? getNodeDimensions(activeNodeToRender, true, descriptionContent)
+                              : baseDimensions || getNodeDimensions(activeNodeToRender, false, null);
+
+                            // Hide if its carousel is open
+                            if (abstractionCarouselVisible && abstractionCarouselNode?.id === activeNodeToRender.id) {
+                              return null;
+                            }
+
+                            const centerX = activeNodeToRender.x + dimensions.currentWidth / 2;
+                            const centerY = activeNodeToRender.y + dimensions.currentHeight / 2;
+
+                            return (
+                              <>
+                                <OrbitOverlay
+                                  centerX={centerX}
+                                  centerY={centerY}
+                                  focusWidth={dimensions.currentWidth}
+                                  focusHeight={dimensions.currentHeight}
+                                  ring1Candidates={orbitData.ring1 || []}
+                                  ring2Candidates={orbitData.ring2 || []}
+                                  ring3Candidates={orbitData.ring3 || []}
+                                  ring4Candidates={orbitData.ring4 || []}
+                                  onOrbitItemClick={handleOrbitItemClick}
+                                  isLoading={orbitLoading}
+                                />
+                                <Node
+                                  key={activeNodeToRender.id}
+                                  node={activeNodeToRender}
+                                  currentWidth={dimensions.currentWidth}
+                                  currentHeight={dimensions.currentHeight}
+                                  textAreaHeight={dimensions.textAreaHeight}
+                                  imageWidth={dimensions.imageWidth}
+                                  imageHeight={dimensions.calculatedImageHeight}
+                                  innerNetworkWidth={dimensions.innerNetworkWidth}
+                                  innerNetworkHeight={dimensions.innerNetworkHeight}
+                                  descriptionAreaHeight={dimensions.descriptionAreaHeight}
+                                  isSelected={selectedInstanceIds.has(activeNodeToRender.id)}
+                                  isDragging={false} // Explicitly not the dragging node if rendered here
+                                  onMouseDown={(e) => handleNodeMouseDown(activeNodeToRender, e)}
+                                  onPointerDown={(e) => touch.handleNodePointerDown(activeNodeToRender, e)}
+                                  onPointerMove={(e) => touch.handleNodePointerMove(activeNodeToRender, e)}
+                                  onPointerUp={(e) => touch.handleNodePointerUp(activeNodeToRender, e)}
+                                  onPointerCancel={(e) => touch.handleNodePointerCancel(activeNodeToRender, e)}
+                                  onTouchStart={(e) => touch.handleNodeTouchStart(activeNodeToRender, e)}
+                                  onTouchMove={(e) => touch.handleNodeTouchMove(activeNodeToRender, e)}
+                                  onTouchEnd={(e) => touch.handleNodeTouchEnd(activeNodeToRender, e)}
+                                  onContextMenu={(e) => {
+                                    e.preventDefault();
+                                    e.stopPropagation();
+                                    showContextMenu(e.clientX, e.clientY, getContextMenuOptions(activeNodeToRender.id));
+                                  }}
+                                  isPreviewing={isPreviewing}
+                                  isEditingOnCanvas={activeNodeToRender.id === editingNodeIdOnCanvas}
+                                  onCommitCanvasEdit={(instanceId, newName, isRealTime = false) => {
+                                    storeActions.updateNodePrototype(activeNodeToRender.prototypeId, draft => { draft.name = newName; });
+                                    if (!isRealTime) setEditingNodeIdOnCanvas(null);
+                                  }}
+                                  onCancelCanvasEdit={() => setEditingNodeIdOnCanvas(null)}
+                                  onCreateDefinition={(prototypeId) => {
+                                    if (mouseMoved.current) return;
+                                    storeActions.createAndAssignGraphDefinition(prototypeId);
+                                  }}
+                                  onAddNodeToDefinition={(prototypeId) => {
+                                    // Create a new alternative definition for the node without activating/opening it
+                                    storeActions.createAndAssignGraphDefinitionWithoutActivation(prototypeId);
+                                  }}
+                                  onDeleteDefinition={(prototypeId, graphId) => {
+                                    // Delete the specific definition graph from the node
+                                    storeActions.removeDefinitionFromNode(prototypeId, graphId);
+                                  }}
+                                  onExpandDefinition={(instanceId, prototypeId, graphId) => {
+                                    if (graphId) {
+                                      // Node has an existing definition to expand
+                                      startHurtleAnimation(instanceId, graphId, prototypeId);
+                                    } else {
+                                      // Node has no definitions - create one, then animate
+                                      const sourceGraphId = activeGraphId; // Capture current graph before it changes
+                                      storeActions.createAndAssignGraphDefinitionWithoutActivation(prototypeId);
+
+                                      setTimeout(() => {
+                                        const currentState = useGraphStore.getState();
+                                        const updatedNodeData = currentState.nodePrototypes.get(prototypeId);
+                                        if (updatedNodeData?.definitionGraphIds?.length > 0) {
+                                          const newGraphId = updatedNodeData.definitionGraphIds[updatedNodeData.definitionGraphIds.length - 1];
+                                          startHurtleAnimation(instanceId, newGraphId, prototypeId, sourceGraphId);
+                                        } else {
+
+                                        }
+                                      }, 50);
+                                    }
+                                  }}
+                                  onConvertToNodeGroup={handleNodeConvertToNodeGroup}
+                                  storeActions={storeActions}
+                                  currentDefinitionIndex={nodeDefinitionIndices.get(`${activeNodeToRender.prototypeId}-${activeGraphId}`) || 0}
+                                  onNavigateDefinition={(prototypeId, newIndex) => {
+                                    const contextKey = `${prototypeId}-${activeGraphId}`;
+                                    setNodeDefinitionIndices(prev => new Map(prev.set(contextKey, newIndex)));
+                                  }}
+
+                                />
+                              </>
+                            );
+                          })()
+                        )}
+
+                        {/* Render the Dragging Node last (on top) */}
+                        {draggingNodeToRender && visibleNodeIds.has(draggingNodeToRender.id) && (
+                          (() => {
+                            const isPreviewing = previewingNodeId === draggingNodeToRender.id;
+                            const baseDimensions = baseDimsById.get(draggingNodeToRender.id);
+                            const descriptionContent = isPreviewing ? getNodeDescriptionContent(draggingNodeToRender, true) : null;
+                            const dimensions = isPreviewing
+                              ? getNodeDimensions(draggingNodeToRender, true, descriptionContent)
+                              : baseDimensions || getNodeDimensions(draggingNodeToRender, false, null);
+
+                            // Hide if its carousel is open
+                            if (abstractionCarouselVisible && abstractionCarouselNode?.id === draggingNodeToRender.id) {
+                              return null;
+                            }
+
+                            return (
                               <Node
-                                key={activeNodeToRender.id}
-                                node={activeNodeToRender}
+                                key={draggingNodeToRender.id}
+                                node={draggingNodeToRender}
                                 currentWidth={dimensions.currentWidth}
                                 currentHeight={dimensions.currentHeight}
                                 textAreaHeight={dimensions.textAreaHeight}
@@ -13122,25 +13218,25 @@ function NodeCanvas() {
                                 innerNetworkWidth={dimensions.innerNetworkWidth}
                                 innerNetworkHeight={dimensions.innerNetworkHeight}
                                 descriptionAreaHeight={dimensions.descriptionAreaHeight}
-                                isSelected={selectedInstanceIds.has(activeNodeToRender.id)}
-                                isDragging={false} // Explicitly not the dragging node if rendered here
-                                onMouseDown={(e) => handleNodeMouseDown(activeNodeToRender, e)}
-                                onPointerDown={(e) => touch.handleNodePointerDown(activeNodeToRender, e)}
-                                onPointerMove={(e) => touch.handleNodePointerMove(activeNodeToRender, e)}
-                                onPointerUp={(e) => touch.handleNodePointerUp(activeNodeToRender, e)}
-                                onPointerCancel={(e) => touch.handleNodePointerCancel(activeNodeToRender, e)}
-                                onTouchStart={(e) => touch.handleNodeTouchStart(activeNodeToRender, e)}
-                                onTouchMove={(e) => touch.handleNodeTouchMove(activeNodeToRender, e)}
-                                onTouchEnd={(e) => touch.handleNodeTouchEnd(activeNodeToRender, e)}
+                                isSelected={selectedInstanceIds.has(draggingNodeToRender.id)}
+                                isDragging={true} // This is the dragging node
+                                onMouseDown={(e) => handleNodeMouseDown(draggingNodeToRender, e)}
+                                onPointerDown={(e) => touch.handleNodePointerDown(draggingNodeToRender, e)}
+                                onPointerMove={(e) => touch.handleNodePointerMove(draggingNodeToRender, e)}
+                                onPointerUp={(e) => touch.handleNodePointerUp(draggingNodeToRender, e)}
+                                onPointerCancel={(e) => touch.handleNodePointerCancel(draggingNodeToRender, e)}
+                                onTouchStart={(e) => touch.handleNodeTouchStart(draggingNodeToRender, e)}
+                                onTouchMove={(e) => touch.handleNodeTouchMove(draggingNodeToRender, e)}
+                                onTouchEnd={(e) => touch.handleNodeTouchEnd(draggingNodeToRender, e)}
                                 onContextMenu={(e) => {
                                   e.preventDefault();
                                   e.stopPropagation();
-                                  showContextMenu(e.clientX, e.clientY, getContextMenuOptions(activeNodeToRender.id));
+                                  showContextMenu(e.clientX, e.clientY, getContextMenuOptions(draggingNodeToRender.id));
                                 }}
                                 isPreviewing={isPreviewing}
-                                isEditingOnCanvas={activeNodeToRender.id === editingNodeIdOnCanvas}
+                                isEditingOnCanvas={draggingNodeToRender.id === editingNodeIdOnCanvas}
                                 onCommitCanvasEdit={(instanceId, newName, isRealTime = false) => {
-                                  storeActions.updateNodePrototype(activeNodeToRender.prototypeId, draft => { draft.name = newName; });
+                                  storeActions.updateNodePrototype(draggingNodeToRender.prototypeId, draft => { draft.name = newName; });
                                   if (!isRealTime) setEditingNodeIdOnCanvas(null);
                                 }}
                                 onCancelCanvasEdit={() => setEditingNodeIdOnCanvas(null)}
@@ -13179,159 +13275,63 @@ function NodeCanvas() {
                                 }}
                                 onConvertToNodeGroup={handleNodeConvertToNodeGroup}
                                 storeActions={storeActions}
-                                currentDefinitionIndex={nodeDefinitionIndices.get(`${activeNodeToRender.prototypeId}-${activeGraphId}`) || 0}
+                                currentDefinitionIndex={nodeDefinitionIndices.get(`${draggingNodeToRender.prototypeId}-${activeGraphId}`) || 0}
                                 onNavigateDefinition={(prototypeId, newIndex) => {
                                   const contextKey = `${prototypeId}-${activeGraphId}`;
                                   setNodeDefinitionIndices(prev => new Map(prev.set(contextKey, newIndex)));
                                 }}
 
                               />
-                            </>
-                          );
-                        })()
-                      )}
+                            );
+                          })()
+                        )}
+                      </>
+                    );
+                  })()}
 
-                      {/* Render the Dragging Node last (on top) */}
-                      {draggingNodeToRender && visibleNodeIds.has(draggingNodeToRender.id) && (
-                        (() => {
-                          const isPreviewing = previewingNodeId === draggingNodeToRender.id;
-                          const baseDimensions = baseDimsById.get(draggingNodeToRender.id);
-                          const descriptionContent = isPreviewing ? getNodeDescriptionContent(draggingNodeToRender, true) : null;
-                          const dimensions = isPreviewing
-                            ? getNodeDimensions(draggingNodeToRender, true, descriptionContent)
-                            : baseDimensions || getNodeDimensions(draggingNodeToRender, false, null);
+                  {selectionRect && (
+                    <rect
+                      x={selectionRect.x}
+                      y={selectionRect.y}
+                      width={selectionRect.width}
+                      height={selectionRect.height}
+                      fill="rgba(255, 0, 0, 0.1)"
+                      stroke="red"
+                      strokeWidth={1}
+                    />
+                  )}
 
-                          // Hide if its carousel is open
-                          if (abstractionCarouselVisible && abstractionCarouselNode?.id === draggingNodeToRender.id) {
-                            return null;
-                          }
+                  {plusSign && (
+                    <PlusSign
+                      plusSign={plusSign}
+                      onClick={handlePlusSignClick}
+                      onMorphDone={handleMorphDone}
+                      onDisappearDone={() => setPlusSign(null)}
+                      targetWidth={plusSign.tempName ? (() => {
+                        // Create a mock node object to get exact dimensions
+                        const mockNode = { name: plusSign.tempName };
+                        const dims = getNodeDimensions(mockNode, false, null);
+                        // Make the PlusSign slightly smaller so the final node feels like an expansion
+                        return dims.currentWidth * 0.9;
+                      })() : NODE_WIDTH}
+                      targetHeight={plusSign.tempName ? (() => {
+                        // Create a mock node object to get exact dimensions
+                        const mockNode = { name: plusSign.tempName };
+                        const dims = getNodeDimensions(mockNode, false, null);
+                        // Make the PlusSign slightly smaller so the final node feels like an expansion
+                        return dims.currentHeight * 0.9;
+                      })() : NODE_HEIGHT}
+                    />
+                  )}
 
-                          return (
-                            <Node
-                              key={draggingNodeToRender.id}
-                              node={draggingNodeToRender}
-                              currentWidth={dimensions.currentWidth}
-                              currentHeight={dimensions.currentHeight}
-                              textAreaHeight={dimensions.textAreaHeight}
-                              imageWidth={dimensions.imageWidth}
-                              imageHeight={dimensions.calculatedImageHeight}
-                              innerNetworkWidth={dimensions.innerNetworkWidth}
-                              innerNetworkHeight={dimensions.innerNetworkHeight}
-                              descriptionAreaHeight={dimensions.descriptionAreaHeight}
-                              isSelected={selectedInstanceIds.has(draggingNodeToRender.id)}
-                              isDragging={true} // This is the dragging node
-                              onMouseDown={(e) => handleNodeMouseDown(draggingNodeToRender, e)}
-                              onPointerDown={(e) => touch.handleNodePointerDown(draggingNodeToRender, e)}
-                              onPointerMove={(e) => touch.handleNodePointerMove(draggingNodeToRender, e)}
-                              onPointerUp={(e) => touch.handleNodePointerUp(draggingNodeToRender, e)}
-                              onPointerCancel={(e) => touch.handleNodePointerCancel(draggingNodeToRender, e)}
-                              onTouchStart={(e) => touch.handleNodeTouchStart(draggingNodeToRender, e)}
-                              onTouchMove={(e) => touch.handleNodeTouchMove(draggingNodeToRender, e)}
-                              onTouchEnd={(e) => touch.handleNodeTouchEnd(draggingNodeToRender, e)}
-                              onContextMenu={(e) => {
-                                e.preventDefault();
-                                e.stopPropagation();
-                                showContextMenu(e.clientX, e.clientY, getContextMenuOptions(draggingNodeToRender.id));
-                              }}
-                              isPreviewing={isPreviewing}
-                              isEditingOnCanvas={draggingNodeToRender.id === editingNodeIdOnCanvas}
-                              onCommitCanvasEdit={(instanceId, newName, isRealTime = false) => {
-                                storeActions.updateNodePrototype(draggingNodeToRender.prototypeId, draft => { draft.name = newName; });
-                                if (!isRealTime) setEditingNodeIdOnCanvas(null);
-                              }}
-                              onCancelCanvasEdit={() => setEditingNodeIdOnCanvas(null)}
-                              onCreateDefinition={(prototypeId) => {
-                                if (mouseMoved.current) return;
-                                storeActions.createAndAssignGraphDefinition(prototypeId);
-                              }}
-                              onAddNodeToDefinition={(prototypeId) => {
-                                // Create a new alternative definition for the node without activating/opening it
-                                storeActions.createAndAssignGraphDefinitionWithoutActivation(prototypeId);
-                              }}
-                              onDeleteDefinition={(prototypeId, graphId) => {
-                                // Delete the specific definition graph from the node
-                                storeActions.removeDefinitionFromNode(prototypeId, graphId);
-                              }}
-                              onExpandDefinition={(instanceId, prototypeId, graphId) => {
-                                if (graphId) {
-                                  // Node has an existing definition to expand
-                                  startHurtleAnimation(instanceId, graphId, prototypeId);
-                                } else {
-                                  // Node has no definitions - create one, then animate
-                                  const sourceGraphId = activeGraphId; // Capture current graph before it changes
-                                  storeActions.createAndAssignGraphDefinitionWithoutActivation(prototypeId);
-
-                                  setTimeout(() => {
-                                    const currentState = useGraphStore.getState();
-                                    const updatedNodeData = currentState.nodePrototypes.get(prototypeId);
-                                    if (updatedNodeData?.definitionGraphIds?.length > 0) {
-                                      const newGraphId = updatedNodeData.definitionGraphIds[updatedNodeData.definitionGraphIds.length - 1];
-                                      startHurtleAnimation(instanceId, newGraphId, prototypeId, sourceGraphId);
-                                    } else {
-
-                                    }
-                                  }, 50);
-                                }
-                              }}
-                              onConvertToNodeGroup={handleNodeConvertToNodeGroup}
-                              storeActions={storeActions}
-                              currentDefinitionIndex={nodeDefinitionIndices.get(`${draggingNodeToRender.prototypeId}-${activeGraphId}`) || 0}
-                              onNavigateDefinition={(prototypeId, newIndex) => {
-                                const contextKey = `${prototypeId}-${activeGraphId}`;
-                                setNodeDefinitionIndices(prev => new Map(prev.set(contextKey, newIndex)));
-                              }}
-
-                            />
-                          );
-                        })()
-                      )}
-                    </>
-                  );
-                })()}
-
-                {selectionRect && (
-                  <rect
-                    x={selectionRect.x}
-                    y={selectionRect.y}
-                    width={selectionRect.width}
-                    height={selectionRect.height}
-                    fill="rgba(255, 0, 0, 0.1)"
-                    stroke="red"
-                    strokeWidth={1}
-                  />
-                )}
-
-                {plusSign && (
-                  <PlusSign
-                    plusSign={plusSign}
-                    onClick={handlePlusSignClick}
-                    onMorphDone={handleMorphDone}
-                    onDisappearDone={() => setPlusSign(null)}
-                    targetWidth={plusSign.tempName ? (() => {
-                      // Create a mock node object to get exact dimensions
-                      const mockNode = { name: plusSign.tempName };
-                      const dims = getNodeDimensions(mockNode, false, null);
-                      // Make the PlusSign slightly smaller so the final node feels like an expansion
-                      return dims.currentWidth * 0.9;
-                    })() : NODE_WIDTH}
-                    targetHeight={plusSign.tempName ? (() => {
-                      // Create a mock node object to get exact dimensions
-                      const mockNode = { name: plusSign.tempName };
-                      const dims = getNodeDimensions(mockNode, false, null);
-                      // Make the PlusSign slightly smaller so the final node feels like an expansion
-                      return dims.currentHeight * 0.9;
-                    })() : NODE_HEIGHT}
-                  />
-                )}
-
-                {/* Y-key video animation (session-only special effect) */}
-                {videoAnimation && videoAnimation.active && (
-                  <VideoNodeAnimation
-                    x={videoAnimation.x}
-                    y={videoAnimation.y}
-                    onComplete={handleVideoAnimationComplete}
-                  />
-                )}
+                  {/* Y-key video animation (session-only special effect) */}
+                  {videoAnimation && videoAnimation.active && (
+                    <VideoNodeAnimation
+                      x={videoAnimation.x}
+                      y={videoAnimation.y}
+                      onComplete={handleVideoAnimationComplete}
+                    />
+                  )}
                 </g>
               </svg>
               <HoverVisionAid
@@ -14083,7 +14083,7 @@ function NodeCanvas() {
               const remember = askWizardDontAskAgain;
               setAskWizardDialog(null);
               if (remember) {
-                try { debugConfig.setWizardConnectionPref('new'); } catch {}
+                try { debugConfig.setWizardConnectionPref('new'); } catch { }
               }
               openWizardWithPrompt(edges, { newConversation: true });
             }}
@@ -14092,7 +14092,7 @@ function NodeCanvas() {
               const remember = askWizardDontAskAgain;
               setAskWizardDialog(null);
               if (remember) {
-                try { debugConfig.setWizardConnectionPref('current'); } catch {}
+                try { debugConfig.setWizardConnectionPref('current'); } catch { }
               }
               openWizardWithPrompt(edges, { newConversation: false });
             }}
@@ -14127,7 +14127,7 @@ function NodeCanvas() {
               const remember = askWizardNodeDontAskAgain;
               setAskWizardNodeDialog(null);
               if (remember) {
-                try { debugConfig.setWizardNodePref('new'); } catch {}
+                try { debugConfig.setWizardNodePref('new'); } catch { }
               }
               openNodeWizardWithPrompt(proto, { newConversation: true });
             }}
@@ -14136,7 +14136,7 @@ function NodeCanvas() {
               const remember = askWizardNodeDontAskAgain;
               setAskWizardNodeDialog(null);
               if (remember) {
-                try { debugConfig.setWizardNodePref('current'); } catch {}
+                try { debugConfig.setWizardNodePref('current'); } catch { }
               }
               openNodeWizardWithPrompt(proto, { newConversation: false });
             }}
