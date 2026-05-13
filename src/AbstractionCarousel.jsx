@@ -493,45 +493,45 @@ const AbstractionCarousel = ({
     return offsets;
   }, [abstractionChainWithDims]);
 
-  // Calculate the center position where the carousel should be anchored
+  // Calculate the center position where the carousel should be anchored.
+  //
+  // The math approach below (manually reconstructing the canvas transform) is
+  // fragile on iOS Chrome — the URL bar's "morphing" behavior shifts the visual
+  // viewport in ways that desktop-style getBoundingClientRect() doesn't capture,
+  // leaving the carousel anchored above the node. Prefer using the SVG's own
+  // getScreenCTM(), which always reports the actual on-screen transform the
+  // browser is using right now, and fall back to math only if the CTM lookup
+  // fails (e.g. SVG not yet mounted).
   const getCarouselPosition = useCallback(() => {
     if (!selectedNode || !containerRef.current || !canvasSize) return { x: 0, y: 0 };
 
-    const containerRect = containerRef.current.getBoundingClientRect();
     const nodeDimensions = getNodeDimensions(selectedNode, false, null);
-
-    // Calculate node center in canvas coordinates
     const nodeCenterX = selectedNode.x + nodeDimensions.currentWidth / 2;
     const nodeCenterY = selectedNode.y + nodeDimensions.currentHeight / 2;
 
-    // getBoundingClientRect() returns coords in the visual viewport, but our
-    // wrapper uses position: fixed which anchors to the layout viewport. On iOS
-    // (Chrome/Safari) the URL bar collapsing/expanding shifts the visual viewport
-    // relative to the layout viewport — add visualViewport.offsetTop/offsetLeft
-    // so the carousel stays centered on the node instead of drifting upward.
-    const vv = typeof window !== 'undefined' ? window.visualViewport : null;
-    const vvOffsetTop = vv?.offsetTop || 0;
-    const vvOffsetLeft = vv?.offsetLeft || 0;
+    // Find the canvas SVG and its content group (the <g> that holds the
+    // pan/zoom transform — it's the first <g> child of svg.canvas).
+    const svgEl = containerRef.current.querySelector('svg.canvas');
+    const contentGroup = svgEl?.firstElementChild?.tagName === 'g'
+      ? svgEl.firstElementChild
+      : svgEl?.querySelector('g');
 
-    // Convert canvas coordinates to screen coordinates
-    // Match the canvas transform: translate(${panOffset.x - canvasSize.offsetX * zoomLevel}px, ${panOffset.y - canvasSize.offsetY * zoomLevel}px) scale(${zoomLevel})
-    const screenX = nodeCenterX * zoomLevel + (panOffset.x - canvasSize.offsetX * zoomLevel) + containerRect.left + vvOffsetLeft;
-    const screenY = nodeCenterY * zoomLevel + (panOffset.y - canvasSize.offsetY * zoomLevel) + containerRect.top + vvOffsetTop;
+    if (svgEl && contentGroup && typeof contentGroup.getScreenCTM === 'function') {
+      const ctm = contentGroup.getScreenCTM();
+      if (ctm && typeof svgEl.createSVGPoint === 'function') {
+        const pt = svgEl.createSVGPoint();
+        pt.x = nodeCenterX;
+        pt.y = nodeCenterY;
+        const screen = pt.matrixTransform(ctm);
+        return { x: screen.x, y: screen.y };
+      }
+    }
 
-    const finalPosition = { x: screenX, y: screenY };
-
-    console.log('[AbstractionCarousel] Position calculation:', {
-      selectedNode: { x: selectedNode.x, y: selectedNode.y },
-      nodeDimensions: { currentWidth: nodeDimensions.currentWidth, currentHeight: nodeDimensions.currentHeight },
-      nodeCenter: { x: nodeCenterX, y: nodeCenterY },
-      zoomLevel,
-      panOffset,
-      canvasSize: { offsetX: canvasSize.offsetX, offsetY: canvasSize.offsetY },
-      containerRect: { left: containerRect.left, top: containerRect.top },
-      finalPosition
-    });
-
-    return finalPosition;
+    // Fallback: original math (only hit if SVG/CTM unavailable).
+    const containerRect = containerRef.current.getBoundingClientRect();
+    const screenX = nodeCenterX * zoomLevel + (panOffset.x - canvasSize.offsetX * zoomLevel) + containerRect.left;
+    const screenY = nodeCenterY * zoomLevel + (panOffset.y - canvasSize.offsetY * zoomLevel) + containerRect.top;
+    return { x: screenX, y: screenY };
   }, [selectedNode, panOffset, zoomLevel, containerRef, canvasSize]);
 
   // Calculate the stack offset using real position and dynamic offsets
@@ -569,20 +569,24 @@ const AbstractionCarousel = ({
     }
   }, [isVisible]);
 
-  // iOS URL-bar collapse/expand shifts the visual viewport but doesn't fire
-  // window resize — listen on visualViewport so the carousel re-anchors to the
-  // node when the address bar appears/disappears.
+  // iOS URL-bar collapse/expand shifts the visual viewport but doesn't always
+  // fire window resize — listen on visualViewport and window so the carousel
+  // re-reads the SVG's screen CTM and re-anchors to the node when the address
+  // bar appears/disappears or the user scrolls/zooms.
   const [, setViewportTick] = useState(0);
   useEffect(() => {
     if (!isVisible) return;
-    const vv = typeof window !== 'undefined' ? window.visualViewport : null;
-    if (!vv) return;
     const bump = () => setViewportTick(t => t + 1);
-    vv.addEventListener('resize', bump);
-    vv.addEventListener('scroll', bump);
+    const vv = typeof window !== 'undefined' ? window.visualViewport : null;
+    vv?.addEventListener('resize', bump);
+    vv?.addEventListener('scroll', bump);
+    window.addEventListener('resize', bump);
+    window.addEventListener('scroll', bump, true);
     return () => {
-      vv.removeEventListener('resize', bump);
-      vv.removeEventListener('scroll', bump);
+      vv?.removeEventListener('resize', bump);
+      vv?.removeEventListener('scroll', bump);
+      window.removeEventListener('resize', bump);
+      window.removeEventListener('scroll', bump, true);
     };
   }, [isVisible]);
 
@@ -1136,14 +1140,18 @@ const AbstractionCarousel = ({
         }} />
       )}
 
-      {/* SVG Container for the abstraction nodes */}
+      {/* SVG Container for the abstraction nodes.
+          Sized in JS pixels (window.innerWidth/Height) rather than CSS vw/vh
+          because iOS Chrome's URL-bar morphing makes vh diverge from
+          window.innerHeight — the SVG layout and the node-positioning math
+          below MUST agree, or the node renders offset from the wrapper anchor. */}
       <svg
         style={{
           position: 'absolute',
-          left: '-50vw',
-          top: '-200vh',
-          width: '100vw',
-          height: '400vh',
+          left: `${-window.innerWidth * 0.5}px`,
+          top: `${-window.innerHeight * 2}px`,
+          width: `${window.innerWidth}px`,
+          height: `${window.innerHeight * 4}px`,
           pointerEvents: 'none',
           transform: `translateY(${stackOffset}px)`,
           transition: physicsState.isSnapping ? 'none' : 'none' // No CSS transitions, using JS animation
@@ -1479,15 +1487,16 @@ const AbstractionCarousel = ({
         })()}
       </svg>
 
-      {/* Static hint overlays: fade-in on open, fade-out on first scroll */}
+      {/* Static hint overlays: fade-in on open, fade-out on first scroll.
+          Same vw/vh-vs-innerHeight reasoning as the main carousel SVG above. */}
       {isVisible && topHintPos && bottomHintPos && (
         <svg
           style={{
             position: 'absolute',
-            left: '-50vw',
-            top: '-200vh',
-            width: '100vw',
-            height: '400vh',
+            left: `${-window.innerWidth * 0.5}px`,
+            top: `${-window.innerHeight * 2}px`,
+            width: `${window.innerWidth}px`,
+            height: `${window.innerHeight * 4}px`,
             pointerEvents: 'none',
             transform: `translateY(${stackOffset}px)`,
             opacity: hintsDismissed ? 0 : hintOpacity,
