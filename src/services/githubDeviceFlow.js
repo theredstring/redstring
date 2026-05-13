@@ -12,6 +12,11 @@
  */
 
 import { isElectron } from '../utils/fileAccessAdapter.js';
+import {
+  DEFAULT_OAUTH_CLIENT_ID,
+  DEFAULT_APP_CLIENT_ID,
+  DEFAULT_APP_SLUG
+} from '../config/githubClientIds.js';
 
 const DEVICE_CODE_VERIFICATION_FALLBACK = 'https://github.com/login/device';
 
@@ -166,17 +171,18 @@ export async function pollForToken({
 }
 
 /**
- * Resolved client IDs from Vite build-time env. These are public values;
- * embedding them in the binary is the same approach `gh`, VSCode, etc. use.
+ * Resolved client IDs. Defaults to the upstream Redstring public IDs (see
+ * src/config/githubClientIds.js); forks point at their own registrations
+ * by setting the matching VITE_GITHUB_* env vars at build time.
  */
 export function getOAuthClientId() {
-  return (import.meta.env && import.meta.env.VITE_GITHUB_CLIENT_ID) || null;
+  return (import.meta.env && import.meta.env.VITE_GITHUB_CLIENT_ID) || DEFAULT_OAUTH_CLIENT_ID;
 }
 
 export function getAppClientId() {
-  return (import.meta.env && import.meta.env.VITE_GITHUB_APP_CLIENT_ID) || null;
+  return (import.meta.env && import.meta.env.VITE_GITHUB_APP_CLIENT_ID) || DEFAULT_APP_CLIENT_ID;
 }
 
 export function getAppSlug() {
-  return (import.meta.env && import.meta.env.VITE_GITHUB_APP_SLUG) || 'redstring-semantic-sync';
+  return (import.meta.env && import.meta.env.VITE_GITHUB_APP_SLUG) || DEFAULT_APP_SLUG;
 }

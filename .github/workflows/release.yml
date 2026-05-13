@@ -57,6 +57,14 @@ jobs:
           # Code Signing
           CSC_LINK: ${{ secrets.CSC_LINK }}
           CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
+          # GitHub Device Flow client IDs — public values inlined into the
+          # Electron renderer at build time so the desktop app can do
+          # GitHub OAuth without contacting redstring.io. The desktop App
+          # slug is constant so it's literal here; falls back to the
+          # default in src/services/githubDeviceFlow.js if unset.
+          VITE_GITHUB_CLIENT_ID: ${{ secrets.VITE_GITHUB_CLIENT_ID }}
+          VITE_GITHUB_APP_CLIENT_ID: ${{ secrets.VITE_GITHUB_APP_CLIENT_ID }}
+          VITE_GITHUB_APP_SLUG: ${{ secrets.VITE_GITHUB_APP_SLUG }}
         with:
           # GitHub token, automatically provided to the action
           github_token: ${{ secrets.GITHUB_TOKEN }}
