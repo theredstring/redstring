@@ -123,22 +123,6 @@ const BetaOnboardingModal = ({
         </div>
       </div>
 
-      {/* Mobile Warning for compact layouts */}
-      {isCompactLayout && (
-        <div style={{
-          backgroundColor: '#fff3cd',
-          border: '2px solid #ffc107',
-          borderRadius: '8px',
-          padding: '12px',
-          marginBottom: '12px',
-          fontSize: '0.8rem',
-          color: '#856404',
-          textAlign: 'center'
-        }}>
-          Redstring is unfinished on mobile in this version and will not work correctly. For the best experience, please use a desktop browser.
-        </div>
-      )}
-
       {/* Main Content */}
       <div
         style={{

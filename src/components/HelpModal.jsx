@@ -250,18 +250,6 @@ const HelpModal = ({ isVisible, onClose }) => {
             <li>Close unused browser tabs</li>
             <li>Clear browser cache</li>
           </ul>
-
-          <h4>Mobile/Tablet Notice</h4>
-          <p style={{
-            backgroundColor: theme.alert.warning.bg,
-            padding: '12px',
-            borderRadius: '6px',
-            border: `1px solid ${theme.alert.warning.border}`,
-            color: theme.alert.warning.text
-          }}>
-            <strong>Note:</strong> Redstring is currently optimized for desktop browsers.
-            Mobile and tablet support is incomplete in this version.
-          </p>
         </div>
       )
     }
