@@ -142,6 +142,60 @@ const UnifiedBottomControlPanel = ({
   const [shouldRender, setShouldRender] = useState(true);
   const nodeGroupPreviewRef = useRef(null);
   const mobileState = useMobileDetection();
+  const [dragOffset, setDragOffset] = useState(0);
+  const [isDragging, setIsDragging] = useState(false);
+  const dragStartYRef = useRef(0);
+  const dismissThresholdPx = 70;
+
+  const handleDismissPointerDown = useCallback((e) => {
+    if (!onDismiss) return;
+    e.preventDefault();
+    e.stopPropagation();
+    dragStartYRef.current = e.clientY;
+    setIsDragging(true);
+    setDragOffset(0);
+    try { e.currentTarget.setPointerCapture?.(e.pointerId); } catch {}
+  }, [onDismiss]);
+
+  const handleDismissPointerMove = useCallback((e) => {
+    if (!isDragging) return;
+    const delta = e.clientY - dragStartYRef.current;
+    setDragOffset(Math.max(0, delta));
+  }, [isDragging]);
+
+  const handleDismissPointerUp = useCallback((e) => {
+    if (!isDragging) return;
+    setIsDragging(false);
+    try { e.currentTarget.releasePointerCapture?.(e.pointerId); } catch {}
+    if (dragOffset > dismissThresholdPx) {
+      setDragOffset(320);
+      setTimeout(() => {
+        onDismiss?.();
+      }, 220);
+    } else {
+      setDragOffset(0);
+    }
+  }, [isDragging, dragOffset, onDismiss]);
+
+  useEffect(() => {
+    if (!isVisible) {
+      setDragOffset(0);
+      setIsDragging(false);
+    }
+  }, [isVisible]);
+
+  const dragStyle = useMemo(() => {
+    if (dragOffset === 0 && !isDragging) return undefined;
+    const scale = Math.max(0.55, 1 - dragOffset / 500);
+    const opacity = Math.max(0, 1 - dragOffset / 260);
+    return {
+      transform: `translateY(${dragOffset}px) scale(${scale})`,
+      opacity,
+      transition: isDragging ? 'none' : 'transform 0.22s ease-out, opacity 0.22s ease-out',
+      transformOrigin: 'top center',
+      willChange: 'transform, opacity',
+    };
+  }, [dragOffset, isDragging]);
 
   useEffect(() => {
     if (isVisible) {
@@ -449,12 +503,15 @@ const UnifiedBottomControlPanel = ({
       onAnimationEnd={handleAnimationEnd}
       onTouchStart={(e) => { e.stopPropagation(); }}
     >
-      <div className="unified-bottom-content">
+      <div className="unified-bottom-content" style={dragStyle}>
         <button
           type="button"
           className="unified-bottom-handle"
-          aria-label="Dismiss"
-          onClick={onDismiss}
+          aria-label="Drag down to dismiss"
+          onPointerDown={handleDismissPointerDown}
+          onPointerMove={handleDismissPointerMove}
+          onPointerUp={handleDismissPointerUp}
+          onPointerCancel={handleDismissPointerUp}
         />
         {/* Row 1: Interactive info */}
         <div className="info-row">

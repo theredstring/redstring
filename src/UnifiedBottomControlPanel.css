@@ -66,20 +66,37 @@
 
 .unified-bottom-handle {
   display: none;
+  width: 56px;
+  height: 16px;
+  margin: 0 auto;
+  padding: 6px 0;
+  background: transparent;
+  border: none;
+  cursor: grab;
+  flex-shrink: 0;
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+  position: relative;
+}
+
+.unified-bottom-handle::before {
+  content: '';
+  display: block;
   width: 44px;
   height: 5px;
+  margin: 0 auto;
   border-radius: 3px;
   background: rgba(38, 0, 0, 0.35);
-  margin: 0 auto;
-  cursor: pointer;
-  flex-shrink: 0;
-  border: none;
-  padding: 0;
   transition: background 0.15s ease;
 }
 
-.unified-bottom-handle:hover {
+.unified-bottom-handle:hover::before {
   background: rgba(38, 0, 0, 0.55);
+}
+
+.unified-bottom-handle:active {
+  cursor: grabbing;
 }
 
 @media (max-width: 768px) {
