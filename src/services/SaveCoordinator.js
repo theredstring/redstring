@@ -165,8 +165,19 @@ class SaveCoordinator {
   }
 
   sendToWorker() {
-    if (!this.saveWorker || !this.nextStateToProcess) return;
-    
+    if (!this.nextStateToProcess) return;
+
+    // No worker available (init failed, was terminated after onerror, or the
+    // browser doesn't support module workers — iOS Safari < 15). Do the same
+    // hash-and-schedule work on the main thread so autosave still functions.
+    // Without this fallback, sendToWorker silently no-ops on every edit and
+    // the autosave loop never dispatches — the symptom the user hits on
+    // mobile where manual save works but autosave doesn't.
+    if (!this.saveWorker) {
+      this._processSaveOnMainThread(this.nextStateToProcess);
+      return;
+    }
+
     this.workerProcessing = true;
 
     // Extract only data properties for the worker to avoid DataCloneError
@@ -231,18 +242,21 @@ class SaveCoordinator {
     // 100-500ms), we assume it's stuck and dispatch a main-thread save so
     // the user's edits aren't stranded behind a dead worker. The save path
     // already tolerates a null pendingHash/pendingString (fileStorage and
-    // gitSyncEngine serialize internally), so this is a safe fallback.
+    // gitSyncEngine serialize internally), so this is a safe fallback. If
+    // the worker eventually responds with the same hash the main-thread
+    // path already computed, the callback is a no-op (line 117 dedupes on
+    // lastSaveHash). Kept short (3s) so autosave doesn't visibly stall on
+    // mobile where the worker is most likely to be the bottleneck.
     if (this.workerWatchdogTimer) clearTimeout(this.workerWatchdogTimer);
-    const WORKER_STALL_MS = 8000;
+    const WORKER_STALL_MS = 3000;
     this.workerWatchdogTimer = setTimeout(() => {
       this.workerWatchdogTimer = null;
       this._handleWorkerStall('timeout');
     }, WORKER_STALL_MS);
   }
 
-  // Recover from a stalled or crashed worker. Mark dirty (so polling indicators
-  // stay accurate), reset worker bookkeeping, and schedule a save dispatched
-  // off lastState. This is the fallback that unsticks "Saving..." on mobile.
+  // Recover from a stalled or crashed worker. Reuses the main-thread save
+  // path so a dead/slow worker never blocks autosave on mobile.
   _handleWorkerStall(reason) {
     if (this.workerWatchdogTimer) {
       clearTimeout(this.workerWatchdogTimer);
@@ -253,7 +267,41 @@ class SaveCoordinator {
     this.workerDirty = false;
     if (!wasProcessing) return;
     console.warn(`[SaveCoordinator] Worker stall recovery (${reason}) — dispatching main-thread save.`);
-    if (this.lastState) {
+    // Prefer the latest nextStateToProcess (queued during the stall) over
+    // the stale lastState that was sent to the dead worker.
+    const state = this.nextStateToProcess || this.lastState;
+    if (state) {
+      this._processSaveOnMainThread(state);
+    }
+  }
+
+  // Main-thread analogue of save.worker.js. Hashes the content state with the
+  // same FNV-1a logic the worker uses, and — if it differs from lastSaveHash —
+  // marks dirty and schedules a save. This is the fallback that runs whenever
+  // the worker is unavailable (mobile Safari module-worker init failure,
+  // worker termination after onerror, watchdog stall recovery). Without it,
+  // autosave silently no-ops on every edit when the worker is gone.
+  _processSaveOnMainThread(state) {
+    if (!state) return;
+    this.lastState = state;
+    this.nextStateToProcess = null;
+    try {
+      const hash = this.generateStateHash(state);
+      if (hash !== this.lastSaveHash && hash !== this.pendingHash) {
+        this.pendingHash = hash;
+        // No pre-serialized string from the main-thread path — fileStorage
+        // serializes when it writes, and gitSyncEngine.updateState handles
+        // its own serialization downstream. Both tolerate a null pendingString.
+        this.pendingString = null;
+        this.pendingRedstringData = null;
+        this.isDirty = true;
+        try { gitAutosavePolicy.onEditActivity(); } catch { /* noop */ }
+        this.scheduleSave();
+      }
+    } catch (err) {
+      console.warn('[SaveCoordinator] Main-thread save processing failed, scheduling anyway:', err);
+      // Hash failed but state exists — schedule a save anyway so edits aren't
+      // stranded. The save dispatch tolerates a missing hash.
       this.isDirty = true;
       this.scheduleSave();
     }
@@ -361,29 +409,34 @@ class SaveCoordinator {
 
       // Update global interaction state based on context
       // Track drag, pan, pinch, and animation states
-      const isInteracting = changeContext.isDragging === true || 
+      const isInteracting = changeContext.isDragging === true ||
                            changeContext.isPanning === true ||
                            changeContext.isPinching === true ||
                            changeContext.isAnimating === true;
-                           
+
+      // Self-heal stuck isGlobalDragging. iOS Safari/Chrome can drop touchend
+      // events when the OS hijacks a gesture (system swipe, scroll-into-pull,
+      // notification banner, app-switch) — the start phase reached us but the
+      // end phase never did, latching this flag true. Once latched, the early
+      // return at line 440 below blocks ALL autosave forever, exactly the
+      // symptom the user hits where manual save works but autosave doesn't.
+      // If the last interactive update was more than INTERACTION_MAX_AGE_MS
+      // ago, the gesture is dead — clear the flag.
+      const now = Date.now();
+      const INTERACTION_MAX_AGE_MS = 2500;
+      if (this.isGlobalDragging && !isInteracting && this._lastInteractionTouchTime
+          && (now - this._lastInteractionTouchTime) > INTERACTION_MAX_AGE_MS) {
+        console.warn(`[SaveCoordinator] Force-clearing stale isGlobalDragging (no interactive update in ${now - this._lastInteractionTouchTime}ms — probably a dropped touchend)`);
+        this.isGlobalDragging = false;
+        this._lastInteractionEndTime = now;
+      }
+
       if (isInteracting) {
-        if (!this.isGlobalDragging) {
-          /*
-          console.log('[SaveCoordinator] Interaction started:', { 
-            isDragging: changeContext.isDragging, 
-            isPanning: changeContext.isPanning,
-            isPinching: changeContext.isPinching,
-            isAnimating: changeContext.isAnimating,
-            phase: changeContext.phase,
-            type: changeContext.type
-          });
-          */
-        }
+        this._lastInteractionTouchTime = now;
         this.isGlobalDragging = true;
       } else if (changeContext.phase === 'end' || changeContext.phase === 'complete') {
         if (this.isGlobalDragging) {
-          // console.log('[SaveCoordinator] Interaction ended');
-          this._lastInteractionEndTime = Date.now();
+          this._lastInteractionEndTime = now;
         }
         this.isGlobalDragging = false;
       }
@@ -754,6 +807,48 @@ class SaveCoordinator {
       hasPendingSave: this.saveTimer !== null || this.pendingHash !== null,
       lastError: this.lastError,
       gitAutosavePolicy: gitAutosavePolicy.getStatus()
+    };
+  }
+
+  // Diagnostic snapshot for the debug overlay. Surfaces exactly the state
+  // that gates autosave — used on mobile where we can't open devtools and
+  // need to see which flag is latched true.
+  getDiagnostics() {
+    const now = Date.now();
+    return {
+      isEnabled: this.isEnabled,
+      isSaving: this.isSaving,
+      isDirty: this.isDirty,
+      hasUnsavedChanges: this.hasUnsavedChanges(),
+      pendingHashSet: this.pendingHash !== null,
+      pendingStringSet: this.pendingString !== null,
+      lastSaveHashSet: this.lastSaveHash !== null,
+      hasLastState: !!this.lastState,
+      hasNextStateToProcess: !!this.nextStateToProcess,
+      // Worker
+      hasSaveWorker: !!this.saveWorker,
+      workerProcessing: this.workerProcessing,
+      workerDirty: this.workerDirty,
+      workerWatchdogPending: this.workerWatchdogTimer !== null,
+      // Timers
+      saveTimerPending: this.saveTimer !== null,
+      workerTimerPending: this.workerTimer !== null,
+      // Interaction gating (the most likely autosave killer on mobile)
+      isGlobalDragging: this.isGlobalDragging,
+      msSinceInteractionStart: this._lastInteractionTouchTime
+        ? now - this._lastInteractionTouchTime
+        : null,
+      msSinceInteractionEnd: this._lastInteractionEndTime
+        ? now - this._lastInteractionEndTime
+        : null,
+      // Data-loss guard
+      hasLoadedFromFile: this.hasLoadedFromFile,
+      // Storage targets actually connected
+      hasFileStorage: !!this.fileStorage,
+      hasGitSyncEngine: !!this.gitSyncEngine,
+      gitEngineHealthy: this.gitSyncEngine
+        ? (typeof this.gitSyncEngine.isHealthy === 'function' ? this.gitSyncEngine.isHealthy() : null)
+        : null,
     };
   }
 

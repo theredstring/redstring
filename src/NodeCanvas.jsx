@@ -2401,10 +2401,20 @@ function NodeCanvas() {
     try {
       const { default: universeBackend } = await import('./services/universeBackend.js');
       const { persistentAuth } = await import('./services/persistentAuth.js');
+      const { default: saveCoordinator } = await import('./services/SaveCoordinator.js');
 
       const authStatus = universeBackend.getAuthStatus?.() || persistentAuth.getAuthStatus?.() || {};
       const universe = universeBackend.getActiveUniverse?.() || null;
       const universeSlug = universe?.slug || null;
+
+      let saveCoordinatorDiag = null;
+      try {
+        saveCoordinatorDiag = typeof saveCoordinator?.getDiagnostics === 'function'
+          ? saveCoordinator.getDiagnostics()
+          : null;
+      } catch (e) {
+        saveCoordinatorDiag = { error: `getDiagnostics threw: ${e.message}` };
+      }
 
       let engineSummary = {};
       try {
@@ -2504,13 +2514,14 @@ function NodeCanvas() {
           nodeCount: universe?.nodeCount ?? null,
         },
         engine: engineSummary,
+        saveCoordinator: saveCoordinatorDiag,
         lastActions: syncDebugActionsRef.current.slice(),
       };
     } catch (err) {
       return {
         _sync: true,
         _meta: { notice: `Failed to build diagnostics: ${err.message}` },
-        device: {}, auth: {}, universe: {}, engine: {},
+        device: {}, auth: {}, universe: {}, engine: {}, saveCoordinator: null,
         lastActions: syncDebugActionsRef.current.slice(),
       };
     }

@@ -290,7 +290,7 @@ const Section = ({ title, children, tone = '#66d9ef', headerExtra = null }) => (
 );
 
 const SyncDiagnostics = ({ data }) => {
-  const { _sync, device, auth, universe, engine, lastActions, _meta } = data;
+  const { _sync, device, auth, universe, engine, saveCoordinator, lastActions, _meta } = data;
   return (
     <div>
       {_meta?.notice && (
@@ -350,6 +350,36 @@ const SyncDiagnostics = ({ data }) => {
         <SectionRow label="lastError" value={engine?.lastError} />
         <SectionRow label="statusLabel" value={engine?.statusLabel} />
       </Section>
+
+      {saveCoordinator && (
+        <Section title="Save coordinator" tone="#e6db74">
+          <SectionRow label="isEnabled" value={saveCoordinator.isEnabled} />
+          <SectionRow label="isSaving" value={saveCoordinator.isSaving} />
+          <SectionRow label="isDirty" value={saveCoordinator.isDirty} />
+          <SectionRow label="hasUnsavedChanges" value={saveCoordinator.hasUnsavedChanges} />
+          <SectionRow label="pendingHash" value={saveCoordinator.pendingHashSet} />
+          <SectionRow label="pendingString" value={saveCoordinator.pendingStringSet} />
+          <SectionRow label="lastSaveHash" value={saveCoordinator.lastSaveHashSet} />
+          <SectionRow label="hasLastState" value={saveCoordinator.hasLastState} />
+          <SectionRow label="hasNextStateToProcess" value={saveCoordinator.hasNextStateToProcess} />
+          <SectionRow label="hasSaveWorker" value={saveCoordinator.hasSaveWorker} />
+          <SectionRow label="workerProcessing" value={saveCoordinator.workerProcessing} />
+          <SectionRow label="workerDirty" value={saveCoordinator.workerDirty} />
+          <SectionRow label="workerWatchdogPending" value={saveCoordinator.workerWatchdogPending} />
+          <SectionRow label="saveTimerPending" value={saveCoordinator.saveTimerPending} />
+          <SectionRow label="workerTimerPending" value={saveCoordinator.workerTimerPending} />
+          <SectionRow label="isGlobalDragging" value={saveCoordinator.isGlobalDragging} />
+          <SectionRow label="ms since interactionStart" value={saveCoordinator.msSinceInteractionStart} />
+          <SectionRow label="ms since interactionEnd" value={saveCoordinator.msSinceInteractionEnd} />
+          <SectionRow label="hasLoadedFromFile" value={saveCoordinator.hasLoadedFromFile} />
+          <SectionRow label="hasFileStorage" value={saveCoordinator.hasFileStorage} />
+          <SectionRow label="hasGitSyncEngine" value={saveCoordinator.hasGitSyncEngine} />
+          <SectionRow label="gitEngineHealthy" value={saveCoordinator.gitEngineHealthy} />
+          {saveCoordinator.error && (
+            <SectionRow label="error" value={saveCoordinator.error} />
+          )}
+        </Section>
+      )}
 
       {Array.isArray(lastActions) && lastActions.length > 0 && (
         <Section title="Recent actions" tone="#ae81ff" headerExtra={<CopyActionLogButton actions={lastActions} />}>
