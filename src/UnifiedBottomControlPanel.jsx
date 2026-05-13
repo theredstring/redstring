@@ -201,19 +201,19 @@ const UnifiedBottomControlPanel = ({
   }, [isNodes, selectedNodes]);
 
   // Mobile-responsive icon sizing
-  const iconSize = mobileState.isMobilePortrait ? 16 : 18;
+  const iconSize = mobileState.isMobile ? 14 : 18;
 
   // Upper bound for any renderer containerWidth — keeps us from asking for more
   // space than the viewport actually offers. Auto-updates on resize via useMobileDetection.
   const viewportLimit = Math.max(260, mobileState.width - 24);
 
   const nodeRendererMetrics = useMemo(() => {
-    const padding = mobileState.isMobilePortrait ? 4 : 8;
+    const padding = mobileState.isMobile ? 0 : 8;
     if (!nodeDimensionEntries.length) {
       return {
         nodesForRenderer: [],
         containerWidth: Math.min(360, viewportLimit),
-        containerHeight: mobileState.isMobilePortrait ? 72 : 84,
+        containerHeight: mobileState.isMobile ? 72 : 84,
         padding
       };
     }
@@ -221,25 +221,26 @@ const UnifiedBottomControlPanel = ({
     const PADDING = padding;
     const BASE_CONTAINER_WIDTH = Math.min(360, viewportLimit);
     const MAX_CONTAINER_WIDTH = Math.min(520, viewportLimit);
-    const BASE_CONTAINER_HEIGHT = mobileState.isMobilePortrait ? 72 : 92;
-    const ROW_HEIGHT_INCREMENT = mobileState.isMobilePortrait ? 50 : 60;
-    const MAX_CONTAINER_HEIGHT = mobileState.isMobilePortrait ? 180 : 220;
+    const BASE_CONTAINER_HEIGHT = mobileState.isMobile ? 64 : 92;
+    const ROW_HEIGHT_INCREMENT = mobileState.isMobile ? 56 : 60;
+    const MAX_CONTAINER_HEIGHT = mobileState.isMobile ? 200 : 220;
     const COLUMN_SPACING = mobileState.isMobilePortrait ? 12 : 16;
     const ROW_SPACING = mobileState.isMobilePortrait ? 10 : 14;
     const MAX_ITEMS_PER_ROW = mobileState.isMobilePortrait ? 3 : 4;
-    const MIN_SCALE = mobileState.isMobilePortrait ? 0.38 : 0.45;
+    const MIN_SCALE = mobileState.isMobile ? 0.5 : 0.45;
 
     const count = nodeDimensionEntries.length;
     const rowCount = Math.max(1, Math.ceil(count / MAX_ITEMS_PER_ROW));
 
+    const narrow = mobileState.isMobile;
     const desiredScale = (() => {
-      if (count === 1) return 0.5;
-      if (count === 2) return 0.44;
-      if (count === 3) return 0.39;
-      if (count === 4) return 0.35;
-      if (count <= 6) return 0.31;
-      if (count <= 8) return 0.27;
-      if (count <= 12) return 0.25;
+      if (count === 1) return narrow ? 0.85 : 0.5;
+      if (count === 2) return narrow ? 0.75 : 0.44;
+      if (count === 3) return narrow ? 0.65 : 0.39;
+      if (count === 4) return narrow ? 0.6 : 0.35;
+      if (count <= 6) return narrow ? 0.5 : 0.31;
+      if (count <= 8) return narrow ? 0.42 : 0.27;
+      if (count <= 12) return narrow ? 0.36 : 0.25;
       return MIN_SCALE * 0.5;
     })();
 
@@ -363,20 +364,23 @@ const UnifiedBottomControlPanel = ({
   }, [isNodeGroup, selectedGroup, nodeGroupPrototype]);
 
   const nodeGroupRendererMetrics = useMemo(() => {
+    const minHeight = mobileState.isMobile ? 72 : 120;
+    const heightExtra = mobileState.isMobile ? 8 : 40;
+    const pad = mobileState.isMobile ? 6 : 16;
     if (!nodeGroupRendererNode) {
       return {
         containerWidth: Math.min(340, viewportLimit),
-        containerHeight: 120,
-        padding: 16
+        containerHeight: minHeight,
+        padding: pad
       };
     }
 
     return {
       containerWidth: Math.min(viewportLimit, Math.max(280, nodeGroupRendererNode.width + 80)),
-      containerHeight: Math.max(120, nodeGroupRendererNode.height + 40),
-      padding: 16
+      containerHeight: Math.max(minHeight, nodeGroupRendererNode.height + heightExtra),
+      padding: pad
     };
-  }, [nodeGroupRendererNode, viewportLimit]);
+  }, [nodeGroupRendererNode, viewportLimit, mobileState.isMobile]);
 
   const handleNodeGroupDefinitionClick = useCallback(() => {
     if (!onDiveIntoDefinition) return;
@@ -412,20 +416,23 @@ const UnifiedBottomControlPanel = ({
   }, [isGroup, selectedGroup]);
 
   const groupRendererMetrics = useMemo(() => {
+    const minHeight = mobileState.isMobile ? 64 : 110;
+    const heightExtra = mobileState.isMobile ? 6 : 20;
+    const pad = mobileState.isMobile ? 4 : 8;
     if (!groupRendererNode) {
       return {
         containerWidth: Math.min(320, viewportLimit),
-        containerHeight: 110,
-        padding: 16
+        containerHeight: minHeight,
+        padding: pad
       };
     }
 
     return {
       containerWidth: Math.min(viewportLimit, Math.max(200, groupRendererNode.width + 48)),
-      containerHeight: Math.max(110, groupRendererNode.height + 20),
-      padding: 8
+      containerHeight: Math.max(minHeight, groupRendererNode.height + heightExtra),
+      padding: pad
     };
-  }, [groupRendererNode, viewportLimit]);
+  }, [groupRendererNode, viewportLimit, mobileState.isMobile]);
 
   if (!shouldRender) return null;
 
