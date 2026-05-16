@@ -2768,6 +2768,11 @@ class UniverseBackend {
     }
 
     if (results.length > 0) {
+      // Update universe metrics + lastSaved/lastSync after every successful
+      // autosave so the universe list reflects fresh counts and timestamps.
+      // Runs silently to avoid notification spam on the autosave cadence.
+      await this._persistPostSaveTelemetry(universe.slug, storeState);
+
       if (errors.length > 0) {
         if (!suppressNotification) {
           this.notifyStatus('warning', `Saved to: ${results.join(', ')} (${errors.length} failed)`);
@@ -3792,7 +3797,7 @@ class UniverseBackend {
    */
   analyzeStoreData(storeState) {
     if (!storeState) {
-      return { nodeCount: 0, graphCount: 0, timestamp: null };
+      return { nodeCount: 0, graphCount: 0, connectionCount: 0, timestamp: null };
     }
 
     const nodeCount = storeState.nodePrototypes
@@ -3807,13 +3812,58 @@ class UniverseBackend {
         : Object.keys(storeState.graphs || {}).length)
       : 0;
 
+    let connectionCount = 0;
+    if (storeState.edges) {
+      connectionCount = storeState.edges instanceof Map
+        ? storeState.edges.size
+        : Object.keys(storeState.edges).length;
+    } else if (storeState.graphs) {
+      const graphs = storeState.graphs instanceof Map
+        ? Array.from(storeState.graphs.values())
+        : Object.values(storeState.graphs || {});
+      connectionCount = graphs.reduce(
+        (total, g) => total + (Array.isArray(g?.edgeIds) ? g.edgeIds.length : 0),
+        0
+      );
+    }
+
     // Try to extract timestamp from metadata
     const timestamp = storeState.metadata?.lastModified ||
       storeState.metadata?.lastSaved ||
       storeState.lastModified ||
       Date.now();
 
-    return { nodeCount, graphCount, timestamp };
+    return { nodeCount, graphCount, connectionCount, timestamp };
+  }
+
+  /**
+   * Persist freshly-computed metrics + lastSaved/lastSync timestamps for a
+   * universe after a successful save. Writes both root-level convenience
+   * fields and the nested metadata object so the universe list reads stay
+   * accurate for both active and inactive universes across Electron and web.
+   */
+  async _persistPostSaveTelemetry(universeSlug, storeState) {
+    try {
+      const universe = this.getUniverse(universeSlug);
+      if (!universe) return;
+      const { nodeCount, graphCount, connectionCount } = this.analyzeStoreData(storeState);
+      const timestamp = new Date().toISOString();
+      await this.updateUniverse(universeSlug, {
+        nodeCount,
+        connectionCount,
+        graphCount,
+        metadata: {
+          ...(universe.metadata || {}),
+          nodeCount,
+          connectionCount,
+          graphCount,
+          lastSync: timestamp,
+          lastSaved: timestamp
+        }
+      }, { silent: true });
+    } catch (error) {
+      umWarn('[UniverseBackend] Failed to persist post-save telemetry:', error);
+    }
   }
 
   /**
@@ -4451,12 +4501,16 @@ class UniverseBackend {
   /**
    * Update universe
    */
-  async updateUniverse(slug, updates) {
+  async updateUniverse(slug, updates, options = {}) {
     if (!this.isInitialized) {
       await this.initialize();
     }
 
-    umLog(`[UniverseBackend] Updating universe ${slug}:`, updates);
+    const { silent = false } = options || {};
+
+    if (!silent) {
+      umLog(`[UniverseBackend] Updating universe ${slug}:`, updates);
+    }
 
     const resolved = this.resolveUniverseEntry(slug);
     if (!resolved) {
@@ -4473,7 +4527,9 @@ class UniverseBackend {
     this.universes.set(key, this.safeNormalizeUniverse(updated));
     this.saveToStorage();
 
-    this.notifyStatus('info', `Updated universe: ${universe.name}`);
+    if (!silent) {
+      this.notifyStatus('info', `Updated universe: ${universe.name}`);
+    }
 
     const result = updated;
 
@@ -4802,16 +4858,9 @@ class UniverseBackend {
         }
 
         try {
-          const timestamp = new Date().toISOString();
-          await this.updateUniverse(universeSlug, {
-            metadata: {
-              ...(universe.metadata || {}),
-              lastSync: timestamp,
-              lastSaved: timestamp
-            }
-          });
+          await this._persistPostSaveTelemetry(universeSlug, storeState);
         } catch (metaError) {
-          umWarn('[UniverseBackend] Failed to update last sync metadata:', metaError);
+          umWarn('[UniverseBackend] Failed to update post-save telemetry:', metaError);
         }
 
         const message = savedTo.length > 0
