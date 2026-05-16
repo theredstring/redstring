@@ -72,6 +72,13 @@ class GitSyncEngine {
     // Optional UI status handler
     this.statusHandler = null;
 
+    // Restore the persisted commit floor for this universe slug. Without this,
+    // a fresh engine after page refresh has lastCommittedNodeCount=0 — meaning
+    // the empty-state guard in updateState is disarmed for the first save,
+    // and an autosave racing the load can wipe the repo before the engine
+    // has had a chance to record its real floor from a successful commit.
+    this._restorePersistedFloor();
+
     console.log('[GitSyncEngine] Initialized with provider:', provider.name);
     console.log('[GitSyncEngine] Authentication method:', this.isGitHubApp ? 'GitHub App' : 'OAuth');
     console.log('[GitSyncEngine] Auto-save optimized:', this.autoSaveEnabled);
@@ -79,6 +86,35 @@ class GitSyncEngine {
     console.log('[GitSyncEngine] Source of truth:', this.sourceOfTruth);
     console.log('[GitSyncEngine] Universe slug:', this.universeSlug);
     console.log('[GitSyncEngine] Sanitized file base name:', this.fileBaseName);
+    console.log('[GitSyncEngine] Restored commit floor:', this.lastCommittedNodeCount);
+  }
+
+  _getFloorStorageKey() {
+    return `redstring-gitengine-floor:${this.universeSlug}`;
+  }
+
+  _persistFloor() {
+    try {
+      if (typeof window === 'undefined' || !window.localStorage) return;
+      const payload = {
+        lastCommittedNodeCount: this.lastCommittedNodeCount,
+        lastCommittedHash: this.lastCommittedHash,
+        ts: Date.now()
+      };
+      window.localStorage.setItem(this._getFloorStorageKey(), JSON.stringify(payload));
+    } catch (_) { /* non-fatal */ }
+  }
+
+  _restorePersistedFloor() {
+    try {
+      if (typeof window === 'undefined' || !window.localStorage) return;
+      const raw = window.localStorage.getItem(this._getFloorStorageKey());
+      if (!raw) return;
+      const parsed = JSON.parse(raw);
+      if (parsed && typeof parsed.lastCommittedNodeCount === 'number') {
+        this.lastCommittedNodeCount = parsed.lastCommittedNodeCount;
+      }
+    } catch (_) { /* non-fatal */ }
   }
 
   // Allow UI to subscribe to status updates
@@ -601,6 +637,20 @@ class GitSyncEngine {
       const latestState = this.pendingCommits[this.pendingCommits.length - 1].data;
       const latestHash = this.pendingCommits[this.pendingCommits.length - 1].hash;
 
+      // Defense-in-depth empty-state guard. The updateState path also checks
+      // this, but the auto-commit loop is the only thing that actually pushes
+      // bytes — so the floor lives here too. If the repo previously had data
+      // and we're about to push zero nodes, abort and discard the pending
+      // commits so the loop doesn't retry the same empty payload forever.
+      const latestNodeCount = this._countNodes(latestState);
+      if (this.lastCommittedNodeCount > 0 && latestNodeCount === 0) {
+        console.warn('[GitSyncEngine] processPendingCommits refused: pending state has 0 nodes but last committed had', this.lastCommittedNodeCount, '— discarding pending and waiting for a real edit.');
+        this.notifyStatus('warning', 'Commit blocked: pending state is empty');
+        this.pendingCommits = [];
+        this.hasChanges = false;
+        return;
+      }
+
       // Export to Redstring format (raw JSON write, not TTL)
       const redstringData = exportToRedstring(latestState);
       const jsonString = JSON.stringify(redstringData, null, 2);
@@ -650,6 +700,7 @@ class GitSyncEngine {
       this.hasChanges = false;
       this.pendingCommits = [];
       this.lastCommitTime = now;
+      this._persistFloor();
 
       console.log(`[GitSyncEngine] Successfully committed changes to Git repository (${commitCount} updates batched)`);
       this.notifyStatus('success', `Committed ${commitCount} update${commitCount === 1 ? '' : 's'} to Git`);
@@ -760,6 +811,7 @@ class GitSyncEngine {
           this.hasChanges = false;
           this.pendingCommits = []; // Clear pending commits
           this.lastCommitTime = now; // Use original timestamp for rate limiting
+          this._persistFloor();
 
           // Reset error tracking on successful commit
           this.consecutiveErrors = 0;

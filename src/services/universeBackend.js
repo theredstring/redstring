@@ -5180,7 +5180,8 @@ class UniverseBackend {
   */
   async saveToLinkedLocalFile(universeSlug, storeState = null, options = {}) {
     const {
-      suppressNotification = false
+      suppressNotification = false,
+      allowEmpty = false
     } = options || {};
 
     // 1. Prepare data first (needed for potential file creation)
@@ -5190,6 +5191,27 @@ class UniverseBackend {
     if (!storeState) {
       throw new Error('No store state available to save');
     }
+
+    // Central empty-state guard. Every path that writes the local universe
+    // file funnels through here (autosave adapter, saveActiveUniverseInternal,
+    // secondary sync, forceSave, migration). Without this, only the adapter
+    // is guarded — direct callers can still wipe the file when an empty
+    // store state arrives during the post-swap / post-refresh handoff.
+    // Callers that legitimately need to write empty (e.g. a brand-new
+    // universe being created) can pass options.allowEmpty=true.
+    if (!allowEmpty) {
+      const guardUniverse = this.getUniverse(universeSlug);
+      const hasPriorSave = !!(guardUniverse?.metadata?.lastSaved || guardUniverse?.metadata?.lastSync);
+      if (hasPriorSave) {
+        const counts = this.analyzeStoreData(storeState);
+        if (counts.nodeCount === 0) {
+          umWarn(`[UniverseBackend] saveToLinkedLocalFile blocked for ${universeSlug}: state has 0 nodes but universe has prior saves (lastSaved=${guardUniverse?.metadata?.lastSaved}). On-disk file preserved.`);
+          this.notifyStatus('warning', 'Save blocked: state empty but file has prior data. Reload to recover.');
+          return { skipped: true, reason: 'empty-state-with-prior-saves' };
+        }
+      }
+    }
+
     const redstringData = exportToRedstring(storeState);
     const jsonString = JSON.stringify(redstringData, null, 2);
 
