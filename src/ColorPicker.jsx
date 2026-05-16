@@ -185,7 +185,7 @@ const ColorPicker = ({
         left: '50%',
         top: '50%',
         transform: 'translate(-50%, -50%)',
-        zIndex: 30000
+        zIndex: 1000000
       };
     }
 
@@ -223,7 +223,7 @@ const ColorPicker = ({
     const style = {
       position: 'fixed',
       top: Math.max(0, top),
-      zIndex: 30000
+      zIndex: 1000000
     };
 
     if (left !== undefined) {
