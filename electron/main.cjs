@@ -177,12 +177,14 @@ let mainWindow = null;
 
 // Get the Redstring data directory
 const getRedstringDataPath = () => {
-  return path.join(app.getPath('userData'), 'RedstringData');
+  const folderName = sessionName ? `RedstringData_${sessionName}` : 'RedstringData';
+  return path.join(app.getPath('userData'), folderName);
 };
 
 // Get the default documents folder for user files
 const getRedstringDocumentsPath = () => {
-  return path.join(app.getPath('documents'), 'Redstring');
+  const folderName = sessionName ? `Redstring_${sessionName}` : 'Redstring';
+  return path.join(app.getPath('documents'), folderName);
 };
 
 // Ensure directories exist
@@ -239,6 +241,7 @@ function createWindow() {
     show: false, // Don't show until ready to prevent flash
     icon: path.join(__dirname, 'icon.png'), // App icon for dev mode
     webPreferences: {
+      partition: sessionName ? 'persist:' + sessionName : undefined,
       nodeIntegration: false,
       contextIsolation: true,
       preload: path.join(__dirname, 'preload.cjs'),
