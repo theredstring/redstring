@@ -526,7 +526,7 @@ const UnifiedSelector = ({
           onColorChange={handleColorChange}
           currentColor={color}
           position={colorPickerPosition}
-          direction="down-left"
+          direction="down-right"
           parentContainerRef={null}
         />
       )}

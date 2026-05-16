@@ -191,22 +191,33 @@ const ColorPicker = ({
 
     let left, right, top;
 
-    // Always try to align the right edge of the color picker with the right edge of the icon
-    // This gives a nice visual alignment
-    right = window.innerWidth - position.x;
-    left = undefined;
-
     top = position.y + offset;
 
-    // Check if picker would go off the left edge when right-aligned
-    if (window.innerWidth - right < pickerWidth) {
-      // Switch to left-aligned positioning
-      left = position.x + offset;
+    if (direction === 'down-right') {
+      // Align the picker's left edge with position.x (left edge of trigger)
+      left = position.x;
       right = undefined;
 
-      // Ensure left-aligned version doesn't go off the right edge
+      // If it would overflow the right edge, fall back to right-aligned
       if (left + pickerWidth > window.innerWidth) {
-        left = window.innerWidth - pickerWidth - offset;
+        right = Math.max(offset, window.innerWidth - position.x - pickerWidth);
+        left = undefined;
+      }
+    } else {
+      // Default 'down-left': align right edge of picker with position.x
+      right = window.innerWidth - position.x;
+      left = undefined;
+
+      // Check if picker would go off the left edge when right-aligned
+      if (window.innerWidth - right < pickerWidth) {
+        // Switch to left-aligned positioning
+        left = position.x + offset;
+        right = undefined;
+
+        // Ensure left-aligned version doesn't go off the right edge
+        if (left + pickerWidth > window.innerWidth) {
+          left = window.innerWidth - pickerWidth - offset;
+        }
       }
     }
 
