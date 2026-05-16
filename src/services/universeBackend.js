@@ -1980,6 +1980,21 @@ class UniverseBackend {
                 return false;
               }
             }
+            // Symmetric empty-state guard. Even after a load completes
+            // (hasUniverseFile=true), a transient zero-node state racing the
+            // autosave dispatch can clobber a file that previously held data.
+            // If the universe has ever been saved (metadata.lastSaved is set),
+            // refuse to overwrite it with empty content — the matching
+            // GitSyncEngine.updateState guard does the same on the Git side.
+            const hasPriorSave = !!(universe?.metadata?.lastSaved || universe?.metadata?.lastSync);
+            if (hasPriorSave) {
+              const counts = this.analyzeStoreData(state);
+              if (counts.nodeCount === 0) {
+                umWarn(`[UniverseBackend] Refusing local save for ${slug}: state has 0 nodes but universe has prior saves (lastSaved=${universe.metadata?.lastSaved}). On-disk file preserved.`);
+                this.notifyStatus('warning', 'Save blocked: state is empty but file has prior data. Reload to recover.');
+                return false;
+              }
+            }
 
             return this.saveToLinkedLocalFile(slug, state, {
               suppressNotification: showSuccess === false
@@ -5491,6 +5506,22 @@ class UniverseBackend {
       throw new Error('Cannot set local as source of truth - local storage slot is disabled');
     }
 
+    // Pause SaveCoordinator for the duration of the swap so an autosave can't
+    // fire mid-migration and dual-write a transient/empty state to both local
+    // and Git. Released in `finally` below regardless of error path.
+    let swapSaveCoordinator = null;
+    try {
+      const { saveCoordinator } = await import('../backend/sync/index.js');
+      swapSaveCoordinator = saveCoordinator || null;
+      if (swapSaveCoordinator && typeof swapSaveCoordinator.beginSwap === 'function') {
+        swapSaveCoordinator.beginSwap(`setSourceOfTruth:${universeSlug}->${sourceType}`);
+      }
+    } catch (importErr) {
+      umWarn('[UniverseBackend] Could not pause SaveCoordinator for swap (continuing):', importErr);
+    }
+
+    try {
+
     // ── Pre-swap migration: save current data TO the new source before flipping ──
     // This prevents data loss when the new source is empty (e.g. newly linked Git repo).
     // If migration fails, we ABORT the swap rather than proceeding silently — otherwise
@@ -5607,6 +5638,16 @@ class UniverseBackend {
     this.pendingPrimarySelection.delete(universeSlug);
 
     return { success: true, sourceOfTruth: sourceType };
+
+    } finally {
+      if (swapSaveCoordinator && typeof swapSaveCoordinator.endSwap === 'function') {
+        try {
+          swapSaveCoordinator.endSwap(`setSourceOfTruth:${universeSlug}->${sourceType}`);
+        } catch (endErr) {
+          umWarn('[UniverseBackend] endSwap failed (continuing):', endErr);
+        }
+      }
+    }
   }
 
   /**

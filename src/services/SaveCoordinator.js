@@ -69,7 +69,89 @@ class SaveCoordinator {
     // WORKER_STALL_MS and dispatches a main-thread save with the state we have.
     this.workerWatchdogTimer = null;
 
+    // SoT swap pause. While true, onStateChange queues but doesn't dispatch,
+    // and processStateChange early-returns. Set by universeBackend around the
+    // setSourceOfTruth migration window so an autosave can't fire mid-swap and
+    // dual-write empty state to both local and Git.
+    this.swapInProgress = false;
+
+    // Slug of the universe whose baseline is currently loaded. Used to key
+    // persisted guard state in localStorage so the shrinkage guard has a
+    // meaningful floor immediately after a page refresh (before the load
+    // context fires).
+    this.activeUniverseSlugForGuard = null;
+
     // console.log('[SaveCoordinator] Initialized with simple batched saves');
+  }
+
+  _getGuardStorageKey(slug) {
+    return `redstring-savecoord-guard:${slug}`;
+  }
+
+  _persistGuardState(slug) {
+    if (!slug || typeof window === 'undefined' || !window.localStorage) return;
+    try {
+      const payload = {
+        dataBaseline: this.dataBaseline,
+        lastSaveHash: this.lastSaveHash,
+        hasLoadedFromFile: this.hasLoadedFromFile,
+        ts: Date.now()
+      };
+      window.localStorage.setItem(this._getGuardStorageKey(slug), JSON.stringify(payload));
+    } catch (e) {
+      // Quota / privacy mode failures are non-fatal — the guard still functions
+      // in-memory, just without cross-refresh protection.
+    }
+  }
+
+  _restoreGuardState(slug) {
+    if (!slug || typeof window === 'undefined' || !window.localStorage) return false;
+    try {
+      const raw = window.localStorage.getItem(this._getGuardStorageKey(slug));
+      if (!raw) return false;
+      const parsed = JSON.parse(raw);
+      if (!parsed || typeof parsed !== 'object') return false;
+      if (parsed.dataBaseline && typeof parsed.dataBaseline === 'object') {
+        this.dataBaseline = {
+          nodes: Math.max(this.dataBaseline?.nodes || 0, parsed.dataBaseline.nodes || 0),
+          graphs: Math.max(this.dataBaseline?.graphs || 0, parsed.dataBaseline.graphs || 0)
+        };
+      }
+      if (parsed.lastSaveHash) this.lastSaveHash = parsed.lastSaveHash;
+      if (parsed.hasLoadedFromFile === true) this.hasLoadedFromFile = true;
+      this.activeUniverseSlugForGuard = slug;
+      console.log('[SaveCoordinator] Restored persisted guard state for', slug, this.dataBaseline);
+      return true;
+    } catch (e) {
+      return false;
+    }
+  }
+
+  clearPersistedGuardState(slug) {
+    if (!slug || typeof window === 'undefined' || !window.localStorage) return;
+    try { window.localStorage.removeItem(this._getGuardStorageKey(slug)); } catch (_) { /* noop */ }
+  }
+
+  /**
+   * Pause autosave dispatch during a source-of-truth swap.
+   * Callers must invoke endSwap() in a finally block to avoid stranding saves.
+   */
+  beginSwap(label = 'sot-swap') {
+    this.swapInProgress = true;
+    console.log(`[SaveCoordinator] Swap pause active: ${label}`);
+  }
+
+  /**
+   * Resume autosave dispatch. If state was queued during the swap, flush it
+   * through the normal path so any post-swap edits don't get stranded.
+   */
+  endSwap(label = 'sot-swap') {
+    if (!this.swapInProgress) return;
+    this.swapInProgress = false;
+    console.log(`[SaveCoordinator] Swap pause released: ${label}`);
+    if (this.nextStateToProcess || this.isDirty) {
+      this.scheduleSave();
+    }
   }
 
   // Status notification system
@@ -94,6 +176,22 @@ class SaveCoordinator {
     this.fileStorage = fileStorage;
     this.setGitSyncEngine(gitSyncEngine);
     this.isEnabled = true;
+
+    // Restore persisted guard state for the currently-active universe so the
+    // shrinkage guard has a non-zero floor before the first `type:'load'`
+    // context fires. Without this, an empty-state autosave racing the load on
+    // a fresh refresh slips past the guard (baseline starts at 0) and can
+    // wipe both local and Git.
+    try {
+      if (typeof window !== 'undefined' && window.localStorage) {
+        const activeSlug = window.localStorage.getItem('active_universe_slug');
+        if (activeSlug) {
+          this._restoreGuardState(activeSlug);
+        }
+      }
+    } catch (e) {
+      console.warn('[SaveCoordinator] Failed to restore guard state on initialize:', e);
+    }
 
     // Initialize Save Worker
     try {
@@ -332,6 +430,14 @@ class SaveCoordinator {
       return;
     }
 
+    // SoT swap in progress — capture the latest state but don't schedule a
+    // dispatch. endSwap() will flush whatever's queued through scheduleSave.
+    if (this.swapInProgress) {
+      this.nextStateToProcess = newState;
+      this.lastChangeContext = changeContext;
+      return;
+    }
+
     try {
       // Skip processing for viewport-only changes (pan/zoom) - these don't affect the save hash
       // This prevents unnecessary worker processing during keyboard/wheel panning and zooming
@@ -524,6 +630,13 @@ class SaveCoordinator {
 
   // Execute save (both local and git) - NON-BLOCKING
   executeSave() {
+    // Defense-in-depth: if a SoT swap is in flight, don't dispatch. The fire-
+    // and-forget dual write would otherwise commit potentially-empty state to
+    // both local and Git mid-handoff.
+    if (this.swapInProgress) {
+      console.log('[SaveCoordinator] executeSave deferred: swap in progress');
+      return;
+    }
     if (this.isSaving) {
       // A previous save is still in flight. Reschedule rather than silently
       // drop this attempt — otherwise if the prior save is stuck (mobile
@@ -669,6 +782,15 @@ class SaveCoordinator {
             nodes: Math.max(this.dataBaseline?.nodes || 0, counts.nodes),
             graphs: Math.max(this.dataBaseline?.graphs || 0, counts.graphs)
           };
+
+          // Persist the baseline so the shrinkage guard survives page refresh.
+          // Use the slug embedded in state (graphStore stamps `_universeSlug`)
+          // and fall back to whatever was active when we initialized.
+          const slugForGuard = state?._universeSlug || this.activeUniverseSlugForGuard;
+          if (slugForGuard) {
+            this.activeUniverseSlugForGuard = slugForGuard;
+            this._persistGuardState(slugForGuard);
+          }
         } catch (_) { /* non-fatal */ }
 
         // Clear dirty flag and pending data

@@ -38,6 +38,12 @@ class GitSyncEngine {
     this.lastCommitTime = 0;
     this.commitLoop = null;
     this.lastCommittedHash = null; // Hash of last committed state
+    // Node count of the last successful commit. Used as the floor for the
+    // empty-state guard in updateState: if the repo demonstrably had nodes,
+    // we refuse to enqueue a commit that would shrink it back to zero — that
+    // pattern was wiping repos when a transient empty store change raced
+    // the autosave dispatch during source-of-truth swaps and page-load handoffs.
+    this.lastCommittedNodeCount = 0;
     this.hasChanges = false; // Track if there are actual changes
     this.isCommitInProgress = false; // Prevent overlapping commits
     this.isPaused = false; // Allow external pausing of operations
@@ -396,7 +402,34 @@ class GitSyncEngine {
    * Update local state instantly (user operations)
    * Now with intelligent rate limiting and debouncing
    */
+  /**
+   * Count nodePrototypes in a store state, handling both Map and plain-object shapes.
+   * Used as the "did the repo ever have data" floor for the empty-state guard.
+   */
+  _countNodes(storeState) {
+    if (!storeState || !storeState.nodePrototypes) return 0;
+    const np = storeState.nodePrototypes;
+    if (np instanceof Map) return np.size;
+    if (typeof np === 'object') return Object.keys(np).length;
+    return 0;
+  }
+
   updateState(storeState, force = false) {
+    // Empty-state guard: refuse to queue a commit that would shrink a known-
+    // non-empty repo to zero nodes. This catches transient empty store states
+    // (e.g. during source-of-truth handoff or page-load races) that would
+    // otherwise propagate through processPendingCommits and wipe the repo.
+    // `force=true` lets explicit user actions bypass — including legitimate
+    // "clear universe" flows that go through forceCommit, which doesn't call
+    // updateState anyway.
+    if (!force && this.lastCommittedNodeCount > 0) {
+      const incomingCount = this._countNodes(storeState);
+      if (incomingCount === 0) {
+        console.warn('[GitSyncEngine] Refusing updateState: incoming state has 0 nodes but last commit had', this.lastCommittedNodeCount, '— likely a transient empty state, not a real edit.');
+        return;
+      }
+    }
+
     // Store the current state for background persistence
     this.localState.set('current', storeState);
 
@@ -613,6 +646,7 @@ class GitSyncEngine {
 
       // Update tracking
       this.lastCommittedHash = latestHash;
+      this.lastCommittedNodeCount = this._countNodes(latestState);
       this.hasChanges = false;
       this.pendingCommits = [];
       this.lastCommitTime = now;
@@ -722,6 +756,7 @@ class GitSyncEngine {
 
           // Success! Update tracking
           this.lastCommittedHash = currentHash;
+          this.lastCommittedNodeCount = this._countNodes(storeState);
           this.hasChanges = false;
           this.pendingCommits = []; // Clear pending commits
           this.lastCommitTime = now; // Use original timestamp for rate limiting

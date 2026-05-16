@@ -265,7 +265,7 @@ function createWindow() {
     let devUrl = 'http://localhost:4001';
     const params = [];
     if (isTestMode) params.push('test=true');
-    if (sessionName) params.push(`session = ${encodeURIComponent(sessionName)} `);
+    if (sessionName) params.push(`session=${encodeURIComponent(sessionName)}`);
 
     if (params.length > 0) {
       devUrl += '?' + params.join('&');
