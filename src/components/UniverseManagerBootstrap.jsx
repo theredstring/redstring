@@ -156,6 +156,9 @@ export default function UniverseManagerBootstrap({ enableEagerInit = false }) {
           case 'updateUniverse':
             result = await backend.updateUniverse(payload.slug, payload.updates);
             break;
+          case 'setSourceOfTruth':
+            result = await backend.setSourceOfTruth(payload.slug, payload.sourceType);
+            break;
           case 'discoverUniversesInRepository':
             result = await backend.discoverUniversesInRepository(payload.repoConfig);
             break;

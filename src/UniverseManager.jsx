@@ -1710,8 +1710,10 @@ const UniverseManager = ({ variant = 'panel', onRequestClose }) => {
       umLog(`[UniverseManager] Initializing repository with universe data for ${targetSlug}`);
       const hasGitAuth = hasOAuth || hasApp;
 
+      let initialSaveOk = false;
       try {
         await universeManagerService.forceSave(targetSlug, hasGitAuth ? undefined : { skipGit: true });
+        initialSaveOk = true;
         if (hasGitAuth) {
           setSyncStatus({ type: 'success', message: `Linked @${owner}/${repoName} and initialized with universe data` });
         } else {
@@ -1728,21 +1730,45 @@ const UniverseManager = ({ variant = 'panel', onRequestClose }) => {
         });
       }
 
-      // If coming from onboarding/git-only flow, default primary to Git now that a repo is linked.
-      // Otherwise, keep the existing sourceOfTruth (preserved as 'local' by attachGitRepository).
-      // No "Choose Source of Truth" dialog is needed — local stays primary, git becomes backup.
-      // The user can change this later from the universe settings.
-      try {
-        const resume = (() => { try { return sessionStorage.getItem('redstring_onboarding_resume') === 'true'; } catch { return false; } })();
-        if (resume || deviceInfo.gitOnlyMode) {
+      // Decide primary-source UX:
+      // - Onboarding/git-only: auto-promote Git (no prompt) — preserves prior behavior.
+      // - Normal flow: prompt the user, but only when the initial save succeeded with Git auth.
+      //   Without auth (skipGit) or after a failed save, Git doesn't actually have the data yet —
+      //   offering to promote it would invite the wipe scenario this dialog is meant to prevent.
+      const resume = (() => { try { return sessionStorage.getItem('redstring_onboarding_resume') === 'true'; } catch { return false; } })();
+      const isOnboardingOrGitOnly = resume || deviceInfo.gitOnlyMode;
+
+      if (isOnboardingOrGitOnly) {
+        try {
           await universeManagerService.setPrimaryStorage(targetSlug, STORAGE_TYPES.GIT);
           try {
             sessionStorage.removeItem('redstring_onboarding_resume');
             sessionStorage.removeItem('redstring_onboarding_step');
           } catch { }
+        } catch (e) {
+          umWarn('[UniverseManager] Failed to set Source of Truth after linking:', e);
         }
-      } catch (e) {
-        umWarn('[UniverseManager] Failed to set Source of Truth after linking:', e);
+      } else if (hasGitAuth && initialSaveOk) {
+        setConfirmDialog({
+          title: 'Set repository as source of truth?',
+          message: `@${owner}/${repoName} is linked and your current data has been pushed to it. Make the repository the primary source for saves and loads? Your local file will remain as a backup.`,
+          confirmLabel: 'Use Repository as Primary',
+          cancelLabel: 'Keep Local as Primary',
+          variant: 'default',
+          onConfirm: async () => {
+            try {
+              await universeManagerService.setPrimaryStorage(targetSlug, STORAGE_TYPES.GIT);
+              await refreshState();
+              setSyncStatus({ type: 'success', message: `Repository set as primary for @${owner}/${repoName}` });
+            } catch (e) {
+              umError('[UniverseManager] Failed to promote repository to primary:', e);
+              setError(`Could not set repository as primary: ${e.message}`);
+            }
+          },
+          onCancel: () => {
+            // Leave as local (already preserved by attachGitRepository). No action needed.
+          }
+        });
       }
 
       setDiscoveryMap((prev) => {

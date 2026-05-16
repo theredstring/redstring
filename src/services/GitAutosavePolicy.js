@@ -22,6 +22,12 @@ class GitAutosavePolicy {
     this.MIN_API_GAP = 1000;            // ≥1s between API calls
     this.COMMITS_PER_HOUR_LIMIT = 60;   // ≤60 commits/hour
 
+    // When local is the source of truth, Git is a backup — commit within ~10s of
+    // the latest edit (idle AND burst). 60/hr cap still applies, so a continuous
+    // edit session stays ≤1 commit/min on average.
+    this.LOCAL_PRIMARY_IDLE_TIMEOUT = 10000;
+    this.LOCAL_PRIMARY_MAX_TIMEOUT = 10000;
+
     // File size limits
     this.IDEAL_FILE_SIZE = 10 * 1024 * 1024;    // 10MiB ideal
     this.SOFT_CAP_FILE_SIZE = 50 * 1024 * 1024;  // 50MiB soft cap
@@ -126,19 +132,35 @@ class GitAutosavePolicy {
       clearTimeout(this.pendingTimeout);
     }
 
-    // Set idle timeout (10s after last edit)
+    const { idle: idleTimeout, max: maxTimeout } = this.getEffectiveTimeouts();
+
+    // Set idle timeout (commit N seconds after last edit)
     this.pendingTimeout = setTimeout(() => {
       this.executeBatchCommit('idle_timeout');
-    }, this.IDLE_TIMEOUT);
+    }, idleTimeout);
 
-    // Set maximum timeout if not already set
+    // Set maximum timeout if not already set (commit during continuous bursts)
     if (!this.maxTimeout) {
       this.maxTimeout = setTimeout(() => {
         this.executeBatchCommit('max_timeout');
-      }, this.MAX_TIMEOUT);
+      }, maxTimeout);
     }
 
     console.log(`[GitAutosavePolicy] Edit activity detected, batch size: ${this.currentBatch.length}`);
+  }
+
+  /**
+   * Get effective debounce timeouts based on the Git engine's source-of-truth mode.
+   * When local is primary, Git is a backup and uses a tighter, simpler cadence
+   * (commits within ~10s of edits, no 90s burst tolerance). When Git is primary,
+   * the original 10s-idle / 90s-max debounce applies.
+   */
+  getEffectiveTimeouts() {
+    const isLocalPrimary = this.gitSyncEngine?.sourceOfTruth === 'local';
+    if (isLocalPrimary) {
+      return { idle: this.LOCAL_PRIMARY_IDLE_TIMEOUT, max: this.LOCAL_PRIMARY_MAX_TIMEOUT };
+    }
+    return { idle: this.IDLE_TIMEOUT, max: this.MAX_TIMEOUT };
   }
 
   /**
@@ -470,8 +492,8 @@ class GitAutosavePolicy {
       isCommitInProgress: this.isCommitInProgress,
       timeSinceLastEdit: this.lastEditTime ? now - this.lastEditTime : 0,
       timeSinceLastCommit: this.lastCommitTime ? now - this.lastCommitTime : 0,
-      timeUntilIdleCommit: this.pendingTimeout ? this.IDLE_TIMEOUT - (now - this.lastEditTime) : 0,
-      timeUntilMaxCommit: this.maxTimeout ? this.MAX_TIMEOUT - (now - (this.currentBatch[0]?.timestamp || now)) : 0,
+      timeUntilIdleCommit: this.pendingTimeout ? this.getEffectiveTimeouts().idle - (now - this.lastEditTime) : 0,
+      timeUntilMaxCommit: this.maxTimeout ? this.getEffectiveTimeouts().max - (now - (this.currentBatch[0]?.timestamp || now)) : 0,
       retryCount: this.retryCount,
       inRateLimitBackoff: this.rateLimitBackoff > now,
       rateLimitBackoffRemaining: Math.max(0, this.rateLimitBackoff - now),

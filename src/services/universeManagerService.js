@@ -537,35 +537,51 @@ export const universeManagerService = {
       availableSlots: universe.storage
     });
 
-    const payload = {};
-
+    // Phase 1: Ensure the target slot is enabled / has any extra config applied,
+    // WITHOUT changing sourceOfTruth yet. The hardened setSourceOfTruth below
+    // requires the target slot to be reachable before it runs pre-swap migration.
+    const slotPayload = {};
     if (type === STORAGE_TYPES.GIT) {
-      payload.sourceOfTruth = 'git';
       if (extra.gitRepo) {
-        payload.gitRepo = {
-          ...universe.raw.gitRepo,
-          ...extra.gitRepo,
-          enabled: true
-        };
-      } else if (universe.raw.gitRepo) {
-        payload.gitRepo = { ...universe.raw.gitRepo, enabled: true };
+        slotPayload.gitRepo = { ...universe.raw.gitRepo, ...extra.gitRepo, enabled: true };
+      } else if (universe.raw.gitRepo?.linkedRepo && universe.raw.gitRepo?.enabled !== true) {
+        slotPayload.gitRepo = { ...universe.raw.gitRepo, enabled: true };
       }
     } else if (type === STORAGE_TYPES.LOCAL) {
-      payload.sourceOfTruth = 'local';
       // Do NOT touch gitRepo.enabled here. `enabled` means "this slot is configured
       // and usable" — independent of which slot is currently primary. Disabling the
       // git slot when local becomes primary stranded users whose linkedRepo was still
       // set: later removal of the local slot fell through to BROWSER and showed
       // "Connect" instead of restoring git.
-      payload.localFile = { ...universe.raw.localFile, enabled: true };
+      if (universe.raw.localFile?.enabled !== true) {
+        slotPayload.localFile = { ...universe.raw.localFile, enabled: true };
+      }
     } else if (type === STORAGE_TYPES.BROWSER) {
-      payload.sourceOfTruth = 'browser';
-      payload.browserStorage = { ...universe.raw.browserStorage, enabled: true };
+      slotPayload.browserStorage = { ...universe.raw.browserStorage, enabled: true };
     }
 
-    umLog('[universeManagerService] setPrimaryStorage payload:', payload);
+    if (Object.keys(slotPayload).length > 0) {
+      umLog('[universeManagerService] setPrimaryStorage slot-prep payload:', slotPayload);
+      await universeBackendBridge.updateUniverse(slug, slotPayload);
+    }
 
-    await universeBackendBridge.updateUniverse(slug, payload);
+    // Phase 2: Change source of truth.
+    //
+    // For git/local we MUST route through setSourceOfTruth so its pre-swap migration
+    // runs: copy current data to the new source and abort the swap if it fails. A
+    // direct updateUniverse({ sourceOfTruth }) bypasses migration entirely — that
+    // bug let an empty newly-linked Git repo become primary, which then wiped the
+    // local file on the next load.
+    //
+    // For browser there are no migration semantics; fall through to a direct update.
+    if (type === STORAGE_TYPES.GIT || type === STORAGE_TYPES.LOCAL) {
+      const sourceType = type === STORAGE_TYPES.GIT ? 'git' : 'local';
+      umLog('[universeManagerService] setPrimaryStorage routing through setSourceOfTruth:', { slug, sourceType });
+      await universeBackendBridge.setSourceOfTruth(slug, sourceType);
+    } else {
+      await universeBackendBridge.updateUniverse(slug, { sourceOfTruth: type });
+    }
+
     umLog('[universeManagerService] setPrimaryStorage update sent');
     return this.refreshUniverses();
   },

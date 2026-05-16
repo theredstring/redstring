@@ -5493,6 +5493,8 @@ class UniverseBackend {
 
     // ── Pre-swap migration: save current data TO the new source before flipping ──
     // This prevents data loss when the new source is empty (e.g. newly linked Git repo).
+    // If migration fails, we ABORT the swap rather than proceeding silently — otherwise
+    // the empty new source becomes primary and wipes the still-valid old source on next load.
     const oldSource = universe.sourceOfTruth || universe.raw?.sourceOfTruth;
     if (oldSource && oldSource !== sourceType && this.storeOperations?.getState) {
       const currentState = this.storeOperations.getState();
@@ -5511,11 +5513,21 @@ class UniverseBackend {
             if (!engine) {
               engine = await this.ensureGitSyncEngine(universeSlug);
             }
-            if (engine) {
-              await engine.forceCommit(currentState);
-              umLog('[UniverseBackend] Pre-swap migration: successfully saved current data to Git');
+            if (!engine) {
+              throw new Error('No Git sync engine available to migrate data');
+            }
+            const committed = await engine.forceCommit(currentState);
+            // forceCommit returns true on success, false if skipped (rate-limited or redundant).
+            // "Redundant" is safe — it means lastCommittedHash already matches current state.
+            // "Rate-limited with no prior commit" is unsafe — the repo is still empty.
+            if (!committed) {
+              const status = typeof engine.getStatus === 'function' ? engine.getStatus() : {};
+              if (!status.lastCommittedHash) {
+                throw new Error('Git commit was skipped and no prior commit exists in the repository');
+              }
+              umLog('[UniverseBackend] Pre-swap migration: commit skipped but prior commit exists (data already in Git)');
             } else {
-              umWarn('[UniverseBackend] Pre-swap migration: no Git engine available, skipping Git save');
+              umLog('[UniverseBackend] Pre-swap migration: successfully saved current data to Git');
             }
           } else if (sourceType === 'local') {
             // Switching git → local: save current data to local file first
@@ -5523,9 +5535,10 @@ class UniverseBackend {
             umLog('[UniverseBackend] Pre-swap migration: successfully saved current data to local file');
           }
         } catch (migrationErr) {
-          umWarn('[UniverseBackend] Pre-swap migration failed (proceeding with swap anyway):', migrationErr);
-          // Don't block the swap — the user explicitly chose to switch.
-          // But the data is preserved in the old source still.
+          umError('[UniverseBackend] Pre-swap migration failed — aborting swap to preserve data:', migrationErr);
+          const targetLabel = sourceType === 'git' ? 'repository' : 'local file';
+          this.notifyStatus('error', `Could not migrate data to ${targetLabel}: ${migrationErr?.message || migrationErr}. Source of truth NOT changed.`);
+          throw new Error(`Pre-swap migration to ${sourceType} failed: ${migrationErr?.message || migrationErr}`);
         }
       } else {
         umLog('[UniverseBackend] Pre-swap migration: current state is empty, no migration needed');
