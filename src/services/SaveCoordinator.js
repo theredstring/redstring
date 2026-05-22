@@ -467,12 +467,26 @@ class SaveCoordinator {
         }
         // Now we have a real loaded baseline — saves are safe from this point.
         this.hasLoadedFromFile = true;
+        if (this._loggedLoadErrorGuard) this._loggedLoadErrorGuard = false;
         // Capture the data baseline we just loaded so we can detect a
         // catastrophic shrinkage on subsequent saves.
         try {
           const counts = this._countDataItems(newState);
           this.dataBaseline = counts;
         } catch (_) { /* non-fatal */ }
+        return;
+      }
+
+      // Block saves while the universe is still loading, or if it failed to load
+      // (e.g. no permissions, Git auth failed). This prevents "Saving..." loops 
+      // and accidental overwrites of existing files with empty/unauthorized state.
+      if (newState?.isUniverseLoading === true || !!newState?.universeLoadingError) {
+        this.nextStateToProcess = newState;
+        this.lastChangeContext = changeContext;
+        if (newState?.universeLoadingError && !this._loggedLoadErrorGuard) {
+          console.warn('[SaveCoordinator] Save blocked: Universe failed to load (' + newState.universeLoadingError + ')');
+          this._loggedLoadErrorGuard = true;
+        }
         return;
       }
 

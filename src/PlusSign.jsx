@@ -23,6 +23,8 @@ const PlusSign = ({
   const [, forceUpdate] = React.useReducer((s) => s + 1, 0);
   const touchActiveRef = useRef(false);
   const pointerActiveRef = useRef(false);
+  const touchStartPosRef = useRef(null);
+  const pointerStartPosRef = useRef(null);
 
   useEffect(() => {
     runAnimation();
@@ -257,7 +259,20 @@ const PlusSign = ({
         // Fallback for devices using Pointer Events (covers touch, pen, mouse)
         if (e && e.cancelable) { e.preventDefault(); }
         e.stopPropagation();
+        if (!e.isPrimary) {
+           pointerActiveRef.current = false;
+           return;
+        }
         pointerActiveRef.current = true;
+        pointerStartPosRef.current = { x: e.clientX, y: e.clientY };
+      }}
+      onPointerMove={(e) => {
+        if (!pointerActiveRef.current || !pointerStartPosRef.current) return;
+        const dx = e.clientX - pointerStartPosRef.current.x;
+        const dy = e.clientY - pointerStartPosRef.current.y;
+        if (Math.sqrt(dx * dx + dy * dy) > 10) {
+          pointerActiveRef.current = false;
+        }
       }}
       onPointerUp={(e) => {
         if (e && e.cancelable) { e.preventDefault(); }
@@ -267,10 +282,30 @@ const PlusSign = ({
           onClick?.();
         }
       }}
+      onPointerCancel={(e) => {
+        pointerActiveRef.current = false;
+      }}
       onTouchStart={(e) => {
         if (e && e.cancelable) { e.preventDefault(); }
         e.stopPropagation();
+        if (e.touches.length > 1) {
+            touchActiveRef.current = false;
+            return;
+        }
         touchActiveRef.current = true;
+        touchStartPosRef.current = { x: e.touches[0].clientX, y: e.touches[0].clientY };
+      }}
+      onTouchMove={(e) => {
+        if (e.touches.length > 1) {
+            touchActiveRef.current = false;
+            return;
+        }
+        if (!touchActiveRef.current || !touchStartPosRef.current) return;
+        const dx = e.touches[0].clientX - touchStartPosRef.current.x;
+        const dy = e.touches[0].clientY - touchStartPosRef.current.y;
+        if (Math.sqrt(dx * dx + dy * dy) > 10) {
+          touchActiveRef.current = false;
+        }
       }}
       onTouchEnd={(e) => {
         if (e && e.cancelable) { e.preventDefault(); }
@@ -279,6 +314,9 @@ const PlusSign = ({
           touchActiveRef.current = false;
           onClick?.();
         }
+      }}
+      onTouchCancel={(e) => {
+        touchActiveRef.current = false;
       }}
     >
       {(() => {
