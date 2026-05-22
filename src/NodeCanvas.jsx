@@ -644,7 +644,7 @@ function NodeCanvas() {
   const darkMode = useGraphStore(state => state.darkMode);
   const gridMode = useGraphStore(state => state.gridSettings?.mode || 'off');
   const gridSize = useGraphStore(state => state.gridSettings?.size || 200);
-  const dragZoomSettings = useGraphStore(state => state.dragZoomSettings || { enabled: true, zoomAmount: 0.35 });
+  const dragZoomSettings = useGraphStore(state => state.dragZoomSettings || { enabled: true, zoomAmount: 0.55 });
   const enableAutoRouting = useGraphStore(state => state.autoLayoutSettings?.enableAutoRouting);
   const routingStyle = useGraphStore(state => state.autoLayoutSettings?.routingStyle || 'straight');
   const manhattanBends = useGraphStore(state => state.autoLayoutSettings?.manhattanBends || 'auto');

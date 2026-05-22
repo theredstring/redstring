@@ -10,8 +10,14 @@ import { computeGroupLayout, GROUP_LAYOUT_CONSTANTS } from '../services/groupLay
 import { measureTextWidth as pretextMeasureTextWidth } from '../services/textMeasurement.js';
 
 // Movement Zoom-Out constants
-const DRAG_ZOOM_MIN = 0.3;
+const DRAG_ZOOM_MIN = 0.1;
 const DRAG_ZOOM_ANIMATION_DURATION = 250; // ms
+// Additive zoom-out floor — keeps the drag-zoom feeling substantial when
+// already zoomed out. Pure multiplicative shrinkage approaches DRAG_ZOOM_MIN
+// asymptotically, so each drag at low zoom does almost nothing. The additive
+// floor (scaled by zoomAmount so it stays proportional to user intent)
+// guarantees a minimum perceptible zoom-out regardless of starting zoom.
+const DRAG_ZOOM_ADDITIVE_SCALE = 0.45;
 
 /**
  * useNodeDrag — Extracts all node/group dragging behavior from NodeCanvas.
@@ -994,8 +1000,14 @@ export const useNodeDrag = ({
       setPreDragZoomLevel(currentZoom);
       preDragPanOffsetRef.current = { ...panOffsetRef.current };
 
-      const zoomFactor = 1.0 - dragZoomSettings.zoomAmount;
-      const targetZoom = Math.max(DRAG_ZOOM_MIN, currentZoom * zoomFactor);
+      // Hybrid model: multiplicative shrinkage (scale-invariant at high zoom)
+      // plus an additive floor (preserves feel at low zoom, where multiplicative
+      // delta vanishes and the DRAG_ZOOM_MIN clamp would otherwise dominate).
+      const amount = dragZoomSettings.zoomAmount;
+      const multiplicativeDelta = currentZoom * amount;
+      const additiveDelta = amount * DRAG_ZOOM_ADDITIVE_SCALE;
+      const totalDelta = Math.max(multiplicativeDelta, additiveDelta);
+      const targetZoom = Math.max(DRAG_ZOOM_MIN, currentZoom - totalDelta);
 
       animateZoomToTarget(targetZoom, { clientX, clientY }, currentZoom, { ...panOffsetRef.current });
     }
@@ -1190,6 +1202,11 @@ export const useNodeDrag = ({
   const startGroupDrag = useCallback((groupId, memberOffsets, clientX, clientY) => {
     cancelInFlightZoomRestore();
     dragPhaseRef.current = 'dragging';
+    // Prime mousePositionRef before triggerDragZoomOut so the zoom-out
+    // animation's first frame reads the actual touch position. Without this,
+    // touch group drag flashes to a stale coord (often {0,0}) for one frame
+    // before the first pointermove corrects it. Mirrors startDragForNode.
+    mousePositionRef.current = { x: clientX, y: clientY };
     setDraggingNodeInfo({ groupId, memberOffsets });
     dragHistoryRecordedRef.current = false;
     triggerDragZoomOut(clientX, clientY);
@@ -1197,7 +1214,7 @@ export const useNodeDrag = ({
     // Cache DOM elements for all group members
     const memberIds = memberOffsets.map(m => m.id);
     cacheDOMElements(memberIds);
-  }, [triggerDragZoomOut, cacheDOMElements, cancelInFlightZoomRestore]);
+  }, [triggerDragZoomOut, cacheDOMElements, cancelInFlightZoomRestore, mousePositionRef]);
 
   // ---------------------------------------------------------------------------
   // Cancel Drag (for touch cancel, escape key, etc.)

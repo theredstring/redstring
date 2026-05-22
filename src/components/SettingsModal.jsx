@@ -242,7 +242,7 @@ const SettingsModal = ({ isVisible, onClose }) => {
           <div className="settings-slider-row">
             <MaroonSlider
               label="Zoom Amount"
-              value={dragZoomAmount ?? 0.3}
+              value={dragZoomAmount ?? 0.55}
               min={0.0}
               max={0.9}
               step={0.05}
