@@ -12,6 +12,8 @@ class APIKeyManager {
     this.STORAGE_PROFILES = 'redstring_ai_api_profiles';
     this.ACTIVE_PROFILE = 'redstring_ai_active_profile';
     this.OPENROUTER_MODELS_KEY = 'redstring_openrouter_recent_models';
+    this.GEMINI_MODELS_CACHE_KEY = 'redstring_gemini_models_cache';
+    this.GEMINI_MODELS_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
   }
 
   /**
@@ -390,7 +392,7 @@ class APIKeyManager {
       'openai': 'gpt-4o',
       'openrouter': 'anthropic/claude-3-sonnet', // Fixed: Use the correct model name
       'local': 'llama2', // Ollama default
-      'google': 'gemini-2.5-flash',
+      'google': 'gemini-3.5-flash',
       'cohere': 'command-r',
       'custom': ''
     };
@@ -427,13 +429,132 @@ class APIKeyManager {
    */
   getGeminiModels() {
     return [
-      { id: 'gemini-2.5-flash', name: 'Gemini 2.5 Flash (recommended)' },
+      { id: 'gemini-3.5-flash', name: 'Gemini 3.5 Flash (recommended)' },
+      { id: 'gemini-3-flash-preview', name: 'Gemini 3 Flash (preview)' },
+      { id: 'gemini-2.5-flash', name: 'Gemini 2.5 Flash' },
       { id: 'gemini-2.5-flash-lite', name: 'Gemini 2.5 Flash Lite' },
       { id: 'gemini-2.0-flash', name: 'Gemini 2.0 Flash' },
       { id: 'gemini-2.0-flash-lite', name: 'Gemini 2.0 Flash Lite' },
       { id: 'gemini-1.5-pro', name: 'Gemini 1.5 Pro' },
       { id: 'gemini-1.5-flash', name: 'Gemini 1.5 Flash' }
     ];
+  }
+
+  /**
+   * Fetch the current list of Gemini models from Google's API, cached in localStorage.
+   * Returns null on any failure so callers can fall back to the static list.
+   * @param {string} apiKey - A valid Google Gemini API key
+   * @param {{ force?: boolean }} [opts]
+   * @returns {Promise<Array<{id: string, name: string, isPreview: boolean}>|null>}
+   */
+  async fetchGeminiModels(apiKey, opts = {}) {
+    const key = String(apiKey || '').trim();
+    if (!key) return null;
+    const fingerprint = await this._fingerprintKey(key);
+
+    if (!opts.force) {
+      const cached = this._readGeminiCache();
+      if (cached && cached.apiKeyFingerprint === fingerprint &&
+          (Date.now() - cached.fetchedAt) < this.GEMINI_MODELS_CACHE_TTL_MS) {
+        return cached.models;
+      }
+    }
+
+    try {
+      const url = `https://generativelanguage.googleapis.com/v1beta/models?pageSize=1000&key=${encodeURIComponent(key)}`;
+      const res = await fetch(url);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = await res.json();
+      const raw = Array.isArray(data?.models) ? data.models : [];
+      const models = raw
+        .filter(m => Array.isArray(m?.supportedGenerationMethods) &&
+                     m.supportedGenerationMethods.includes('generateContent'))
+        .map(m => {
+          const id = String(m.name || '').replace(/^models\//, '');
+          const isPreview = /preview|experimental/i.test(id);
+          return {
+            id,
+            name: m.displayName || id,
+            isPreview
+          };
+        })
+        .filter(m => m.id);
+
+      this._writeGeminiCache({ fetchedAt: Date.now(), apiKeyFingerprint: fingerprint, models });
+      return models;
+    } catch (err) {
+      console.warn('[API Key Manager] Failed to fetch Gemini models', err);
+      return null;
+    }
+  }
+
+  /**
+   * Merge the static Gemini model list with the dynamically fetched one.
+   * Static entries (with their curated display names like "(recommended)") win on conflict.
+   * Sorted newest version first, stable before preview.
+   * @param {string} [apiKey] - If provided, attempts a dynamic fetch (cache-aware).
+   */
+  async getMergedGeminiModels(apiKey) {
+    const staticList = this.getGeminiModels();
+    let dynamicList = null;
+    if (apiKey) dynamicList = await this.fetchGeminiModels(apiKey);
+
+    if (!Array.isArray(dynamicList) || dynamicList.length === 0) {
+      return staticList;
+    }
+
+    const byId = new Map();
+    for (const m of staticList) byId.set(m.id, { ...m });
+    for (const m of dynamicList) {
+      if (!byId.has(m.id)) byId.set(m.id, { id: m.id, name: m.name });
+    }
+
+    const parseVersion = (id) => {
+      const match = id.match(/gemini-(\d+(?:\.\d+)?)/i);
+      return match ? parseFloat(match[1]) : -1;
+    };
+    const isPreview = (id) => /preview|experimental/i.test(id);
+
+    return Array.from(byId.values()).sort((a, b) => {
+      const va = parseVersion(a.id);
+      const vb = parseVersion(b.id);
+      if (vb !== va) return vb - va;
+      const pa = isPreview(a.id) ? 1 : 0;
+      const pb = isPreview(b.id) ? 1 : 0;
+      if (pa !== pb) return pa - pb;
+      return a.id.localeCompare(b.id);
+    });
+  }
+
+  _readGeminiCache() {
+    try {
+      const raw = localStorage.getItem(this.GEMINI_MODELS_CACHE_KEY);
+      if (!raw) return null;
+      const parsed = JSON.parse(raw);
+      if (!parsed || !Array.isArray(parsed.models)) return null;
+      return parsed;
+    } catch {
+      return null;
+    }
+  }
+
+  _writeGeminiCache(payload) {
+    try {
+      localStorage.setItem(this.GEMINI_MODELS_CACHE_KEY, JSON.stringify(payload));
+    } catch (err) {
+      console.warn('[API Key Manager] Failed to write Gemini model cache', err);
+    }
+  }
+
+  async _fingerprintKey(key) {
+    try {
+      const buf = new TextEncoder().encode(key);
+      const digest = await crypto.subtle.digest('SHA-256', buf);
+      const bytes = Array.from(new Uint8Array(digest)).slice(0, 4);
+      return bytes.map(b => b.toString(16).padStart(2, '0')).join('');
+    } catch {
+      return `len:${key.length}`;
+    }
   }
 
   /**

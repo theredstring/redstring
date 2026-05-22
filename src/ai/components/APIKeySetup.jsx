@@ -25,7 +25,30 @@ const APIKeySetup = ({ onKeySet, onClose, inline = false }) => {
   const [isTestingConnection, setIsTestingConnection] = useState(false);
 
   const providers = apiKeyManager.getCommonProviders();
-  const providerModels = apiKeyManager.getModelsForProvider(provider);
+  const [providerModels, setProviderModels] = useState(() =>
+    apiKeyManager.getModelsForProvider(provider)
+  );
+
+  useEffect(() => {
+    setProviderModels(apiKeyManager.getModelsForProvider(provider));
+  }, [provider]);
+
+  useEffect(() => {
+    if (provider !== 'google') return undefined;
+    let cancelled = false;
+    const timer = setTimeout(async () => {
+      let keyToUse = apiKey && apiKey.trim();
+      if (!keyToUse) {
+        try { keyToUse = await apiKeyManager.getAPIKey(); } catch { keyToUse = null; }
+      }
+      if (!keyToUse) return;
+      const merged = await apiKeyManager.getMergedGeminiModels(keyToUse);
+      if (!cancelled && Array.isArray(merged) && merged.length > 0) {
+        setProviderModels(merged);
+      }
+    }, 500);
+    return () => { cancelled = true; clearTimeout(timer); };
+  }, [provider, apiKey]);
 
   useEffect(() => {
     loadExistingKey();
