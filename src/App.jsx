@@ -6,6 +6,7 @@ import GlobalContextMenu from './components/GlobalContextMenu.jsx';
 import UniverseManagerBootstrap from './components/UniverseManagerBootstrap.jsx';
 import UpdateToast from './components/UpdateToast.jsx';
 import useGraphStore from './store/graphStore.jsx';
+import { isElectron } from './utils/fileAccessAdapter.js';
 import { DARK_THEME, LIGHT_THEME } from './utils/themeColors.js';
 import './App.css';
 
@@ -49,10 +50,11 @@ function App() {
     }
   }, [darkMode]);
 
-  // Always prompt before unload — safeguard against accidental exits like
-  // Android's edge-swipe back gesture. Browsers ignore the custom text and
-  // show their own generic dialog; we only control whether it fires.
+  // Always prompt before unload in the browser — safeguard against accidental
+  // exits like Android's edge-swipe back gesture. Skipped in Electron, where
+  // beforeunload blocks the app's own quit flow.
   useEffect(() => {
+    if (isElectron()) return;
     const handleBeforeUnload = (event) => {
       event.preventDefault();
       event.returnValue = '';
