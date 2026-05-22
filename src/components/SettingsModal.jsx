@@ -148,7 +148,7 @@ const SettingsModal = ({ isVisible, onClose }) => {
           <div className="settings-slider-row">
             <MaroonSlider
               label="Zoom Sensitivity"
-              value={touchSettings?.zoomSensitivity ?? 0.5}
+              value={touchSettings?.zoomSensitivity ?? 0.7}
               min={0.1}
               max={1.0}
               step={0.05}

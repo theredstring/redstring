@@ -49,6 +49,19 @@ function App() {
     }
   }, [darkMode]);
 
+  // Always prompt before unload — safeguard against accidental exits like
+  // Android's edge-swipe back gesture. Browsers ignore the custom text and
+  // show their own generic dialog; we only control whether it fires.
+  useEffect(() => {
+    const handleBeforeUnload = (event) => {
+      event.preventDefault();
+      event.returnValue = '';
+      return '';
+    };
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    return () => window.removeEventListener('beforeunload', handleBeforeUnload);
+  }, []);
+
   return (
     <>
       {/* UniverseManagerBootstrap handles backend initialization */}

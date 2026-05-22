@@ -8,7 +8,8 @@ const PlusSign = ({
   onDisappearDone,
   targetWidth = NODE_WIDTH,
   targetHeight = NODE_HEIGHT,
-  gestureBlockRef
+  gestureBlockRef,
+  isPanningOrZoomingRef
 }) => {
   const animationFrameRef = useRef(null);
   const plusRef = useRef({
@@ -25,8 +26,19 @@ const PlusSign = ({
   const preventClickRef = useRef(false);
   const lastClickTimeRef = useRef(0);
   const pointerStartPosRef = useRef(null);
+  // Only pointers/touches that pressed *down* on this element are eligible to fire
+  // a click on release. A finger that drifts onto PlusSign during a canvas pan/pinch
+  // and lifts here generates pointerup with no matching pointerdown — we ignore those.
+  const downPointerIdsRef = useRef(new Set());
+  const downTouchIdsRef = useRef(new Set());
+  const sawMouseDownRef = useRef(false);
 
   const fireClick = () => {
+    // Block during any active pan/zoom or within the post-gesture dead zone.
+    // isPanningOrZoomingRef covers single-finger pan, pinch, mouse-wheel zoom, etc.;
+    // gestureBlockRef covers the ~350ms window after release where synthetic
+    // pointerup/click fires on whichever element the lifting finger sat over.
+    if (isPanningOrZoomingRef?.current) return;
     if (gestureBlockRef?.current) return;
     const now = Date.now();
     if (now - lastClickTimeRef.current < 300) return;
@@ -261,13 +273,21 @@ const PlusSign = ({
       onClick={(e) => {
         e.stopPropagation();
         e.preventDefault();
+        // Click must correspond to a mousedown that happened on this element.
+        // Synthetic clicks from a touch that drifted onto us have no matching down.
+        if (!sawMouseDownRef.current) return;
+        sawMouseDownRef.current = false;
         if (!preventClickRef.current) {
           fireClick();
         }
       }}
+      onMouseDown={(e) => {
+        sawMouseDownRef.current = true;
+      }}
       onPointerDown={(e) => {
         if (e && e.cancelable) { e.preventDefault(); }
         e.stopPropagation();
+        downPointerIdsRef.current.add(e.pointerId);
         if (!e.isPrimary) {
            preventClickRef.current = true;
            return;
@@ -286,16 +306,25 @@ const PlusSign = ({
       onPointerUp={(e) => {
         if (e && e.cancelable) { e.preventDefault(); }
         e.stopPropagation();
+        // Pointer must have actually pressed down on this element. A finger that
+        // drifted onto PlusSign during a canvas pan/pinch generates pointerup here
+        // without a matching pointerdown — reject it.
+        const sawDown = downPointerIdsRef.current.delete(e.pointerId);
+        if (!sawDown) return;
         if (!preventClickRef.current) {
           fireClick();
         }
       }}
       onPointerCancel={(e) => {
+        downPointerIdsRef.current.delete(e.pointerId);
         preventClickRef.current = true;
       }}
       onTouchStart={(e) => {
         if (e && e.cancelable) { e.preventDefault(); }
         e.stopPropagation();
+        for (const t of e.changedTouches) {
+          downTouchIdsRef.current.add(t.identifier);
+        }
         if (e.touches.length > 1) {
             preventClickRef.current = true;
         } else {
@@ -319,11 +348,20 @@ const PlusSign = ({
       onTouchEnd={(e) => {
         if (e && e.cancelable) { e.preventDefault(); }
         e.stopPropagation();
+        // At least one of the touches that just ended must have started on us.
+        let sawAnyDown = false;
+        for (const t of e.changedTouches) {
+          if (downTouchIdsRef.current.delete(t.identifier)) sawAnyDown = true;
+        }
+        if (!sawAnyDown) return;
         if (!preventClickRef.current && e.touches.length === 0) {
           fireClick();
         }
       }}
       onTouchCancel={(e) => {
+        for (const t of e.changedTouches) {
+          downTouchIdsRef.current.delete(t.identifier);
+        }
         preventClickRef.current = true;
       }}
     >

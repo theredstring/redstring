@@ -442,7 +442,7 @@ export const useCanvasTouch = ({
             const startZoom = pinchRef.current.startZoom || zoomLevelRef.current;
             const ratioFromStart = dist / (startDist || dist);
             const targetZoomRaw = startZoom * (ratioFromStart || 1);
-            const pinchSlider = touchSettings?.zoomSensitivity ?? 0.5;
+            const pinchSlider = touchSettings?.zoomSensitivity ?? 0.7;
             const pinchSensitivity = Math.max(0.05, Math.min(1.0, pinchSlider * 2 * TOUCH_PINCH_SENSITIVITY_BASE));
             const easing = 1 - Math.pow(1 - pinchSensitivity, Math.min(6, dt / 16));
             // Atomic pan+zoom update: read prev values from refs and apply both
@@ -525,6 +525,13 @@ export const useCanvasTouch = ({
         if (pinchRef.current.active) {
             pinchRef.current.active = false;
             isPanningOrZooming.current = false;
+            // Any multi-touch gesture must suppress the synthetic click that follows.
+            // mouseMoved.current isn't reliable here because the first finger's lift
+            // resets it before the second finger lifts. Set ignoreCanvasClick directly
+            // and re-arm the dead zone so the click-time check has a positive signal
+            // even if the second lift is delayed past the scheduled clear.
+            if (ignoreCanvasClick) ignoreCanvasClick.current = true;
+            armGestureBlock?.();
             scheduleGestureBlockClear?.();
             // Clear velocity history so next pan starts fresh
             panVelocityHistoryRef.current = [];

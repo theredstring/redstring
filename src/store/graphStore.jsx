@@ -672,8 +672,8 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
         const zoomRaw = localStorage.getItem('redstring_touch_zoom_sensitivity');
         const panRaw = localStorage.getItem('redstring_touch_pan_sensitivity');
 
-        let zoomSensitivity = zoomRaw !== null ? parseFloat(zoomRaw) : 0.5;
-        if (!Number.isFinite(zoomSensitivity)) zoomSensitivity = 0.5;
+        let zoomSensitivity = zoomRaw !== null ? parseFloat(zoomRaw) : 0.7;
+        if (!Number.isFinite(zoomSensitivity)) zoomSensitivity = 0.7;
         zoomSensitivity = Math.max(0.0, Math.min(1.0, zoomSensitivity));
 
         let panSensitivity = panRaw !== null ? parseFloat(panRaw) : 0.5;
@@ -682,7 +682,7 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
 
         return { zoomSensitivity, panSensitivity };
       } catch (_) {
-        return { zoomSensitivity: 0.5, panSensitivity: 0.5 };
+        return { zoomSensitivity: 0.7, panSensitivity: 0.5 };
       }
     })(),
 
@@ -3669,7 +3669,7 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
         console.warn(`[setTouchZoomSensitivity] Invalid value: ${value}`);
         return;
       }
-      if (!draft.touchSettings) draft.touchSettings = { zoomSensitivity: 0.5, panSensitivity: 0.5 };
+      if (!draft.touchSettings) draft.touchSettings = { zoomSensitivity: 0.7, panSensitivity: 0.5 };
       draft.touchSettings.zoomSensitivity = v;
       try {
         localStorage.setItem('redstring_touch_zoom_sensitivity', String(v));
@@ -3682,7 +3682,7 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
         console.warn(`[setTouchPanSensitivity] Invalid value: ${value}`);
         return;
       }
-      if (!draft.touchSettings) draft.touchSettings = { zoomSensitivity: 0.5, panSensitivity: 0.5 };
+      if (!draft.touchSettings) draft.touchSettings = { zoomSensitivity: 0.7, panSensitivity: 0.5 };
       draft.touchSettings.panSensitivity = v;
       try {
         localStorage.setItem('redstring_touch_pan_sensitivity', String(v));

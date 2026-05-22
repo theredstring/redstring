@@ -156,6 +156,9 @@ const TOUCH_MOMENTUM_VELOCITY_WINDOW_MS = 80;   // how far back from the last to
 const TOUCH_MOMENTUM_STATIONARY_GAP_MS = 60;    // if the gap between last touchmove and touchend exceeds this, treat the finger as held still — no momentum
 const TOUCH_MOMENTUM_LAUNCH_MIN_SPEED = 0.25;   // px/ms — touch must be moving this fast at release to launch momentum (prevents slip when finger slows to a stop)
 const TOUCH_PAN_FRICTION = 0.92;                // per-frame retention for touch glide (higher = longer glide)
+const TOUCH_PAN_FRICTION_HIGH_VELOCITY = 0.955; // higher retention for fast flicks — extends glide for "throws" without affecting low/mid precision
+const TOUCH_HIGH_VELOCITY_THRESHOLD = 1.2;      // px/ms — speed above which the high-velocity friction starts ramping in
+const TOUCH_HIGH_VELOCITY_RAMP = 1.5;           // px/ms — speed range over which friction lerps from base to high
 const TRACKPAD_PAN_FRICTION = 0.94;             // per-frame retention for trackpad glide
 const PAN_MOMENTUM_FRAME = 16.67;               // baseline frame duration (ms) for damping scaling
 const TOUCH_PAN_MOMENTUM_BOOST = 1.0;           // no amplification — launch momentum at the actual finger release velocity (boost made low/mid flicks feel jumpy)
@@ -659,7 +662,7 @@ function NodeCanvas() {
   const forceLayoutIterationPreset = forceTunerSettings.layoutIterations || 'balanced';
   const keyboardSettings = useGraphStore(state => state.keyboardSettings || { zoomSensitivity: 0.5 });
   const middleMouseZoomEnabled = useGraphStore(state => state.mouseSettings?.middleMouseZoomEnabled ?? false);
-  const touchSettings = useGraphStore(state => state.touchSettings || { zoomSensitivity: 0.5, panSensitivity: 0.5 });
+  const touchSettings = useGraphStore(state => state.touchSettings || { zoomSensitivity: 0.7, panSensitivity: 0.5 });
   const touchSettingsRef = useRef(touchSettings);
   useEffect(() => { touchSettingsRef.current = touchSettings; }, [touchSettings]);
   const edgesMap = useGraphStore(state => state.edges);
@@ -1890,11 +1893,19 @@ function NodeCanvas() {
     }
     stopPanMomentum();
     const boost = source === 'trackpad' ? TRACKPAD_PAN_MOMENTUM_BOOST : TOUCH_PAN_MOMENTUM_BOOST;
-    const frictionBase = source === 'trackpad' ? TRACKPAD_PAN_FRICTION : TOUCH_PAN_FRICTION;
+    let frictionBase = source === 'trackpad' ? TRACKPAD_PAN_FRICTION : TOUCH_PAN_FRICTION;
     const vx = initialVx * boost;
     const vy = initialVy * boost;
-    if (Math.hypot(vx, vy) < PAN_MOMENTUM_MIN_SPEED) {
+    const launchSpeed = Math.hypot(vx, vy);
+    if (launchSpeed < PAN_MOMENTUM_MIN_SPEED) {
       return false;
+    }
+    // For touch fast flicks: lerp friction toward a higher value so the glide
+    // travels farther. Slow/precise flicks keep the original friction so they
+    // don't drift past the user's intended target.
+    if (source === 'touch' && launchSpeed > TOUCH_HIGH_VELOCITY_THRESHOLD) {
+      const overshoot = Math.min(1, (launchSpeed - TOUCH_HIGH_VELOCITY_THRESHOLD) / TOUCH_HIGH_VELOCITY_RAMP);
+      frictionBase = TOUCH_PAN_FRICTION + (TOUCH_PAN_FRICTION_HIGH_VELOCITY - TOUCH_PAN_FRICTION) * overshoot;
     }
 
     panMomentumRef.current.vx = vx;
@@ -5981,6 +5992,8 @@ function NodeCanvas() {
       }
       isPanningOrZooming.current = false;
       gestureActive = false;
+      ignoreCanvasClick.current = true;
+      armGestureBlock();
       scheduleGestureBlockClear();
     };
 
@@ -6960,6 +6973,10 @@ function NodeCanvas() {
       // to prevent the plus sign from appearing after a drag
       if (mouseMoved.current && !startedOnNode.current) {
         ignoreCanvasClick.current = true;
+        // Arm the post-gesture dead zone so a synthetic pointerup/click on PlusSign
+        // (lifting finger lands on the button) is also rejected, not just the canvas tap.
+        armGestureBlock();
+        scheduleGestureBlockClear();
       }
       // Reset mouseMoved.current immediately after mouse up logic is done
       // This prevents race condition with canvas click handler
@@ -13483,6 +13500,7 @@ function NodeCanvas() {
                       onMorphDone={handleMorphDone}
                       onDisappearDone={() => setPlusSign(null)}
                       gestureBlockRef={gestureBlockRef}
+                      isPanningOrZoomingRef={isPanningOrZooming}
                       targetWidth={plusSign.tempName ? (() => {
                         // Create a mock node object to get exact dimensions
                         const mockNode = { name: plusSign.tempName };
