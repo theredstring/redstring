@@ -22,8 +22,13 @@ const CanvasModal = ({
   fullScreenOverlay = false // Cover entire viewport including panels
 }) => {
   const modalRef = useRef(null);
+  const openedAtRef = useRef(0);
   const theme = useTheme();
   const { leftPanelExpanded, rightPanelExpanded, typeListMode } = useGraphStore();
+
+  useEffect(() => {
+    if (isVisible) openedAtRef.current = Date.now();
+  }, [isVisible]);
 
   // Get viewport bounds for positioning
   const viewportBounds = useViewportBounds(
@@ -46,11 +51,14 @@ const CanvasModal = ({
     return () => document.removeEventListener('keydown', handleEscape);
   }, [isVisible, onClose]);
 
-  // Handle backdrop click
+  // Handle backdrop click. Suppress the ghost-click that fires immediately
+  // after a touch on the element that opened this modal — on touch devices
+  // the synthesized click lands on whatever is under the touch point at
+  // dispatch time, which is now this backdrop.
   const handleBackdropClick = (e) => {
-    if (!disableBackdrop && e.target === e.currentTarget) {
-      onClose();
-    }
+    if (disableBackdrop || e.target !== e.currentTarget) return;
+    if (Date.now() - openedAtRef.current < 350) return;
+    onClose();
   };
 
   // Calculate position within viewport, accounting for header and TypeList

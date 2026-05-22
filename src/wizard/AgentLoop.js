@@ -865,7 +865,10 @@ export async function* runAgent(userMessage, graphState, config = {}, ensureSche
             function: {
               name: tc.name,
               arguments: JSON.stringify(tc.args)
-            }
+            },
+            // Preserved for Gemini 2.5+ thinking models; ignored by OpenAI/Anthropic clients
+            // which select only id/type/function when building their requests.
+            ...(tc.thoughtSignature ? { thoughtSignature: tc.thoughtSignature } : {})
           })) : undefined
         });
       }

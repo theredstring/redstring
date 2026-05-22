@@ -944,7 +944,12 @@ async function* streamGemini(messages, tools, { model, apiKey, temperature, maxT
           let fnArgs = {};
           try { fnArgs = JSON.parse(tc.function?.arguments || '{}'); } catch { fnArgs = tc.args || {}; }
           toolCallIdToName.set(tc.id, fnName);
-          parts.push({ functionCall: { name: fnName, args: fnArgs } });
+          // Thinking models (Gemini 2.5+) require thoughtSignature to round-trip
+          // on the Part wrapping the functionCall (not inside functionCall itself).
+          // Non-thinking models omit it, so this is a no-op there.
+          const part = { functionCall: { name: fnName, args: fnArgs } };
+          if (tc.thoughtSignature) part.thoughtSignature = tc.thoughtSignature;
+          parts.push(part);
         }
       }
       if (parts.length > 0) contents.push({ role: 'model', parts });
@@ -1012,6 +1017,21 @@ async function* streamGemini(messages, tools, { model, apiKey, temperature, maxT
     }
   };
 
+  // Audit outgoing functionCall parts for thoughtSignature presence — if any are
+  // missing, the next turn will fail with INVALID_ARGUMENT on thinking models.
+  {
+    const summary = contents.map((c, i) => {
+      if (c.role !== 'model' || !Array.isArray(c.parts)) return null;
+      const fnParts = c.parts.filter(p => p.functionCall);
+      if (fnParts.length === 0) return null;
+      const status = fnParts.map(p => `${p.functionCall.name}${p.thoughtSignature ? '✓sig' : '✗no-sig'}`).join(',');
+      return `[${i}] ${status}`;
+    }).filter(Boolean);
+    if (summary.length > 0) {
+      console.error('[LLMClient:Gemini] Outgoing functionCall sig audit:', summary.join(' | '));
+    }
+  }
+
   const response = await fetch(endpoint, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -1028,6 +1048,10 @@ async function* streamGemini(messages, tools, { model, apiKey, temperature, maxT
   const decoder = new TextDecoder();
   let buffer = '';
   let pendingFunctionCall = null;
+  // Thinking models (Gemini 2.5+) often emit thoughtSignature on a thought-only Part
+  // (no text/functionCall) that PRECEDES the functionCall Part. We accumulate any
+  // signature we see and attach it to the next emitted functionCall.
+  let pendingThoughtSignature = null;
 
   try {
     while (true) {
@@ -1054,10 +1078,24 @@ async function* streamGemini(messages, tools, { model, apiKey, temperature, maxT
 
           const parts = candidate.content?.parts || [];
           if (parts.length > 0) {
-            const partTypes = parts.map(p => p.text ? 'text' : p.functionCall ? 'functionCall' : 'other').join(', ');
+            const partTypes = parts.map(p => {
+              const kind = p.text ? 'text' : p.functionCall ? 'functionCall' : p.thought ? 'thought' : 'other';
+              return p.thoughtSignature ? `${kind}+sig` : kind;
+            }).join(', ');
             console.error('[LLMClient:Gemini] Chunk parts:', partTypes);
+            // Dump raw structure of any chunk that mentions thinking — helps verify the
+            // shape Gemini actually sends so we know we're capturing signatures correctly.
+            if (parts.some(p => p.thoughtSignature || p.thought || p.functionCall)) {
+              console.error('[LLMClient:Gemini] Raw chunk (relevant):', JSON.stringify(chunk).slice(0, 2000));
+            }
           }
           for (const part of parts) {
+            // Capture any thoughtSignature on this part (thought-only Parts often carry it
+            // ahead of the functionCall they relate to). Last-seen wins until consumed.
+            if (part.thoughtSignature) {
+              pendingThoughtSignature = part.thoughtSignature;
+              console.error('[LLMClient:Gemini] ✓ Buffered thoughtSignature (len=' + part.thoughtSignature.length + ')');
+            }
             if (part.text) {
               yield { type: 'text', content: part.text };
             } else if (part.functionCall) {
@@ -1074,6 +1112,15 @@ async function* streamGemini(messages, tools, { model, apiKey, temperature, maxT
               if (!fnArgs || (typeof fnArgs === 'object' && Object.keys(fnArgs).length === 0)) {
                 console.error('[LLMClient:Gemini] Warning: functionCall "' + fnName + '" received with empty args');
               }
+              // Prefer signature on the same Part as the functionCall; fall back to any
+              // pending signature from a preceding thought-only Part in this stream.
+              const thoughtSignature = part.thoughtSignature || pendingThoughtSignature;
+              if (thoughtSignature) {
+                console.error('[LLMClient:Gemini] ✓ Attached thoughtSignature to functionCall:', fnName, '(source:', part.thoughtSignature ? 'inline' : 'pending', ')');
+                pendingThoughtSignature = null;
+              } else {
+                console.error('[LLMClient:Gemini] ⚠️ No thoughtSignature available for functionCall:', fnName, '— Gemini will reject the next turn');
+              }
 
               // Flush any pending function call before starting a new one
               if (pendingFunctionCall) {
@@ -1081,7 +1128,8 @@ async function* streamGemini(messages, tools, { model, apiKey, temperature, maxT
                   type: 'tool_call',
                   name: pendingFunctionCall.name,
                   args: pendingFunctionCall.args,
-                  id: pendingFunctionCall.id
+                  id: pendingFunctionCall.id,
+                  ...(pendingFunctionCall.thoughtSignature ? { thoughtSignature: pendingFunctionCall.thoughtSignature } : {})
                 };
                 pendingFunctionCall = null;
               }
@@ -1103,11 +1151,12 @@ async function* streamGemini(messages, tools, { model, apiKey, temperature, maxT
                   type: 'tool_call',
                   name: fnName,
                   args: fnArgs || {},
-                  id: fnId
+                  id: fnId,
+                  ...(thoughtSignature ? { thoughtSignature } : {})
                 };
               } else {
                 // Args not yet available — hold for flush
-                pendingFunctionCall = { id: fnId, name: fnName, args: {} };
+                pendingFunctionCall = { id: fnId, name: fnName, args: {}, thoughtSignature };
               }
             }
           }
@@ -1125,7 +1174,8 @@ async function* streamGemini(messages, tools, { model, apiKey, temperature, maxT
         type: 'tool_call',
         name: pendingFunctionCall.name,
         args: pendingFunctionCall.args,
-        id: pendingFunctionCall.id
+        id: pendingFunctionCall.id,
+        ...(pendingFunctionCall.thoughtSignature ? { thoughtSignature: pendingFunctionCall.thoughtSignature } : {})
       };
       pendingFunctionCall = null;
     }
