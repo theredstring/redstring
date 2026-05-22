@@ -17,7 +17,7 @@ const DRAG_ZOOM_ANIMATION_DURATION = 250; // ms
 // asymptotically, so each drag at low zoom does almost nothing. The additive
 // floor (scaled by zoomAmount so it stays proportional to user intent)
 // guarantees a minimum perceptible zoom-out regardless of starting zoom.
-const DRAG_ZOOM_ADDITIVE_SCALE = 0.45;
+const DRAG_ZOOM_ADDITIVE_SCALE = 0.2;
 
 /**
  * useNodeDrag — Extracts all node/group dragging behavior from NodeCanvas.
