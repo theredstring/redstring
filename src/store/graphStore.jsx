@@ -608,11 +608,11 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
         const amountRaw = localStorage.getItem('redstring_drag_zoom_amount');
         const enabled = enabledRaw ? enabledRaw === 'true' : true;
         let amount = parseFloat(amountRaw);
-        if (!Number.isFinite(amount)) amount = 0.55;
+        if (!Number.isFinite(amount)) amount = 0.45;
         amount = Math.max(0.0, Math.min(0.9, amount));
         return { enabled, zoomAmount: amount };
       } catch (_) {
-        return { enabled: true, zoomAmount: 0.55 };
+        return { enabled: true, zoomAmount: 0.45 };
       }
     })(),
     // Connections visualization/layout settings
@@ -3512,7 +3512,7 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
     // Drag zoom settings actions
     toggleDragZoomEnabled: () => set(produce((draft) => {
       if (!draft.dragZoomSettings) {
-        draft.dragZoomSettings = { enabled: true, zoomAmount: 0.55 };
+        draft.dragZoomSettings = { enabled: true, zoomAmount: 0.45 };
       }
       draft.dragZoomSettings.enabled = !draft.dragZoomSettings.enabled;
       try {
@@ -3521,7 +3521,7 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
     })),
     setDragZoomAmount: (value) => set(produce((draft) => {
       if (!draft.dragZoomSettings) {
-        draft.dragZoomSettings = { enabled: true, zoomAmount: 0.55 };
+        draft.dragZoomSettings = { enabled: true, zoomAmount: 0.45 };
       }
       const v = Number(value);
       if (!Number.isFinite(v)) {
