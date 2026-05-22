@@ -187,6 +187,28 @@ function NodeCanvas() {
   const placedLabelsRef = useRef(new Map());
   const pinchRef = useRef({ active: false, startDist: 0, startZoom: 1, centerClient: { x: 0, y: 0 }, centerWorld: null, lastCenterClient: { x: 0, y: 0 }, lastDist: 0 });
   const pinchSmoothingRef = useRef({ lastFrameTime: 0, velocity: { x: 0, y: 0 } });
+  // Cross-platform multi-touch suppression. True from gesture start until ~350ms
+  // after the last finger lifts — bridges the gap where pinchRef.active flips
+  // false synchronously before the browser dispatches synthetic click/pointerup
+  // to whatever element the lifting finger was over (e.g. PlusSign on Android Chrome).
+  const gestureBlockRef = useRef(false);
+  const gestureBlockClearTimerRef = useRef(null);
+  const armGestureBlock = useCallback(() => {
+    gestureBlockRef.current = true;
+    if (gestureBlockClearTimerRef.current) {
+      clearTimeout(gestureBlockClearTimerRef.current);
+      gestureBlockClearTimerRef.current = null;
+    }
+  }, []);
+  const scheduleGestureBlockClear = useCallback((delay = 350) => {
+    if (gestureBlockClearTimerRef.current) {
+      clearTimeout(gestureBlockClearTimerRef.current);
+    }
+    gestureBlockClearTimerRef.current = setTimeout(() => {
+      gestureBlockRef.current = false;
+      gestureBlockClearTimerRef.current = null;
+    }, delay);
+  }, []);
   const [orbitData, setOrbitData] = useState({ ring1: [], ring2: [], ring3: [], ring4: [], all: [] });
   const [orbitLoading, setOrbitLoading] = useState(false);
   const [semanticOrbitActive, setSemanticOrbitActive] = useState(false);
@@ -321,6 +343,10 @@ function NodeCanvas() {
     return () => {
       if (pinchSmoothingRef.current?.animationId) {
         cancelAnimationFrame(pinchSmoothingRef.current.animationId);
+      }
+      if (gestureBlockClearTimerRef.current) {
+        clearTimeout(gestureBlockClearTimerRef.current);
+        gestureBlockClearTimerRef.current = null;
       }
     };
   }, []);
@@ -5921,6 +5947,7 @@ function NodeCanvas() {
       pinchRef.current.centerClient = { x: clientX, y: clientY };
       isPanningOrZooming.current = true;
       gestureActive = true;
+      armGestureBlock();
     };
 
     const onGestureChange = (e) => {
@@ -5954,6 +5981,7 @@ function NodeCanvas() {
       }
       isPanningOrZooming.current = false;
       gestureActive = false;
+      scheduleGestureBlockClear();
     };
 
     container.addEventListener('gesturestart', onGestureStart, { passive: false });
@@ -5964,7 +5992,7 @@ function NodeCanvas() {
       container.removeEventListener('gesturechange', onGestureChange);
       container.removeEventListener('gestureend', onGestureEnd);
     };
-  }, [MIN_ZOOM, MAX_ZOOM, trackpadZoomEnabled]);
+  }, [MIN_ZOOM, MAX_ZOOM, trackpadZoomEnabled, armGestureBlock, scheduleGestureBlockClear]);
 
   // --- Touch helpers for canvas interactions (moved here to ensure refs/state are initialized) ---
   const touch = useCanvasTouch({
@@ -6030,6 +6058,8 @@ function NodeCanvas() {
     pinchRef,
     pinchSmoothingRef,
     ignoreCanvasClick,
+    armGestureBlock,
+    scheduleGestureBlockClear,
     touchSettings,
   });
 
@@ -6945,6 +6975,9 @@ function NodeCanvas() {
     handleMouseUp(e);
   };
   const handleCanvasClick = (e) => {
+    // Suppress canvas taps that arrive inside the post-pinch dead zone — otherwise
+    // a finger lifting onto bare canvas after a multi-touch gesture spawns a stray PlusSign.
+    if (gestureBlockRef.current) return;
     // Exit semantic orbit mode on canvas click — but not after a pan.
     // ignoreCanvasClick is set true by handleMouseUp when a pan occurred.
     if (semanticOrbitActive) {
@@ -13449,6 +13482,7 @@ function NodeCanvas() {
                       onClick={handlePlusSignClick}
                       onMorphDone={handleMorphDone}
                       onDisappearDone={() => setPlusSign(null)}
+                      gestureBlockRef={gestureBlockRef}
                       targetWidth={plusSign.tempName ? (() => {
                         // Create a mock node object to get exact dimensions
                         const mockNode = { name: plusSign.tempName };

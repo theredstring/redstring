@@ -7,7 +7,8 @@ const PlusSign = ({
   onMorphDone,
   onDisappearDone,
   targetWidth = NODE_WIDTH,
-  targetHeight = NODE_HEIGHT
+  targetHeight = NODE_HEIGHT,
+  gestureBlockRef
 }) => {
   const animationFrameRef = useRef(null);
   const plusRef = useRef({
@@ -26,6 +27,7 @@ const PlusSign = ({
   const pointerStartPosRef = useRef(null);
 
   const fireClick = () => {
+    if (gestureBlockRef?.current) return;
     const now = Date.now();
     if (now - lastClickTimeRef.current < 300) return;
     lastClickTimeRef.current = now;

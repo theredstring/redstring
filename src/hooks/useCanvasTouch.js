@@ -83,6 +83,8 @@ export const useCanvasTouch = ({
     pinchRef,
     pinchSmoothingRef,
     ignoreCanvasClick,
+    armGestureBlock,
+    scheduleGestureBlockClear,
     touchSettings,
 }) => {
     // --- Refs moved to hook ---
@@ -307,6 +309,7 @@ export const useCanvasTouch = ({
                 lastDist: dist
             };
             pinchSmoothingRef.current.lastFrameTime = performance.now();
+            armGestureBlock?.();
             // Cancel any in-progress one-finger pan when second finger is placed
             isMouseDown.current = false;
             setIsPanning(false);
@@ -410,6 +413,7 @@ export const useCanvasTouch = ({
                         lastDist: dist
                     };
                     pinchSmoothingRef.current.lastFrameTime = performance.now();
+                    armGestureBlock?.();
                     // Stop momentum and panning
                     stopPanMomentum();
                     isMouseDown.current = false;
@@ -521,6 +525,7 @@ export const useCanvasTouch = ({
         if (pinchRef.current.active) {
             pinchRef.current.active = false;
             isPanningOrZooming.current = false;
+            scheduleGestureBlockClear?.();
             // Clear velocity history so next pan starts fresh
             panVelocityHistoryRef.current = [];
 
