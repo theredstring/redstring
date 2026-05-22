@@ -115,6 +115,9 @@ const UniversalNodeRenderer = ({
   interactive = true,
   showHoverEffects = true,
   showConnectionDots = true,
+  // When true, render directionality dots even without hover. Used in touch
+  // mode where hover affordances are unreliable/absent on touchscreens.
+  forceShowConnectionDots = false,
 
   // Callbacks
   onNodeClick,
@@ -662,9 +665,11 @@ const UniversalNodeRenderer = ({
               // Calculate dot/arrow positions (8% from nodes)
               const dotOffset = 0.08 * length;
 
-              // Only shorten the line on sides where there are arrows or when hovering to show dots
-              let shouldShortenSource = conn.hasSourceArrow || (isStableHovered && !conn.hasSourceArrow);
-              let shouldShortenTarget = conn.hasTargetArrow || (isStableHovered && !conn.hasTargetArrow);
+              // Only shorten the line on sides where there are arrows or when hovering to show dots.
+              // forceShowConnectionDots keeps dots visible without hover (touch mode).
+              const showDotsHere = isStableHovered || forceShowConnectionDots;
+              let shouldShortenSource = conn.hasSourceArrow || (showDotsHere && !conn.hasSourceArrow);
+              let shouldShortenTarget = conn.hasTargetArrow || (showDotsHere && !conn.hasTargetArrow);
 
               // Calculate adjusted points based on what should be shortened
               adjustedSourcePoint = shouldShortenSource ? {
@@ -837,7 +842,7 @@ const UniversalNodeRenderer = ({
               />
 
               {/* Render dots within the connection group to access adjusted points */}
-              {interactive && showConnectionDots && isStableHovered && (
+              {interactive && showConnectionDots && (isStableHovered || forceShowConnectionDots) && (
                 <g key={`dots-${conn.id}`}>
                   {/* Only show source dot if there's no source arrow */}
                   {!conn.hasSourceArrow && (() => {

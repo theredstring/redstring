@@ -139,6 +139,7 @@ const UnifiedBottomControlPanel = ({
   onDismiss,
 }) => {
   const theme = useTheme();
+  const inputMode = useGraphStore(state => state.inputMode);
   const [animationState, setAnimationState] = useState('entering');
   const [shouldRender, setShouldRender] = useState(true);
   const nodeGroupPreviewRef = useRef(null);
@@ -677,6 +678,7 @@ const UnifiedBottomControlPanel = ({
                   containerWidth={calculatedWidth}
                   containerHeight={calculatedHeight}
                   minHorizontalSpacing={dynamicMinHorizontalSpacing}
+                  forceShowConnectionDots={inputMode === 'touch'}
                   onNodeClick={onNodeClick}
                   onConnectionClick={onPredicateClick}
                   onToggleArrow={(connectionId, targetNodeId) => {

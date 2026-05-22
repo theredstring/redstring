@@ -216,6 +216,9 @@ function NodeCanvas() {
   const [orbitLoading, setOrbitLoading] = useState(false);
   const [semanticOrbitActive, setSemanticOrbitActive] = useState(false);
   const semanticOrbitActiveRef = useRef(false);
+  // Mirrors store inputMode so RAF callbacks and pointer handlers can read the
+  // current modality without re-binding when it flips.
+  const inputModeRef = useRef('mouse');
   const anchorPositionUpdatesRef = useRef(new Map()); // Collects anchor position updates during render
 
   // Helper to measure text width accurately for the group labels (via Pretext — no DOM reflow)
@@ -382,6 +385,24 @@ function NodeCanvas() {
     };
     window.addEventListener('resize', onResize);
     return () => window.removeEventListener('resize', onResize);
+  }, []);
+
+  // Track active input modality via PointerEvent.pointerType so we never
+  // mistake touch-synthesized mousedown for a real mouse click. We bind to
+  // pointerdown only (not mousedown) — synthesized mouse events from touch
+  // don't fire here with pointerType='mouse'. setInputMode no-ops when the
+  // value is unchanged, so this stays cheap during normal interaction.
+  useEffect(() => {
+    const setInputMode = useGraphStore.getState().setInputMode;
+    const handlePointerDown = (e) => {
+      if (e.pointerType === 'mouse') {
+        setInputMode('mouse');
+      } else if (e.pointerType === 'touch' || e.pointerType === 'pen') {
+        setInputMode('touch');
+      }
+    };
+    window.addEventListener('pointerdown', handlePointerDown, { capture: true });
+    return () => window.removeEventListener('pointerdown', handlePointerDown, { capture: true });
   }, []);
 
   // Subscribe to debug config changes for hitbox visualization
@@ -642,6 +663,8 @@ function NodeCanvas() {
   const showConnectionNames = useGraphStore(state => state.showConnectionNames);
   const showEdgeGlowIndicators = useGraphStore(state => state.showEdgeGlowIndicators);
   const darkMode = useGraphStore(state => state.darkMode);
+  const inputMode = useGraphStore(state => state.inputMode);
+  useEffect(() => { inputModeRef.current = inputMode; }, [inputMode]);
   const gridMode = useGraphStore(state => state.gridSettings?.mode || 'off');
   const gridSize = useGraphStore(state => state.gridSettings?.size || 200);
   const dragZoomSettings = useGraphStore(state => state.dragZoomSettings || { enabled: true, zoomAmount: 0.55 });
@@ -6189,8 +6212,10 @@ function NodeCanvas() {
           const { e: mouseEvent, currentX, currentY, nodes: nodeList, visibleNodeIds } = pendingHoverCheck.current;
           pendingHoverCheck.current = null;
 
-          // Suppress all hover effects during semantic orbit mode
-          if (semanticOrbitActiveRef.current) {
+          // Suppress all hover effects during semantic orbit mode, or when
+          // the user is interacting via touch (touchscreens fire hover events
+          // inconsistently and the vision-aid preview gets stuck on tap).
+          if (semanticOrbitActiveRef.current || inputModeRef.current === 'touch') {
             setHoveredNodeForVision(null);
             setHoveredConnectionForVision(null);
             setHoveredEdgeInfo(null);

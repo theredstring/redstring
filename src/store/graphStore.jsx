@@ -665,6 +665,12 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
       }
     })(),
 
+    // Active input modality — flipped per-interaction by pointerdown listener.
+    // 'mouse' enables hover affordances; 'touch' forces always-visible affordances
+    // (e.g. connection arrow dots) and suppresses hover previews. Session-only,
+    // not persisted: each pointerdown re-evaluates via PointerEvent.pointerType.
+    inputMode: 'mouse',
+
     // Touch interaction settings — sliders in [0, 1], 0.5 maps to the
     // current "good default" multiplier in the touch input layer.
     touchSettings: (() => {
@@ -3470,6 +3476,14 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
       } catch (err) {
         console.warn('[loadUISettingsFromWorkspace] Failed:', err);
       }
+    },
+
+    // Input mode (mouse vs touch) — flipped by pointerdown handler in NodeCanvas.
+    // No-op when value is unchanged to avoid spurious re-renders during mouse moves.
+    setInputMode: (mode) => {
+      if (mode !== 'mouse' && mode !== 'touch') return;
+      if (get().inputMode === mode) return;
+      set(produce((draft) => { draft.inputMode = mode; }));
     },
 
     // Grid settings actions
