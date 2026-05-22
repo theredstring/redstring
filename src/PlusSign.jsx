@@ -21,10 +21,16 @@ const PlusSign = ({
     textOpacity: 0,
   });
   const [, forceUpdate] = React.useReducer((s) => s + 1, 0);
-  const touchActiveRef = useRef(false);
-  const pointerActiveRef = useRef(false);
-  const touchStartPosRef = useRef(null);
+  const preventClickRef = useRef(false);
+  const lastClickTimeRef = useRef(0);
   const pointerStartPosRef = useRef(null);
+
+  const fireClick = () => {
+    const now = Date.now();
+    if (now - lastClickTimeRef.current < 300) return;
+    lastClickTimeRef.current = now;
+    onClick?.();
+  };
 
   useEffect(() => {
     runAnimation();
@@ -253,70 +259,70 @@ const PlusSign = ({
       onClick={(e) => {
         e.stopPropagation();
         e.preventDefault();
-        onClick?.();
+        if (!preventClickRef.current) {
+          fireClick();
+        }
       }}
       onPointerDown={(e) => {
-        // Fallback for devices using Pointer Events (covers touch, pen, mouse)
         if (e && e.cancelable) { e.preventDefault(); }
         e.stopPropagation();
         if (!e.isPrimary) {
-           pointerActiveRef.current = false;
+           preventClickRef.current = true;
            return;
         }
-        pointerActiveRef.current = true;
+        preventClickRef.current = false;
         pointerStartPosRef.current = { x: e.clientX, y: e.clientY };
       }}
       onPointerMove={(e) => {
-        if (!pointerActiveRef.current || !pointerStartPosRef.current) return;
+        if (!pointerStartPosRef.current) return;
         const dx = e.clientX - pointerStartPosRef.current.x;
         const dy = e.clientY - pointerStartPosRef.current.y;
         if (Math.sqrt(dx * dx + dy * dy) > 10) {
-          pointerActiveRef.current = false;
+          preventClickRef.current = true;
         }
       }}
       onPointerUp={(e) => {
         if (e && e.cancelable) { e.preventDefault(); }
         e.stopPropagation();
-        if (pointerActiveRef.current) {
-          pointerActiveRef.current = false;
-          onClick?.();
+        if (!preventClickRef.current) {
+          fireClick();
         }
       }}
       onPointerCancel={(e) => {
-        pointerActiveRef.current = false;
+        preventClickRef.current = true;
       }}
       onTouchStart={(e) => {
         if (e && e.cancelable) { e.preventDefault(); }
         e.stopPropagation();
         if (e.touches.length > 1) {
-            touchActiveRef.current = false;
-            return;
+            preventClickRef.current = true;
+        } else {
+            preventClickRef.current = false;
+            pointerStartPosRef.current = { x: e.touches[0].clientX, y: e.touches[0].clientY };
         }
-        touchActiveRef.current = true;
-        touchStartPosRef.current = { x: e.touches[0].clientX, y: e.touches[0].clientY };
       }}
       onTouchMove={(e) => {
         if (e.touches.length > 1) {
-            touchActiveRef.current = false;
+            preventClickRef.current = true;
             return;
         }
-        if (!touchActiveRef.current || !touchStartPosRef.current) return;
-        const dx = e.touches[0].clientX - touchStartPosRef.current.x;
-        const dy = e.touches[0].clientY - touchStartPosRef.current.y;
-        if (Math.sqrt(dx * dx + dy * dy) > 10) {
-          touchActiveRef.current = false;
+        if (pointerStartPosRef.current) {
+          const dx = e.touches[0].clientX - pointerStartPosRef.current.x;
+          const dy = e.touches[0].clientY - pointerStartPosRef.current.y;
+          if (Math.sqrt(dx * dx + dy * dy) > 10) {
+            preventClickRef.current = true;
+          }
         }
       }}
       onTouchEnd={(e) => {
         if (e && e.cancelable) { e.preventDefault(); }
         e.stopPropagation();
-        if (touchActiveRef.current) {
-          touchActiveRef.current = false;
-          onClick?.();
+        if (!preventClickRef.current && e.touches.length === 0) {
+          fireClick();
         }
       }}
       onTouchCancel={(e) => {
-        touchActiveRef.current = false;
+        preventClickRef.current = true;
       }}
     >
       {(() => {
