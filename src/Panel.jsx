@@ -358,8 +358,8 @@ const ItemTypes = {
  * - Image is scaled horizontally with "objectFit: contain."
  * - The circle around X has a fade‑in transition on hover.
  */
-const MIN_PANEL_WIDTH = 100;
-const INITIAL_PANEL_WIDTH = 280; // Match NodeCanvas default
+const MIN_PANEL_WIDTH = 80;
+const INITIAL_PANEL_WIDTH = 250; // Match NodeCanvas default
 // EXCLUSIVE_PANEL_MODE_THRESHOLD imported from ./constants (shared with NodeCanvas.jsx + Header.jsx)
 const PANEL_TOGGLE_BUTTON_WIDTH = 50; // Must match ToggleButton width
 
@@ -373,7 +373,7 @@ const ENABLE_ALL_THINGS_TAB = false;
 const clampPanelWidthToViewport = (width) => {
   const max = window.innerWidth <= EXCLUSIVE_PANEL_MODE_THRESHOLD
     ? Math.max(MIN_PANEL_WIDTH, window.innerWidth - PANEL_TOGGLE_BUTTON_WIDTH)
-    : window.innerWidth / 2;
+    : (window.innerWidth / 2) - 30;
   return Math.max(MIN_PANEL_WIDTH, Math.min(width, max));
 };
 

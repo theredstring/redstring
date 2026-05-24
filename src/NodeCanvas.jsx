@@ -126,7 +126,7 @@ const SPAWNABLE_NODE = 'spawnable_node';
 
 // EXCLUSIVE_PANEL_MODE_THRESHOLD is imported from ./constants (shared with Panel.jsx + Header.jsx)
 const PANEL_TOGGLE_BUTTON_WIDTH = 50; // Must match ToggleButton width
-const PANEL_OVERLAY_MIN_WIDTH = 180;
+const PANEL_OVERLAY_MIN_WIDTH = 150;
 
 // Clamp an overlay-resizer panel width to what the current viewport supports.
 // Mirrors the formula used during active resize drags (applyResizeUpdate).
@@ -134,7 +134,7 @@ const clampOverlayPanelWidth = (width) => {
   const isExclusive = window.innerWidth <= EXCLUSIVE_PANEL_MODE_THRESHOLD;
   const max = isExclusive
     ? Math.max(PANEL_OVERLAY_MIN_WIDTH, window.innerWidth - PANEL_TOGGLE_BUTTON_WIDTH)
-    : Math.max(240, Math.round(window.innerWidth / 2));
+    : Math.max(240, Math.round(window.innerWidth / 2) - 30);
   return Math.max(PANEL_OVERLAY_MIN_WIDTH, Math.min(width, max));
 };
 
@@ -298,10 +298,10 @@ function NodeCanvas() {
 
   // Panel overlay resizers rendered in canvas (do not overlap panel DOM)
   const [leftPanelWidth, setLeftPanelWidth] = useState(() => {
-    try { return clampOverlayPanelWidth(JSON.parse(localStorage.getItem('panelWidth_left') || '280')); } catch { return clampOverlayPanelWidth(280); }
+    try { return clampOverlayPanelWidth(JSON.parse(localStorage.getItem('panelWidth_left') || '250')); } catch { return clampOverlayPanelWidth(250); }
   });
   const [rightPanelWidth, setRightPanelWidth] = useState(() => {
-    try { return clampOverlayPanelWidth(JSON.parse(localStorage.getItem('panelWidth_right') || '280')); } catch { return clampOverlayPanelWidth(280); }
+    try { return clampOverlayPanelWidth(JSON.parse(localStorage.getItem('panelWidth_right') || '250')); } catch { return clampOverlayPanelWidth(250); }
   });
 
   const isTouchDeviceRef = useRef(false);
@@ -446,7 +446,7 @@ function NodeCanvas() {
     const isExclusive = window.innerWidth <= EXCLUSIVE_PANEL_MODE_THRESHOLD;
     const maxWidth = isExclusive
       ? Math.max(MIN_WIDTH, window.innerWidth - PANEL_TOGGLE_BUTTON_WIDTH)
-      : Math.max(240, Math.round(window.innerWidth / 2));
+      : Math.max(240, Math.round(window.innerWidth / 2) - 30);
     if (isDraggingLeft.current) {
       const dx = clientX - dragStartXRef.current;
       const w = Math.max(MIN_WIDTH, Math.min(startWidthRef.current + dx, maxWidth));

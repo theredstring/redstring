@@ -4866,6 +4866,7 @@ const UniverseManager = ({ variant = 'panel', onRequestClose }) => {
         onDiscoverRepository={(repoInfo) => handleDiscover(repoInfo)}
         onImportUniverse={(universe, repoInfo) => handleImportDiscovered(universe, repoInfo)}
         onSyncUniverse={(universe, repoInfo) => handleLinkDiscovered(universe, repoInfo)}
+        isSlim={isSlim}
       />
 
       <StandardDivider margin="8px 0" />

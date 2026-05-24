@@ -28,7 +28,8 @@ const RepositoriesSection = ({
   onSetMainRepository,
   onDiscoverRepository,
   onImportUniverse,
-  onSyncUniverse
+  onSyncUniverse,
+  isSlim = false
 }) => {
   const theme = useTheme();
   if (repositories.length === 0) {
@@ -36,6 +37,7 @@ const RepositoriesSection = ({
       <PanelSegment
         title="Repositories"
         subtitle="Your chosen repositories"
+        isSlim={isSlim}
       >
         <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
           <PanelIconButton
@@ -67,8 +69,9 @@ const RepositoriesSection = ({
     <PanelSegment
       title="Repositories"
       subtitle={`${repositories.length} ${repositories.length === 1 ? 'repository' : 'repositories'} in your list`}
+      isSlim={isSlim}
       actions={
-        <PanelIconButton 
+        <PanelIconButton
           icon={Github}
           size={18}
           label="Add More"
@@ -101,18 +104,18 @@ const RepositoriesSection = ({
               }}
             >
               {/* Repository header */}
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 10, flex: 1 }}>
-                  <Github size={18} />
-                  <div>
-                    <div style={{ fontWeight: 600, display: 'flex', alignItems: 'center', gap: 6 }}>
-                      {repoFullName}
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', minWidth: 0 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10, flex: 1, minWidth: 0 }}>
+                  <Github size={18} style={{ flexShrink: 0 }} />
+                  <div style={{ minWidth: 0, flex: 1 }}>
+                    <div style={{ fontWeight: 600, display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', wordBreak: 'break-word', overflowWrap: 'anywhere' }}>
+                      <span style={{ minWidth: 0, wordBreak: 'break-word', overflowWrap: 'anywhere' }}>{repoFullName}</span>
                       {repo.isMain && (
-                        <Star size={14} style={{ color: '#cc6600', fill: '#cc6600' }} title="Main repository" />
+                        <Star size={14} style={{ color: '#cc6600', fill: '#cc6600', flexShrink: 0 }} title="Main repository" />
                       )}
                     </div>
                     {repo.description && (
-                      <div style={{ fontSize: '0.72rem', color: theme.canvas.textSecondary }}>{repo.description}</div>
+                      <div style={{ fontSize: '0.72rem', color: theme.canvas.textSecondary, wordBreak: 'break-word', overflowWrap: 'anywhere' }}>{repo.description}</div>
                     )}
                   </div>
                 </div>

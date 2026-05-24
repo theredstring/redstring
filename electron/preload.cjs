@@ -94,6 +94,9 @@ contextBridge.exposeInMainWorld('electron', {
     clearCache: () => ipcRenderer.invoke('updater:clear-cache'),
     getDiagnostics: () => ipcRenderer.invoke('updater:get-diagnostics'),
     openLog: () => ipcRenderer.invoke('updater:open-log'),
+    // Dev-only simulator. In production the main-side handler is not registered,
+    // so this rejects harmlessly — safe to expose unconditionally.
+    __devSimulate: (kind, payload) => ipcRenderer.invoke('updater:__dev:simulate', kind, payload),
   }
 });
 
