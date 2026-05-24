@@ -69,6 +69,9 @@ contextBridge.exposeInMainWorld('electron', {
     onUpdateAvailable: (callback) => {
       ipcRenderer.on('updater:update-available', (_event, info) => callback(info));
     },
+    onUpdateNotAvailable: (callback) => {
+      ipcRenderer.on('updater:update-not-available', (_event, info) => callback(info));
+    },
     onDownloadProgress: (callback) => {
       ipcRenderer.on('updater:download-progress', (_event, data) => callback(data));
     },
@@ -78,9 +81,19 @@ contextBridge.exposeInMainWorld('electron', {
     onError: (callback) => {
       ipcRenderer.on('updater:error', (_event, payload) => callback(payload));
     },
+    onDiagnosticsUpdated: (callback) => {
+      ipcRenderer.on('updater:diagnostics-updated', (_event, payload) => callback(payload));
+    },
+    onOpenDiagnostics: (callback) => {
+      ipcRenderer.on('updater:open-diagnostics', () => callback());
+    },
     checkPending: () => ipcRenderer.invoke('updater:check-pending'),
     installUpdate: () => ipcRenderer.send('updater:install'),
     openReleases: () => ipcRenderer.invoke('updater:open-releases'),
+    checkNow: () => ipcRenderer.invoke('updater:check-now'),
+    clearCache: () => ipcRenderer.invoke('updater:clear-cache'),
+    getDiagnostics: () => ipcRenderer.invoke('updater:get-diagnostics'),
+    openLog: () => ipcRenderer.invoke('updater:open-log'),
   }
 });
 

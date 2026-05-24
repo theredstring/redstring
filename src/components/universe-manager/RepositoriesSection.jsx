@@ -116,19 +116,19 @@ const RepositoriesSection = ({
                     )}
                   </div>
                 </div>
-
-                <div style={{ display: 'flex', gap: 6 }}>
-                    <PanelIconButton
-                      icon={ExternalLink}
-                      onClick={() => window.open(repo.html_url, '_blank')}
-                      title="View on GitHub"
-                      variant="outline"
-                    />
-                </div>
               </div>
 
               {/* Action buttons row */}
               <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                {repo.html_url && (
+                  <PanelIconButton
+                    icon={ExternalLink}
+                    size={20}
+                    onClick={() => window.open(repo.html_url, '_blank')}
+                    title="View on GitHub"
+                  />
+                )}
+
                 {onSetMainRepository && (
                   <PanelIconButton
                     icon={Star}

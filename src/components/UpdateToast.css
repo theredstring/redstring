@@ -58,3 +58,15 @@
   gap: 4px;
   margin-top: 2px;
 }
+
+.update-toast--retry .update-toast-subtitle {
+  color: #E8C77A;
+}
+
+.update-toast--failed {
+  border-color: rgba(255, 100, 100, 0.55);
+}
+
+.update-toast--failed .update-toast-subtitle {
+  color: #F2A0A0;
+}

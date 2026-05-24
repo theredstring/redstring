@@ -3,65 +3,9 @@ const path = require('node:path');
 const fs = require('node:fs').promises;
 const fsSync = require('node:fs');
 const { fork } = require('child_process');
-const { autoUpdater } = require('electron-updater');
+const { initUpdater } = require('./updater.cjs');
 
-// Configure autoUpdater
-autoUpdater.autoDownload = true;
-autoUpdater.autoInstallOnAppQuit = true;
-
-// Basic logging
-autoUpdater.logger = require('electron-log');
-autoUpdater.logger.transports.file.level = 'info';
-
-// Cache update info so the renderer can query it after page refresh
-let pendingUpdateInfo = null;      // set once download-downloaded fires
-let availableUpdateInfo = null;    // set once update-available fires (may remain while downloading)
-
-// Notify renderer when a release has been detected (before download completes)
-autoUpdater.on('update-available', (info) => {
-  console.log('[Electron] Update available:', info.version);
-  availableUpdateInfo = {
-    version: info.version,
-    releaseName: info.releaseName || ''
-  };
-  if (mainWindow && !mainWindow.isDestroyed()) {
-    mainWindow.webContents.send('updater:update-available', availableUpdateInfo);
-  }
-});
-
-// Forward download progress so the renderer can show a live status
-autoUpdater.on('download-progress', (p) => {
-  if (mainWindow && !mainWindow.isDestroyed()) {
-    mainWindow.webContents.send('updater:download-progress', {
-      percent: typeof p?.percent === 'number' ? p.percent : 0
-    });
-  }
-});
-
-// Notify renderer when an update has been downloaded and is ready to install
-autoUpdater.on('update-downloaded', (info) => {
-  console.log('[Electron] Update downloaded:', info.version);
-  pendingUpdateInfo = {
-    version: info.version,
-    releaseName: info.releaseName || ''
-  };
-  if (mainWindow) {
-    mainWindow.webContents.send('updater:update-ready', pendingUpdateInfo);
-  }
-});
-
-// Forward updater errors to renderer, tagged with phase so the renderer can
-// distinguish transient download errors (retryable, should not poison the UI)
-// from install-time errors (e.g. signature validation on unsigned builds).
-autoUpdater.on('error', (err) => {
-  console.error('[Electron] Auto-updater error:', err.message);
-  if (mainWindow && !mainWindow.isDestroyed()) {
-    mainWindow.webContents.send('updater:error', {
-      phase: 'download',
-      message: err.message
-    });
-  }
-});
+let updaterHandle = null;
 
 const DIST = path.join(__dirname, '../dist');
 const VITE_DEV_SERVER_URL = process.env['VITE_DEV_SERVER_URL'];
@@ -393,6 +337,13 @@ function createMenu() {
           click: async () => {
             const { shell } = require('electron');
             await shell.openExternal('https://electronjs.org');
+          }
+        },
+        { type: 'separator' },
+        {
+          label: 'Update Diagnostics…',
+          click: () => {
+            if (updaterHandle) updaterHandle.openDiagnostics();
           }
         }
       ]
@@ -750,14 +701,14 @@ app.whenReady().then(async () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
   });
 
-  // Check for updates if not in dev mode
-  if (!isDev) {
-    try {
-      autoUpdater.checkForUpdates();
-    } catch (error) {
-      console.error('[Electron] Auto-updater error:', error);
-    }
-  }
+  // Initialize updater (handles preflight cleanup, event wiring, IPC, periodic recheck)
+  updaterHandle = initUpdater({
+    app,
+    getMainWindow: () => mainWindow,
+    isDev,
+    stopAgentServer,
+    sessionName
+  });
 });
 
 app.on('window-all-closed', function () {
@@ -790,40 +741,5 @@ ipcMain.handle('agent:restart', async () => {
   return { success: true };
 });
 
-// Auto-updater: quit and install the downloaded update
-// Use ipcMain.on (fire-and-forget) instead of .handle (promise-based) —
-// quitAndInstall kills the process, which breaks the promise chain in .handle
-ipcMain.on('updater:install', () => {
-  console.log('[Electron] updater:install — attempting quit and install');
-  stopAgentServer();
-  autoUpdater.quitAndInstall(false, true);
-  // If still alive after 3s, quitAndInstall failed silently (e.g. unsigned local build)
-  setTimeout(() => {
-    console.warn('[Electron] quitAndInstall did not exit — sending error to renderer');
-    if (mainWindow && !mainWindow.isDestroyed()) {
-      mainWindow.webContents.send('updater:error', {
-        phase: 'install',
-        message: 'Update install failed — the app may not be code-signed'
-      });
-    }
-  }, 3000);
-});
-
-// Let renderer check if an update is already known (survives page refresh).
-// Returns the downloaded update first; otherwise falls back to an available
-// (not-yet-downloaded) release so the toast can still show "Downloading…".
-ipcMain.handle('updater:check-pending', () => {
-  if (pendingUpdateInfo) {
-    return { ...pendingUpdateInfo, status: 'downloaded' };
-  }
-  if (availableUpdateInfo) {
-    return { ...availableUpdateInfo, status: 'available' };
-  }
-  return null;
-});
-
-// Fallback: open GitHub releases page for manual download
-ipcMain.handle('updater:open-releases', () => {
-  shell.openExternal('https://github.com/theredstring/redstring/releases/latest');
-});
+// Updater IPC handlers live in electron/updater.cjs (registered by initUpdater)
 

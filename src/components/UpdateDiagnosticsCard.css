@@ -1,0 +1,102 @@
+.update-diagnostics-card {
+  position: fixed;
+  right: 20px;
+  z-index: 99999;
+  display: flex;
+  flex-direction: column;
+  width: 360px;
+  max-height: calc(100vh - 64px);
+  padding: 12px 14px 10px;
+  border-radius: 12px;
+  font-family: 'EmOne', sans-serif;
+  pointer-events: auto;
+  background-color: #260000;
+  border: 1px solid rgba(138, 0, 0, 0.4);
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.5);
+  color: #DEDADA;
+}
+
+.update-diagnostics-card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 6px;
+}
+
+.update-diagnostics-card-title {
+  font-size: 13px;
+  font-weight: 700;
+  color: #DEDADA;
+  user-select: none;
+}
+
+.update-diagnostics-card-body {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  overflow-y: auto;
+  padding-right: 2px;
+  max-height: calc(100vh - 200px);
+}
+
+.update-diagnostics-card-section-label {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: #B07070;
+  margin-bottom: 3px;
+}
+
+.update-diagnostics-card-section-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.update-diagnostics-card-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 11px;
+  line-height: 1.35;
+}
+
+.update-diagnostics-card-row-k {
+  color: #9F8F8F;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.update-diagnostics-card-row-v {
+  color: #DEDADA;
+  text-align: right;
+  word-break: break-all;
+  user-select: text;
+}
+
+.update-diagnostics-card-row-v--mono {
+  font-family: 'SFMono-Regular', Menlo, Consolas, monospace;
+  font-size: 10px;
+}
+
+.update-diagnostics-card-row--highlight .update-diagnostics-card-row-v {
+  color: #F2A0A0;
+  font-weight: 600;
+}
+
+.update-diagnostics-card-status {
+  font-size: 11px;
+  color: #E8C77A;
+  margin-top: 4px;
+}
+
+.update-diagnostics-card-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 10px;
+  padding-top: 8px;
+  border-top: 1px solid rgba(138, 0, 0, 0.3);
+}
