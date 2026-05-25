@@ -9,6 +9,7 @@ const {
   computeInstallOutcome,
   splitLogTailSinceOffset
 } = require('./updater-helpers.cjs');
+const { verifyStagedBundle } = require('./updater-bundle-verify.cjs');
 
 const LOG_PREFIX = '[Updater]';
 const RECHECK_INTERVAL_MS = 30 * 60 * 1000;
@@ -79,6 +80,19 @@ function writeUpdaterStateSync(app, sessionName, data) {
 // Mac preflight: validate Squirrel state and clean if desynced
 // ============================================================
 
+function wipeStagedState(macPaths, reason) {
+  log('warn', 'Preflight: clearing Squirrel + updater caches —', reason);
+  try {
+    fs.rmSync(macPaths.shipItDir, { recursive: true, force: true });
+    fs.rmSync(macPaths.updaterCacheDir, { recursive: true, force: true });
+    log('info', 'Preflight: cleaned both caches');
+    return { ok: true };
+  } catch (rmErr) {
+    log('error', 'Preflight: cleanup failed:', rmErr.message);
+    return { ok: false, error: rmErr.message };
+  }
+}
+
 function runMacPreflight(macPaths) {
   if (!macPaths) {
     return { outcome: 'skipped-not-mac' };
@@ -109,21 +123,21 @@ function runMacPreflight(macPaths) {
       return { outcome: 'ok', detail: 'no updateBundleURL in plist' };
     }
 
-    if (fs.existsSync(parsedBundlePath)) {
-      return { outcome: 'ok', detail: 'staged bundle exists' };
+    if (!fs.existsSync(parsedBundlePath)) {
+      wipeStagedState(macPaths, 'staged bundle directory missing');
+      return { outcome: 'cleaned', detail: 'staged bundle missing' };
     }
 
-    log('warn', 'Preflight: staged bundle missing on disk, clearing caches');
-    log('info', 'Preflight: expected', parsedBundlePath);
-    try {
-      fs.rmSync(macPaths.shipItDir, { recursive: true, force: true });
-      fs.rmSync(macPaths.updaterCacheDir, { recursive: true, force: true });
-      log('info', 'Preflight: cleaned Squirrel and updater caches');
-    } catch (rmErr) {
-      log('error', 'Preflight: cleanup failed:', rmErr.message);
-      return { outcome: 'error', detail: rmErr.message };
+    // Bundle exists — verify it's actually a complete .app, not a half-extracted
+    // husk from a hard refresh / force-kill during stage.
+    const verification = verifyStagedBundle(parsedBundlePath);
+    if (!verification.valid) {
+      log('warn', 'Preflight: staged bundle is incomplete (' + verification.reason + ')');
+      wipeStagedState(macPaths, 'incomplete bundle: ' + verification.reason);
+      return { outcome: 'cleaned', detail: 'incomplete bundle: ' + verification.reason };
     }
-    return { outcome: 'cleaned', detail: 'staged bundle missing' };
+
+    return { outcome: 'ok', detail: 'staged bundle valid (v' + verification.version + ')' };
   } catch (err) {
     log('error', 'Preflight: unexpected error:', err.message);
     return { outcome: 'error', detail: err.message };
@@ -445,8 +459,21 @@ function initUpdater({ app, getMainWindow, isDev, stopAgentServer, sessionName }
         squirrel.updateBundleExists = squirrel.parsedUpdateBundleURL
           ? fs.existsSync(squirrel.parsedUpdateBundleURL)
           : false;
+        if (squirrel.updateBundleExists) {
+          const verification = verifyStagedBundle(squirrel.parsedUpdateBundleURL);
+          squirrel.bundleValid = verification.valid;
+          squirrel.bundleReason = verification.valid ? null : verification.reason;
+          squirrel.bundleVersion = verification.valid ? verification.version : null;
+        } else {
+          squirrel.bundleValid = false;
+          squirrel.bundleReason = 'directory missing';
+          squirrel.bundleVersion = null;
+        }
       } catch {
         squirrel.parsedUpdateBundleURL = '(unparseable)';
+        squirrel.bundleValid = false;
+        squirrel.bundleReason = 'plist unparseable';
+        squirrel.bundleVersion = null;
       }
     }
 

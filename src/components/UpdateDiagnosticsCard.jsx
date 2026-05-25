@@ -165,6 +165,18 @@ export default function UpdateDiagnosticsCard({ isOpen, anchorBottom = 16, onClo
               v={squirrel.parsedUpdateBundleURL ? (squirrel.updateBundleExists ? '✓ yes' : '✗ NO') : '—'}
               highlight={squirrel.parsedUpdateBundleURL && !squirrel.updateBundleExists}
             />
+            {squirrel.parsedUpdateBundleURL && squirrel.updateBundleExists && (
+              <>
+                <Row
+                  k="Bundle valid"
+                  v={squirrel.bundleValid ? `✓ v${squirrel.bundleVersion || '?'}` : '✗ INCOMPLETE'}
+                  highlight={!squirrel.bundleValid}
+                />
+                {!squirrel.bundleValid && squirrel.bundleReason && (
+                  <Row k="Reason" v={squirrel.bundleReason} highlight />
+                )}
+              </>
+            )}
             <Row k="Cache dir" v={squirrel.cacheDirExists ? '✓ exists' : '✗ missing'} />
           </Section>
         ) : (
