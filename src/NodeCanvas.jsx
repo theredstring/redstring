@@ -38,6 +38,7 @@ import universeManagerService from './services/universeManagerService.js';
 import { pickFolder, getFileInFolder, listFilesInFolder, readFile, writeFile } from './utils/fileAccessAdapter.js';
 import AutoGraphModal from './components/AutoGraphModal';
 import ForceSimulationModal from './components/ForceSimulationModal';
+import ExternalLinkLoadModal from './components/modals/ExternalLinkLoadModal.jsx';
 import { parseInputData, generateGraph } from './services/autoGraphGenerator';
 import { applyLayout, getClusterGeometries, FORCE_LAYOUT_DEFAULTS } from './services/graphLayoutService.js';
 import { computeGroupLayout, GROUP_LAYOUT_CONSTANTS, buildChildGroupIdsIndex } from './services/groupLayout.js';
@@ -3812,6 +3813,7 @@ function NodeCanvas() {
   const [headerAllThingsSearchVisible, setHeaderAllThingsSearchVisible] = useState(false);
   const [autoGraphModalVisible, setAutoGraphModalVisible] = useState(false);
   const [forceSimModalVisible, setForceSimModalVisible] = useState(false);
+  const [externalLinkModalOpen, setExternalLinkModalOpen] = useState(false);
   const [autoLayoutRunning, setAutoLayoutRunning] = useState(false);
 
 
@@ -9288,6 +9290,7 @@ function NodeCanvas() {
           triggerAutoLayout();
         }}
         onCondenseNodes={condenseGraphNodes}
+        onLoadFromExternalLink={() => setExternalLinkModalOpen(true)}
         onNewUniverse={async () => {
           try {
 
@@ -14404,6 +14407,99 @@ function NodeCanvas() {
           zoomLevel={zoomLevel}
         />
       )}
+
+      {/* Load from External Link Modal */}
+      <ExternalLinkLoadModal
+        isOpen={externalLinkModalOpen}
+        onClose={() => setExternalLinkModalOpen(false)}
+        onSaveAsLocalFile={async (storeState, suggestedName, sourceUrl) => {
+          // 1) Pick a save location FIRST. If the user cancels we exit cleanly
+          //    without creating an orphan universe.
+          const { pickSaveLocation, isElectron } = await import('./utils/fileAccessAdapter.js');
+          const { exportToRedstring } = await import('./formats/redstringFormat.js');
+          const { writeFile } = await import('./utils/fileAccessAdapter.js');
+
+          let handle;
+          try {
+            handle = await pickSaveLocation({ suggestedName: `${suggestedName}.redstring` });
+          } catch (err) {
+            // User cancelled or no API available — re-throw with a friendly msg
+            throw new Error(err?.message || 'Save cancelled');
+          }
+
+          // 2) Serialize and write the file on disk before involving the universe
+          //    manager. This way the path is real before any auto-save fires.
+          const redstringData = exportToRedstring(storeState);
+          await writeFile(handle, JSON.stringify(redstringData, null, 2));
+
+          const displayPath = (isElectron && isElectron() && typeof handle === 'string')
+            ? handle
+            : (handle?.name || `${suggestedName}.redstring`);
+          const fileName = displayPath.split(/[\\/]/).pop();
+
+          // 3) Create the universe slot (local-only, sourceOfTruth=local).
+          const createResult = await universeManagerService.createUniverse(suggestedName, {
+            enableLocal: true,
+            enableGit: false,
+            sourceOfTruth: 'local'
+          });
+          const createdSlug = createResult?.createdUniverse?.slug;
+
+          // 4) Hydrate the store with the imported data.
+          const state = useGraphStore.getState();
+          state.loadUniverseFromFile(storeState);
+          state.setUniverseConnected(true);
+
+          if (createdSlug) {
+            const { default: universeBackend } = await import('./services/universeBackend.js');
+            try {
+              await universeBackend.setFileHandle(createdSlug, handle, { displayPath, fileName });
+              await universeBackend.linkLocalFileToUniverse(createdSlug, displayPath, { displayPath });
+              await universeManagerService.forceSave(createdSlug, { skipGit: true });
+            } catch (linkErr) {
+              console.warn(`[ExternalLink] Failed to link local file for ${createdSlug}:`, linkErr);
+            }
+          }
+
+          setExternalLinkModalOpen(false);
+        }}
+        onAttachToRepo={async (storeState, suggestedName, sourceUrl) => {
+          // Create universe with git enabled; attach happens in the repo modal
+          // that UniverseManager opens in response to the dispatched event.
+          const createResult = await universeManagerService.createUniverse(suggestedName, {
+            enableLocal: false,
+            enableGit: true,
+            sourceOfTruth: 'git'
+          });
+          const createdSlug = createResult?.createdUniverse?.slug;
+
+          const state = useGraphStore.getState();
+          state.loadUniverseFromFile(storeState);
+          state.setUniverseConnected(true);
+
+          if (createdSlug) {
+            window.dispatchEvent(new CustomEvent('redstring:open-repo-attach', {
+              detail: { slug: createdSlug, sourceUrl }
+            }));
+          }
+
+          setExternalLinkModalOpen(false);
+        }}
+        onKeepInMemory={async (storeState, suggestedName, sourceUrl) => {
+          // Create a slot with neither local nor git enabled. The universe
+          // exists in the list but is intentionally not persisted anywhere.
+          await universeManagerService.createUniverse(suggestedName, {
+            enableLocal: false,
+            enableGit: false
+          });
+
+          const state = useGraphStore.getState();
+          state.loadUniverseFromFile(storeState);
+          state.setUniverseConnected(true);
+
+          setExternalLinkModalOpen(false);
+        }}
+      />
 
       {/* Auto Graph Generation Modal */}
       <AutoGraphModal

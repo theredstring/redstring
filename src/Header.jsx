@@ -75,6 +75,7 @@ const Header = ({
   onSaveUniverse,
   onExportRdf,
   onOpenRecentFile,
+  onLoadFromExternalLink,
   onGenerateTestGraph,
   onOpenForceSim,
   onAutoLayoutGraph,
@@ -613,6 +614,7 @@ const Header = ({
           onSaveUniverse={onSaveUniverse}
           onExportRdf={onExportRdf}
           onOpenRecentFile={onOpenRecentFile}
+          onLoadFromExternalLink={onLoadFromExternalLink}
           onGenerateTestGraph={onGenerateTestGraph}
           onOpenForceSim={onOpenForceSim}
           onAutoLayoutGraph={onAutoLayoutGraph}
@@ -707,6 +709,7 @@ const Header = ({
           onSaveUniverse={onSaveUniverse}
           onExportRdf={onExportRdf}
           onOpenRecentFile={onOpenRecentFile}
+          onLoadFromExternalLink={onLoadFromExternalLink}
           onGenerateTestGraph={onGenerateTestGraph}
           onOpenForceSim={onOpenForceSim}
           onAutoLayoutGraph={onAutoLayoutGraph}

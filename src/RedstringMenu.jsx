@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import MaroonSlider from './components/MaroonSlider.jsx';
-import { ChevronRight, FileText, FolderOpen, Save, Clock, Globe, Bug, BookOpen, Home, LayoutGrid, Activity, RefreshCw, Undo2, Redo2, Bot, Settings, GitMerge, Move, Moon, Maximize, ZoomIn, Tag, Grid3x3, Keyboard, Type, Minus, CornerDownRight, Spline } from 'lucide-react';
+import { ChevronRight, FileText, FolderOpen, Save, Clock, Globe, Bug, BookOpen, Home, LayoutGrid, Activity, RefreshCw, Undo2, Redo2, Bot, Settings, GitMerge, Move, Moon, Maximize, ZoomIn, Tag, Grid3x3, Keyboard, Type, Minus, CornerDownRight, Spline, Link as LinkIcon } from 'lucide-react';
 import './RedstringMenu.css';
 import DebugOverlay from './DebugOverlay';
 import * as fileStorage from './store/fileStorage.js';
@@ -55,6 +55,7 @@ const RedstringMenu = ({
   onExportRdf,
   onOpenRecentFile,
   onLoadWikidataCatalog,
+  onLoadFromExternalLink,
   // Auto-graph generation
   onGenerateTestGraph,
   onOpenForceSim,
@@ -330,6 +331,17 @@ const RedstringMenu = ({
                         >
                           <Globe size={16} style={{ marginRight: '8px', minWidth: '16px', flexShrink: 0 }} />
                           Load from Wikidata...
+                        </div>
+                        <div
+                          className="submenu-item"
+                          onMouseEnter={handleRegularSubmenuItemHover}
+                          onClick={() => {
+                            onLoadFromExternalLink?.();
+                          }}
+                          style={{ cursor: 'pointer' }}
+                        >
+                          <LinkIcon size={16} style={{ marginRight: '8px', minWidth: '16px', flexShrink: 0 }} />
+                          Load from External Link...
                         </div>
                         <div
                           className={`submenu-item has-submenu ${isNestedSubmenuOpen('RecentFiles') ? 'active-submenu-parent' : ''}`}

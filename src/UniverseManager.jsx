@@ -1102,6 +1102,24 @@ const UniverseManager = ({ variant = 'panel', onRequestClose }) => {
     };
   }, [refreshState]);
 
+  useEffect(() => {
+    if (typeof window === 'undefined') return undefined;
+
+    const handleOpenRepoAttach = (event) => {
+      const slug = event?.detail?.slug;
+      if (!slug) return;
+      umLog('[UniverseManager] open-repo-attach event received for slug:', slug);
+      setRepositoryIntent('attach');
+      setRepositoryTargetSlug(slug);
+      setShowRepositoryManager(true);
+    };
+
+    window.addEventListener('redstring:open-repo-attach', handleOpenRepoAttach);
+    return () => {
+      window.removeEventListener('redstring:open-repo-attach', handleOpenRepoAttach);
+    };
+  }, []);
+
   const discoveryFor = useCallback(
     (user, repo) => discoveryMap[`${user}/${repo}`] || { items: [], loading: false },
     [discoveryMap]
