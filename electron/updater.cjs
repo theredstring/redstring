@@ -350,6 +350,10 @@ function initUpdater({ app, getMainWindow, isDev, stopAgentServer, sessionName }
     } catch (err) {
       log('warn', 'stopAgentServer threw:', err.message);
     }
+    // On macOS, window-all-closed normally keeps the app alive after windows close.
+    // quitAndInstall closes the windows but ShipIt needs the process to actually
+    // exit to swap in the staged bundle — strip the keep-alive listener first.
+    app.removeAllListeners('window-all-closed');
     autoUpdater.quitAndInstall(false, true);
     // Watchdog: if still alive after 3s, install didn't take.
     setTimeout(() => {
