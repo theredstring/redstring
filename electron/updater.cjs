@@ -611,7 +611,7 @@ function initUpdater({ app, getMainWindow, isDev, stopAgentServer, sessionName }
       const workDir = path.join(macPaths.updaterCacheDir, 'debug-downgrade', prev.tag);
       fs.rmSync(workDir, { recursive: true, force: true });
       fs.mkdirSync(workDir, { recursive: true });
-      const zipPath = path.join(workDir, expectedAssetName);
+      const zipPath = path.join(workDir, asset.name);
 
       log('info', 'Downloading ' + asset.browser_download_url);
       send('updater:diagnostics-updated', null);
