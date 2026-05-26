@@ -171,6 +171,34 @@ class SaveCoordinator {
     });
   }
 
+  // Explicit interaction-end signal — release the drag gate without requiring
+  // a phase:'end' store mutation. Used by useNodeDrag to defer the post-drag
+  // worker dispatch until AFTER the zoom-restore animation finishes (otherwise
+  // the structured-clone postMessage runs on the rAF tail and stutters the
+  // animation). Idempotent: safe to call when already idle.
+  signalInteractionEnd(context = {}) {
+    if (!this.isEnabled) return;
+    const wasInteracting = this.isGlobalDragging;
+    if (wasInteracting) {
+      this._lastInteractionEndTime = Date.now();
+    }
+    this.isGlobalDragging = false;
+
+    // The gate-held window swallowed every worker-debounce attempt during the
+    // drag (processStateChange early-returned before scheduling one). Schedule
+    // one now so the latest queued state actually gets serialized + saved.
+    if (this.nextStateToProcess) {
+      if (this.workerProcessing) {
+        this.workerDirty = true;
+      } else {
+        if (this.workerTimer) clearTimeout(this.workerTimer);
+        this.workerTimer = setTimeout(() => {
+          this.sendToWorker();
+        }, 300);
+      }
+    }
+  }
+
   // Initialize with required dependencies
   initialize(fileStorage, gitSyncEngine) {
     this.fileStorage = fileStorage;
@@ -618,7 +646,9 @@ class SaveCoordinator {
         
         this.workerTimer = setTimeout(() => {
           this.sendToWorker();
-        }, 300); // 300ms debounce for worker calls
+        }, 500); // 500ms debounce — keeps structured-clone postMessage off the
+                  // tail of the 250ms drag zoom-restore animation, and batches
+                  // typing/keystroke flurries a little more aggressively.
       }
 
     } catch (error) {

@@ -8,6 +8,7 @@ import { calculateParallelEdgePath, getPointOnQuadraticBezier } from '../utils/c
 import { calculateSelfLoopPath } from '../utils/canvas/selfLoopUtils.js';
 import { computeGroupLayout, GROUP_LAYOUT_CONSTANTS } from '../services/groupLayout.js';
 import { measureTextWidth as pretextMeasureTextWidth } from '../services/textMeasurement.js';
+import saveCoordinator from '../services/SaveCoordinator.js';
 
 // Movement Zoom-Out constants
 const DRAG_ZOOM_MIN = 0.1;
@@ -1224,6 +1225,10 @@ export const useNodeDrag = ({
     setDraggingNodeInfo(null);
     dragPhaseRef.current = 'idle';
     resetZoomRestoreRefs();
+    // Release the SaveCoordinator gate. Without this, an aborted drag (touch
+    // cancel, escape key) would leave isGlobalDragging latched until the 2.5s
+    // self-heal fires — blocking autosave in the meantime.
+    saveCoordinator.signalInteractionEnd({ source: 'drag-cancel' });
   }, [clearDOMTransforms, resetZoomRestoreRefs]);
 
   // ---------------------------------------------------------------------------
@@ -1473,6 +1478,13 @@ export const useNodeDrag = ({
       // setTimeout(0), which left the node rendered at its new position with
       // scale 1.15 for one frame after the zoom-restore animation ended,
       // then snapped to scale 1 on the next macrotask — the "slight pause" felt at drop.
+      //
+      // Context options: keep phase:'move'/isDragging:true so SaveCoordinator's
+      // global drag gate stays held through the zoom-restore animation that
+      // follows. handleDragEnd explicitly calls saveCoordinator.signalInteractionEnd()
+      // after the animation completes (or immediately when no restore is needed)
+      // — releasing the gate THERE moves the worker structured-clone postMessage
+      // off the rAF tail and removes the stutter at the end of the drop.
       let finalizeSent = false;
       instanceIdsToReset.forEach(id => {
         const nodeExists = nodes.some(n => n.id === id);
@@ -1482,7 +1494,7 @@ export const useNodeDrag = ({
             activeGraphId,
             id,
             draft => { draft.scale = 1; },
-            { phase: 'end', isDragging: false, finalize: shouldFinalize, ignore: true }
+            { phase: 'move', isDragging: true, finalize: shouldFinalize, ignore: true }
           );
           if (shouldFinalize) finalizeSent = true;
         }
@@ -1535,6 +1547,10 @@ export const useNodeDrag = ({
       animateZoomAndPanToTarget(targetZoom, { x: clampedTargetPanX, y: clampedTargetPanY }, currentZoom, currentPan, () => {
         resetZoomRestoreRefs();
         dragPhaseRef.current = 'idle';
+        // Release the SaveCoordinator gate now that the animation is done.
+        // performCleanup kept it held (phase:'move') so the worker structured-
+        // clone postMessage wouldn't fire mid-animation and stutter the tail.
+        saveCoordinator.signalInteractionEnd({ source: 'drag-end-after-restore' });
       });
       // Clear pre-drag refs synchronously so a new drag starting mid-animation
       // doesn't see stale preDragZoomLevel and skip its own zoom-out.
@@ -1544,6 +1560,10 @@ export const useNodeDrag = ({
     } else {
       resetZoomRestoreRefs();
       dragPhaseRef.current = 'idle';
+      // No animation to wait on — release the gate immediately. performCleanup
+      // sent phase:'move' to be conservative; without this call the gate would
+      // stay latched until the next phase:'end' mutation.
+      saveCoordinator.signalInteractionEnd({ source: 'drag-end-no-restore' });
     }
 
     const primaryNodeId = info.primaryId || info.instanceId || null;
