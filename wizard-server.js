@@ -589,7 +589,10 @@ export async function startWizardServer() {
     // #endregion
 
     return new Promise((resolve, reject) => {
-      const server = app.listen(PORT, () => {
+      // Bind to loopback so the wizard server is only reachable from the
+      // local machine — it has no auth and exposes graph state + tool
+      // execution endpoints that should never be reachable from the LAN.
+      const server = app.listen(PORT, '127.0.0.1', () => {
         console.log(`
 ╔═══════════════════════════════════════════════════════════╗
 ║                    🧙 THE WIZARD 🧙                        ║

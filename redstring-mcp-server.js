@@ -632,8 +632,11 @@ if (TRUST_PROXY) {
 
 // Middleware
 app.use(cors());
-app.use(express.json({ limit: '100mb' }));
-app.use(express.urlencoded({ limit: '100mb', extended: true }));
+// 20MB matches wizard-server.js and is plenty for graph state syncs. The
+// previous 100MB was a memory-pressure foot-gun — a single fat request could
+// pin the process while it parsed.
+app.use(express.json({ limit: '20mb' }));
+app.use(express.urlencoded({ limit: '20mb', extended: true }));
 
 // Make crashes visible and keep HTTP alive for wizard/health
 process.title = process.title || 'redstring-mcp-server';
@@ -4202,8 +4205,10 @@ async function main() {
 
   // THEN attempt HTTP listen (non-fatal if port is taken).
   // Placed AFTER stdio so the process stays alive regardless.
-  networkServer.listen(PORT, () => {
-    console.error(`MCP ${networkProtocol.toUpperCase()} listening on ${PORT}`);
+  // Bind to loopback — the MCP server has no auth on its bridge endpoints
+  // and should never be reachable from the LAN.
+  networkServer.listen(PORT, '127.0.0.1', () => {
+    console.error(`MCP ${networkProtocol.toUpperCase()} listening on 127.0.0.1:${PORT}`);
     console.error(`Redstring MCP Server running on port ${PORT}`);
     console.error('Waiting for Redstring store bridge...');
   });

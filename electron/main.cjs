@@ -141,6 +141,30 @@ const ensureDirectories = async () => {
     await fs.mkdir(docsPath, { recursive: true });
     console.log('[Electron] Data directory:', dataPath);
     console.log('[Electron] Documents directory:', docsPath);
+
+    // Seed the file IPC allowlist from previously-persisted file handles so
+    // that file:read on a restored universe path works after restart without
+    // requiring a re-pick.
+    try {
+      const handlesPath = path.join(dataPath, 'fileHandles.json');
+      const raw = await fs.readFile(handlesPath, 'utf-8');
+      const records = JSON.parse(raw);
+      if (records && typeof records === 'object') {
+        for (const record of Object.values(records)) {
+          if (record && typeof record.handle === 'string') {
+            userApprovedPaths.add(path.resolve(record.handle));
+          }
+          if (record && typeof record.displayPath === 'string') {
+            userApprovedPaths.add(path.resolve(record.displayPath));
+          }
+        }
+        console.log(`[FileIPC] Seeded ${userApprovedPaths.size} approved path(s) from persisted handles`);
+      }
+    } catch (err) {
+      if (err.code !== 'ENOENT') {
+        console.warn('[FileIPC] Could not seed approved paths:', err.message);
+      }
+    }
   } catch (error) {
     console.error('[Electron] Failed to create directories:', error);
   }
@@ -149,6 +173,37 @@ const ensureDirectories = async () => {
 // Storage file paths
 const getStoragePath = (storeName) => {
   return path.join(getRedstringDataPath(), `${storeName}.json`);
+};
+
+// ── File IPC path-traversal guard ─────────────────────────────
+// The renderer is sandboxed (contextIsolation on), but a single XSS in a
+// node-content render could turn `file:read`/`write`/`delete` into arbitrary
+// filesystem access. We gate those handlers on this allowlist: files are
+// readable/writable only if (a) they live under one of the Redstring app
+// directories, or (b) the user picked them via a system dialog this session.
+const userApprovedPaths = new Set();
+const rememberApprovedPath = (filePath) => {
+  if (typeof filePath === 'string' && filePath) {
+    userApprovedPaths.add(path.resolve(filePath));
+  }
+};
+const isInAllowedRoot = (resolved) => {
+  const roots = [
+    path.resolve(getRedstringDataPath()),
+    path.resolve(getRedstringDocumentsPath()),
+    path.resolve(app.getPath('userData')),
+  ];
+  return roots.some((root) => resolved === root || resolved.startsWith(root + path.sep));
+};
+const assertAccessAllowed = (filePath, action) => {
+  if (typeof filePath !== 'string' || !filePath) {
+    throw new Error(`Invalid file path for ${action}`);
+  }
+  const resolved = path.resolve(filePath);
+  if (isInAllowedRoot(resolved)) return resolved;
+  if (userApprovedPaths.has(resolved)) return resolved;
+  console.warn(`[FileIPC] Blocked ${action} for unapproved path:`, resolved);
+  throw new Error(`File access denied for path not approved by user: ${resolved}`);
 };
 
 // Read storage file
@@ -388,6 +443,7 @@ ipcMain.handle('file:pick', async (event, options = {}) => {
     console.log('[FileHandles] ✓ file:pick returned absolute path:', filePath);
   }
 
+  rememberApprovedPath(filePath);
   return filePath;
 });
 
@@ -402,7 +458,12 @@ ipcMain.handle('file:pickFolder', async (event, options = {}) => {
     return null; // Return null on cancellation consistent with expectation
   }
 
-  return result.filePaths[0];
+  const folderPath = result.filePaths[0];
+  // Approve the folder itself so subsequent file:exists / file:mkdir on it
+  // succeed. Files saved into it via file:saveAs are approved separately
+  // when the user confirms the save dialog.
+  rememberApprovedPath(folderPath);
+  return folderPath;
 });
 
 ipcMain.handle('file:saveAs', async (event, options = {}) => {
@@ -436,13 +497,15 @@ ipcMain.handle('file:saveAs', async (event, options = {}) => {
     console.log('[FileHandles] ✓ Resolved to absolute path:', filePath);
   }
 
+  rememberApprovedPath(filePath);
   return filePath;
 });
 
 ipcMain.handle('file:read', async (event, filePath) => {
   try {
-    const content = await fs.readFile(filePath, 'utf-8');
-    return { content, path: filePath };
+    const safePath = assertAccessAllowed(filePath, 'file:read');
+    const content = await fs.readFile(safePath, 'utf-8');
+    return { content, path: safePath };
   } catch (error) {
     throw new Error(`Failed to read file: ${error.message} `);
   }
@@ -450,8 +513,9 @@ ipcMain.handle('file:read', async (event, filePath) => {
 
 ipcMain.handle('file:write', async (event, filePath, content) => {
   try {
-    await fs.writeFile(filePath, content, 'utf-8');
-    return { success: true, path: filePath };
+    const safePath = assertAccessAllowed(filePath, 'file:write');
+    await fs.writeFile(safePath, content, 'utf-8');
+    return { success: true, path: safePath };
   } catch (error) {
     throw new Error(`Failed to write file: ${error.message} `);
   }
@@ -459,7 +523,8 @@ ipcMain.handle('file:write', async (event, filePath, content) => {
 
 ipcMain.handle('file:delete', async (event, filePath) => {
   try {
-    await fs.unlink(filePath);
+    const safePath = assertAccessAllowed(filePath, 'file:delete');
+    await fs.unlink(safePath);
     return true;
   } catch (err) {
     console.error('[file:delete] Failed to delete file:', filePath, err);
@@ -536,16 +601,29 @@ ipcMain.handle('storage:getPaths', async () => {
   };
 });
 
+// File-handle records carry absolute paths the user previously picked. Approve
+// those paths when records flow through the storage IPC so that file:read /
+// file:write succeed after an app restart without requiring a re-pick.
+const FILE_HANDLE_STORE = 'fileHandles';
+const approveFileHandleRecord = (record) => {
+  if (!record || typeof record !== 'object') return;
+  if (typeof record.handle === 'string') rememberApprovedPath(record.handle);
+  if (typeof record.displayPath === 'string') rememberApprovedPath(record.displayPath);
+};
+
 // Get item from storage (like localStorage.getItem)
 ipcMain.handle('storage:getItem', async (event, storeName, key) => {
   const data = await readStorage(storeName);
-  return data[key] ?? null;
+  const value = data[key] ?? null;
+  if (storeName === FILE_HANDLE_STORE) approveFileHandleRecord(value);
+  return value;
 });
 
 // Set item in storage (like localStorage.setItem)
 ipcMain.handle('storage:setItem', async (event, storeName, key, value) => {
   const data = await readStorage(storeName);
   data[key] = value;
+  if (storeName === FILE_HANDLE_STORE) approveFileHandleRecord(value);
   return await writeStorage(storeName, data);
 });
 
@@ -558,11 +636,18 @@ ipcMain.handle('storage:removeItem', async (event, storeName, key) => {
 
 // Get all items from storage (like getting all keys from localStorage)
 ipcMain.handle('storage:getAll', async (event, storeName) => {
-  return await readStorage(storeName);
+  const data = await readStorage(storeName);
+  if (storeName === FILE_HANDLE_STORE && data && typeof data === 'object') {
+    for (const record of Object.values(data)) approveFileHandleRecord(record);
+  }
+  return data;
 });
 
 // Set all items in storage (bulk write)
 ipcMain.handle('storage:setAll', async (event, storeName, data) => {
+  if (storeName === FILE_HANDLE_STORE && data && typeof data === 'object') {
+    for (const record of Object.values(data)) approveFileHandleRecord(record);
+  }
   return await writeStorage(storeName, data);
 });
 

@@ -6,6 +6,8 @@
 
 import express from 'express';
 import cors from 'cors';
+import crypto from 'crypto';
+import rateLimit from 'express-rate-limit';
 import fetch from 'node-fetch';
 import dotenv from 'dotenv';
 import jwt from 'jsonwebtoken';
@@ -77,9 +79,49 @@ const logger = {
 const app = express();
 const PORT = process.env.OAUTH_PORT || 3002;
 
-// CORS for frontend communication
-app.use(cors({ origin: true }));
-app.use(express.json());
+// Trust the first proxy hop so rate limiting sees the real client IP behind
+// GCP Cloud Run / the load balancer (this server may run on its own service).
+app.set('trust proxy', 1);
+
+// CORS: restrict to known origins. Defaults to the production domain; extend
+// via CORS_ORIGINS env (comma-separated) for dev/staging. Same allowlist as
+// app-semantic-server.js so the two stay in sync.
+const allowedOrigins = new Set(
+  (process.env.CORS_ORIGINS || 'https://redstring.io,https://www.redstring.io')
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean)
+);
+app.use(cors({
+  origin: (origin, callback) => {
+    if (!origin) return callback(null, true);
+    if (allowedOrigins.has(origin)) return callback(null, true);
+    return callback(new Error(`CORS: origin ${origin} not allowed`));
+  },
+  credentials: false,
+}));
+// Capture raw bytes so the webhook handler can verify HMAC signatures.
+app.use(express.json({
+  verify: (req, _res, buf) => { req.rawBody = buf; },
+}));
+
+// Rate limiters
+const oauthSensitiveLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 10,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Rate limit exceeded for OAuth endpoint.' },
+});
+const oauthGlobalLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 120,
+  standardHeaders: true,
+  legacyHeaders: false,
+  skip: (req) => req.path === '/health',
+  message: { error: 'Too many requests, slow down.' },
+});
+app.use(oauthGlobalLimiter);
 
 // Enhanced health check with detailed configuration status
 app.get('/health', (req, res) => {
@@ -620,7 +662,7 @@ app.get('/oauth/callback', (req, res) => {
 });
 
 // Refresh OAuth access token
-app.post('/api/github/oauth/refresh', async (req, res) => {
+app.post('/api/github/oauth/refresh', oauthSensitiveLimiter, async (req, res) => {
   try {
     const { refresh_token } = req.body;
     
@@ -680,7 +722,7 @@ app.post('/api/github/oauth/refresh', async (req, res) => {
 });
 
 // Validate an OAuth access token against GitHub OAuth App API
-app.post('/api/github/oauth/validate', async (req, res) => {
+app.post('/api/github/oauth/validate', oauthSensitiveLimiter, async (req, res) => {
   try {
     const { access_token } = req.body || {};
     console.log('[OAuth] Validate request received, token length:', access_token ? access_token.length : 0);
@@ -764,7 +806,7 @@ app.post('/api/github/oauth/validate', async (req, res) => {
 });
 
 // Revoke an OAuth access token via OAuth App API
-app.delete('/api/github/oauth/revoke', async (req, res) => {
+app.delete('/api/github/oauth/revoke', oauthSensitiveLimiter, async (req, res) => {
   try {
     const { access_token } = req.body || {};
     if (!access_token) {
@@ -821,7 +863,7 @@ app.delete('/api/github/oauth/revoke', async (req, res) => {
 });
 
 // Exchange OAuth code for access token with enhanced error handling
-app.post('/api/github/oauth/token', async (req, res) => {
+app.post('/api/github/oauth/token', oauthSensitiveLimiter, async (req, res) => {
   try {
     const { code, state, redirect_uri } = req.body;
     
@@ -2369,23 +2411,43 @@ app.get('/api/github/app/client-id', (req, res) => {
   }
 });
 
-// GitHub App webhook handler
+// GitHub App webhook handler.
+// Defense in depth: even though the edge (app-semantic-server) verifies the
+// signature when GITHUB_WEBHOOK_SECRET is set, re-verify here in case this
+// service is ever reached directly. Behavior matches the edge — strict when
+// the secret is set, warn-and-pass when it isn't.
+const GITHUB_WEBHOOK_SECRET = process.env.GITHUB_WEBHOOK_SECRET || '';
+function verifyGithubSignature(rawBody, header) {
+  if (!GITHUB_WEBHOOK_SECRET || !header || !rawBody) return false;
+  const expected = 'sha256=' + crypto
+    .createHmac('sha256', GITHUB_WEBHOOK_SECRET)
+    .update(rawBody)
+    .digest('hex');
+  const a = Buffer.from(expected);
+  const b = Buffer.from(header);
+  if (a.length !== b.length) return false;
+  return crypto.timingSafeEqual(a, b);
+}
+
 app.post('/api/github/app/webhook', async (req, res) => {
   const event = req.headers['x-github-event'];
   const signature = req.headers['x-hub-signature-256'];
   const payload = req.body;
+
+  if (GITHUB_WEBHOOK_SECRET) {
+    if (!verifyGithubSignature(req.rawBody, signature)) {
+      logger.warn('[GitHubApp] Invalid webhook signature, rejecting', { event });
+      return res.status(401).json({ error: 'Invalid signature' });
+    }
+  } else {
+    logger.warn('[GitHubApp] GITHUB_WEBHOOK_SECRET not set — accepting unverified webhook');
+  }
 
   logger.debug('[GitHubApp] Webhook received:', {
     event,
     action: payload.action,
     installationId: payload.installation?.id
   });
-
-  // TODO: Verify webhook signature for security
-  // const isValid = verifyWebhookSignature(signature, JSON.stringify(payload));
-  // if (!isValid) {
-  //   return res.status(401).json({ error: 'Invalid signature' });
-  // }
 
   switch (event) {
     case 'installation':

@@ -7,6 +7,49 @@
 import { SimpleClient as SparqlHttpClient } from 'sparql-http-client';
 import { createTimeoutSignal } from '../utils/abortSignal.js';
 
+// SSRF guard for caller-supplied endpoint URLs. SPARQL endpoints should be
+// public https URLs — never internal services, cloud metadata, or loopback.
+// Predefined entries below bypass this since they're hardcoded.
+function assertSafeSparqlUrl(url) {
+  if (typeof url !== 'string' || !url) {
+    throw new Error('SPARQL endpoint requires a url');
+  }
+  let parsed;
+  try {
+    parsed = new URL(url);
+  } catch {
+    throw new Error(`SPARQL endpoint URL is invalid: ${url}`);
+  }
+  if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') {
+    throw new Error(`SPARQL endpoint must be http(s): ${url}`);
+  }
+  const host = parsed.hostname.toLowerCase();
+  // Block loopback, link-local, cloud metadata, and obviously-private ranges.
+  // Not a full CIDR check, but covers the SSRF foot-guns that matter in
+  // practice (AWS/GCP/Azure metadata + LAN scanning).
+  const blocked = [
+    'localhost',
+    '127.0.0.1',
+    '0.0.0.0',
+    '169.254.169.254', // AWS/GCP/Azure metadata
+    'metadata.google.internal',
+  ];
+  if (blocked.includes(host)) {
+    throw new Error(`SPARQL endpoint host is blocked: ${host}`);
+  }
+  if (
+    host.startsWith('10.') ||
+    host.startsWith('192.168.') ||
+    /^172\.(1[6-9]|2[0-9]|3[0-1])\./.test(host) ||
+    host.startsWith('169.254.') ||
+    host === '::1' ||
+    host.startsWith('fc') ||
+    host.startsWith('fd')
+  ) {
+    throw new Error(`SPARQL endpoint host is in a private range: ${host}`);
+  }
+}
+
 // Predefined SPARQL endpoints for major knowledge bases
 const PREDEFINED_ENDPOINTS = {
   wikidata: {
@@ -57,13 +100,14 @@ export class SPARQLClient {
    * @param {Object} config - Endpoint configuration
    */
   addEndpoint(key, config) {
+    assertSafeSparqlUrl(config?.url);
     this.endpoints.set(key, {
       ...config,
       rateLimit: config.rateLimit || 1000,
       timeout: config.timeout || 20000,
       headers: config.headers || {}
     });
-    
+
     // Clear cached client
     this.clients.delete(key);
   }

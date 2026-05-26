@@ -10,6 +10,8 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import fetch from 'node-fetch';
 import cors from 'cors';
+import crypto from 'crypto';
+import rateLimit from 'express-rate-limit';
 import fs from 'fs/promises';
 import jsonld from 'jsonld';
 import * as $rdf from 'rdflib';
@@ -58,13 +60,79 @@ const oauthBaseUrl = OAUTH_HOST === 'localhost'
     ? OAUTH_HOST
     : `https://${OAUTH_HOST}`;
 
-// In Docker, we're in /app and dist is at /app/dist 
+// In Docker, we're in /app and dist is at /app/dist
 const distPath = path.join(process.cwd(), 'dist');
 
-// Enable JSON parsing for OAuth requests and general API
-app.use(express.json({ limit: '5mb' }));
-// Enable CORS for semantic web routes (safe for read-only endpoints)
-app.use(cors());
+// Behind GCP Cloud Run / load balancer, trust the first X-Forwarded-For hop
+// so rate limiting sees the real client IP, not the LB.
+app.set('trust proxy', 1);
+
+// Allowed CORS origins. Defaults to the production domain; extend via env for
+// dev/staging (e.g. CORS_ORIGINS="https://staging.redstring.io,http://localhost:4001").
+const allowedOrigins = new Set(
+  (process.env.CORS_ORIGINS || 'https://redstring.io,https://www.redstring.io')
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean)
+);
+const corsOptions = {
+  origin: (origin, callback) => {
+    // Allow same-origin / non-browser requests (no Origin header) — these are
+    // server-to-server, curl, or our Electron app. CSRF risk is handled by the
+    // browser's same-origin model, not CORS.
+    if (!origin) return callback(null, true);
+    if (allowedOrigins.has(origin)) return callback(null, true);
+    return callback(new Error(`CORS: origin ${origin} not allowed`));
+  },
+  credentials: false,
+};
+
+// Enable JSON parsing for OAuth requests and general API.
+// Stash the raw bytes on req.rawBody so endpoints that need to verify HMAC
+// signatures (e.g. GitHub webhooks) can recompute the digest against the
+// exact bytes GitHub signed — JSON.stringify(req.body) would re-serialize
+// and break signature verification.
+app.use(express.json({
+  limit: '5mb',
+  verify: (req, _res, buf) => { req.rawBody = buf; },
+}));
+app.use(cors(corsOptions));
+
+// ─────────────────────────────────────────────────────────────
+// Rate limiting
+// ─────────────────────────────────────────────────────────────
+// Global limiter: catches blind floods across all routes. Health checks and
+// static assets are skipped so probes / page loads aren't counted.
+const globalLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 300,
+  standardHeaders: true,
+  legacyHeaders: false,
+  skip: (req) =>
+    req.path === '/health' ||
+    req.path.startsWith('/assets/') ||
+    req.path.startsWith('/api/bridge/health'),
+  message: { error: 'Too many requests, slow down.' },
+});
+// Strict limiter for endpoints that proxy expensive third-party calls
+// (Wikipedia, Wikidata SPARQL, LLM providers).
+const strictLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 30,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Rate limit exceeded for this endpoint.' },
+});
+// Very strict limiter for analytics ingest (no auth, easy to flood/poison).
+const analyticsLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 60,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Too many analytics events.' },
+});
+
+app.use(globalLimiter);
 
 // User analytics tracking middleware
 app.use((req, res, next) => {
@@ -192,7 +260,7 @@ app.get('/api/analytics/activity', (req, res) => {
 });
 
 // Client-side tracking endpoint
-app.post('/api/analytics/track', (req, res) => {
+app.post('/api/analytics/track', analyticsLimiter, (req, res) => {
   try {
     const { action, metadata = {}, userId, userLogin, path, url } = req.body;
     const ip = req.ip || req.headers['x-forwarded-for'] || req.connection.remoteAddress;
@@ -237,7 +305,7 @@ const BRIDGE_INTERNAL_URL = process.env.BRIDGE_INTERNAL_URL || 'http://localhost
 logger.info(`[App] Setting up AI agent proxy to ${BRIDGE_INTERNAL_URL}`);
 
 // Proxy The Wizard endpoint (SSE streaming) to bridge daemon
-app.post('/api/wizard', async (req, res) => {
+app.post('/api/wizard', strictLimiter, async (req, res) => {
   try {
     const response = await fetch(`${BRIDGE_INTERNAL_URL}/api/wizard`, {
       method: 'POST',
@@ -273,7 +341,7 @@ app.post('/api/wizard', async (req, res) => {
 });
 
 // Proxy AI agent endpoints to bridge daemon
-app.post('/api/ai/agent', async (req, res) => {
+app.post('/api/ai/agent', strictLimiter, async (req, res) => {
   try {
     const response = await fetch(`${BRIDGE_INTERNAL_URL}/api/ai/agent`, {
       method: 'POST',
@@ -291,7 +359,7 @@ app.post('/api/ai/agent', async (req, res) => {
   }
 });
 
-app.post('/api/ai/agent/continue', async (req, res) => {
+app.post('/api/ai/agent/continue', strictLimiter, async (req, res) => {
   try {
     const response = await fetch(`${BRIDGE_INTERNAL_URL}/api/ai/agent/continue`, {
       method: 'POST',
@@ -309,7 +377,7 @@ app.post('/api/ai/agent/continue', async (req, res) => {
   }
 });
 
-app.post('/api/ai/agent/audit', async (req, res) => {
+app.post('/api/ai/agent/audit', strictLimiter, async (req, res) => {
   try {
     const response = await fetch(`${BRIDGE_INTERNAL_URL}/api/ai/agent/audit`, {
       method: 'POST',
@@ -328,14 +396,22 @@ app.post('/api/ai/agent/audit', async (req, res) => {
 });
 
 // Proxy Wikipedia enrichment endpoint to bridge daemon
-app.post('/api/enrich', async (req, res) => {
+const ENRICH_MAX_BATCH = Number(process.env.ENRICH_MAX_BATCH) || 25;
+app.post('/api/enrich', strictLimiter, async (req, res) => {
   try {
+    const body = req.body || {};
+    if (Array.isArray(body.nodeNames) && body.nodeNames.length > ENRICH_MAX_BATCH) {
+      return res.status(400).json({
+        error: `Batch too large: max ${ENRICH_MAX_BATCH} nodeNames per request`,
+        received: body.nodeNames.length,
+      });
+    }
     const response = await fetch(`${BRIDGE_INTERNAL_URL}/api/enrich`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json'
       },
-      body: JSON.stringify(req.body)
+      body: JSON.stringify(body)
     });
     const data = await response.json();
     res.status(response.status).json(data);
@@ -345,7 +421,7 @@ app.post('/api/enrich', async (req, res) => {
   }
 });
 
-app.post('/api/ai/chat', async (req, res) => {
+app.post('/api/ai/chat', strictLimiter, async (req, res) => {
   try {
     const response = await fetch(`${BRIDGE_INTERNAL_URL}/api/ai/chat`, {
       method: 'POST',
@@ -364,7 +440,7 @@ app.post('/api/ai/chat', async (req, res) => {
 });
 
 // MCP endpoint proxy (for Claude Desktop compatibility)
-app.post('/api/mcp/request', async (req, res) => {
+app.post('/api/mcp/request', strictLimiter, async (req, res) => {
   try {
     const response = await fetch(`${BRIDGE_INTERNAL_URL}/api/mcp/request`, {
       method: 'POST',
@@ -982,20 +1058,54 @@ app.post('/api/github/oauth/refresh', async (req, res) => {
 
 // Route 3: GitHub App Webhook (proxy to OAuth server)
 // GitHub sends events here about installations, pushes, etc.
+//
+// Signature verification: when GITHUB_WEBHOOK_SECRET is set, we verify the
+// HMAC-SHA256 of the raw request body against the X-Hub-Signature-256 header
+// and reject mismatches. When the secret is unset we log a warning but pass
+// the request through, so existing deployments don't break — set the secret
+// to enforce.
+const GITHUB_WEBHOOK_SECRET = process.env.GITHUB_WEBHOOK_SECRET || '';
+
+function verifyGithubSignature(rawBody, header) {
+  if (!GITHUB_WEBHOOK_SECRET || !header || !rawBody) return false;
+  const expected = 'sha256=' + crypto
+    .createHmac('sha256', GITHUB_WEBHOOK_SECRET)
+    .update(rawBody)
+    .digest('hex');
+  const a = Buffer.from(expected);
+  const b = Buffer.from(header);
+  if (a.length !== b.length) return false;
+  return crypto.timingSafeEqual(a, b);
+}
+
 app.post('/api/github/app/webhook', async (req, res) => {
   try {
     const event = req.headers['x-github-event'];
+    const signature = req.headers['x-hub-signature-256'] || '';
+
+    if (GITHUB_WEBHOOK_SECRET) {
+      if (!verifyGithubSignature(req.rawBody, signature)) {
+        logger.warn('[GitHub App Webhook] Invalid signature, rejecting', { event });
+        return res.status(401).json({ error: 'Invalid webhook signature' });
+      }
+    } else {
+      logger.warn('[GitHub App Webhook] GITHUB_WEBHOOK_SECRET not set — accepting unverified webhook');
+    }
+
     logger.info('[GitHub App Webhook] Proxying webhook event:', event);
 
+    // Forward the raw bytes so the downstream handler can also verify the
+    // signature if it chooses to — re-serializing via JSON.stringify would
+    // change whitespace/ordering and invalidate the signature.
     const response = await fetch(`${oauthBaseUrl}/api/github/app/webhook`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         'x-github-event': req.headers['x-github-event'] || '',
-        'x-hub-signature-256': req.headers['x-hub-signature-256'] || '',
+        'x-hub-signature-256': signature,
         'x-github-delivery': req.headers['x-github-delivery'] || ''
       },
-      body: JSON.stringify(req.body)
+      body: req.rawBody || JSON.stringify(req.body)
     });
     const data = await response.json();
     res.status(response.status).json(data);
@@ -1156,7 +1266,7 @@ app.get('/api/catalog/status', (req, res) => {
   res.json(catalogState);
 });
 
-app.post('/api/catalog/wikidata-slice', async (req, res) => {
+app.post('/api/catalog/wikidata-slice', strictLimiter, async (req, res) => {
   try {
     const payload = req.body || {};
     console.log('[Catalog] Received Wikidata slice request:', JSON.stringify(payload, null, 2));
@@ -1315,10 +1425,27 @@ app.get(['/semantic/universe.ttl', '/semantic/:slug/universe.ttl'], async (req, 
   }
 });
 
-// Update universe via JSON-LD (bidirectional sync entry point)
+// Update universe via JSON-LD (bidirectional sync entry point).
+//
+// Tenancy guard: when UNIVERSE_WRITE_TOKEN is set, callers must present
+// `Authorization: Bearer <token>` to overwrite a universe file. When unset,
+// writes are allowed but logged as a warning — set the token in production
+// to prevent anonymous overwrites of arbitrary `:slug` universe files.
+const UNIVERSE_WRITE_TOKEN = process.env.UNIVERSE_WRITE_TOKEN || '';
 app.post(['/semantic/universe.jsonld', '/semantic/:slug/universe.jsonld'], async (req, res) => {
   try {
     const slug = req.params.slug || DEFAULT_UNIVERSE_SLUG;
+
+    if (UNIVERSE_WRITE_TOKEN) {
+      const auth = req.headers.authorization || '';
+      const token = auth.startsWith('Bearer ') ? auth.slice(7) : '';
+      if (token !== UNIVERSE_WRITE_TOKEN) {
+        return res.status(401).json({ error: 'Unauthorized universe write' });
+      }
+    } else {
+      logger.warn('[Universe Write] UNIVERSE_WRITE_TOKEN not set — accepting anonymous write', { slug });
+    }
+
     const body = req.body;
     if (!body || typeof body !== 'object') {
       return res.status(400).json({ error: 'Expected JSON-LD body' });
@@ -1338,7 +1465,7 @@ app.post(['/semantic/universe.jsonld', '/semantic/:slug/universe.jsonld'], async
 });
 
 // Minimal SPARQL endpoint placeholder (future enhancement)
-app.post(['/sparql', '/semantic/:slug/sparql'], (req, res) => {
+app.post(['/sparql', '/semantic/:slug/sparql'], strictLimiter, (req, res) => {
   res.status(501).json({ error: 'SPARQL endpoint not implemented yet. Use /semantic/* JSON-LD or N-Quads for now.' });
 });
 
