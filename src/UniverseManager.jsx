@@ -45,6 +45,7 @@ import PanelIconButton from './components/shared/PanelIconButton.jsx';
 import UniverseLinkingModal from './components/modals/UniverseLinkingModal.jsx';
 import Modal from './components/shared/Modal.jsx';
 import RepositorySelectionModal from './components/modals/RepositorySelectionModal.jsx';
+import ExternalLinkLoadModal from './components/modals/ExternalLinkLoadModal.jsx';
 import ConfirmDialog from './components/shared/ConfirmDialog.jsx';
 import LocalFileConflictDialog from './components/shared/LocalFileConflictDialog.jsx';
 import SlotConflictDialog from './components/shared/SlotConflictDialog.jsx';
@@ -221,6 +222,7 @@ const UniverseManager = ({ variant = 'panel', onRequestClose }) => {
     }
   });
   const [showRepositoryManager, setShowRepositoryManager] = useState(false);
+  const [externalLinkModalOpen, setExternalLinkModalOpen] = useState(false);
   const [showConnectionStats, setShowConnectionStats] = useState(() => {
     try {
       return localStorage.getItem(getStorageKey('redstring_show_connection_stats')) !== 'false';
@@ -1101,6 +1103,15 @@ const UniverseManager = ({ variant = 'panel', onRequestClose }) => {
       window.removeEventListener('redstring:git-engine-ready', handleGitEngineReady);
     };
   }, [refreshState]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return undefined;
+    const handler = () => setExternalLinkModalOpen(true);
+    window.addEventListener('redstring:open-external-link', handler);
+    return () => {
+      window.removeEventListener('redstring:open-external-link', handler);
+    };
+  }, []);
 
   const discoveryFor = useCallback(
     (user, repo) => discoveryMap[`${user}/${repo}`] || { items: [], loading: false },
@@ -5117,6 +5128,132 @@ const UniverseManager = ({ variant = 'panel', onRequestClose }) => {
         onImportDiscovered={handleImportDiscovered}
         onSyncDiscovered={handleLinkDiscovered}
         onCreateUniverseFile={handleCreateNewUniverseFile}
+      />
+
+      <ExternalLinkLoadModal
+        isOpen={externalLinkModalOpen}
+        onClose={() => setExternalLinkModalOpen(false)}
+        onSaveAsLocalFile={async (storeState, suggestedName, sourceUrl) => {
+          const { pickSaveLocation, isElectron, writeFile } = await import('./utils/fileAccessAdapter.js');
+          const { exportToRedstring } = await import('./formats/redstringFormat.js');
+
+          let handle;
+          try {
+            handle = await pickSaveLocation({ suggestedName: `${suggestedName}.redstring` });
+          } catch (err) {
+            throw new Error(err?.message || 'Save cancelled');
+          }
+
+          const redstringData = exportToRedstring(storeState);
+          await writeFile(handle, JSON.stringify(redstringData, null, 2));
+
+          const displayPath = (isElectron && isElectron() && typeof handle === 'string')
+            ? handle
+            : (handle?.name || `${suggestedName}.redstring`);
+          const fileName = displayPath.split(/[\\/]/).pop();
+
+          const createResult = await universeManagerService.createUniverse(suggestedName, {
+            enableLocal: true,
+            enableGit: false,
+            sourceOfTruth: 'local'
+          });
+          const createdSlug = createResult?.createdUniverse?.slug;
+
+          const state = useGraphStore.getState();
+          state.loadUniverseFromFile(storeState);
+          state.setUniverseConnected(true);
+
+          if (createdSlug) {
+            try {
+              await universeBackend.setFileHandle(createdSlug, handle, { displayPath, fileName });
+              await universeBackend.linkLocalFileToUniverse(createdSlug, displayPath, { displayPath });
+              await universeManagerService.forceSave(createdSlug, { skipGit: true });
+            } catch (linkErr) {
+              umWarn(`[ExternalLink] Failed to link local file for ${createdSlug}:`, linkErr);
+            }
+          }
+
+          setExternalLinkModalOpen(false);
+        }}
+        onPublishToRepo={async ({ storeState, suggestedName, sourceUrl, repoOwner, repoName, folder, file }) => {
+          const { SemanticProviderFactory } = await import('./services/gitNativeProvider.js');
+          const { exportToRedstring } = await import('./formats/redstringFormat.js');
+
+          const token = await persistentAuth.getAccessToken();
+          if (!token) {
+            throw new Error('Not connected to GitHub. Connect via Universe Manager and try again.');
+          }
+
+          const provider = SemanticProviderFactory.createProvider({
+            type: 'github',
+            user: repoOwner,
+            repo: repoName,
+            token,
+            authMethod: 'oauth',
+            semanticPath: 'schema'
+          });
+
+          const filePath = `universes/${folder}/${file}`;
+          const redstringData = exportToRedstring(storeState);
+          const content = JSON.stringify(redstringData, null, 2);
+
+          try {
+            await provider.writeFileRaw(filePath, content);
+          } catch (writeErr) {
+            const status = writeErr?.status;
+            const code = writeErr?.code;
+            if (status === 401) {
+              throw new Error('GitHub authentication expired. Reconnect via Universe Manager.');
+            }
+            if (code === 'FILE_INFO_UNKNOWN') {
+              throw new Error('Could not verify whether this path exists on the remote. Check repo permissions.');
+            }
+            throw new Error(`Push failed: ${writeErr?.message || 'unknown error'}`);
+          }
+
+          const createResult = await universeManagerService.createUniverse(suggestedName, {
+            enableLocal: false,
+            enableGit: true,
+            sourceOfTruth: 'git'
+          });
+          const createdSlug = createResult?.createdUniverse?.slug;
+
+          if (createdSlug) {
+            await universeManagerService.attachGitRepository(createdSlug, {
+              user: repoOwner,
+              repo: repoName,
+              authMethod: 'oauth',
+              universeFolder: folder,
+              universeFile: file
+            });
+          }
+
+          const state = useGraphStore.getState();
+          state.loadUniverseFromFile(storeState);
+          state.setUniverseConnected(true);
+
+          if (createdSlug) {
+            try {
+              await universeManagerService.forceSave(createdSlug);
+            } catch (saveErr) {
+              umWarn(`[ExternalLink] forceSave after publish failed (data is already on remote):`, saveErr);
+            }
+          }
+
+          setExternalLinkModalOpen(false);
+        }}
+        onKeepInMemory={async (storeState, suggestedName, sourceUrl) => {
+          await universeManagerService.createUniverse(suggestedName, {
+            enableLocal: false,
+            enableGit: false
+          });
+
+          const state = useGraphStore.getState();
+          state.loadUniverseFromFile(storeState);
+          state.setUniverseConnected(true);
+
+          setExternalLinkModalOpen(false);
+        }}
       />
 
       {/* Universe Linking Modal */}

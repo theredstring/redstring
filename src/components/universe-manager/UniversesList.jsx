@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Plus, ChevronDown, Github, Upload, Download, X, Edit, Star, Save, Activity, Link, FileText, ArrowRightLeft, FolderOpen, Folder, RotateCcw, Key } from 'lucide-react';
+import { Plus, ChevronDown, Github, Upload, Download, X, Edit, Star, Save, Activity, Link, FileText, ArrowRightLeft, FolderOpen, Folder, RotateCcw, Key, Copy, Check } from 'lucide-react';
 import { useTheme } from '../../hooks/useTheme.js';
 
 import PanelSegment from './shared/PanelSegment.jsx';
@@ -63,6 +63,7 @@ const UniversesList = ({
   const [showLoadMenu, setShowLoadMenu] = useState(false);
   const [showNewMenu, setShowNewMenu] = useState(false);
   const [showLocalFileMenu, setShowLocalFileMenu] = useState(null); // Track which universe's menu is open
+  const [copiedSlug, setCopiedSlug] = useState(null); // Slug whose public link was just copied (for icon feedback)
   const [isHeaderSlim, setIsHeaderSlim] = useState(false); // Track if header should stack at < 480px
   const [isVerySlim, setIsVerySlim] = useState(false); // Track if container is < 320px for aggressive space-saving
   const [workspaceFolder, setWorkspaceFolder] = useState(() => {
@@ -217,6 +218,11 @@ const UniversesList = ({
     }
   };
 
+  const handleLoadFromLinkClick = () => {
+    setShowLoadMenu(false);
+    window.dispatchEvent(new CustomEvent('redstring:open-external-link'));
+  };
+
   const handleNewFromFileClick = () => {
     setShowNewMenu(false);
     if (onCreateUniverseFromFile) {
@@ -317,6 +323,27 @@ const UniversesList = ({
                   >
                     <Github size={12} /> Load from Repository
                   </button>
+                  <button
+                    onClick={handleLoadFromLinkClick}
+                    style={{
+                      width: '100%',
+                      padding: '6px 10px',
+                      border: 'none',
+                      background: 'none',
+                      textAlign: 'left',
+                      cursor: 'pointer',
+                      fontSize: '0.75rem',
+                      fontWeight: 600,
+                      color: theme.canvas.textPrimary,
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 6
+                    }}
+                    onMouseEnter={(e) => e.currentTarget.style.backgroundColor = theme.canvas.hover}
+                    onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
+                  >
+                    <Link size={12} /> Load from Link
+                  </button>
                 </div>
               )}
             </div>
@@ -368,7 +395,7 @@ const UniversesList = ({
                     onMouseEnter={(e) => e.currentTarget.style.backgroundColor = theme.canvas.hover}
                     onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
                   >
-                    <FileText size={12} /> New Local File
+                    <FileText size={12} /> New from Local File
                   </button>
                   <button
                     onClick={handleNewFromRepoClick}
@@ -389,7 +416,7 @@ const UniversesList = ({
                     onMouseEnter={(e) => e.currentTarget.style.backgroundColor = theme.canvas.hover}
                     onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
                   >
-                    <Github size={12} /> New Repository
+                    <Github size={12} /> New from Repository
                   </button>
                 </div>
               )}
@@ -687,6 +714,29 @@ const UniversesList = ({
                                   gap: isVerySlim ? 1 : (isSlim ? 2 : 4),
                                   flexShrink: 0
                                 }}>
+                                  <PanelIconButton
+                                    icon={copiedSlug === universe.slug ? Check : Copy}
+                                    size={isVerySlim ? 14 : (isSlim ? 16 : 18)}
+                                    style={isVerySlim ? { padding: '5px' } : {}}
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      const linked = universe.raw?.gitRepo?.linkedRepo;
+                                      if (!linked?.user || !linked?.repo) return;
+                                      const branch = universe.raw?.gitRepo?.branch || 'main';
+                                      const folder = universe.raw?.gitRepo?.universeFolder || universe.slug;
+                                      const file = universe.raw?.gitRepo?.universeFile || `${universe.slug}.redstring`;
+                                      const url = `https://github.com/${linked.user}/${linked.repo}/blob/${branch}/universes/${folder}/${file}`;
+                                      try {
+                                        navigator.clipboard.writeText(url).then(() => {
+                                          setCopiedSlug(universe.slug);
+                                          setTimeout(() => {
+                                            setCopiedSlug((prev) => (prev === universe.slug ? null : prev));
+                                          }, 1500);
+                                        });
+                                      } catch { }
+                                    }}
+                                    title={copiedSlug === universe.slug ? 'Copied!' : 'Copy public link'}
+                                  />
                                   {onDownloadRepoFile && (
                                     <PanelIconButton
                                       icon={Download}

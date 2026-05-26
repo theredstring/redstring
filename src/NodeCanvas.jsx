@@ -38,7 +38,6 @@ import universeManagerService from './services/universeManagerService.js';
 import { pickFolder, getFileInFolder, listFilesInFolder, readFile, writeFile } from './utils/fileAccessAdapter.js';
 import AutoGraphModal from './components/AutoGraphModal';
 import ForceSimulationModal from './components/ForceSimulationModal';
-import ExternalLinkLoadModal from './components/modals/ExternalLinkLoadModal.jsx';
 import { parseInputData, generateGraph } from './services/autoGraphGenerator';
 import { applyLayout, getClusterGeometries, FORCE_LAYOUT_DEFAULTS } from './services/graphLayoutService.js';
 import { computeGroupLayout, GROUP_LAYOUT_CONSTANTS, buildChildGroupIdsIndex } from './services/groupLayout.js';
@@ -1498,6 +1497,23 @@ function NodeCanvas() {
       window.removeEventListener('redstring:open-federation', handler);
       window.removeEventListener('openGitFederation', handler);
     };
+  }, []);
+
+  // When the External Link load is triggered from anywhere (header menu,
+  // in-panel button), open the left panel and navigate to the federation
+  // (Universes) view so the modal — hosted inside UniverseManager — appears
+  // in its proper context.
+  useEffect(() => {
+    if (typeof window === 'undefined') return undefined;
+    const handler = () => {
+      try {
+        storeActions.setLeftPanelExpanded(true);
+        setLeftPanelInitialView(null);
+        requestAnimationFrame(() => setLeftPanelInitialView('federation'));
+      } catch { }
+    };
+    window.addEventListener('redstring:open-external-link', handler);
+    return () => window.removeEventListener('redstring:open-external-link', handler);
   }, []);
 
   // Open Help modal when event is dispatched
@@ -3813,7 +3829,6 @@ function NodeCanvas() {
   const [headerAllThingsSearchVisible, setHeaderAllThingsSearchVisible] = useState(false);
   const [autoGraphModalVisible, setAutoGraphModalVisible] = useState(false);
   const [forceSimModalVisible, setForceSimModalVisible] = useState(false);
-  const [externalLinkModalOpen, setExternalLinkModalOpen] = useState(false);
   const [autoLayoutRunning, setAutoLayoutRunning] = useState(false);
 
 
@@ -9290,7 +9305,7 @@ function NodeCanvas() {
           triggerAutoLayout();
         }}
         onCondenseNodes={condenseGraphNodes}
-        onLoadFromExternalLink={() => setExternalLinkModalOpen(true)}
+        onLoadFromExternalLink={() => window.dispatchEvent(new CustomEvent('redstring:open-external-link'))}
         onNewUniverse={async () => {
           try {
 
@@ -14407,159 +14422,6 @@ function NodeCanvas() {
           zoomLevel={zoomLevel}
         />
       )}
-
-      {/* Load from External Link Modal */}
-      <ExternalLinkLoadModal
-        isOpen={externalLinkModalOpen}
-        onClose={() => setExternalLinkModalOpen(false)}
-        onSaveAsLocalFile={async (storeState, suggestedName, sourceUrl) => {
-          // 1) Pick a save location FIRST. If the user cancels we exit cleanly
-          //    without creating an orphan universe.
-          const { pickSaveLocation, isElectron } = await import('./utils/fileAccessAdapter.js');
-          const { exportToRedstring } = await import('./formats/redstringFormat.js');
-          const { writeFile } = await import('./utils/fileAccessAdapter.js');
-
-          let handle;
-          try {
-            handle = await pickSaveLocation({ suggestedName: `${suggestedName}.redstring` });
-          } catch (err) {
-            // User cancelled or no API available — re-throw with a friendly msg
-            throw new Error(err?.message || 'Save cancelled');
-          }
-
-          // 2) Serialize and write the file on disk before involving the universe
-          //    manager. This way the path is real before any auto-save fires.
-          const redstringData = exportToRedstring(storeState);
-          await writeFile(handle, JSON.stringify(redstringData, null, 2));
-
-          const displayPath = (isElectron && isElectron() && typeof handle === 'string')
-            ? handle
-            : (handle?.name || `${suggestedName}.redstring`);
-          const fileName = displayPath.split(/[\\/]/).pop();
-
-          // 3) Create the universe slot (local-only, sourceOfTruth=local).
-          const createResult = await universeManagerService.createUniverse(suggestedName, {
-            enableLocal: true,
-            enableGit: false,
-            sourceOfTruth: 'local'
-          });
-          const createdSlug = createResult?.createdUniverse?.slug;
-
-          // 4) Hydrate the store with the imported data.
-          const state = useGraphStore.getState();
-          state.loadUniverseFromFile(storeState);
-          state.setUniverseConnected(true);
-
-          if (createdSlug) {
-            const { default: universeBackend } = await import('./services/universeBackend.js');
-            try {
-              await universeBackend.setFileHandle(createdSlug, handle, { displayPath, fileName });
-              await universeBackend.linkLocalFileToUniverse(createdSlug, displayPath, { displayPath });
-              await universeManagerService.forceSave(createdSlug, { skipGit: true });
-            } catch (linkErr) {
-              console.warn(`[ExternalLink] Failed to link local file for ${createdSlug}:`, linkErr);
-            }
-          }
-
-          setExternalLinkModalOpen(false);
-        }}
-        onPublishToRepo={async ({ storeState, suggestedName, sourceUrl, repoOwner, repoName, folder, file }) => {
-          // Push the in-memory data to the chosen repo path FIRST, then create
-          // the universe attached to that path. By the time the universe has a
-          // linkedRepo, the remote already matches the in-memory state, so any
-          // subsequent loadFromGitDirect is a no-op rather than an overwrite.
-          const { persistentAuth } = await import('./services/persistentAuth.js');
-          const { SemanticProviderFactory } = await import('./services/gitNativeProvider.js');
-          const { exportToRedstring } = await import('./formats/redstringFormat.js');
-
-          const token = await persistentAuth.getAccessToken();
-          if (!token) {
-            throw new Error('Not connected to GitHub. Connect via Universe Manager and try again.');
-          }
-
-          const provider = SemanticProviderFactory.createProvider({
-            type: 'github',
-            user: repoOwner,
-            repo: repoName,
-            token,
-            authMethod: 'oauth',
-            semanticPath: 'schema'
-          });
-
-          const filePath = `universes/${folder}/${file}`;
-          const redstringData = exportToRedstring(storeState);
-          const content = JSON.stringify(redstringData, null, 2);
-
-          try {
-            await provider.writeFileRaw(filePath, content);
-          } catch (writeErr) {
-            const status = writeErr?.status;
-            const code = writeErr?.code;
-            if (status === 401) {
-              throw new Error('GitHub authentication expired. Reconnect via Universe Manager.');
-            }
-            if (code === 'FILE_INFO_UNKNOWN') {
-              throw new Error('Could not verify whether this path exists on the remote. Check repo permissions.');
-            }
-            throw new Error(`Push failed: ${writeErr?.message || 'unknown error'}`);
-          }
-
-          // Remote now matches in-memory. Safe to create universe + attach repo.
-          const createResult = await universeManagerService.createUniverse(suggestedName, {
-            enableLocal: false,
-            enableGit: true,
-            sourceOfTruth: 'git'
-          });
-          const createdSlug = createResult?.createdUniverse?.slug;
-
-          if (createdSlug) {
-            await universeManagerService.attachGitRepository(createdSlug, {
-              user: repoOwner,
-              repo: repoName,
-              authMethod: 'oauth',
-              universeFolder: folder,
-              universeFile: file
-            });
-          }
-
-          // Now hydrate the store with the imported data. Order matters: we
-          // attach the repo first (so linkedRepo is set), THEN load data, so
-          // any reload-from-git fires against a remote that already matches.
-          const state = useGraphStore.getState();
-          state.loadUniverseFromFile(storeState);
-          state.setUniverseConnected(true);
-
-          // Establish SaveCoordinator baseline and flush status. The remote
-          // already has the data from writeFileRaw, so this is an idempotent
-          // push — but it sets the "All changes saved" status immediately
-          // instead of waiting for the 3s auto-save batch, and gives the
-          // SaveCoordinator a baseline of the current store size. Mirrors
-          // continueAttachFlow's pattern (UniverseManager.jsx:2207).
-          if (createdSlug) {
-            try {
-              await universeManagerService.forceSave(createdSlug);
-            } catch (saveErr) {
-              console.warn(`[ExternalLink] forceSave after publish failed (data is already on remote):`, saveErr);
-            }
-          }
-
-          setExternalLinkModalOpen(false);
-        }}
-        onKeepInMemory={async (storeState, suggestedName, sourceUrl) => {
-          // Create a slot with neither local nor git enabled. The universe
-          // exists in the list but is intentionally not persisted anywhere.
-          await universeManagerService.createUniverse(suggestedName, {
-            enableLocal: false,
-            enableGit: false
-          });
-
-          const state = useGraphStore.getState();
-          state.loadUniverseFromFile(storeState);
-          state.setUniverseConnected(true);
-
-          setExternalLinkModalOpen(false);
-        }}
-      />
 
       {/* Auto Graph Generation Modal */}
       <AutoGraphModal

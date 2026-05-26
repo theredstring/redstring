@@ -321,7 +321,7 @@ const RedstringMenu = ({
                           <FileText size={16} style={{ marginRight: '8px', minWidth: '16px', flexShrink: 0 }} />
                           Export as RDF/Turtle
                         </div>
-                        <div
+                        {/* <div
                           className="submenu-item"
                           onMouseEnter={handleRegularSubmenuItemHover}
                           onClick={() => {
@@ -331,7 +331,7 @@ const RedstringMenu = ({
                         >
                           <Globe size={16} style={{ marginRight: '8px', minWidth: '16px', flexShrink: 0 }} />
                           Load from Wikidata...
-                        </div>
+                        </div> */}
                         <div
                           className="submenu-item"
                           onMouseEnter={handleRegularSubmenuItemHover}
