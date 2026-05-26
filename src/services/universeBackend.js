@@ -4107,11 +4107,16 @@ class UniverseBackend {
 
       let content;
       let readFailed = false;
+      let confirmedMissing = false;
+      let lastReadError = null;
+      const isNotFound = (err) => typeof err?.message === 'string' && err.message.startsWith('File not found');
       try {
         content = await provider.readFileRaw(filePath);
       } catch (readError) {
         content = null;
         readFailed = true;
+        lastReadError = readError;
+        confirmedMissing = isNotFound(readError);
       }
 
       // If the read failed with an App provider, retry once with OAuth before
@@ -4120,12 +4125,24 @@ class UniverseBackend {
       if (readFailed && (await swapToOauth())) {
         try {
           content = await provider.readFileRaw(filePath);
-        } catch {
+          confirmedMissing = false;
+          lastReadError = null;
+        } catch (oauthReadError) {
           content = null;
+          lastReadError = oauthReadError;
+          confirmedMissing = isNotFound(oauthReadError);
         }
       }
 
       if (!content || typeof content !== 'string' || content.trim() === '') {
+        if (!confirmedMissing) {
+          // Read failed for an ambiguous reason (auth race, FILE_INFO_UNKNOWN,
+          // network, etc.) — NOT a confirmed 404. Refusing to bootstrap empty
+          // state here, which would otherwise destroy real remote content the
+          // current token couldn't see.
+          umWarn(`[UniverseBackend] loadFromGitDirect: read returned no content for ${filePath} but file presence is ambiguous (${lastReadError?.message || 'unknown'}). Refusing to bootstrap empty state.`);
+          return null;
+        }
         try {
           const initialStoreState = this.createEmptyState();
           const initialRedstring = await new Promise((resolve) => {

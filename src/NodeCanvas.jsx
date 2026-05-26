@@ -14463,9 +14463,48 @@ function NodeCanvas() {
 
           setExternalLinkModalOpen(false);
         }}
-        onAttachToRepo={async (storeState, suggestedName, sourceUrl) => {
-          // Create universe with git enabled; attach happens in the repo modal
-          // that UniverseManager opens in response to the dispatched event.
+        onPublishToRepo={async ({ storeState, suggestedName, sourceUrl, repoOwner, repoName, folder, file }) => {
+          // Push the in-memory data to the chosen repo path FIRST, then create
+          // the universe attached to that path. By the time the universe has a
+          // linkedRepo, the remote already matches the in-memory state, so any
+          // subsequent loadFromGitDirect is a no-op rather than an overwrite.
+          const { persistentAuth } = await import('./services/persistentAuth.js');
+          const { SemanticProviderFactory } = await import('./services/gitNativeProvider.js');
+          const { exportToRedstring } = await import('./formats/redstringFormat.js');
+
+          const token = await persistentAuth.getAccessToken();
+          if (!token) {
+            throw new Error('Not connected to GitHub. Connect via Universe Manager and try again.');
+          }
+
+          const provider = SemanticProviderFactory.createProvider({
+            type: 'github',
+            user: repoOwner,
+            repo: repoName,
+            token,
+            authMethod: 'oauth',
+            semanticPath: 'schema'
+          });
+
+          const filePath = `universes/${folder}/${file}`;
+          const redstringData = exportToRedstring(storeState);
+          const content = JSON.stringify(redstringData, null, 2);
+
+          try {
+            await provider.writeFileRaw(filePath, content);
+          } catch (writeErr) {
+            const status = writeErr?.status;
+            const code = writeErr?.code;
+            if (status === 401) {
+              throw new Error('GitHub authentication expired. Reconnect via Universe Manager.');
+            }
+            if (code === 'FILE_INFO_UNKNOWN') {
+              throw new Error('Could not verify whether this path exists on the remote. Check repo permissions.');
+            }
+            throw new Error(`Push failed: ${writeErr?.message || 'unknown error'}`);
+          }
+
+          // Remote now matches in-memory. Safe to create universe + attach repo.
           const createResult = await universeManagerService.createUniverse(suggestedName, {
             enableLocal: false,
             enableGit: true,
@@ -14473,15 +14512,22 @@ function NodeCanvas() {
           });
           const createdSlug = createResult?.createdUniverse?.slug;
 
+          if (createdSlug) {
+            await universeManagerService.attachGitRepository(createdSlug, {
+              user: repoOwner,
+              repo: repoName,
+              authMethod: 'oauth',
+              universeFolder: folder,
+              universeFile: file
+            });
+          }
+
+          // Now hydrate the store with the imported data. Order matters: we
+          // attach the repo first (so linkedRepo is set), THEN load data, so
+          // any reload-from-git fires against a remote that already matches.
           const state = useGraphStore.getState();
           state.loadUniverseFromFile(storeState);
           state.setUniverseConnected(true);
-
-          if (createdSlug) {
-            window.dispatchEvent(new CustomEvent('redstring:open-repo-attach', {
-              detail: { slug: createdSlug, sourceUrl }
-            }));
-          }
 
           setExternalLinkModalOpen(false);
         }}
