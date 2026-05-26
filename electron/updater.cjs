@@ -2,7 +2,9 @@ const { autoUpdater } = require('electron-updater');
 const electronLog = require('electron-log');
 const path = require('node:path');
 const fs = require('node:fs');
-const { execFileSync } = require('node:child_process');
+const os = require('node:os');
+const https = require('node:https');
+const { execFileSync, spawn } = require('node:child_process');
 const { ipcMain, shell } = require('electron');
 const {
   parseShipItStateForBundlePath,
@@ -176,6 +178,161 @@ function cleanupOrphanedUpdateDirs(macPaths) {
 }
 
 // ============================================================
+// Manual install: swap a staged .app bundle into place and relaunch
+// (bypasses Squirrel.Mac/ShipIt — needed on macOS 26+ where the
+// launchd XPC trigger to ShipIt is unreliable)
+// ============================================================
+
+function spawnDetachedSwapAndRelaunch({ stagedBundlePath, targetBundlePath, parentPid }) {
+  const logPath = path.join(os.tmpdir(), 'redstring-installer.log');
+  const script = `
+set -u
+exec >> "${logPath}" 2>&1
+echo "[$(date '+%Y-%m-%dT%H:%M:%S')] installer start parent=${parentPid}"
+echo "  staged=${stagedBundlePath}"
+echo "  target=${targetBundlePath}"
+
+# Wait for parent to fully exit (kill -0 returns nonzero once gone)
+for i in $(seq 1 60); do
+  kill -0 ${parentPid} 2>/dev/null || break
+  sleep 0.5
+done
+if kill -0 ${parentPid} 2>/dev/null; then
+  echo "ERROR: parent ${parentPid} still alive after 30s, aborting"
+  exit 1
+fi
+sleep 0.5
+
+if [ ! -d "${stagedBundlePath}" ]; then
+  echo "ERROR: staged bundle missing at ${stagedBundlePath}"
+  exit 1
+fi
+
+TARGET_DIR=$(dirname "${targetBundlePath}")
+TARGET_BASE=$(basename "${targetBundlePath}")
+TRASH="$TARGET_DIR/.$TARGET_BASE.old.$$"
+
+if [ -d "${targetBundlePath}" ]; then
+  if ! mv "${targetBundlePath}" "$TRASH"; then
+    echo "ERROR: could not move old bundle aside (permissions?)"
+    exit 1
+  fi
+fi
+
+if ! mv "${stagedBundlePath}" "${targetBundlePath}"; then
+  echo "ERROR: could not move staged bundle into place — restoring old"
+  if [ -d "$TRASH" ]; then mv "$TRASH" "${targetBundlePath}"; fi
+  exit 1
+fi
+
+rm -rf "$TRASH" 2>/dev/null || true
+xattr -dr com.apple.quarantine "${targetBundlePath}" 2>/dev/null || true
+
+if ! open "${targetBundlePath}"; then
+  echo "ERROR: open command failed"
+  exit 1
+fi
+echo "[$(date '+%Y-%m-%dT%H:%M:%S')] installer done"
+`;
+  const child = spawn('/bin/bash', ['-c', script], {
+    detached: true,
+    stdio: 'ignore'
+  });
+  child.unref();
+  return { logPath, childPid: child.pid };
+}
+
+function getTargetBundlePath(app) {
+  // app.getPath('exe') -> /Applications/Foo.app/Contents/MacOS/Foo
+  const exe = app.getPath('exe');
+  return path.dirname(path.dirname(path.dirname(exe)));
+}
+
+// ============================================================
+// Debug downgrade: download a previous GitHub release and swap it in
+// ============================================================
+
+const GITHUB_OWNER = 'theredstring';
+const GITHUB_REPO = 'redstring';
+
+function httpsGetJson(url) {
+  return new Promise((resolve, reject) => {
+    const req = https.get(url, {
+      headers: {
+        'User-Agent': 'Redstring-Updater',
+        'Accept': 'application/vnd.github+json'
+      }
+    }, (res) => {
+      if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
+        httpsGetJson(res.headers.location).then(resolve, reject);
+        return;
+      }
+      if (res.statusCode !== 200) {
+        reject(new Error('HTTP ' + res.statusCode + ' from ' + url));
+        return;
+      }
+      const chunks = [];
+      res.on('data', (c) => chunks.push(c));
+      res.on('end', () => {
+        try { resolve(JSON.parse(Buffer.concat(chunks).toString('utf-8'))); }
+        catch (err) { reject(err); }
+      });
+    });
+    req.on('error', reject);
+    req.setTimeout(15000, () => req.destroy(new Error('timeout')));
+  });
+}
+
+function httpsDownloadToFile(url, destPath) {
+  return new Promise((resolve, reject) => {
+    const file = fs.createWriteStream(destPath);
+    const handleResponse = (res) => {
+      if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
+        res.resume();
+        https.get(res.headers.location, {
+          headers: { 'User-Agent': 'Redstring-Updater' }
+        }, handleResponse).on('error', reject);
+        return;
+      }
+      if (res.statusCode !== 200) {
+        reject(new Error('HTTP ' + res.statusCode + ' from ' + url));
+        return;
+      }
+      res.pipe(file);
+      file.on('finish', () => file.close(() => resolve()));
+      file.on('error', reject);
+    };
+    https.get(url, { headers: { 'User-Agent': 'Redstring-Updater' } }, handleResponse).on('error', reject);
+  });
+}
+
+// Compare dotted-integer versions. Returns -1 / 0 / 1.
+function compareVersions(a, b) {
+  const pa = String(a).replace(/^v/, '').split('.').map((n) => parseInt(n, 10) || 0);
+  const pb = String(b).replace(/^v/, '').split('.').map((n) => parseInt(n, 10) || 0);
+  const len = Math.max(pa.length, pb.length);
+  for (let i = 0; i < len; i++) {
+    const ai = pa[i] || 0;
+    const bi = pb[i] || 0;
+    if (ai < bi) return -1;
+    if (ai > bi) return 1;
+  }
+  return 0;
+}
+
+async function findPreviousRelease(currentVersion) {
+  const releases = await httpsGetJson(`https://api.github.com/repos/${GITHUB_OWNER}/${GITHUB_REPO}/releases?per_page=30`);
+  if (!Array.isArray(releases)) throw new Error('GitHub releases response was not an array');
+  const candidates = releases
+    .filter((r) => !r.draft && !r.prerelease && r.tag_name)
+    .map((r) => ({ tag: r.tag_name, version: r.tag_name.replace(/^v/, ''), assets: r.assets || [] }))
+    .filter((r) => compareVersions(r.version, currentVersion) < 0)
+    .sort((a, b) => compareVersions(b.version, a.version));
+  if (candidates.length === 0) throw new Error('No older release found on GitHub');
+  return candidates[0];
+}
+
+// ============================================================
 // Mac ShipIt stderr forwarding: tail new bytes into electron-log
 // ============================================================
 
@@ -344,25 +501,68 @@ function initUpdater({ app, getMainWindow, isDev, stopAgentServer, sessionName }
 
   // ----- IPC handlers -----
   ipcMain.on('updater:install', () => {
-    log('info', 'install requested — attempting quit and install');
-    try {
-      if (typeof stopAgentServer === 'function') stopAgentServer();
-    } catch (err) {
-      log('warn', 'stopAgentServer threw:', err.message);
+    log('info', 'install requested — manual swap (bypassing Squirrel/ShipIt)');
+    if (process.platform !== 'darwin') {
+      // Other platforms: fall back to the standard flow
+      try { if (typeof stopAgentServer === 'function') stopAgentServer(); } catch {}
+      autoUpdater.quitAndInstall(false, true);
+      return;
     }
-    // On macOS, window-all-closed normally keeps the app alive after windows close.
-    // quitAndInstall closes the windows but ShipIt needs the process to actually
-    // exit to swap in the staged bundle — strip the keep-alive listener first.
-    app.removeAllListeners('window-all-closed');
-    autoUpdater.quitAndInstall(false, true);
-    // Watchdog: if still alive after 3s, install didn't take.
-    setTimeout(() => {
-      log('warn', 'quitAndInstall did not exit — surfacing install error');
+
+    // macOS: do the swap ourselves. Squirrel.Mac's ShipIt is unreliable on
+    // macOS 26+ (launchd never spawns it), so we read the bundle path it
+    // already staged for us and move it into place from a detached helper.
+    let stagedBundlePath = null;
+    try {
+      if (fs.existsSync(macPaths.shipItStateFile)) {
+        const json = execFileSync('plutil', ['-convert', 'json', '-o', '-', macPaths.shipItStateFile], {
+          timeout: 2000, encoding: 'utf-8'
+        });
+        stagedBundlePath = parseShipItStateForBundlePath(json);
+      }
+    } catch (err) {
+      log('warn', 'Could not read ShipItState.plist:', err.message);
+    }
+    if (!stagedBundlePath) {
+      log('error', 'No staged bundle path — cannot install');
       send('updater:error', {
         phase: 'install',
-        message: 'Update install failed — restart manually or download from GitHub'
+        message: 'No staged update found — try clearing the cache and re-downloading'
       });
-    }, 3000);
+      return;
+    }
+    const verification = verifyStagedBundle(stagedBundlePath);
+    if (!verification.valid) {
+      log('error', 'Staged bundle is invalid:', verification.reason);
+      send('updater:error', {
+        phase: 'install',
+        message: 'Staged update is invalid (' + verification.reason + ') — clear cache and re-download'
+      });
+      return;
+    }
+    const targetBundlePath = getTargetBundlePath(app);
+    log('info', 'Spawning detached installer:');
+    log('info', '  staged: ' + stagedBundlePath);
+    log('info', '  target: ' + targetBundlePath);
+    try {
+      const { logPath, childPid } = spawnDetachedSwapAndRelaunch({
+        stagedBundlePath,
+        targetBundlePath,
+        parentPid: process.pid
+      });
+      log('info', 'Installer pid=' + childPid + ' log=' + logPath);
+    } catch (err) {
+      log('error', 'Failed to spawn installer:', err.message);
+      send('updater:error', { phase: 'install', message: 'Could not start installer: ' + err.message });
+      return;
+    }
+
+    try { if (typeof stopAgentServer === 'function') stopAgentServer(); } catch (err) {
+      log('warn', 'stopAgentServer threw:', err.message);
+    }
+    // Give the renderer a tick to handle UI dismissal, then exit.
+    app.removeAllListeners('window-all-closed');
+    setTimeout(() => app.exit(0), 250);
   });
 
   ipcMain.handle('updater:check-pending', () => {
@@ -439,6 +639,73 @@ function initUpdater({ app, getMainWindow, isDev, stopAgentServer, sessionName }
       }
       return { ok: true, path: logPath };
     } catch (err) {
+      return { ok: false, error: err.message };
+    }
+  });
+
+  // Debug downgrade: fetch the previous GitHub release and install it via
+  // the same manual-swap path used by updater:install. Lets us reproduce the
+  // auto-update flow on a packaged build without shipping anything.
+  ipcMain.handle('updater:debug-downgrade', async () => {
+    if (process.platform !== 'darwin') {
+      return { ok: false, error: 'Downgrade is only supported on macOS' };
+    }
+    if (!app.isPackaged) {
+      return { ok: false, error: 'Downgrade only works in packaged builds' };
+    }
+    try {
+      log('info', 'Debug downgrade requested (current ' + currentVersion + ')');
+      const prev = await findPreviousRelease(currentVersion);
+      log('info', 'Previous release: ' + prev.tag);
+
+      const arch = process.arch === 'arm64' ? 'arm64' : 'x64';
+      const expectedAssetName = 'Redstring-mac-' + arch + '.zip';
+      const asset = prev.assets.find((a) => a.name === expectedAssetName);
+      if (!asset) {
+        return { ok: false, error: 'No ' + expectedAssetName + ' asset on ' + prev.tag };
+      }
+
+      const workDir = path.join(macPaths.updaterCacheDir, 'debug-downgrade', prev.tag);
+      fs.rmSync(workDir, { recursive: true, force: true });
+      fs.mkdirSync(workDir, { recursive: true });
+      const zipPath = path.join(workDir, expectedAssetName);
+
+      log('info', 'Downloading ' + asset.browser_download_url);
+      send('updater:diagnostics-updated', null);
+      await httpsDownloadToFile(asset.browser_download_url, zipPath);
+      log('info', 'Downloaded, extracting');
+
+      // Use ditto to preserve macOS metadata + code signature
+      execFileSync('/usr/bin/ditto', ['-x', '-k', zipPath, workDir], { stdio: 'pipe' });
+
+      // Find the .app inside workDir
+      const entries = fs.readdirSync(workDir);
+      const appDirName = entries.find((n) => n.endsWith('.app'));
+      if (!appDirName) {
+        return { ok: false, error: 'No .app found inside downloaded zip' };
+      }
+      const stagedBundlePath = path.join(workDir, appDirName);
+      const verification = verifyStagedBundle(stagedBundlePath);
+      if (!verification.valid) {
+        return { ok: false, error: 'Downloaded bundle invalid: ' + verification.reason };
+      }
+      log('info', 'Bundle verified as v' + verification.version);
+
+      const targetBundlePath = getTargetBundlePath(app);
+      log('info', 'Spawning installer: ' + stagedBundlePath + ' -> ' + targetBundlePath);
+      const { logPath, childPid } = spawnDetachedSwapAndRelaunch({
+        stagedBundlePath,
+        targetBundlePath,
+        parentPid: process.pid
+      });
+      log('info', 'Installer pid=' + childPid + ' log=' + logPath);
+
+      try { if (typeof stopAgentServer === 'function') stopAgentServer(); } catch {}
+      app.removeAllListeners('window-all-closed');
+      setTimeout(() => app.exit(0), 500);
+      return { ok: true, version: verification.version, tag: prev.tag };
+    } catch (err) {
+      log('error', 'Debug downgrade failed:', err.message);
       return { ok: false, error: err.message };
     }
   });

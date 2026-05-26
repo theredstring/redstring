@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useCallback } from 'react';
-import { RefreshCw, Trash2, FileText, ExternalLink, X } from 'lucide-react';
+import { RefreshCw, Trash2, FileText, ExternalLink, X, History } from 'lucide-react';
 import PanelIconButton from './shared/PanelIconButton.jsx';
 import './UpdateDiagnosticsCard.css';
 
@@ -10,8 +10,9 @@ import './UpdateDiagnosticsCard.css';
  */
 export default function UpdateDiagnosticsCard({ isOpen, anchorBottom = 16, onClose }) {
   const [diagnostics, setDiagnostics] = useState(null);
-  const [busy, setBusy] = useState(null); // null | 'check' | 'clear' | 'log'
+  const [busy, setBusy] = useState(null); // null | 'check' | 'clear' | 'log' | 'downgrade'
   const [confirmingClear, setConfirmingClear] = useState(false);
+  const [confirmingDowngrade, setConfirmingDowngrade] = useState(false);
   const [statusLine, setStatusLine] = useState(null);
 
   const refresh = useCallback(async () => {
@@ -90,6 +91,31 @@ export default function UpdateDiagnosticsCard({ isOpen, anchorBottom = 16, onClo
   const handleOpenReleases = () => {
     window.electron?.updater?.openReleases?.();
   };
+
+  const handleDowngrade = async () => {
+    if (!confirmingDowngrade) {
+      setConfirmingDowngrade(true);
+      setStatusLine('Click again to confirm — this will download the previous release and relaunch.');
+      return;
+    }
+    setBusy('downgrade');
+    setStatusLine('Downloading previous version…');
+    try {
+      const res = await window.electron?.updater?.debugDowngrade?.();
+      if (res?.ok === false) {
+        setStatusLine(`Downgrade failed: ${res.error || 'unknown'}`);
+      } else if (res?.ok) {
+        setStatusLine(`Installing v${res.version}… app will relaunch.`);
+      }
+    } catch (err) {
+      setStatusLine(`Downgrade error: ${err?.message || err}`);
+    } finally {
+      setBusy(null);
+      setConfirmingDowngrade(false);
+    }
+  };
+
+  const downgradeAvailable = diagnostics?.isPackaged && diagnostics?.platform === 'darwin';
 
   const formatTime = (iso) => {
     if (!iso) return '—';
@@ -238,6 +264,18 @@ export default function UpdateDiagnosticsCard({ isOpen, anchorBottom = 16, onClo
           variant="outline"
           style={{ borderColor: 'rgba(222, 218, 218, 0.4)' }}
         />
+        {downgradeAvailable && (
+          <PanelIconButton
+            icon={History}
+            size={14}
+            color={confirmingDowngrade ? '#FFB300' : '#DEDADA'}
+            onClick={handleDowngrade}
+            disabled={busy === 'downgrade'}
+            title={confirmingDowngrade ? 'Click again to confirm downgrade' : 'Reinstall previous version (debug)'}
+            variant="outline"
+            style={{ borderColor: confirmingDowngrade ? 'rgba(255, 179, 0, 0.6)' : 'rgba(222, 218, 218, 0.4)' }}
+          />
+        )}
       </div>
     </div>
   );
