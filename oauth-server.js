@@ -96,7 +96,19 @@ app.use(cors({
   origin: (origin, callback) => {
     if (!origin) return callback(null, true);
     if (allowedOrigins.has(origin)) return callback(null, true);
-    return callback(new Error(`CORS: origin ${origin} not allowed`));
+    // Allow Cloud Run domains so test/staging deployments work without
+    // requiring CORS_ORIGINS to be set per environment.
+    try {
+      const host = new URL(origin).hostname;
+      if (host.endsWith('.a.run.app') || host.endsWith('.run.app')) {
+        return callback(null, true);
+      }
+    } catch { /* invalid Origin */ }
+    // Silently omit CORS headers instead of throwing 500. Same-origin loads
+    // (browser sends Origin for `<script type="module" crossorigin>` even
+    // when same-origin) need to succeed; cross-origin gets blocked correctly
+    // by the missing Access-Control-Allow-Origin header.
+    return callback(null, false);
   },
   credentials: false,
 }));

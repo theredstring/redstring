@@ -82,7 +82,21 @@ const corsOptions = {
     // browser's same-origin model, not CORS.
     if (!origin) return callback(null, true);
     if (allowedOrigins.has(origin)) return callback(null, true);
-    return callback(new Error(`CORS: origin ${origin} not allowed`));
+    // Allow Cloud Run domains so test/staging deployments work without
+    // requiring CORS_ORIGINS to be set per environment.
+    try {
+      const host = new URL(origin).hostname;
+      if (host.endsWith('.a.run.app') || host.endsWith('.run.app')) {
+        return callback(null, true);
+      }
+    } catch { /* invalid Origin — fall through to silent rejection */ }
+    // Silently omit CORS headers instead of throwing. The browser will allow
+    // same-origin requests (no headers needed) and block actual cross-origin
+    // requests (no Access-Control-Allow-Origin) — both correct outcomes. An
+    // Error here would 500 the response and break the page (Vite emits
+    // `<script type="module" crossorigin>`, which sends an Origin header even
+    // for same-origin loads).
+    return callback(null, false);
   },
   credentials: false,
 };
