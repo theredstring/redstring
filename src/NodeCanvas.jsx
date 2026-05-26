@@ -14529,6 +14529,20 @@ function NodeCanvas() {
           state.loadUniverseFromFile(storeState);
           state.setUniverseConnected(true);
 
+          // Establish SaveCoordinator baseline and flush status. The remote
+          // already has the data from writeFileRaw, so this is an idempotent
+          // push — but it sets the "All changes saved" status immediately
+          // instead of waiting for the 3s auto-save batch, and gives the
+          // SaveCoordinator a baseline of the current store size. Mirrors
+          // continueAttachFlow's pattern (UniverseManager.jsx:2207).
+          if (createdSlug) {
+            try {
+              await universeManagerService.forceSave(createdSlug);
+            } catch (saveErr) {
+              console.warn(`[ExternalLink] forceSave after publish failed (data is already on remote):`, saveErr);
+            }
+          }
+
           setExternalLinkModalOpen(false);
         }}
         onKeepInMemory={async (storeState, suggestedName, sourceUrl) => {
