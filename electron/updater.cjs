@@ -12,6 +12,13 @@ const {
   splitLogTailSinceOffset
 } = require('./updater-helpers.cjs');
 const { verifyStagedBundle } = require('./updater-bundle-verify.cjs');
+const {
+  compareVersions,
+  pickPreviousRelease,
+  pickAssetForArch,
+  buildSwapAndRelaunchScript,
+  deriveTargetBundlePath
+} = require('./updater-install-helpers.cjs');
 
 const LOG_PREFIX = '[Updater]';
 const RECHECK_INTERVAL_MS = 30 * 60 * 1000;
@@ -185,55 +192,12 @@ function cleanupOrphanedUpdateDirs(macPaths) {
 
 function spawnDetachedSwapAndRelaunch({ stagedBundlePath, targetBundlePath, parentPid }) {
   const logPath = path.join(os.tmpdir(), 'redstring-installer.log');
-  const script = `
-set -u
-exec >> "${logPath}" 2>&1
-echo "[$(date '+%Y-%m-%dT%H:%M:%S')] installer start parent=${parentPid}"
-echo "  staged=${stagedBundlePath}"
-echo "  target=${targetBundlePath}"
-
-# Wait for parent to fully exit (kill -0 returns nonzero once gone)
-for i in $(seq 1 60); do
-  kill -0 ${parentPid} 2>/dev/null || break
-  sleep 0.5
-done
-if kill -0 ${parentPid} 2>/dev/null; then
-  echo "ERROR: parent ${parentPid} still alive after 30s, aborting"
-  exit 1
-fi
-sleep 0.5
-
-if [ ! -d "${stagedBundlePath}" ]; then
-  echo "ERROR: staged bundle missing at ${stagedBundlePath}"
-  exit 1
-fi
-
-TARGET_DIR=$(dirname "${targetBundlePath}")
-TARGET_BASE=$(basename "${targetBundlePath}")
-TRASH="$TARGET_DIR/.$TARGET_BASE.old.$$"
-
-if [ -d "${targetBundlePath}" ]; then
-  if ! mv "${targetBundlePath}" "$TRASH"; then
-    echo "ERROR: could not move old bundle aside (permissions?)"
-    exit 1
-  fi
-fi
-
-if ! mv "${stagedBundlePath}" "${targetBundlePath}"; then
-  echo "ERROR: could not move staged bundle into place — restoring old"
-  if [ -d "$TRASH" ]; then mv "$TRASH" "${targetBundlePath}"; fi
-  exit 1
-fi
-
-rm -rf "$TRASH" 2>/dev/null || true
-xattr -dr com.apple.quarantine "${targetBundlePath}" 2>/dev/null || true
-
-if ! open "${targetBundlePath}"; then
-  echo "ERROR: open command failed"
-  exit 1
-fi
-echo "[$(date '+%Y-%m-%dT%H:%M:%S')] installer done"
-`;
+  const script = buildSwapAndRelaunchScript({
+    stagedBundlePath,
+    targetBundlePath,
+    parentPid,
+    logPath
+  });
   const child = spawn('/bin/bash', ['-c', script], {
     detached: true,
     stdio: 'ignore'
@@ -243,9 +207,7 @@ echo "[$(date '+%Y-%m-%dT%H:%M:%S')] installer done"
 }
 
 function getTargetBundlePath(app) {
-  // app.getPath('exe') -> /Applications/Foo.app/Contents/MacOS/Foo
-  const exe = app.getPath('exe');
-  return path.dirname(path.dirname(path.dirname(exe)));
+  return deriveTargetBundlePath(app.getPath('exe'));
 }
 
 // ============================================================
@@ -306,30 +268,12 @@ function httpsDownloadToFile(url, destPath) {
   });
 }
 
-// Compare dotted-integer versions. Returns -1 / 0 / 1.
-function compareVersions(a, b) {
-  const pa = String(a).replace(/^v/, '').split('.').map((n) => parseInt(n, 10) || 0);
-  const pb = String(b).replace(/^v/, '').split('.').map((n) => parseInt(n, 10) || 0);
-  const len = Math.max(pa.length, pb.length);
-  for (let i = 0; i < len; i++) {
-    const ai = pa[i] || 0;
-    const bi = pb[i] || 0;
-    if (ai < bi) return -1;
-    if (ai > bi) return 1;
-  }
-  return 0;
-}
-
 async function findPreviousRelease(currentVersion) {
   const releases = await httpsGetJson(`https://api.github.com/repos/${GITHUB_OWNER}/${GITHUB_REPO}/releases?per_page=30`);
   if (!Array.isArray(releases)) throw new Error('GitHub releases response was not an array');
-  const candidates = releases
-    .filter((r) => !r.draft && !r.prerelease && r.tag_name)
-    .map((r) => ({ tag: r.tag_name, version: r.tag_name.replace(/^v/, ''), assets: r.assets || [] }))
-    .filter((r) => compareVersions(r.version, currentVersion) < 0)
-    .sort((a, b) => compareVersions(b.version, a.version));
-  if (candidates.length === 0) throw new Error('No older release found on GitHub');
-  return candidates[0];
+  const prev = pickPreviousRelease(releases, currentVersion);
+  if (!prev) throw new Error('No older release found on GitHub');
+  return prev;
 }
 
 // ============================================================
@@ -658,11 +602,10 @@ function initUpdater({ app, getMainWindow, isDev, stopAgentServer, sessionName }
       const prev = await findPreviousRelease(currentVersion);
       log('info', 'Previous release: ' + prev.tag);
 
-      const arch = process.arch === 'arm64' ? 'arm64' : 'x64';
-      const expectedAssetName = 'Redstring-mac-' + arch + '.zip';
-      const asset = prev.assets.find((a) => a.name === expectedAssetName);
+      const asset = pickAssetForArch(prev, process.arch);
       if (!asset) {
-        return { ok: false, error: 'No ' + expectedAssetName + ' asset on ' + prev.tag };
+        const arch = process.arch === 'arm64' ? 'arm64' : 'x64';
+        return { ok: false, error: 'No Redstring-mac-' + arch + '.zip asset on ' + prev.tag };
       }
 
       const workDir = path.join(macPaths.updaterCacheDir, 'debug-downgrade', prev.tag);
