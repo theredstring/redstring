@@ -46,10 +46,13 @@ export function getBridgeBaseUrl() {
       return 'http://localhost:3001';
     }
 
-    // In production (Cloud Run), use the main server URL (AI endpoints are proxied)
+    // In production (Cloud Run / Cloudflare Pages / Workers), use the main
+    // server URL (AI endpoints are proxied or BYOK-direct).
     if (hostname === 'redstring.io' ||
       hostname.includes('.redstring.io') ||
       hostname.includes('run.app') ||
+      hostname.endsWith('.pages.dev') ||
+      hostname.endsWith('.workers.dev') ||
       protocol === 'https:') {
       return `${protocol}//${hostname}${port && port !== '443' && port !== '80' ? ':' + port : ''}`;
     }
@@ -90,8 +93,14 @@ export function getOAuthBaseUrl() {
       return 'http://localhost:3002';
     }
 
-    // In production (Cloud Run or custom domain), use the same origin as the main app
-    if (hostname.includes('run.app') || hostname === 'redstring.io' || hostname.includes('.redstring.io')) {
+    // In production (Cloud Run / Cloudflare Pages / Workers / custom domain),
+    // use the same origin as the main app — the OAuth endpoints live at the
+    // same host. On Cloudflare Pages the Worker handles them at /api/github/*.
+    if (hostname.includes('run.app') ||
+        hostname === 'redstring.io' ||
+        hostname.includes('.redstring.io') ||
+        hostname.endsWith('.pages.dev') ||
+        hostname.endsWith('.workers.dev')) {
       return `${protocol}//${hostname}${port && port !== '443' && port !== '80' ? ':' + port : ''}`;
     }
 

@@ -1,0 +1,6 @@
+{
+  "version": 1,
+  "description": "Route only /api/github/* requests through Pages Functions. Everything else is served as a static asset from dist/ for max edge-cache performance.",
+  "include": ["/api/github/*"],
+  "exclude": []
+}

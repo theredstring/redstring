@@ -51,6 +51,9 @@ events/
 bridge.log
 mcp-server.log
 
+# Wrangler / Cloudflare Pages local cache
+.wrangler/
+
 # Backup files
 *.backup
 *.backup2

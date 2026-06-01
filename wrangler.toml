@@ -1,0 +1,17 @@
+# Cloudflare Pages config for Redstring (staging).
+#
+# Discovered automatically by `wrangler pages deploy` when run from the repo
+# root. Secrets are NOT defined here — set them with:
+#   wrangler pages secret put GITHUB_CLIENT_ID --project-name=redstring-staging
+#   wrangler pages secret put GITHUB_CLIENT_SECRET --project-name=redstring-staging
+#   wrangler pages secret put GITHUB_APP_ID --project-name=redstring-staging
+#   wrangler pages secret put GITHUB_APP_PRIVATE_KEY --project-name=redstring-staging
+#   wrangler pages secret put GITHUB_APP_SLUG --project-name=redstring-staging
+#
+# Use the DEV credentials (matching GITHUB_*_DEV in the existing .env) for
+# this Pages project — keeps prod GCP secrets fully isolated until cutover.
+
+name = "redstring-staging"
+compatibility_date = "2024-12-01"
+compatibility_flags = ["nodejs_compat"]
+pages_build_output_dir = "./dist"
