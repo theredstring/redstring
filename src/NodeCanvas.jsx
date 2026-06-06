@@ -163,6 +163,9 @@ const TRACKPAD_PAN_FRICTION = 0.94;             // per-frame retention for track
 const PAN_MOMENTUM_FRAME = 16.67;               // baseline frame duration (ms) for damping scaling
 const TOUCH_PAN_MOMENTUM_BOOST = 1.0;           // no amplification — launch momentum at the actual finger release velocity (boost made low/mid flicks feel jumpy)
 const TRACKPAD_PAN_MOMENTUM_BOOST = 1.1;        // marginally higher boost for precision trackpads
+const GLIDE_STRENGTH_FRICTION_RANGE = 0.12;     // total friction span the glide-strength slider sweeps (±0.06 around the default; 0.5 = no change)
+const GLIDE_FRICTION_MIN = 0.80;                // clamp floor for glide friction (very short coast)
+const GLIDE_FRICTION_MAX = 0.985;               // clamp ceiling for glide friction (long coast, never near-perpetual)
 
 
 function NodeCanvas() {
@@ -1927,7 +1930,7 @@ function NodeCanvas() {
     panVelocityHistoryRef.current = [];
   }, []);
 
-  const startPanMomentum = useCallback((initialVx, initialVy, source = 'touch') => {
+  const startPanMomentum = useCallback((initialVx, initialVy, source = 'touch', strength = 0.5) => {
     if (!Number.isFinite(initialVx) || !Number.isFinite(initialVy)) {
       return false;
     }
@@ -1947,6 +1950,11 @@ function NodeCanvas() {
       const overshoot = Math.min(1, (launchSpeed - TOUCH_HIGH_VELOCITY_THRESHOLD) / TOUCH_HIGH_VELOCITY_RAMP);
       frictionBase = TOUCH_PAN_FRICTION + (TOUCH_PAN_FRICTION_HIGH_VELOCITY - TOUCH_PAN_FRICTION) * overshoot;
     }
+    // Apply the user's glide-strength slider (0..1, 0.5 = default): higher
+    // strength retains more velocity per frame, so the glide coasts farther.
+    // Offsets whatever friction was computed above, then clamps so it stays bounded.
+    const strengthOffset = (Math.max(0, Math.min(1, strength)) - 0.5) * GLIDE_STRENGTH_FRICTION_RANGE;
+    frictionBase = Math.max(GLIDE_FRICTION_MIN, Math.min(GLIDE_FRICTION_MAX, frictionBase + strengthOffset));
 
     panMomentumRef.current.vx = vx;
     panMomentumRef.current.vy = vy;
@@ -6950,23 +6958,37 @@ function NodeCanvas() {
       let momentumStarted = false;
       if (isPanningRef.current && panStartRef.current) {
         const source = panSourceRef.current;
-        if (source === 'trackpad' || source === 'touch') {
+        // Glide (momentum panning) is opt-out per input modality. Touch glide is
+        // gated by touchSettings.glideEnabled; click (mouse) and trackpad glide
+        // by mouseSettings.glideEnabled. Both default to enabled.
+        const settings = useGraphStore.getState();
+        const glideAllowed =
+          source === 'touch' ? (settings.touchSettings?.glideEnabled !== false)
+          : (source === 'mouse' || source === 'trackpad') ? (settings.mouseSettings?.glideEnabled !== false)
+          : false;
+        const glideStrength = source === 'touch'
+          ? (settings.touchSettings?.glideStrength ?? 0.5)
+          : (settings.mouseSettings?.glideStrength ?? 0.1);
+        if (glideAllowed) {
           const isTouch = source === 'touch';
+          // Mouse and touch are motion-driven (events only fire while moving), so
+          // a pause before release should suppress glide. Trackpad is not.
+          const motionDriven = isTouch || source === 'mouse';
           const history = panVelocityHistoryRef.current;
           let vx = 0, vy = 0;
-          // For touch, use the gap between the last touchmove and release as
-          // the "finger held still" signal: touchmove only fires on motion, so
-          // a large gap means the finger paused before lifting — no momentum.
-          // Anchoring the velocity window on release time directly (instead of
-          // on the last sample) is too brittle, since a fast flick routinely
-          // has a 30-50ms lag between the last touchmove and touchend.
+          // For motion-driven input, use the gap between the last move and release
+          // as the "held still" signal: move events only fire on motion, so a large
+          // gap means the pointer paused before lifting — no momentum. Anchoring the
+          // velocity window on release time directly (instead of on the last sample)
+          // is too brittle, since a fast flick routinely has a 30-50ms lag between
+          // the last move and pointer-up.
           const lastSample = history.length > 0 ? history[history.length - 1] : null;
           const gapSinceLastSample = lastSample ? (performance.now() - lastSample.time) : Infinity;
-          const fingerHeldStill = isTouch
+          const heldStill = motionDriven
             ? gapSinceLastSample > TOUCH_MOMENTUM_STATIONARY_GAP_MS
             : false;
 
-          if (history.length >= 2 && !fingerHeldStill) {
+          if (history.length >= 2 && !heldStill) {
             const last = lastSample;
             const cutoff = last.time - TOUCH_MOMENTUM_VELOCITY_WINDOW_MS;
             const recent = history.filter(s => s.time >= cutoff);
@@ -6980,17 +7002,25 @@ function NodeCanvas() {
             }
           }
 
-          // Fallback to instantaneous only for trackpad — for touch, an empty
-          // window or held-still finger means we want NO momentum.
-          if (!isTouch && vx === 0 && vy === 0) {
+          // Fallback to instantaneous only for trackpad — for motion-driven input,
+          // an empty window or held-still pointer means we want NO momentum.
+          if (source === 'trackpad' && vx === 0 && vy === 0) {
             vx = lastPanVelocityRef.current.vx;
             vy = lastPanVelocityRef.current.vy;
+          }
+
+          // Mouse drag-panning applies PAN_DRAG_SENSITIVITY to pointer movement, but
+          // the velocity above is measured from raw client coords. Scale it so the
+          // glide continues at the same visual speed the canvas was moving.
+          if (source === 'mouse') {
+            vx *= PAN_DRAG_SENSITIVITY;
+            vy *= PAN_DRAG_SENSITIVITY;
           }
 
           const speed = Math.hypot(vx, vy);
           const launchThreshold = isTouch ? TOUCH_MOMENTUM_LAUNCH_MIN_SPEED : PAN_MOMENTUM_MIN_SPEED;
           if (speed >= launchThreshold) {
-            momentumStarted = startPanMomentum(vx, vy, source);
+            momentumStarted = startPanMomentum(vx, vy, source, glideStrength);
           }
         }
       }

@@ -659,9 +659,15 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
         const nodeDragEdgePanEnabled = ndepRaw === null ? true : ndepRaw === 'true';
         const cdepRaw = localStorage.getItem('redstring_connection_draw_edge_pan_enabled');
         const connectionDrawEdgePanEnabled = cdepRaw === null ? true : cdepRaw === 'true';
-        return { middleMouseZoomEnabled, nodeDragEdgePanEnabled, connectionDrawEdgePanEnabled };
+        const glideRaw = localStorage.getItem('redstring_mouse_glide_enabled');
+        const glideEnabled = glideRaw === null ? true : glideRaw === 'true';
+        const glideStrengthRaw = localStorage.getItem('redstring_mouse_glide_strength');
+        let glideStrength = glideStrengthRaw !== null ? parseFloat(glideStrengthRaw) : 0.1;
+        if (!Number.isFinite(glideStrength)) glideStrength = 0.1;
+        glideStrength = Math.max(0.0, Math.min(1.0, glideStrength));
+        return { middleMouseZoomEnabled, nodeDragEdgePanEnabled, connectionDrawEdgePanEnabled, glideEnabled, glideStrength };
       } catch (_) {
-        return { middleMouseZoomEnabled: false, nodeDragEdgePanEnabled: true, connectionDrawEdgePanEnabled: true };
+        return { middleMouseZoomEnabled: false, nodeDragEdgePanEnabled: true, connectionDrawEdgePanEnabled: true, glideEnabled: true, glideStrength: 0.1 };
       }
     })(),
 
@@ -686,9 +692,17 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
         if (!Number.isFinite(panSensitivity)) panSensitivity = 0.5;
         panSensitivity = Math.max(0.0, Math.min(1.0, panSensitivity));
 
-        return { zoomSensitivity, panSensitivity };
+        const glideRaw = localStorage.getItem('redstring_touch_glide_enabled');
+        const glideEnabled = glideRaw === null ? true : glideRaw === 'true';
+
+        const glideStrengthRaw = localStorage.getItem('redstring_touch_glide_strength');
+        let glideStrength = glideStrengthRaw !== null ? parseFloat(glideStrengthRaw) : 0.5;
+        if (!Number.isFinite(glideStrength)) glideStrength = 0.5;
+        glideStrength = Math.max(0.0, Math.min(1.0, glideStrength));
+
+        return { zoomSensitivity, panSensitivity, glideEnabled, glideStrength };
       } catch (_) {
-        return { zoomSensitivity: 0.7, panSensitivity: 0.5 };
+        return { zoomSensitivity: 0.7, panSensitivity: 0.5, glideEnabled: true, glideStrength: 0.5 };
       }
     })(),
 
@@ -3669,10 +3683,33 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
     })),
 
     toggleConnectionDrawEdgePan: () => set(produce((draft) => {
-      if (!draft.mouseSettings) draft.mouseSettings = { middleMouseZoomEnabled: false, nodeDragEdgePanEnabled: true, connectionDrawEdgePanEnabled: true };
+      if (!draft.mouseSettings) draft.mouseSettings = { middleMouseZoomEnabled: false, nodeDragEdgePanEnabled: true, connectionDrawEdgePanEnabled: true, glideEnabled: true };
       draft.mouseSettings.connectionDrawEdgePanEnabled = !draft.mouseSettings.connectionDrawEdgePanEnabled;
       try {
         localStorage.setItem('redstring_connection_draw_edge_pan_enabled', String(draft.mouseSettings.connectionDrawEdgePanEnabled));
+      } catch (_) { }
+    })),
+
+    // Glide / momentum panning toggle for mouse (click-drag) panning
+    toggleMouseGlide: () => set(produce((draft) => {
+      if (!draft.mouseSettings) draft.mouseSettings = { middleMouseZoomEnabled: false, nodeDragEdgePanEnabled: true, connectionDrawEdgePanEnabled: true, glideEnabled: true, glideStrength: 0.1 };
+      draft.mouseSettings.glideEnabled = draft.mouseSettings.glideEnabled === false;
+      try {
+        localStorage.setItem('redstring_mouse_glide_enabled', String(draft.mouseSettings.glideEnabled));
+      } catch (_) { }
+    })),
+
+    // How far mouse (click-drag) glide coasts — [0, 1], 0.5 maps to the default friction
+    setMouseGlideStrength: (value) => set(produce((draft) => {
+      const v = Number(value);
+      if (!Number.isFinite(v) || v < 0.0 || v > 1.0) {
+        console.warn(`[setMouseGlideStrength] Invalid value: ${value}`);
+        return;
+      }
+      if (!draft.mouseSettings) draft.mouseSettings = { middleMouseZoomEnabled: false, nodeDragEdgePanEnabled: true, connectionDrawEdgePanEnabled: true, glideEnabled: true, glideStrength: 0.1 };
+      draft.mouseSettings.glideStrength = v;
+      try {
+        localStorage.setItem('redstring_mouse_glide_strength', String(v));
       } catch (_) { }
     })),
 
@@ -3696,10 +3733,33 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
         console.warn(`[setTouchPanSensitivity] Invalid value: ${value}`);
         return;
       }
-      if (!draft.touchSettings) draft.touchSettings = { zoomSensitivity: 0.7, panSensitivity: 0.5 };
+      if (!draft.touchSettings) draft.touchSettings = { zoomSensitivity: 0.7, panSensitivity: 0.5, glideEnabled: true };
       draft.touchSettings.panSensitivity = v;
       try {
         localStorage.setItem('redstring_touch_pan_sensitivity', String(v));
+      } catch (_) { }
+    })),
+
+    // Glide / momentum panning toggle for single-finger touch panning
+    toggleTouchGlide: () => set(produce((draft) => {
+      if (!draft.touchSettings) draft.touchSettings = { zoomSensitivity: 0.7, panSensitivity: 0.5, glideEnabled: true, glideStrength: 0.5 };
+      draft.touchSettings.glideEnabled = draft.touchSettings.glideEnabled === false;
+      try {
+        localStorage.setItem('redstring_touch_glide_enabled', String(draft.touchSettings.glideEnabled));
+      } catch (_) { }
+    })),
+
+    // How far single-finger touch glide coasts — [0, 1], 0.5 maps to the default friction
+    setTouchGlideStrength: (value) => set(produce((draft) => {
+      const v = Number(value);
+      if (!Number.isFinite(v) || v < 0.0 || v > 1.0) {
+        console.warn(`[setTouchGlideStrength] Invalid value: ${value}`);
+        return;
+      }
+      if (!draft.touchSettings) draft.touchSettings = { zoomSensitivity: 0.7, panSensitivity: 0.5, glideEnabled: true, glideStrength: 0.5 };
+      draft.touchSettings.glideStrength = v;
+      try {
+        localStorage.setItem('redstring_touch_glide_strength', String(v));
       } catch (_) { }
     })),
 

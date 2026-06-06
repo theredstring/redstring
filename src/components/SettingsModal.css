@@ -63,6 +63,16 @@
   border-bottom: none;
 }
 
+/* Header row that owns the bar directly beneath it — no divider line between them */
+.settings-row--attached {
+  border-bottom: none;
+  padding-bottom: 2px;
+}
+
+.settings-row--attached + .settings-slider-row {
+  padding-top: 2px;
+}
+
 .settings-row-label {
   font-size: 0.85rem;
   color: #333;

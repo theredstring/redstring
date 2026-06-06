@@ -53,6 +53,10 @@ const SettingsModal = ({ isVisible, onClose }) => {
   const middleMouseZoomEnabled = useGraphStore(s => s.mouseSettings?.middleMouseZoomEnabled ?? false);
   const nodeDragEdgePanEnabled = useGraphStore(s => s.mouseSettings?.nodeDragEdgePanEnabled ?? true);
   const connectionDrawEdgePanEnabled = useGraphStore(s => s.mouseSettings?.connectionDrawEdgePanEnabled ?? true);
+  const mouseGlideEnabled = useGraphStore(s => s.mouseSettings?.glideEnabled ?? true);
+  const touchGlideEnabled = useGraphStore(s => s.touchSettings?.glideEnabled ?? true);
+  const mouseGlideStrength = useGraphStore(s => s.mouseSettings?.glideStrength ?? 0.1);
+  const touchGlideStrength = useGraphStore(s => s.touchSettings?.glideStrength ?? 0.5);
   const routingStyle = useGraphStore(s => s.routingStyle);
   const cleanLaneSpacing = useGraphStore(s => s.cleanLaneSpacing);
   const showConnectionNames = useGraphStore(s => s.showConnectionNames);
@@ -167,10 +171,52 @@ const SettingsModal = ({ isVisible, onClose }) => {
               suffix=""
             />
           </div>
+          <div className="settings-row settings-row--attached">
+            <div className="settings-row-label">
+              Touch Glide
+              <div className="settings-row-description">Keep panning with momentum after you flick and lift your finger</div>
+            </div>
+            <Toggle
+              checked={!!touchGlideEnabled}
+              onChange={() => useGraphStore.getState().toggleTouchGlide?.()}
+            />
+          </div>
+          <div className="settings-slider-row">
+            <MaroonSlider
+              value={touchGlideStrength ?? 0.5}
+              min={0.1}
+              max={1.0}
+              step={0.05}
+              onChange={(v) => useGraphStore.getState().setTouchGlideStrength?.(v)}
+              disabled={!touchGlideEnabled}
+              suffix=""
+            />
+          </div>
 
           <hr className="settings-section-divider" />
 
           <div className="settings-section-subtitle">Mouse</div>
+          <div className="settings-row settings-row--attached">
+            <div className="settings-row-label">
+              Mouse Glide
+              <div className="settings-row-description">Keep panning with momentum after you release a click-drag pan</div>
+            </div>
+            <Toggle
+              checked={!!mouseGlideEnabled}
+              onChange={() => useGraphStore.getState().toggleMouseGlide?.()}
+            />
+          </div>
+          <div className="settings-slider-row">
+            <MaroonSlider
+              value={mouseGlideStrength ?? 0.1}
+              min={0.1}
+              max={1.0}
+              step={0.05}
+              onChange={(v) => useGraphStore.getState().setMouseGlideStrength?.(v)}
+              disabled={!mouseGlideEnabled}
+              suffix=""
+            />
+          </div>
           <div className="settings-row">
             <div className="settings-row-label">
               Hold Middle Click to Zoom
