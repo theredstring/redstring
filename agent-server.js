@@ -9,6 +9,13 @@
 
 process.env.AGENT_SERVER_MODE = 'true';
 
+// When forked from Electron, the IPC channel closing means the parent is gone
+// (quit, crash, or updater hard-exit). Never outlive it — a surviving agent
+// server holds the port and breaks the next app launch with EADDRINUSE.
+if (process.send) {
+  process.on('disconnect', () => process.exit(0));
+}
+
 // Import and start the clean wizard server
 import { startWizardServer } from './wizard-server.js';
 import { debugLogSync } from './src/utils/debugLogger.js';

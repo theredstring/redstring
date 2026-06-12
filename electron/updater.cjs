@@ -26,7 +26,12 @@ const MAX_DOWNLOAD_FAILS = 3;
 const SHIPIT_TAIL_LINES = 40;
 
 autoUpdater.autoDownload = true;
-autoUpdater.autoInstallOnAppQuit = true;
+// On macOS we install via our own swap-and-relaunch helper (see
+// 'updater:install' below) because ShipIt is unreliable on macOS 26+.
+// Leaving install-on-quit armed lets a late-spawning ShipIt swap the bundle
+// (and relaunch) at unpredictable times, racing the user's own relaunch and
+// producing a second instance. Keep it for the platforms that use Squirrel.
+autoUpdater.autoInstallOnAppQuit = process.platform !== 'darwin';
 autoUpdater.logger = electronLog;
 autoUpdater.logger.transports.file.level = 'info';
 
@@ -77,7 +82,12 @@ function writeUpdaterStateSync(app, sessionName, data) {
   try {
     const filePath = getUpdaterStoragePath(app, sessionName);
     fs.mkdirSync(path.dirname(filePath), { recursive: true });
-    fs.writeFileSync(filePath, JSON.stringify(data, null, 2), 'utf-8');
+    // Atomic write: this file is persisted right before hard app.exit() in
+    // the install path, and a truncated updater.json corrupts install-outcome
+    // tracking on the next launch.
+    const tmpPath = `${filePath}.${process.pid}.tmp`;
+    fs.writeFileSync(tmpPath, JSON.stringify(data, null, 2), 'utf-8');
+    fs.renameSync(tmpPath, filePath);
     return true;
   } catch (error) {
     log('error', 'Failed to write updater.json:', error.message);

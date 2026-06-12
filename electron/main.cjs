@@ -88,12 +88,21 @@ function startAgentServer() {
   });
 }
 
-// Stop the agent server
+// Stop the agent server. SIGTERM first, SIGKILL if it lingers — a surviving
+// child holds the wizard port and breaks the next launch. (The bundle also
+// self-exits on IPC disconnect, which covers hard parent exits where this
+// process dies before the escalation timer fires.)
 function stopAgentServer() {
   if (agentServerProcess) {
     console.log('[Electron] Stopping agent server...');
-    agentServerProcess.kill('SIGTERM');
+    const child = agentServerProcess;
     agentServerProcess = null;
+    child.kill('SIGTERM');
+    const killTimer = setTimeout(() => {
+      try { child.kill('SIGKILL'); } catch {}
+    }, 2000);
+    if (killTimer.unref) killTimer.unref();
+    child.once('exit', () => clearTimeout(killTimer));
   }
 }
 
@@ -208,24 +217,39 @@ const assertAccessAllowed = (filePath, action) => {
 
 // Read storage file
 const readStorage = async (storeName) => {
+  const filePath = getStoragePath(storeName);
+  let content;
   try {
-    const filePath = getStoragePath(storeName);
-    const content = await fs.readFile(filePath, 'utf-8');
+    content = await fs.readFile(filePath, 'utf-8');
+  } catch (error) {
+    if (error.code !== 'ENOENT') {
+      console.error(`[Electron] Failed to read storage ${storeName}: `, error);
+    }
+    return {};
+  }
+  try {
     return JSON.parse(content);
   } catch (error) {
-    if (error.code === 'ENOENT') {
-      return {}; // File doesn't exist yet
+    // A truncated/corrupt store would otherwise read as {} and make the app
+    // look freshly installed. Preserve the bad file for recovery and scream.
+    console.error(`[Electron] Storage ${storeName} is corrupt (${error.message}) — backing up to ${storeName}.json.corrupt`);
+    try {
+      await fs.copyFile(filePath, `${filePath}.corrupt`);
+    } catch (backupError) {
+      console.error(`[Electron] Could not back up corrupt storage ${storeName}: `, backupError);
     }
-    console.error(`[Electron] Failed to read storage ${storeName}: `, error);
     return {};
   }
 };
 
-// Write storage file
+// Write storage file atomically (temp file + rename) so a hard exit or a
+// concurrent writer can never leave a truncated JSON file behind.
 const writeStorage = async (storeName, data) => {
   try {
     const filePath = getStoragePath(storeName);
-    await fs.writeFile(filePath, JSON.stringify(data, null, 2), 'utf-8');
+    const tmpPath = `${filePath}.${process.pid}.tmp`;
+    await fs.writeFile(tmpPath, JSON.stringify(data, null, 2), 'utf-8');
+    await fs.rename(tmpPath, filePath);
     return true;
   } catch (error) {
     console.error(`[Electron] Failed to write storage ${storeName}: `, error);
@@ -666,20 +690,22 @@ app.on('open-url', (event, url) => {
   handleOAuthCallback(url);
 });
 
-// Windows/Linux protocol handler
-if (process.platform === 'win32' || process.platform === 'linux') {
-  app.on('second-instance', (event, commandLine, workingDirectory) => {
-    // Look for redstring:// URL in command line arguments
-    const url = commandLine.find(arg => arg.startsWith('redstring://'));
-    if (url) {
-      handleOAuthCallback(url);
-    }
-    if (mainWindow) {
-      if (mainWindow.isMinimized()) mainWindow.restore();
-      mainWindow.focus();
-    }
-  });
-}
+// Second-launch attempts are forwarded here by the single-instance lock.
+// On Windows/Linux this also carries protocol URLs; macOS delivers those
+// via 'open-url' instead, so the argv scan just finds nothing there.
+app.on('second-instance', (event, commandLine, workingDirectory) => {
+  // Look for redstring:// URL in command line arguments
+  const url = commandLine.find(arg => arg.startsWith('redstring://'));
+  if (url) {
+    handleOAuthCallback(url);
+  }
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    if (mainWindow.isMinimized()) mainWindow.restore();
+    mainWindow.focus();
+  } else if (BrowserWindow.getAllWindows().length === 0) {
+    createWindow();
+  }
+});
 
 function handleOAuthCallback(url) {
   try {
@@ -764,8 +790,13 @@ ipcMain.handle('shell:openExternal', async (event, url) => {
 });
 
 app.whenReady().then(async () => {
-  // Prevent multiple instances (Windows/Linux)
-  if (process.platform === 'win32' || process.platform === 'linux') {
+  // Prevent multiple instances on ALL platforms. macOS needs this too:
+  // LaunchServices only dedupes launches of the same bundle path, so a copy
+  // in the DMG, an updater relaunch racing a user relaunch, or a delayed
+  // ShipIt spawn can all start a second instance sharing the same userData.
+  // --session instances are intentionally isolated (own data dir + partition),
+  // so they skip the lock — it's keyed on the shared userData path.
+  if (!sessionName) {
     const gotTheLock = app.requestSingleInstanceLock();
     if (!gotTheLock) {
       app.quit();
