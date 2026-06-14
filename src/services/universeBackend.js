@@ -11,7 +11,7 @@ import { GitSyncEngine } from '../backend/sync/index.js';
 import { persistentAuth } from '../backend/auth/index.js';
 import { SemanticProviderFactory } from '../backend/git/index.js';
 import startupCoordinator from './startupCoordinator.js';
-import { exportToRedstring, importFromRedstring, downloadRedstringFile } from '../formats/redstringFormat.js';
+import { exportToRedstring, importFromRedstring, downloadRedstringFile, validateFormatVersion } from '../formats/redstringFormat.js';
 import { v4 as uuidv4 } from 'uuid';
 import {
   getCurrentDeviceConfig,
@@ -3065,6 +3065,129 @@ class UniverseBackend {
   }
 
   /**
+   * Open (and lazily create) the IndexedDB database that holds pre-migration
+   * format backups for browser installs. Records are keyed by a composite
+   * `{slug}:{version}:{isoTimestamp}` string with a `slug` index for eviction.
+   */
+  openBackupsDB() {
+    return new Promise((resolve, reject) => {
+      const request = indexedDB.open('RedstringBackups', 1);
+
+      request.onupgradeneeded = (event) => {
+        const db = event.target.result;
+        if (!db.objectStoreNames.contains('backups')) {
+          const store = db.createObjectStore('backups', { keyPath: 'key' });
+          store.createIndex('slug', 'slug', { unique: false });
+        }
+      };
+
+      request.onsuccess = (event) => resolve(event.target.result);
+      request.onerror = () => reject(request.error);
+    });
+  }
+
+  /**
+   * Format-backup invariant (P0.5 / decision D4).
+   *
+   * Called at load time, AFTER raw bytes are parsed but BEFORE import/migration
+   * reshapes anything. If the file's format version is older than the current
+   * version, the original bytes are preserved so a migration bug can never be an
+   * unrecoverable loss. Best-effort: any failure here warns and returns — it must
+   * never block loading the universe.
+   *
+   * @param {Object} universe - universe descriptor (provides slug)
+   * @param {FileHandle|string} fileHandle - Electron path string or browser FileHandle
+   * @param {string} rawText - the exact original file contents
+   * @param {Object} parsedData - JSON.parse(rawText), used only for version detection
+   */
+  async backupBeforeMigrationIfNeeded(universe, fileHandle, rawText, parsedData) {
+    try {
+      const validation = validateFormatVersion(parsedData);
+      const detectedVersion = validation?.version || 'unknown';
+      const isOlder = validation?.needsMigration === true || validation?.tooOld === true;
+
+      // Only back up older-than-current files. Same-version and future-version
+      // (tooNew) loads leave no backup — there is nothing a migration could harm.
+      if (!isOlder) {
+        return;
+      }
+
+      const slug = universe?.slug || 'unknown';
+
+      if (isElectron() && typeof fileHandle === 'string') {
+        await this.backupToSiblingFile(fileHandle, detectedVersion, rawText);
+      } else {
+        await this.backupToIndexedDB(slug, detectedVersion, rawText);
+      }
+    } catch (error) {
+      umWarn('[FormatBackup] ✗ Backup-before-migration failed (continuing load):', error);
+    }
+  }
+
+  /**
+   * Electron path: write a sibling backup file next to the universe file.
+   * Naming: `{nameWithoutExt}.v{detectedVersion}.bak.redstring`. Skipped if it
+   * already exists so repeated loads of the same old file don't pile up backups.
+   */
+  async backupToSiblingFile(filePath, detectedVersion, rawText) {
+    const safeVersion = String(detectedVersion).replace(/[^A-Za-z0-9._-]/g, '_');
+    const nameWithoutExt = filePath.replace(/\.redstring$/i, '');
+    const backupPath = `${nameWithoutExt}.v${safeVersion}.bak.redstring`;
+
+    const exists = await fileExists(backupPath);
+    if (exists) {
+      umLog(`[FormatBackup] Sibling backup already exists, skipping: ${backupPath}`);
+      return;
+    }
+
+    await writeFile(backupPath, rawText);
+    umLog(`[FormatBackup] ✓ Wrote pre-migration backup: ${backupPath}`);
+  }
+
+  /**
+   * Browser path: store a pre-migration backup in IndexedDB (no directory handle
+   * is available to write a sibling). Keeps at most 3 backups per slug, evicting
+   * the oldest by timestamp.
+   */
+  async backupToIndexedDB(slug, detectedVersion, rawText) {
+    const db = await this.openBackupsDB();
+    try {
+      const timestamp = new Date().toISOString();
+      const key = `${slug}:${detectedVersion}:${timestamp}`;
+
+      await new Promise((resolve, reject) => {
+        const tx = db.transaction(['backups'], 'readwrite');
+        const store = tx.objectStore('backups');
+        store.put({ key, slug, version: detectedVersion, timestamp, content: rawText });
+        tx.oncomplete = () => resolve();
+        tx.onerror = () => reject(tx.error);
+      });
+
+      // Evict oldest beyond the 3-per-slug cap.
+      await new Promise((resolve, reject) => {
+        const tx = db.transaction(['backups'], 'readwrite');
+        const store = tx.objectStore('backups');
+        const index = store.index('slug');
+        const req = index.getAll(slug);
+        req.onsuccess = () => {
+          const records = (req.result || []).sort((a, b) =>
+            String(a.timestamp).localeCompare(String(b.timestamp)));
+          const excess = records.length - 3;
+          for (let i = 0; i < excess; i++) {
+            store.delete(records[i].key);
+          }
+          resolve();
+        };
+        req.onerror = () => reject(req.error);
+      });
+
+      umLog(`[FormatBackup] ✓ Stored pre-migration backup in IndexedDB: ${key}`);
+    } finally {
+      db.close();
+    }
+  }
+
+  /**
    * Set file handle for a universe
    */
   async setFileHandle(slug, fileHandle, options = {}) {
@@ -4307,6 +4430,11 @@ class UniverseBackend {
 
     try {
       const redstringData = JSON.parse(text);
+      // Format-backup invariant (P0.5/D4): before any import or migration reshapes the
+      // data, preserve the original bytes of any older-than-current file. Local files have
+      // no other safety net (git keeps history, browser storage keeps revisions; a freshly
+      // opened local file does not). Best-effort — must never block the load.
+      await this.backupBeforeMigrationIfNeeded(universe, fileHandle, text, redstringData);
       const { storeState } = importFromRedstring(redstringData);
       try {
         // Update file handle metadata after successful load

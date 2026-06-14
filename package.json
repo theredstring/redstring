@@ -49,6 +49,7 @@
     "test:consistency": "vitest test/formats/consistency.test.js --run",
     "test:roundtrip": "vitest test/formats/roundtrip.test.js --run",
     "test:property": "vitest test/formats/property.test.js --run",
+    "schema:report": "node scripts/schema-report.js",
     "test:tools": "vitest run test/tools-health.test.js",
     "test:mcp": "node test/ai/test-ai-chat.js",
     "test:bridge": "node test/ai/test-bridge-direct.js",

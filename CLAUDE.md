@@ -1,5 +1,7 @@
 # CLAUDE.md
 
+> **AI Agents**: Start with [`AI_COMPENDIUM.md`](AI_COMPENDIUM.md) for a categorized, status-tagged index of all 86 documentation files — including which are current, historical, legacy-canonical, or future-intent.
+
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
 ## Architecture Overview
