@@ -9,11 +9,12 @@ import { exportToRedstring } from '../../src/formats/redstringFormat.js';
  *
  *   empty            → 2 reciprocal triples (non-directed)
  *   {destinationId}  → 1 triple  source → dest
- *   {sourceId}       → 1 triple  dest → source   ← currently WRONG (emits forward)
- *   both             → 2 reciprocal triples       ← currently WRONG (emits 1 forward)
+ *   {sourceId}       → 1 triple  dest → source
+ *   both             → 2 reciprocal triples
  *
- * The two correct states are plain `it` (pass today). The two broken states are
- * `it.fails` — P1.4 fixes the projection and flips them to passing.
+ * Originally two of these (the {sourceId} and bidirectional cases) were pinned
+ * `it.fails` against audit finding #3. P1.4 fixed the projection, so all four
+ * are now plain passing `it`.
  */
 
 const PROTO_A = 'pa';
@@ -70,12 +71,12 @@ describe('Directionality RDF projection', () => {
     expect(pairs).toEqual(['pa->pb']);
   });
 
-  it.fails('target→source ({sourceId}) → one reverse triple', () => {
+  it('target→source ({sourceId}) → one reverse triple', () => {
     const pairs = directedPairs(new Set(['ia']));
     expect(pairs).toEqual(['pb->pa']);
   });
 
-  it.fails('bidirectional (both) → two reciprocal triples', () => {
+  it('bidirectional (both) → two reciprocal triples', () => {
     const pairs = directedPairs(new Set(['ia', 'ib']));
     expect(pairs).toHaveLength(2);
     expect(pairs).toContain('pa->pb');

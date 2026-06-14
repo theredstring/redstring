@@ -792,31 +792,34 @@ export const exportToRedstring = (storeState, userDomain = null) => {
       
       // RDF format (for semantic web integration)
       "rdfStatements": sourcePrototypeId && destinationPrototypeId && predicatePrototypeId ? (() => {
-        const statements = [];
-        
-        // Always add the forward direction
-        statements.push({
+        // Project edge.directionality.arrowsToward (a Set of INSTANCE ids) to RDF.
+        // Correct mapping (see src/core/Edge.js and FORMAT_REFACTOR_PLAN.md §2):
+        //   empty            → two reciprocal triples (non-directed)
+        //   {destinationId}  → one triple  source → dest
+        //   {sourceId}       → one triple  dest → source
+        //   both             → two reciprocal triples (bidirectional)
+        // (node: prefix is a passthrough until P1.6 mints URNs.)
+        const arrows = edge.directionality?.arrowsToward;
+        const has = (instanceId) =>
+          arrows instanceof Set ? arrows.has(instanceId)
+          : Array.isArray(arrows) ? arrows.includes(instanceId)
+          : false;
+        const toDest = has(edge.destinationId);
+        const toSource = has(edge.sourceId);
+        const triple = (subjProtoId, objProtoId) => ({
           "@type": "Statement",
-          "subject": { "@id": `node:${sourcePrototypeId}` },
+          "subject": { "@id": `node:${subjProtoId}` },
           "predicate": { "@id": `node:${predicatePrototypeId}` },
-          "object": { "@id": `node:${destinationPrototypeId}` },
+          "object": { "@id": `node:${objProtoId}` },
         });
-        
-        // For non-directional connections, add the reverse direction
-        if (edge.directionality && edge.directionality.arrowsToward && 
-            (edge.directionality.arrowsToward instanceof Set ? 
-             (edge.directionality.arrowsToward.size === 0) : 
-             Array.isArray(edge.directionality.arrowsToward) ? 
-             (edge.directionality.arrowsToward.length === 0) : true)) {
-          statements.push({
-            "@type": "Statement", 
-            "subject": { "@id": `node:${destinationPrototypeId}` },
-            "predicate": { "@id": `node:${predicatePrototypeId}` },
-            "object": { "@id": `node:${sourcePrototypeId}` },
-          });
-        }
-        
-        return statements;
+
+        if (toDest && !toSource) return [triple(sourcePrototypeId, destinationPrototypeId)];
+        if (toSource && !toDest) return [triple(destinationPrototypeId, sourcePrototypeId)];
+        // none (non-directed) or both (bidirectional): two reciprocal triples
+        return [
+          triple(sourcePrototypeId, destinationPrototypeId),
+          triple(destinationPrototypeId, sourcePrototypeId),
+        ];
       })() : null,
       
       // Metadata for both formats
