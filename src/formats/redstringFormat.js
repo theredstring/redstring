@@ -10,6 +10,7 @@
 
 import { v4 as uuidv4 } from 'uuid';
 import uriGenerator from '../services/uriGenerator.js';
+import { runMigrations } from './migrations.js';
 
 // Current format version
 export const CURRENT_FORMAT_VERSION = '3.0.0';
@@ -155,51 +156,19 @@ export const validateFormatVersion = (redstringData) => {
 };
 
 /**
- * Migrate data from older format versions to current version
+ * Migrate data from older format versions to current version.
+ *
+ * @deprecated Retained for API compatibility. The real migration logic lives in
+ * the ledger (src/formats/migrations.js); this delegates to `runMigrations`,
+ * which detects the source version itself (the fromVersion/toVersion args are
+ * ignored). New code should call `runMigrations` directly.
  */
 export const migrateFormat = (redstringData, fromVersion, toVersion = CURRENT_FORMAT_VERSION) => {
-  console.log(`[Format Migration] Migrating from ${fromVersion} to ${toVersion}`);
-  
-  let migrated = { ...redstringData };
-  const migrations = [];
-  
-  // Migration from v1.0.0 -> v2.0.0-semantic
-  const compareV1 = compareVersions(fromVersion, '1.0.0');
-  const compareV2 = compareVersions(fromVersion, '2.0.0');
-  
-  if (compareV1 === 0 || (compareV1 === 1 && compareV2 === -1)) {
-    // File is v1.x, needs migration to v2
-    console.log('[Format Migration] Applying v1 -> v2 migration');
-    migrations.push('v1_to_v2');
-    
-    // v2 migration is handled by the existing import logic
-    // which checks for prototypeSpace vs legacy format
-    // Just ensure the format field is updated
-    migrated.format = 'redstring-v2.0.0-semantic';
+  const { data, applied } = runMigrations(redstringData, { now: new Date().toISOString() });
+  if (applied.length > 0) {
+    console.log('[Format Migration] Applied ledger migrations:', applied);
   }
-  
-  // Migration from v2.0.0-semantic -> v3.0.0
-  if (compareVersions(fromVersion, '3.0.0') === -1) {
-    console.log('[Format Migration] Applying v2 -> v3 migration');
-    migrations.push('v2_to_v3');
-    
-    // Add new version metadata
-    if (!migrated.metadata) {
-      migrated.metadata = {};
-    }
-    
-    migrated.metadata.version = CURRENT_FORMAT_VERSION;
-    migrated.metadata.migrated = true;
-    migrated.metadata.originalVersion = fromVersion;
-    migrated.metadata.migrationDate = new Date().toISOString();
-    migrated.metadata.migrationsApplied = migrations;
-    
-    // Update format string
-    migrated.format = `redstring-v${CURRENT_FORMAT_VERSION}`;
-  }
-  
-  console.log(`[Format Migration] Applied ${migrations.length} migrations:`, migrations);
-  return migrated;
+  return data;
 };
 
 // Enhanced JSON-LD Context for Redstring with Full RDF Schema Support
@@ -971,40 +940,21 @@ export const importFromRedstring = (redstringData, storeActions) => {
       throw new Error(validation.error);
     }
     
-    // Step 2: Apply migrations if needed
-    let processedData = redstringData;
-    
-    if (validation.needsMigration && validation.canAutoMigrate) {
-      console.log(`[Import] Auto-migrating from ${validation.version} to ${validation.currentVersion}`);
-      processedData = migrateFormat(redstringData, validation.version, validation.currentVersion);
-      console.log('[Import] Migration complete');
+    // Step 2: Run the migration ledger. This walks any older file up to the
+    // current version AND guarantees the canonical top-level shape, so the
+    // section read below never has to branch (the historical "prototypeSpace vs
+    // legacy vs flat" three-way lives in migrations.js now). It is a near-no-op
+    // for current-version files.
+    const { data: processedData, applied } = runMigrations(redstringData, { now: new Date().toISOString() });
+    if (applied.length > 0) {
+      console.log('[Import] Migrations applied:', applied);
     }
-    
-    // Step 3: Handle both new separated storage format and legacy format
-    let graphsObj = {};
-    let nodesObj = {};
-    let edgesObj = {};
-    let userInterface = {};
-    
-    if (processedData.prototypeSpace && processedData.spatialGraphs) {
-      // New separated storage format (v2.0.0-semantic and v3.0.0)
-      nodesObj = processedData.prototypeSpace.prototypes || {};
-      graphsObj = processedData.spatialGraphs.graphs || {};
-      edgesObj = processedData.relationships?.edges || {};
-      userInterface = processedData.userInterface || {};
-    } else if (processedData.legacy) {
-      // Fallback to legacy section if available
-      graphsObj = processedData.legacy.graphs || {};
-      nodesObj = processedData.legacy.nodePrototypes || {};
-      edgesObj = processedData.legacy.edges || {};
-      userInterface = processedData.userInterface || {};
-    } else {
-      // Legacy format (v1.0.0)
-      graphsObj = processedData.graphs || {};
-      nodesObj = processedData.nodePrototypes || {};
-      edgesObj = processedData.edges || {};
-      userInterface = processedData.userInterface || {};
-    }
+
+    // Step 3: Single canonical shape — sections are guaranteed by the ledger.
+    const nodesObj = processedData.prototypeSpace?.prototypes || {};
+    const graphsObj = processedData.spatialGraphs?.graphs || {};
+    const edgesObj = processedData.relationships?.edges || {};
+    const userInterface = processedData.userInterface || {};
 
     //console.log('[DEBUG] Importing edges:', edgesObj);
 
