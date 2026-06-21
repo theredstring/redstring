@@ -266,19 +266,20 @@ export const REDSTRING_CONTEXT = {
   "rest": { "@id": "rdf:rest", "@type": "@id" },
   "nil": { "@id": "rdf:nil", "@type": "@id" },
 
-  // Complete OWL Vocabulary for Semantic Web Integration
+  // OWL: docking port only (D9). Redstring docks with OWL per-link via sameAs;
+  // it does not author axioms in its own voice, so the entailment toolkit
+  // (equivalentClass/disjointWith/inverseOf/functional/transitive/symmetric…)
+  // is intentionally NOT declared here.
   "owl": "http://www.w3.org/2002/07/owl#",
   "sameAs": { "@id": "owl:sameAs", "@type": "@id" },
-  "equivalentClass": { "@id": "owl:equivalentClass", "@type": "@id" },
   "equivalentProperty": { "@id": "owl:equivalentProperty", "@type": "@id" },
   "differentFrom": { "@id": "owl:differentFrom", "@type": "@id" },
-  "disjointWith": { "@id": "owl:disjointWith", "@type": "@id" },
-  "inverseOf": { "@id": "owl:inverseOf", "@type": "@id" },
-  "functionalProperty": "owl:FunctionalProperty",
-  "inverseFunctionalProperty": "owl:InverseFunctionalProperty",
-  "transitiveProperty": "owl:TransitiveProperty",
-  "symmetricProperty": "owl:SymmetricProperty",
-  
+
+  // SKOS + PROV: the registers Redstring actually speaks (concepts/categories
+  // and provenance). Added in P2.1; terms emitted in P2.4–P2.6.
+  "skos": "http://www.w3.org/2004/02/skos/core#",
+  "prov": "http://www.w3.org/ns/prov#",
+
   // External Knowledge Bases - Rosetta Stone Mappings
   "wd": "http://www.wikidata.org/entity/",
   "wdt": "http://www.wikidata.org/prop/direct/",
