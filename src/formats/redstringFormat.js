@@ -15,6 +15,10 @@ import { runMigrations } from './migrations.js';
 // Current format version
 export const CURRENT_FORMAT_VERSION = '3.0.0';
 
+// v4 dataset structure gate (D10). Tests force this on; the live app keeps
+// writing v3 until ALL phases are done and this is flipped to true.
+export const EMIT_V4 = false;
+
 // Minimum supported version (older versions must be migrated)
 export const MIN_SUPPORTED_VERSION = '1.0.0';
 
@@ -556,7 +560,7 @@ const buildGraphSummariesSnapshot = (graphs, nodePrototypes, edges) => {
  * @param {string} [userDomain] - User's domain for dynamic URI generation
  * @returns {Object} Redstring data with dynamic URIs
  */
-export const exportToRedstring = (storeState, userDomain = null) => {
+export const exportToRedstring = (storeState, userDomain = null, { emitV4 = EMIT_V4 } = {}) => {
   try {
     if (!storeState) {
       throw new Error('Store state is required for export');
@@ -843,6 +847,15 @@ export const exportToRedstring = (storeState, userDomain = null) => {
     }
   });
 
+  // Reverse index for v4 graph-scoped edge placement (D10). Built here so the
+  // edge loop can populate graphEdgesMap without a second pass over graphs.
+  const edgeToGraphId = new Map();
+  const graphEdgesMap = {};
+  graphs.forEach((graph, graphId) => {
+    graphEdgesMap[graphId] = {};
+    (graph.edgeIds || []).forEach(edgeId => edgeToGraphId.set(edgeId, graphId));
+  });
+
   const edgesObj = {};
   edges.forEach((edge, id) => {
     //console.log('[DEBUG] Exporting edge:', id, edge);
@@ -954,8 +967,21 @@ export const exportToRedstring = (storeState, userDomain = null) => {
       edgesObj[id]._preserved = edge._preserved;
     }
 
+    // v4: also stash the edge in its owning graph's bucket.
+    const _owningGraphId = edgeToGraphId.get(id);
+    if (_owningGraphId != null && graphEdgesMap[_owningGraphId]) {
+      graphEdgesMap[_owningGraphId][id] = edgesObj[id];
+    }
+
     //console.log('[DEBUG] Created dual-format edge:', id, edgesObj[id]);
   });
+
+  // v4: attach graph-scoped edges inside each spatialGraph entry (D10).
+  if (emitV4) {
+    graphs.forEach((_, graphId) => {
+      spatialGraphs[graphId]['redstring:edges'] = graphEdgesMap[graphId] || {};
+    });
+  }
 
   // Note: abstractionChains are now stored directly on node prototypes
   // No separate abstraction axes needed
@@ -975,9 +1001,9 @@ export const exportToRedstring = (storeState, userDomain = null) => {
     // (P2.4); SCHEME_IRI is what every prototype's skos:inScheme points at.
     "@id": SCHEME_IRI,
     "@type": ["redstring:CognitiveSpace", "skos:ConceptScheme"],
-    "format": `redstring-v${CURRENT_FORMAT_VERSION}`,
+    "format": emitV4 ? 'redstring-v4.0.0' : `redstring-v${CURRENT_FORMAT_VERSION}`,
     "metadata": {
-      "version": CURRENT_FORMAT_VERSION,
+      "version": emitV4 ? '4.0.0' : CURRENT_FORMAT_VERSION,
       "created": new Date().toISOString(),
       "modified": new Date().toISOString(),
       "title": (activeGraphId && graphs.get(activeGraphId)?.name) || "New Thing",
@@ -1007,14 +1033,17 @@ export const exportToRedstring = (storeState, userDomain = null) => {
       "graphs": spatialGraphs
     },
     
-    // Relationships as RDF statements/properties
-    "relationships": {
-      "@type": "redstring:RelationshipCollection",
-      "@id": "urn:redstring:space:relationships", 
-      "rdfs:label": "Redstring Relationships",
-      "rdfs:comment": "RDF statements representing connections between instances",
-      "edges": edgesObj
-    },
+    // v3: edges in a global relationships section. v4 dissolves this — edges
+    // live inside their owning spatialGraph entries (D10, P3.1).
+    ...(emitV4 ? {} : {
+      "relationships": {
+        "@type": "redstring:RelationshipCollection",
+        "@id": "urn:redstring:space:relationships",
+        "rdfs:label": "Redstring Relationships",
+        "rdfs:comment": "RDF statements representing connections between instances",
+        "edges": edgesObj
+      }
+    }),
     
     // Global spatial context
     "globalSpatialContext": {
@@ -1077,7 +1106,18 @@ export const importFromRedstring = (redstringData, storeActions) => {
     // Step 3: Single canonical shape — sections are guaranteed by the ledger.
     const nodesObj = processedData.prototypeSpace?.prototypes || {};
     const graphsObj = processedData.spatialGraphs?.graphs || {};
-    const edgesObj = processedData.relationships?.edges || {};
+    // v3: edges in top-level relationships; v4: embedded inside each spatialGraph (D10/P3.2).
+    // `!== undefined` distinguishes "absent" (v4) from "present but empty" (valid v3).
+    const edgesObj = (() => {
+      if (processedData.relationships?.edges !== undefined) {
+        return processedData.relationships.edges;
+      }
+      const collected = {};
+      for (const g of Object.values(processedData.spatialGraphs?.graphs || {})) {
+        Object.assign(collected, g['redstring:edges'] || {});
+      }
+      return collected;
+    })();
     const userInterface = processedData.userInterface || {};
 
     //console.log('[DEBUG] Importing edges:', edgesObj);

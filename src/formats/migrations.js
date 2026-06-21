@@ -121,6 +121,7 @@ export const KNOWN_GRAPH_KEYS = new Set([
   'redstring:definingNodeIds', 'redstring:edgeIds', 'redstring:panOffset',
   'redstring:zoomLevel', 'redstring:instances', 'redstring:groups',
   'redstring:visualProperties',
+  'redstring:edges',  // v4: graph-scoped edge map (D10/P3.1)
   // legacy flat (read)
   'id', 'name', 'description', 'definingNodeIds', 'edgeIds', 'instances',
   'groups', 'panOffset', 'zoomLevel',
@@ -204,6 +205,16 @@ export const quarantineUnknownFields = (data, version) => {
           g[instKey] = nextInst;
         }
       }
+      // v4: quarantine unknown keys on graph-scoped edges (D10/P3.3).
+      const graphEdges = g?.['redstring:edges'];
+      if (graphEdges && typeof graphEdges === 'object' && !Array.isArray(graphEdges)) {
+        const nextEdges = {};
+        for (const [eid, edge] of Object.entries(graphEdges)) {
+          nextEdges[eid] = quarantineKeys(edge, KNOWN_EDGE_KEYS, version);
+        }
+        if (g === graph) g = { ...graph };
+        g['redstring:edges'] = nextEdges;
+      }
       nextGraphs[gid] = g;
     }
     out.spatialGraphs = { ...out.spatialGraphs, graphs: nextGraphs };
@@ -248,6 +259,90 @@ export const MIGRATIONS = [
     migrate(data) {
       // Additive versioning only — metadata stamped by runMigrations.
       return data;
+    }
+  }
+  // P3.3: 3.0.0→4.0.0 lives in STAGED_MIGRATIONS until the final version flip.
+];
+
+/**
+ * Migrations written and tested but NOT yet active. They move into `MIGRATIONS`
+ * in the same commit that bumps `CURRENT_FORMAT_VERSION` to 4.0.0 and flips
+ * `EMIT_V4` (the final Phase 3 gate). Tests import from here directly.
+ */
+export const STAGED_MIGRATIONS = [
+  {
+    from: '3.0.0',
+    to: '4.0.0',
+    migrate(data) {
+      // D10 (P3.3): relocate edges from `relationships.edges` into each graph's
+      // `redstring:edges` map. `relationships` section is then removed.
+      //
+      // Assignment priority:
+      //   1. graph.redstring:edgeIds / graph.edgeIds (authoritative)
+      //   2. instance containment — infer from sourceId/destinationId
+      //      (fallback for older files missing edgeIds)
+      //   3. truly unassignable → _preserved['3.0.0']._unownedEdges
+      const edges = data?.relationships?.edges || {};
+      const graphs = data?.spatialGraphs?.graphs || {};
+
+      // Primary: edgeId → graphId from each graph's edgeIds lists.
+      const edgeToGraphId = {};
+      for (const [gid, graph] of Object.entries(graphs)) {
+        const edgeIds = graph['redstring:edgeIds'] || graph.edgeIds || [];
+        for (const eid of edgeIds) {
+          edgeToGraphId[eid] = gid;
+        }
+      }
+
+      // Fallback: instanceId → graphId for edges absent from edgeIds lists.
+      const instanceToGraphId = {};
+      for (const [gid, graph] of Object.entries(graphs)) {
+        const instances = graph['redstring:instances'] || graph.instances || {};
+        for (const iid of Object.keys(instances)) {
+          instanceToGraphId[iid] = gid;
+        }
+      }
+
+      const graphEdgeBuckets = {};
+      for (const gid of Object.keys(graphs)) {
+        graphEdgeBuckets[gid] = {};
+      }
+
+      const unownedEdges = {};
+      for (const [eid, edge] of Object.entries(edges)) {
+        let gid = edgeToGraphId[eid];
+        if (gid == null) {
+          gid = instanceToGraphId[edge.sourceId] || instanceToGraphId[edge.destinationId];
+        }
+        if (gid != null && graphEdgeBuckets[gid]) {
+          graphEdgeBuckets[gid][eid] = edge;
+        } else {
+          unownedEdges[eid] = edge;
+        }
+      }
+
+      const nextGraphs = {};
+      for (const [gid, graph] of Object.entries(graphs)) {
+        nextGraphs[gid] = { ...graph, 'redstring:edges': graphEdgeBuckets[gid] };
+      }
+
+      const result = {
+        ...data,
+        spatialGraphs: { ...data.spatialGraphs, graphs: nextGraphs }
+      };
+      delete result.relationships;
+
+      if (Object.keys(unownedEdges).length > 0) {
+        result._preserved = {
+          ...(data._preserved || {}),
+          '3.0.0': {
+            ...((data._preserved || {})['3.0.0'] || {}),
+            _unownedEdges: unownedEdges
+          }
+        };
+      }
+
+      return result;
     }
   }
 ];
