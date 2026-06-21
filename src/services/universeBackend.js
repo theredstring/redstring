@@ -12,6 +12,7 @@ import { persistentAuth } from '../backend/auth/index.js';
 import { SemanticProviderFactory } from '../backend/git/index.js';
 import startupCoordinator from './startupCoordinator.js';
 import { exportToRedstring, importFromRedstring, downloadRedstringFile, validateFormatVersion } from '../formats/redstringFormat.js';
+import { slotsHaveEqualKnowledge } from './semanticHash.js';
 import { v4 as uuidv4 } from 'uuid';
 import {
   getCurrentDeviceConfig,
@@ -3715,13 +3716,24 @@ class UniverseBackend {
       return null;
     }
 
-    // Check if data is significantly different
-    const isDifferent = (
-      localInfo.nodeCount !== gitInfo.nodeCount ||
-      localInfo.graphCount !== gitInfo.graphCount ||
-      Math.abs(localInfo.nodeCount - gitInfo.nodeCount) > 5 || // More than 5 node difference
-      Math.abs(localInfo.graphCount - gitInfo.graphCount) > 1  // More than 1 graph difference
-    );
+    // Semantic comparison (P4.2/D5): migrate both slots to canonical form in memory
+    // and compare tier-1 hashes. Equal = same knowledge regardless of format version
+    // (v3-in-git / v4-in-local with identical knowledge reports no conflict).
+    // Falls back to count heuristic if canonicalization throws (e.g. non-browser env).
+    let isDifferent;
+    try {
+      const equal = await slotsHaveEqualKnowledge(localData, gitData);
+      isDifferent = !equal;
+      umLog('[UniverseBackend] Semantic hash comparison:', { isDifferent });
+    } catch (hashError) {
+      umWarn('[UniverseBackend] Semantic hash failed, falling back to count heuristic:', hashError);
+      isDifferent = (
+        localInfo.nodeCount !== gitInfo.nodeCount ||
+        localInfo.graphCount !== gitInfo.graphCount ||
+        Math.abs(localInfo.nodeCount - gitInfo.nodeCount) > 5 ||
+        Math.abs(localInfo.graphCount - gitInfo.graphCount) > 1
+      );
+    }
 
     const requiresPrimarySelection = forcePrompt && !isDifferent;
 
